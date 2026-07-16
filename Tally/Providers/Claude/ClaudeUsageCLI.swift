@@ -94,13 +94,19 @@ enum ClaudeUsageTextMapper {
         return metrics.uniquingIDs()
     }
 
-    /// "Jul 17 at 3:19am (Asia/Taipei)" → Date. The year is inferred: the nearest occurrence that
-    /// isn't already in the past (a reset is always in the future).
+    /// "Jul 17 at 3:19am (Asia/Taipei)" → Date. On-the-hour stamps drop the minutes entirely —
+    /// "Jul 17 at 4am" (live output, 2026-07-17) — so minutes are optional. The year is inferred:
+    /// the nearest occurrence that isn't already in the past (a reset is always in the future).
     static func parseReset(_ string: String, now: Date = Date()) -> Date? {
         guard let stampRange = string.range(
-            of: #"^[A-Z][a-z]{2} \d{1,2} at \d{1,2}:\d{2}(am|pm)"#, options: .regularExpression)
+            of: #"^[A-Z][a-z]{2} \d{1,2} at \d{1,2}(:\d{2})?(am|pm)"#, options: .regularExpression)
         else { return nil }
-        let stamp = String(string[stampRange])
+        // Normalize "4am" → "4:00am" so a single format string parses both variants.
+        var stamp = String(string[stampRange])
+        if !stamp.contains(":"),
+           let meridiem = stamp.range(of: #"(am|pm)$"#, options: .regularExpression) {
+            stamp.insert(contentsOf: ":00", at: meridiem.lowerBound)
+        }
         let zone = string.range(of: #"\(([^)]+)\)"#, options: .regularExpression)
             .map { String(string[$0].dropFirst().dropLast()) }
             .flatMap(TimeZone.init(identifier:)) ?? .current

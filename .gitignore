@@ -1,0 +1,37 @@
+# Xcode / build artifacts
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+
+# XcodeGen generates these from project.yml — do not commit them
+Tally.xcodeproj/
+Tally/Resources/Info.plist
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+
+# Secrets / local config (never commit)
+*.p8
+*.p12
+*.cer
+ExportOptions.local.plist
+
+# Release output
+*.dmg
+appcast.xml
+
+# Scratch
+scratchpad/
+
+# Internal working docs (Claude Code / Codex workflow) — local only, not part of the product
+CLAUDE.md
+AGENTS.md
+NORTH_STAR.md
+docs/plans/

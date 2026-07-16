@@ -1,0 +1,145 @@
+import Foundation
+import Observation
+
+/// User preferences, persisted to UserDefaults. Shared singleton so the popover, settings window, and
+/// status item all read the same state.
+@MainActor
+@Observable
+final class SettingsStore {
+    static let shared = SettingsStore()
+
+    /// Provider ids the user has enabled (default: all shipped providers).
+    var enabledProviders: Set<String> {
+        didSet { UserDefaults.standard.set(Array(enabledProviders), forKey: "enabledProviders") }
+    }
+
+    /// Per-account display-name overrides, keyed by account id.
+    var accountLabels: [String: String] {
+        didSet { UserDefaults.standard.set(accountLabels, forKey: "accountLabels") }
+    }
+
+    /// The user's custom card order (account ids). Empty = discovery order. Applied everywhere (popover,
+    /// dashboard, menu bar) so drag-reordering the cards reorders the whole app consistently.
+    var accountOrder: [String] {
+        didSet {
+            UserDefaults.standard.set(accountOrder, forKey: "accountOrder")
+            UsageStore.shared.onChange?()   // keep the AppKit menu-bar order in sync
+        }
+    }
+
+    /// Accounts hidden from the menu-bar strip (empty = all shown). Stored as a hidden-set so new
+    /// accounts default to visible.
+    var menuBarHiddenAccounts: Set<String> {
+        didSet { UserDefaults.standard.set(Array(menuBarHiddenAccounts), forKey: "menuBarHiddenAccounts") }
+    }
+
+    /// Show meters as used vs remaining.
+    var displayMode: DisplayMode {
+        didSet {
+            UserDefaults.standard.set(displayMode.rawValue, forKey: "displayMode")
+            // The menu-bar strip is AppKit — it only repaints on `onChange`, not via SwiftUI
+            // observation, so toggling used/remaining must nudge it or it keeps the old direction.
+            UsageStore.shared.onChange?()
+        }
+    }
+
+    /// Show every model-scoped window, or just the highest-tier headline (default).
+    var showAllModels: Bool {
+        didSet { UserDefaults.standard.set(showAllModels, forKey: "showAllModels") }
+    }
+
+    /// Minutes between background refreshes.
+    var refreshIntervalMinutes: Int {
+        didSet {
+            UserDefaults.standard.set(refreshIntervalMinutes, forKey: "refreshIntervalMinutes")
+            UsageStore.shared.rescheduleRefresh()
+        }
+    }
+
+    /// UI language override; nil follows the system locale.
+    var languageOverride: String? {
+        didSet { AppLocale.override = languageOverride }
+    }
+
+    /// Whether the usage panel is pinned as an always-on-top floating window (vs the transient popover).
+    /// The window's position is persisted separately by AppKit's frame autosave.
+    var isUsagePanelPinned: Bool {
+        didSet { UserDefaults.standard.set(isUsagePanelPinned, forKey: "isUsagePanelPinned") }
+    }
+
+    /// The pinned panel draws a behind-window glass (desktop vibrancy) base instead of a solid one.
+    var isPanelTranslucent: Bool {
+        didSet { UserDefaults.standard.set(isPanelTranslucent, forKey: "isPanelTranslucent") }
+    }
+
+    /// Reset instants as countdown vs exact time — toggled by clicking any reset label.
+    var resetDisplay: ResetDisplay {
+        didSet { UserDefaults.standard.set(resetDisplay.rawValue, forKey: "resetDisplay") }
+    }
+
+    private init() {
+        let defaults = UserDefaults.standard
+        enabledProviders = defaults.stringArray(forKey: "enabledProviders").map(Set.init)
+            ?? Set(ProviderCatalog.descriptors.map(\.id))
+        accountLabels = (defaults.dictionary(forKey: "accountLabels") as? [String: String]) ?? [:]
+        accountOrder = defaults.stringArray(forKey: "accountOrder") ?? []
+        menuBarHiddenAccounts = Set(defaults.stringArray(forKey: "menuBarHiddenAccounts") ?? [])
+        displayMode = DisplayMode(rawValue: defaults.string(forKey: "displayMode") ?? "") ?? .remaining
+        showAllModels = defaults.object(forKey: "showAllModels") as? Bool ?? false
+        // Default 5 minutes: the Anthropic OAuth usage endpoint rate-limits (429) aggressive polling —
+        // 1-minute × N accounts trips it and every Claude card falls back to "Outdated" (verified
+        // 2026-07-16). Usage windows move on the scale of minutes-to-hours, so 5 min is plenty live.
+        let interval = defaults.integer(forKey: "refreshIntervalMinutes")
+        refreshIntervalMinutes = interval > 0 ? interval : 5
+        languageOverride = AppLocale.override
+        isUsagePanelPinned = defaults.bool(forKey: "isUsagePanelPinned")
+        isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
+        resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative
+    }
+
+    func isEnabled(_ providerID: String) -> Bool { enabledProviders.contains(providerID) }
+
+    func setEnabled(_ providerID: String, _ on: Bool) {
+        if on { enabledProviders.insert(providerID) } else { enabledProviders.remove(providerID) }
+    }
+
+    func isShownInMenuBar(_ accountID: String) -> Bool { !menuBarHiddenAccounts.contains(accountID) }
+
+    func setShownInMenuBar(_ accountID: String, _ shown: Bool) {
+        if shown { menuBarHiddenAccounts.remove(accountID) } else { menuBarHiddenAccounts.insert(accountID) }
+    }
+
+    /// Sort account ids by the saved custom order; ids not in the order keep their input order at the end.
+    func orderedAccountIDs(_ ids: [String]) -> [String] {
+        let rank = Dictionary(accountOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        return ids.enumerated().sorted { lhs, rhs in
+            let lr = rank[lhs.element] ?? Int.max
+            let rr = rank[rhs.element] ?? Int.max
+            return lr == rr ? lhs.offset < rhs.offset : lr < rr
+        }.map(\.element)
+    }
+
+    /// Drag-reorder: move `dragged` past `target` — after it when moving forward, before it when
+    /// moving backward (always inserting AT the target's index made a forward drag onto the adjacent
+    /// card a no-op). Returns whether the order actually changed, so the caller can gate haptics.
+    @discardableResult
+    func moveAccount(_ dragged: String, onto target: String, allIDs: [String]) -> Bool {
+        let current = orderedAccountIDs(allIDs)
+        guard dragged != target,
+              let from = current.firstIndex(of: dragged),
+              let to = current.firstIndex(of: target) else { return false }
+        var order = current
+        order.remove(at: from)
+        guard let adjusted = order.firstIndex(of: target) else { return false }
+        order.insert(dragged, at: min(from < to ? adjusted + 1 : adjusted, order.count))
+        guard order != current else { return false }
+        accountOrder = order
+        return true
+    }
+
+    /// The effective display label for an account (override or the provider default).
+    func displayLabel(accountID: String, fallback: String) -> String {
+        let override = accountLabels[accountID]?.trimmingCharacters(in: .whitespaces)
+        return (override?.isEmpty == false) ? override! : fallback
+    }
+}

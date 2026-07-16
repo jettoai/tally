@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Not sandboxed: reads local CLI credentials from Keychain and calls
+	     provider usage endpoints directly. Hardened runtime is enabled in build
+	     settings; no extra entitlements are required for outbound network or
+	     user-approved keychain reads. -->
+</dict>
+</plist>

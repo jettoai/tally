@@ -1,0 +1,84 @@
+name: Tally
+options:
+  bundleIdPrefix: ai.jetto
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+  developmentLanguage: en
+  localizations:
+    - en
+    - zh-Hant
+    - zh-Hans
+    - ja
+    - ko
+
+schemes:
+  Tally:
+    build:
+      targets:
+        Tally: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    archive:
+      config: Release
+  TallyCLI:
+    build:
+      targets:
+        TallyCLI: all
+    run:
+      config: Release
+
+targets:
+  # `tally` — the account-picking launcher CLI (reads ~/.tally/snapshot.json, execs claude/codex).
+  TallyCLI:
+    type: tool
+    platform: macOS
+    sources:
+      - TallyCLI
+    settings:
+      base:
+        PRODUCT_NAME: tally
+        PRODUCT_BUNDLE_IDENTIFIER: ai.jetto.tally.cli
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 87Z993GX39
+        SWIFT_STRICT_CONCURRENCY: complete
+
+  Tally:
+    type: application
+    platform: macOS
+    sources:
+      - Tally
+    settings:
+      base:
+        CODE_SIGN_ENTITLEMENTS: Tally/Resources/Tally.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: ai.jetto.tally
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 87Z993GX39
+        PRODUCT_NAME: Tally
+        PRODUCT_MODULE_NAME: Tally
+        SWIFT_STRICT_CONCURRENCY: complete
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: ai.jetto.tally.dev
+          PRODUCT_NAME: "Tally Dev"
+    info:
+      path: Tally/Resources/Info.plist
+      properties:
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleName: Tally
+        LSUIElement: true
+        LSMinimumSystemVersion: "14.0"

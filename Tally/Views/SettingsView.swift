@@ -138,16 +138,25 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         Section {
-            HStack(spacing: 8) {
-                ProviderIconShape(pathData: ProviderMarks.jetto, inset: 0)
-                    .fill(Color.secondary)
-                    .frame(width: 13, height: 14)
-                Text("Tally by Jetto").font(.subheadline)
+            HStack(spacing: 6) {
+                Text("Tally by").font(.subheadline)
+                ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
+                    .fill(Color.primary, style: FillStyle(eoFill: true))
+                    .frame(width: 53, height: 12)
                 Spacer()
                 Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
                     .font(.caption).foregroundStyle(.secondary)
                 Link("jetto.ai", destination: URL(string: "https://jetto.ai")!)
                     .font(.caption)
+            }
+            // Hidden in dev builds (the updater is dormant without a feed URL + ED key).
+            if UpdaterController.shared.isActive {
+                HStack {
+                    Text(L("Check for Updates…")).font(.subheadline)
+                    Spacer()
+                    Button(L("Check Now")) { UpdaterController.shared.checkForUpdates() }
+                        .controlSize(.small)
+                }
             }
         }
     }

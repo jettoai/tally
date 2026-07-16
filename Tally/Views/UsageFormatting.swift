@@ -36,7 +36,7 @@ enum UsageFormat {
 
     // Fixed MM/dd HH:mm in the local timezone (POSIX locale keeps it 24-hour and digit-only regardless
     // of the UI language). Reset instants land on a minute boundary, so seconds carry no information.
-    nonisolated(unsafe) private static let resetFormatter: DateFormatter = {
+    private static let resetFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "MM/dd HH:mm"
@@ -50,7 +50,7 @@ enum UsageFormat {
     }
 
     // Now as MM/dd HH:mm, the same format as the absolute reset times so it reads as their anchor.
-    nonisolated(unsafe) private static let nowFormatter: DateFormatter = {
+    private static let nowFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "MM/dd HH:mm"

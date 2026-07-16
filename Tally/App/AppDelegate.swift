@@ -8,5 +8,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Menu-bar accessory app: install the status item, then start the refresh loop.
         statusItemController.install()
         UsageStore.shared.start()
+        UpdaterController.shared.start()   // dormant unless the build carries a feed URL + ED key
     }
 }

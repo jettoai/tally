@@ -79,15 +79,15 @@ struct PopoverRootView: View {
             // backing only the text line left a thin ~17pt grab strip that was easy to miss.
             HStack(spacing: 6) {
                 Text("Tally").font(.headline)
-                // Brand credit: quiet, type-first, with the Jetto mark tinted like secondary text.
-                HStack(spacing: 3) {
+                // Brand credit: quiet, with the official Jetto lock-up (logo + logotype), tinted
+                // like secondary text. Even-odd fill keeps the letter counters hollow.
+                HStack(spacing: 4) {
                     Text("by").font(.caption2).foregroundStyle(.tertiary)
-                    ProviderIconShape(pathData: ProviderMarks.jetto, inset: 0)
-                        .fill(Color.secondary)
-                        .frame(width: 9, height: 10)
-                    Text("Jetto").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
+                        .fill(Color.secondary, style: FillStyle(eoFill: true))
+                        .frame(width: 44, height: 10)
                 }
-                .padding(.top, 2)   // optically align with the title's baseline
+                .padding(.top, 3)   // optically align with the title's baseline
                 Spacer()
                 // TimelineView re-evaluates on a clock, so "updated 2m ago" keeps advancing while the
                 // popover/panel stays open (a plain render froze it at whatever it said on open). The

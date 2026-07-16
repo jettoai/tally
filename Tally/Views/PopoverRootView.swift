@@ -89,26 +89,26 @@ struct PopoverRootView: View {
                 }
                 .padding(.top, 3)   // optically align with the title's baseline
                 Spacer()
-                // TimelineView re-evaluates every second so "updated 42s ago" counts live — at a
-                // 1-minute refresh cadence, minute granularity carried no information (a plain render
-                // would freeze it at whatever it said on open). Hierarchy: the date is the anchor the
-                // absolute reset times are read against, so it leads; the ago-counter is a heartbeat,
-                // so it dims.
+                // TimelineView re-evaluates every second so "updates in 42s" counts down live (a
+                // plain render would freeze it at whatever it said on open). Hierarchy: the date is
+                // the anchor the absolute reset times are read against, so it leads; the countdown
+                // is a heartbeat, so it dims.
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     HStack(spacing: 6) {
                         Text(UsageFormat.nowShort(context.date))
                             .font(.caption2.weight(.medium)).monospacedDigit()
                             .foregroundStyle(.primary)
-                        if let updated = UsageFormat.updatedAgo(store.lastSuccessfulRefreshAt,
-                                                                now: context.date) {
+                        if let counter = store.isRefreshing
+                            ? L("updating…")
+                            : UsageFormat.updatesIn(store.nextRefreshAt, now: context.date) {
                             // The counter's string width changes every second; hidden templates
                             // (the widest forms, localized) reserve a fixed slot so the ticking
                             // never pushes the date around. Trailing-aligned to hug the button.
                             ZStack(alignment: .trailing) {
-                                ForEach(UsageFormat.updatedAgoTemplates, id: \.self) {
+                                ForEach(UsageFormat.updatesInTemplates, id: \.self) {
                                     Text($0).hidden()
                                 }
-                                Text(updated)
+                                Text(counter)
                             }
                             .font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
                         }

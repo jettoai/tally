@@ -65,23 +65,22 @@ enum UsageFormat {
         style == .relative ? resetCountdown(date, now: now) : resetAbsolute(date)
     }
 
-    /// The widest strings the ago-counter can realistically show, for reserving layout width
+    /// The widest strings the countdown can realistically show, for reserving layout width
     /// (hidden templates) so the per-second string changes never push neighboring views around.
     /// Localized, so the reservation is right in every UI language.
-    static var updatedAgoTemplates: [String] {
-        [String(localized: "updated \("59m") ago", bundle: AppLocale.bundle),
-         L("updated just now")]
+    static var updatesInTemplates: [String] {
+        [String(localized: "updates in \("59m")", bundle: AppLocale.bundle),
+         L("updating…")]
     }
 
-    /// Relative "updated 2m ago" for the header.
-    static func updatedAgo(_ date: Date?, now: Date = Date()) -> String? {
+    /// Countdown to the next scheduled poll, e.g. "updates in 42s". Once the deadline passes the
+    /// poll is running (the CLIs take a dozen seconds), so it reads "updating…" — a countdown that
+    /// sat at zero looked broken.
+    static func updatesIn(_ date: Date?, now: Date = Date()) -> String? {
         guard let date else { return nil }
-        let seconds = Int(now.timeIntervalSince(date))
-        if seconds < 5 { return L("updated just now") }
-        let body: String
-        if seconds < 60 { body = "\(seconds)s" }
-        else if seconds < 3_600 { body = "\(seconds / 60)m" }
-        else { body = "\(seconds / 3_600)h" }
-        return String(localized: "updated \(body) ago", bundle: AppLocale.bundle)
+        let seconds = Int(date.timeIntervalSince(now).rounded())
+        guard seconds > 0 else { return L("updating…") }
+        let body = seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m"
+        return String(localized: "updates in \(body)", bundle: AppLocale.bundle)
     }
 }

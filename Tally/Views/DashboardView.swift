@@ -26,9 +26,10 @@ struct DashboardView: View {
             Text("Tally").font(.title3.weight(.semibold))
             Spacer()
             TimelineView(.periodic(from: .now, by: 1)) { context in
-                if let updated = UsageFormat.updatedAgo(store.lastSuccessfulRefreshAt,
-                                                        now: context.date) {
-                    Text(updated).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                if let counter = store.isRefreshing
+                    ? L("updating…")
+                    : UsageFormat.updatesIn(store.nextRefreshAt, now: context.date) {
+                    Text(counter).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
             }
             Button {

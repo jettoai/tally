@@ -25,6 +25,13 @@ final class UsageStore {
     private let providers = ProviderCatalog.all
     private var timer: DispatchSourceTimer?
 
+    /// When the next automatic poll fires (main timer or an earlier failure retry) — drives the
+    /// header's "updates in Xs" countdown.
+    var nextRefreshAt: Date? {
+        [mainTimerNextFire, retryFireAt].compactMap { $0 }.min()
+    }
+    private var mainTimerNextFire: Date?
+
     private init() {}
 
     func start() {
@@ -45,10 +52,14 @@ final class UsageStore {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + interval, repeating: interval)
         timer.setEventHandler { [weak self] in
-            Task { @MainActor in await self?.refresh(userInitiated: false) }
+            Task { @MainActor in
+                self?.mainTimerNextFire = Date().addingTimeInterval(interval)
+                await self?.refresh(userInitiated: false)
+            }
         }
         timer.resume()
         self.timer = timer
+        mainTimerNextFire = Date().addingTimeInterval(interval)
     }
 
     // MARK: Fast retry after a failed poll
@@ -59,10 +70,12 @@ final class UsageStore {
     /// (e.g. a 429 spell) is probed gently, and never exceeds the regular interval.
     private var retryTimer: DispatchSourceTimer?
     private var retryDelay: TimeInterval = 60
+    private var retryFireAt: Date?
 
     private func scheduleRetryIfNeeded(anyFailure: Bool) {
         retryTimer?.cancel()
         retryTimer = nil
+        retryFireAt = nil
         guard anyFailure else {
             retryDelay = 60   // healthy again — reset the ladder
             return
@@ -73,10 +86,14 @@ final class UsageStore {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + delay)
         timer.setEventHandler { [weak self] in
-            Task { @MainActor in await self?.refresh(userInitiated: false) }
+            Task { @MainActor in
+                self?.retryFireAt = nil
+                await self?.refresh(userInitiated: false)
+            }
         }
         timer.resume()
         retryTimer = timer
+        retryFireAt = Date().addingTimeInterval(delay)
     }
 
     func refresh(userInitiated: Bool = false) async {

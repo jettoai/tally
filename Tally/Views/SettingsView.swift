@@ -123,9 +123,11 @@ struct SettingsView: View {
             }
 
             Picker(selection: $settings.refreshIntervalMinutes) {
-                // No 1-minute option: 1 min × 2 accounts tripped the usage endpoint's 429 rate
-                // limit (verified 2026-07-16) and every Claude card fell back to stale.
-                ForEach([5, 15, 30, 60], id: \.self) { minutes in
+                // Short intervals are safe now that reads go through the providers' own CLIs
+                // (first-party identity → the generous rate-limit bucket; Tally's old direct reads
+                // 429'd at 1 min). Each poll spawns the CLIs, so 1 min costs a few seconds of
+                // background CPU per tick — the user's call.
+                ForEach([1, 2, 5, 15, 30, 60], id: \.self) { minutes in
                     Text(String(localized: "\(minutes) min", bundle: AppLocale.bundle)).tag(minutes)
                 }
             } label: {

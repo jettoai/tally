@@ -14,8 +14,6 @@ Patterns adapted (reimplemented in Tally's own Swift, closely modeled on theirs)
   preferences + floating lift preview instead of the pasteboard-backed `.draggable` APIs, including
   the crossing-threshold feel and trackpad-haptic discipline. OpenUsage's reorder index math in turn
   credits **crafcat7/Peakmon** (Apache-2.0).
-- **Keychain reads via `/usr/bin/security`** (`Tally/Core/Keychain/KeychainReader.swift`): reading
-  another app's credential item through the Apple-signed `security` tool so macOS never re-prompts.
 - **Behind-window glass with a rounded mask** (`Tally/MenuBar/PinnedPanelController.swift`):
   `NSVisualEffectView` + stretchable rounded `maskImage` for the pinned panel's translucent base.
 

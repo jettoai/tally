@@ -86,9 +86,9 @@ final class SettingsStore {
         menuBarHiddenAccounts = Set(defaults.stringArray(forKey: "menuBarHiddenAccounts") ?? [])
         displayMode = DisplayMode(rawValue: defaults.string(forKey: "displayMode") ?? "") ?? .remaining
         showAllModels = defaults.object(forKey: "showAllModels") as? Bool ?? false
-        // Default 5 minutes: the Anthropic OAuth usage endpoint rate-limits (429) aggressive polling —
-        // 1-minute × N accounts trips it and every Claude card falls back to "Outdated" (verified
-        // 2026-07-16). Usage windows move on the scale of minutes-to-hours, so 5 min is plenty live.
+        // Default 5 minutes: a public-friendly default — each poll spawns the provider CLIs, so
+        // faster ticks trade background CPU for freshness. Users can go down to 1 min (reads run
+        // under the CLIs' own first-party identity, which gets the generous rate-limit bucket).
         let interval = defaults.integer(forKey: "refreshIntervalMinutes")
         refreshIntervalMinutes = interval > 0 ? interval : 5
         languageOverride = AppLocale.override

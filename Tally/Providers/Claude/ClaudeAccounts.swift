@@ -1,7 +1,9 @@
 import Foundation
 import CryptoKit
 
-/// Discovers Claude Code accounts on this machine and reads their OAuth credential.
+/// Discovers Claude Code accounts on this machine. Discovery only PROBES that each config dir's
+/// Keychain login exists (an attribute check — the secret is never read); usage itself is fetched
+/// through the official CLI (`ClaudeUsageCLI`), so Tally never touches a credential.
 ///
 /// Claude Code namespaces its Keychain item by config dir: the default `~/.claude` uses the bare
 /// service name; any dir set via `CLAUDE_CONFIG_DIR` (e.g. `~/.claude2`) appends
@@ -10,16 +12,6 @@ import CryptoKit
 enum ClaudeAccounts {
     static let providerID = "claude"
     private static let baseService = "Claude Code-credentials"
-
-    /// The OAuth blob stored (as JSON) in the Keychain item, under key `claudeAiOauth`.
-    struct Credentials: Decodable, Sendable {
-        var accessToken: String
-        var expiresAt: Double?
-        var subscriptionType: String?
-        var rateLimitTier: String?
-    }
-
-    private struct Wrapper: Decodable { var claudeAiOauth: Credentials }
 
     /// Keychain service name for a given config dir. `~/.claude` → bare; others → hashed suffix.
     static func service(forConfigDir dir: URL) -> String {
@@ -71,10 +63,35 @@ enum ClaudeAccounts {
         }
     }
 
-    /// Read and decode the OAuth credential for a discovered account. The token is never logged.
-    static func readCredentials(service: String) -> Credentials? {
-        guard let data = KeychainReader.genericPassword(service: service),
-              let wrapper = try? JSONDecoder().decode(Wrapper.self, from: data) else { return nil }
-        return wrapper.claudeAiOauth
+    /// Plan label from the account's non-secret CLI config (`<dir>/.claude.json` →
+    /// `oauthAccount.organizationRateLimitTier`, e.g. "default_claude_max_20x" → "Max 20x").
+    /// The config file carries no credentials; per-account dirs each have their own copy.
+    static func planLabel(configDir: String) -> String? {
+        struct Config: Decodable {
+            struct Account: Decodable {
+                var organizationRateLimitTier: String?
+                var organizationType: String?
+            }
+            var oauthAccount: Account?
+        }
+        let url = URL(fileURLWithPath: configDir).appendingPathComponent(".claude.json")
+        guard let data = try? Data(contentsOf: url),
+              let config = try? JSONDecoder().decode(Config.self, from: data),
+              let account = config.oauthAccount else { return nil }
+
+        if let tier = account.organizationRateLimitTier, !tier.isEmpty {
+            let trimmed = tier
+                .replacingOccurrences(of: "default_", with: "")
+                .replacingOccurrences(of: "claude_", with: "")
+            let pretty = trimmed.split(separator: "_")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
+            if !pretty.isEmpty { return pretty }
+        }
+        // Fallback: organizationType "claude_max" → "Max".
+        if let type = account.organizationType?.split(separator: "_").last {
+            return type.prefix(1).uppercased() + type.dropFirst()
+        }
+        return nil
     }
 }

@@ -1,21 +1,10 @@
 import Foundation
 
-/// Discovers the Codex (ChatGPT) account and reads its OAuth token from `auth.json`.
-///
-/// Unlike Claude, Codex stores its token in a plain file (`~/.codex/auth.json`), so reading it needs
-/// no Keychain access and raises no macOS prompt.
+/// Discovers the Codex (ChatGPT) account. Discovery only checks that `auth.json` EXISTS (a
+/// logged-in signal) — its contents are never read; usage comes through the official CLI's
+/// app-server (`CodexAppServerClient`), so Tally never touches the token inside.
 enum CodexAccounts {
     static let providerID = "codex"
-
-    struct Credentials: Sendable {
-        var accessToken: String
-        var accountId: String
-    }
-
-    private struct AuthFile: Decodable {
-        struct Tokens: Decodable { var access_token: String; var account_id: String }
-        var tokens: Tokens
-    }
 
     /// auth.json candidate locations, in priority order.
     private static func candidatePaths() -> [URL] {
@@ -42,9 +31,4 @@ enum CodexAccounts {
         return []
     }
 
-    static func readCredentials(path: String) -> Credentials? {
-        guard let data = FileManager.default.contents(atPath: path),
-              let auth = try? JSONDecoder().decode(AuthFile.self, from: data) else { return nil }
-        return Credentials(accessToken: auth.tokens.access_token, accountId: auth.tokens.account_id)
-    }
 }

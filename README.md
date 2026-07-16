@@ -43,12 +43,15 @@ switching accounts mid-conversation automatically when you hit a cap.
 
 ## How it works (and what it never does)
 
-- **Read-only by design.** Tally reads the OAuth credentials your CLIs already store locally and
-  calls the same usage endpoints the official CLIs poll — with an honest `Tally` User-Agent.
-  It never writes, refreshes, or rotates a token, so it can never break your CLI logins.
-- **One poller, ever.** Only the menu-bar app talks to the network (every 5 minutes by default).
-  The CLI reads a local snapshot (`~/.tally/snapshot.json` — percentages and paths, never tokens),
-  so opening ten terminals costs zero extra API calls.
+- **Zero credential access.** Tally never touches a token, a Keychain secret, or a vendor
+  endpoint. Usage is read through the providers' **own official CLIs** — `claude -p "/usage"` and
+  `codex app-server` — which talk to their vendors with their own first-party identity and manage
+  their own credentials. Account discovery only checks that a login *exists* (an attribute probe);
+  nothing is ever read out.
+- **One poller, ever.** Only the menu-bar app runs the CLIs (every 5 minutes by default,
+  configurable down to 1). The `tally` launcher reads a local snapshot
+  (`~/.tally/snapshot.json` — percentages and paths, never tokens), so opening ten terminals
+  costs zero extra reads.
 - **Your own accounts only.** Multi-account means *your* paid subscriptions on *your* machine.
   Tally does not proxy, pool, share, or resell access, and account switching just launches the
   official CLI with the config directory you already own.
@@ -90,9 +93,8 @@ alias cc='tally claude --continue'
 ## FAQ
 
 **Why does macOS never ask me for keychain permission?**
-Tally reads credential items through Apple's own `security` tool (the pattern proven by
-[OpenUsage](https://github.com/robinebers/openusage)), which macOS trusts without re-prompting on
-every app update.
+Because Tally never reads a credential: usage comes through the providers' own CLIs, and account
+discovery is an attribute-only Keychain probe (no secret returned → no consent prompt).
 
 **What happens when every account is capped?**
 Nothing dramatic: the dashboard shows it, `tally claude` warns and launches the bare CLI, and

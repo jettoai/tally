@@ -65,6 +65,14 @@ enum UsageFormat {
         style == .relative ? resetCountdown(date, now: now) : resetAbsolute(date)
     }
 
+    /// The widest strings the ago-counter can realistically show, for reserving layout width
+    /// (hidden templates) so the per-second string changes never push neighboring views around.
+    /// Localized, so the reservation is right in every UI language.
+    static var updatedAgoTemplates: [String] {
+        [String(localized: "updated \("59m") ago", bundle: AppLocale.bundle),
+         L("updated just now")]
+    }
+
     /// Relative "updated 2m ago" for the header.
     static func updatedAgo(_ date: Date?, now: Date = Date()) -> String? {
         guard let date else { return nil }

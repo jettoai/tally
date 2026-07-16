@@ -95,18 +95,23 @@ struct PopoverRootView: View {
                 // absolute reset times are read against, so it leads; the ago-counter is a heartbeat,
                 // so it dims.
                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                    // The ago-counter's string width changes every second, so it sits FIRST —
-                    // flexing into the Spacer's blank run — and the fixed-width date anchors the
-                    // right edge. The other order made the date jiggle once per second.
                     HStack(spacing: 6) {
-                        if let updated = UsageFormat.updatedAgo(store.lastSuccessfulRefreshAt,
-                                                                now: context.date) {
-                            Text(updated).font(.caption2).monospacedDigit()
-                                .foregroundStyle(.tertiary)
-                        }
                         Text(UsageFormat.nowShort(context.date))
                             .font(.caption2.weight(.medium)).monospacedDigit()
                             .foregroundStyle(.primary)
+                        if let updated = UsageFormat.updatedAgo(store.lastSuccessfulRefreshAt,
+                                                                now: context.date) {
+                            // The counter's string width changes every second; hidden templates
+                            // (the widest forms, localized) reserve a fixed slot so the ticking
+                            // never pushes the date around. Trailing-aligned to hug the button.
+                            ZStack(alignment: .trailing) {
+                                ForEach(UsageFormat.updatedAgoTemplates, id: \.self) {
+                                    Text($0).hidden()
+                                }
+                                Text(updated)
+                            }
+                            .font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
+                        }
                     }
                 }
             }

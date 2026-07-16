@@ -28,7 +28,7 @@ struct DashboardView: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 if let updated = UsageFormat.updatedAgo(store.lastSuccessfulRefreshAt,
                                                         now: context.date) {
-                    Text(updated).font(.caption).foregroundStyle(.secondary)
+                    Text(updated).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
             }
             Button {

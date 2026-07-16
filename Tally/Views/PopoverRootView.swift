@@ -95,13 +95,18 @@ struct PopoverRootView: View {
                 // absolute reset times are read against, so it leads; the ago-counter is a heartbeat,
                 // so it dims.
                 TimelineView(.periodic(from: .now, by: 1)) { context in
+                    // The ago-counter's string width changes every second, so it sits FIRST —
+                    // flexing into the Spacer's blank run — and the fixed-width date anchors the
+                    // right edge. The other order made the date jiggle once per second.
                     HStack(spacing: 6) {
-                        Text(UsageFormat.nowShort(context.date))
-                            .font(.caption2.weight(.medium)).foregroundStyle(.primary)
                         if let updated = UsageFormat.updatedAgo(store.lastSuccessfulRefreshAt,
                                                                 now: context.date) {
-                            Text(updated).font(.caption2).foregroundStyle(.tertiary)
+                            Text(updated).font(.caption2).monospacedDigit()
+                                .foregroundStyle(.tertiary)
                         }
+                        Text(UsageFormat.nowShort(context.date))
+                            .font(.caption2.weight(.medium)).monospacedDigit()
+                            .foregroundStyle(.primary)
                     }
                 }
             }

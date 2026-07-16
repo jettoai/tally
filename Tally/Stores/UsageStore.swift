@@ -51,6 +51,34 @@ final class UsageStore {
         self.timer = timer
     }
 
+    // MARK: Fast retry after a failed poll
+
+    /// Backoff ladder for retrying after a failure, so a transient miss (the seconds-long window
+    /// while the CLI rotates a token, a network blip) heals in ~1 minute instead of sitting on
+    /// screen until the next full 5-minute tick. Doubles per consecutive failure so a real outage
+    /// (e.g. a 429 spell) is probed gently, and never exceeds the regular interval.
+    private var retryTimer: DispatchSourceTimer?
+    private var retryDelay: TimeInterval = 60
+
+    private func scheduleRetryIfNeeded(anyFailure: Bool) {
+        retryTimer?.cancel()
+        retryTimer = nil
+        guard anyFailure else {
+            retryDelay = 60   // healthy again — reset the ladder
+            return
+        }
+        let interval = TimeInterval(max(1, SettingsStore.shared.refreshIntervalMinutes) * 60)
+        let delay = min(retryDelay, interval)
+        retryDelay = min(retryDelay * 2, interval)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + delay)
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor in await self?.refresh(userInitiated: false) }
+        }
+        timer.resume()
+        retryTimer = timer
+    }
+
     func refresh(userInitiated: Bool = false) async {
         guard !isRefreshing else { return }
         isRefreshing = true
@@ -84,6 +112,8 @@ final class UsageStore {
         onChange?()
         // Publish the non-secret snapshot the `tally` CLI reads to pick a launch account.
         UsageSnapshot.make(accounts: accounts, launchHomes: launchHomes).write()
+        // Any failed account → probe again soon (backoff) instead of waiting the full interval.
+        scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })
     }
 
     /// Last successful snapshot per account, so a failed refresh can keep showing the numbers.

@@ -145,9 +145,11 @@ struct AccountCardView: View {
         .accessibilityLabel(L("Set as launch account"))
     }
 
-    /// Auto mode: marks the card the next launch would pick, so the policy is legible at a glance.
+    /// Auto mode: marks the card the next launch would pick. Deliberately NOT labeled "Auto" -
+    /// that read as a per-account mode toggle; "Next" states what the badge actually is, a
+    /// prediction of where the next session lands (one per provider by construction).
     private var autoBadge: some View {
-        Text(L("Auto"))
+        Text(L("Next"))
             .font(.caption2.weight(.semibold))
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 5).padding(.vertical, 1)

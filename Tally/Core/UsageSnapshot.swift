@@ -2,10 +2,10 @@ import Foundation
 
 /// The non-secret usage snapshot the app publishes for the `tally` CLI (`~/.tally/snapshot.json`).
 ///
-/// The app is the ONLY poller — the CLI never calls the usage API itself (the Anthropic OAuth usage
+/// The app is the ONLY poller - the CLI never calls the usage API itself (the Anthropic OAuth usage
 /// endpoint rate-limits aggressive polling; one extra poller per shell invocation would trip it).
 /// The CLI just reads this file to pick the account with the most proven headroom and launch the
-/// provider's own CLI with that account's config home. Percentages and paths only — never tokens.
+/// provider's own CLI with that account's config home. Percentages and paths only - never tokens.
 struct UsageSnapshot: Codable {
     struct Account: Codable {
         var id: String
@@ -49,7 +49,7 @@ struct UsageSnapshot: Codable {
         )
     }
 
-    /// Atomic write; failures are silently ignored (the snapshot is a convenience export — it must
+    /// Atomic write; failures are silently ignored (the snapshot is a convenience export - it must
     /// never break the app's own refresh loop).
     func write() {
         let encoder = JSONEncoder()

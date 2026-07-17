@@ -4,8 +4,8 @@
 #
 # The Sparkle feed URL baked into the app is
 #   https://github.com/jettoai/tally/releases/latest/download/appcast.xml
-# so every release MUST upload a MERGED appcast (full history) — that URL always resolves to the
-# newest release's asset. Append-only + signature checks below are OpenUsage's proven guards.
+# so every release MUST upload a MERGED appcast (full history) - that URL always resolves to the
+# newest release's asset. The append-only and signature checks below guard exactly that.
 #
 # Usage: scripts/release.sh <version>   e.g. scripts/release.sh 0.2.0
 set -euo pipefail
@@ -40,7 +40,7 @@ fi
 cp "$DMG" "$FEED/"
 
 GA=$(find ~/Library/Developer/Xcode/DerivedData/Tally-*/SourcePackages/artifacts -name generate_appcast -type f | head -1)
-[ -n "$GA" ] || { echo "generate_appcast not found — build once so SPM fetches Sparkle" >&2; exit 1; }
+[ -n "$GA" ] || { echo "generate_appcast not found - build once so SPM fetches Sparkle" >&2; exit 1; }
 "$GA" --account ai.jetto.tally \
   --download-url-prefix "$DOWNLOAD_PREFIX" \
   --maximum-versions 0 \
@@ -49,7 +49,7 @@ GA=$(find ~/Library/Developer/Xcode/DerivedData/Tally-*/SourcePackages/artifacts
 AFTER=$(grep -c '<item>' "$FEED/appcast.xml" || true)
 grep -q "Tally-$VERSION.dmg" "$FEED/appcast.xml" || { echo "new item missing from appcast" >&2; exit 1; }
 grep -Eq "Tally-$VERSION\.dmg.*sparkle:edSignature|sparkle:edSignature.*Tally-$VERSION\.dmg" "$FEED/appcast.xml" \
-  || { echo "new item unsigned — SUPublicEDKey / Keychain key mismatch?" >&2; exit 1; }
+  || { echo "new item unsigned - SUPublicEDKey / Keychain key mismatch?" >&2; exit 1; }
 [ "$AFTER" -ge "$BEFORE" ] || { echo "appcast shrank ($BEFORE -> $AFTER)" >&2; exit 1; }
 
 echo "==> commit version bump + tag"
@@ -62,4 +62,4 @@ git push origin main "$TAG"
 gh release create "$TAG" "$DMG" "$FEED/appcast.xml" \
   --repo "$REPO" --title "Tally $VERSION" --generate-notes
 
-echo "==> done — verify: curl -sL https://github.com/$REPO/releases/latest/download/appcast.xml | grep $VERSION"
+echo "==> done - verify: curl -sL https://github.com/$REPO/releases/latest/download/appcast.xml | grep $VERSION"

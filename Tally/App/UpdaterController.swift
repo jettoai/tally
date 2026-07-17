@@ -2,10 +2,10 @@ import AppKit
 import Sparkle
 
 /// Owns the Sparkle updater. Dormant unless the build carries BOTH a feed URL and an EdDSA public
-/// key (release builds only — Debug substitutes an empty SUFeedURL), so dev builds never poll a
+/// key (release builds only - Debug substitutes an empty SUFeedURL), so dev builds never poll a
 /// feed and the Settings row hides itself.
 ///
-/// Dockless (LSUIElement) apps need two extra dances, both proven by OpenUsage's updater:
+/// Dockless (LSUIElement) apps need two extra dances:
 /// Sparkle's update window opens behind other apps unless the activation policy is temporarily
 /// promoted to `.regular`, and scheduled checks should use gentle reminders instead of stealing
 /// focus.
@@ -15,7 +15,7 @@ final class UpdaterController: NSObject {
 
     private var controller: SPUStandardUpdaterController?
 
-    /// False in dev builds / until the ship pipeline bakes the key — callers hide their UI.
+    /// False in dev builds / until the ship pipeline bakes the key - callers hide their UI.
     var isActive: Bool { controller != nil }
 
     func start() {
@@ -38,7 +38,7 @@ extension UpdaterController: SPUStandardUserDriverDelegate {
     nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
 
     nonisolated func standardUserDriverWillFinishUpdateSession() {
-        // Update UI done — drop back to the menu-bar accessory policy.
+        // Update UI done - drop back to the menu-bar accessory policy.
         Task { @MainActor in NSApp.setActivationPolicy(.accessory) }
     }
 }

@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-// `tally` — launch a provider CLI on the account with the most proven headroom.
+// `tally` - launch a provider CLI on the account with the most proven headroom.
 //
 //   tally claude [args…]       launch `claude` on the best Claude account (args pass through);
 //                              stays resident and auto-hands-off on a cap hit (see Supervisor.swift)
@@ -12,11 +12,11 @@ import Foundation
 //
 // Selection/launch plumbing lives in Snapshot.swift; auto-handoff in Supervisor.swift.
 // Fail open: a missing/stale snapshot or no eligible account warns on stderr and runs the bare
-// CLI — `tally claude` must never be the reason you can't start a session.
+// CLI - `tally claude` must never be the reason you can't start a session.
 
 func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // `--account <name>` pins a specific account (matched against the label or the config-dir
-    // name, case-insensitive) — the manual override, so nobody needs hand-rolled per-account
+    // name, case-insensitive) - the manual override, so nobody needs hand-rolled per-account
     // aliases. The flag is tally's own; it is stripped before the args pass through.
     var passthrough = args
     var pinned: String?
@@ -27,9 +27,9 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     let wantsHandoff = autoHandoffEnabled(args: passthrough)
     passthrough.removeAll { $0 == "--no-handoff" }   // tally's own flag, never passed through
 
-    // An explicitly exported config home is also the user choosing by hand — honour it.
+    // An explicitly exported config home is also the user choosing by hand - honour it.
     if pinned == nil, getenv(provider.envKey) != nil {
-        warn("\(provider.envKey) already set — launching bare `\(provider.cli)` with it")
+        warn("\(provider.envKey) already set - launching bare `\(provider.cli)` with it")
         exec(provider.cli, args: passthrough, env: nil)
     }
     let (snapshot, problem) = loadSnapshot()
@@ -43,7 +43,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
                  URL(fileURLWithPath: account.launchHome!).lastPathComponent.lowercased().contains(query))
         }
         guard let match else {
-            warn("no \(provider.id) account matches \"\(pinned)\" — try `tally status`")
+            warn("no \(provider.id) account matches \"\(pinned)\" - try `tally status`")
             exit(1)
         }
         warn("→ \(match.label) (pinned)")
@@ -51,7 +51,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     }
 
     guard let snapshot, let account = best(providerID: provider.id, in: snapshot) else {
-        warn("no eligible \(provider.id) account — launching bare `\(provider.cli)`")
+        warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
         exec(provider.cli, args: passthrough, env: nil)
     }
     warn("→ \(account.label) (headroom \(Int(headroom(account).rounded()))%)")
@@ -80,11 +80,11 @@ func runStatus() {
     }
 }
 
-/// `tally resume` — hand this directory's latest Claude session to the account with the most
+/// `tally resume` - hand this directory's latest Claude session to the account with the most
 /// headroom and continue the SAME conversation there (the manual counterpart of auto-handoff).
 ///
 /// Transcripts live per-account (`<home>/projects/<cwd-slug>/<session>.jsonl`); resuming on another
-/// account needs the file present in that account's tree. Copy is additive only — never overwrites,
+/// account needs the file present in that account's tree. Copy is additive only - never overwrites,
 /// and a shared/symlinked projects dir (this machine's setup) needs no copy at all. Empirically
 /// verified 2026-07-16: account 2 resumed account 1's session and recalled its content.
 func runResume(args: [String]) -> Never {
@@ -121,7 +121,7 @@ func runResume(args: [String]) -> Never {
         .filter { $0.provider == provider.id && eligible($0) && $0.id != newest.account.id }
         .max { headroom($0) < headroom($1) } ?? newest.account
     if target.id == newest.account.id {
-        warn("no other eligible account — resuming on \(target.label)")
+        warn("no other eligible account - resuming on \(target.label)")
     }
 
     // Make the transcript visible to the target (no-op when the projects tree is shared/symlinked;
@@ -147,7 +147,7 @@ func runResume(args: [String]) -> Never {
 
 func runBestDir(_ providerID: String) {
     guard let provider = providers.first(where: { $0.id == providerID }) else {
-        warn("unknown provider `\(providerID)` — use claude or codex")
+        warn("unknown provider `\(providerID)` - use claude or codex")
         exit(2)
     }
     let (snapshot, problem) = loadSnapshot()

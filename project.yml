@@ -15,7 +15,7 @@ options:
 
 packages:
   # In-app auto-updates (appcast + EdDSA-signed downloads). Pinned exactly because the generated
-  # xcodeproj (and its Package.resolved) is gitignored — a version range would resolve differently
+  # xcodeproj (and its Package.resolved) is gitignored - a version range would resolve differently
   # per machine. 2.9.4 also fixes the update window opening behind other apps for menu-bar
   # (dockless) apps (sparkle-project/Sparkle#2889).
   Sparkle:
@@ -41,7 +41,7 @@ schemes:
       config: Release
 
 targets:
-  # `tally` — the account-picking launcher CLI (reads ~/.tally/snapshot.json, execs claude/codex).
+  # `tally` - the account-picking launcher CLI (reads ~/.tally/snapshot.json, execs claude/codex).
   TallyCLI:
     type: tool
     platform: macOS
@@ -83,7 +83,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Sparkle wiring. Both values flow into Info.plist via variable substitution; while either
         # is empty (every Debug build, and Release until the EdDSA key is generated at ship time)
-        # UpdaterController stays dormant and the Settings row hides — dev builds never poll a feed.
+        # UpdaterController stays dormant and the Settings row hides - dev builds never poll a feed.
         SPARKLE_FEED_URL: "https://github.com/jettoai/tally/releases/latest/download/appcast.xml"
         SPARKLE_PUBLIC_ED_KEY: ""
       configs:

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// One usage window on a single line: `label · bar · value`, so an account stays compact and several
 /// accounts fit at a glance. The bar is the sole carrier of urgency colour (green → amber → red); the
-/// numeral stays neutral. The headline (top-tier) window is `prominent` — bolder, with a reset/warning
+/// numeral stays neutral. The headline (top-tier) window is `prominent` - bolder, with a reset/warning
 /// line beneath; secondary windows are one clean line each.
 struct MetricRowView: View {
     let metric: UsageMetric
@@ -46,13 +46,13 @@ struct MetricRowView: View {
 
     /// An untouched session window: the provider starts the 5h clock on the first message, so there
     /// is no reset instant yet. The time slot must never sit empty ("% + time" is the product's
-    /// promise — a blank reads as a bug), so it states the fact instead.
+    /// promise - a blank reads as a bug), so it states the fact instead.
     private var sessionNotStarted: Bool {
         metric.kind == .session && metric.resetsAt == nil && metric.usedPercent == 0
     }
 
     /// A tiny line under every window's bar: a critical warning on the left, ITS OWN reset on the
-    /// right — per-row so a reset can never be misread as belonging to a neighbouring window.
+    /// right - per-row so a reset can never be misread as belonging to a neighbouring window.
     /// Clicking the reset flips every reset label between countdown and exact time (the exact time is
     /// one click away instead of a settings entry); hover previews the other format.
     @ViewBuilder

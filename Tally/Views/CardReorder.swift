@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// In-view drag-to-reorder for the account cards, modeled on OpenUsage's approach: SwiftUI's
+/// In-view drag-to-reorder for the account cards: SwiftUI's
 /// pasteboard-backed `.draggable`/`.dropDestination` is unreliable inside a popover/panel and reads
 /// poorly (translucent system snapshot, no insertion feedback, order only changes on drop). A plain
 /// `DragGesture` stays inside the SwiftUI view tree: each card records its frame, the pointer is
@@ -13,7 +13,7 @@ enum CardMotion {
 }
 
 /// Trackpad haptic via the Force Touch Taptic Engine; silent no-op without one. Fire only when a drag
-/// actually commits a new order — never on plain movement. Rapid slot-crossings are floored so they
+/// actually commits a new order - never on plain movement. Rapid slot-crossings are floored so they
 /// don't run together into a buzz.
 @MainActor
 enum Haptics {
@@ -56,9 +56,17 @@ struct CardLift {
     let sourceFrame: CGRect
     let touchOffset: CGPoint
     var location: CGPoint
+
+    /// Where the floating preview's centre currently sits. The single source for BOTH the preview's
+    /// rendered position and the reorder hit-test probe: the two must never diverge, or reordering
+    /// silently stops matching what the user sees.
+    var previewCentre: CGPoint {
+        CGPoint(x: location.x - touchOffset.x + sourceFrame.width / 2,
+                y: location.y - touchOffset.y + sourceFrame.height / 2)
+    }
 }
 
-/// The floating copy of the dragged card — the same `AccountCardView` the grid renders, slightly
+/// The floating copy of the dragged card - the same `AccountCardView` the grid renders, slightly
 /// scaled with a shadow, following the pointer. Non-interactive so it never swallows the drag.
 struct CardLiftPreview: View {
     let lift: CardLift
@@ -69,18 +77,15 @@ struct CardLiftPreview: View {
             .frame(width: lift.sourceFrame.width)
             .scaleEffect(1.025)
             .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
-            .position(
-                x: lift.location.x - lift.touchOffset.x + lift.sourceFrame.width / 2,
-                y: lift.location.y - lift.touchOffset.y + lift.sourceFrame.height / 2
-            )
+            .position(lift.previewCentre)
             .animation(.none, value: lift.location)
             .allowsHitTesting(false)
     }
 }
 
-/// The card the drag should displace, or nil. The pointer must reach the target's core (inset 20%
-/// per side) rather than merely graze its edge — the grid has horizontal *and* vertical neighbors,
-/// and edge-triggered reordering feels jumpy in both directions.
+/// The card the drag should displace, or nil. The probe point (the lifted card's centre) must reach
+/// the target's core (inset 20% per side) rather than merely graze its edge - the grid has horizontal
+/// *and* vertical neighbors, and edge-triggered reordering feels jumpy in both directions.
 func reorderTarget(at location: CGPoint, frames: [String: CGRect],
                    excluding draggedID: String, orderedIDs: [String]) -> String? {
     for id in orderedIDs where id != draggedID {

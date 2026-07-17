@@ -74,12 +74,12 @@ struct ProviderAccount: Identifiable, Hashable, Sendable {
     var providerID: String
     var label: String
     var locator: [String: String]
-    /// The CLI config home to launch this account with (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) —
+    /// The CLI config home to launch this account with (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) -
     /// exported in the usage snapshot so the `tally` CLI can pick and launch the best account.
     var launchHome: String?
 }
 
-/// The result of fetching one account's usage. Never thrown — failures are carried in `error` so one
+/// The result of fetching one account's usage. Never thrown - failures are carried in `error` so one
 /// dead account can't blank the whole popover.
 struct AccountUsage: Identifiable, Hashable, Sendable {
     var id: String
@@ -115,7 +115,7 @@ protocol UsageProvider: Sendable {
     var displayName: String { get }
     /// Local, cheap, no network: which accounts of this provider exist on this machine.
     func discoverAccounts() -> [ProviderAccount]
-    /// Fetch live usage for one account. Must not throw — return `AccountUsage.failure` on error.
+    /// Fetch live usage for one account. Must not throw - return `AccountUsage.failure` on error.
     ///
     /// `userInitiated` is true only when the user explicitly asked (clicked refresh). Providers use it
     /// to decide whether a credential read may raise an interactive prompt: background refreshes must

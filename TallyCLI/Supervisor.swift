@@ -5,7 +5,7 @@ import Foundation
 //
 // `tally claude` stays resident as a thin parent around the interactive claude child. It tails the
 // session transcript for a cap-hit event; on a hit it terminates the child, re-picks the best other
-// account, and relaunches `claude --resume <session>` in the same terminal — the conversation
+// account, and relaunches `claude --resume <session>` in the same terminal - the conversation
 // continues on the fresh account with no manual step.
 //
 // Detection is grounded in real transcript data (this machine's history, 2026-07-16): genuine cap
@@ -55,7 +55,7 @@ struct TranscriptWatcher {
     var offset: UInt64 = 0
     let since: Date
 
-    /// The newest session transcript created/updated after launch — the child's session.
+    /// The newest session transcript created/updated after launch - the child's session.
     mutating func locateFile() {
         guard file == nil else { return }
         let files = (try? FileManager.default.contentsOfDirectory(
@@ -90,7 +90,7 @@ struct TranscriptWatcher {
                 ?? ((content as? [[String: Any]])?.first?["text"] as? String) ?? ""
             guard body.hasPrefix("You've"), body.contains("limit") else { continue }
             // Ignore events older than this child (a forked resume carries the previous
-            // conversation's history — including the very cap event that triggered the handoff).
+            // conversation's history - including the very cap event that triggered the handoff).
             if let stamp = object["timestamp"] as? String,
                let when = parseISO(stamp), when < since { continue }
             return true
@@ -103,7 +103,7 @@ struct TranscriptWatcher {
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String]) -> Never {
     let slug = projectSlug(forCwd: FileManager.default.currentDirectoryPath)
 
-    // The parent must survive Ctrl+C — claude uses SIGINT to interrupt a turn, and the whole
+    // The parent must survive Ctrl+C - claude uses SIGINT to interrupt a turn, and the whole
     // foreground process group receives it.
     signal(SIGINT, SIG_IGN)
     signal(SIGQUIT, SIG_IGN)
@@ -139,7 +139,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             usleep(2_000_000)
             guard watcher.sawCapHit() else { continue }
             guard fuseAllows() else {
-                warn("cap hit, but \(handoffFuseMax) handoffs in \(Int(handoffFuseWindow / 60))m — staying put")
+                warn("cap hit, but \(handoffFuseMax) handoffs in \(Int(handoffFuseWindow / 60))m - staying put")
                 break
             }
             // Re-read the snapshot NOW; the best other account is the handoff target.
@@ -148,7 +148,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 .filter { $0.provider == provider.id && eligible($0) && $0.id != account.id }
                 .max { headroom($0) < headroom($1) }
             guard let target else {
-                warn("cap hit, but no other eligible account — staying put")
+                warn("cap hit, but no other eligible account - staying put")
                 break
             }
             guard let sessionFile = watcher.file else { break }

@@ -2,10 +2,10 @@ import Foundation
 
 /// Reads Codex usage through the official CLI's app-server (JSON-RPC over stdio):
 /// `initialize` → `initialized` → `account/rateLimits/read`. The CLI talks to its vendor with its
-/// own first-party identity and credentials — Tally never reads `auth.json` tokens.
+/// own first-party identity and credentials - Tally never reads `auth.json` tokens.
 ///
 /// Response shape verified live (2026-07-17): `result.rateLimits.{primary,secondary}` carry
-/// `usedPercent` / `windowDurationMins` / `resetsAt` (epoch s), plus `planType` — camelCase,
+/// `usedPercent` / `windowDurationMins` / `resetsAt` (epoch s), plus `planType` - camelCase,
 /// unlike the old HTTP endpoint's snake_case.
 enum CodexAppServerClient {
     struct Reading: Sendable {

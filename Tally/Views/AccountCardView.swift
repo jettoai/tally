@@ -6,7 +6,7 @@ import SwiftUI
 struct AccountCardView: View {
     let usage: AccountUsage
     @Bindable var settings: SettingsStore
-    /// Show a grip glyph on hover — the drag-affordance for surfaces where the card can be reordered.
+    /// Show a grip glyph on hover - the drag-affordance for surfaces where the card can be reordered.
     var showsDragHandle: Bool = false
     /// Stretch the card surface to fill the row height, so side-by-side cards read as one aligned row.
     var fillsRowHeight: Bool = false
@@ -29,11 +29,11 @@ struct AccountCardView: View {
     }
 
     /// A hard error (this account has never loaded) collapses to a compact error + Retry. A stale
-    /// account (a failed refresh over previously-good numbers) keeps its metrics readable — the
+    /// account (a failed refresh over previously-good numbers) keeps its metrics readable - the
     /// "Outdated" badge in the header carries the state, so the numbers aren't dimmed away.
     private var isHardError: Bool { usage.error != nil && !usage.isStale }
 
-    /// The plan exposes only a single weekly window (e.g. Codex on ChatGPT Plus) — worth noting so a
+    /// The plan exposes only a single weekly window (e.g. Codex on ChatGPT Plus) - worth noting so a
     /// missing session/model row doesn't read as a bug.
     private var weeklyOnly: Bool {
         usage.metrics.count == 1 && usage.metrics.first?.kind == .weeklyAll

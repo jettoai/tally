@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Codex (ChatGPT) usage provider — read entirely through the official CLI's app-server, so
+/// The Codex (ChatGPT) usage provider - read entirely through the official CLI's app-server, so
 /// Tally never touches Codex credentials. See `CodexAppServerClient`.
 struct CodexProvider: UsageProvider {
     let id = CodexAccounts.providerID

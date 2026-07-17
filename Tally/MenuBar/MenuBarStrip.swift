@@ -26,7 +26,7 @@ private struct MenuBarStripView: View {
                 HStack(spacing: 4) {
                     icon(segment.providerID)
                         .overlay(alignment: .bottomTrailing) {
-                            // Same-provider accounts share one mark — a tiny corner digit is the only
+                            // Same-provider accounts share one mark - a tiny corner digit is the only
                             // identity the strip carries; the full names live in the tooltip.
                             if let index = segment.accountIndex {
                                 Text("\(index)")
@@ -40,7 +40,7 @@ private struct MenuBarStripView: View {
             }
         }
         .monospacedDigit()
-        .foregroundStyle(.black)   // template mask — actual tint applied by AppKit
+        .foregroundStyle(.black)   // template mask - actual tint applied by AppKit
         .padding(.horizontal, 2)
         .padding(.vertical, 1)
         .fixedSize()

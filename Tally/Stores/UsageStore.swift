@@ -3,7 +3,7 @@ import Observation
 
 /// Owns the live usage snapshots and the periodic refresh loop. Shared singleton.
 ///
-/// Refresh model (adapted from OpenUsage): fetch every enabled account concurrently, on a
+/// Refresh model: fetch every enabled account concurrently, on a
 /// user-configurable interval. `onChange` lets the AppKit status item update its title without SwiftUI
 /// observation. Claude's usage endpoint rate-limits aggressively, so the default interval is
 /// conservative and manual refresh is available on demand.
@@ -13,9 +13,13 @@ final class UsageStore {
     static let shared = UsageStore()
 
     private(set) var accounts: [AccountUsage] = []
+    /// Every account that EXISTS on this machine (all providers, including disabled ones) - the
+    /// Settings list renders from this, so a switched-off account stays visible and can be
+    /// switched back on. Refreshed on every poll; discovery is local and cheap.
+    private(set) var discoveredAccounts: [ProviderAccount] = []
     private(set) var isRefreshing = false
     private(set) var lastRefreshedAt: Date?
-    /// Set only when a refresh produced at least one non-error account — drives the "updated …" header
+    /// Set only when a refresh produced at least one non-error account - drives the "updated …" header
     /// so it never reads fresh while everything actually failed.
     private(set) var lastSuccessfulRefreshAt: Date?
 
@@ -25,7 +29,7 @@ final class UsageStore {
     private let providers = ProviderCatalog.all
     private var timer: DispatchSourceTimer?
 
-    /// When the next automatic poll fires (main timer or an earlier failure retry) — drives the
+    /// When the next automatic poll fires (main timer or an earlier failure retry) - drives the
     /// header's "updates in Xs" countdown.
     var nextRefreshAt: Date? {
         [mainTimerNextFire, retryFireAt].compactMap { $0 }.min()
@@ -77,7 +81,7 @@ final class UsageStore {
         retryTimer = nil
         retryFireAt = nil
         guard anyFailure else {
-            retryDelay = 60   // healthy again — reset the ladder
+            retryDelay = 60   // healthy again - reset the ladder
             return
         }
         let interval = TimeInterval(max(1, SettingsStore.shared.refreshIntervalMinutes) * 60)
@@ -96,31 +100,86 @@ final class UsageStore {
         retryFireAt = Date().addingTimeInterval(delay)
     }
 
+    /// Optimistically drop rows the user just switched off (an account or a whole provider) so
+    /// every surface reacts instantly; the refresh right behind converges the snapshot too.
+    func hideAccounts(where predicate: (AccountUsage) -> Bool) {
+        let filtered = accounts.filter { !predicate($0) }
+        guard filtered.count != accounts.count else { return }
+        accounts = filtered
+        onChange?()
+    }
+
+    /// Instantly restore the last-good rows of a just re-enabled provider, so Settings doesn't sit
+    /// on a blank group while the CLIs re-fetch (10-20s). The refresh right behind this call
+    /// overwrites them with live data.
+    func showCachedAccounts(providerID: String) {
+        let cached = lastGood.values.filter { usage in
+            usage.providerID == providerID
+                && SettingsStore.shared.isAccountEnabled(usage.id)
+                && !accounts.contains { $0.id == usage.id }
+        }
+        guard !cached.isEmpty else { return }
+        accounts = (accounts + cached).sorted {
+            ($0.providerID, $0.accountLabel) < ($1.providerID, $1.accountLabel)
+        }
+        onChange?()
+    }
+
+    /// A refresh requested while one is in flight runs right after it (coalesced to one). Without
+    /// this, rapidly re-enabling a provider lost its follow-up fetch: the in-flight refresh (started
+    /// while the provider was still off) finished, wiped the provider's rows, and nothing re-fetched
+    /// until the next timer tick.
+    private var refreshQueued = false
+
     func refresh(userInitiated: Bool = false) async {
-        guard !isRefreshing else { return }
+        guard !isRefreshing else { refreshQueued = true; return }
+        // Screenshot fixtures replace the whole poll: no CLI runs, no snapshot write (so a demo
+        // instance can't steer the `tally` CLI), no retry ladder.
+        if DemoUsage.isActive {
+            accounts = DemoUsage.accounts()
+            lastRefreshedAt = Date()
+            lastSuccessfulRefreshAt = lastRefreshedAt
+            onChange?()
+            return
+        }
         isRefreshing = true
         onChange?()
 
         let enabled = SettingsStore.shared.enabledProviders
         var results: [AccountUsage] = []
+        var allDiscovered: [ProviderAccount] = []
         var launchHomes: [String: String] = [:]   // account id → CLI config home, for the snapshot
-        for provider in providers where enabled.contains(provider.id) {
-            let discovered = provider.discoverAccounts()
-            for account in discovered {
+        for provider in providers {
+            let found = provider.discoverAccounts()
+            allDiscovered.append(contentsOf: found)
+            guard enabled.contains(provider.id) else { continue }
+            // Disabled accounts are discovered (Settings shows them) but never polled - and never
+            // reach the snapshot, so the `tally` CLI skips them too.
+            let active = found.filter { SettingsStore.shared.isAccountEnabled($0.id) }
+            for account in active {
                 if let home = account.launchHome { launchHomes[account.id] = home }
             }
             await withTaskGroup(of: AccountUsage.self) { group in
-                for account in discovered {
+                for account in active {
                     group.addTask { await provider.fetchUsage(for: account, userInitiated: userInitiated) }
                 }
                 for await usage in group { results.append(usage) }
             }
         }
+        discoveredAccounts = allDiscovered
 
         let merged = results.map(applyLastGood)
-        accounts = merged.sorted {
-            ($0.providerID, $0.accountLabel) < ($1.providerID, $1.accountLabel)
+        // The enablement set may have changed while the CLIs ran: keep rows of providers enabled
+        // NOW that this round didn't fetch (the queued follow-up replaces them with live data),
+        // and drop rows of providers disabled mid-flight.
+        let enabledNow = SettingsStore.shared.enabledProviders
+        let fetchedIDs = Set(merged.map(\.id))
+        let carried = accounts.filter {
+            enabledNow.contains($0.providerID) && !fetchedIDs.contains($0.id)
         }
+        accounts = (merged + carried)
+            .filter { enabledNow.contains($0.providerID) && SettingsStore.shared.isAccountEnabled($0.id) }
+            .sorted { ($0.providerID, $0.accountLabel) < ($1.providerID, $1.accountLabel) }
         isRefreshing = false
         lastRefreshedAt = Date()
         if results.contains(where: { $0.error == nil }) {
@@ -131,6 +190,11 @@ final class UsageStore {
         UsageSnapshot.make(accounts: accounts, launchHomes: launchHomes).write()
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
         scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })
+
+        if refreshQueued {
+            refreshQueued = false
+            Task { await refresh(userInitiated: false) }
+        }
     }
 
     /// Last successful snapshot per account, so a failed refresh can keep showing the numbers.
@@ -138,8 +202,8 @@ final class UsageStore {
     /// Consecutive failed polls per account, so a single transient failure doesn't flip the badge.
     private var failureStreak: [String: Int] = [:]
 
-    /// Only flag "Outdated" after this many consecutive failures. A single miss — e.g. the brief window
-    /// while the CLI rotates the OAuth token, which 1-minute polling reliably catches — keeps showing the
+    /// Only flag "Outdated" after this many consecutive failures. A single miss - e.g. the brief window
+    /// while the CLI rotates the OAuth token, which 1-minute polling reliably catches - keeps showing the
     /// last-good numbers unbadged, so the badge stops flickering on every token refresh.
     private static let staleAfterFailures = 2
 
@@ -177,8 +241,8 @@ final class UsageStore {
         return .noAccounts
     }
 
-    /// Per-account segments for the menu-bar strip. Each account shows its account-wide windows —
-    /// session (5h) on top, weekly below — not a single exhausted model tier (a used-up Fable at 0%
+    /// Per-account segments for the menu-bar strip. Each account shows its account-wide windows -
+    /// session (5h) on top, weekly below - not a single exhausted model tier (a used-up Fable at 0%
     /// would read as "the whole account is dead" when session/weekly still have room). Every account
     /// gets its own segment/mark, so N accounts read as N marks. Model-tier detail stays in the popover.
     /// Accounts in the user's custom drag-reordered order (falls back to discovery order).
@@ -191,7 +255,7 @@ final class UsageStore {
     var menuBarSegments: [MenuBarSegment] {
         let shown = orderedAccounts.filter { SettingsStore.shared.isShownInMenuBar($0.id) }
         let mode = SettingsStore.shared.displayMode
-        // Same-provider accounts are visually identical marks, so number them (1, 2, …) — the one
+        // Same-provider accounts are visually identical marks, so number them (1, 2, …) - the one
         // piece of identity the strip needs. A lone account gets no badge.
         let providerCounts = Dictionary(grouping: shown, by: \.providerID).mapValues(\.count)
         var runningIndex: [String: Int] = [:]
@@ -214,7 +278,7 @@ final class UsageStore {
         }
     }
 
-    /// Hovering the status item names every account with its numbers — the identity that can't fit in
+    /// Hovering the status item names every account with its numbers - the identity that can't fit in
     /// the strip itself. Doubles as the strip image's VoiceOver description.
     var menuBarTooltip: String {
         let shown = orderedAccounts.filter { SettingsStore.shared.isShownInMenuBar($0.id) }

@@ -2,13 +2,13 @@ import Foundation
 import CryptoKit
 
 /// Discovers Claude Code accounts on this machine. Discovery only PROBES that each config dir's
-/// Keychain login exists (an attribute check — the secret is never read); usage itself is fetched
+/// Keychain login exists (an attribute check - the secret is never read); usage itself is fetched
 /// through the official CLI (`ClaudeUsageCLI`), so Tally never touches a credential.
 ///
 /// Claude Code namespaces its Keychain item by config dir: the default `~/.claude` uses the bare
 /// service name; any dir set via `CLAUDE_CONFIG_DIR` (e.g. `~/.claude2`) appends
 /// `-<first 8 hex of SHA-256 of the absolute dir path>`. This is what lets Tally monitor two Max
-/// accounts independently — the whole point of the project.
+/// accounts independently - the whole point of the project.
 enum ClaudeAccounts {
     static let providerID = "claude"
     private static let baseService = "Claude Code-credentials"

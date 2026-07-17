@@ -1,7 +1,7 @@
 import Foundation
 
 /// Discovers the Codex (ChatGPT) account. Discovery only checks that `auth.json` EXISTS (a
-/// logged-in signal) — its contents are never read; usage comes through the official CLI's
+/// logged-in signal) - its contents are never read; usage comes through the official CLI's
 /// app-server (`CodexAppServerClient`), so Tally never touches the token inside.
 enum CodexAccounts {
     static let providerID = "codex"

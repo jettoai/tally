@@ -1,6 +1,6 @@
 import Foundation
 
-/// Spawns a provider's own CLI and captures its stdout — the data path for every usage read.
+/// Spawns a provider's own CLI and captures its stdout - the data path for every usage read.
 ///
 /// Tally reads usage EXCLUSIVELY through the providers' official clients (`claude -p "/usage"`,
 /// `codex app-server`): the CLI talks to its vendor with its own first-party identity and

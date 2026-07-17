@@ -6,7 +6,7 @@ DerivedData/
 *.xcworkspace/xcuserdata/
 *.xcuserstate
 
-# XcodeGen generates these from project.yml — do not commit them
+# XcodeGen generates these from project.yml - do not commit them
 Tally.xcodeproj/
 Tally/Resources/Info.plist
 
@@ -30,7 +30,7 @@ appcast.xml
 # Scratch
 scratchpad/
 
-# Internal working docs (Claude Code / Codex workflow) — local only, not part of the product
+# Internal working docs (Claude Code / Codex workflow) - local only, not part of the product
 CLAUDE.md
 AGENTS.md
 NORTH_STAR.md

@@ -33,11 +33,21 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(Array(menuBarHiddenAccounts), forKey: "menuBarHiddenAccounts") }
     }
 
+    /// Accounts the user switched off entirely: not polled, no card, no menu-bar segment, skipped
+    /// by the `tally` CLI (excluded from the snapshot). Stored as a disabled-set so new accounts
+    /// default to on.
+    var disabledAccounts: Set<String> {
+        didSet {
+            UserDefaults.standard.set(Array(disabledAccounts), forKey: "disabledAccounts")
+            UsageStore.shared.onChange?()
+        }
+    }
+
     /// Show meters as used vs remaining.
     var displayMode: DisplayMode {
         didSet {
             UserDefaults.standard.set(displayMode.rawValue, forKey: "displayMode")
-            // The menu-bar strip is AppKit — it only repaints on `onChange`, not via SwiftUI
+            // The menu-bar strip is AppKit - it only repaints on `onChange`, not via SwiftUI
             // observation, so toggling used/remaining must nudge it or it keeps the old direction.
             UsageStore.shared.onChange?()
         }
@@ -72,7 +82,7 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(isPanelTranslucent, forKey: "isPanelTranslucent") }
     }
 
-    /// Reset instants as countdown vs exact time — toggled by clicking any reset label.
+    /// Reset instants as countdown vs exact time - toggled by clicking any reset label.
     var resetDisplay: ResetDisplay {
         didSet { UserDefaults.standard.set(resetDisplay.rawValue, forKey: "resetDisplay") }
     }
@@ -84,13 +94,15 @@ final class SettingsStore {
         accountLabels = (defaults.dictionary(forKey: "accountLabels") as? [String: String]) ?? [:]
         accountOrder = defaults.stringArray(forKey: "accountOrder") ?? []
         menuBarHiddenAccounts = Set(defaults.stringArray(forKey: "menuBarHiddenAccounts") ?? [])
+        disabledAccounts = Set(defaults.stringArray(forKey: "disabledAccounts") ?? [])
         displayMode = DisplayMode(rawValue: defaults.string(forKey: "displayMode") ?? "") ?? .remaining
         showAllModels = defaults.object(forKey: "showAllModels") as? Bool ?? false
-        // Default 5 minutes: a public-friendly default — each poll spawns the provider CLIs, so
+        // Default 5 minutes: a public-friendly default - each poll spawns the provider CLIs, so
         // faster ticks trade background CPU for freshness. Users can go down to 1 min (reads run
         // under the CLIs' own first-party identity, which gets the generous rate-limit bucket).
         let interval = defaults.integer(forKey: "refreshIntervalMinutes")
-        refreshIntervalMinutes = interval > 0 ? interval : 5
+        // Clamp to the picker's options so a legacy 30/60 value can't leave the picker blank.
+        refreshIntervalMinutes = [1, 2, 5, 15].contains(interval) ? interval : 5
         languageOverride = AppLocale.override
         isUsagePanelPinned = defaults.bool(forKey: "isUsagePanelPinned")
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
@@ -101,6 +113,23 @@ final class SettingsStore {
 
     func setEnabled(_ providerID: String, _ on: Bool) {
         if on { enabledProviders.insert(providerID) } else { enabledProviders.remove(providerID) }
+    }
+
+    func isAccountEnabled(_ accountID: String) -> Bool { !disabledAccounts.contains(accountID) }
+
+    func setAccountEnabled(_ accountID: String, _ on: Bool) {
+        if on { disabledAccounts.remove(accountID) } else { disabledAccounts.insert(accountID) }
+    }
+
+    /// Reorder ONE provider's accounts: the provider's slots in the global order keep their
+    /// positions, only which account occupies which slot changes - so reordering Claude 1/2 never
+    /// shuffles them relative to Codex.
+    func applyProviderOrder(orderedProviderIDs: [String], allIDs: [String]) {
+        var iterator = orderedProviderIDs.makeIterator()
+        let providerSet = Set(orderedProviderIDs)
+        accountOrder = orderedAccountIDs(allIDs).map {
+            providerSet.contains($0) ? (iterator.next() ?? $0) : $0
+        }
     }
 
     func isShownInMenuBar(_ accountID: String) -> Bool { !menuBarHiddenAccounts.contains(accountID) }
@@ -119,7 +148,7 @@ final class SettingsStore {
         }.map(\.element)
     }
 
-    /// Drag-reorder: move `dragged` past `target` — after it when moving forward, before it when
+    /// Drag-reorder: move `dragged` past `target` - after it when moving forward, before it when
     /// moving backward (always inserting AT the target's index made a forward drag onto the adjacent
     /// card a no-op). Returns whether the order actually changed, so the caller can gate haptics.
     @discardableResult

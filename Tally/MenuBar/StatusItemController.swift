@@ -28,11 +28,11 @@ final class StatusItemController: NSObject {
         statusItem = item
 
         popover.behavior = .transient
-        // Show instantly instead of playing NSPopover's expand/scale animation — that animation (not
+        // Show instantly instead of playing NSPopover's expand/scale animation - that animation (not
         // the content) is the "laggy on expand" feel; other menu-bar apps just appear.
         popover.animates = false
         // `sizingOptions = []` (not `.preferredContentSize`, not the default `.standardBounds`) so the
-        // host installs NO Auto Layout constraints — we set the popover's contentSize manually via
+        // host installs NO Auto Layout constraints - we set the popover's contentSize manually via
         // `sizeThatFits`. Two size authorities (SwiftUI constraints + manual sizing) recurse the layout
         // engine into a stack-overflow crash.
         let host = NSHostingController(
@@ -56,7 +56,7 @@ final class StatusItemController: NSObject {
         let segments = UsageStore.shared.menuBarSegments
         button.attributedTitle = NSAttributedString(string: "")
         if segments.isEmpty {
-            // No visible accounts — fall back to the app glyph.
+            // No visible accounts - fall back to the app glyph.
             button.image = Self.symbolImage()
             button.toolTip = nil
         } else {

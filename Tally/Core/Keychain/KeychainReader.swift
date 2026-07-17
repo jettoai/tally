@@ -3,7 +3,7 @@ import Security
 
 /// Probes generic-password Keychain items for account discovery.
 ///
-/// Probe only — Tally NEVER reads a secret: usage is fetched through each provider's official CLI
+/// Probe only - Tally NEVER reads a secret: usage is fetched through each provider's official CLI
 /// (`ClaudeUsageCLI` / `CodexAppServerClient`), which handles its own credentials. The attribute
 /// query below returns no secret data, so it never raises a macOS consent prompt either.
 enum KeychainReader {

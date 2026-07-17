@@ -3,7 +3,7 @@ import Foundation
 
 // Snapshot model + account selection + launch plumbing shared by every subcommand.
 //
-// The CLI NEVER calls a usage API — Tally.app is the only poller (the Anthropic usage endpoint
+// The CLI NEVER calls a usage API - Tally.app is the only poller (the Anthropic usage endpoint
 // rate-limits; see the app's UsageSnapshot.swift). It reads the app's published snapshot
 // (~/.tally/snapshot.json), picks the eligible account with the greatest proven headroom
 // (max over accounts of min(session, weekly, model remaining)), sets the provider's config-home
@@ -45,16 +45,16 @@ let providers = [
 
 func loadSnapshot() -> (Snapshot?, String?) {
     guard let data = try? Data(contentsOf: snapshotURL) else {
-        return (nil, "no snapshot at \(snapshotURL.path) — is Tally.app running?")
+        return (nil, "no snapshot at \(snapshotURL.path) - is Tally.app running?")
     }
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
     guard let snapshot = try? decoder.decode(Snapshot.self, from: data) else {
-        return (nil, "unreadable snapshot — update Tally.app?")
+        return (nil, "unreadable snapshot - update Tally.app?")
     }
     let age = Date().timeIntervalSince(snapshot.generatedAt)
     if age > snapshotMaxAge {
-        return (snapshot, "snapshot is \(Int(age / 60))m old — is Tally.app running?")
+        return (snapshot, "snapshot is \(Int(age / 60))m old - is Tally.app running?")
     }
     return (snapshot, nil)
 }
@@ -95,7 +95,7 @@ func exec(_ cli: String, args: [String], env: (key: String, value: String)?) -> 
 /// The env to launch an account with. The DEFAULT home (~/.claude, ~/.codex) must launch with the
 /// variable UNSET: the CLI namespaces its Keychain item by the exact CLAUDE_CONFIG_DIR string, so
 /// explicitly setting it to the default path makes the CLI look up a hashed item that doesn't exist
-/// ("Not logged in" — verified 2026-07-16).
+/// ("Not logged in" - verified 2026-07-16).
 func launchEnv(_ provider: Provider, home: String) -> (key: String, value: String)? {
     let defaultHome = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(provider.id == "claude" ? ".claude" : ".codex").path
@@ -112,7 +112,7 @@ func fmt(_ value: Double?) -> String {
 
 /// The transcript-directory slug Claude Code uses for a working directory: "/" and "." become "-",
 /// on the fully-resolved path (/tmp → /private/tmp). POSIX realpath, NOT Foundation's
-/// resolvingSymlinksInPath — the latter deliberately strips the /private prefix and would produce
+/// resolvingSymlinksInPath - the latter deliberately strips the /private prefix and would produce
 /// a slug that doesn't match Claude Code's directory.
 func projectSlug(forCwd rawCwd: String) -> String {
     var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))

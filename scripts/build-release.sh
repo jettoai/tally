@@ -4,7 +4,7 @@
 # Adapted from jetto's build-release.sh with two deliberate changes:
 #   - the Sparkle EdDSA PUBLIC key is baked here at build time (the repo's project.yml keeps it
 #     empty so dev builds stay dormant), and
-#   - no service credentials appear in this script — notarization uses a Keychain profile.
+#   - no service credentials appear in this script - notarization uses a Keychain profile.
 #
 # Prereqs (one-time):
 #   xcrun notarytool store-credentials "$NOTARIZE_PROFILE"   # Apple ID + app-specific password
@@ -54,7 +54,7 @@ xcodebuild -exportArchive -archivePath "$ARCHIVE" \
 APP="$EXPORT/Tally.app"
 
 # Sparkle binary must be universal too, or generate_appcast narrows the appcast's hardware
-# requirements silently (OpenUsage's lesson).
+# requirements silently.
 lipo -archs "$APP/Contents/MacOS/Tally" | grep -q arm64 \
   && lipo -archs "$APP/Contents/MacOS/Tally" | grep -q x86_64 \
   || { echo "App binary is not universal" >&2; exit 1; }

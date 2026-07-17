@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Claude (Max/Pro) usage provider — read entirely through the official CLI
+/// The Claude (Max/Pro) usage provider - read entirely through the official CLI
 /// (`claude -p "/usage"` per account), so Tally never touches an OAuth token or a vendor endpoint.
 /// The CLI runs with its own first-party identity, refreshes its own token when expired, and its
 /// requests land in the identified client's rate-limit bucket. See NORTH_STAR "不在範圍".
@@ -29,7 +29,7 @@ struct ClaudeProvider: UsageProvider {
             return .failure(account: account, providerID: id, message: L("Claude CLI read failed"))
         }
         if text.contains("Not logged in") || text.contains("/login") {
-            return .failure(account: account, providerID: id, message: L("No credentials — run `claude` to sign in"))
+            return .failure(account: account, providerID: id, message: L("No credentials: run `claude` to sign in"))
         }
         let metrics = ClaudeUsageTextMapper.map(text: text)
         guard !metrics.isEmpty else {

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Reads Claude usage through the official CLI (`claude -p "/usage"`), so the CLI talks to
-/// Anthropic with its own first-party identity — Tally never touches the OAuth token, and an
+/// Anthropic with its own first-party identity - Tally never touches the OAuth token, and an
 /// expired token heals itself (the CLI refreshes it as part of the run).
 enum ClaudeUsageCLI {
     /// Dedicated probe cwd: every `-p` run writes a session transcript under the account's
@@ -12,7 +12,7 @@ enum ClaudeUsageCLI {
 
     /// `configDir` nil = the default `~/.claude` account, which must run with CLAUDE_CONFIG_DIR
     /// UNSET (the CLI namespaces its Keychain item by the exact env value; explicitly passing the
-    /// default path makes it look up a hashed item that doesn't exist — "Not logged in").
+    /// default path makes it look up a hashed item that doesn't exist - "Not logged in").
     static func fetchUsageText(configDir: String?) async -> String? {
         guard let binary = CLIRunner.resolve("claude") else { return nil }
         try? FileManager.default.createDirectory(at: probeDirectory, withIntermediateDirectories: true)
@@ -94,8 +94,8 @@ enum ClaudeUsageTextMapper {
         return metrics.uniquingIDs()
     }
 
-    /// "Jul 17 at 3:19am (Asia/Taipei)" → Date. On-the-hour stamps drop the minutes entirely —
-    /// "Jul 17 at 4am" (live output, 2026-07-17) — so minutes are optional. The year is inferred:
+    /// "Jul 17 at 3:19am (Asia/Taipei)" → Date. On-the-hour stamps drop the minutes entirely -
+    /// "Jul 17 at 4am" (live output, 2026-07-17) - so minutes are optional. The year is inferred:
     /// the nearest occurrence that isn't already in the past (a reset is always in the future).
     static func parseReset(_ string: String, now: Date = Date()) -> Date? {
         guard let stampRange = string.range(

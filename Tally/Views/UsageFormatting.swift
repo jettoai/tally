@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum UsageFormat {
-    /// "90%" — the displayed value for a meter under the current mode.
+    /// "90%" - the displayed value for a meter under the current mode.
     static func percent(_ metric: UsageMetric, mode: DisplayMode) -> String {
         let value = mode == .used ? metric.usedPercent : metric.remainingPercent
         return "\(Int(value.rounded()))%"
@@ -12,7 +12,7 @@ enum UsageFormat {
         mode == .used ? L("used") : L("left")
     }
 
-    /// Bar fill fraction — matches the displayed number (used or remaining) so the bar and the value
+    /// Bar fill fraction - matches the displayed number (used or remaining) so the bar and the value
     /// always agree. Colour still keys off used-severity, so it never flips with the toggle.
     static func fillFraction(_ metric: UsageMetric, mode: DisplayMode) -> Double {
         let value = mode == .used ? metric.usedPercent : metric.remainingPercent
@@ -57,7 +57,7 @@ enum UsageFormat {
         return f
     }()
 
-    /// "07/16 20:45" — the current date and time, an anchor for reading the absolute reset times.
+    /// "07/16 20:45" - the current date and time, an anchor for reading the absolute reset times.
     static func nowShort(_ now: Date = Date()) -> String { nowFormatter.string(from: now) }
 
     /// The reset label under the user's chosen style.
@@ -74,7 +74,7 @@ enum UsageFormat {
     }
 
     /// Countdown to the next scheduled poll, e.g. "updates in 42s". Once the deadline passes the
-    /// poll is running (the CLIs take a dozen seconds), so it reads "updating…" — a countdown that
+    /// poll is running (the CLIs take a dozen seconds), so it reads "updating…" - a countdown that
     /// sat at zero looked broken.
     static func updatesIn(_ date: Date?, now: Date = Date()) -> String? {
         guard let date else { return nil }

@@ -5,41 +5,34 @@ import SwiftUI
 /// SwiftUI `Settings` scene. The scene's `showSettingsWindow:` action is unreliable for an LSUIElement
 /// accessory app (and the selector name is OS-version-sensitive), which made the gear appear to hang.
 ///
-/// Panes follow the macOS Settings convention: a fixed, non-customizable toolbar of selectable panes
-/// (Accounts / General), with the window title naming the current pane. The toolbar is plain AppKit —
-/// SwiftUI has no selectable-pane toolbar outside the `Settings` scene we can't use.
+/// Sizing: the view measures its own full content height (non-lazy layout, so the measurement is
+/// the truth) and reports it here; the window follows, exactly content-fit. Same proven pattern as
+/// the pinned panel (`onContentSize`): `sizingOptions = []` keeps this the ONLY size authority -
+/// two authorities recursed the layout engine into a stack overflow once (see PinnedPanelController).
+/// Fixed-size window (macOS HIG for settings): with an exact fit there is nothing to resize.
 @MainActor
-final class SettingsWindowController: NSObject {
+final class SettingsWindowController {
     static let shared = SettingsWindowController()
 
     private var window: NSWindow?
-
-    private static let accountsItem = NSToolbarItem.Identifier("pane.accounts")
-    private static let generalItem = NSToolbarItem.Identifier("pane.general")
+    private var lastAppliedHeight: CGFloat = 0
 
     func show() {
         if window == nil {
-            let hosting = NSHostingController(
-                rootView: SettingsView(store: .shared, settings: .shared))
+            let hosting = NSHostingController(rootView: SettingsView(
+                store: .shared, settings: .shared,
+                onContentHeight: { [weak self] height in self?.applyContentHeight(height) }))
+            hosting.sizingOptions = []   // manual sizing only - never a second authority
             let window = NSWindow(contentViewController: hosting)
-            // Settings windows are conventionally fixed-size and not minimizable (macOS HIG).
-            // No manual setContentSize: the hosting controller sizes the window to SettingsView's
-            // fixed frame — a second (smaller) size authority here clipped the form's right/bottom.
+            window.title = String(localized: "Settings", bundle: AppLocale.bundle)
             window.styleMask = [.titled, .closable]
-            window.toolbarStyle = .preference
-            let toolbar = NSToolbar(identifier: "TallySettingsToolbar")
-            toolbar.delegate = self
-            toolbar.allowsUserCustomization = false
-            toolbar.displayMode = .iconAndLabel
-            window.toolbar = toolbar
-            toolbar.selectedItemIdentifier = SettingsPaneState.shared.pane == .accounts
-                ? Self.accountsItem : Self.generalItem
             window.isReleasedWhenClosed = false
-            window.setFrameAutosaveName("TallySettingsWindow")
+            window.setContentSize(NSSize(width: 500, height: 640))   // placeholder until the first report
+            // v5: only the POSITION matters across launches - the height self-corrects to content.
+            window.setFrameAutosaveName("TallySettingsWindow.v5")
             window.center()
             self.window = window
         }
-        window?.title = Self.paneTitle(SettingsPaneState.shared.pane)
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         // Nothing should start focused: an auto-focused rename field opens the window with a loud
@@ -47,67 +40,23 @@ final class SettingsWindowController: NSObject {
         window?.makeFirstResponder(nil)
     }
 
-    private static func paneTitle(_ pane: SettingsPaneState.Pane) -> String {
-        pane == .accounts
-            ? String(localized: "Accounts", bundle: AppLocale.bundle)
-            : String(localized: "General", bundle: AppLocale.bundle)
-    }
-
-    @objc private func selectPane(_ sender: NSToolbarItem) {
-        let pane: SettingsPaneState.Pane = sender.itemIdentifier == Self.accountsItem
-            ? .accounts : .general
-        SettingsPaneState.shared.select(pane)
-        window?.title = Self.paneTitle(pane)
-        window?.makeFirstResponder(nil)
-    }
-}
-
-extension SettingsWindowController: NSToolbarDelegate {
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-        if itemIdentifier == Self.accountsItem {
-            item.label = String(localized: "Accounts", bundle: AppLocale.bundle)
-            item.image = NSImage(systemSymbolName: "person.2", accessibilityDescription: item.label)
-        } else {
-            item.label = String(localized: "General", bundle: AppLocale.bundle)
-            item.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: item.label)
+    /// Follow the view's reported content height (deferred a runloop turn so the window never
+    /// resizes from inside the SwiftUI update that reported it - the pinned panel's lesson).
+    /// Continuous but self-quieting: the ±1pt dead band stops echo, and equal heights no-op.
+    private func applyContentHeight(_ height: CGFloat) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let window = self.window else { return }
+            guard height.isFinite, height > 1, abs(height - self.lastAppliedHeight) > 1 else { return }
+            self.lastAppliedHeight = height
+            let chrome = window.frame.height - (window.contentView?.frame.height ?? 0)
+            let maxHeight = (((window.screen ?? NSScreen.main)?.visibleFrame.height) ?? 900) - 40
+            let target = max(200, min(height + chrome, maxHeight))
+            guard abs(target - window.frame.height) > 1 else { return }
+            var frame = window.frame
+            let top = frame.maxY
+            frame.size.height = target
+            frame.origin.y = top - target   // keep the title bar where the user sees it
+            window.setFrame(frame, display: true)
         }
-        item.target = self
-        item.action = #selector(selectPane(_:))
-        return item
-    }
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.accountsItem, Self.generalItem]
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.accountsItem, Self.generalItem]
-    }
-
-    func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.accountsItem, Self.generalItem]
-    }
-}
-
-/// Which settings pane is showing — set by the AppKit toolbar, read by the SwiftUI form.
-/// Persisted so the window reopens on the pane you last used (Settings HIG).
-@MainActor
-@Observable
-final class SettingsPaneState {
-    static let shared = SettingsPaneState()
-
-    enum Pane: String { case accounts, general }
-
-    var pane: Pane
-
-    private init() {
-        pane = Pane(rawValue: UserDefaults.standard.string(forKey: "settingsPane") ?? "") ?? .accounts
-    }
-
-    func select(_ newPane: Pane) {
-        pane = newPane
-        UserDefaults.standard.set(newPane.rawValue, forKey: "settingsPane")
     }
 }

@@ -2,14 +2,13 @@ import SwiftUI
 import AppKit
 
 /// Minimal SVG `<path d>` parser → `SwiftUI.Path`. Supports M/L/H/V/C/S/Q/T/Z (absolute + relative,
-/// implicit command repetition). Arcs (A/a) are unsupported — our bundled marks don't use them (a
+/// implicit command repetition). Arcs (A/a) are unsupported - our bundled marks don't use them (a
 /// build-time check confirms). SwiftUI's `Path` is y-down like SVG, so no coordinate flip is needed.
-/// Technique adapted from robinebers/openusage.
 enum SVGPath {
     private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var cache: [String: Path] = [:]
 
-    /// Parse (memoized) — the same mark is rendered on every popover open and menu-bar refresh, so
+    /// Parse (memoized) - the same mark is rendered on every popover open and menu-bar refresh, so
     /// parsing its ~160-element path once instead of per-render matters, especially in debug builds.
     static func parse(_ d: String) -> Path {
         cacheLock.lock()
@@ -162,7 +161,7 @@ enum SVGPath {
 }
 
 /// A brand mark as a `Shape`, normalized against the parsed path's actual bounding box (the SVG
-/// viewBox is ignored — some marks bake in uneven margins) then aspect-fit and centered into `rect`,
+/// viewBox is ignored - some marks bake in uneven margins) then aspect-fit and centered into `rect`,
 /// with a uniform `inset` for breathing room.
 struct ProviderIconShape: Shape {
     let pathData: String
@@ -182,8 +181,61 @@ struct ProviderIconShape: Shape {
     }
 }
 
+/// Like `ProviderIconShape`, but normalized against a REFERENCE path's bounding box, so several
+/// overlaid subpaths (e.g. the Tally T and its green accent) keep their relative placement.
+struct AnchoredIconShape: Shape {
+    let pathData: String
+    let referenceData: String
+
+    func path(in rect: CGRect) -> Path {
+        let raw = SVGPath.parse(pathData)
+        let bounds = SVGPath.parse(referenceData).cgPath.boundingBoxOfPath
+        guard bounds.width > 0, bounds.height > 0 else { return raw }
+        let scale = min(rect.width / bounds.width, rect.height / bounds.height)
+        let dx = rect.midX - bounds.midX * scale
+        let dy = rect.midY - bounds.midY * scale
+        return raw
+            .applying(CGAffineTransform(scaleX: scale, y: scale))
+            .applying(CGAffineTransform(translationX: dx, y: dy))
+    }
+}
+
+/// The bare Tally "Relay T" letterform: monochrome body following the current foreground (so it
+/// works on light and dark surfaces) with the fixed green progress shoulder.
+struct TallyGlyphView: View {
+    var body: some View {
+        ZStack {
+            AnchoredIconShape(pathData: ProviderMarks.tallyT, referenceData: ProviderMarks.tallyT)
+                .fill(Color.primary)
+            AnchoredIconShape(pathData: ProviderMarks.tallyTAccent, referenceData: ProviderMarks.tallyT)
+                .fill(Color(red: 0.19, green: 0.82, blue: 0.35))
+        }
+        // The glyph is wider than tall (472×416 units) - callers give it a frame with roughly
+        // this ratio so the fit is exact.
+        .aspectRatio(472.0 / 416.0, contentMode: .fit)
+    }
+}
+
+/// The Tally logotype: the brand T glyph IS the word's initial ("T" + "ally"), so branding never
+/// reads as "T Tally". "ally" is set in heavy italic - SF's ~14° italic matches the glyph's ~13°
+/// forward lean, so the pair shares one gesture.
+struct TallyWordmarkView: View {
+    var glyphHeight: CGFloat = 13
+
+    var body: some View {
+        // Negative spacing tucks "ally" under the T's overhanging top bar: the glyph's bottom
+        // right is empty (the stem leans left), so honoring the bounding box read as "T ally".
+        HStack(alignment: .lastTextBaseline, spacing: -glyphHeight * 0.38) {
+            TallyGlyphView().frame(height: glyphHeight)   // shape baseline = frame bottom
+            Text("ally")
+                .font(.system(size: glyphHeight * 1.32, weight: .heavy))
+                .italic()
+        }
+    }
+}
+
 /// A provider's brand mark for SwiftUI, falling back to the SF Symbol when no mark is registered.
-/// The mark is rasterized to a template image once and cached — filling its ~160-element path live on
+/// The mark is rasterized to a template image once and cached - filling its ~160-element path live on
 /// every card render / layout pass was a real cost on popover open.
 struct ProviderIconView: View {
     let providerID: String

@@ -1,50 +1,24 @@
 import AppKit
 import SwiftUI
 
-/// A borderless, non-activating floating panel — the pinned form of the usage view. It hosts the same
+/// A borderless, non-activating floating panel - the pinned form of the usage view. It hosts the same
 /// `PopoverRootView` as the transient popover; only one is on screen at a time.
 final class PinnedUsagePanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
-
-    // TEMP diagnostics: log every frame-origin change with its call stack, to catch what teleports
-    // the panel to the screen's top-left during a card drag. Remove once the mover is identified.
-    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        if frameRect.origin != frame.origin {
-            NSLog("TALLY-PANEL setFrame origin (%.0f,%.0f)->(%.0f,%.0f) size (%.0f,%.0f)\n%@",
-                  frame.origin.x, frame.origin.y, frameRect.origin.x, frameRect.origin.y,
-                  frameRect.width, frameRect.height,
-                  Thread.callStackSymbols.prefix(12).joined(separator: "\n"))
-        }
-        super.setFrame(frameRect, display: flag)
-    }
-
-    override func setFrameOrigin(_ point: NSPoint) {
-        if point != frame.origin {
-            NSLog("TALLY-PANEL setFrameOrigin (%.0f,%.0f)->(%.0f,%.0f)\n%@",
-                  frame.origin.x, frame.origin.y, point.x, point.y,
-                  Thread.callStackSymbols.prefix(12).joined(separator: "\n"))
-        }
-        super.setFrameOrigin(point)
-    }
-
-    override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
-        if frameRect.origin != frame.origin {
-            NSLog("TALLY-PANEL setFrame(animate:%d) origin (%.0f,%.0f)->(%.0f,%.0f)\n%@",
-                  animateFlag ? 1 : 0,
-                  frame.origin.x, frame.origin.y, frameRect.origin.x, frameRect.origin.y,
-                  Thread.callStackSymbols.prefix(12).joined(separator: "\n"))
-        }
-        super.setFrame(frameRect, display: displayFlag, animate: animateFlag)
-    }
 }
 
 /// The pinned panel's window-move handle: an AppKit view that hands its mouse-down to
 /// `NSWindow.performDrag`, giving the header strip (and nothing else) window-moving duty. This is the
-/// counterpart to `isMovableByWindowBackground = false` — an explicit drag region can never collide
+/// counterpart to `isMovableByWindowBackground = false` - an explicit drag region can never collide
 /// with the cards' reorder gesture. Inert inside the transient popover (that window must stay anchored).
 struct WindowDragArea: NSViewRepresentable {
     final class DragView: NSView {
+        // Titled windows get background-drag for free; a borderless panel's custom drag region must
+        // accept the first mouse, or a click while the panel is unfocused is consumed by focus
+        // handling and the user needs a wake-up click before the header will drag.
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
         override func mouseDown(with event: NSEvent) {
             if window is PinnedUsagePanel {
                 window?.performDrag(with: event)
@@ -58,7 +32,7 @@ struct WindowDragArea: NSViewRepresentable {
     func updateNSView(_ nsView: DragView, context: Context) {}
 }
 
-/// The pinned panel's base surface. Glass mode shows the desktop through behind-window vibrancy —
+/// The pinned panel's base surface. Glass mode shows the desktop through behind-window vibrancy -
 /// SwiftUI's `Material` only samples in-app content, so this must be an `NSVisualEffectView` with
 /// `.behindWindow`, and it carries its own rounded mask because the window server composites the blur
 /// without honoring the SwiftUI clip shape. Accessibility's Reduce Transparency is a need, not a
@@ -104,6 +78,21 @@ private struct GlassBackdrop: NSViewRepresentable {
     }
 }
 
+/// An NSHostingView that accepts the first mouse. Without it, the first click on the non-key
+/// floating panel is consumed by focus handling, so dragging a card needed one "wake-up" click
+/// first - macOS utility panels are expected to react on the very first click.
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    // SwiftUI only tracks gestures in the KEY window, so accepting the first mouse isn't enough:
+    // make the panel key synchronously as the click lands (non-activating panels may become key
+    // without stealing the active app), THEN route the event so the drag tracks immediately.
+    override func mouseDown(with event: NSEvent) {
+        if let window, !window.isKeyWindow { window.makeKey() }
+        super.mouseDown(with: event)
+    }
+}
+
 /// Owns the pinned floating panel. Separate from the popover so the transient popover keeps working
 /// untouched; pinning just hands its content off to this always-on-top window.
 @MainActor
@@ -111,7 +100,6 @@ final class PinnedPanelController {
     static let shared = PinnedPanelController()
 
     private var panel: PinnedUsagePanel?
-    private var host: NSHostingController<AnyView>?
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
@@ -178,10 +166,10 @@ final class PinnedPanelController {
                             onContentSize: { [weak self] size in self?.resize(to: size) })
                 .background(PanelBackdrop(settings: .shared))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)))
-        let host = NSHostingController(rootView: content)
-        host.sizingOptions = []      // do NOT let SwiftUI install sizing constraints; we set the frame
-        self.host = host
-        panel.contentViewController = host
+        let hostView = FirstMouseHostingView(rootView: content)
+        hostView.sizingOptions = []  // do NOT let SwiftUI install sizing constraints; we set the frame
+        hostView.autoresizingMask = [.width, .height]
+        panel.contentView = hostView
         panel.setContentSize(CGSize(width: 500, height: 400))   // placeholder until onContentSize reports the real size
         panel.setFrameAutosaveName("TallyPinnedUsagePanel")
         return panel

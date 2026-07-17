@@ -28,6 +28,30 @@ struct AccountCardView: View {
         }
     }
 
+    // MARK: Launch policy affordances (multi-account providers only)
+
+    /// Sibling count decides whether launch affordances appear at all - with one account there is
+    /// nothing to choose.
+    private var hasSiblings: Bool {
+        UsageStore.shared.accounts.filter { $0.providerID == usage.providerID }.count > 1
+    }
+
+    private var launchMode: LaunchPolicyStore.Mode {
+        LaunchPolicyStore.shared.mode(usage.providerID)
+    }
+
+    private var isPinnedActive: Bool {
+        LaunchPolicyStore.shared.isPinned(usage.id, providerID: usage.providerID)
+    }
+
+    /// Whether auto mode would launch THIS account right now (the panel predicts the CLI).
+    private var isAutoPick: Bool {
+        let store = UsageStore.shared
+        let launchable = Set(store.discoveredAccounts.compactMap { $0.launchHome != nil ? $0.id : nil })
+        return LaunchPolicyStore.shared.autoPickID(
+            providerID: usage.providerID, accounts: store.accounts, launchable: launchable) == usage.id
+    }
+
     /// A hard error (this account has never loaded) collapses to a compact error + Retry. A stale
     /// account (a failed refresh over previously-good numbers) keeps its metrics readable - the
     /// "Outdated" badge in the header carries the state, so the numbers aren't dimmed away.
@@ -81,6 +105,13 @@ struct AccountCardView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if hasSiblings {
+                switch launchMode {
+                case .manual: pinControl
+                case .auto: if isAutoPick { autoBadge }
+                case .off: EmptyView()
+                }
+            }
             if usage.isStale {
                 Label(L("Outdated"), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)
@@ -97,6 +128,31 @@ struct AccountCardView: View {
                     .help(L("Drag to reorder"))
             }
         }
+    }
+
+    /// Manual mode: a radio per card - the filled one is where new sessions launch; click to move it.
+    private var pinControl: some View {
+        Button {
+            let home = UsageStore.shared.discoveredAccounts.first { $0.id == usage.id }?.launchHome
+            LaunchPolicyStore.shared.pin(usage.providerID, accountID: usage.id, home: home)
+        } label: {
+            Image(systemName: isPinnedActive ? "circle.inset.filled" : "circle")
+                .font(.caption)
+                .foregroundStyle(isPinnedActive ? Color.accentColor : Color.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(L("Set as launch account"))
+        .accessibilityLabel(L("Set as launch account"))
+    }
+
+    /// Auto mode: marks the card the next launch would pick, so the policy is legible at a glance.
+    private var autoBadge: some View {
+        Text(L("Auto"))
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+            .help(L("Launch account"))
     }
 
     private var errorRow: some View {

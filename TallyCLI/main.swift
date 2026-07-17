@@ -50,6 +50,28 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         exec(provider.cli, args: passthrough, env: launchEnv(provider, home: match.launchHome!))
     }
 
+    // The app's launch policy (Settings → Launch account). A `--account` flag above outranks it.
+    // "off" still auto-picks HERE: invoking `tally claude` is itself an explicit ask to pick -
+    // off only means Tally must not steer launches it wasn't asked into (the future PATH shim).
+    let policy = launchPolicy(provider.id)
+    if policy.mode == "manual" {
+        if let match = snapshot?.accounts.first(where: {
+            $0.id == policy.pinnedAccountID && $0.launchHome != nil
+        }) {
+            if headroom(match) <= 0 {
+                warn("\(match.label) is out of quota - launching anyway (pinned in Tally)")
+            }
+            warn("→ \(match.label) (pinned in Tally)")
+            // A pin is the user choosing by hand, so no auto-handoff supervisor (same as --account).
+            exec(provider.cli, args: passthrough, env: launchEnv(provider, home: match.launchHome!))
+        }
+        if let home = policy.pinnedHome {
+            warn("→ pinned account (set in Tally)")
+            exec(provider.cli, args: passthrough, env: launchEnv(provider, home: home))
+        }
+        warn("pinned account not found - picking by headroom instead")
+    }
+
     guard let snapshot, let account = best(providerID: provider.id, in: snapshot) else {
         warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
         exec(provider.cli, args: passthrough, env: nil)
@@ -70,10 +92,13 @@ func runStatus() {
     for provider in providers {
         let accounts = snapshot.accounts.filter { $0.provider == provider.id }
         guard !accounts.isEmpty else { continue }
+        let policy = launchPolicy(provider.id)
         let bestID = best(providerID: provider.id, in: snapshot)?.id
         for account in accounts {
-            let marker = account.id == bestID ? "→" : " "
-            let state = account.error.map { " !\($0)" } ?? (account.isStale ? " (stale)" : "")
+            let pinned = policy.mode == "manual" && account.id == policy.pinnedAccountID
+            let marker = pinned || (policy.mode != "manual" && account.id == bestID) ? "→" : " "
+            var state = account.error.map { " !\($0)" } ?? (account.isStale ? " (stale)" : "")
+            if pinned { state += " (pinned)" }
             print("\(marker) \(account.label): session \(fmt(account.sessionRemaining)) · " +
                   "weekly \(fmt(account.weeklyRemaining)) · model \(fmt(account.modelRemaining))\(state)")
         }
@@ -152,8 +177,13 @@ func runBestDir(_ providerID: String) {
     }
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
-    guard let snapshot, let account = best(providerID: provider.id, in: snapshot),
-          let home = account.launchHome else {
+    // A Tally-set manual pin is the answer regardless of headroom - the user chose by hand.
+    let policy = launchPolicy(provider.id)
+    let pinnedHome: String? = policy.mode == "manual"
+        ? snapshot?.accounts.first { $0.id == policy.pinnedAccountID }?.launchHome ?? policy.pinnedHome
+        : nil
+    let home = pinnedHome ?? snapshot.flatMap { best(providerID: provider.id, in: $0)?.launchHome }
+    guard let home else {
         warn("no eligible \(providerID) account")
         exit(1)
     }

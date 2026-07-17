@@ -43,6 +43,35 @@ let providers = [
     Provider(id: "codex", cli: "codex", envKey: "CODEX_HOME"),
 ]
 
+/// The user-intent half of the app↔CLI contract (`~/.tally/state.json`, written by the app's
+/// LaunchPolicyStore): which account new sessions launch on. Missing file/entry = "auto"
+/// (headroom pick), the launcher's historical behavior.
+struct LaunchPolicy {
+    var mode = "auto"
+    var pinnedAccountID: String?
+    var pinnedHome: String?
+}
+
+let stateURL = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".tally/state.json")
+
+func launchPolicy(_ providerID: String) -> LaunchPolicy {
+    struct StateFile: Decodable {
+        struct Policy: Decodable {
+            var mode: String?
+            var pinnedAccountID: String?
+            var pinnedHome: String?
+        }
+        var launch: [String: Policy]?
+    }
+    guard let data = try? Data(contentsOf: stateURL),
+          let file = try? JSONDecoder().decode(StateFile.self, from: data),
+          let policy = file.launch?[providerID] else { return LaunchPolicy() }
+    return LaunchPolicy(mode: policy.mode ?? "auto",
+                        pinnedAccountID: policy.pinnedAccountID,
+                        pinnedHome: policy.pinnedHome)
+}
+
 func loadSnapshot() -> (Snapshot?, String?) {
     guard let data = try? Data(contentsOf: snapshotURL) else {
         return (nil, "no snapshot at \(snapshotURL.path) - is Tally.app running?")

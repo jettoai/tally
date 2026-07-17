@@ -59,7 +59,10 @@ git tag "$TAG"
 
 echo "==> GitHub release"
 git push origin main "$TAG"
-gh release create "$TAG" "$DMG" "$FEED/appcast.xml" \
+# A stable-named copy rides along so the README's download link
+# (releases/latest/download/Tally.dmg) always fetches the newest version directly.
+cp "$DMG" "$FEED/Tally.dmg"
+gh release create "$TAG" "$DMG" "$FEED/Tally.dmg" "$FEED/appcast.xml" \
   --repo "$REPO" --title "Tally $VERSION" --generate-notes
 
 echo "==> done - verify: curl -sL https://github.com/$REPO/releases/latest/download/appcast.xml | grep $VERSION"

@@ -16,8 +16,8 @@
 
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <b>한국어</b></p>
 
-Tally는 **Claude와 Codex의 사용량 제한을 모니터링하는 네이티브 macOS 메뉴 막대
-앱**입니다. **여러 개의 Claude(Max/Pro)와 Codex 구독**을 운용하면서 「어느 계정에
+Tally는 **Claude와 Codex의 AI 사용량(사용 한도)을 모니터링하는 네이티브 macOS 메뉴
+막대 앱**입니다. **여러 개의 Claude(Max/Pro)와 Codex 구독**을 운용하면서 「어느 계정에
 아직 여유가 있지?」를 추측하는 데 지친 사람을 위해 만들어졌습니다. 각 계정의 5시간
 세션, 주간, 최상위 모델 쿼터 창을 나란히 보여 주고, `tally claude`는 여유가 가장 많은
 계정으로 다음 Claude Code 세션을 시작하며, 한도에 걸리면 대화 도중에도 자동으로 계정을

@@ -16,7 +16,7 @@
 
 <p align="center"><a href="README.md">English</a> · <a href="README.zh-TW.md">繁體中文</a> · <b>简体中文</b> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
 
-Tally 是原生的 **macOS 菜单栏 Claude／Codex 额度监控工具**，为同时养着**多个 Claude
+Tally 是原生的 **macOS 菜单栏 AI 用量监控工具（Claude／Codex 额度）**，为同时养着**多个 Claude
 （Max/Pro）与 Codex 订阅**的重度用户而生：每个账号的 5 小时会话、每周、旗舰模型额度窗
 并排呈现，`tally claude` 自动用余量最好的账号启动新的 Claude Code 会话，撞到 rate limit
 时还会自动切换账号、续跑同一段对话。

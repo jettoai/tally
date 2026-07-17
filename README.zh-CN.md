@@ -1,3 +1,6 @@
+<p align="center">
+  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="140" alt="Tally app icon"></a>
+</p>
 <h1 align="center">Tally</h1>
 
 <p align="center">你的所有 AI 订阅额度，一眼看尽，就在 macOS 菜单栏，<br>外加一个永远帮你挑「余量最多的账号」开工的 CLI。</p>

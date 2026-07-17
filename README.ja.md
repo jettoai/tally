@@ -1,3 +1,6 @@
+<p align="center">
+  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="140" alt="Tally app icon"></a>
+</p>
 <h1 align="center">Tally</h1>
 
 <p align="center">あなたの AI サブスクリプションの残量を、macOS メニューバーでひと目で。<br>さらに、常に「いちばん余裕のあるアカウント」で作業を始める CLI 付き。</p>

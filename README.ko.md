@@ -1,3 +1,6 @@
+<p align="center">
+  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="140" alt="Tally app icon"></a>
+</p>
 <h1 align="center">Tally</h1>
 
 <p align="center">보유한 모든 AI 구독의 잔여 한도를 macOS 메뉴 막대에서 한눈에.<br>항상 「여유가 가장 많은 계정」으로 작업을 시작해 주는 CLI까지.</p>

@@ -1,3 +1,6 @@
+<p align="center">
+  <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="140" alt="Tally app icon"></a>
+</p>
 <h1 align="center">Tally</h1>
 
 <p align="center">Every AI subscription you own, at a glance, in your macOS menu bar,<br>plus a CLI that always launches on the account with the most headroom left.</p>

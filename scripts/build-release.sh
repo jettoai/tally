@@ -50,7 +50,7 @@ lipo -archs "$CLI_BIN" | grep -q arm64 && lipo -archs "$CLI_BIN" | grep -q x86_6
 
 echo "==> export"
 xcodebuild -exportArchive -archivePath "$ARCHIVE" \
-  -exportOptionsPath ExportOptions.plist -exportPath "$EXPORT" -quiet
+  -exportOptionsPlist ExportOptions.plist -exportPath "$EXPORT" -quiet
 APP="$EXPORT/Tally.app"
 
 # Sparkle binary must be universal too, or generate_appcast narrows the appcast's hardware

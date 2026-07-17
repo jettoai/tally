@@ -22,6 +22,8 @@ struct SettingsView: View {
                 sectionCard { displayRows }
                 sectionHeader(L("General"))
                 sectionCard { generalRows }
+                sectionHeader(L("Integrations"))
+                sectionCard { integrationsRows }
                 sectionCard { aboutRows }
                     .padding(.top, 8)
             }
@@ -147,6 +149,80 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+    }
+
+    // MARK: Integrations - everything Tally installs outside its bundle (tracked & reversible).
+
+    @ViewBuilder
+    private var integrationsRows: some View {
+        let integrations = IntegrationsStore.shared
+        integrationRow(
+            title: L("Command line tool"),
+            caption: L("Links the tally command into /usr/local/bin so any terminal can use it."),
+            status: integrations.cliToolStatus,
+            install: integrations.installCLITool,
+            remove: integrations.removeCLITool)
+        rowDivider
+        integrationRow(
+            title: L("Codex shell integration"),
+            caption: L("Routes bare codex commands through your launch policy. Installs one small script and one PATH line; both are removed cleanly."),
+            status: integrations.codexShimStatus,
+            install: integrations.installCodexShim,
+            remove: integrations.removeCodexShim)
+        if let error = integrations.lastError {
+            rowDivider
+            Text(error)
+                .font(.caption)
+                .foregroundStyle(TallyColor.warning)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+        }
+    }
+
+    private func integrationRow(title: String, caption: String, status: IntegrationsStore.Status,
+                                install: @escaping () -> Void,
+                                remove: @escaping () -> Void) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(title).font(.subheadline)
+                    statusBadge(status)
+                }
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            switch status {
+            case .installed: Button(L("Remove"), action: remove).controlSize(.small)
+            case .notInstalled: Button(L("Install"), action: install).controlSize(.small)
+            case .broken: Button(L("Reinstall"), action: install).controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private func statusBadge(_ status: IntegrationsStore.Status) -> some View {
+        switch status {
+        case .installed:
+            Text(L("Installed"))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(.quaternary))
+        case .notInstalled:
+            EmptyView()
+        case .broken(let reason):
+            Text(L("Needs attention"))
+                .font(.caption2)
+                .foregroundStyle(TallyColor.warning)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
+                .help(reason)
+        }
     }
 
     // MARK: About - brand + version (brand names stay unlocalized).

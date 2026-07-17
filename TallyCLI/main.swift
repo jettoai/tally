@@ -196,6 +196,31 @@ func runBestDir(_ providerID: String) {
     }
 }
 
+/// `tally launch-dir` - the machine interface for the codex/claude PATH shims. Unlike `best-dir`
+/// (an explicit "which is best" question), this answers "should a BARE invocation be steered, and
+/// where": mode off prints nothing (the shim passes through untouched), manual prints the pin,
+/// auto prints the headroom pick. Output is eval-able (`export …` / `unset …`) or empty.
+func runLaunchDir(_ providerID: String) {
+    guard let provider = providers.first(where: { $0.id == providerID }) else {
+        warn("unknown provider `\(providerID)` - use claude or codex")
+        exit(2)
+    }
+    let policy = launchPolicy(provider.id)
+    guard policy.mode != "off" else { return }
+    let (snapshot, problem) = loadSnapshot()
+    if let problem { warn(problem) }
+    let pinnedHome: String? = policy.mode == "manual"
+        ? snapshot?.accounts.first { $0.id == policy.pinnedAccountID }?.launchHome ?? policy.pinnedHome
+        : nil
+    guard let home = pinnedHome ?? snapshot.flatMap({ best(providerID: provider.id, in: $0)?.launchHome })
+    else { return }   // nothing eligible - stay silent, the shim runs the bare CLI
+    if launchEnv(provider, home: home) == nil {
+        print("unset \(provider.envKey)")
+    } else {
+        print("export \(provider.envKey)=\(home)")
+    }
+}
+
 // MARK: - Entry
 
 let arguments = Array(CommandLine.arguments.dropFirst())
@@ -210,6 +235,8 @@ case "status", nil:
     runStatus()
 case "best-dir":
     runBestDir(arguments.dropFirst().first ?? "claude")
+case "launch-dir":
+    runLaunchDir(arguments.dropFirst().first ?? "codex")
 default:
     warn("""
     usage:
@@ -220,6 +247,8 @@ default:
       tally resume [args…]      continue this directory's latest Claude session on the best account
       tally status              show every account's remaining windows
       tally best-dir <provider> print the export line for the best account
+      tally launch-dir <provider> shim interface: like best-dir but honours the app's
+                                launch policy (off → prints nothing)
     """)
     exit(2)
 }

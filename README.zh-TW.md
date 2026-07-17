@@ -9,7 +9,9 @@
   <a href="https://github.com/jettoai/tally/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/jettoai/tally?style=flat-square&label=download&color=22c55e"></a>
 </p>
 
-<p align="center"><a href="README.md">English</a> · <b>繁體中文</b></p>
+<p align="center"><a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><b>⬇ 下載 macOS 版（macOS 14+）</b></a></p>
+
+<p align="center"><a href="README.md">English</a> · <b>繁體中文</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
 
 Tally 是原生的 **macOS 選單列 Claude／Codex 額度監控工具**，為同時養著**多個 Claude
 （Max/Pro）與 Codex 訂閱**的重度使用者而生：每個帳號的 5 小時工作階段、每週、旗艦模型

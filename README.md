@@ -9,7 +9,9 @@
   <a href="https://github.com/jettoai/tally/releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/jettoai/tally?style=flat-square&label=download&color=22c55e"></a>
 </p>
 
-<p align="center"><b>English</b> · <a href="README.zh-TW.md">繁體中文</a></p>
+<p align="center"><a href="https://github.com/jettoai/tally/releases/latest/download/Tally.dmg"><b>⬇ Download for macOS 14+</b></a></p>
+
+<p align="center"><b>English</b> · <a href="README.zh-TW.md">繁體中文</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
 
 Tally is a native **macOS menu bar usage monitor for Claude and Codex rate limits**, built for
 people who run **multiple Claude (Max/Pro) and Codex subscriptions** and are tired of guessing

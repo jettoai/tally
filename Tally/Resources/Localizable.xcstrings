@@ -175,6 +175,35 @@
         }
       }
     },
+    "5h starts on first use": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次使用起算 5h"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次使用起算 5h"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "初回使用から5h起算"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첫 사용부터 5h 시작"
+          }
+        }
+      }
+    },
     "updated just now": {
       "extractionState": "manual",
       "localizations": {

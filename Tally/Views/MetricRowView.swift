@@ -44,13 +44,20 @@ struct MetricRowView: View {
         .frame(height: prominent ? 7 : 6)
     }
 
+    /// An untouched session window: the provider starts the 5h clock on the first message, so there
+    /// is no reset instant yet. The time slot must never sit empty ("% + time" is the product's
+    /// promise — a blank reads as a bug), so it states the fact instead.
+    private var sessionNotStarted: Bool {
+        metric.kind == .session && metric.resetsAt == nil && metric.usedPercent == 0
+    }
+
     /// A tiny line under every window's bar: a critical warning on the left, ITS OWN reset on the
     /// right — per-row so a reset can never be misread as belonging to a neighbouring window.
     /// Clicking the reset flips every reset label between countdown and exact time (the exact time is
     /// one click away instead of a settings entry); hover previews the other format.
     @ViewBuilder
     private var contextLine: some View {
-        if metric.severity == .critical || metric.resetsAt != nil {
+        if metric.severity == .critical || metric.resetsAt != nil || sessionNotStarted {
             HStack(spacing: 6) {
                 if metric.severity == .critical {
                     Text(metric.usedPercent >= 100 ? L("Limit reached") : L("Near limit"))
@@ -60,6 +67,10 @@ struct MetricRowView: View {
                 Spacer(minLength: 0)
                 if let resetsAt = metric.resetsAt {
                     resetLabel(resetsAt)
+                } else if sessionNotStarted {
+                    Text(L("5h starts on first use"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
         }

@@ -157,7 +157,13 @@ func runBestDir(_ providerID: String) {
         warn("no eligible \(providerID) account")
         exit(1)
     }
-    print("export \(provider.envKey)=\(home)")
+    // Mirror launchEnv: the default home must UNSET the variable (explicitly setting the default
+    // path makes Claude Code look up a hashed Keychain item that doesn't exist). Both lines eval.
+    if launchEnv(provider, home: home) == nil {
+        print("unset \(provider.envKey)")
+    } else {
+        print("export \(provider.envKey)=\(home)")
+    }
 }
 
 // MARK: - Entry

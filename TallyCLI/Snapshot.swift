@@ -5,9 +5,9 @@ import Foundation
 //
 // The CLI NEVER calls a usage API - Tally.app is the only poller (the Anthropic usage endpoint
 // rate-limits; see the app's UsageSnapshot.swift). It reads the app's published snapshot
-// (~/.tally/snapshot.json), picks the eligible account with the greatest proven headroom
-// (max over accounts of min(session, weekly, model remaining)), sets the provider's config-home
-// env var, and runs the provider's own CLI. No tokens are read or written, ever.
+// (~/.tally/snapshot.json), picks the eligible account whose binding quota window can sustain
+// the highest spend rate (see `smartScore`), sets the provider's config-home env var, and runs
+// the provider's own CLI. No tokens are read or written, ever.
 
 /// Mirror of the app's `UsageSnapshot` (kept dependency-free).
 struct Snapshot: Decodable {
@@ -19,6 +19,11 @@ struct Snapshot: Decodable {
         var sessionRemaining: Double?
         var weeklyRemaining: Double?
         var modelRemaining: Double?
+        // v2 fields (absent in old snapshots; scoring then degrades to plain headroom order).
+        var sessionResetsAt: Date?
+        var weeklyResetsAt: Date?
+        var modelResetsAt: Date?
+        var modelWindowName: String?
         var isStale: Bool
         var error: String?
     }
@@ -124,10 +129,79 @@ func eligible(_ account: Snapshot.Account) -> Bool {
     account.launchHome != nil && account.error == nil && !account.isStale && headroom(account) > 0
 }
 
-func best(providerID: String, in snapshot: Snapshot) -> Snapshot.Account? {
+/// One usage window with its sustainable burn rate: how much quota per hour it can spend until
+/// it refreshes. A window about to reset stops being a constraint (its rate soars, and its
+/// leftover quota would evaporate unused) - the "burn the dying quota first" intuition; a window
+/// with days to go binds hard. Missing reset times assume a full window, so old snapshots
+/// degrade to plain headroom ordering instead of gaining a phantom advantage.
+struct RatedWindow {
+    let name: String
+    let remaining: Double
+    let resetsAt: Date?
+    let rate: Double
+}
+
+func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
+                  now: Date = Date()) -> [RatedWindow] {
+    func window(_ name: String, _ remaining: Double?, _ resetsAt: Date?,
+                fullWindowHours: Double) -> RatedWindow? {
+        guard let remaining else { return nil }
+        let hours = resetsAt.map { max($0.timeIntervalSince(now) / 3600, 0.05) } ?? fullWindowHours
+        return RatedWindow(name: name, remaining: remaining, resetsAt: resetsAt,
+                           rate: remaining / hours)
+    }
+    var windows = [
+        window("session", account.sessionRemaining, account.sessionResetsAt, fullWindowHours: 5),
+        window("weekly", account.weeklyRemaining, account.weeklyResetsAt, fullWindowHours: 168),
+    ].compactMap { $0 }
+    // The flagship window only constrains the pick when the declared primary model IS that tier
+    // (a sonnet primary doesn't drain the fable window, so a drained fable window must not veto
+    // the account). No declared primary = flagship-first, the app's display philosophy.
+    let windowModel = account.modelWindowName?.lowercased()
+    let primary = primaryModel?.lowercased()
+    let modelWindowCounts = primary == nil || windowModel == nil
+        || windowModel!.contains(primary!) || primary!.contains(windowModel!)
+    if modelWindowCounts,
+       let model = window(account.modelWindowName ?? "model", account.modelRemaining,
+                          account.modelResetsAt, fullWindowHours: 168) {
+        windows.append(model)
+    }
+    return windows
+}
+
+/// An account's score is its TIGHTEST window's rate - the binding constraint. `best()` then picks
+/// the account whose binding constraint is loosest, which naturally prefers an account whose low
+/// session quota resets in minutes over one hoarding a bigger but slower-refreshing allowance.
+func smartScore(_ account: Snapshot.Account, primaryModel: String?, now: Date = Date()) -> Double {
+    ratedWindows(account, primaryModel: primaryModel, now: now).map(\.rate).min() ?? -1
+}
+
+/// The human reason behind a pick: its binding window, e.g. "weekly 32% · resets 2d".
+func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = Date()) -> String {
+    guard let binding = ratedWindows(account, primaryModel: primaryModel, now: now)
+        .min(by: { $0.rate < $1.rate }) else { return "no usage windows" }
+    var text = "\(binding.name) \(Int(binding.remaining.rounded()))%"
+    if let resetsAt = binding.resetsAt {
+        text += " · resets \(shortETA(resetsAt.timeIntervalSince(now)))"
+    }
+    return text
+}
+
+func shortETA(_ seconds: TimeInterval) -> String {
+    let minutes = max(Int((seconds / 60).rounded()), 0)
+    if minutes < 60 { return "\(minutes)m" }
+    if minutes < 48 * 60 { return "\(minutes / 60)h" }
+    return "\(minutes / (24 * 60))d"
+}
+
+func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
+          now: Date = Date()) -> Snapshot.Account? {
     snapshot.accounts
         .filter { $0.provider == providerID && eligible($0) }
-        .max { headroom($0) < headroom($1) }
+        .max {
+            smartScore($0, primaryModel: primaryModel, now: now)
+                < smartScore($1, primaryModel: primaryModel, now: now)
+        }
 }
 
 func warn(_ message: String) {

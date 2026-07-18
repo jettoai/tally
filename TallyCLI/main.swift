@@ -118,11 +118,12 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         warn("pinned account not found - picking by headroom instead")
     }
 
-    guard let snapshot, let account = best(providerID: provider.id, in: snapshot) else {
+    guard let snapshot,
+          let account = best(providerID: provider.id, in: snapshot, primaryModel: policy.model) else {
         warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
         exec(provider.cli, args: passthrough, env: nil)
     }
-    warn("→ \(account.label) (headroom \(Int(headroom(account).rounded()))%)")
+    warn("→ \(account.label) (\(pickReason(account, primaryModel: policy.model)))")
     // Claude sessions get the resident supervisor (auto-handoff on a cap hit); an explicit
     // `--account` pin or `--no-handoff` opts out, and codex stays a plain exec for now.
     if provider.id == "claude", wantsHandoff {
@@ -139,7 +140,7 @@ func runStatus() {
         let accounts = snapshot.accounts.filter { $0.provider == provider.id }
         guard !accounts.isEmpty else { continue }
         let policy = launchPolicy(provider.id)
-        let bestID = best(providerID: provider.id, in: snapshot)?.id
+        let bestID = best(providerID: provider.id, in: snapshot, primaryModel: policy.model)?.id
         for account in accounts {
             let pinned = policy.mode == "manual" && account.id == policy.pinnedAccountID
             let marker = pinned || (policy.mode != "manual" && account.id == bestID) ? "→" : " "
@@ -188,9 +189,12 @@ func runResume(args: [String]) -> Never {
     let sessionID = newest.file.deletingPathExtension().lastPathComponent
 
     // Prefer the best OTHER eligible account; fall back to the source account (a plain resume).
+    let primaryModel = launchPolicy(provider.id).model
     let target = snapshot.accounts
         .filter { $0.provider == provider.id && eligible($0) && $0.id != newest.account.id }
-        .max { headroom($0) < headroom($1) } ?? newest.account
+        .max {
+            smartScore($0, primaryModel: primaryModel) < smartScore($1, primaryModel: primaryModel)
+        } ?? newest.account
     if target.id == newest.account.id {
         warn("no other eligible account - resuming on \(target.label)")
     }
@@ -212,7 +216,7 @@ func runResume(args: [String]) -> Never {
     }
 
     warn("→ resuming \(sessionID.prefix(8))… from \(newest.account.label) on \(target.label) " +
-         "(headroom \(Int(headroom(target).rounded()))%)")
+         "(\(pickReason(target, primaryModel: primaryModel)))")
     exec(provider.cli, args: ["--resume", sessionID] + args, env: launchEnv(provider, home: target.launchHome!))
 }
 

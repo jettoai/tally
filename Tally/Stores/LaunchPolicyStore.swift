@@ -119,15 +119,16 @@ final class LaunchPolicyStore {
     // MARK: Auto-pick preview
 
     /// The account auto mode would launch right now - the same rule as the CLI's `best()`
-    /// (greatest min(session, weekly, model remaining); capped/stale/errored accounts are out),
-    /// so the panel's badge always predicts what `tally` will actually do.
+    /// (burn-rate scoring; capped/stale/errored accounts are out), so the panel's badge always
+    /// predicts what `tally` will actually do.
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>) -> String? {
-        accounts
+        let primary = policy(providerID).model
+        return accounts
             .filter { $0.providerID == providerID && $0.error == nil && !$0.isStale
-                && launchable.contains($0.id) }
-            .compactMap { usage in Self.headroom(usage).map { (usage.id, $0) } }
-            .filter { $0.1 > 0 }
-            .max { $0.1 < $1.1 }?.0
+                && launchable.contains($0.id) && (Self.headroom($0) ?? -1) > 0 }
+            .max {
+                Self.smartScore($0, primaryModel: primary) < Self.smartScore($1, primaryModel: primary)
+            }?.id
     }
 
     /// The tightest of the windows the account reports (mirrors `UsageSnapshot.make` fields).
@@ -138,5 +139,30 @@ final class LaunchPolicyStore {
             usage.headline.flatMap { $0.isModelScoped ? $0.remainingPercent : nil },
         ].compactMap { $0 }
         return windows.min()
+    }
+
+    /// Mirror of the CLI's burn-rate scoring (TallyCLI/Snapshot.swift `smartScore`): each window's
+    /// sustainable rate is remaining% ÷ hours until it resets (missing reset = assume a full
+    /// window), the account's score is its tightest window's rate, and the flagship window only
+    /// counts when the declared primary model is that tier. Keep both sides in lockstep.
+    private static func smartScore(_ usage: AccountUsage, primaryModel: String?,
+                                   now: Date = Date()) -> Double {
+        func rate(_ metric: UsageMetric?, fullWindowHours: Double) -> Double? {
+            guard let metric else { return nil }
+            let hours = metric.resetsAt.map { max($0.timeIntervalSince(now) / 3600, 0.05) }
+                ?? fullWindowHours
+            return metric.remainingPercent / hours
+        }
+        var rates = [
+            rate(usage.metrics.first { $0.kind == .session }, fullWindowHours: 5),
+            rate(usage.metrics.first { $0.kind == .weeklyAll }, fullWindowHours: 168),
+        ].compactMap { $0 }
+        let model = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
+        let windowModel = model?.modelName?.lowercased()
+        let primary = primaryModel?.lowercased()
+        let modelWindowCounts = primary == nil || windowModel == nil
+            || windowModel!.contains(primary!) || primary!.contains(windowModel!)
+        if modelWindowCounts, let r = rate(model, fullWindowHours: 168) { rates.append(r) }
+        return rates.min() ?? -1
     }
 }

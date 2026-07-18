@@ -17,11 +17,17 @@ struct UsageSnapshot: Codable {
         var weeklyRemaining: Double?
         /// Remaining % of the headline model-scoped window (e.g. Fable weekly), when reported.
         var modelRemaining: Double?
+        /// v2: per-window reset times + the model window's name, so the CLI can pick by
+        /// sustainable burn rate (remaining ÷ time-to-reset) instead of raw remaining %.
+        var sessionResetsAt: Date?
+        var weeklyResetsAt: Date?
+        var modelResetsAt: Date?
+        var modelWindowName: String?
         var isStale: Bool
         var error: String?
     }
 
-    var version = 1
+    var version = 2
     var generatedAt: Date
     var accounts: [Account]
 
@@ -42,6 +48,10 @@ struct UsageSnapshot: Codable {
                     sessionRemaining: usage.metrics.first { $0.kind == .session }?.remainingPercent,
                     weeklyRemaining: usage.metrics.first { $0.kind == .weeklyAll }?.remainingPercent,
                     modelRemaining: usage.headline.flatMap { $0.isModelScoped ? $0.remainingPercent : nil },
+                    sessionResetsAt: usage.metrics.first { $0.kind == .session }?.resetsAt,
+                    weeklyResetsAt: usage.metrics.first { $0.kind == .weeklyAll }?.resetsAt,
+                    modelResetsAt: usage.headline.flatMap { $0.isModelScoped ? $0.resetsAt : nil },
+                    modelWindowName: usage.headline.flatMap { $0.isModelScoped ? $0.modelName : nil },
                     isStale: usage.isStale,
                     error: usage.error
                 )

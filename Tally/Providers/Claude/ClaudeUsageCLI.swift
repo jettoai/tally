@@ -95,8 +95,10 @@ enum ClaudeUsageTextMapper {
     }
 
     /// "Jul 17 at 3:19am (Asia/Taipei)" → Date. On-the-hour stamps drop the minutes entirely -
-    /// "Jul 17 at 4am" (live output, 2026-07-17) - so minutes are optional. The year is inferred:
-    /// the nearest occurrence that isn't already in the past (a reset is always in the future).
+    /// "Jul 17 at 4am" (live output, 2026-07-17) - so minutes are optional. The year is inferred
+    /// as the occurrence CLOSEST to now, past allowed: a stamp read minutes after its reset
+    /// passed must stay "just passed" (stale data, harmless), not jump a year ahead - that jump
+    /// made the smart pick score a fresh session as needing to last 8760h (2026-07-19).
     static func parseReset(_ string: String, now: Date = Date()) -> Date? {
         guard let stampRange = string.range(
             of: #"^[A-Z][a-z]{2} \d{1,2} at \d{1,2}(:\d{2})?(am|pm)"#, options: .regularExpression)
@@ -117,11 +119,8 @@ enum ClaudeUsageTextMapper {
         formatter.dateFormat = "MMM d 'at' h:mma yyyy"
 
         let year = Calendar.current.component(.year, from: now)
-        guard let candidate = formatter.date(from: "\(stamp) \(year)") else { return nil }
-        if candidate < now.addingTimeInterval(-60),
-           let next = formatter.date(from: "\(stamp) \(year + 1)") {
-            return next   // e.g. a late-December "Jan 2" reset read in the old year
-        }
-        return candidate
+        return (year - 1 ... year + 1)
+            .compactMap { formatter.date(from: "\(stamp) \($0)") }
+            .min { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) }
     }
 }

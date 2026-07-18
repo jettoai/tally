@@ -2523,6 +2523,93 @@
           }
         }
       }
+    },
+    "Launches a session on the account Tally picks.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 Tally 選中的帳號啟動新工作階段。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 Tally 选中的账号启动新会话。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally が選んだアカウントでセッションを開始します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 선택한 계정으로 세션을 시작합니다."
+          }
+        }
+      }
+    },
+    "With shell integration installed (Settings → Integrations), plain claude and codex commands follow the policy too.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "裝了 shell 整合（設定 → 整合）後，直接輸入 claude／codex 也會遵循啟動策略。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "装了 shell 集成（设置 → 集成）后，直接输入 claude／codex 也会遵循启动策略。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェル連携（設定 → 連携）を入れると、素の claude／codex コマンドも起動ポリシーに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸 통합(설정 → 통합)을 설치하면 일반 claude／codex 명령도 실행 정책을 따릅니다."
+          }
+        }
+      }
+    },
+    "Click a card to pin that account (Manual); click it again to go back to Auto.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點一下卡片＝釘選該帳號（手動）；再點一次＝回到自動。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点一下卡片＝钉选该账号（手动）；再点一次＝回到自动。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードをクリックでそのアカウントを固定（手動）、もう一度クリックで自動に戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카드를 클릭하면 해당 계정 고정(수동), 다시 클릭하면 자동으로 돌아갑니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

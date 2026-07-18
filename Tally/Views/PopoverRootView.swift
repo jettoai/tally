@@ -263,6 +263,35 @@ struct PopoverRootView: View {
         }
     }
 
+    @State private var showLaunchHelp = false
+
+    /// The "?" popover: how to actually launch on the picked account, and what clicking a card does.
+    private var launchHelp: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L("Launch account")).font(.subheadline.weight(.semibold))
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    ForEach(["tally claude", "tally codex"], id: \.self) { command in
+                        Text(verbatim: command)
+                            .font(.caption.monospaced())
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(.quaternary))
+                    }
+                }
+                Text(L("Launches a session on the account Tally picks."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text(L("With shell integration installed (Settings → Integrations), plain claude and codex commands follow the policy too."))
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(L("Click a card to pin that account (Manual); click it again to go back to Auto."))
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(width: 300, alignment: .leading)
+    }
+
     private var footer: some View {
         HStack {
             // A segmented control, not a switch: both states are valid views (nothing is "off"), and
@@ -282,6 +311,18 @@ struct PopoverRootView: View {
             Spacer()
             // Footer icons are one muted set (secondary); only the pin lights up (accent) when active,
             // so an unpinned pin doesn't read as already-on.
+            Button {
+                showLaunchHelp.toggle()
+            } label: {
+                Image(systemName: "questionmark.circle")
+                    .font(.callout)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help(L("Launch account"))
+            .popover(isPresented: $showLaunchHelp, arrowEdge: .bottom) { launchHelp }
             Button {
                 StatusItemController.togglePin()
             } label: {

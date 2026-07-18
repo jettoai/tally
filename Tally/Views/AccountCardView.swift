@@ -93,6 +93,10 @@ struct AccountCardView: View {
         .frame(maxHeight: fillsRowHeight ? .infinity : nil, alignment: .top)
         .tallyCard()
         .onHover { if showsDragHandle { isHovering = $0 } }
+        // Click cycles the launch pin: pin this account (Manual), click again for Auto. A plain
+        // tap never conflicts with the container's reorder drag (4pt minimum distance) and child
+        // buttons still win their own hits. No-op for single-account providers.
+        .onTapGesture { toggleLaunchPin() }
     }
 
     private var header: some View {
@@ -127,6 +131,19 @@ struct AccountCardView: View {
                     .accessibilityLabel(L("Drag to reorder"))
                     .help(L("Drag to reorder"))
             }
+        }
+    }
+
+    /// Card click: pin this account (switching the provider to Manual); clicking the already
+    /// pinned card releases back to Auto - one gesture covers the whole choose/release loop.
+    private func toggleLaunchPin() {
+        guard hasSiblings else { return }
+        let policy = LaunchPolicyStore.shared
+        if isPinnedActive {
+            policy.setMode(usage.providerID, .auto)
+        } else {
+            let home = UsageStore.shared.discoveredAccounts.first { $0.id == usage.id }?.launchHome
+            policy.pin(usage.providerID, accountID: usage.id, home: home)
         }
     }
 

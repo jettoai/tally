@@ -3451,6 +3451,35 @@
           }
         }
       }
+    },
+    "Continue the latest session (your default)": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接續最近的工作階段（你的預設）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接续最近的工作会话（你的默认）"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新のセッションを再開（現在のデフォルト）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 세션 이어서 하기 (현재 기본값)"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -36,6 +36,10 @@ final class LaunchPolicyStore {
         var model: String?
         var fallbackModel: String?
         var effort: String?
+        /// Fallback pairing, applied by the supervisor ONLY after the session's actual model
+        /// has degraded to the fallback: a weaker model can deserve a different depth and flags.
+        var fallbackEffort: String?
+        var fallbackArgs: String?
     }
 
     static let shared = LaunchPolicyStore()

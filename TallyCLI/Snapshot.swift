@@ -58,6 +58,8 @@ struct LaunchPolicy {
     var model: String?
     var fallbackModel: String?
     var effort: String?
+    var fallbackEffort: String?
+    var fallbackArgs: String?
 }
 
 let stateURL = FileManager.default.homeDirectoryForCurrentUser
@@ -74,6 +76,8 @@ func launchPolicy(_ providerID: String) -> LaunchPolicy {
             var model: String?
             var fallbackModel: String?
             var effort: String?
+            var fallbackEffort: String?
+            var fallbackArgs: String?
         }
         var launch: [String: Policy]?
     }
@@ -87,7 +91,9 @@ func launchPolicy(_ providerID: String) -> LaunchPolicy {
                         startMode: policy.startMode,
                         model: policy.model,
                         fallbackModel: policy.fallbackModel,
-                        effort: policy.effort)
+                        effort: policy.effort,
+                        fallbackEffort: policy.fallbackEffort,
+                        fallbackArgs: policy.fallbackArgs)
 }
 
 func loadSnapshot() -> (Snapshot?, String?) {

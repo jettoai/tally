@@ -39,6 +39,27 @@ extension SettingsAccountsView {
         .settingsRowPadding()
     }
 
+    /// Extra flags appended ONLY when the supervisor relaunches the session on the fallback
+    /// pairing (e.g. compensating a weaker model with extra system-prompt instructions).
+    func fallbackArgsRow(_ providerID: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("Fallback args")).font(.subheadline)
+                Text(L("Appended only when the session is relaunched on the fallback model."))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            TextField("--append-system-prompt …" as String, text: Binding(
+                get: { LaunchPolicyStore.shared.policy(providerID).fallbackArgs ?? "" },
+                set: { LaunchPolicyStore.shared.setLaunchDefault(providerID, \.fallbackArgs, $0) }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 210)
+        }
+        .settingsRowPadding()
+    }
+
     /// Claude Code permission mode injected by the tally launcher.
     func permissionRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared

@@ -3306,6 +3306,93 @@
           }
         }
       }
+    },
+    "Fallback & effort": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback 模型與強度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback 模型与强度"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォールバックと強度"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴백과 강도"
+          }
+        }
+      }
+    },
+    "Fallback args": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback 額外參數"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback 额外参数"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォールバック追加引数"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴백 추가 인수"
+          }
+        }
+      }
+    },
+    "Appended only when the session is relaunched on the fallback model.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅在偵測到降級、以 fallback 配置重啟工作階段時附加。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅在检测到降级、以 fallback 配置重启会话时附加。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォールバックモデルでセッションを再起動するときにのみ付加されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴백 모델로 세션을 재시작할 때만 추가됩니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

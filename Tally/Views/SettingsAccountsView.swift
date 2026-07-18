@@ -92,9 +92,13 @@ struct SettingsAccountsView: View {
                            effort: launchDefaultBinding(id, \.effort))
             if id == "claude" {
                 rowDivider
-                ModelSelectRow(title: L("Fallback models"),
-                               options: ModelCatalog.claudeAliases,
-                               value: launchDefaultBinding(id, \.fallbackModel))
+                ModelEffortRow(title: L("Fallback & effort"),
+                               modelOptions: ModelCatalog.claudeAliases,
+                               effortLevels: EffortLevels.shared.claude,
+                               model: launchDefaultBinding(id, \.fallbackModel),
+                               effort: launchDefaultBinding(id, \.fallbackEffort))
+                rowDivider
+                fallbackArgsRow(id)
             }
             if items.isEmpty {
                 rowDivider

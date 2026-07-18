@@ -54,6 +54,9 @@ struct TranscriptWatcher {
     var file: URL?
     var offset: UInt64 = 0
     let since: Date
+    /// The model id of the newest assistant event seen so far - how the supervisor notices a
+    /// server-side model fallback.
+    var lastModel: String?
 
     /// The newest session transcript created/updated after launch - the child's session.
     mutating func locateFile() {
@@ -82,6 +85,10 @@ struct TranscriptWatcher {
         guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return false }
 
         for line in text.split(separator: "\n") {
+            if let modelKey = line.range(of: "\"model\":\"") {
+                let rest = line[modelKey.upperBound...]
+                if let quote = rest.firstIndex(of: "\"") { lastModel = String(rest[..<quote]) }
+            }
             guard line.contains("\"isApiErrorMessage\":true") else { continue }
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
                   let message = object["message"] as? [String: Any] else { continue }
@@ -113,6 +120,18 @@ private func spawnChild(_ argv: [String], environment: [String: String]) -> pid_
     return posix_spawnp(&pid, argv[0], nil, nil, cArgs, cEnv) == 0 ? pid : nil
 }
 
+/// `args` minus the given value-taking flags (and their values).
+func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
+    var out: [String] = []
+    var skip = false
+    for argument in args {
+        if skip { skip = false; continue }
+        if flags.contains(argument) { skip = true; continue }
+        out.append(argument)
+    }
+    return out
+}
+
 /// Resident supervision: spawn claude, tail its transcript, hand off on a cap hit.
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String]) -> Never {
     let slug = projectSlug(forCwd: FileManager.default.currentDirectoryPath)
@@ -124,6 +143,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
 
     var account = initial
     var launchArgs = args.filter { $0 != "--no-handoff" }
+    /// The fallback profile fires at most once per session.
+    var fallbackApplied = false
 
     while true {
         let launchedAt = Date()
@@ -221,6 +242,30 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     performHandoff(to: target)
                     break
                 }
+            }
+
+            // Fallback profile: the session's ACTUAL model has degraded to the configured
+            // fallback (claude fell back server-side). A weaker model can deserve a different
+            // depth and extra flags, so relaunch ONCE with the fallback pairing - same account,
+            // same conversation. Deliberate configuration, no fuse.
+            if !fallbackApplied,
+               let fallbackList = policy.fallbackModel,
+               policy.fallbackEffort != nil || policy.fallbackArgs != nil,
+               let actual = watcher.lastModel?.lowercased(),
+               policy.model.map({ !actual.contains($0.lowercased()) }) ?? true,
+               let matched = fallbackList.split(separator: ",")
+                   .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() })
+                   .first(where: { !$0.isEmpty && actual.contains($0) }) {
+                warn("model fell back to \(actual) → applying fallback profile")
+                performHandoff(to: account)
+                launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
+                launchArgs += ["--model", matched]
+                if let effort = policy.fallbackEffort { launchArgs += ["--effort", effort] }
+                if let extra = policy.fallbackArgs {
+                    launchArgs += extra.split(separator: " ").map(String.init)
+                }
+                fallbackApplied = true
+                break
             }
 
             guard watcher.sawCapHit() else { continue }

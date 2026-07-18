@@ -65,20 +65,61 @@ extension SettingsAccountsView {
         .settingsRowPadding()
     }
 
-    /// Reasoning-effort launch default. Claude's list is parsed from the installed CLI's own
-    /// --help at runtime (the authoritative enumeration); codex has none, so doc-anchored.
-    func effortRow(_ providerID: String) -> some View {
-        let launchPolicy = LaunchPolicyStore.shared
-        let levels = providerID == "claude" ? EffortLevels.shared.claude : EffortLevels.shared.codex
-        return HStack {
-            Text(L("Effort")).font(.subheadline)
+}
+
+/// Model and effort as ONE pairing (they take effect together - "which brain at which depth"),
+/// side by side in a single row. Model options come from each provider's authoritative catalog
+/// with a Custom escape; effort levels from the installed claude CLI's help / codex docs.
+struct ModelEffortRow: View {
+    let title: String
+    let modelOptions: [String]
+    let effortLevels: [String]
+    @Binding var model: String?
+    @Binding var effort: String?
+
+    @State private var customMode = false
+
+    private var selection: String {
+        if customMode { return "custom" }
+        guard let model else { return "" }
+        return modelOptions.contains(model) ? model : "custom"
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title).font(.subheadline)
             Spacer()
+            if selection == "custom" {
+                TextField("Custom" as String, text: Binding(
+                    get: { model ?? "" },
+                    set: { model = $0.isEmpty ? nil : $0 }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 120)
+            }
             Picker("", selection: Binding(
-                get: { launchPolicy.policy(providerID).effort ?? "" },
-                set: { launchPolicy.setLaunchDefault(providerID, \.effort, $0.isEmpty ? nil : $0) }
+                get: { selection },
+                set: { picked in
+                    switch picked {
+                    case "": customMode = false; model = nil
+                    case "custom": customMode = true
+                    default: customMode = false; model = picked
+                    }
+                }
             )) {
                 Text(verbatim: "Default").tag("")
-                ForEach(levels, id: \.self) { Text(verbatim: $0).tag($0) }
+                ForEach(modelOptions, id: \.self) { Text(verbatim: $0).tag($0) }
+                Divider()
+                Text(verbatim: "Custom…").tag("custom")
+            }
+            .labelsHidden()
+            .fixedSize()
+            Picker("", selection: Binding(
+                get: { effort ?? "" },
+                set: { effort = $0.isEmpty ? nil : $0 }
+            )) {
+                Text(verbatim: "Default").tag("")
+                ForEach(effortLevels, id: \.self) { Text(verbatim: $0).tag($0) }
             }
             .labelsHidden()
             .fixedSize()

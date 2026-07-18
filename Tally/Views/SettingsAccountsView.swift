@@ -85,17 +85,17 @@ struct SettingsAccountsView: View {
                 permissionRow(id)
             }
             rowDivider
-            ModelSelectRow(title: L("Model"),
-                           options: id == "claude" ? ModelCatalog.claudeAliases : ModelCatalog.codexModels,
-                           value: launchDefaultBinding(id, \.model))
+            ModelEffortRow(title: L("Model & effort"),
+                           modelOptions: id == "claude" ? ModelCatalog.claudeAliases : ModelCatalog.codexModels,
+                           effortLevels: id == "claude" ? EffortLevels.shared.claude : EffortLevels.shared.codex,
+                           model: launchDefaultBinding(id, \.model),
+                           effort: launchDefaultBinding(id, \.effort))
             if id == "claude" {
                 rowDivider
                 ModelSelectRow(title: L("Fallback models"),
                                options: ModelCatalog.claudeAliases,
                                value: launchDefaultBinding(id, \.fallbackModel))
             }
-            rowDivider
-            effortRow(id)
             if items.isEmpty {
                 rowDivider
                 HStack(spacing: 10) {

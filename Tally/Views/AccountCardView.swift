@@ -145,16 +145,17 @@ struct AccountCardView: View {
         .accessibilityLabel(L("Set as launch account"))
     }
 
-    /// Auto mode: marks the card the next launch would pick. Deliberately NOT labeled "Auto" -
-    /// that read as a per-account mode toggle; "Next" states what the badge actually is, a
-    /// prediction of where the next session lands (one per provider by construction).
+    /// Auto mode: marks the card the next launch would pick. Copy lesson, twice over: "Auto"
+    /// read as a per-account mode toggle, "Next" read as an app-restart notice. "Auto pick"
+    /// names both the chooser (auto mode) and the meaning (this card is the current pick);
+    /// the tooltip spells out the consequence in a full sentence.
     private var autoBadge: some View {
-        Text(L("Next"))
+        Text(L("Auto pick"))
             .font(.caption2.weight(.semibold))
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 5).padding(.vertical, 1)
             .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-            .help(L("Launch account"))
+            .help(L("Auto mode: the next session starts on this account."))
     }
 
     private var errorRow: some View {

@@ -96,18 +96,18 @@ final class IntegrationsStore {
     }
 
     private static func detectShim(_ shim: Shim) -> Status {
-        let script = try? String(contentsOf: shim.scriptURL, encoding: .utf8)
+        // No script = not installed, full stop. The PATH block is SHARED between shims, so its
+        // presence says nothing about THIS shim (installing codex alone must not make the claude
+        // row read "broken").
+        guard let script = try? String(contentsOf: shim.scriptURL, encoding: .utf8) else {
+            return .notInstalled
+        }
         let blockPresent = (try? String(contentsOf: zshenvURL, encoding: .utf8))?
             .contains(blockBegin) ?? false
-        switch (script != nil, blockPresent) {
-        case (false, false): return .notInstalled
-        case (false, true): return .broken(L("Shim script is missing"))
-        case (true, false): return .broken(L("PATH entry is missing"))
-        case (true, true):
-            return script!.contains("tally-shim v\(shimVersion)")
-                ? .installed
-                : .broken(L("Older version installed"))
-        }
+        guard blockPresent else { return .broken(L("PATH entry is missing")) }
+        return script.contains("tally-shim v\(shimVersion)")
+            ? .installed
+            : .broken(L("Older version installed"))
     }
 
     // MARK: Install / remove
@@ -180,7 +180,8 @@ final class IntegrationsStore {
     // MARK: Marked shell-file block
 
     /// Replace (or append) the tally block. Anything outside the markers is preserved byte-for-byte.
-    private static func upsertBlock(in file: URL, body: String) throws {
+    /// Internal (not private) so the block surgery is unit-testable - a mis-strip eats user config.
+    static func upsertBlock(in file: URL, body: String) throws {
         let existing = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
         let block = "\(blockBegin)\n\(body)\n\(blockEnd)"
         var content = try stripped(existing)
@@ -189,7 +190,7 @@ final class IntegrationsStore {
         try content.write(to: file, atomically: true, encoding: .utf8)
     }
 
-    private static func stripBlock(in file: URL) throws {
+    static func stripBlock(in file: URL) throws {
         guard let existing = try? String(contentsOf: file, encoding: .utf8) else { return }
         try stripped(existing).write(to: file, atomically: true, encoding: .utf8)
     }

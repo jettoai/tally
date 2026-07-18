@@ -85,11 +85,14 @@ struct SettingsAccountsView: View {
                 permissionRow(id)
             }
             rowDivider
-            textDefaultRow(id, title: L("Model"), placeholder: L("Default"), keyPath: \.model)
+            ModelSelectRow(title: L("Model"),
+                           options: id == "claude" ? ModelCatalog.claudeAliases : ModelCatalog.codexModels,
+                           value: launchDefaultBinding(id, \.model))
             if id == "claude" {
                 rowDivider
-                textDefaultRow(id, title: L("Fallback models"), placeholder: L("Default"),
-                               keyPath: \.fallbackModel)
+                ModelSelectRow(title: L("Fallback models"),
+                               options: ModelCatalog.claudeAliases,
+                               value: launchDefaultBinding(id, \.fallbackModel))
             }
             rowDivider
             effortRow(id)
@@ -146,107 +149,6 @@ struct SettingsAccountsView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .padding(.leading, 18)   // nested under the provider row, like the account rows
-    }
-
-    /// Bare `tally claude` starts fresh or continues the directory's latest conversation.
-    /// One-off escape: `tally claude --new`.
-    private func startModeRow(_ providerID: String) -> some View {
-        let launchPolicy = LaunchPolicyStore.shared
-        return HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Start with")).font(.subheadline)
-                Text(L("Applies to bare launches; tally claude --new starts fresh once."))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Picker("", selection: Binding(
-                get: { launchPolicy.policy(providerID).startMode ?? "new" },
-                set: { launchPolicy.setLaunchDefault(providerID, \.startMode, $0 == "new" ? nil : $0) }
-            )) {
-                Text(L("New session")).tag("new")
-                Text(L("Continue latest")).tag("continue")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .padding(.leading, 18)
-    }
-
-    /// A free-text launch default (model names drift too fast for a hard-coded picker);
-    /// empty = inject nothing.
-    private func textDefaultRow(_ providerID: String, title: String, placeholder: String,
-                                keyPath: WritableKeyPath<LaunchPolicyStore.ProviderPolicy, String?>)
-        -> some View {
-        let launchPolicy = LaunchPolicyStore.shared
-        return HStack {
-            Text(title).font(.subheadline)
-            Spacer()
-            TextField(placeholder, text: Binding(
-                get: { launchPolicy.policy(providerID)[keyPath: keyPath] ?? "" },
-                set: { launchPolicy.setLaunchDefault(providerID, keyPath, $0) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 170)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .padding(.leading, 18)
-    }
-
-    /// Reasoning-effort launch default. Claude's list is parsed from the installed CLI's own
-    /// --help at runtime (the authoritative enumeration); codex has none, so doc-anchored.
-    private func effortRow(_ providerID: String) -> some View {
-        let launchPolicy = LaunchPolicyStore.shared
-        let levels = providerID == "claude" ? EffortLevels.shared.claude : EffortLevels.shared.codex
-        return HStack {
-            Text(L("Effort")).font(.subheadline)
-            Spacer()
-            Picker("", selection: Binding(
-                get: { launchPolicy.policy(providerID).effort ?? "" },
-                set: { launchPolicy.setLaunchDefault(providerID, \.effort, $0.isEmpty ? nil : $0) }
-            )) {
-                Text(L("Default")).tag("")
-                ForEach(levels, id: \.self) { Text(verbatim: $0).tag($0) }
-            }
-            .labelsHidden()
-            .fixedSize()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .padding(.leading, 18)
-    }
-
-    /// Claude Code permission mode injected by the tally launcher. Default injects nothing; a
-    /// flag the user types always outranks this setting (enforced CLI-side).
-    private func permissionRow(_ providerID: String) -> some View {
-        let launchPolicy = LaunchPolicyStore.shared
-        return HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Claude permissions")).font(.subheadline)
-                Text(L("Applied when launching through tally; flags you type yourself win."))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Picker("", selection: Binding(
-                get: { launchPolicy.policy(providerID).permissionMode ?? .standard },
-                set: { launchPolicy.setPermissionMode(providerID, $0) }
-            )) {
-                Text(L("System default")).tag(LaunchPolicyStore.PermissionMode.standard)
-                Text(verbatim: "Plan").tag(LaunchPolicyStore.PermissionMode.plan)
-                Text(L("Auto-accept edits")).tag(LaunchPolicyStore.PermissionMode.acceptEdits)
-                Text(L("Bypass permissions")).tag(LaunchPolicyStore.PermissionMode.bypass)
-            }
-            .labelsHidden()
-            .fixedSize()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .padding(.leading, 18)   // nested under the provider row
     }
 
     /// Read-only: whether this provider's homes share their harness (skills/config/transcripts).

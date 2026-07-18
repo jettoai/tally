@@ -75,6 +75,8 @@ struct SettingsAccountsView: View {
             if items.count > 1 {
                 rowDivider
                 launchPolicyRow(id)
+                rowDivider
+                sharingRow(id, items: items)
             }
             if items.isEmpty {
                 rowDivider
@@ -129,6 +131,35 @@ struct SettingsAccountsView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .padding(.leading, 18)   // nested under the provider row, like the account rows
+    }
+
+    /// Read-only: whether this provider's homes share their harness (skills/config/transcripts).
+    /// Detected live from the filesystem - Tally reports the wiring, it never rewires here.
+    private func sharingRow(_ providerID: String, items: [ProviderAccount]) -> some View {
+        let primary = items.first?.launchHome
+        let reports = items.dropFirst().compactMap { account -> HarnessSharing.Report? in
+            guard let primary, let home = account.launchHome else { return nil }
+            return HarnessSharing.report(primaryHome: primary, secondaryHome: home,
+                                         providerID: providerID)
+        }
+        let shared = reports.reduce(0) { $0 + $1.sharedItems.count }
+        let total = reports.reduce(0) { $0 + $1.total }
+        let label = shared == 0 || total == 0 ? L("Independent")
+            : shared == total ? L("Shared")
+            : "\(L("Partially shared")) (\(shared)/\(total))"
+        let independent = Set(reports.flatMap(\.independentItems)).sorted().joined(separator: ", ")
+        let detail = independent.isEmpty
+            ? Set(reports.flatMap(\.sharedItems)).sorted().joined(separator: ", ")
+            : "\(L("Independent")): \(independent)"
+        return HStack {
+            Text(L("Shared configuration")).font(.subheadline)
+            Spacer()
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+        .help(detail)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .padding(.leading, 18)   // nested under the provider row
     }
 
     private func swapAccounts(_ items: [ProviderAccount], _ a: Int, _ b: Int) {

@@ -49,8 +49,11 @@ final class SettingsWindowController {
             guard height.isFinite, height > 1, abs(height - self.lastAppliedHeight) > 1 else { return }
             self.lastAppliedHeight = height
             let chrome = window.frame.height - (window.contentView?.frame.height ?? 0)
-            let maxHeight = (((window.screen ?? NSScreen.main)?.visibleFrame.height) ?? 900) - 40
-            let target = max(200, min(height + chrome, maxHeight))
+            // Reported height = the TALLEST pane (they lay out together for tab-switch
+            // stability), so also cap it: past the cap the tall pane scrolls, and short panes
+            // stop floating in a mostly-empty window.
+            let screenCap = (((window.screen ?? NSScreen.main)?.visibleFrame.height) ?? 900) - 40
+            let target = max(200, min(height + chrome, min(screenCap, 640)))
             guard abs(target - window.frame.height) > 1 else { return }
             var frame = window.frame
             let top = frame.maxY

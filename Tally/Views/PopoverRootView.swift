@@ -31,6 +31,7 @@ struct PopoverRootView: View {
             VStack(spacing: 0) {
                 header
                 Divider()
+                launchSummaryStrip
                 content
                 Divider()
                 footer
@@ -132,6 +133,57 @@ struct PopoverRootView: View {
             .padding(.trailing, 12)
         }
         .frame(height: 40)
+    }
+
+    /// One caption chip-set per provider with NON-DEFAULT launch settings (continue, permission
+    /// mode, model, effort) - "what will I get when I launch" at a glance. Providers on all
+    /// defaults contribute nothing, so an untouched install never shows the strip at all.
+    /// Clicking it opens Settings, where the values are edited.
+    private var launchSummaryItems: [(String, [String])] {
+        ProviderCatalog.descriptors.compactMap { descriptor in
+            guard settings.isEnabled(descriptor.id) else { return nil }
+            let policy = LaunchPolicyStore.shared.policy(descriptor.id)
+            var chips: [String] = []
+            if policy.startMode == "continue" { chips.append(L("Continue latest")) }
+            switch policy.permissionMode {
+            case .plan: chips.append("Plan")
+            case .acceptEdits: chips.append(L("Auto-accept edits"))
+            case .bypass: chips.append(L("Bypass"))
+            case .standard, nil: break
+            }
+            if let model = policy.model { chips.append(model) }
+            if let effort = policy.effort { chips.append(effort) }
+            return chips.isEmpty ? nil : (descriptor.id, chips)
+        }
+    }
+
+    @ViewBuilder
+    private var launchSummaryStrip: some View {
+        let items = launchSummaryItems
+        if !items.isEmpty {
+            Button {
+                StatusItemController.openSettingsWindow()
+            } label: {
+                HStack(spacing: 12) {
+                    ForEach(items, id: \.0) { provider, chips in
+                        HStack(spacing: 5) {
+                            ProviderIconView(providerID: provider, size: 11)
+                            Text(chips.joined(separator: " · "))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(L("Launch account"))
+            Divider()
+        }
     }
 
     @ViewBuilder

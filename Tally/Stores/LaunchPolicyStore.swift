@@ -121,14 +121,24 @@ final class LaunchPolicyStore {
     /// The account auto mode would launch right now - the same rule as the CLI's `best()`
     /// (burn-rate scoring; capped/stale/errored accounts are out), so the panel's badge always
     /// predicts what `tally` will actually do.
+    /// Mirror of the CLI's `smartPickMargin` - keep in lockstep.
+    private static let smartPickMargin = 1.15
+
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>) -> String? {
         let primary = policy(providerID).model
-        return accounts
+        let candidates = accounts
             .filter { $0.providerID == providerID && $0.error == nil && !$0.isStale
                 && launchable.contains($0.id) && (Self.headroom($0) ?? -1) > 0 }
-            .max {
-                Self.smartScore($0, primaryModel: primary) < Self.smartScore($1, primaryModel: primary)
-            }?.id
+        guard var leader = candidates.first else { return nil }
+        var leaderScore = Self.smartScore(leader, primaryModel: primary)
+        for candidate in candidates.dropFirst() {
+            let score = Self.smartScore(candidate, primaryModel: primary)
+            if score > leaderScore * Self.smartPickMargin {
+                leader = candidate
+                leaderScore = score
+            }
+        }
+        return leader.id
     }
 
     /// The tightest of the windows the account reports (mirrors `UsageSnapshot.make` fields).

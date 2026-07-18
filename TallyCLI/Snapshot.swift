@@ -194,14 +194,27 @@ func shortETA(_ seconds: TimeInterval) -> String {
     return "\(minutes / (24 * 60))d"
 }
 
+/// Hysteresis: near-equal scores must not flip the pick. Quota percentages are coarse and
+/// refresh-lagged, so the account just used dips a point below its idle sibling - without a
+/// margin every new launch would bounce between the two (scattering conversation history
+/// across accounts) for zero real gain. A later account only takes the lead by beating the
+/// current leader by this factor; ties and noise-level differences stay with the earlier
+/// account in the (stable) list order.
+let smartPickMargin = 1.15
+
 func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
           now: Date = Date()) -> Snapshot.Account? {
-    snapshot.accounts
-        .filter { $0.provider == providerID && eligible($0) }
-        .max {
-            smartScore($0, primaryModel: primaryModel, now: now)
-                < smartScore($1, primaryModel: primaryModel, now: now)
+    let candidates = snapshot.accounts.filter { $0.provider == providerID && eligible($0) }
+    guard var leader = candidates.first else { return nil }
+    var leaderScore = smartScore(leader, primaryModel: primaryModel, now: now)
+    for candidate in candidates.dropFirst() {
+        let score = smartScore(candidate, primaryModel: primaryModel, now: now)
+        if score > leaderScore * smartPickMargin {
+            leader = candidate
+            leaderScore = score
         }
+    }
+    return leader
 }
 
 func warn(_ message: String) {

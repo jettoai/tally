@@ -29,8 +29,8 @@ extension SettingsAccountsView {
                 get: { launchPolicy.policy(providerID).startMode ?? "new" },
                 set: { launchPolicy.setLaunchDefault(providerID, \.startMode, $0 == "new" ? nil : $0) }
             )) {
-                Text(verbatim: "New").tag("new")
-                Text(verbatim: "Continue").tag("continue")
+                Text(verbatim: "new").tag("new")
+                Text(verbatim: "continue").tag("continue")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -75,10 +75,10 @@ extension SettingsAccountsView {
                 get: { launchPolicy.policy(providerID).permissionMode ?? .standard },
                 set: { launchPolicy.setPermissionMode(providerID, $0) }
             )) {
-                Text(verbatim: "Default").tag(LaunchPolicyStore.PermissionMode.standard)
-                Text(verbatim: "Plan").tag(LaunchPolicyStore.PermissionMode.plan)
-                Text(verbatim: "Accept edits").tag(LaunchPolicyStore.PermissionMode.acceptEdits)
-                Text(verbatim: "Bypass").tag(LaunchPolicyStore.PermissionMode.bypass)
+                Text(verbatim: "default").tag(LaunchPolicyStore.PermissionMode.standard)
+                Text(verbatim: "plan").tag(LaunchPolicyStore.PermissionMode.plan)
+                Text(verbatim: "accept edits").tag(LaunchPolicyStore.PermissionMode.acceptEdits)
+                Text(verbatim: "bypass").tag(LaunchPolicyStore.PermissionMode.bypass)
             }
             .labelsHidden()
             .fixedSize()

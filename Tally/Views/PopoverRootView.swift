@@ -144,11 +144,11 @@ struct PopoverRootView: View {
             guard settings.isEnabled(descriptor.id) else { return nil }
             let policy = LaunchPolicyStore.shared.policy(descriptor.id)
             var chips: [String] = []
-            if policy.startMode == "continue" { chips.append("Continue") }
+            if policy.startMode == "continue" { chips.append("continue") }
             switch policy.permissionMode {
-            case .plan: chips.append("Plan")
-            case .acceptEdits: chips.append("Accept edits")
-            case .bypass: chips.append("Bypass")
+            case .plan: chips.append("plan")
+            case .acceptEdits: chips.append("accept edits")
+            case .bypass: chips.append("bypass")
             case .standard, nil: break
             }
             if let model = policy.model { chips.append(model) }

@@ -139,7 +139,7 @@ struct PopoverRootView: View {
     /// mode, model, effort) - "what will I get when I launch" at a glance. Providers on all
     /// defaults contribute nothing, so an untouched install never shows the strip at all.
     /// Clicking it opens Settings, where the values are edited.
-    private var launchSummaryItems: [(String, [String])] {
+    private var launchSummaryItems: [(String, [String], String?)] {
         ProviderCatalog.descriptors.compactMap { descriptor in
             guard settings.isEnabled(descriptor.id) else { return nil }
             let policy = LaunchPolicyStore.shared.policy(descriptor.id)
@@ -153,8 +153,22 @@ struct PopoverRootView: View {
             }
             if let model = policy.model { chips.append(model) }
             if let effort = policy.effort { chips.append(effort) }
-            return chips.isEmpty ? nil : (descriptor.id, chips)
+            // Fallback is a conditional path, so it enriches the tooltip only - a chip here
+            // would read as "the next launch uses opus", which it doesn't.
+            let fallback = policy.fallbackModel.map { model in
+                ([model] + [policy.fallbackEffort].compactMap { $0 }).joined(separator: " ")
+            }
+            return chips.isEmpty ? nil : (descriptor.id, chips, fallback)
         }
+    }
+
+    private func launchSummaryTooltip(_ items: [(String, [String], String?)]) -> String {
+        L("Next launch") + "\n" + items.map { providerID, chips, fallback in
+            var line = ProviderCatalog.displayName(for: providerID) + ": "
+                + chips.joined(separator: " · ")
+            if let fallback { line += " · " + L("fallback") + " → " + fallback }
+            return line
+        }.joined(separator: "\n")
     }
 
     @ViewBuilder
@@ -165,7 +179,7 @@ struct PopoverRootView: View {
                 StatusItemController.openSettingsWindow()
             } label: {
                 HStack(spacing: 12) {
-                    ForEach(items, id: \.0) { provider, chips in
+                    ForEach(items, id: \.0) { provider, chips, _ in
                         HStack(spacing: 5) {
                             ProviderIconView(providerID: provider, size: 11)
                             Text(chips.joined(separator: " · "))
@@ -181,7 +195,7 @@ struct PopoverRootView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(L("Launch account"))
+            .help(launchSummaryTooltip(items))
             Divider()
         }
     }

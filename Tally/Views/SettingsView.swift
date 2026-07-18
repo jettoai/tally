@@ -97,9 +97,24 @@ struct SettingsView: View {
         .padding(10)
     }
 
-    @ViewBuilder
+    /// ALL panes are laid out in a ZStack (the inactive ones fully transparent and inert) so the
+    /// measured height is the TALLEST pane's: switching tabs then never resizes the window.
+    /// A per-pane fit made the window jump on every sidebar click - bad to watch, and worse when
+    /// the row under the cursor moved away mid-click.
     private var pane: some View {
-        switch section {
+        ZStack(alignment: .top) {
+            ForEach(Section.allCases, id: \.self) { item in
+                paneContent(item)
+                    .opacity(section == item ? 1 : 0)
+                    .allowsHitTesting(section == item)
+                    .accessibilityHidden(section != item)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func paneContent(_ item: Section) -> some View {
+        switch item {
         case .accounts: sectionCard { SettingsAccountsView(store: store, settings: settings) }
         case .display: sectionCard { displayRows }
         case .general: sectionCard { generalRows }
@@ -138,11 +153,16 @@ struct SettingsView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
 
-        rowDivider
+        // Only shown when some account actually reports more than one model-scoped window -
+        // otherwise the toggle is a visual no-op (Anthropic currently reports a single Fable
+        // window, which is the always-visible headline) that just invites "is this broken?".
+        if store.accounts.contains(where: { $0.metrics.filter(\.isModelScoped).count > 1 }) {
+            rowDivider
 
-        toggleRow(L("Show every model tier"),
-                  subtitle: L("Off shows only the highest-tier model at a glance."),
-                  isOn: $settings.showAllModels)
+            toggleRow(L("Show every model tier"),
+                      subtitle: L("Off shows only the highest-tier model at a glance."),
+                      isOn: $settings.showAllModels)
+        }
 
         rowDivider
 

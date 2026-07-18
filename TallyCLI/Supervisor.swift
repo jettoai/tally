@@ -99,12 +99,26 @@ struct TranscriptWatcher {
     }
 }
 
+/// posix_spawnp keeping the child in OUR process group. Foundation's `Process` puts the child in
+/// a NEW process group, so the interactive child is background to the terminal and job control
+/// stops it with SIGTTIN the moment it reads (claude suspended `T`, blank screen, 2026-07-18).
+/// Same-group spawn reproduces what a plain exec gives: the child shares the foreground group.
+private func spawnChild(_ argv: [String], environment: [String: String]) -> pid_t? {
+    var cArgs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
+    cArgs.append(nil)
+    var cEnv: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") }
+    cEnv.append(nil)
+    defer { for pointer in cArgs + cEnv { free(pointer) } }
+    var pid: pid_t = 0
+    return posix_spawnp(&pid, argv[0], nil, nil, cArgs, cEnv) == 0 ? pid : nil
+}
+
 /// Resident supervision: spawn claude, tail its transcript, hand off on a cap hit.
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String]) -> Never {
     let slug = projectSlug(forCwd: FileManager.default.currentDirectoryPath)
 
     // The parent must survive Ctrl+C - claude uses SIGINT to interrupt a turn, and the whole
-    // foreground process group receives it.
+    // foreground process group (which the child shares) receives it.
     signal(SIGINT, SIG_IGN)
     signal(SIGQUIT, SIG_IGN)
 
@@ -113,21 +127,30 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
 
     while true {
         let launchedAt = Date()
-        let child = Process()
-        // Resolve via PATH like execvp does.
-        child.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        child.arguments = [provider.cli] + launchArgs
         var environment = ProcessInfo.processInfo.environment
         environment.removeValue(forKey: provider.envKey)
         if let env = launchEnv(provider, home: account.launchHome!) {
             environment[env.key] = env.value
         }
-        child.environment = environment
-        do {
-            try child.run()
-        } catch {
-            warn("cannot launch `\(provider.cli)`: \(error.localizedDescription)")
+        guard let childPID = spawnChild([provider.cli] + launchArgs, environment: environment) else {
+            warn("cannot launch `\(provider.cli)`")
             exit(127)
+        }
+
+        // One-shot reaper around waitpid: WNOHANG polls, blocking waits, and the status is
+        // remembered because a reaped pid cannot be waited on twice.
+        var childStatus: Int32?
+        func pollChild() {
+            guard childStatus == nil else { return }
+            var status: Int32 = 0
+            if waitpid(childPID, &status, WNOHANG) == childPID { childStatus = status }
+        }
+        func awaitChild() -> Int32 {
+            if let childStatus { return childStatus }
+            var status: Int32 = 0
+            while waitpid(childPID, &status, 0) == -1, errno == EINTR {}
+            childStatus = status
+            return status
         }
 
         var watcher = TranscriptWatcher(
@@ -135,9 +158,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             since: launchedAt)
         var handoff = false
 
-        while child.isRunning {
+        pollChild()
+        while childStatus == nil {
             usleep(2_000_000)
-            guard watcher.sawCapHit() else { continue }
+            pollChild()
+            guard childStatus == nil, watcher.sawCapHit() else { continue }
             guard fuseAllows() else {
                 warn("cap hit, but \(handoffFuseMax) handoffs in \(Int(handoffFuseWindow / 60))m - staying put")
                 break
@@ -155,8 +180,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let sessionID = sessionFile.deletingPathExtension().lastPathComponent
 
             warn("cap hit → handing off to \(target.label) (headroom \(Int(headroom(target).rounded()))%)")
-            child.terminate()   // SIGTERM: let claude run its SessionEnd cleanup
-            child.waitUntilExit()
+            kill(childPID, SIGTERM)   // let claude run its SessionEnd cleanup
+            _ = awaitChild()
 
             // Make the transcript visible to the target account (no-op on a shared projects tree).
             let sourceResolved = sessionFile.resolvingSymlinksInPath()
@@ -188,7 +213,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         }
 
         if handoff { continue }
-        if child.isRunning { child.waitUntilExit() }   // fuse/no-target: claude keeps running
-        exit(child.terminationStatus)
+        let status = awaitChild()   // fuse/no-target: claude keeps running until it exits itself
+        let exited = (status & 0x7f) == 0
+        exit(exited ? (status >> 8) & 0xff : 128 + (status & 0x7f))
     }
 }

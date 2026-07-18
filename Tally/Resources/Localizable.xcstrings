@@ -2524,64 +2524,6 @@
         }
       }
     },
-    "Launches a session on the account Tally picks.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 Tally 選中的帳號啟動新工作階段。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用 Tally 选中的账号启动新会话。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tally が選んだアカウントでセッションを開始します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tally가 선택한 계정으로 세션을 시작합니다."
-          }
-        }
-      }
-    },
-    "With shell integration installed (Settings → Integrations), plain claude and codex commands follow the policy too.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "裝了 shell 整合（設定 → 整合）後，直接輸入 claude／codex 也會遵循啟動策略。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "装了 shell 集成（设置 → 集成）后，直接输入 claude／codex 也会遵循启动策略。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "シェル連携（設定 → 連携）を入れると、素の claude／codex コマンドも起動ポリシーに従います。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "셸 통합(설정 → 통합)을 설치하면 일반 claude／codex 명령도 실행 정책을 따릅니다."
-          }
-        }
-      }
-    },
     "Click a card to pin that account (Manual); click it again to go back to Auto.": {
       "extractionState": "manual",
       "localizations": {
@@ -2694,6 +2636,180 @@
           "stringUnit": {
             "state": "translated",
             "value": "복사"
+          }
+        }
+      }
+    },
+    "New session": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新会话"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいセッション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 세션"
+          }
+        }
+      }
+    },
+    "Continue the latest session": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接續最近的工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续最近的会话"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直近のセッションを続きから"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 세션 이어서 하기"
+          }
+        }
+      }
+    },
+    "Hand the latest conversation to the account with the most room": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把最近的對話交給餘量最好的帳號續聊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把最近的对话交给余量最好的账号续聊"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直近の会話を最も余裕のあるアカウントへ引き継ぎ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 대화를 여유가 가장 많은 계정으로 이어서"
+          }
+        }
+      }
+    },
+    "Shell integration installed: plain claude and codex follow the policy.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 整合已安裝：直接輸入 claude／codex 也遵循策略。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 集成已安装：直接输入 claude／codex 也遵循策略。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェル連携はインストール済み：素の claude／codex もポリシーに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸 통합 설치됨: 일반 claude／codex도 정책을 따릅니다."
+          }
+        }
+      }
+    },
+    "Shell integration not installed: enable it in Settings → Integrations so plain claude and codex follow the policy.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 整合未安裝：到「設定 → 整合」安裝後，直接輸入 claude／codex 也會遵循策略。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 集成未安装：到「设置 → 集成」安装后，直接输入 claude／codex 也会遵循策略。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェル連携は未インストール：「設定 → 連携」から入れると、素の claude／codex もポリシーに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸 통합이 설치되지 않음: 설정 → 통합에서 설치하면 일반 claude／codex도 정책을 따릅니다."
+          }
+        }
+      }
+    },
+    "Shell integration partially installed: see Settings → Integrations.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 整合僅部分安裝：見「設定 → 整合」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell 集成仅部分安装：见「设置 → 集成」。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェル連携は一部のみ：「設定 → 連携」を確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸 통합 일부만 설치됨: 설정 → 통합을 확인하세요."
           }
         }
       }

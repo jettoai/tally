@@ -291,28 +291,62 @@ struct PopoverRootView: View {
         .help(L("Copy"))
     }
 
-    /// The "?" popover: how to actually launch on the picked account, and what clicking a card does.
+    /// The "?" popover: every launch command with what it does, the LIVE shell-integration state
+    /// (a claim like "bare commands follow the policy" is only true when the shims are actually
+    /// installed, so say which), and what clicking a card does.
     private var launchHelp: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(L("Launch account")).font(.subheadline.weight(.semibold))
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    ForEach(["tally claude", "tally codex"], id: \.self) { command in
-                        commandChip(command)
-                    }
-                }
-                Text(L("Launches a session on the account Tally picks."))
-                    .font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                commandRow("tally claude", caption: L("New session"))
+                commandRow("tally claude --continue", caption: L("Continue the latest session"))
+                commandRow("tally codex", caption: L("New session"))
+                commandRow("tally resume", caption: L("Hand the latest conversation to the account with the most room"))
             }
-            Text(L("With shell integration installed (Settings → Integrations), plain claude and codex commands follow the policy too."))
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            integrationStatusLine
             Text(L("Click a card to pin that account (Manual); click it again to go back to Auto."))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
-        .frame(width: 300, alignment: .leading)
+        .frame(width: 340, alignment: .leading)
+        .onAppear { IntegrationsStore.shared.refresh() }
+    }
+
+    private func commandRow(_ command: String, caption: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            commandChip(command)
+            Text(caption)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// Live shim state: installed (both) / partial / none, with the none case pointing at where
+    /// to fix it. Refreshed every time the popover opens.
+    private var integrationStatusLine: some View {
+        let integrations = IntegrationsStore.shared
+        let installed = IntegrationsStore.Shim.allCases.filter {
+            integrations.shimStatus($0) == .installed
+        }
+        let icon: String, color: Color, text: String
+        if installed.count == IntegrationsStore.Shim.allCases.count {
+            (icon, color) = ("checkmark.circle.fill", .green)
+            text = L("Shell integration installed: plain claude and codex follow the policy.")
+        } else if installed.isEmpty {
+            (icon, color) = ("circle.dashed", .secondary)
+            text = L("Shell integration not installed: enable it in Settings → Integrations so plain claude and codex follow the policy.")
+        } else {
+            (icon, color) = ("circle.lefthalf.filled", .orange)
+            text = L("Shell integration partially installed: see Settings → Integrations.")
+        }
+        return HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Image(systemName: icon).font(.caption).foregroundStyle(color)
+            Text(text)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var footer: some View {

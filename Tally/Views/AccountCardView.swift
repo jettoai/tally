@@ -186,14 +186,16 @@ struct AccountCardView: View {
     /// the tooltip spells out the consequence AND the why - the binding quota window and its
     /// reset - so the pick never looks arbitrary.
     private var autoBadge: some View {
-        Text(L("Smart pick"))
-            .lineLimit(1)
-            .fixedSize()
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 5).padding(.vertical, 1)
-            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-            .help(smartPickTooltip)
+        HStack(spacing: 3) {
+            Image(systemName: "sparkles").font(.system(size: 8))
+            Text(L("Smart pick")).lineLimit(1)
+        }
+        .fixedSize()
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(TallyColor.ai)
+        .padding(.horizontal, 5).padding(.vertical, 1)
+        .background(Capsule().fill(TallyColor.ai.opacity(0.15)))
+        .help(smartPickTooltip)
     }
 
     private var smartPickTooltip: String {

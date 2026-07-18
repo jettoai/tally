@@ -21,6 +21,9 @@ enum TallyMetrics {
 enum TallyColor {
     static let normal = Color(red: 0.36, green: 0.66, blue: 0.42)    // calm sage green
     static let warning = Color(red: 0.93, green: 0.66, blue: 0.20)   // amber (legible light + dark)
+    /// Electric purple, the industry's AI accent (Copilot / Gemini / Notion AI vocabulary) -
+    /// marks the smart pick as "the machine chose this", distinct from the human's orange pin.
+    static let ai = Color(red: 0.55, green: 0.36, blue: 0.96)
     static let critical = Color(red: 0.86, green: 0.31, blue: 0.29)  // softened red, not alarm-siren
 }
 

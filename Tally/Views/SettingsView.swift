@@ -329,14 +329,49 @@ struct SettingsView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
 
-        // Hidden in dev builds (the updater is dormant without a feed URL + ED key).
+        rowDivider
+
+        // The updater is dormant without a feed URL + ED key (dev builds, or a release built
+        // outside the ship pipeline). Say so instead of hiding the section - an invisible
+        // update story reads as "updates don't exist".
         if UpdaterController.shared.isActive {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L("Automatically check for updates")).font(.subheadline)
+                    if let last = UpdaterController.shared.lastUpdateCheckDate {
+                        Text(L("Last checked") + ": "
+                             + last.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Toggle(isOn: Binding(
+                    get: { UpdaterController.shared.automaticallyChecksForUpdates },
+                    set: { UpdaterController.shared.automaticallyChecksForUpdates = $0 }
+                )) { EmptyView() }
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+
             rowDivider
             HStack {
                 Text(L("Check for Updates…")).font(.subheadline)
                 Spacer()
                 Button(L("Check Now")) { UpdaterController.shared.checkForUpdates() }
                     .controlSize(.small)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        } else {
+            HStack(alignment: .firstTextBaseline) {
+                Text(L("This build has no update feed; download new versions from GitHub Releases."))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Link("GitHub", destination: URL(string: "https://github.com/jettoai/tally/releases")!)
+                    .font(.caption)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)

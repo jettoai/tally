@@ -3313,25 +3313,25 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "智慧選中"
+            "value": "智選"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "智能选中"
+            "value": "智选"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スマート選択"
+            "value": "スマート"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "스마트 선택"
+            "value": "스마트"
           }
         }
       }
@@ -3342,13 +3342,13 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "智慧"
+            "value": "智選"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "智能"
+            "value": "智选"
           }
         },
         "ja": {
@@ -3477,6 +3477,93 @@
           "stringUnit": {
             "state": "translated",
             "value": "카드를 클릭하면 해당 계정을 고정(수동), 다시 클릭하면 스마트 선택으로 돌아갑니다."
+          }
+        }
+      }
+    },
+    "Automatically check for updates": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動檢查更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动检查更新"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動的にアップデートを確認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동으로 업데이트 확인"
+          }
+        }
+      }
+    },
+    "Last checked": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次檢查"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次检查"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回の確認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 확인"
+          }
+        }
+      }
+    },
+    "This build has no update feed; download new versions from GitHub Releases.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本未連接更新來源；新版請至 GitHub Releases 下載。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本未连接更新源；新版请至 GitHub Releases 下载。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドはアップデートフィードに接続していません。新しいバージョンは GitHub Releases から入手してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드는 업데이트 피드에 연결되어 있지 않습니다. 새 버전은 GitHub Releases에서 받으세요."
           }
         }
       }

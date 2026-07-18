@@ -26,6 +26,14 @@ final class UpdaterController: NSObject {
             startingUpdater: true, updaterDelegate: nil, userDriverDelegate: self)
     }
 
+    /// Sparkle's own persisted preference, surfaced as a Settings toggle.
+    var automaticallyChecksForUpdates: Bool {
+        get { controller?.updater.automaticallyChecksForUpdates ?? false }
+        set { controller?.updater.automaticallyChecksForUpdates = newValue }
+    }
+
+    var lastUpdateCheckDate: Date? { controller?.updater.lastUpdateCheckDate }
+
     /// User-initiated check from Settings: promote to a regular app so Sparkle's window fronts.
     func checkForUpdates() {
         NSApp.setActivationPolicy(.regular)

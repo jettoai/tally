@@ -197,12 +197,11 @@ struct SettingsAccountsView: View {
         .padding(.leading, 18)
     }
 
-    /// Reasoning-effort launch default; level lists follow each CLI's accepted values.
+    /// Reasoning-effort launch default. Claude's list is parsed from the installed CLI's own
+    /// --help at runtime (the authoritative enumeration); codex has none, so doc-anchored.
     private func effortRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared
-        let levels = providerID == "claude"
-            ? ["low", "medium", "high", "xhigh", "max"]
-            : ["low", "medium", "high", "xhigh"]
+        let levels = providerID == "claude" ? EffortLevels.shared.claude : EffortLevels.shared.codex
         return HStack {
             Text(L("Effort")).font(.subheadline)
             Spacer()

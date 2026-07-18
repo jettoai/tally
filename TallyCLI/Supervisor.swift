@@ -158,11 +158,76 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             since: launchedAt)
         var handoff = false
 
+        // Terminate the child and set up the relaunch on `target` - shared by cap-hit handoffs
+        // and live UI pin switches. Continues the SAME conversation when one exists; a session
+        // with no transcript yet just starts fresh on the target (any --continue/--resume flags
+        // are stripped so it can't pull up an unrelated old conversation there).
+        func performHandoff(to target: Snapshot.Account) {
+            kill(childPID, SIGTERM)   // let claude run its SessionEnd cleanup
+            _ = awaitChild()
+
+            watcher.locateFile()
+            let sessionFile = watcher.file
+            if let sessionFile {
+                // Make the transcript visible to the target account (no-op on a shared tree).
+                let sourceResolved = sessionFile.resolvingSymlinksInPath()
+                let destDir = URL(fileURLWithPath: target.launchHome!)
+                    .appendingPathComponent("projects/\(slug)")
+                let dest = destDir.appendingPathComponent(sessionFile.lastPathComponent)
+                if dest.resolvingSymlinksInPath() != sourceResolved,
+                   !FileManager.default.fileExists(atPath: dest.path) {
+                    try? FileManager.default.createDirectory(at: destDir,
+                                                             withIntermediateDirectories: true)
+                    try? FileManager.default.copyItem(at: sessionFile, to: dest)
+                }
+            }
+
+            recordHandoff()
+            account = target
+            var next: [String] = []
+            var skip = false
+            for argument in launchArgs {
+                if skip { skip = false; continue }
+                switch argument {
+                case "--continue", "-c": continue
+                case "--resume", "-r": skip = true; continue
+                default: next.append(argument)
+                }
+            }
+            if let sessionFile {
+                launchArgs = ["--resume", sessionFile.deletingPathExtension().lastPathComponent] + next
+            } else {
+                launchArgs = next
+            }
+            handoff = true
+        }
+
         pollChild()
         while childStatus == nil {
             usleep(2_000_000)
             pollChild()
-            guard childStatus == nil, watcher.sawCapHit() else { continue }
+            guard childStatus == nil else { break }
+            let policy = launchPolicy(provider.id)
+
+            // Live pin switch: pinning another account in the Tally panel moves the RUNNING
+            // session there. An explicit human act, so no fuse; the pinned account is used even
+            // when capped (that is what pinning means).
+            if policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id {
+                let (snapshot, _) = loadSnapshot()
+                if let target = snapshot?.accounts.first(where: {
+                    $0.id == pinnedID && $0.provider == provider.id && $0.launchHome != nil
+                }) {
+                    warn("pinned in Tally → switching to \(target.label)")
+                    performHandoff(to: target)
+                    break
+                }
+            }
+
+            guard watcher.sawCapHit() else { continue }
+            if policy.mode == "manual" {
+                warn("\(account.label) hit its limit - staying put (pinned in Tally; unpin to allow handoff)")
+                continue
+            }
             guard fuseAllows() else {
                 warn("cap hit, but \(handoffFuseMax) handoffs in \(Int(handoffFuseWindow / 60))m - staying put")
                 break
@@ -176,39 +241,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 warn("cap hit, but no other eligible account - staying put")
                 break
             }
-            guard let sessionFile = watcher.file else { break }
-            let sessionID = sessionFile.deletingPathExtension().lastPathComponent
-
+            guard watcher.file != nil else { break }
             warn("cap hit → handing off to \(target.label) (headroom \(Int(headroom(target).rounded()))%)")
-            kill(childPID, SIGTERM)   // let claude run its SessionEnd cleanup
-            _ = awaitChild()
-
-            // Make the transcript visible to the target account (no-op on a shared projects tree).
-            let sourceResolved = sessionFile.resolvingSymlinksInPath()
-            let destDir = URL(fileURLWithPath: target.launchHome!).appendingPathComponent("projects/\(slug)")
-            let dest = destDir.appendingPathComponent(sessionFile.lastPathComponent)
-            if dest.resolvingSymlinksInPath() != sourceResolved,
-               !FileManager.default.fileExists(atPath: dest.path) {
-                try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-                try? FileManager.default.copyItem(at: sessionFile, to: dest)
-            }
-
-            recordHandoff()
-            account = target
-            // Continue the SAME conversation: swap any resume/continue flags for an explicit
-            // --resume of the session we were supervising.
-            var next: [String] = []
-            var skip = false
-            for argument in launchArgs {
-                if skip { skip = false; continue }
-                switch argument {
-                case "--continue", "-c": continue
-                case "--resume", "-r": skip = true; continue
-                default: next.append(argument)
-                }
-            }
-            launchArgs = ["--resume", sessionID] + next
-            handoff = true
+            performHandoff(to: target)
             break
         }
 

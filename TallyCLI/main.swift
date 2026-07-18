@@ -62,7 +62,12 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
                 warn("\(match.label) is out of quota - launching anyway (pinned in Tally)")
             }
             warn("→ \(match.label) (pinned in Tally)")
-            // A pin is the user choosing by hand, so no auto-handoff supervisor (same as --account).
+            // Still supervised: a Tally pin can be MOVED from the panel mid-session (live pin
+            // switch), so the supervisor stays resident; it won't cap-handoff while pinned.
+            // A CLI --account pin remains a plain exec - that flag opts out of supervision.
+            if provider.id == "claude", wantsHandoff {
+                runSupervised(provider, account: match, args: passthrough)
+            }
             exec(provider.cli, args: passthrough, env: launchEnv(provider, home: match.launchHome!))
         }
         if let home = policy.pinnedHome {

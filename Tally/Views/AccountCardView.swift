@@ -170,8 +170,9 @@ struct AccountCardView: View {
     private var manualBadge: some View {
         HStack(spacing: 3) {
             Image(systemName: "pin.fill").font(.system(size: 8))
-            Text(L("Pinned"))
+            Text(L("Pinned")).lineLimit(1)
         }
+        .fixedSize()   // a badge must never wrap (a two-line capsule broke the header, 2026-07-18)
         .font(.caption2.weight(.semibold))
         .foregroundStyle(Color.orange)
         .padding(.horizontal, 5).padding(.vertical, 1)
@@ -185,6 +186,8 @@ struct AccountCardView: View {
     /// the tooltip spells out the consequence in a full sentence.
     private var autoBadge: some View {
         Text(L("Auto pick"))
+            .lineLimit(1)
+            .fixedSize()
             .font(.caption2.weight(.semibold))
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 5).padding(.vertical, 1)

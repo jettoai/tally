@@ -2559,25 +2559,25 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動釘選"
+            "value": "釘選"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "手动钉选"
+            "value": "钉选"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動固定"
+            "value": "固定"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "수동 고정"
+            "value": "고정"
           }
         }
       }

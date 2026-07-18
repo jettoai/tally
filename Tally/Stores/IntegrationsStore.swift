@@ -26,41 +26,49 @@ final class IntegrationsStore {
 
     // MARK: Paths
 
-    static let binDirURL = UsageSnapshot.directory.appendingPathComponent("bin", isDirectory: true)
-    static let shimURL = binDirURL.appendingPathComponent("codex")
-    static let cliSymlinkURL = URL(fileURLWithPath: "/usr/local/bin/tally")
-    static let manifestURL = UsageSnapshot.directory.appendingPathComponent("manifest.json")
-    static let zshenvURL = FileManager.default.homeDirectoryForCurrentUser
+    /// A per-provider PATH interposer: bare `claude` / `codex` invocations follow the launch
+    /// policy. Both shims share one bin dir and one PATH block.
+    enum Shim: String, CaseIterable {
+        case claude, codex
+        var envKey: String { self == .claude ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME" }
+        var scriptURL: URL { IntegrationsStore.binDirURL.appendingPathComponent(rawValue) }
+        var manifestKey: String { "\(rawValue)Shim" }
+    }
+
+    nonisolated static let binDirURL = UsageSnapshot.directory.appendingPathComponent("bin", isDirectory: true)
+    nonisolated static let cliSymlinkURL = URL(fileURLWithPath: "/usr/local/bin/tally")
+    nonisolated static let manifestURL = UsageSnapshot.directory.appendingPathComponent("manifest.json")
+    nonisolated static let zshenvURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".zshenv")
 
-    static let blockBegin = "# >>> tally integration >>>"
-    static let blockEnd = "# <<< tally integration <<<"
+    nonisolated static let blockBegin = "# >>> tally integration >>>"
+    nonisolated static let blockEnd = "# <<< tally integration <<<"
 
     /// Bump when the shim script changes; the store flags older installs for reinstall.
-    static let shimVersion = 2
+    nonisolated static let shimVersion = 2
 
     /// The shim itself: ask `tally launch-dir` (which honours Off/Manual/Auto), then hand off to
-    /// the first `codex` on PATH that isn't this file. Pure bash, no dependencies; fail open.
-    static var shimScript: String {
+    /// the first real binary on PATH that isn't this file. Pure bash, no dependencies; fail open.
+    static func shimScript(_ shim: Shim) -> String {
         """
         #!/bin/bash
-        # tally-shim v\(shimVersion): route bare `codex` through the Tally launch policy.
+        # tally-shim v\(shimVersion): route bare `\(shim.rawValue)` through the Tally launch policy.
         # Managed by Tally.app (Settings → Integrations); safe to delete.
-        # An explicitly exported CODEX_HOME always wins; without Tally this passes straight through.
+        # An explicitly exported \(shim.envKey) always wins; without Tally this passes straight through.
         set -u
-        if [[ -z "${CODEX_HOME:-}" ]] && command -v tally > /dev/null 2>&1; then
-          eval "$(tally launch-dir codex 2> /dev/null)" || true
+        if [[ -z "${\(shim.envKey):-}" ]] && command -v tally > /dev/null 2>&1; then
+          eval "$(tally launch-dir \(shim.rawValue) 2> /dev/null)" || true
         fi
         while IFS= read -r candidate; do
-          [[ "$candidate" != "$HOME/.tally/bin/codex" ]] && exec "$candidate" "$@"
-        done < <(which -a codex)
-        echo "tally-shim: real codex not found on PATH" >&2
+          [[ "$candidate" != "$HOME/.tally/bin/\(shim.rawValue)" ]] && exec "$candidate" "$@"
+        done < <(which -a \(shim.rawValue))
+        echo "tally-shim: real \(shim.rawValue) not found on PATH" >&2
         exit 127
         """
     }
 
     private(set) var cliToolStatus: Status = .notInstalled
-    private(set) var codexShimStatus: Status = .notInstalled
+    private(set) var shimStatuses: [Shim: Status] = [:]
     /// Set when an install/remove fails (e.g. /usr/local/bin not writable); shown inline.
     private(set) var lastError: String?
 
@@ -70,8 +78,10 @@ final class IntegrationsStore {
 
     func refresh() {
         cliToolStatus = Self.detectCLITool()
-        codexShimStatus = Self.detectCodexShim()
+        shimStatuses = Dictionary(uniqueKeysWithValues: Shim.allCases.map { ($0, Self.detectShim($0)) })
     }
+
+    func shimStatus(_ shim: Shim) -> Status { shimStatuses[shim] ?? .notInstalled }
 
     private static func detectCLITool() -> Status {
         let fm = FileManager.default
@@ -85,9 +95,8 @@ final class IntegrationsStore {
             : .broken(L("Link target is missing"))
     }
 
-    private static func detectCodexShim() -> Status {
-        let fm = FileManager.default
-        let script = try? String(contentsOf: shimURL, encoding: .utf8)
+    private static func detectShim(_ shim: Shim) -> Status {
+        let script = try? String(contentsOf: shim.scriptURL, encoding: .utf8)
         let blockPresent = (try? String(contentsOf: zshenvURL, encoding: .utf8))?
             .contains(blockBegin) ?? false
         switch (script != nil, blockPresent) {
@@ -137,27 +146,31 @@ final class IntegrationsStore {
         refresh()
     }
 
-    func installCodexShim() {
+    func installShim(_ shim: Shim) {
         lastError = nil
         let fm = FileManager.default
         do {
             try fm.createDirectory(at: Self.binDirURL, withIntermediateDirectories: true)
-            try Self.shimScript.write(to: Self.shimURL, atomically: true, encoding: .utf8)
-            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: Self.shimURL.path)
+            try Self.shimScript(shim).write(to: shim.scriptURL, atomically: true, encoding: .utf8)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.scriptURL.path)
             try Self.upsertBlock(in: Self.zshenvURL, body: "export PATH=\"$HOME/.tally/bin:$PATH\"")
-            recordManifest("codexShim", paths: [Self.shimURL.path, Self.zshenvURL.path])
+            recordManifest(shim.manifestKey, paths: [shim.scriptURL.path, Self.zshenvURL.path])
         } catch {
             lastError = error.localizedDescription
         }
         refresh()
     }
 
-    func removeCodexShim() {
+    func removeShim(_ shim: Shim) {
         lastError = nil
         do {
-            try? FileManager.default.removeItem(at: Self.shimURL)
-            try Self.stripBlock(in: Self.zshenvURL)
-            recordManifest("codexShim", paths: nil)
+            try? FileManager.default.removeItem(at: shim.scriptURL)
+            // The PATH block serves every shim - strip it only when the last one is gone.
+            let anyLeft = Shim.allCases.contains {
+                FileManager.default.fileExists(atPath: $0.scriptURL.path)
+            }
+            if !anyLeft { try Self.stripBlock(in: Self.zshenvURL) }
+            recordManifest(shim.manifestKey, paths: nil)
         } catch {
             lastError = error.localizedDescription
         }

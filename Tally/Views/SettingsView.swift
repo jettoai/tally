@@ -164,11 +164,18 @@ struct SettingsView: View {
             remove: integrations.removeCLITool)
         rowDivider
         integrationRow(
+            title: L("Claude shell integration"),
+            caption: L("Routes bare claude commands through your launch policy. Installs one small script and one PATH line; both are removed cleanly."),
+            status: integrations.shimStatus(.claude),
+            install: { integrations.installShim(.claude) },
+            remove: { integrations.removeShim(.claude) })
+        rowDivider
+        integrationRow(
             title: L("Codex shell integration"),
             caption: L("Routes bare codex commands through your launch policy. Installs one small script and one PATH line; both are removed cleanly."),
-            status: integrations.codexShimStatus,
-            install: integrations.installCodexShim,
-            remove: integrations.removeCodexShim)
+            status: integrations.shimStatus(.codex),
+            install: { integrations.installShim(.codex) },
+            remove: { integrations.removeShim(.codex) })
         if let error = integrations.lastError {
             rowDivider
             Text(error)

@@ -2291,6 +2291,64 @@
           }
         }
       }
+    },
+    "Claude shell integration": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude shell 整合"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude shell 集成"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude シェル連携"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 셸 통합"
+          }
+        }
+      }
+    },
+    "Routes bare claude commands through your launch policy. Installs one small script and one PATH line; both are removed cleanly.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓直接輸入的 claude 指令也遵循你的啟動策略。安裝一個小腳本和一行 PATH，移除時完整清除。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让直接输入的 claude 命令也遵循你的启动策略。安装一个小脚本和一行 PATH，移除时完整清除。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "素の claude コマンドも起動ポリシーに従うようにします。小さなスクリプト 1 つと PATH 1 行を追加し、削除時は完全に元へ戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반 claude 명령도 실행 정책을 따르게 합니다. 작은 스크립트 하나와 PATH 한 줄을 추가하며, 제거 시 완전히 정리됩니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

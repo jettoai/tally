@@ -50,10 +50,11 @@ final class SettingsWindowController {
             self.lastAppliedHeight = height
             let chrome = window.frame.height - (window.contentView?.frame.height ?? 0)
             // Reported height = the TALLEST pane (they lay out together for tab-switch
-            // stability), so also cap it: past the cap the tall pane scrolls, and short panes
-            // stop floating in a mostly-empty window.
-            let screenCap = (((window.screen ?? NSScreen.main)?.visibleFrame.height) ?? 900) - 40
-            let target = max(200, min(height + chrome, min(screenCap, 640)))
+            // stability). Fit it whole - the workhorse pane must never need a scrollbar; short
+            // panes trading some empty space for that is the right side of the tradeoff
+            // (Albert's call, 2026-07-19). The screen bound stays as the only cap.
+            let maxHeight = (((window.screen ?? NSScreen.main)?.visibleFrame.height) ?? 900) - 40
+            let target = max(200, min(height + chrome, maxHeight))
             guard abs(target - window.frame.height) > 1 else { return }
             var frame = window.frame
             let top = frame.maxY

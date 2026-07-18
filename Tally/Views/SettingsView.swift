@@ -1,56 +1,114 @@
 import SwiftUI
 
-/// Preferences as hand-built grouped cards over a NON-LAZY VStack - deliberately not SwiftUI's
-/// `Form`: the grouped form is List-backed, lazily materializes rows and exposes no intrinsic
-/// height, which made "open the window exactly content-fit" unsolvable (a short window keeps rows
-/// unbuilt, so the measured height stays short - a self-locking loop). A plain VStack lays out
-/// everything at once, so the measured height below IS the true content height, reported to the
-/// window controller the same way the pinned panel sizes itself (`onContentSize` pattern).
+/// Preferences as a System Settings-style split: a fixed section sidebar on the left, one
+/// section's grouped card on the right, window height fitting the visible pane.
+///
+/// Both columns are hand-built over NON-LAZY stacks - deliberately not SwiftUI's `Form`/`List`:
+/// those are lazy, expose no intrinsic height, and made "open the window exactly content-fit"
+/// unsolvable (a short window keeps rows unbuilt, so the measured height stays short - a
+/// self-locking loop). Plain stacks lay out everything at once, so the measured height below IS
+/// the true content height, reported to the window controller the same way the pinned panel
+/// sizes itself (`onContentSize` pattern).
 struct SettingsView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
     /// Reports the content's full natural height so the host window can fit itself exactly.
     var onContentHeight: (CGFloat) -> Void = { _ in }
 
-    var body: some View {
-        // The ScrollView is inert at the natural size; it only actually scrolls when the content
-        // outgrows the screen cap applied by the controller.
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                sectionCard { SettingsAccountsView(store: store, settings: settings) }
-                sectionHeader(L("Display"))
-                sectionCard { displayRows }
-                sectionHeader(L("General"))
-                sectionCard { generalRows }
-                sectionHeader(L("Integrations"))
-                sectionCard { integrationsRows }
-                sectionCard { aboutRows }
-                    .padding(.top, 8)
+    enum Section: String, CaseIterable {
+        case accounts, display, general, integrations, about
+
+        var title: String {
+            switch self {
+            case .accounts: return L("Accounts")
+            case .display: return L("Display")
+            case .general: return L("General")
+            case .integrations: return L("Integrations")
+            case .about: return L("About")
             }
-            .padding(16)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
-                        onContentHeight(height)
-                    }
-                }
-            )
         }
-        .frame(width: 500)
+
+        var symbol: String {
+            switch self {
+            case .accounts: return "person.2"
+            case .display: return "slider.horizontal.3"
+            case .general: return "gearshape"
+            case .integrations: return "puzzlepiece.extension"
+            case .about: return "info.circle"
+            }
+        }
+    }
+
+    @State private var section: Section = .accounts
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            sidebar
+                .frame(width: 150, alignment: .top)
+            Divider()
+            // The ScrollView is inert at the natural size; it only actually scrolls when the
+            // content outgrows the screen cap applied by the controller.
+            ScrollView {
+                pane
+                    .padding(16)
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
+                                // The window must also fit the sidebar's five rows.
+                                onContentHeight(max(height, 250))
+                            }
+                        }
+                    )
+            }
+            .frame(width: 500)
+        }
         .controlSize(.small)
         // Key `.id` on the language so switching it rebuilds the whole tree and re-localizes every
         // label (see PopoverRootView for why a bare read isn't enough).
         .id(settings.languageOverride ?? "system")
     }
 
-    // MARK: Section chrome
-
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(.headline)
-            .padding(.top, 10)
-            .padding(.leading, 4)
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Section.allCases, id: \.self) { item in
+                Button {
+                    section = item
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: item.symbol)
+                            .font(.callout)
+                            .frame(width: 18)
+                        Text(item.title).font(.subheadline)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(section == item ? Color.accentColor.opacity(0.18) : .clear)
+                    )
+                    .foregroundStyle(section == item ? Color.accentColor : Color.primary)
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
     }
+
+    @ViewBuilder
+    private var pane: some View {
+        switch section {
+        case .accounts: sectionCard { SettingsAccountsView(store: store, settings: settings) }
+        case .display: sectionCard { displayRows }
+        case .general: sectionCard { generalRows }
+        case .integrations: sectionCard { integrationsRows }
+        case .about: sectionCard { aboutRows }
+        }
+    }
+
+    // MARK: Section chrome
 
     private func sectionCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 0, content: content)

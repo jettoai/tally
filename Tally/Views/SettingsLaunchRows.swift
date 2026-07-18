@@ -29,8 +29,8 @@ extension SettingsAccountsView {
                 get: { launchPolicy.policy(providerID).startMode ?? "new" },
                 set: { launchPolicy.setLaunchDefault(providerID, \.startMode, $0 == "new" ? nil : $0) }
             )) {
-                Text(L("New session")).tag("new")
-                Text(L("Continue latest")).tag("continue")
+                Text(verbatim: "New").tag("new")
+                Text(verbatim: "Continue").tag("continue")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -54,10 +54,10 @@ extension SettingsAccountsView {
                 get: { launchPolicy.policy(providerID).permissionMode ?? .standard },
                 set: { launchPolicy.setPermissionMode(providerID, $0) }
             )) {
-                Text(L("System default")).tag(LaunchPolicyStore.PermissionMode.standard)
+                Text(verbatim: "Default").tag(LaunchPolicyStore.PermissionMode.standard)
                 Text(verbatim: "Plan").tag(LaunchPolicyStore.PermissionMode.plan)
-                Text(L("Auto-accept edits")).tag(LaunchPolicyStore.PermissionMode.acceptEdits)
-                Text(L("Bypass permissions")).tag(LaunchPolicyStore.PermissionMode.bypass)
+                Text(verbatim: "Accept edits").tag(LaunchPolicyStore.PermissionMode.acceptEdits)
+                Text(verbatim: "Bypass").tag(LaunchPolicyStore.PermissionMode.bypass)
             }
             .labelsHidden()
             .fixedSize()
@@ -77,7 +77,7 @@ extension SettingsAccountsView {
                 get: { launchPolicy.policy(providerID).effort ?? "" },
                 set: { launchPolicy.setLaunchDefault(providerID, \.effort, $0.isEmpty ? nil : $0) }
             )) {
-                Text(L("Default")).tag("")
+                Text(verbatim: "Default").tag("")
                 ForEach(levels, id: \.self) { Text(verbatim: $0).tag($0) }
             }
             .labelsHidden()
@@ -108,7 +108,7 @@ struct ModelSelectRow: View {
             Text(title).font(.subheadline)
             Spacer()
             if selection == "custom" {
-                TextField(L("Custom…"), text: Binding(
+                TextField("Custom" as String, text: Binding(
                     get: { value ?? "" },
                     set: { value = $0.isEmpty ? nil : $0 }
                 ))
@@ -125,10 +125,10 @@ struct ModelSelectRow: View {
                     }
                 }
             )) {
-                Text(L("Default")).tag("")
+                Text(verbatim: "Default").tag("")
                 ForEach(options, id: \.self) { Text(verbatim: $0).tag($0) }
                 Divider()
-                Text(L("Custom…")).tag("custom")
+                Text(verbatim: "Custom…").tag("custom")
             }
             .labelsHidden()
             .fixedSize()

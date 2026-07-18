@@ -126,13 +126,13 @@ struct SettingsAccountsView: View {
     }
 
     /// Which account new `tally` sessions launch on: Off (observe only), Manual (pin a card in
-    /// the panel), Auto (most headroom wins, re-picked at every launch).
+    /// the panel), Smart (burn-rate pick - time and remaining both count - re-run every launch).
     private func launchPolicyRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L("Launch account")).font(.subheadline)
-                Text(L("Auto starts new sessions on the account with the most room; Manual uses the card you pick in the panel."))
+                Text(L("Smart starts new sessions on the account whose quota goes furthest (reset times and remaining both count); Manual uses the card you pick in the panel."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -144,7 +144,7 @@ struct SettingsAccountsView: View {
             )) {
                 Text(L("Off")).tag(LaunchPolicyStore.Mode.off)
                 Text(L("Manual")).tag(LaunchPolicyStore.Mode.manual)
-                Text(L("Auto")).tag(LaunchPolicyStore.Mode.auto)
+                Text(L("Smart")).tag(LaunchPolicyStore.Mode.auto)
             }
             .pickerStyle(.segmented)
             .labelsHidden()

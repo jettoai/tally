@@ -141,28 +141,54 @@ final class LaunchPolicyStore {
         return windows.min()
     }
 
-    /// Mirror of the CLI's burn-rate scoring (TallyCLI/Snapshot.swift `smartScore`): each window's
-    /// sustainable rate is remaining% ÷ hours until it resets (missing reset = assume a full
-    /// window), the account's score is its tightest window's rate, and the flagship window only
-    /// counts when the declared primary model is that tier. Keep both sides in lockstep.
-    private static func smartScore(_ usage: AccountUsage, primaryModel: String?,
-                                   now: Date = Date()) -> Double {
-        func rate(_ metric: UsageMetric?, fullWindowHours: Double) -> Double? {
+    /// Mirror of the CLI's burn-rate scoring (TallyCLI/Snapshot.swift `ratedWindows`): each
+    /// window's sustainable rate is remaining% ÷ hours until it resets (missing reset = assume a
+    /// full window), and the flagship window only counts when the declared primary model is that
+    /// tier. Keep both sides in lockstep.
+    private static func ratedWindows(_ usage: AccountUsage, primaryModel: String?, now: Date)
+        -> [(name: String, remaining: Double, resetsAt: Date?, rate: Double)] {
+        func window(_ name: String, _ metric: UsageMetric?, fullWindowHours: Double)
+            -> (name: String, remaining: Double, resetsAt: Date?, rate: Double)? {
             guard let metric else { return nil }
             let hours = metric.resetsAt.map { max($0.timeIntervalSince(now) / 3600, 0.05) }
                 ?? fullWindowHours
-            return metric.remainingPercent / hours
+            return (name, metric.remainingPercent, metric.resetsAt, metric.remainingPercent / hours)
         }
-        var rates = [
-            rate(usage.metrics.first { $0.kind == .session }, fullWindowHours: 5),
-            rate(usage.metrics.first { $0.kind == .weeklyAll }, fullWindowHours: 168),
+        var windows = [
+            window("session", usage.metrics.first { $0.kind == .session }, fullWindowHours: 5),
+            window("weekly", usage.metrics.first { $0.kind == .weeklyAll }, fullWindowHours: 168),
         ].compactMap { $0 }
         let model = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
         let windowModel = model?.modelName?.lowercased()
         let primary = primaryModel?.lowercased()
         let modelWindowCounts = primary == nil || windowModel == nil
             || windowModel!.contains(primary!) || primary!.contains(windowModel!)
-        if modelWindowCounts, let r = rate(model, fullWindowHours: 168) { rates.append(r) }
-        return rates.min() ?? -1
+        if modelWindowCounts,
+           let m = window(model?.modelName?.lowercased() ?? "model", model, fullWindowHours: 168) {
+            windows.append(m)
+        }
+        return windows
+    }
+
+    /// The account's score is its TIGHTEST window's sustainable rate (the binding constraint).
+    private static func smartScore(_ usage: AccountUsage, primaryModel: String?,
+                                   now: Date = Date()) -> Double {
+        ratedWindows(usage, primaryModel: primaryModel, now: now).map { $0.rate }.min() ?? -1
+    }
+
+    /// Badge-facing reason for the smart pick, mirroring the CLI's `pickReason`:
+    /// the binding window and its reset, e.g. "weekly 94% · resets 4d".
+    static func smartReason(_ usage: AccountUsage, primaryModel: String?,
+                            now: Date = Date()) -> String? {
+        guard let binding = ratedWindows(usage, primaryModel: primaryModel, now: now)
+            .min(by: { $0.rate < $1.rate }) else { return nil }
+        var text = "\(binding.name) \(Int(binding.remaining.rounded()))%"
+        if let resetsAt = binding.resetsAt {
+            let minutes = max(Int((resetsAt.timeIntervalSince(now) / 60).rounded()), 0)
+            let eta = minutes < 60 ? "\(minutes)m"
+                : minutes < 48 * 60 ? "\(minutes / 60)h" : "\(minutes / (24 * 60))d"
+            text += " · resets \(eta)"
+        }
+        return text
     }
 }

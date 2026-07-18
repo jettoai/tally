@@ -116,7 +116,7 @@ extension PopoverRootView {
                 commandRow("tally resume", caption: L("Hand the latest conversation to the account with the most room"))
             }
             integrationStatusLine
-            Text(L("Click a card to pin that account (Manual); click it again to go back to Auto."))
+            Text(L("Click a card to pin that account (Manual); click it again to go back to Smart."))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

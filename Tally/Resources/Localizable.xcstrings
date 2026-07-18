@@ -1683,35 +1683,6 @@
         }
       }
     },
-    "Auto": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自动"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "자동"
-          }
-        }
-      }
-    },
     "Set as launch account": {
       "extractionState": "manual",
       "localizations": {
@@ -1737,35 +1708,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "실행 계정으로 설정"
-          }
-        }
-      }
-    },
-    "Auto starts new sessions on the account with the most room; Manual uses the card you pick in the panel.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動：新工作階段用餘量最多的帳號啟動；手動：用你在面板點選的帳號。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自动：新会话用余量最多的账号启动；手动：用你在面板点选的账号。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動：残量が最も多いアカウントで新しいセッションを開始します。手動：パネルで選んだアカウントを使用します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "자동: 여유가 가장 많은 계정으로 새 세션을 시작합니다. 수동: 패널에서 선택한 계정을 사용합니다."
           }
         }
       }
@@ -2466,93 +2408,6 @@
         }
       }
     },
-    "Auto pick": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動選中"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自动选中"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動選択"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "자동 선택"
-          }
-        }
-      }
-    },
-    "Auto mode: the next session starts on this account.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動模式：下一個新工作階段會用這個帳號啟動。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自动模式：下一个新会话会用这个账号启动。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自動モード：次のセッションはこのアカウントで開始されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "자동 모드: 다음 세션은 이 계정에서 시작됩니다."
-          }
-        }
-      }
-    },
-    "Click a card to pin that account (Manual); click it again to go back to Auto.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "點一下卡片＝釘選該帳號（手動）；再點一次＝回到自動。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "点一下卡片＝钉选该账号（手动）；再点一次＝回到自动。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カードをクリックでそのアカウントを固定（手動）、もう一度クリックで自動に戻ります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "카드를 클릭하면 해당 계정 고정(수동), 다시 클릭하면 자동으로 돌아갑니다."
-          }
-        }
-      }
-    },
     "Pinned": {
       "extractionState": "manual",
       "localizations": {
@@ -2578,35 +2433,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "고정"
-          }
-        }
-      }
-    },
-    "Manual: every new session uses this account. Click the card to go back to Auto.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手動模式：所有新工作階段都用這個帳號。點卡片可回到自動。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手动模式：所有新会话都用这个账号。点卡片可回到自动。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手動モード：新しいセッションはすべてこのアカウントを使います。カードをクリックすると自動に戻ります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "수동 모드: 모든 새 세션이 이 계정을 사용합니다. 카드를 클릭하면 자동으로 돌아갑니다."
           }
         }
       }
@@ -3477,6 +3303,180 @@
           "stringUnit": {
             "state": "translated",
             "value": "최근 세션 이어서 하기 (현재 기본값)"
+          }
+        }
+      }
+    },
+    "Smart pick": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智慧選中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能选中"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマート選択"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스마트 선택"
+          }
+        }
+      }
+    },
+    "Smart": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智慧"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스마트"
+          }
+        }
+      }
+    },
+    "Smart: new sessions start on the account whose quota goes furthest right now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智慧選擇：新工作階段用「額度用起來最划算」的帳號啟動。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能选择：新会话用「额度用起来最划算」的账号启动。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマート選択：今クォータを最も有効に使えるアカウントで新しいセッションを開始します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스마트 선택: 지금 쿼터를 가장 효율적으로 쓸 수 있는 계정에서 새 세션을 시작합니다."
+          }
+        }
+      }
+    },
+    "Smart starts new sessions on the account whose quota goes furthest (reset times and remaining both count); Manual uses the card you pick in the panel.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智慧模式會用「額度用起來最划算」的帳號開新工作階段（重置時間與剩餘量都算）；手動則用你在面板點選的卡片。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能模式会用「额度用起来最划算」的账号开新会话（重置时间与剩余量都算）；手动则用你在面板点选的卡片。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スマートは、リセット時刻と残量の両方を考慮して最も有効に使えるアカウントで新しいセッションを開始します。手動ではパネルで選んだカードを使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스마트는 리셋 시각과 남은 양을 모두 고려해 가장 효율적인 계정으로 새 세션을 시작합니다. 수동은 패널에서 선택한 카드를 사용합니다."
+          }
+        }
+      }
+    },
+    "Manual: every new session uses this account. Click the card to go back to Smart.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動：每個新工作階段都用這個帳號。再點一下卡片可回到智慧選擇。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动：每个新会话都用这个账号。再点一下卡片可回到智能选择。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動：新しいセッションはすべてこのアカウントを使います。カードをもう一度クリックするとスマート選択に戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동: 새 세션은 모두 이 계정을 사용합니다. 카드를 다시 클릭하면 스마트 선택으로 돌아갑니다."
+          }
+        }
+      }
+    },
+    "Click a card to pin that account (Manual); click it again to go back to Smart.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點一下卡片＝釘選該帳號（手動）；再點一次＝回到智慧選擇。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点一下卡片＝钉选该账号（手动）；再点一次＝回到智能选择。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードをクリックするとそのアカウントを固定（手動）、もう一度クリックするとスマート選択に戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카드를 클릭하면 해당 계정을 고정(수동), 다시 클릭하면 스마트 선택으로 돌아갑니다."
           }
         }
       }

@@ -177,22 +177,32 @@ struct AccountCardView: View {
         .foregroundStyle(Color.orange)
         .padding(.horizontal, 5).padding(.vertical, 1)
         .background(Capsule().fill(Color.orange.opacity(0.15)))
-        .help(L("Manual: every new session uses this account. Click the card to go back to Auto."))
+        .help(L("Manual: every new session uses this account. Click the card to go back to Smart."))
     }
 
-    /// Auto mode: marks the card the next launch would pick. Copy lesson, twice over: "Auto"
-    /// read as a per-account mode toggle, "Next" read as an app-restart notice. "Auto pick"
-    /// names both the chooser (auto mode) and the meaning (this card is the current pick);
-    /// the tooltip spells out the consequence in a full sentence.
+    /// Smart mode: marks the card the next launch would pick. Copy lesson, twice over: "Auto"
+    /// read as a per-account mode toggle, "Next" read as an app-restart notice. "Smart pick"
+    /// names both the chooser (smart mode) and the meaning (this card is the current pick);
+    /// the tooltip spells out the consequence AND the why - the binding quota window and its
+    /// reset - so the pick never looks arbitrary.
     private var autoBadge: some View {
-        Text(L("Auto pick"))
+        Text(L("Smart pick"))
             .lineLimit(1)
             .fixedSize()
             .font(.caption2.weight(.semibold))
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 5).padding(.vertical, 1)
             .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-            .help(L("Auto mode: the next session starts on this account."))
+            .help(smartPickTooltip)
+    }
+
+    private var smartPickTooltip: String {
+        let base = L("Smart: new sessions start on the account whose quota goes furthest right now.")
+        let primary = LaunchPolicyStore.shared.policy(usage.providerID).model
+        guard let reason = LaunchPolicyStore.smartReason(usage, primaryModel: primary) else {
+            return base
+        }
+        return base + "\n" + reason
     }
 
     private var errorRow: some View {

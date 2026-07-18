@@ -35,17 +35,45 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
 
-    // The app's permission-mode setting (Settings → Claude permissions), injected only when the
-    // user typed no permission flag of their own - explicit flags always win.
+    // Launch defaults from the app (Settings), injected only when the user typed no flag of
+    // their own on the same axis - explicit flags always win. `--new` is tally's own flag: it
+    // suppresses a "continue by default" setting for this one launch and is never passed through.
     let policy = launchPolicy(provider.id)
-    if provider.id == "claude", let mode = policy.permissionMode,
-       !passthrough.contains("--dangerously-skip-permissions"),
-       !passthrough.contains("--permission-mode") {
-        switch mode {
-        case "plan": passthrough += ["--permission-mode", "plan"]
-        case "acceptEdits": passthrough += ["--permission-mode", "acceptEdits"]
-        case "bypass": passthrough += ["--dangerously-skip-permissions"]
-        default: break
+    let wantsNew = passthrough.contains("--new")
+    passthrough.removeAll { $0 == "--new" }
+    if provider.id == "claude" {
+        if let mode = policy.permissionMode,
+           !passthrough.contains("--dangerously-skip-permissions"),
+           !passthrough.contains("--permission-mode") {
+            switch mode {
+            case "plan": passthrough += ["--permission-mode", "plan"]
+            case "acceptEdits": passthrough += ["--permission-mode", "acceptEdits"]
+            case "bypass": passthrough += ["--dangerously-skip-permissions"]
+            default: break
+            }
+        }
+        if policy.startMode == "continue", !wantsNew,
+           !passthrough.contains(where: { ["--continue", "-c", "--resume", "-r", "--print", "-p"].contains($0) }) {
+            passthrough.append("--continue")
+        }
+        if let model = policy.model, !passthrough.contains("--model") {
+            passthrough += ["--model", model]
+        }
+        if let fallback = policy.fallbackModel, !passthrough.contains("--fallback-model") {
+            passthrough += ["--fallback-model", fallback]
+        }
+        if let effort = policy.effort, !passthrough.contains("--effort") {
+            passthrough += ["--effort", effort]
+        }
+    }
+    if provider.id == "codex" {
+        if let model = policy.model,
+           !passthrough.contains("-m"), !passthrough.contains("--model") {
+            passthrough += ["-m", model]
+        }
+        if let effort = policy.effort,
+           !passthrough.contains(where: { $0.contains("model_reasoning_effort") }) {
+            passthrough += ["-c", "model_reasoning_effort=\"\(effort)\""]
         }
     }
 

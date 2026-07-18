@@ -28,6 +28,14 @@ final class LaunchPolicyStore {
         var pinnedAccountID: String?
         var pinnedHome: String?
         var permissionMode: PermissionMode?
+        /// "continue" = bare launches resume the directory's latest conversation (escape hatch:
+        /// `tally claude --new`). nil = start fresh, the CLI's own default.
+        var startMode: String?
+        /// Launch defaults appended by the tally launcher; nil = inject nothing. Free text for
+        /// model names (they drift too fast for a hard-coded picker).
+        var model: String?
+        var fallbackModel: String?
+        var effort: String?
     }
 
     static let shared = LaunchPolicyStore()
@@ -65,6 +73,16 @@ final class LaunchPolicyStore {
     func setPermissionMode(_ providerID: String, _ mode: PermissionMode) {
         var updated = policy(providerID)
         updated.permissionMode = mode == .standard ? nil : mode
+        policies[providerID] = updated
+        persist()
+    }
+
+    /// Generic launch-default setter: empty/whitespace collapses to nil (= inject nothing).
+    func setLaunchDefault(_ providerID: String, _ keyPath: WritableKeyPath<ProviderPolicy, String?>,
+                          _ value: String?) {
+        var updated = policy(providerID)
+        let trimmed = value?.trimmingCharacters(in: .whitespaces)
+        updated[keyPath: keyPath] = (trimmed?.isEmpty == false) ? trimmed : nil
         policies[providerID] = updated
         persist()
     }

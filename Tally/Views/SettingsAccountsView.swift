@@ -80,8 +80,19 @@ struct SettingsAccountsView: View {
             }
             if id == "claude" {
                 rowDivider
+                startModeRow(id)
+                rowDivider
                 permissionRow(id)
             }
+            rowDivider
+            textDefaultRow(id, title: L("Model"), placeholder: L("Default"), keyPath: \.model)
+            if id == "claude" {
+                rowDivider
+                textDefaultRow(id, title: L("Fallback models"), placeholder: L("Default"),
+                               keyPath: \.fallbackModel)
+            }
+            rowDivider
+            effortRow(id)
             if items.isEmpty {
                 rowDivider
                 HStack(spacing: 10) {
@@ -135,6 +146,79 @@ struct SettingsAccountsView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .padding(.leading, 18)   // nested under the provider row, like the account rows
+    }
+
+    /// Bare `tally claude` starts fresh or continues the directory's latest conversation.
+    /// One-off escape: `tally claude --new`.
+    private func startModeRow(_ providerID: String) -> some View {
+        let launchPolicy = LaunchPolicyStore.shared
+        return HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("Start with")).font(.subheadline)
+                Text(L("Applies to bare launches; tally claude --new starts fresh once."))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Picker("", selection: Binding(
+                get: { launchPolicy.policy(providerID).startMode ?? "new" },
+                set: { launchPolicy.setLaunchDefault(providerID, \.startMode, $0 == "new" ? nil : $0) }
+            )) {
+                Text(L("New session")).tag("new")
+                Text(L("Continue latest")).tag("continue")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .padding(.leading, 18)
+    }
+
+    /// A free-text launch default (model names drift too fast for a hard-coded picker);
+    /// empty = inject nothing.
+    private func textDefaultRow(_ providerID: String, title: String, placeholder: String,
+                                keyPath: WritableKeyPath<LaunchPolicyStore.ProviderPolicy, String?>)
+        -> some View {
+        let launchPolicy = LaunchPolicyStore.shared
+        return HStack {
+            Text(title).font(.subheadline)
+            Spacer()
+            TextField(placeholder, text: Binding(
+                get: { launchPolicy.policy(providerID)[keyPath: keyPath] ?? "" },
+                set: { launchPolicy.setLaunchDefault(providerID, keyPath, $0) }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 170)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .padding(.leading, 18)
+    }
+
+    /// Reasoning-effort launch default; level lists follow each CLI's accepted values.
+    private func effortRow(_ providerID: String) -> some View {
+        let launchPolicy = LaunchPolicyStore.shared
+        let levels = providerID == "claude"
+            ? ["low", "medium", "high", "xhigh", "max"]
+            : ["low", "medium", "high", "xhigh"]
+        return HStack {
+            Text(L("Effort")).font(.subheadline)
+            Spacer()
+            Picker("", selection: Binding(
+                get: { launchPolicy.policy(providerID).effort ?? "" },
+                set: { launchPolicy.setLaunchDefault(providerID, \.effort, $0.isEmpty ? nil : $0) }
+            )) {
+                Text(L("Default")).tag("")
+                ForEach(levels, id: \.self) { Text(verbatim: $0).tag($0) }
+            }
+            .labelsHidden()
+            .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .padding(.leading, 18)
     }
 
     /// Claude Code permission mode injected by the tally launcher. Default injects nothing; a

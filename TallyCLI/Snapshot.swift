@@ -53,6 +53,11 @@ struct LaunchPolicy {
     /// Claude permission mode chosen in the app ("plan" / "acceptEdits" / "bypass"); nil = inject
     /// nothing. Flags the user typed always outrank it.
     var permissionMode: String?
+    /// Launch defaults chosen in the app; nil = inject nothing. Same rule: typed flags win.
+    var startMode: String?
+    var model: String?
+    var fallbackModel: String?
+    var effort: String?
 }
 
 let stateURL = FileManager.default.homeDirectoryForCurrentUser
@@ -65,6 +70,10 @@ func launchPolicy(_ providerID: String) -> LaunchPolicy {
             var pinnedAccountID: String?
             var pinnedHome: String?
             var permissionMode: String?
+            var startMode: String?
+            var model: String?
+            var fallbackModel: String?
+            var effort: String?
         }
         var launch: [String: Policy]?
     }
@@ -74,7 +83,11 @@ func launchPolicy(_ providerID: String) -> LaunchPolicy {
     return LaunchPolicy(mode: policy.mode ?? "auto",
                         pinnedAccountID: policy.pinnedAccountID,
                         pinnedHome: policy.pinnedHome,
-                        permissionMode: policy.permissionMode)
+                        permissionMode: policy.permissionMode,
+                        startMode: policy.startMode,
+                        model: policy.model,
+                        fallbackModel: policy.fallbackModel,
+                        effort: policy.effort)
 }
 
 func loadSnapshot() -> (Snapshot?, String?) {

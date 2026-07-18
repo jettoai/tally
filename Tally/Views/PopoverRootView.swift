@@ -264,6 +264,32 @@ struct PopoverRootView: View {
     }
 
     @State private var showLaunchHelp = false
+    @State private var copiedCommand: String?
+
+    /// A command chip that copies itself on click, flashing a green check as the receipt.
+    private func commandChip(_ command: String) -> some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(command, forType: .string)
+            copiedCommand = command
+            Task {
+                try? await Task.sleep(for: .seconds(1.5))
+                if copiedCommand == command { copiedCommand = nil }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(verbatim: command).font(.caption.monospaced())
+                Image(systemName: copiedCommand == command ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 9))
+                    .foregroundStyle(copiedCommand == command ? Color.green : Color.secondary)
+            }
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(.quaternary))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(L("Copy"))
+    }
 
     /// The "?" popover: how to actually launch on the picked account, and what clicking a card does.
     private var launchHelp: some View {
@@ -272,10 +298,7 @@ struct PopoverRootView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     ForEach(["tally claude", "tally codex"], id: \.self) { command in
-                        Text(verbatim: command)
-                            .font(.caption.monospaced())
-                            .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(.quaternary))
+                        commandChip(command)
                     }
                 }
                 Text(L("Launches a session on the account Tally picks."))

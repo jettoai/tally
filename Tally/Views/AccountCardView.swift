@@ -111,7 +111,10 @@ struct AccountCardView: View {
             }
             if hasSiblings {
                 switch launchMode {
-                case .manual: pinControl
+                // The pinned card carries a labelled badge (mode legible at a glance, in a colour
+                // distinct from the auto badge); the OTHER cards keep the hollow radio as the
+                // click-to-choose affordance.
+                case .manual: if isPinnedActive { manualBadge } else { pinControl }
                 case .auto: if isAutoPick { autoBadge }
                 case .off: EmptyView()
                 }
@@ -160,6 +163,20 @@ struct AccountCardView: View {
         .buttonStyle(.plain)
         .help(L("Set as launch account"))
         .accessibilityLabel(L("Set as launch account"))
+    }
+
+    /// Manual mode, pinned card: warm colour + pin glyph, deliberately distinct from the cool
+    /// auto badge - a human override should not look like the machine's pick.
+    private var manualBadge: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "pin.fill").font(.system(size: 8))
+            Text(L("Pinned"))
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(Color.orange)
+        .padding(.horizontal, 5).padding(.vertical, 1)
+        .background(Capsule().fill(Color.orange.opacity(0.15)))
+        .help(L("Manual: every new session uses this account. Click the card to go back to Auto."))
     }
 
     /// Auto mode: marks the card the next launch would pick. Copy lesson, twice over: "Auto"

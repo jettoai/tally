@@ -35,6 +35,20 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
 
+    // The app's permission-mode setting (Settings → Claude permissions), injected only when the
+    // user typed no permission flag of their own - explicit flags always win.
+    let policy = launchPolicy(provider.id)
+    if provider.id == "claude", let mode = policy.permissionMode,
+       !passthrough.contains("--dangerously-skip-permissions"),
+       !passthrough.contains("--permission-mode") {
+        switch mode {
+        case "plan": passthrough += ["--permission-mode", "plan"]
+        case "acceptEdits": passthrough += ["--permission-mode", "acceptEdits"]
+        case "bypass": passthrough += ["--dangerously-skip-permissions"]
+        default: break
+        }
+    }
+
     if let pinned {
         let query = pinned.lowercased()
         let match = snapshot?.accounts.first { account in
@@ -52,8 +66,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
 
     // The app's launch policy (Settings → Launch account). A `--account` flag above outranks it.
     // "off" still auto-picks HERE: invoking `tally claude` is itself an explicit ask to pick -
-    // off only means Tally must not steer launches it wasn't asked into (the future PATH shim).
-    let policy = launchPolicy(provider.id)
+    // off only means Tally must not steer launches it wasn't asked into (the PATH shim).
     if policy.mode == "manual" {
         if let match = snapshot?.accounts.first(where: {
             $0.id == policy.pinnedAccountID && $0.launchHome != nil

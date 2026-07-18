@@ -15,12 +15,19 @@ import Observation
 final class LaunchPolicyStore {
     enum Mode: String, Codable, CaseIterable { case off, manual, auto }
 
+    /// Claude Code permission mode injected at launch ("default" injects nothing). User-typed
+    /// permission flags always win over this setting.
+    enum PermissionMode: String, Codable, CaseIterable {
+        case standard = "default", plan, acceptEdits, bypass
+    }
+
     struct ProviderPolicy: Codable, Equatable {
         var mode: Mode = .auto
         /// The pinned account (manual mode): id for the UI, launch home denormalized alongside so
         /// the CLI can still launch it even when the account drops out of the snapshot briefly.
         var pinnedAccountID: String?
         var pinnedHome: String?
+        var permissionMode: PermissionMode?
     }
 
     static let shared = LaunchPolicyStore()
@@ -55,9 +62,21 @@ final class LaunchPolicyStore {
         persist()
     }
 
+    func setPermissionMode(_ providerID: String, _ mode: PermissionMode) {
+        var updated = policy(providerID)
+        updated.permissionMode = mode == .standard ? nil : mode
+        policies[providerID] = updated
+        persist()
+    }
+
     /// Pin one account (and switch the provider to manual - pinning IS choosing manual).
+    /// Mutates in place so unrelated settings (e.g. permission mode) survive the click.
     func pin(_ providerID: String, accountID: String, home: String?) {
-        policies[providerID] = ProviderPolicy(mode: .manual, pinnedAccountID: accountID, pinnedHome: home)
+        var updated = policy(providerID)
+        updated.mode = .manual
+        updated.pinnedAccountID = accountID
+        updated.pinnedHome = home
+        policies[providerID] = updated
         persist()
     }
 

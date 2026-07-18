@@ -78,6 +78,10 @@ struct SettingsAccountsView: View {
                 rowDivider
                 sharingRow(id, items: items)
             }
+            if id == "claude" {
+                rowDivider
+                permissionRow(id)
+            }
             if items.isEmpty {
                 rowDivider
                 HStack(spacing: 10) {
@@ -131,6 +135,35 @@ struct SettingsAccountsView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .padding(.leading, 18)   // nested under the provider row, like the account rows
+    }
+
+    /// Claude Code permission mode injected by the tally launcher. Default injects nothing; a
+    /// flag the user types always outranks this setting (enforced CLI-side).
+    private func permissionRow(_ providerID: String) -> some View {
+        let launchPolicy = LaunchPolicyStore.shared
+        return HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("Claude permissions")).font(.subheadline)
+                Text(L("Applied when launching through tally; flags you type yourself win."))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Picker("", selection: Binding(
+                get: { launchPolicy.policy(providerID).permissionMode ?? .standard },
+                set: { launchPolicy.setPermissionMode(providerID, $0) }
+            )) {
+                Text(L("System default")).tag(LaunchPolicyStore.PermissionMode.standard)
+                Text(verbatim: "Plan").tag(LaunchPolicyStore.PermissionMode.plan)
+                Text(L("Auto-accept edits")).tag(LaunchPolicyStore.PermissionMode.acceptEdits)
+                Text(L("Bypass permissions")).tag(LaunchPolicyStore.PermissionMode.bypass)
+            }
+            .labelsHidden()
+            .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .padding(.leading, 18)   // nested under the provider row
     }
 
     /// Read-only: whether this provider's homes share their harness (skills/config/transcripts).

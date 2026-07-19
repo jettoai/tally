@@ -141,18 +141,6 @@ struct AccountCardView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if hasSiblings {
-                switch launchMode {
-                // The pinned card carries a labelled badge (mode legible at a glance, in a colour
-                // distinct from the auto badge); the OTHER cards keep the hollow radio as the
-                // click-to-choose affordance.
-                case .manual: if isPinnedActive { manualBadge } else { pinControl }
-                case .auto:
-                    if isAutoPick { autoBadge }
-                    pinControl
-                case .off: EmptyView()
-                }
-            }
             if usage.isStale {
                 Label(L("Outdated"), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)
@@ -160,6 +148,15 @@ struct AccountCardView: View {
                     .help(usage.error ?? "")
             }
             Spacer()
+            // Launch affordances live at the TRAILING edge so the identity (name · plan) never
+            // gets pushed around: a mode badge (Smart purple / Pinned orange) as the label, and
+            // ONE circle as the only switch - hollow = pin me, checked = pinned, click again to
+            // release back to Smart (Albert's UX spec, 2026-07-19).
+            if hasSiblings, launchMode != .off {
+                if launchMode == .manual, isPinnedActive { pinnedBadge }
+                if launchMode == .auto, isAutoPick { autoBadge }
+                pinToggle
+            }
             if showsDragHandle {
                 Image(systemName: "line.3.horizontal")
                     .font(.caption)
@@ -171,41 +168,44 @@ struct AccountCardView: View {
         }
     }
 
-    /// A radio per card - the filled one is where new sessions launch; click to move the pin
-    /// (shown in Smart mode too, so pinning is one deliberate click on a small target).
-    private var pinControl: some View {
+    /// ONE circle, two states: hollow = click to pin this account; checked = pinned, click
+    /// again to release back to Smart. The same control toggles both ways - no second gesture
+    /// to learn, no card-wide tap to mis-hit.
+    private var pinToggle: some View {
         Button {
-            let home = UsageStore.shared.discoveredAccounts.first { $0.id == usage.id }?.launchHome
-            LaunchPolicyStore.shared.pin(usage.providerID, accountID: usage.id, home: home)
+            let policy = LaunchPolicyStore.shared
+            if isPinnedActive {
+                policy.setMode(usage.providerID, .auto)
+            } else {
+                let home = UsageStore.shared.discoveredAccounts
+                    .first { $0.id == usage.id }?.launchHome
+                policy.pin(usage.providerID, accountID: usage.id, home: home)
+            }
         } label: {
-            Image(systemName: isPinnedActive ? "circle.inset.filled" : "circle")
+            Image(systemName: isPinnedActive ? "checkmark.circle.fill" : "circle")
                 .font(.caption)
-                .foregroundStyle(isPinnedActive ? Color.accentColor : Color.secondary)
+                .foregroundStyle(isPinnedActive ? Color.orange : Color.secondary)
         }
         .buttonStyle(.plain)
-        .help(L("Set as launch account"))
+        .help(isPinnedActive
+              ? L("Pinned. Click again to go back to Smart.")
+              : L("Set as launch account"))
         .accessibilityLabel(L("Set as launch account"))
     }
 
-    /// Manual mode, pinned card: warm colour + pin glyph, deliberately distinct from the cool
-    /// auto badge - a human override should not look like the machine's pick.
-    private var manualBadge: some View {
-        Button {
-            LaunchPolicyStore.shared.setMode(usage.providerID, .auto)
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "pin.fill").font(.system(size: 8))
-                Text(L("Pinned")).lineLimit(1)
-            }
-            .fixedSize()   // a badge must never wrap (a two-line capsule broke the header, 2026-07-18)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(Color.orange)
-            .padding(.horizontal, 5).padding(.vertical, 1)
-            .background(Capsule().fill(Color.orange.opacity(0.15)))
-            .contentShape(Capsule())
+    /// Manual mode, pinned card: a label-only badge in the warm colour, same shape as the Smart
+    /// badge - the mode reads at a glance, the neighbouring checked circle does the switching.
+    private var pinnedBadge: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "pin.fill").font(.system(size: 8))
+            Text(L("Pinned")).lineLimit(1)
         }
-        .buttonStyle(.plain)
-        .help(L("Manual: every new session uses this account. Click this badge to go back to Smart."))
+        .fixedSize()   // a badge must never wrap (a two-line capsule broke the header, 2026-07-18)
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(Color.orange)
+        .padding(.horizontal, 5).padding(.vertical, 1)
+        .background(Capsule().fill(Color.orange.opacity(0.15)))
+        .help(L("Manual: every new session uses this account."))
     }
 
     /// Smart mode: marks the card the next launch would pick. Copy lesson, twice over: "Auto"
@@ -272,6 +272,17 @@ struct AccountCardView: View {
         alert.addButton(withTitle: L("Redeem")).hasDestructiveAction = true
         alert.addButton(withTitle: L("Cancel"))
         NSApp.activate(ignoringOtherApps: true)
+        // Center on the window the user actually clicked in (panel or popover), falling back
+        // to the screen under the pointer - never on some other monitor's main screen.
+        alert.layout()
+        let mouse = NSEvent.mouseLocation
+        let anchor = NSApp.windows.first { $0.isVisible && $0.frame.contains(mouse) }?.frame
+            ?? NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }?.visibleFrame
+        if let anchor {
+            let size = alert.window.frame.size
+            alert.window.setFrameOrigin(NSPoint(x: anchor.midX - size.width / 2,
+                                                y: anchor.midY - size.height / 2))
+        }
         if alert.runModal() == .alertFirstButtonReturn { redeem() }
     }
 

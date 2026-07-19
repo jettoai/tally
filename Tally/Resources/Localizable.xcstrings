@@ -4003,60 +4003,89 @@
         }
       }
     },
-    "Pin an account with the ◯ on its card; click the pin badge to go back to Smart.": {
+    "The ◯ on a card pins that account; clicking the ✓ releases it back to Smart.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "點卡片上的 ◯ 釘選帳號；點「釘選」徽章回到智選。"
+            "value": "卡片上的 ◯ 用來釘選帳號；點 ✓ 即釋放、回到智慧選擇。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "点卡片上的 ◯ 钉选账号；点「钉选」徽章回到智选。"
+            "value": "卡片上的 ◯ 用来钉选账号；点 ✓ 即释放、回到智能选择。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カードの ◯ をクリックしてアカウントを固定、固定バッジをクリックするとスマート選択に戻ります。"
+            "value": "カードの ◯ でアカウントを固定、✓ をクリックすると解除してスマート選択に戻ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "카드의 ◯ 를 클릭해 계정을 고정하고, 고정 배지를 클릭하면 스마트 선택으로 돌아갑니다."
+            "value": "카드의 ◯ 로 계정을 고정하고, ✓ 를 클릭하면 해제되어 스마트 선택으로 돌아갑니다."
           }
         }
       }
     },
-    "Manual: every new session uses this account. Click this badge to go back to Smart.": {
+    "Pinned. Click again to go back to Smart.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動：每個新工作階段都用這個帳號。點此徽章可回到智慧選擇。"
+            "value": "已釘選。再點一下回到智慧選擇。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "手动：每个新会话都用这个账号。点此徽章可回到智能选择。"
+            "value": "已钉选。再点一下回到智能选择。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "手動：新しいセッションはすべてこのアカウントを使います。このバッジをクリックするとスマート選択に戻ります。"
+            "value": "固定済み。もう一度クリックするとスマート選択に戻ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "수동: 새 세션은 모두 이 계정을 사용합니다. 이 배지를 클릭하면 스마트 선택으로 돌아갑니다."
+            "value": "고정됨. 다시 클릭하면 스마트 선택으로 돌아갑니다."
+          }
+        }
+      }
+    },
+    "Manual: every new session uses this account.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動：每個新工作階段都用這個帳號。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动：每个新会话都用这个账号。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動：新しいセッションはすべてこのアカウントを使います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동: 새 세션은 모두 이 계정을 사용합니다."
           }
         }
       }

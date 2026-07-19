@@ -103,7 +103,7 @@ extension PopoverRootView {
             Text(L("A ✦ in the status line means the session was launched by Tally."))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(L("Pin an account with the ◯ on its card; click the pin badge to go back to Smart."))
+            Text(L("The ◯ on a card pins that account; clicking the ✓ releases it back to Smart."))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

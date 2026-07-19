@@ -19,8 +19,9 @@
 Tally is a native **macOS menu bar AI usage monitor for Claude and Codex rate limits**, built for
 people who run **multiple Claude (Max/Pro) and Codex subscriptions** and are tired of guessing
 which account still has room: every account's 5-hour session, weekly, and top-model quota windows
-sit side by side, and the Smart pick starts every new session on the account whose quota goes
-furthest right now, weighing reset times, not just remaining percent, then follows through
+sit side by side under a fleet gauge that pools them into one combined budget and forecasts how
+long it lasts at your measured pace, and the Smart pick starts every new session on the account
+whose quota goes furthest right now, weighing reset times, not just remaining percent, then follows through
 mid-conversation: rate-limit handoff, flagship-model rescue, and a status-line signal that shows
 which account is burning.
 
@@ -29,7 +30,7 @@ which account is burning.
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel showing eight accounts side by side (five Claude Max, three Codex), each with its 5-hour session, weekly, and top-model usage windows, reset times, and near-limit warnings; purple Smart badges mark the accounts the launcher would pick, and the header strip summarizes the launch defaults" width="560">
+  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel: per-provider fleet gauges pool eight accounts (five Claude Max, three Codex) into one weekly-budget bar each, with a pace forecast (lasts about 4d 10h; sustainable at this pace) and the next staggered refill; below, every account's own card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks" width="560">
 </p>
 
 ## Why Tally
@@ -53,6 +54,11 @@ subscriptions at once:
 - **Multi-account first.** Every `~/.claude*` login and Codex install is its own card: N accounts
   side by side, not a single-account fallback chain. Drag cards to reorder; the order applies
   everywhere.
+- **The fleet gauge.** Each provider's accounts pooled into ONE meter: a continuous bar for the
+  combined weekly budget, the total in accounts' worth ("2.9/5 left"), and the next staggered
+  refill. A forecast estimates how long the pool lasts at your recently measured pace, counting
+  the quota each reset brings back: "lasts about 4d 10h" when you are outspending the refill
+  cycle, "sustainable at this pace" when you are not. No other usage meter pools accounts at all.
 - **Menu bar strip.** Per-account brand marks with stacked session/weekly percentages; same-provider
   accounts get a tiny index badge; hover for every account's full numbers.
 - **Pinnable glass panel.** Pin the dashboard as an always-on-top frosted-glass panel; drag the

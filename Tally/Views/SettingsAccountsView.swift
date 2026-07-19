@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// The Accounts group of Settings: one sub-group per provider - its enable switch, its launch
-/// policy, and one row per discovered account (rename, reorder, menu-bar/enable switches).
-/// Split out of SettingsView purely for file size; SettingsView hosts it inside a section card.
+/// The Accounts group of Settings: one sub-group per provider - its enable switch and one row
+/// per discovered account (rename, reorder, menu-bar/enable switches). Launch policy and launch
+/// defaults live in the Launch pane (SettingsLaunchView): "which accounts exist" and "what
+/// happens when I launch" are different questions.
 struct SettingsAccountsView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
@@ -70,36 +71,6 @@ struct SettingsAccountsView: View {
         .padding(.vertical, 10)
 
         if settings.isEnabled(id) {
-            // Launch policy only surfaces once there are two accounts to choose between - with one
-            // account every mode launches the same place, so the control would just be noise.
-            if items.count > 1 {
-                rowDivider
-                launchPolicyRow(id)
-                rowDivider
-                sharingRow(id, items: items)
-            }
-            if id == "claude" {
-                rowDivider
-                startModeRow(id)
-                rowDivider
-                permissionRow(id)
-            }
-            rowDivider
-            ModelEffortRow(title: L("Model & effort"),
-                           modelOptions: id == "claude" ? ModelCatalog.claudeAliases : ModelCatalog.codexModels,
-                           effortLevels: id == "claude" ? EffortLevels.shared.claude : EffortLevels.shared.codex,
-                           model: launchDefaultBinding(id, \.model),
-                           effort: launchDefaultBinding(id, \.effort))
-            if id == "claude" {
-                rowDivider
-                ModelEffortRow(title: L("Fallback & effort"),
-                               modelOptions: ModelCatalog.claudeAliases,
-                               effortLevels: EffortLevels.shared.claude,
-                               model: launchDefaultBinding(id, \.fallbackModel),
-                               effort: launchDefaultBinding(id, \.fallbackEffort))
-                rowDivider
-                fallbackArgsRow(id)
-            }
             if items.isEmpty {
                 rowDivider
                 HStack(spacing: 10) {
@@ -157,63 +128,6 @@ struct SettingsAccountsView: View {
         return claude
             ? "CLAUDE_CONFIG_DIR=~/\(base)\(suffix) claude"
             : "CODEX_HOME=~/\(base)\(suffix) codex login"
-    }
-
-    private func launchPolicyRow(_ providerID: String) -> some View {
-        let launchPolicy = LaunchPolicyStore.shared
-        return HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L("Launch account")).font(.subheadline)
-                Text(L("Smart starts new sessions on the account whose quota goes furthest (reset times and remaining both count); Manual uses the card you pick in the panel."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            Picker("", selection: Binding(
-                get: { launchPolicy.mode(providerID) },
-                set: { launchPolicy.setMode(providerID, $0) }
-            )) {
-                Text(L("Off")).tag(LaunchPolicyStore.Mode.off)
-                Text(L("Manual")).tag(LaunchPolicyStore.Mode.manual)
-                Text(L("Smart")).tag(LaunchPolicyStore.Mode.auto)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .padding(.leading, 18)   // nested under the provider row, like the account rows
-    }
-
-    /// Read-only: whether this provider's homes share their harness (skills/config/transcripts).
-    /// Detected live from the filesystem - Tally reports the wiring, it never rewires here.
-    private func sharingRow(_ providerID: String, items: [ProviderAccount]) -> some View {
-        let primary = items.first?.launchHome
-        let reports = items.dropFirst().compactMap { account -> HarnessSharing.Report? in
-            guard let primary, let home = account.launchHome else { return nil }
-            return HarnessSharing.report(primaryHome: primary, secondaryHome: home,
-                                         providerID: providerID)
-        }
-        let shared = reports.reduce(0) { $0 + $1.sharedItems.count }
-        let total = reports.reduce(0) { $0 + $1.total }
-        let label = shared == 0 || total == 0 ? L("Independent")
-            : shared == total ? L("Shared")
-            : "\(L("Partially shared")) (\(shared)/\(total))"
-        let independent = Set(reports.flatMap(\.independentItems)).sorted().joined(separator: ", ")
-        let detail = independent.isEmpty
-            ? Set(reports.flatMap(\.sharedItems)).sorted().joined(separator: ", ")
-            : "\(L("Independent")): \(independent)"
-        return HStack {
-            Text(L("Shared configuration")).font(.subheadline)
-            Spacer()
-            Text(label).font(.caption).foregroundStyle(.secondary)
-        }
-        .help(detail)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .padding(.leading, 18)   // nested under the provider row
     }
 
     private func swapAccounts(_ items: [ProviderAccount], _ a: Int, _ b: Int) {

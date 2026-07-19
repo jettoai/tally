@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// The per-provider launch-default rows (start mode, permissions, model, effort), split out of
-/// SettingsAccountsView for file size. All of them write LaunchPolicyStore and follow one
+/// SettingsLaunchView for file size. All of them write LaunchPolicyStore and follow one
 /// contract: empty/default injects nothing, and flags the user types always win (CLI-side).
-extension SettingsAccountsView {
+extension SettingsLaunchView {
     func launchDefaultBinding(_ providerID: String,
                               _ keyPath: WritableKeyPath<LaunchPolicyStore.ProviderPolicy, String?>)
         -> Binding<String?> {

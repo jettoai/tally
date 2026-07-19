@@ -16,11 +16,12 @@ struct SettingsView: View {
     var onContentHeight: (CGFloat) -> Void = { _ in }
 
     enum Section: String, CaseIterable {
-        case accounts, display, general, integrations, about
+        case accounts, launch, display, general, integrations, about
 
         var title: String {
             switch self {
             case .accounts: return L("Accounts")
+            case .launch: return L("Launch")
             case .display: return L("Display")
             case .general: return L("General")
             case .integrations: return L("Integrations")
@@ -31,6 +32,7 @@ struct SettingsView: View {
         var symbol: String {
             switch self {
             case .accounts: return "person.2"
+            case .launch: return "play.circle"
             case .display: return "slider.horizontal.3"
             case .general: return "gearshape"
             case .integrations: return "puzzlepiece.extension"
@@ -116,6 +118,7 @@ struct SettingsView: View {
     private func paneContent(_ item: Section) -> some View {
         switch item {
         case .accounts: sectionCard { SettingsAccountsView(store: store, settings: settings) }
+        case .launch: sectionCard { SettingsLaunchView(store: store, settings: settings) }
         case .display: sectionCard { displayRows }
         case .general: sectionCard { generalRows }
         case .integrations: sectionCard { integrationsRows }

@@ -291,7 +291,11 @@ func runStatusline(args: [String]) -> Never {
     // snapshot, so steering data is dead whatever this session is.
     let marker: String? = ProcessInfo.processInfo.environment["TALLY_LAUNCHED"] == "1" ? "✦" : nil
     let offNote: String? = problem != nil ? "(tally off)" : nil
-    let identity = [marker, label, offNote].compactMap { $0 }.joined(separator: " ")
+    // The account name only carries information when there is a choice: with one account it
+    // reads as noise ("Claude" next to a Claude session), so the sparkle stands alone.
+    let siblings = snapshot?.accounts.filter { $0.provider == "claude" }.count ?? 0
+    let identity = [marker, siblings > 1 ? label : nil, offNote]
+        .compactMap { $0 }.joined(separator: " ")
     let input = FileHandle.standardInput.readDataToEndOfFile()
 
     // Wrapped mode: the user's own status line (carried as base64 - see IntegrationsStore)
@@ -334,7 +338,7 @@ func runStatusline(args: [String]) -> Never {
 
     let json = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any]
     let model = (json?["model"] as? [String: Any])?["display_name"] as? String
-    print([identity, model].compactMap { $0 }.joined(separator: " · "))
+    print([identity.isEmpty ? nil : identity, model].compactMap { $0 }.joined(separator: " · "))
     exit(0)
 }
 

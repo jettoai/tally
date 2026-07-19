@@ -14,16 +14,15 @@ struct MetricRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
-                // The label is a NAME and names must look identical everywhere - "Weekly" as
-                // Codex's headline once rendered bigger than "Weekly" as Claude's secondary
-                // row, which read as inconsistency across cards (2026-07-19). Hierarchy is
-                // carried by the data instead: the prominent row keeps its larger numeral and
-                // thicker bar.
+                // The label is a NAME and names must look identical everywhere - hierarchy is
+                // carried by the data instead (the prominent row keeps its larger numeral and
+                // thicker bar). No minimumScaleFactor: it silently shrank the label on cards
+                // stretched to fill their grid row (probe-verified 2026-07-19); a rare too-long
+                // label truncating with an ellipsis is honest, a randomly smaller one is not.
                 Text(L(metric.label))
                     .font(.footnote)
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
                     .frame(width: Self.labelWidth, alignment: .leading)
                 bar
                 Text(UsageFormat.percent(metric, mode: mode))

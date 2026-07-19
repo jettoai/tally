@@ -9,6 +9,9 @@ struct AccountCardView: View {
     @Bindable var settings: SettingsStore
     /// Show a grip glyph on hover - the drag-affordance for surfaces where the card can be reordered.
     var showsDragHandle: Bool = false
+    /// Full-brightness handle regardless of hover - the floating drag preview sets this, so the
+    /// grip never blinks out mid-drag.
+    var handleProminent: Bool = false
     /// Stretch the card surface to fill the row height, so side-by-side cards read as one aligned row.
     var fillsRowHeight: Bool = false
 
@@ -164,7 +167,7 @@ struct AccountCardView: View {
                     // Resident but dim: hover-only left a visibly empty slot beside the pin
                     // circle (the space is always reserved so the layout can't jump), which
                     // read as imbalance (2026-07-19). Dim at rest, full on hover.
-                    .opacity(isHovering ? 1 : 0.35)
+                    .opacity(isHovering || handleProminent ? 1 : 0.35)
                     .accessibilityLabel(L("Drag to reorder"))
                     .help(L("Drag to reorder"))
             }

@@ -73,7 +73,8 @@ struct CardLiftPreview: View {
     let settings: SettingsStore
 
     var body: some View {
-        AccountCardView(usage: lift.usage, settings: settings)
+        AccountCardView(usage: lift.usage, settings: settings,
+                        showsDragHandle: true, handleProminent: true)
             .frame(width: lift.sourceFrame.width)
             .scaleEffect(1.025)
             .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)

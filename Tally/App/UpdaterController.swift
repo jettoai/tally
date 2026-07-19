@@ -49,6 +49,9 @@ final class UpdaterController: NSObject {
     func checkForUpdates() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        // The window this check was clicked in comes along - only the key window fronts on
+        // activation, and Settings vanishing under other apps read as "the app lost my click".
+        SettingsWindowController.shared.bringToFrontIfVisible()
         let before = Set(NSApp.windows.map(\.windowNumber))
         controller?.checkForUpdates(nil)
         for delay: UInt64 in [400_000_000, 1_500_000_000, 4_000_000_000] {

@@ -38,6 +38,13 @@ final class SettingsWindowController {
         if window?.isVisible != true { window?.centerOnPointerScreen() }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Bring the (already open) window along when another Tally window takes the stage - macOS
+    /// only fronts the key window on activation, which buried Settings under other apps the
+    /// moment Sparkle's update alert appeared out of it.
+    func bringToFrontIfVisible() {
+        if window?.isVisible == true { window?.orderFront(nil) }
         // Nothing should start focused: an auto-focused rename field opens the window with a loud
         // blue focus ring on a random account.
         window?.makeFirstResponder(nil)

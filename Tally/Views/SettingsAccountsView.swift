@@ -104,16 +104,18 @@ struct SettingsAccountsView: View {
     /// run it in a terminal, finish the login, and the per-refresh scan picks the account up
     /// within a minute - guidance without owning the login flow.
     private func addAccountRow(_ providerID: String, homes: [String]) -> some View {
-        HStack(alignment: .firstTextBaseline) {
+        // Stacked, not side-by-side: the command needs the full row width to stay on ONE line -
+        // a wrapped command chip reads like two commands.
+        VStack(alignment: .leading, spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L("Add another account")).font(.subheadline)
                 Text(L("Run this in a terminal and finish the login; the account appears here within a minute."))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
             CopyCommandChip(command: Self.addAccountCommand(providerID, homes: homes))
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .settingsRowPadding()
     }
 

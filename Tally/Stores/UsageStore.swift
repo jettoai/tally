@@ -203,8 +203,9 @@ final class UsageStore {
         // The dev variant (side-by-side testing) never publishes: one poller owns the shared
         // ~/.tally files, and it is the installed release app.
         if !BuildVariant.isDev {
-            UsageSnapshot.make(accounts: labeled, launchHomes: launchHomes,
-                               statuslineFullQuota: SettingsStore.shared.statuslineFullQuota).write()
+            lastPublishedAccounts = labeled
+            lastLaunchHomes = launchHomes
+            republishSnapshot()
             // Sample fresh results into the burn-rate history (change-only, off-main-queue).
             UsageHistory.shared.record(results)
         }
@@ -221,6 +222,20 @@ final class UsageStore {
             refreshQueued = false
             Task { await refresh(userInitiated: false) }
         }
+    }
+
+    /// Inputs of the last published snapshot, so a settings flip (display mode, status line
+    /// options) can rewrite ~/.tally/snapshot.json immediately WITHOUT refetching usage.
+    private var lastPublishedAccounts: [AccountUsage] = []
+    private var lastLaunchHomes: [String: String] = [:]
+
+    /// Rewrite the snapshot from the cached accounts + current settings. No-op for the dev
+    /// variant and demo mode (neither may publish), or before the first successful refresh.
+    func republishSnapshot() {
+        guard !BuildVariant.isDev, !DemoUsage.isActive, !lastPublishedAccounts.isEmpty else { return }
+        UsageSnapshot.make(accounts: lastPublishedAccounts, launchHomes: lastLaunchHomes,
+                           statuslineFullQuota: SettingsStore.shared.statuslineFullQuota,
+                           displayMode: SettingsStore.shared.displayMode.rawValue).write()
     }
 
     /// Last successful snapshot per account, so a failed refresh can keep showing the numbers.

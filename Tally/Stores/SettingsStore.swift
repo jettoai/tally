@@ -50,6 +50,8 @@ final class SettingsStore {
             // The menu-bar strip is AppKit - it only repaints on `onChange`, not via SwiftUI
             // observation, so toggling used/remaining must nudge it or it keeps the old direction.
             UsageStore.shared.onChange?()
+            // The status line reads the mode from the snapshot; republish (no refetch).
+            UsageStore.shared.republishSnapshot()
         }
     }
 
@@ -89,9 +91,8 @@ final class SettingsStore {
     var statuslineFullQuota: Bool {
         didSet {
             UserDefaults.standard.set(statuslineFullQuota, forKey: "statuslineFullQuota")
-            // The CLI learns this from the snapshot; republish soon rather than waiting out
-            // the poll interval so the toggle feels immediate.
-            Task { await UsageStore.shared.refresh(userInitiated: false) }
+            // The CLI learns this from the snapshot; republish (no refetch) so it's immediate.
+            UsageStore.shared.republishSnapshot()
         }
     }
 

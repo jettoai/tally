@@ -36,6 +36,8 @@ struct Snapshot: Decodable {
     /// User preference: the status line renders the full quota line even when wrapping a
     /// custom status line (absent in old snapshots → minimal signal).
     var statuslineFullQuota: Bool?
+    /// The panel's used/remaining toggle ("used" | "remaining"); the status line follows it.
+    var displayMode: String?
 }
 
 let snapshotURL = FileManager.default.homeDirectoryForCurrentUser

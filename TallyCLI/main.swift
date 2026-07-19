@@ -316,6 +316,9 @@ func runStatusline(args: [String]) -> Never {
     var quota: [String] = []
     if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
         let now = Date()
+        // The number and bar follow the panel's used/remaining toggle; the tint always keys
+        // off remaining, so severity never flips with the toggle (same rule as the meters).
+        let usedMode = snapshot?.displayMode == "used"
         func piece(_ name: String, _ remaining: Double?, _ resetsAt: Date?) -> String? {
             guard let remaining else { return nil }
             // Same thresholds AND the same palette as the app's meters (TallyColor sage green /
@@ -323,12 +326,13 @@ func runStatusline(args: [String]) -> Never {
             // panel to the terminal.
             let tint = remaining < 20 ? "\u{1B}[38;5;167m"
                 : remaining < 50 ? "\u{1B}[38;5;214m" : "\u{1B}[38;5;71m"
+            let shown = usedMode ? 100 - remaining : remaining
             let cells = 6
-            let filled = min(cells, max(remaining > 0 ? 1 : 0,
-                                        Int((remaining / 100 * Double(cells)).rounded())))
+            let filled = min(cells, max(shown > 0 ? 1 : 0,
+                                        Int((shown / 100 * Double(cells)).rounded())))
             let bar = tint + String(repeating: "█", count: filled) + reset
                 + dim + String(repeating: "░", count: cells - filled) + reset
-            var text = "\(dim)\(name)\(reset) \(bar) \(tint)\(Int(remaining.rounded()))%\(reset)"
+            var text = "\(dim)\(name)\(reset) \(bar) \(tint)\(Int(shown.rounded()))%\(reset)"
             if let resetsAt, resetsAt > now {
                 text += " \(dim)(\(shortETA(resetsAt.timeIntervalSince(now))))\(reset)"
             }

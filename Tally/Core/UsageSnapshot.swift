@@ -37,6 +37,8 @@ struct UsageSnapshot: Codable {
     /// wrapping a custom status line. Published here because the snapshot is the app→CLI
     /// channel; the CLI reads no defaults.
     var statuslineFullQuota: Bool?
+    /// The panel's used/remaining toggle ("used" | "remaining") - the status line follows it.
+    var displayMode: String?
 
     static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally", isDirectory: true)
@@ -45,7 +47,8 @@ struct UsageSnapshot: Codable {
     /// Build from the store's merged account list + the per-account launch homes from discovery.
     /// `statuslineFullQuota` is handed in by the caller (SettingsStore is main-actor).
     static func make(accounts: [AccountUsage], launchHomes: [String: String],
-                     statuslineFullQuota: Bool = false, now: Date = Date()) -> UsageSnapshot {
+                     statuslineFullQuota: Bool = false, displayMode: String? = nil,
+                     now: Date = Date()) -> UsageSnapshot {
         UsageSnapshot(
             generatedAt: now,
             accounts: accounts.map { usage in
@@ -66,7 +69,8 @@ struct UsageSnapshot: Codable {
                     error: usage.error
                 )
             },
-            statuslineFullQuota: statuslineFullQuota
+            statuslineFullQuota: statuslineFullQuota,
+            displayMode: displayMode
         )
     }
 

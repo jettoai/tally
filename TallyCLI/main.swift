@@ -318,7 +318,11 @@ func runStatusline(args: [String]) -> Never {
         let now = Date()
         func piece(_ name: String, _ remaining: Double?, _ resetsAt: Date?) -> String? {
             guard let remaining else { return nil }
-            let tint = remaining < 20 ? "\u{1B}[31m" : remaining < 50 ? "\u{1B}[33m" : "\u{1B}[32m"
+            // Same thresholds AND the same palette as the app's meters (TallyColor sage green /
+            // amber / softened red, 256-colour approximations) - one brand vocabulary from the
+            // panel to the terminal.
+            let tint = remaining < 20 ? "\u{1B}[38;5;167m"
+                : remaining < 50 ? "\u{1B}[38;5;214m" : "\u{1B}[38;5;71m"
             let cells = 6
             let filled = min(cells, max(remaining > 0 ? 1 : 0,
                                         Int((remaining / 100 * Double(cells)).rounded())))

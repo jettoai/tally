@@ -99,6 +99,15 @@ struct PopoverRootView: View {
                 // read as two Ts. The header is the product's line; the jetto credit lives quietly
                 // in the footer's empty centre instead of trailing the wordmark like a byline.
                 TallyWordmarkView(glyphHeight: 13)
+                // The dev variant tags every surface (menu bar strip + panel header), so a test
+                // instance can never be mistaken for the installed app.
+                if BuildVariant.isDev {
+                    Text(verbatim: "DEV")
+                        .font(.system(size: 9, weight: .heavy))
+                        .foregroundStyle(TallyColor.warning)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .overlay(Capsule().stroke(TallyColor.warning.opacity(0.6), lineWidth: 1))
+                }
                 Spacer()
                 // TimelineView re-evaluates every second so "updates in 42s" counts down live (a
                 // plain render would freeze it at whatever it said on open). Hierarchy: the date is

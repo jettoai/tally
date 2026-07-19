@@ -19,6 +19,17 @@ private struct MenuBarStripView: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            // The dev variant announces itself right in the strip (template image is monochrome,
+            // so a text tag, not a colour) - two otherwise identical icons side by side must be
+            // tellable at a glance.
+            if BuildVariant.isDev {
+                Text("DEV")
+                    .font(.system(size: 8, weight: .heavy))
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 1.5)
+                    .overlay(RoundedRectangle(cornerRadius: 3).stroke(lineWidth: 1))
+                Color.clear.frame(width: 7, height: 0)
+            }
             ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
                 if index > 0 {
                     Color.clear.frame(width: gap(before: index), height: 0)

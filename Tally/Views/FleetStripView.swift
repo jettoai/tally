@@ -59,11 +59,14 @@ extension PopoverRootView {
         }
     }
 
-    /// Mirrors the card rows' context line: the pace verdict on the left, the next refill on the
-    /// right (click toggles countdown/exact time, like every reset label).
+    /// Mirrors the card rows' context line: which window this pool sums (one word - without it
+    /// nothing says the bar is the WEEKLY total) and the pace verdict on the left, the next
+    /// refill on the right (click toggles countdown/exact time, like every reset label).
     private func contextLine(_ summary: FleetSummary, _ pool: FleetPool) -> some View {
-        HStack(spacing: 6) {
-            forecastText(summary, pool)
+        let poolName = pool.kind == .weeklyAll ? L("Weekly pool") : L("Session pool")
+        return HStack(spacing: 6) {
+            (Text("\(poolName) · ").foregroundStyle(Color.secondary)
+             + forecastText(summary, pool))
                 .font(.caption2)
                 .lineLimit(1)
             Spacer(minLength: 6)

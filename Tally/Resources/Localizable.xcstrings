@@ -3655,35 +3655,6 @@
         }
       }
     },
-    "Shows the active account and model at the bottom of every claude session. Added only where no custom status line exists; removed cleanly.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在每個 claude 工作階段底部顯示目前帳號與模型。只在沒有自訂狀態列時加入；可完整移除。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在每个 claude 会话底部显示当前账号与模型。只在没有自定义状态栏时加入；可完整移除。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "claude セッションの下部に現在のアカウントとモデルを表示します。カスタムステータスラインがない場合のみ追加され、完全に削除できます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "claude 세션 하단에 현재 계정과 모델을 표시합니다. 사용자 지정 상태 표시줄이 없을 때만 추가되며 깔끔하게 제거됩니다."
-          }
-        }
-      }
-    },
     "A custom status line is already set; Tally leaves it alone.": {
       "extractionState": "manual",
       "localizations": {
@@ -3767,6 +3738,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "사용자 지정"
+          }
+        }
+      }
+    },
+    "Shows the active account at the bottom of every claude session. An existing custom status line keeps running with the account appended, and is restored exactly on removal.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每個 claude 工作階段底部顯示目前帳號。既有的自訂狀態列會照常執行、只在尾端附加帳號，移除時原樣還原。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每个 claude 会话底部显示当前账号。已有的自定义状态栏会照常运行、只在尾端附加账号，移除时原样还原。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各 claude セッションの下部に現在のアカウントを表示します。既存のカスタムステータスラインはそのまま動作し、末尾にアカウントが追加され、削除時には元通りに復元されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 claude 세션 하단에 현재 계정을 표시합니다. 기존 사용자 지정 상태 표시줄은 그대로 실행되고 끝에 계정만 덧붙으며, 제거 시 원래대로 복원됩니다."
+          }
+        }
+      }
+    },
+    "A ✦ in the status line means the session was launched by Tally.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態列出現 ✦ 代表該工作階段由 Tally 啟動。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态栏出现 ✦ 代表该会话由 Tally 启动。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスラインの ✦ は、そのセッションが Tally から起動されたことを示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 표시줄의 ✦ 는 해당 세션이 Tally로 시작되었음을 나타냅니다."
           }
         }
       }

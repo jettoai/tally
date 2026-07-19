@@ -100,6 +100,9 @@ extension PopoverRootView {
                 }
             }
             integrationStatusLine
+            Text(L("A ✦ in the status line means the session was launched by Tally."))
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Text(L("Click a card to pin that account (Manual); click it again to go back to Smart."))
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

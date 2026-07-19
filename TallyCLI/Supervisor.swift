@@ -58,6 +58,21 @@ struct TranscriptWatcher {
     /// server-side model fallback.
     var lastModel: String?
 
+    /// True when the transcript has been silent for `seconds` - the between-turns proxy. An
+    /// active turn appends events (tool calls, messages) every few seconds, so a quiet file
+    /// means no response is being cut mid-stream. Non-urgent handoffs (pin follow, degradation
+    /// rescue, fallback profile) wait for this; a cap hit does not (that turn is already dead).
+    mutating func isQuiet(_ seconds: TimeInterval = 5) -> Bool {
+        locateFile()
+        // Fresh URL on purpose: resourceValues are cached per URL instance, and a cached
+        // mtime would report an active turn as quiet forever.
+        guard let file,
+              let modified = (try? URL(fileURLWithPath: file.path)
+                  .resourceValues(forKeys: [.contentModificationDateKey]))?
+                  .contentModificationDate else { return true }
+        return Date().timeIntervalSince(modified) > seconds
+    }
+
     /// The newest session transcript created/updated after launch - the child's session.
     mutating func locateFile() {
         guard file == nil else { return }
@@ -232,8 +247,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
 
             // Live pin switch: pinning another account in the Tally panel moves the RUNNING
             // session there. An explicit human act, so no fuse; the pinned account is used even
-            // when capped (that is what pinning means).
-            if policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id {
+            // when capped (that is what pinning means). Waits for a quiet transcript so an
+            // in-flight response is never cut mid-stream (the next 2s poll retries).
+            if policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id,
+               watcher.isQuiet() {
                 let (snapshot, _) = loadSnapshot()
                 if let target = snapshot?.accounts.first(where: {
                     $0.id == pinnedID && $0.provider == provider.id && $0.launchHome != nil
@@ -251,7 +268,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // and under the same fuse as every automatic handoff.
             if let primary = policy.model?.lowercased(),
                let actual = watcher.lastModel?.lowercased(),
-               !actual.contains(primary), policy.mode != "manual", fuseAllows() {
+               !actual.contains(primary), policy.mode != "manual", fuseAllows(),
+               watcher.isQuiet() {
                 let (snapshot, _) = loadSnapshot()
                 let rescue = snapshot?.accounts
                     .filter { $0.provider == provider.id && eligible($0)
@@ -279,7 +297,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                policy.model.map({ !actual.contains($0.lowercased()) }) ?? true,
                let matched = fallbackList.split(separator: ",")
                    .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() })
-                   .first(where: { !$0.isEmpty && actual.contains($0) }) {
+                   .first(where: { !$0.isEmpty && actual.contains($0) }),
+               watcher.isQuiet() {
                 warn("model fell back to \(actual) → applying fallback profile")
                 performHandoff(to: account)
                 launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])

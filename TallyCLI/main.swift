@@ -286,16 +286,19 @@ func runStatusline(args: [String]) -> Never {
     let (snapshot, problem) = loadSnapshot()
     let label = snapshot?.accounts.first { $0.launchHome == home }?.label
         ?? URL(fileURLWithPath: home).lastPathComponent
-    // The working-state signals: ✦ = this session was launched through tally (the env marker
-    // rides in from exec/supervisor/shim); "(tally off)" = the app isn't publishing a fresh
-    // snapshot, so steering data is dead whatever this session is.
-    let marker: String? = ProcessInfo.processInfo.environment["TALLY_LAUNCHED"] == "1" ? "✦" : nil
-    let offNote: String? = problem != nil ? "(tally off)" : nil
+    // The working-state signal answers the user's actual unknown - "is this Claude session
+    // under Tally's control?" - so it names Tally outright (the user already knows they are
+    // in Claude; the env marker rides in from exec/supervisor/shim). A stale/missing snapshot
+    // adds the off note: launched by Tally or not, steering data is dead.
+    let steered = ProcessInfo.processInfo.environment["TALLY_LAUNCHED"] == "1"
+    let statusPiece: String? = steered
+        ? (problem == nil ? "✦ Tally" : "✦ Tally (off)")
+        : (problem != nil ? "(tally off)" : nil)
     // The account name only carries information when there is a choice: with one account it
-    // reads as noise ("Claude" next to a Claude session), so the sparkle stands alone.
+    // reads as noise next to a Claude session, so the status signal stands alone.
     let siblings = snapshot?.accounts.filter { $0.provider == "claude" }.count ?? 0
-    let identity = [marker, siblings > 1 ? label : nil, offNote]
-        .compactMap { $0 }.joined(separator: " ")
+    let identity = [statusPiece, siblings > 1 ? label : nil]
+        .compactMap { $0 }.joined(separator: " · ")
     let input = FileHandle.standardInput.readDataToEndOfFile()
 
     // Wrapped mode: the user's own status line (carried as base64 - see IntegrationsStore)
@@ -329,9 +332,7 @@ func runStatusline(args: [String]) -> Never {
         let homeName = URL(fileURLWithPath: home).lastPathComponent
         let alreadyShown = body.localizedCaseInsensitiveContains(label)
             || body.localizedCaseInsensitiveContains(homeName)
-        let addition = alreadyShown
-            ? [marker, offNote].compactMap { $0 }.joined(separator: " ")
-            : identity
+        let addition = alreadyShown ? (statusPiece ?? "") : identity
         print(addition.isEmpty ? body : body.isEmpty ? addition : "\(body) · \(addition)")
         exit(0)
     }

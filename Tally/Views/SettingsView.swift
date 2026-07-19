@@ -291,7 +291,7 @@ struct SettingsView: View {
         rowDivider
         integrationRow(
             title: L("Claude status line"),
-            caption: L("Shows the active account at the bottom of every claude session. An existing custom status line keeps running with the account appended, and is restored exactly on removal."),
+            caption: L("Shows the active account at the bottom of every claude session, with its remaining quota when Tally is the only status line. An existing custom status line keeps running with the signal appended, and is restored exactly on removal."),
             status: integrations.statusLineStatus,
             install: integrations.installStatusLine,
             remove: integrations.removeStatusLine)

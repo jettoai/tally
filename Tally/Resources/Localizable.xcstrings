@@ -3655,35 +3655,6 @@
         }
       }
     },
-    "Shows the active account at the bottom of every claude session. An existing custom status line keeps running with the account appended, and is restored exactly on removal.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在每個 claude 工作階段底部顯示目前帳號。既有的自訂狀態列會照常執行、只在尾端附加帳號，移除時原樣還原。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在每个 claude 会话底部显示当前账号。已有的自定义状态栏会照常运行、只在尾端附加账号，移除时原样还原。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "各 claude セッションの下部に現在のアカウントを表示します。既存のカスタムステータスラインはそのまま動作し、末尾にアカウントが追加され、削除時には元通りに復元されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "각 claude 세션 하단에 현재 계정을 표시합니다. 기존 사용자 지정 상태 표시줄은 그대로 실행되고 끝에 계정만 덧붙으며, 제거 시 원래대로 복원됩니다."
-          }
-        }
-      }
-    },
     "A ✦ in the status line means the session was launched by Tally.": {
       "extractionState": "manual",
       "localizations": {
@@ -4593,6 +4564,34 @@
           "stringUnit": {
             "state": "translated",
             "value": "自動"
+          }
+        }
+      }
+    },
+    "Shows the active account at the bottom of every claude session, with its remaining quota when Tally is the only status line. An existing custom status line keeps running with the signal appended, and is restored exactly on removal.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各 claude セッションの下部に現在のアカウントを表示し、Tally が唯一のステータスラインの場合は残りクォータも表示します。既存のカスタムステータスラインはそのまま動き続け、末尾にシグナルが付くだけで、削除時には元どおり復元されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 claude 세션 하단에 현재 계정을 표시하고, Tally가 유일한 상태 표시줄일 때는 남은 쿼터도 함께 보여줍니다. 기존 사용자 지정 상태 표시줄은 그대로 실행되며 끝에 신호만 덧붙고, 제거 시 원래대로 복원됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每个 claude 会话底部显示当前账号；当 Tally 是唯一的状态栏时，还会显示剩余额度。既有的自定义状态栏会照常运行、只在尾端附加信号，移除时原样还原。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每個 claude 工作階段底部顯示目前帳號；當 Tally 是唯一的狀態列時，還會顯示剩餘額度。既有的自訂狀態列會照常執行、只在尾端附加訊號，移除時原樣還原。"
           }
         }
       }

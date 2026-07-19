@@ -353,9 +353,31 @@ func runStatusline(args: [String]) -> Never {
         exit(0)
     }
 
+    // Standalone mode: Tally IS the whole status line, so it carries the quota story itself -
+    // each window's remaining percent (tinted by how much room is left) with its reset
+    // countdown. Wrapped mode never gets this: a custom status line usually shows its own
+    // numbers, and doubling them would bloat a line someone else designed.
     let json = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any]
     let model = (json?["model"] as? [String: Any])?["display_name"] as? String
-    print([identity.isEmpty ? nil : identity, model].compactMap { $0 }.joined(separator: " · "))
+    var quota: [String] = []
+    if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
+        let now = Date()
+        func piece(_ name: String, _ remaining: Double?, _ resetsAt: Date?) -> String? {
+            guard let remaining else { return nil }
+            let tint = remaining < 20 ? "\u{1B}[31m" : remaining < 50 ? "\u{1B}[33m" : "\u{1B}[32m"
+            var text = "\(dim)\(name)\(reset) \(tint)\(Int(remaining.rounded()))%\(reset)"
+            if let resetsAt, resetsAt > now {
+                text += " \(dim)(\(shortETA(resetsAt.timeIntervalSince(now))))\(reset)"
+            }
+            return text
+        }
+        quota = [piece("5h", account.sessionRemaining, account.sessionResetsAt),
+                 piece("7d", account.weeklyRemaining, account.weeklyResetsAt),
+                 piece(account.modelWindowName ?? "model", account.modelRemaining, nil)]
+            .compactMap { $0 }
+    }
+    print(([identity.isEmpty ? nil : identity, model].compactMap { $0 } + quota)
+        .joined(separator: " · "))
     exit(0)
 }
 

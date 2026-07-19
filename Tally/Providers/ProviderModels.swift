@@ -95,6 +95,8 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     /// Codex reset banking: how many banked rate-limit resets the account can still redeem
     /// (nil = the provider doesn't report the concept).
     var resetCreditsAvailable: Int?
+    /// When the soonest available banked reset expires (context for the redeem dialog).
+    var resetCreditsNextExpiry: Date?
 
     /// The single metric to feature at a glance: the binding model-scoped window if the provider
     /// flags one, else any model-scoped window, else the unified weekly, else session. This is the

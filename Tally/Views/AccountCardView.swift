@@ -12,6 +12,9 @@ struct AccountCardView: View {
     var fillsRowHeight: Bool = false
 
     @State private var isHovering = false
+    @State private var showRedeemConfirm = false
+    @State private var redeemBusy = false
+    @State private var redeemOutcome: String?
 
     private var label: String {
         settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
@@ -89,17 +92,37 @@ struct AccountCardView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
-                // Banked rate-limit resets (Codex reset banking): read and shown, never spent -
-                // redeeming one is the user's own economic decision, made in the official CLI.
+                // Banked rate-limit resets (Codex reset banking). Redeeming is the user's own
+                // economic decision: it only ever happens through THIS explicit click plus a
+                // confirmation that spells out the cost - never automatically.
                 if let resets = usage.resetCreditsAvailable, resets > 0 {
-                    HStack(spacing: 3) {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 9))
-                        Text(verbatim: "\(resets) ")
-                            + Text(L(resets == 1 ? "reset available" : "resets available"))
+                    Button {
+                        if !DemoUsage.isActive { showRedeemConfirm = true }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 9))
+                            Text(verbatim: "\(resets) ")
+                                + Text(L(resets == 1 ? "reset available" : "resets available"))
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
                     }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .buttonStyle(.plain)
+                    .disabled(redeemBusy)
+                    .help(L("Use a reset"))
+                    .alert(L("Use a reset"), isPresented: $showRedeemConfirm) {
+                        Button(L("Redeem"), role: .destructive) { redeem() }
+                        Button(L("Cancel"), role: .cancel) {}
+                    } message: {
+                        Text(redeemMessage)
+                    }
+                }
+                if let redeemOutcome {
+                    Text(redeemOutcome)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -223,6 +246,42 @@ struct AccountCardView: View {
             return base
         }
         return base + "\n" + reason
+    }
+
+    // MARK: Reset banking - manual redeem (the only write Tally ever performs, user-confirmed)
+
+    /// The confirmation spells out cost + irreversibility, adds the nearest expiry (an expiring
+    /// credit is nearly free to spend), and escalates when redeeming would be a WASTE: clearing
+    /// counters that are mostly empty gains almost nothing.
+    private var redeemMessage: String {
+        var parts: [String] = []
+        let bindingRemaining = usage.metrics.map(\.remainingPercent).min() ?? 0
+        if bindingRemaining > 30 {
+            parts.append(L("This account still has plenty of quota left; redeeming now would mostly be wasted."))
+        }
+        parts.append(L("Clears this account's current usage counters and consumes 1 banked reset. This cannot be undone."))
+        if let expiry = usage.resetCreditsNextExpiry {
+            parts.append(L("Nearest banked reset expires") + " "
+                         + expiry.formatted(date: .abbreviated, time: .shortened) + ".")
+        }
+        return parts.joined(separator: "\n\n")
+    }
+
+    private func redeem() {
+        guard let home = UsageStore.shared.discoveredAccounts
+            .first(where: { $0.id == usage.id })?.launchHome else { return }
+        redeemBusy = true
+        Task {
+            let outcome = await CodexAppServerClient.consumeSoonestResetCredit(codexHome: home)
+            redeemOutcome = outcome.map { token in
+                token.lowercased().contains("redeem") && !token.lowercased().contains("already")
+                    ? L("Reset redeemed") : token
+            } ?? L("Redeem failed")
+            redeemBusy = false
+            await UsageStore.shared.refresh(userInitiated: true)
+            try? await Task.sleep(for: .seconds(8))
+            redeemOutcome = nil
+        }
     }
 
     private var errorRow: some View {

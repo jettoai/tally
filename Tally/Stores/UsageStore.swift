@@ -200,7 +200,8 @@ final class UsageStore {
                                                                   fallback: usage.accountLabel)
             return copy
         }
-        UsageSnapshot.make(accounts: labeled, launchHomes: launchHomes).write()
+        UsageSnapshot.make(accounts: labeled, launchHomes: launchHomes,
+                           statuslineFullQuota: SettingsStore.shared.statuslineFullQuota).write()
         // Sample fresh results into the burn-rate history (change-only, off-main-queue), then
         // re-estimate the fleet's pace from what has accumulated.
         UsageHistory.shared.record(results)

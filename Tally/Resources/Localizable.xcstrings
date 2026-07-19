@@ -4595,6 +4595,62 @@
           }
         }
       }
+    },
+    "Full quota in status line": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスラインに全クォータ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태 표시줄 전체 쿼터"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态栏完整额度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "狀態列完整額度"
+          }
+        }
+      }
+    },
+    "Adds a quota line (bars, percents, resets) even under a custom status line. Turn on if you drop your own quota rendering and rely on Tally's.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムステータスラインの下にもクォータ行（バー、パーセント、リセット時刻）を追加します。自前のクォータ表示をやめて Tally に任せる場合はオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 상태 표시줄 아래에도 쿼터 줄(막대, 퍼센트, 리셋 시각)을 추가합니다. 자체 쿼터 표시를 없애고 Tally에 맡기려면 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使在自定义状态栏下，也附加一行额度（进度条、百分比、重置时间）。若你打算移除自己的额度显示、改依赖 Tally，就打开它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使在自訂狀態列下，也附加一行額度（進度條、百分比、重置時間）。若你打算移除自己的額度顯示、改依賴 Tally，就打開它。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

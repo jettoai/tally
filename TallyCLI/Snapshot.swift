@@ -33,6 +33,9 @@ struct Snapshot: Decodable {
     var version: Int
     var generatedAt: Date
     var accounts: [Account]
+    /// User preference: the status line renders the full quota line even when wrapping a
+    /// custom status line (absent in old snapshots → minimal signal).
+    var statuslineFullQuota: Bool?
 }
 
 let snapshotURL = FileManager.default.homeDirectoryForCurrentUser

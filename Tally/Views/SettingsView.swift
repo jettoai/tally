@@ -295,6 +295,10 @@ struct SettingsView: View {
             status: integrations.statusLineStatus,
             install: integrations.installStatusLine,
             remove: integrations.removeStatusLine)
+        rowDivider
+        toggleRow(L("Full quota in status line"),
+                  subtitle: L("Adds a quota line (bars, percents, resets) even under a custom status line. Turn on if you drop your own quota rendering and rely on Tally's."),
+                  isOn: $settings.statuslineFullQuota)
         if let error = integrations.lastError {
             rowDivider
             Text(error)

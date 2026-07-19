@@ -33,13 +33,19 @@ struct UsageSnapshot: Codable {
     var version = 2
     var generatedAt: Date
     var accounts: [Account]
+    /// User preference: the status line renders the full quota line (bars + resets) even when
+    /// wrapping a custom status line. Published here because the snapshot is the app→CLI
+    /// channel; the CLI reads no defaults.
+    var statuslineFullQuota: Bool?
 
     static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally", isDirectory: true)
     static let fileURL = directory.appendingPathComponent("snapshot.json")
 
     /// Build from the store's merged account list + the per-account launch homes from discovery.
-    static func make(accounts: [AccountUsage], launchHomes: [String: String], now: Date = Date()) -> UsageSnapshot {
+    /// `statuslineFullQuota` is handed in by the caller (SettingsStore is main-actor).
+    static func make(accounts: [AccountUsage], launchHomes: [String: String],
+                     statuslineFullQuota: Bool = false, now: Date = Date()) -> UsageSnapshot {
         UsageSnapshot(
             generatedAt: now,
             accounts: accounts.map { usage in
@@ -59,7 +65,8 @@ struct UsageSnapshot: Codable {
                     isStale: usage.isStale,
                     error: usage.error
                 )
-            }
+            },
+            statuslineFullQuota: statuslineFullQuota
         )
     }
 

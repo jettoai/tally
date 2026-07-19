@@ -310,6 +310,32 @@ func runStatusline(args: [String]) -> Never {
         .compactMap { $0 }.joined(separator: " · ")
     let input = FileHandle.standardInput.readDataToEndOfFile()
 
+    // The quota pieces: per-window remaining as a mini meter bar + percent (tinted by room
+    // left) + reset countdown. Built once, used by the standalone line and the full-quota
+    // wrapped line alike; empty when the snapshot is stale or the account is unknown.
+    var quota: [String] = []
+    if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
+        let now = Date()
+        func piece(_ name: String, _ remaining: Double?, _ resetsAt: Date?) -> String? {
+            guard let remaining else { return nil }
+            let tint = remaining < 20 ? "\u{1B}[31m" : remaining < 50 ? "\u{1B}[33m" : "\u{1B}[32m"
+            let cells = 6
+            let filled = min(cells, max(remaining > 0 ? 1 : 0,
+                                        Int((remaining / 100 * Double(cells)).rounded())))
+            let bar = tint + String(repeating: "█", count: filled) + reset
+                + dim + String(repeating: "░", count: cells - filled) + reset
+            var text = "\(dim)\(name)\(reset) \(bar) \(tint)\(Int(remaining.rounded()))%\(reset)"
+            if let resetsAt, resetsAt > now {
+                text += " \(dim)(\(shortETA(resetsAt.timeIntervalSince(now))))\(reset)"
+            }
+            return text
+        }
+        quota = [piece("5h", account.sessionRemaining, account.sessionResetsAt),
+                 piece("7d", account.weeklyRemaining, account.weeklyResetsAt),
+                 piece(account.modelWindowName ?? "model", account.modelRemaining, nil)]
+            .compactMap { $0 }
+    }
+
     // Wrapped mode: the user's own status line (carried as base64 - see IntegrationsStore)
     // keeps the lead position, fed the same JSON; the account is appended. Augmentation,
     // never replacement.
@@ -338,6 +364,15 @@ func runStatusline(args: [String]) -> Never {
         // nickname or by config-dir name) keeps its account rendering, gaining only the
         // working-state signals; otherwise the whole identity joins the LAST line, where a
         // width-padded first line can't be pushed out of shape.
+        // Full-quota mode (opt-in via the app): the whole quota line joins on its OWN line
+        // beneath the custom status line - for people who drop their own quota rendering and
+        // rely on Tally's. The line is ours, so the account always shows here.
+        if snapshot?.statuslineFullQuota == true, !quota.isEmpty {
+            let richLine = ([statusPiece, "\(dim)\(label)\(reset)"].compactMap { $0 } + quota)
+                .joined(separator: " · ")
+            print(body.isEmpty ? richLine : "\(body)\n\(richLine)")
+            exit(0)
+        }
         let homeName = URL(fileURLWithPath: home).lastPathComponent
         let alreadyShown = body.localizedCaseInsensitiveContains(label)
             || body.localizedCaseInsensitiveContains(homeName)
@@ -353,29 +388,10 @@ func runStatusline(args: [String]) -> Never {
         exit(0)
     }
 
-    // Standalone mode: Tally IS the whole status line, so it carries the quota story itself -
-    // each window's remaining percent (tinted by how much room is left) with its reset
-    // countdown. Wrapped mode never gets this: a custom status line usually shows its own
-    // numbers, and doubling them would bloat a line someone else designed.
+    // Standalone mode: Tally IS the whole status line, so it always carries the quota story
+    // itself (plus the model name from the session JSON, which no other line is showing).
     let json = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any]
     let model = (json?["model"] as? [String: Any])?["display_name"] as? String
-    var quota: [String] = []
-    if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
-        let now = Date()
-        func piece(_ name: String, _ remaining: Double?, _ resetsAt: Date?) -> String? {
-            guard let remaining else { return nil }
-            let tint = remaining < 20 ? "\u{1B}[31m" : remaining < 50 ? "\u{1B}[33m" : "\u{1B}[32m"
-            var text = "\(dim)\(name)\(reset) \(tint)\(Int(remaining.rounded()))%\(reset)"
-            if let resetsAt, resetsAt > now {
-                text += " \(dim)(\(shortETA(resetsAt.timeIntervalSince(now))))\(reset)"
-            }
-            return text
-        }
-        quota = [piece("5h", account.sessionRemaining, account.sessionResetsAt),
-                 piece("7d", account.weeklyRemaining, account.weeklyResetsAt),
-                 piece(account.modelWindowName ?? "model", account.modelRemaining, nil)]
-            .compactMap { $0 }
-    }
     print(([identity.isEmpty ? nil : identity, model].compactMap { $0 } + quota)
         .joined(separator: " · "))
     exit(0)

@@ -291,13 +291,19 @@ func runStatusline(args: [String]) -> Never {
     // in Claude; the env marker rides in from exec/supervisor/shim). A stale/missing snapshot
     // adds the off note: launched by Tally or not, steering data is dead.
     let steered = ProcessInfo.processInfo.environment["TALLY_LAUNCHED"] == "1"
+    // Colors: the sparkle wears the same electric purple as the app's Smart badge (one brand
+    // vocabulary for "Tally is steering"); the account stays dim (payload, not signal) and
+    // the off note goes warning-yellow. Claude Code renders ANSI in status lines.
+    let purple = "\u{1B}[38;5;135m", dim = "\u{1B}[2m", yellow = "\u{1B}[33m", reset = "\u{1B}[0m"
     let statusPiece: String? = steered
-        ? (problem == nil ? "✦ Tally" : "✦ Tally (off)")
-        : (problem != nil ? "(tally off)" : nil)
+        ? (problem == nil
+            ? "\(purple)✦ Tally\(reset)"
+            : "\(purple)✦ Tally\(reset) \(yellow)(off)\(reset)")
+        : (problem != nil ? "\(yellow)(tally off)\(reset)" : nil)
     // The account name only carries information when there is a choice: with one account it
     // reads as noise next to a Claude session, so the status signal stands alone.
     let siblings = snapshot?.accounts.filter { $0.provider == "claude" }.count ?? 0
-    let identity = [statusPiece, siblings > 1 ? label : nil]
+    let identity = [statusPiece, siblings > 1 ? "\(dim)\(label)\(reset)" : nil]
         .compactMap { $0 }.joined(separator: " · ")
     let input = FileHandle.standardInput.readDataToEndOfFile()
 

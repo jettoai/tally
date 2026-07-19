@@ -290,7 +290,7 @@ func runStatusline(args: [String]) -> Never {
     if let wrapIndex = args.firstIndex(of: "--wrap"), wrapIndex + 1 < args.count,
        let original = Data(base64Encoded: args[wrapIndex + 1])
            .flatMap({ String(data: $0, encoding: .utf8) }) {
-        var lead = ""
+        var body = ""
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", original]
@@ -303,15 +303,18 @@ func runStatusline(args: [String]) -> Never {
             try? stdinPipe.fileHandleForWriting.close()
             let out = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
-            lead = String(data: out, encoding: .utf8)?
-                .split(separator: "\n").first.map(String.init) ?? ""
+            // The WHOLE output passes through - multi-line status lines keep every line and
+            // their layout (only line 1 survived at first, which would wreck them).
+            body = String(data: out, encoding: .utf8)?
+                .trimmingCharacters(in: .newlines) ?? ""
         }
-        // No double identity: a status line that already names the account (by nickname or by
-        // config-dir name) keeps its own rendering untouched.
+        // No double identity: a status line that already names the account anywhere (by
+        // nickname or by config-dir name) keeps its rendering untouched; otherwise the label
+        // joins the LAST line, where a width-padded first line can't be pushed out of shape.
         let homeName = URL(fileURLWithPath: home).lastPathComponent
-        let alreadyShown = lead.localizedCaseInsensitiveContains(label)
-            || lead.localizedCaseInsensitiveContains(homeName)
-        print(lead.isEmpty ? label : alreadyShown ? lead : "\(lead) · \(label)")
+        let alreadyShown = body.localizedCaseInsensitiveContains(label)
+            || body.localizedCaseInsensitiveContains(homeName)
+        print(body.isEmpty ? label : alreadyShown ? body : "\(body) · \(label)")
         exit(0)
     }
 

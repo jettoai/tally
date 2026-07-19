@@ -1,25 +1,30 @@
 import SwiftUI
 
 /// The fleet gauge: for each provider with 2+ accounts, the accounts' quota unified into one
-/// meter - a segmented bar (one segment per account, the whole track = the combined budget), the
-/// total left as "accounts' worth" (2.9/5), the soonest refill, and a forecast of how long the
-/// pool lasts at the recently measured pace (counting the quota each staggered reset brings
-/// back). The tooltip breaks every pooled window class down per account. Providers with a single
-/// account contribute nothing: a pool of one is just that account's card.
+/// meter. Laid out in the exact grammar of a card's metric row (label column · bar · right-
+/// aligned value, context line beneath) so the strip reads as part of the same family: the label
+/// names the provider and fleet size ("Claude ×2"), the bar is segmented (one segment per
+/// account, the whole track = the combined budget, each tinted by its own severity), and the
+/// context line carries the pool total in accounts' worth (2.9/5), the pace forecast, and the
+/// soonest refill. The tooltip breaks every pooled window class down per account. Providers with
+/// a single account contribute nothing: a pool of one is just that account's card.
 extension PopoverRootView {
+    private static let fleetLabelWidth: CGFloat = 88
+    private static let fleetValueWidth: CGFloat = 46
+
     @ViewBuilder
     var fleetStrip: some View {
         let summaries = FleetMath.summaries(accounts: store.orderedAccounts) { usage in
             settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
         }
         if !summaries.isEmpty {
-            VStack(alignment: .leading, spacing: 7) {
+            VStack(alignment: .leading, spacing: 8) {
                 ForEach(summaries, id: \.providerID) { summary in
                     fleetGauge(summary)
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .help(fleetTooltip(summaries))
@@ -31,33 +36,54 @@ extension PopoverRootView {
     private func fleetGauge(_ summary: FleetSummary) -> some View {
         if let pool = summary.headline {
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
-                    ProviderIconView(providerID: summary.providerID, size: 11)
-                    (poolTitle(pool) + forecastText(summary, pool))
-                        .font(.caption2)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    if let at = pool.nextReset, let account = pool.nextResetAccountLabel,
-                       let reset = UsageFormat.resetText(at, style: settings.resetDisplay) {
-                        Text("\(account) \(reset)")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                HStack(spacing: 8) {
+                    HStack(spacing: 5) {
+                        ProviderIconView(providerID: summary.providerID, size: 11)
+                        (Text(ProviderCatalog.displayName(for: summary.providerID))
+                            .foregroundStyle(Color.secondary)
+                         + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary))
+                            .font(.footnote)
                             .lineLimit(1)
                     }
+                    .frame(width: Self.fleetLabelWidth, alignment: .leading)
+                    segmentedBar(pool)
+                    Text(percent(poolValue(pool)))
+                        .font(.footnote.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.primary)
+                        .frame(width: Self.fleetValueWidth, alignment: .trailing)
                 }
-                segmentedBar(pool)
+                contextLine(summary, pool)
+            }
+        }
+    }
+
+    /// Mirrors the card rows' context line: the pool's own facts on the left, the soonest refill
+    /// on the right (same click-to-toggle reset label as everywhere else).
+    private func contextLine(_ summary: FleetSummary, _ pool: FleetPool) -> some View {
+        HStack(spacing: 6) {
+            (poolWorth(pool) + forecastText(summary, pool))
+                .font(.caption2)
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            if let at = pool.nextReset, let account = pool.nextResetAccountLabel {
+                refillLabel(at: at, account: account)
             }
         }
     }
 
     private func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }
 
-    /// "Weekly pool 58% · 2.9/5" - the pool's fill and the same fact in the unit a multi-account
-    /// user actually thinks in: how many accounts' worth of quota are left.
-    private func poolTitle(_ pool: FleetPool) -> Text {
+    /// The headline number follows the Used/Left toggle, like every meter on the cards.
+    private func poolValue(_ pool: FleetPool) -> Double {
+        settings.displayMode == .used ? 100 - pool.averageRemaining : pool.averageRemaining
+    }
+
+    /// "Weekly pool 2.9/5 left" - the combined budget in the unit a multi-account user actually
+    /// thinks in: how many accounts' worth of quota remain.
+    private func poolWorth(_ pool: FleetPool) -> Text {
         let name = pool.kind == .weeklyAll ? L("Weekly pool") : L("Session pool")
         let worth = String(format: "%.1f", pool.totalRemaining / 100)
-        return Text("\(name) \(percent(pool.averageRemaining)) · \(worth)/\(pool.members.count)")
+        return Text("\(name) \(worth)/\(pool.members.count) \(L("left"))")
             .foregroundStyle(Color.secondary)
     }
 
@@ -87,20 +113,41 @@ extension PopoverRootView {
                 .foregroundStyle(tint)
     }
 
+    /// "Claude 3 resets in 19h 11m", click-to-toggle between countdown and exact time - the same
+    /// behaviour as every reset label on the cards.
+    private func refillLabel(at: Date, account: String) -> some View {
+        let style = settings.resetDisplay
+        return TimelineView(.periodic(from: .now, by: 60)) { context in
+            Button {
+                settings.resetDisplay = style.toggled
+            } label: {
+                Text("\(account) \(UsageFormat.resetText(at, style: style, now: context.date) ?? "")")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .buttonStyle(.plain)
+            .help("\(account) \(UsageFormat.resetText(at, style: style.toggled, now: context.date) ?? "")")
+        }
+    }
+
     /// One segment per account, equal widths (equal-weight pooling), each filled by its own
-    /// remaining and tinted by its own severity - the union total AND the weak spot in one look.
+    /// value and tinted by its own severity - the union total AND the weak spot in one look.
+    /// Same fill geometry as the card bars: used grows from the left, remaining hugs the right.
     private func segmentedBar(_ pool: FleetPool) -> some View {
-        HStack(spacing: 2) {
+        let mode = settings.displayMode
+        return HStack(spacing: 2) {
             ForEach(Array(pool.members.enumerated()), id: \.offset) { _, member in
                 GeometryReader { geo in
-                    ZStack(alignment: .leading) {
+                    ZStack(alignment: mode == .used ? .leading : .trailing) {
                         Capsule().fill(.quaternary)
                         Capsule()
                             .fill(member.severity.color)
-                            .frame(width: max(3, geo.size.width * member.remaining / 100))
+                            .frame(width: max(3, geo.size.width
+                                * (mode == .used ? 100 - member.remaining : member.remaining) / 100))
                     }
                 }
-                .frame(height: 5)
+                .frame(height: 6)
                 .help("\(member.accountLabel) \(percent(member.remaining)) \(L("left"))")
             }
         }

@@ -140,28 +140,21 @@ extension PopoverRootView {
     }
 
     /// One continuous fill anchored like every meter (used grows left, remaining hugs right),
-    /// sized by the whole pool's total, with hairline gaps inside marking each account's
-    /// contribution. One colour for the whole pool, by the pool's own health - a single sick
-    /// account doesn't repaint the fleet (its card below carries that).
+    /// sized by the whole pool's total. No internal account dividers: they read as mystery
+    /// notches (user-confirmed), and the per-account story already lives on the cards and in the
+    /// tooltip. One colour for the whole pool, by the pool's own health - a single sick account
+    /// doesn't repaint the fleet.
     private func pooledBar(_ pool: FleetPool) -> some View {
         let mode = settings.displayMode
         let capacity = Double(pool.members.count) * 100
         let color = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining).color
+        let shown = mode == .used ? capacity - pool.totalRemaining : pool.totalRemaining
         return GeometryReader { geo in
             ZStack(alignment: mode == .used ? .leading : .trailing) {
                 Capsule().fill(.quaternary)
-                HStack(spacing: 1) {
-                    ForEach(Array(pool.members.enumerated()), id: \.offset) { _, member in
-                        let value = mode == .used ? 100 - member.remaining : member.remaining
-                        if value >= 0.5 {
-                            Rectangle()
-                                .fill(color)
-                                .frame(width: max(2, geo.size.width * value / capacity))
-                                .help("\(member.accountLabel) \(percent(member.remaining)) \(L("left"))")
-                        }
-                    }
-                }
-                .clipShape(Capsule())
+                Capsule()
+                    .fill(color)
+                    .frame(width: max(3, geo.size.width * shown / capacity))
             }
         }
         .frame(height: 6)

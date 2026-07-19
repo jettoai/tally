@@ -74,6 +74,15 @@ let drainedA = account("A", session: (90, inHours(3)), weekly: (30, inHours(120)
 let freshB = account("B", session: (100, inHours(3)), weekly: (60, inHours(120)))
 check("a real advantage beyond the margin still flips", pick([drainedA, freshB]) == "B")
 
+// At the low end the ratio alone lies (2% vs 3% reads as +50%): the absolute gate must keep two
+// nearly-drained siblings from ping-ponging, while a genuinely healthier one still rescues.
+let dying2 = account("A", weekly: (2, inHours(100)))
+let dying3 = account("B", weekly: (3, inHours(100)))
+check("two nearly-drained accounts do not ping-pong", pick([dying2, dying3]) == "A")
+let dying5 = account("A", weekly: (5, inHours(120)))
+let healthy20 = account("B", weekly: (20, inHours(120)))
+check("a genuinely healthier sibling still rescues a dying leader", pick([dying5, healthy20]) == "B")
+
 // 7. The pick reason names the binding window with its reset ETA.
 let reason = pickReason(dyingA, primaryModel: nil, now: now)
 check("reason names the binding window (weekly, 3d)", reason.contains("weekly 60%") && reason.contains("3d"))

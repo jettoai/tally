@@ -198,9 +198,16 @@ func shortETA(_ seconds: TimeInterval) -> String {
 /// refresh-lagged, so the account just used dips a point below its idle sibling - without a
 /// margin every new launch would bounce between the two (scattering conversation history
 /// across accounts) for zero real gain. A later account only takes the lead by beating the
-/// current leader by this factor; ties and noise-level differences stay with the earlier
+/// current leader by BOTH gates; ties and noise-level differences stay with the earlier
 /// account in the (stable) list order.
+///
+/// Two gates because one ratio lies at the low end: at 2% vs 3% remaining the relative gap is
+/// 50% yet the real difference is one noise-level point - two nearly-drained accounts would
+/// ping-pong on it. The absolute gate (~8 weekly points over a full week) keeps them put; a
+/// genuinely healthier sibling clears both gates easily. Sticking with a nearly-drained leader
+/// is safe: the cap-hit handoff is the net.
 let smartPickMargin = 1.15
+let smartPickMinGain = 0.05   // %/h
 
 func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
           now: Date = Date()) -> Snapshot.Account? {
@@ -209,7 +216,7 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
     var leaderScore = smartScore(leader, primaryModel: primaryModel, now: now)
     for candidate in candidates.dropFirst() {
         let score = smartScore(candidate, primaryModel: primaryModel, now: now)
-        if score > leaderScore * smartPickMargin {
+        if score > leaderScore * smartPickMargin, score > leaderScore + smartPickMinGain {
             leader = candidate
             leaderScore = score
         }

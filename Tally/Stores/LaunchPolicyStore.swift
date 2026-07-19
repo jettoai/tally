@@ -121,8 +121,11 @@ final class LaunchPolicyStore {
     /// The account auto mode would launch right now - the same rule as the CLI's `best()`
     /// (burn-rate scoring; capped/stale/errored accounts are out), so the panel's badge always
     /// predicts what `tally` will actually do.
-    /// Mirror of the CLI's `smartPickMargin` - keep in lockstep.
+    /// Mirror of the CLI's `smartPickMargin` / `smartPickMinGain` - keep in lockstep.
+    /// Two gates: the ratio alone lies at the low end (2% vs 3% remaining reads as +50%), so a
+    /// challenger must also win by an absolute rate gain or nearly-drained siblings ping-pong.
     private static let smartPickMargin = 1.15
+    private static let smartPickMinGain = 0.05   // %/h
 
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>) -> String? {
         let primary = policy(providerID).model
@@ -133,7 +136,8 @@ final class LaunchPolicyStore {
         var leaderScore = Self.smartScore(leader, primaryModel: primary)
         for candidate in candidates.dropFirst() {
             let score = Self.smartScore(candidate, primaryModel: primary)
-            if score > leaderScore * Self.smartPickMargin {
+            if score > leaderScore * Self.smartPickMargin,
+               score > leaderScore + Self.smartPickMinGain {
                 leader = candidate
                 leaderScore = score
             }

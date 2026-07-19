@@ -244,6 +244,8 @@ func runBestDir(_ providerID: String) {
     } else {
         print("export \(provider.envKey)=\(home)")
     }
+    // The status line reads this to show "this session runs under Tally" (✦).
+    print("export TALLY_LAUNCHED=1")
 }
 
 /// `tally launch-dir` - the machine interface for the codex/claude PATH shims. Unlike `best-dir`
@@ -269,6 +271,8 @@ func runLaunchDir(_ providerID: String) {
     } else {
         print("export \(provider.envKey)=\(home)")
     }
+    // The status line reads this to show "this session runs under Tally" (✦).
+    print("export TALLY_LAUNCHED=1")
 }
 
 /// `tally statusline claude` - Claude Code's statusLine hook (registered by the app's
@@ -279,9 +283,15 @@ func runLaunchDir(_ providerID: String) {
 func runStatusline(args: [String]) -> Never {
     let home = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
         ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude").path
-    let (snapshot, _) = loadSnapshot()
+    let (snapshot, problem) = loadSnapshot()
     let label = snapshot?.accounts.first { $0.launchHome == home }?.label
         ?? URL(fileURLWithPath: home).lastPathComponent
+    // The working-state signals: ✦ = this session was launched through tally (the env marker
+    // rides in from exec/supervisor/shim); "(tally off)" = the app isn't publishing a fresh
+    // snapshot, so steering data is dead whatever this session is.
+    let marker: String? = ProcessInfo.processInfo.environment["TALLY_LAUNCHED"] == "1" ? "✦" : nil
+    let offNote: String? = problem != nil ? "(tally off)" : nil
+    let identity = [marker, label, offNote].compactMap { $0 }.joined(separator: " ")
     let input = FileHandle.standardInput.readDataToEndOfFile()
 
     // Wrapped mode: the user's own status line (carried as base64 - see IntegrationsStore)
@@ -309,18 +319,22 @@ func runStatusline(args: [String]) -> Never {
                 .trimmingCharacters(in: .newlines) ?? ""
         }
         // No double identity: a status line that already names the account anywhere (by
-        // nickname or by config-dir name) keeps its rendering untouched; otherwise the label
-        // joins the LAST line, where a width-padded first line can't be pushed out of shape.
+        // nickname or by config-dir name) keeps its account rendering, gaining only the
+        // working-state signals; otherwise the whole identity joins the LAST line, where a
+        // width-padded first line can't be pushed out of shape.
         let homeName = URL(fileURLWithPath: home).lastPathComponent
         let alreadyShown = body.localizedCaseInsensitiveContains(label)
             || body.localizedCaseInsensitiveContains(homeName)
-        print(body.isEmpty ? label : alreadyShown ? body : "\(body) · \(label)")
+        let addition = alreadyShown
+            ? [marker, offNote].compactMap { $0 }.joined(separator: " ")
+            : identity
+        print(addition.isEmpty ? body : body.isEmpty ? addition : "\(body) · \(addition)")
         exit(0)
     }
 
     let json = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any]
     let model = (json?["model"] as? [String: Any])?["display_name"] as? String
-    print([label, model].compactMap { $0 }.joined(separator: " · "))
+    print([identity, model].compactMap { $0 }.joined(separator: " · "))
     exit(0)
 }
 

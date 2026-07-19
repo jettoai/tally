@@ -231,6 +231,8 @@ func warn(_ message: String) {
 /// Replace this process with the provider CLI (never returns on success).
 func exec(_ cli: String, args: [String], env: (key: String, value: String)?) -> Never {
     if let env { setenv(env.key, env.value, 1) }
+    // Every launch that went through tally is marked, so the status line can show ✦.
+    setenv("TALLY_LAUNCHED", "1", 1)
     let argv = [cli] + args
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)

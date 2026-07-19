@@ -187,6 +187,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         let launchedAt = Date()
         var environment = ProcessInfo.processInfo.environment
         environment.removeValue(forKey: provider.envKey)
+        // The status line reads this to show "this session runs under Tally" (✦).
+        environment["TALLY_LAUNCHED"] = "1"
         if let env = launchEnv(provider, home: account.launchHome!) {
             environment[env.key] = env.value
         }

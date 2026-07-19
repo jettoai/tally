@@ -250,7 +250,11 @@ final class IntegrationsStore {
         if existing?.hasPrefix(command) == true { return false }   // already ours - idempotent
         var registered = command
         if let existing, !existing.isEmpty {
-            registered += " --wrap \(Data(existing.utf8).base64EncodedString())"
+            // Self-healing: if the tally binary ever disappears WITHOUT a clean remove (app
+            // dragged to the trash), the shell fallback decodes and runs the user's original
+            // status line directly - their setup survives Tally's death untouched.
+            let b64 = Data(existing.utf8).base64EncodedString()
+            registered += " --wrap \(b64) 2>/dev/null || printf %s \(b64) | base64 -D | /bin/sh"
         }
         settings["statusLine"] = ["type": "command", "command": registered]
         let data = try JSONSerialization.data(withJSONObject: settings,
@@ -271,7 +275,8 @@ final class IntegrationsStore {
         else { return }
         let marker = " --wrap "
         if let range = registered.range(of: marker),
-           let data = Data(base64Encoded: String(registered[range.upperBound...])),
+           let token = registered[range.upperBound...].split(separator: " ").first,
+           let data = Data(base64Encoded: String(token)),
            let original = String(data: data, encoding: .utf8) {
             settings["statusLine"] = ["type": "command", "command": original]
         } else {

@@ -342,7 +342,14 @@ func runStatusline(args: [String]) -> Never {
         let alreadyShown = body.localizedCaseInsensitiveContains(label)
             || body.localizedCaseInsensitiveContains(homeName)
         let addition = alreadyShown ? (statusPiece ?? "") : identity
-        print(addition.isEmpty ? body : body.isEmpty ? addition : "\(body) · \(addition)")
+        // A run of spaces in the last line means the script width-manages it (right-aligned
+        // time/diff); appending inline would push that content off the edge (live incident
+        // 2026-07-19: the git diff truncated to "+413 -1…"). The addition takes its own line
+        // there; plain last lines keep the compact inline join.
+        let widthManaged = body.split(separator: "\n").last?.contains("   ") ?? false
+        print(addition.isEmpty ? body
+              : body.isEmpty ? addition
+              : widthManaged ? "\(body)\n\(addition)" : "\(body) · \(addition)")
         exit(0)
     }
 

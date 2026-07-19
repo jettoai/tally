@@ -91,17 +91,8 @@ extension UpdaterController: SPUStandardUserDriverDelegate {
         })
     }
 
-    /// Centre the given windows on the screen containing the pointer - the "dialogs follow the
-    /// user, not the main display" rule every Tally-spawned window obeys.
+    /// See NSWindow.centerOnPointerScreen (Core/WindowPlacement.swift) - the shared house rule.
     @MainActor private static func centerOnPointerScreen(_ windows: [NSWindow]) {
-        let mouse = NSEvent.mouseLocation
-        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
-            ?? NSScreen.main else { return }
-        for window in windows {
-            let frame = window.frame
-            let visible = screen.visibleFrame
-            window.setFrameOrigin(NSPoint(x: visible.midX - frame.width / 2,
-                                          y: visible.midY - frame.height / 2))
-        }
+        windows.forEach { $0.centerOnPointerScreen() }
     }
 }

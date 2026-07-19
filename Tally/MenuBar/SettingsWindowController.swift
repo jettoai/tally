@@ -28,11 +28,14 @@ final class SettingsWindowController {
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.setContentSize(NSSize(width: 500, height: 640))   // placeholder until the first report
-            // v5: only the POSITION matters across launches - the height self-corrects to content.
+            // Autosave keeps the size stable across launches; the position is re-derived on
+            // every summon below (pointer's screen), so a stale saved origin never wins.
             window.setFrameAutosaveName("TallySettingsWindow.v5")
-            window.center()
             self.window = window
         }
+        // Summoned windows follow the user: place on the pointer's screen whenever the window
+        // isn't already up (an open window stays put - yanking it mid-use would be worse).
+        if window?.isVisible != true { window?.centerOnPointerScreen() }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         // Nothing should start focused: an auto-focused rename field opens the window with a loud

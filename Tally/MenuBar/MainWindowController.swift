@@ -27,9 +27,11 @@ final class MainWindowController {
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
             window.setFrameAutosaveName("TallyMainWindow.v3")
-            window.center()
             self.window = window
         }
+        // Summoned windows follow the user: place on the pointer's screen whenever the window
+        // isn't already up (an open window stays put - yanking it mid-use would be worse).
+        if window?.isVisible != true { window?.centerOnPointerScreen() }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }

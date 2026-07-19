@@ -108,6 +108,20 @@ struct PopoverRootView: View {
                         .padding(.horizontal, 4).padding(.vertical, 1)
                         .overlay(Capsule().stroke(TallyColor.warning.opacity(0.6), lineWidth: 1))
                 }
+                // Docker-style nudge: an update is waiting - one click enters the install flow.
+                if let version = UpdateAvailability.shared.version {
+                    Button {
+                        UpdaterController.shared.checkForUpdates()
+                    } label: {
+                        Text(verbatim: "↑ \(version)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Capsule().fill(TallyColor.ai))
+                    }
+                    .buttonStyle(.plain)
+                    .help(L("Update available - click to install"))
+                }
                 Spacer()
                 // TimelineView re-evaluates every second so "updates in 42s" counts down live (a
                 // plain render would freeze it at whatever it said on open). Hierarchy: the date is

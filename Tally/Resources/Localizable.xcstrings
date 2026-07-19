@@ -4735,6 +4735,34 @@
           }
         }
       }
+    },
+    "Update available - click to install": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートがあります。クリックしてインストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트가 있습니다. 클릭하여 설치"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有可用更新，点击安装"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有可用更新，點擊安裝"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

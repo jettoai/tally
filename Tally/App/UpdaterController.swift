@@ -23,7 +23,7 @@ final class UpdaterController: NSObject {
         guard let feed = info?["SUFeedURL"] as? String, !feed.isEmpty,
               let key = info?["SUPublicEDKey"] as? String, !key.isEmpty else { return }
         controller = SPUStandardUpdaterController(
-            startingUpdater: true, updaterDelegate: nil, userDriverDelegate: self)
+            startingUpdater: true, updaterDelegate: self, userDriverDelegate: self)
     }
 
     /// Sparkle's own persisted preference, surfaced as a Settings toggle.
@@ -63,6 +63,11 @@ final class UpdaterController: NSObject {
             }
         }
     }
+
+    /// Windows already placed once. Sparkle RESIZES its window as the flow advances (checking →
+    /// found → downloading); re-centring it on every sweep made it visibly hop up and down, so
+    /// each window is placed exactly once and then left alone.
+    private static var placedWindows = Set<Int>()
 }
 
 extension UpdaterController: SPUStandardUserDriverDelegate {
@@ -95,7 +100,38 @@ extension UpdaterController: SPUStandardUserDriverDelegate {
     }
 
     /// See NSWindow.centerOnPointerScreen (Core/WindowPlacement.swift) - the shared house rule.
+    /// Once per window (see `placedWindows`).
     @MainActor private static func centerOnPointerScreen(_ windows: [NSWindow]) {
-        windows.forEach { $0.centerOnPointerScreen() }
+        for window in windows where !placedWindows.contains(window.windowNumber) {
+            placedWindows.insert(window.windowNumber)
+            window.centerOnPointerScreen()
+        }
     }
+}
+
+extension UpdaterController: SPUUpdaterDelegate {
+    /// The Docker-style in-app nudge: the panel header shows an accent "↑ x.y.z" chip while an
+    /// update is known to be available; clicking it re-enters the standard install flow.
+    nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        let version = item.displayVersionString
+        Task { @MainActor in UpdateAvailability.shared.version = version }
+    }
+
+    nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
+        Task { @MainActor in UpdateAvailability.shared.version = nil }
+    }
+
+    nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
+        Task { @MainActor in UpdateAvailability.shared.version = nil }
+    }
+}
+
+/// Observable "an update is waiting" state, fed by the updater delegate above and rendered by
+/// the panel header. Separate tiny class because UpdaterController is an NSObject delegate
+/// (the @Observable macro and NSObject don't mix).
+@MainActor
+@Observable
+final class UpdateAvailability {
+    static let shared = UpdateAvailability()
+    var version: String?
 }

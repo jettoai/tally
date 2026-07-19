@@ -4651,6 +4651,34 @@
           }
         }
       }
+    },
+    "Integrations are managed by the installed release app.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連携はインストール済みの正式版アプリが管理します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "통합은 설치된 정식 앱이 관리합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "集成由已安装的正式版应用管理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整合由已安裝的正式版 app 管理。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

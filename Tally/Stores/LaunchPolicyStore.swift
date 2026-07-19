@@ -108,6 +108,10 @@ final class LaunchPolicyStore {
     }
 
     private func persist() {
+        // The dev variant edits its policies in memory only (the UI stays testable) but never
+        // publishes: ~/.tally/state.json is what the CLI steers real launches by, and that
+        // contract belongs to the installed release app alone.
+        guard !BuildVariant.isDev else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(StateFile(launch: policies)) else { return }

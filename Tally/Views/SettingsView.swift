@@ -118,7 +118,7 @@ struct SettingsView: View {
         case .accounts: sectionCard { SettingsAccountsView(store: store, settings: settings) }
         case .launch: sectionCard { SettingsLaunchView(store: store, settings: settings) }
         case .display: sectionCard { displayRows }
-        case .integrations: sectionCard { integrationsRows }
+        case .integrations: sectionCard { integrationsRows.disabled(BuildVariant.isDev) }
         case .about: sectionCard { aboutRows }
         }
     }
@@ -266,6 +266,14 @@ struct SettingsView: View {
     @ViewBuilder
     private var integrationsRows: some View {
         let integrations = IntegrationsStore.shared
+        // The dev variant observes but never mutates the shared integrations (hard-gated in
+        // IntegrationsStore too); say so instead of offering buttons that refuse.
+        if BuildVariant.isDev {
+            Text(L("Integrations are managed by the installed release app."))
+                .font(.caption).foregroundStyle(TallyColor.warning)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+            rowDivider
+        }
         allIntegrationsRow(integrations)
         rowDivider
         integrationRow(

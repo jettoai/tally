@@ -114,12 +114,22 @@ final class IntegrationsStore {
 
     // MARK: Install / remove
 
+    /// The dev variant never mutates shared system state (the /usr/local/bin link, shell
+    /// profiles, claude settings): those integrations belong to the installed release app.
+    /// UI-level disabling backs this up; this is the hard gate.
+    private func guardNotDev() -> Bool {
+        guard BuildVariant.isDev else { return true }
+        lastError = L("Integrations are managed by the installed release app.")
+        return false
+    }
+
     /// The bundled CLI binary (Contents/Helpers/tally, embedded by the release pipeline).
     private static var bundledCLIURL: URL {
         Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/tally")
     }
 
     func installCLITool() {
+        guard guardNotDev() else { return }
         lastError = nil
         let fm = FileManager.default
         do {
@@ -138,6 +148,7 @@ final class IntegrationsStore {
     }
 
     func removeCLITool() {
+        guard guardNotDev() else { return }
         lastError = nil
         do {
             try FileManager.default.removeItem(at: Self.cliSymlinkURL)
@@ -149,6 +160,7 @@ final class IntegrationsStore {
     }
 
     func installShim(_ shim: Shim) {
+        guard guardNotDev() else { return }
         lastError = nil
         let fm = FileManager.default
         do {
@@ -164,6 +176,7 @@ final class IntegrationsStore {
     }
 
     func removeShim(_ shim: Shim) {
+        guard guardNotDev() else { return }
         lastError = nil
         do {
             try? FileManager.default.removeItem(at: shim.scriptURL)
@@ -211,6 +224,7 @@ final class IntegrationsStore {
     }
 
     func installStatusLine() {
+        guard guardNotDev() else { return }
         lastError = nil
         do {
             let files = Self.claudeSettingsFiles()
@@ -225,6 +239,7 @@ final class IntegrationsStore {
     }
 
     func removeStatusLine() {
+        guard guardNotDev() else { return }
         lastError = nil
         do {
             for file in Self.claudeSettingsFiles() {

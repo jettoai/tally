@@ -132,10 +132,9 @@ struct AccountCardView: View {
         .frame(maxHeight: fillsRowHeight ? .infinity : nil, alignment: .top)
         .tallyCard()
         .onHover { if showsDragHandle { isHovering = $0 } }
-        // Click cycles the launch pin: pin this account (Manual), click again for Auto. A plain
-        // tap never conflicts with the container's reorder drag (4pt minimum distance) and child
-        // buttons still win their own hits. No-op for single-account providers.
-        .onTapGesture { toggleLaunchPin() }
+        // Deliberately NO card-wide tap: it made every stray click a launch-policy change (a
+        // redeem-button near-miss re-pinned an account, 2026-07-19). Switching happens only on
+        // the explicit header controls: the ◯ pins, the pin badge releases back to Smart.
     }
 
     private var header: some View {
@@ -154,7 +153,9 @@ struct AccountCardView: View {
                 // distinct from the auto badge); the OTHER cards keep the hollow radio as the
                 // click-to-choose affordance.
                 case .manual: if isPinnedActive { manualBadge } else { pinControl }
-                case .auto: if isAutoPick { autoBadge }
+                case .auto:
+                    if isAutoPick { autoBadge }
+                    pinControl
                 case .off: EmptyView()
                 }
             }
@@ -176,20 +177,8 @@ struct AccountCardView: View {
         }
     }
 
-    /// Card click: pin this account (switching the provider to Manual); clicking the already
-    /// pinned card releases back to Auto - one gesture covers the whole choose/release loop.
-    private func toggleLaunchPin() {
-        guard hasSiblings else { return }
-        let policy = LaunchPolicyStore.shared
-        if isPinnedActive {
-            policy.setMode(usage.providerID, .auto)
-        } else {
-            let home = UsageStore.shared.discoveredAccounts.first { $0.id == usage.id }?.launchHome
-            policy.pin(usage.providerID, accountID: usage.id, home: home)
-        }
-    }
-
-    /// Manual mode: a radio per card - the filled one is where new sessions launch; click to move it.
+    /// A radio per card - the filled one is where new sessions launch; click to move the pin
+    /// (shown in Smart mode too, so pinning is one deliberate click on a small target).
     private var pinControl: some View {
         Button {
             let home = UsageStore.shared.discoveredAccounts.first { $0.id == usage.id }?.launchHome
@@ -207,16 +196,22 @@ struct AccountCardView: View {
     /// Manual mode, pinned card: warm colour + pin glyph, deliberately distinct from the cool
     /// auto badge - a human override should not look like the machine's pick.
     private var manualBadge: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "pin.fill").font(.system(size: 8))
-            Text(L("Pinned")).lineLimit(1)
+        Button {
+            LaunchPolicyStore.shared.setMode(usage.providerID, .auto)
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "pin.fill").font(.system(size: 8))
+                Text(L("Pinned")).lineLimit(1)
+            }
+            .fixedSize()   // a badge must never wrap (a two-line capsule broke the header, 2026-07-18)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Color.orange)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(Capsule().fill(Color.orange.opacity(0.15)))
+            .contentShape(Capsule())
         }
-        .fixedSize()   // a badge must never wrap (a two-line capsule broke the header, 2026-07-18)
-        .font(.caption2.weight(.semibold))
-        .foregroundStyle(Color.orange)
-        .padding(.horizontal, 5).padding(.vertical, 1)
-        .background(Capsule().fill(Color.orange.opacity(0.15)))
-        .help(L("Manual: every new session uses this account. Click the card to go back to Smart."))
+        .buttonStyle(.plain)
+        .help(L("Manual: every new session uses this account. Click this badge to go back to Smart."))
     }
 
     /// Smart mode: marks the card the next launch would pick. Copy lesson, twice over: "Auto"

@@ -3365,64 +3365,6 @@
         }
       }
     },
-    "Manual: every new session uses this account. Click the card to go back to Smart.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手動：每個新工作階段都用這個帳號。再點一下卡片可回到智慧選擇。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手动：每个新会话都用这个账号。再点一下卡片可回到智能选择。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "手動：新しいセッションはすべてこのアカウントを使います。カードをもう一度クリックするとスマート選択に戻ります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "수동: 새 세션은 모두 이 계정을 사용합니다. 카드를 다시 클릭하면 스마트 선택으로 돌아갑니다."
-          }
-        }
-      }
-    },
-    "Click a card to pin that account (Manual); click it again to go back to Smart.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "點一下卡片＝釘選該帳號（手動）；再點一次＝回到智慧選擇。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "点一下卡片＝钉选该账号（手动）；再点一次＝回到智能选择。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カードをクリックするとそのアカウントを固定（手動）、もう一度クリックするとスマート選択に戻ります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "카드를 클릭하면 해당 계정을 고정(수동), 다시 클릭하면 스마트 선택으로 돌아갑니다."
-          }
-        }
-      }
-    },
     "Automatically check for updates": {
       "extractionState": "manual",
       "localizations": {
@@ -4057,6 +3999,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "교환 실패"
+          }
+        }
+      }
+    },
+    "Pin an account with the ◯ on its card; click the pin badge to go back to Smart.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "點卡片上的 ◯ 釘選帳號；點「釘選」徽章回到智選。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点卡片上的 ◯ 钉选账号；点「钉选」徽章回到智选。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードの ◯ をクリックしてアカウントを固定、固定バッジをクリックするとスマート選択に戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카드의 ◯ 를 클릭해 계정을 고정하고, 고정 배지를 클릭하면 스마트 선택으로 돌아갑니다."
+          }
+        }
+      }
+    },
+    "Manual: every new session uses this account. Click this badge to go back to Smart.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動：每個新工作階段都用這個帳號。點此徽章可回到智慧選擇。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动：每个新会话都用这个账号。点此徽章可回到智能选择。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動：新しいセッションはすべてこのアカウントを使います。このバッジをクリックするとスマート選択に戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동: 새 세션은 모두 이 계정을 사용합니다. 이 배지를 클릭하면 스마트 선택으로 돌아갑니다."
           }
         }
       }

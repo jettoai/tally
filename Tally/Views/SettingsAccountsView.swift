@@ -110,6 +110,8 @@ struct SettingsAccountsView: View {
                 .padding(.vertical, 8)
                 .padding(.leading, 18)
             }
+            rowDivider
+            addAccountRow(id, homes: items.compactMap(\.launchHome))
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 rowDivider
                 // Same numbering the menu-bar strip uses for same-provider accounts, so the
@@ -127,6 +129,36 @@ struct SettingsAccountsView: View {
 
     /// Which account new `tally` sessions launch on: Off (observe only), Manual (pin a card in
     /// the panel), Smart (burn-rate pick - time and remaining both count - re-run every launch).
+    /// A copyable login command for the NEXT account (the first free ~/.claudeN / ~/.codexN):
+    /// run it in a terminal, finish the login, and the per-refresh scan picks the account up
+    /// within a minute - guidance without owning the login flow.
+    private func addAccountRow(_ providerID: String, homes: [String]) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L("Add another account")).font(.subheadline)
+                Text(L("Run this in a terminal and finish the login; the account appears here within a minute."))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            CopyCommandChip(command: Self.addAccountCommand(providerID, homes: homes))
+        }
+        .settingsRowPadding()
+    }
+
+    /// With no account yet the plain CLI is the whole story; otherwise point the provider's
+    /// config-home variable at the first unused numbered sibling of the default home.
+    static func addAccountCommand(_ providerID: String, homes: [String]) -> String {
+        let claude = providerID == "claude"
+        guard !homes.isEmpty else { return claude ? "claude" : "codex login" }
+        let base = claude ? ".claude" : ".codex"
+        let taken = Set(homes.map { URL(fileURLWithPath: $0).lastPathComponent })
+        let suffix = (2 ... 99).first { !taken.contains("\(base)\($0)") } ?? 2
+        return claude
+            ? "CLAUDE_CONFIG_DIR=~/\(base)\(suffix) claude"
+            : "CODEX_HOME=~/\(base)\(suffix) codex login"
+    }
+
     private func launchPolicyRow(_ providerID: String) -> some View {
         let launchPolicy = LaunchPolicyStore.shared
         return HStack(alignment: .firstTextBaseline) {

@@ -265,7 +265,6 @@ struct PopoverRootView: View {
     }
 
     @State private var showLaunchHelp = false
-    @State var copiedCommand: String?
 
     private var footer: some View {
         HStack {

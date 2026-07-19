@@ -3567,6 +3567,64 @@
           }
         }
       }
+    },
+    "Add another account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開一個帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再开一个账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 추가"
+          }
+        }
+      }
+    },
+    "Run this in a terminal and finish the login; the account appears here within a minute.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機執行並完成登入，帳號一分鐘內會自動出現在這裡。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端执行并完成登录，账号一分钟内会自动出现在这里。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルで実行してログインを完了すると、アカウントは1分以内にここに自動で表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 실행해 로그인을 마치면 계정이 1분 안에 여기 자동으로 나타납니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

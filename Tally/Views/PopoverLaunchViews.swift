@@ -71,31 +71,6 @@ extension PopoverRootView {
         }
     }
 
-    /// A command chip that copies itself on click, flashing a green check as the receipt.
-    private func commandChip(_ command: String) -> some View {
-        Button {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(command, forType: .string)
-            copiedCommand = command
-            Task {
-                try? await Task.sleep(for: .seconds(1.5))
-                if copiedCommand == command { copiedCommand = nil }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text(verbatim: command).font(.caption.monospaced())
-                Image(systemName: copiedCommand == command ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 9))
-                    .foregroundStyle(copiedCommand == command ? Color.green : Color.secondary)
-            }
-            .padding(.horizontal, 5).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 4).fill(.quaternary))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(L("Copy"))
-    }
-
     /// The "?" popover: every launch command with what it does, the LIVE shell-integration state
     /// (a claim like "bare commands follow the policy" is only true when the shims are actually
     /// installed, so say which), and what clicking a card does.
@@ -136,7 +111,7 @@ extension PopoverRootView {
 
     private func commandRow(_ command: String, caption: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            commandChip(command)
+            CopyCommandChip(command: command)
             Text(caption)
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -104,5 +104,77 @@ do {
     expect(s.first?.accountCount == 2, "fleet counts only accounts with metrics")
 }
 
+// 8. Members keep display order with their own numbers; refills sort soonest-first with gains.
+do {
+    let s = summarize([
+        account("c1", metrics: [metric(.weeklyAll, used: 94, resetIn: 86_400)]),
+        account("c2", metrics: [metric(.weeklyAll, used: 40, resetIn: 3_600)]),
+    ])
+    let pool = s.first!.headline!
+    expect(pool.members.map(\.accountLabel) == ["c1", "c2"], "members keep account order")
+    expect(abs(pool.totalRemaining - 66) < 0.001, "total pools remaining units")
+    expect(pool.refills.map(\.accountLabel) == ["c2", "c1"]
+           && pool.refills.map(\.gain) == [40, 94], "refills soonest-first with gains")
+}
+
+// MARK: FleetForecast
+
+func sample(_ account: String, provider: String = "claude", tsHoursAgo: Double, used: Double,
+            window: String = "weeklyAll", resetInDays: Double? = 3) -> UsageHistory.Sample {
+    UsageHistory.Sample(ts: now.addingTimeInterval(-tsHoursAgo * 3_600), account: account,
+                        provider: provider, window: window, model: nil, used: used,
+                        resetAt: resetInDays.map { now.addingTimeInterval($0 * 86_400) })
+}
+
+// 9. Pace = summed positive deltas across accounts over the sampled hours.
+do {
+    let rates = FleetForecast.weeklyRates(samples: [
+        sample("c1", tsHoursAgo: 10, used: 10), sample("c1", tsHoursAgo: 0, used: 30),
+        sample("c2", tsHoursAgo: 10, used: 50), sample("c2", tsHoursAgo: 0, used: 60),
+    ], now: now)
+    expect(rates["claude"].map { abs($0.perHour - 3) < 0.001 } == true,
+           "pace sums both accounts (30 units / 10h)")
+}
+
+// 10. A window rollover (resetAt changed, used dropped) contributes nothing to the pace.
+do {
+    let rates = FleetForecast.weeklyRates(samples: [
+        sample("c1", tsHoursAgo: 12, used: 90, resetInDays: 0.1),
+        sample("c1", tsHoursAgo: 6, used: 5, resetInDays: 7),
+        sample("c1", tsHoursAgo: 0, used: 11, resetInDays: 7),
+    ], now: now)
+    expect(rates["claude"].map { abs($0.perHour - 0.5) < 0.001 } == true,
+           "rollover excluded (6 units / 12h)")
+}
+
+// 11. Too little history → no estimate (the strip says "measuring", not a noise forecast).
+do {
+    let rates = FleetForecast.weeklyRates(samples: [
+        sample("c1", tsHoursAgo: 2, used: 10), sample("c1", tsHoursAgo: 0, used: 20),
+    ], now: now)
+    expect(rates["claude"] == nil, "under \(Int(FleetForecast.minimumSampleHours))h of history gives no pace")
+}
+
+// 12. Depletion: linear without refills; a refill pushes the dry point out.
+do {
+    let bare = FleetForecast.depletion(remaining: 100, refills: [], perHour: 10,
+                                       steadyRefillPerHour: 0, now: now)
+    expect(bare == now.addingTimeInterval(10 * 3_600), "dry = remaining/pace without refills")
+    let extended = FleetForecast.depletion(
+        remaining: 50, refills: [(at: now.addingTimeInterval(3 * 3_600), gain: 100)],
+        perHour: 10, steadyRefillPerHour: 0, now: now)
+    expect(extended == now.addingTimeInterval(15 * 3_600), "refill extends the dry point")
+}
+
+// 13. A pace under the steady refill budget never dries; over it dries after the listed cycle.
+do {
+    let sustainable = FleetForecast.depletion(remaining: 200, refills: [], perHour: 1,
+                                              steadyRefillPerHour: 1.19, now: now)
+    expect(sustainable == nil, "pace within the weekly budget is sustainable")
+    let dries = FleetForecast.depletion(remaining: 200, refills: [], perHour: 2,
+                                        steadyRefillPerHour: 1, now: now)
+    expect(dries == now.addingTimeInterval(200 * 3_600), "net overspend dries at remaining/net")
+}
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all fleet tests passed")

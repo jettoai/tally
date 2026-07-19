@@ -5,22 +5,52 @@ import Foundation
 /// and when does it get quota back". Pure math over the already-fetched usages; no I/O, so the
 /// test harness can compile it standalone.
 ///
-/// Percentages pool with equal weights. That is exact when sibling accounts share a plan tier
-/// (the common multi-account setup); plan-weighted pooling can layer on once plan detection is
-/// reliable enough to trust.
+/// Percentages pool with equal weights: one account's full window is 100 units, so a five-account
+/// pool holds 500 units ("5 accounts' worth"). That is exact when sibling accounts share a plan
+/// tier (the common multi-account setup); plan-weighted pooling can layer on once plan detection
+/// is reliable enough to trust.
 struct FleetPool: Hashable {
+    /// One account's contribution to the pool, in the accounts' display order - the segments of
+    /// the combined bar.
+    struct Member: Hashable {
+        var accountLabel: String
+        var remaining: Double
+        var severity: MetricSeverity
+        var resetsAt: Date?
+    }
+
+    /// A scheduled quota refill: when a member's window rolls over, the pool gets back what that
+    /// member has used so far. Staggered resets are the multi-account superpower, so they are
+    /// first-class here.
+    struct Refill: Hashable {
+        var at: Date
+        var accountLabel: String
+        /// Units the pool gains at `at` (the member's current used percent).
+        var gain: Double
+    }
+
     var kind: MetricKind
     /// Representative window label (a localization key such as "Weekly", or a model name).
     var label: String
-    /// Equal-weight mean of the accounts' remaining percent.
-    var averageRemaining: Double
-    /// The account with the least room, by display label - the fleet's weak spot.
-    var minAccountLabel: String
-    var minRemaining: Double
-    /// Soonest upcoming reset in the pool: the next moment the pool gets quota back. Staggered
-    /// resets are the multi-account superpower, so the strip surfaces the nearest refill.
-    var nextReset: Date?
-    var nextResetAccountLabel: String?
+    var members: [Member]
+    /// Upcoming refills, soonest first (past resets excluded).
+    var refills: [Refill]
+
+    /// Total units left across the pool (0...members×100).
+    var totalRemaining: Double { members.map(\.remaining).reduce(0, +) }
+    var averageRemaining: Double { totalRemaining / Double(members.count) }
+    /// The account with the least room - the fleet's weak spot.
+    var minMember: Member { members.min { $0.remaining < $1.remaining }! }
+    var minAccountLabel: String { minMember.accountLabel }
+    var minRemaining: Double { minMember.remaining }
+    /// Soonest upcoming reset: the next moment the pool gets quota back.
+    var nextReset: Date? { refills.first?.at }
+    var nextResetAccountLabel: String? { refills.first?.accountLabel }
+    /// Steady-state refill speed (units per hour) once every member's window cycles - the
+    /// long-run budget the fleet's burn rate is measured against.
+    func steadyRefillPerHour(windowHours: Double) -> Double {
+        Double(members.count) * 100 / windowHours
+    }
 }
 
 struct FleetSummary: Hashable {
@@ -78,18 +108,18 @@ enum FleetMath {
     private static func pool(kind: MetricKind, entries: [(AccountUsage, UsageMetric)], now: Date,
                              label: (AccountUsage) -> String) -> FleetPool? {
         guard entries.count >= 2 else { return nil }
-        let average = entries.map { $0.1.remainingPercent }.reduce(0, +) / Double(entries.count)
-        let weakest = entries.min { $0.1.remainingPercent < $1.1.remainingPercent }!
-        let upcoming = entries
-            .compactMap { entry in entry.1.resetsAt.map { (entry.0, $0) } }
-            .filter { $0.1 > now }
-            .min { $0.1 < $1.1 }
-        return FleetPool(kind: kind,
-                         label: entries[0].1.label,
-                         averageRemaining: average,
-                         minAccountLabel: label(weakest.0),
-                         minRemaining: weakest.1.remainingPercent,
-                         nextReset: upcoming?.1,
-                         nextResetAccountLabel: upcoming.map { label($0.0) })
+        let members = entries.map { account, metric in
+            FleetPool.Member(accountLabel: label(account), remaining: metric.remainingPercent,
+                             severity: metric.severity, resetsAt: metric.resetsAt)
+        }
+        let refills = entries
+            .compactMap { account, metric in
+                metric.resetsAt.map {
+                    FleetPool.Refill(at: $0, accountLabel: label(account), gain: metric.usedPercent)
+                }
+            }
+            .filter { $0.at > now }
+            .sorted { $0.at < $1.at }
+        return FleetPool(kind: kind, label: entries[0].1.label, members: members, refills: refills)
     }
 }

@@ -26,6 +26,10 @@ final class UsageStore {
     /// Called on the main actor after every refresh.
     var onChange: (() -> Void)?
 
+    /// Weekly-pool burn rate per provider id, recomputed from the usage history after each
+    /// refresh - what the fleet strip's "lasts about …" forecast runs on.
+    private(set) var fleetRates: [String: FleetRate] = [:]
+
     private let providers = ProviderCatalog.all
     private var timer: DispatchSourceTimer?
 
@@ -137,6 +141,7 @@ final class UsageStore {
         // instance can't steer the `tally` CLI), no retry ladder.
         if DemoUsage.isActive {
             accounts = DemoUsage.accounts()
+            fleetRates = DemoUsage.fleetRates
             lastRefreshedAt = Date()
             lastSuccessfulRefreshAt = lastRefreshedAt
             onChange?()
@@ -196,8 +201,15 @@ final class UsageStore {
             return copy
         }
         UsageSnapshot.make(accounts: labeled, launchHomes: launchHomes).write()
-        // Sample fresh results into the burn-rate history (change-only, off-main-queue).
+        // Sample fresh results into the burn-rate history (change-only, off-main-queue), then
+        // re-estimate the fleet's pace from what has accumulated.
         UsageHistory.shared.record(results)
+        let now = Date()
+        UsageHistory.shared.samples(
+            since: now.addingTimeInterval(-FleetForecast.lookbackHours * 3_600)) { samples in
+            let rates = FleetForecast.weeklyRates(samples: samples, now: now)
+            Task { @MainActor in UsageStore.shared.fleetRates = rates }
+        }
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
         scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })
 

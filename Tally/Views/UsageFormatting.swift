@@ -19,19 +19,23 @@ enum UsageFormat {
         return min(1, max(0, value / 100))
     }
 
+    /// Compact duration, e.g. "4d 17h" / "42m" - the body shared by the reset countdown and the
+    /// fleet forecast.
+    static func durationBody(_ seconds: TimeInterval) -> String {
+        let days = Int(seconds) / 86_400
+        let hours = (Int(seconds) % 86_400) / 3_600
+        let minutes = (Int(seconds) % 3_600) / 60
+        if days > 0 { return hours > 0 ? "\(days)d \(hours)h" : "\(days)d" }
+        if hours > 0 { return minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h" }
+        return "\(max(1, minutes))m"
+    }
+
     /// Compact countdown to a reset instant, e.g. "resets in 4d 17h" / "resets in 42m".
     static func resetCountdown(_ date: Date?, now: Date = Date()) -> String? {
         guard let date else { return nil }
         let seconds = date.timeIntervalSince(now)
         guard seconds > 0 else { return L("resetting…") }
-        let days = Int(seconds) / 86_400
-        let hours = (Int(seconds) % 86_400) / 3_600
-        let minutes = (Int(seconds) % 3_600) / 60
-        let body: String
-        if days > 0 { body = hours > 0 ? "\(days)d \(hours)h" : "\(days)d" }
-        else if hours > 0 { body = minutes > 0 ? "\(hours)h \(minutes)m" : "\(hours)h" }
-        else { body = "\(max(1, minutes))m" }
-        return String(localized: "resets in \(body)", bundle: AppLocale.bundle)
+        return String(localized: "resets in \(durationBody(seconds))", bundle: AppLocale.bundle)
     }
 
     // Fixed MM/dd HH:mm in the local timezone (POSIX locale keeps it 24-hour and digit-only regardless

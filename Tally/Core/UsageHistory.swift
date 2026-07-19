@@ -16,7 +16,7 @@ final class UsageHistory: @unchecked Sendable {
 
     /// One recorded observation. `used` is the percent used at `ts`; `resetAt` segments the series
     /// (a window whose resetAt changed has rolled over, so deltas across it are not consumption).
-    struct Sample: Codable {
+    struct Sample: Codable, Sendable {
         var ts: Date
         var account: String
         var provider: String
@@ -69,6 +69,22 @@ final class UsageHistory: @unchecked Sendable {
             }
             guard !lines.isEmpty else { return }
             append(lines)
+        }
+    }
+
+    /// Read every sample at or after `since` (line-by-line tolerant decode), delivered on the
+    /// history queue - callers hop back to their own actor.
+    func samples(since: Date, completion: @escaping @Sendable ([Sample]) -> Void) {
+        queue.async {
+            var out: [Sample] = []
+            if let data = try? Data(contentsOf: Self.fileURL) {
+                for line in data.split(separator: UInt8(ascii: "\n")) {
+                    guard let sample = try? Self.decoder.decode(Sample.self, from: Data(line)),
+                          sample.ts >= since else { continue }
+                    out.append(sample)
+                }
+            }
+            completion(out)
         }
     }
 

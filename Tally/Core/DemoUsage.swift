@@ -32,6 +32,14 @@ enum DemoUsage {
         ]
     }
 
+    /// Fabricated burn rates so the fleet strip's forecast renders in screenshots: Claude spends
+    /// faster than its combined refill budget (a concrete "lasts about …"), Codex within it
+    /// (the "sustainable" state). Real instances estimate these from ~/.tally/history.jsonl.
+    static var fleetRates: [String: FleetRate] {
+        ["claude": FleetRate(perHour: 4.6, sampledHours: 72),
+         "codex": FleetRate(perHour: 1.4, sampledHours: 72)]
+    }
+
     /// A Claude account shaped exactly like ClaudeUsageCLI's mapping: a model-scoped weekly window
     /// (the headline), the 5h session, and the all-model weekly. A nil session reset mirrors the
     /// untouched-account case ("5h starts on first use").

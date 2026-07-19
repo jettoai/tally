@@ -306,7 +306,10 @@ func runStatusline(args: [String]) -> Never {
     // The account name only carries information when there is a choice: with one account it
     // reads as noise next to a Claude session, so the status signal stands alone.
     let siblings = snapshot?.accounts.filter { $0.provider == "claude" }.count ?? 0
-    let identity = [statusPiece, siblings > 1 ? "\(dim)\(label)\(reset)" : nil]
+    // The account name is the "who" anchor, so it gets its own steel blue - distinct from the
+    // purple steering signal and from the severity greens/ambers/reds of the quota pieces.
+    let accountTint = "\u{1B}[38;5;74m"
+    let identity = [statusPiece, siblings > 1 ? "\(accountTint)\(label)\(reset)" : nil]
         .compactMap { $0 }.joined(separator: " · ")
     let input = FileHandle.standardInput.readDataToEndOfFile()
 
@@ -372,7 +375,7 @@ func runStatusline(args: [String]) -> Never {
         // beneath the custom status line - for people who drop their own quota rendering and
         // rely on Tally's. The line is ours, so the account always shows here.
         if snapshot?.statuslineFullQuota == true, !quota.isEmpty {
-            let richLine = ([statusPiece, "\(dim)\(label)\(reset)"].compactMap { $0 } + quota)
+            let richLine = ([statusPiece, "\(accountTint)\(label)\(reset)"].compactMap { $0 } + quota)
                 .joined(separator: " · ")
             print(body.isEmpty ? richLine : "\(body)\n\(richLine)")
             exit(0)

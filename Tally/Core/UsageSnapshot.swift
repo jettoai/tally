@@ -23,6 +23,9 @@ struct UsageSnapshot: Codable {
         var weeklyResetsAt: Date?
         var modelResetsAt: Date?
         var modelWindowName: String?
+        /// Codex reset banking: banked rate-limit resets the account can redeem. The smart pick
+        /// READS this as a tie-breaker (a wall with an escape hatch is softer) - it never spends.
+        var resetCreditsAvailable: Int?
         var isStale: Bool
         var error: String?
     }
@@ -52,6 +55,7 @@ struct UsageSnapshot: Codable {
                     weeklyResetsAt: usage.metrics.first { $0.kind == .weeklyAll }?.resetsAt,
                     modelResetsAt: usage.headline.flatMap { $0.isModelScoped ? $0.resetsAt : nil },
                     modelWindowName: usage.headline.flatMap { $0.isModelScoped ? $0.modelName : nil },
+                    resetCreditsAvailable: usage.resetCreditsAvailable,
                     isStale: usage.isStale,
                     error: usage.error
                 )

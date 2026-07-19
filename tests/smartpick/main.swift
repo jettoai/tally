@@ -16,12 +16,14 @@ func account(_ id: String,
              session: (Double, Date?)? = nil,
              weekly: (Double, Date?)? = nil,
              model: (Double, Date?)? = nil,
-             modelName: String? = nil) -> Snapshot.Account {
+             modelName: String? = nil,
+             resets: Int? = nil) -> Snapshot.Account {
     Snapshot.Account(id: id, provider: "claude", label: id, launchHome: "/tmp/\(id)",
                      sessionRemaining: session?.0, weeklyRemaining: weekly?.0,
                      modelRemaining: model?.0,
                      sessionResetsAt: session?.1, weeklyResetsAt: weekly?.1,
                      modelResetsAt: model?.1, modelWindowName: modelName,
+                     resetCreditsAvailable: resets,
                      isStale: false, error: nil)
 }
 
@@ -83,7 +85,15 @@ let dying5 = account("A", weekly: (5, inHours(120)))
 let healthy20 = account("B", weekly: (20, inHours(120)))
 check("a genuinely healthier sibling still rescues a dying leader", pick([dying5, healthy20]) == "B")
 
-// 7. The pick reason names the binding window with its reset ETA.
+// 7. Banked resets break near-ties only: a wall with an escape hatch behind it is softer, so
+//    the reset-rich account burns first - but banked resets never outvote a real score gap.
+let noHatch = account("A", weekly: (50, inHours(120)))
+let hatch = account("B", weekly: (50, inHours(120)), resets: 3)
+check("exact tie prefers the account with banked resets", pick([noHatch, hatch]) == "B")
+let betterNoHatch = account("A", weekly: (80, inHours(120)))
+check("banked resets never outvote a real score gap", pick([betterNoHatch, hatch]) == "A")
+
+// 8. The pick reason names the binding window with its reset ETA.
 let reason = pickReason(dyingA, primaryModel: nil, now: now)
 check("reason names the binding window (weekly, 3d)", reason.contains("weekly 60%") && reason.contains("3d"))
 let reasonOld = pickReason(oldB, primaryModel: nil, now: now)

@@ -146,6 +146,9 @@ func runStatus() {
             let marker = pinned || (policy.mode != "manual" && account.id == bestID) ? "→" : " "
             var state = account.error.map { " !\($0)" } ?? (account.isStale ? " (stale)" : "")
             if pinned { state += " (pinned)" }
+            if let resets = account.resetCreditsAvailable, resets > 0 {
+                state += " · \(resets) reset\(resets == 1 ? "" : "s") banked"
+            }
             print("\(marker) \(account.label): session \(fmt(account.sessionRemaining)) · " +
                   "weekly \(fmt(account.weeklyRemaining)) · model \(fmt(account.modelRemaining))\(state)")
         }

@@ -140,6 +140,12 @@ final class LaunchPolicyStore {
                score > leaderScore + Self.smartPickMinGain {
                 leader = candidate
                 leaderScore = score
+            } else if score >= leaderScore,
+                      (candidate.resetCreditsAvailable ?? 0) > (leader.resetCreditsAvailable ?? 0) {
+                // Mirror of the CLI's near-tie tie-breaker: a wall with banked resets behind
+                // it is softer. Reads the count only; never spends.
+                leader = candidate
+                leaderScore = score
             }
         }
         return leader.id

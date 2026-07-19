@@ -24,6 +24,8 @@ struct Snapshot: Decodable {
         var weeklyResetsAt: Date?
         var modelResetsAt: Date?
         var modelWindowName: String?
+        /// Codex reset banking: banked resets the account can redeem (read-only signal).
+        var resetCreditsAvailable: Int?
         var isStale: Bool
         var error: String?
     }
@@ -217,6 +219,13 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
     for candidate in candidates.dropFirst() {
         let score = smartScore(candidate, primaryModel: primaryModel, now: now)
         if score > leaderScore * smartPickMargin, score > leaderScore + smartPickMinGain {
+            leader = candidate
+            leaderScore = score
+        } else if score >= leaderScore,
+                  (candidate.resetCreditsAvailable ?? 0) > (leader.resetCreditsAvailable ?? 0) {
+            // Near-tie tie-breaker: a wall with banked resets behind it is SOFTER (capped =
+            // redeemable), so burn that account and preserve the one whose wall is terminal.
+            // Reads the banked count only - the smart pick never spends a reset.
             leader = candidate
             leaderScore = score
         }

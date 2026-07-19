@@ -43,10 +43,22 @@ final class UpdaterController: NSObject {
     var lastUpdateCheckDate: Date? { controller?.updater.lastUpdateCheckDate }
 
     /// User-initiated check from Settings: promote to a regular app so Sparkle's window fronts.
+    /// Whatever result window Sparkle opens (update found, up to date, error) follows the
+    /// pointer's screen: it isn't ours to create, so sweep for windows that appeared after the
+    /// check started - swept twice because the feed fetch time varies.
     func checkForUpdates() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        let before = Set(NSApp.windows.map(\.windowNumber))
         controller?.checkForUpdates(nil)
+        for delay: UInt64 in [400_000_000, 1_500_000_000, 4_000_000_000] {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: delay)
+                Self.centerOnPointerScreen(NSApp.windows.filter {
+                    $0.isVisible && !before.contains($0.windowNumber)
+                })
+            }
+        }
     }
 }
 
@@ -73,12 +85,19 @@ extension UpdaterController: SPUStandardUserDriverDelegate {
     /// Find Sparkle's update window (its classes are the only SU*/SPU* windows in the process)
     /// and centre it on the screen containing the pointer. No-op when nothing matches.
     @MainActor private static func centerSparkleWindowOnPointerScreen() {
+        centerOnPointerScreen(NSApp.windows.filter {
+            let className = String(describing: type(of: $0))
+            return $0.isVisible && (className.hasPrefix("SU") || className.hasPrefix("SPU"))
+        })
+    }
+
+    /// Centre the given windows on the screen containing the pointer - the "dialogs follow the
+    /// user, not the main display" rule every Tally-spawned window obeys.
+    @MainActor private static func centerOnPointerScreen(_ windows: [NSWindow]) {
         let mouse = NSEvent.mouseLocation
         guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
             ?? NSScreen.main else { return }
-        for window in NSApp.windows where window.isVisible {
-            let className = String(describing: type(of: window))
-            guard className.hasPrefix("SU") || className.hasPrefix("SPU") else { continue }
+        for window in windows {
             let frame = window.frame
             let visible = screen.visibleFrame
             window.setFrameOrigin(NSPoint(x: visible.midX - frame.width / 2,

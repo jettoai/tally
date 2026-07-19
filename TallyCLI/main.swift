@@ -306,7 +306,12 @@ func runStatusline(args: [String]) -> Never {
             lead = String(data: out, encoding: .utf8)?
                 .split(separator: "\n").first.map(String.init) ?? ""
         }
-        print(lead.isEmpty ? label : "\(lead) · \(label)")
+        // No double identity: a status line that already names the account (by nickname or by
+        // config-dir name) keeps its own rendering untouched.
+        let homeName = URL(fileURLWithPath: home).lastPathComponent
+        let alreadyShown = lead.localizedCaseInsensitiveContains(label)
+            || lead.localizedCaseInsensitiveContains(homeName)
+        print(lead.isEmpty ? label : alreadyShown ? lead : "\(lead) · \(label)")
         exit(0)
     }
 

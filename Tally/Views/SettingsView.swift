@@ -349,7 +349,8 @@ struct SettingsView: View {
                     Text(L("Automatically check for updates")).font(.subheadline)
                     if let last = UpdaterController.shared.lastUpdateCheckDate {
                         Text(L("Last checked") + ": "
-                             + last.formatted(date: .abbreviated, time: .shortened))
+                             + last.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened)
+                                 .locale(AppLocale.current)))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

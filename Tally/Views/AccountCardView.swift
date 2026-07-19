@@ -250,8 +250,11 @@ struct AccountCardView: View {
         }
         parts.append(L("Clears this account's current usage counters and consumes 1 banked reset. This cannot be undone."))
         if let expiry = usage.resetCreditsNextExpiry {
-            parts.append(L("Nearest banked reset expires") + " "
-                         + expiry.formatted(date: .abbreviated, time: .shortened) + ".")
+            // Format in the APP's language, not the system's - a zh-TW system date inside an
+            // English UI read as a missing translation (2026-07-19).
+            let style = Date.FormatStyle(date: .abbreviated, time: .shortened)
+                .locale(AppLocale.current)
+            parts.append(L("Nearest banked reset expires") + " " + expiry.formatted(style) + ".")
         }
         return parts.joined(separator: "\n\n")
     }
@@ -261,7 +264,9 @@ struct AccountCardView: View {
     /// rounded corners square (2026-07-19). NSAlert leaves the panel untouched.
     private func presentRedeemConfirm() {
         let alert = NSAlert()
-        alert.messageText = L("Use a reset")
+        // The alert lives in its own window, detached from the card - it must NAME the account
+        // it is about to reset.
+        alert.messageText = "\(label) · \(L("Use a reset"))"
         alert.informativeText = redeemMessage
         alert.alertStyle = .warning
         alert.addButton(withTitle: L("Redeem")).hasDestructiveAction = true

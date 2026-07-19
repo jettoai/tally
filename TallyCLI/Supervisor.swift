@@ -58,6 +58,14 @@ struct TranscriptWatcher {
     /// server-side model fallback.
     var lastModel: String?
 
+    /// The event timestamp of one transcript line, without a full JSON parse.
+    func lineTimestamp(_ line: Substring) -> Date? {
+        guard let key = line.range(of: "\"timestamp\":\"") else { return nil }
+        let rest = line[key.upperBound...]
+        guard let quote = rest.firstIndex(of: "\"") else { return nil }
+        return parseISO(String(rest[..<quote]))
+    }
+
     /// True when the transcript has been silent for `seconds` - the between-turns proxy. An
     /// active turn appends events (tool calls, messages) every few seconds, so a quiet file
     /// means no response is being cut mid-stream. Non-urgent handoffs (pin follow, degradation
@@ -100,9 +108,17 @@ struct TranscriptWatcher {
         guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return false }
 
         for line in text.split(separator: "\n") {
-            if let modelKey = line.range(of: "\"model\":\"") {
+            // Track the ACTUAL serving model, with three guards learned from a live misfire
+            // (2026-07-19: a continued session replays its whole history, whose old lines and
+            // "<synthetic>" error turns poisoned lastModel and ping-ponged the rescue):
+            // real model ids only, main-chain events only, and only events newer than launch.
+            if let modelKey = line.range(of: "\"model\":\""),
+               !line.contains("\"isSidechain\":true") {
                 let rest = line[modelKey.upperBound...]
-                if let quote = rest.firstIndex(of: "\"") { lastModel = String(rest[..<quote]) }
+                if let quote = rest.firstIndex(of: "\""), rest[..<quote].hasPrefix("claude"),
+                   lineTimestamp(line).map({ $0 >= since }) ?? false {
+                    lastModel = String(rest[..<quote])
+                }
             }
             guard line.contains("\"isApiErrorMessage\":true") else { continue }
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
@@ -136,6 +152,12 @@ private func spawnChild(_ argv: [String], environment: [String: String]) -> pid_
 }
 
 /// `args` minus the given value-taking flags (and their values).
+/// The value following `flag` in an argument vector (nil when absent).
+func flagValue(_ args: [String], _ flag: String) -> String? {
+    guard let index = args.firstIndex(of: flag), index + 1 < args.count else { return nil }
+    return args[index + 1]
+}
+
 func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
     var out: [String] = []
     var skip = false
@@ -266,7 +288,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // a sibling whose flagship window still has real room takes the conversation and
             // KEEPS the primary model. Not for pinned sessions (a pin means "this account"),
             // and under the same fuse as every automatic handoff.
-            if let primary = policy.model?.lowercased(),
+            // The expectation is what THIS session was launched with (a hand-typed --model
+            // outranks the configured default - a deliberate haiku session must not be
+            // "rescued" back to fable).
+            if let primary = (flagValue(launchArgs, "--model") ?? policy.model)?.lowercased(),
                let actual = watcher.lastModel?.lowercased(),
                !actual.contains(primary), policy.mode != "manual", fuseAllows(),
                watcher.isQuiet() {
@@ -294,7 +319,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                let fallbackList = policy.fallbackModel,
                policy.fallbackEffort != nil || policy.fallbackArgs != nil,
                let actual = watcher.lastModel?.lowercased(),
-               policy.model.map({ !actual.contains($0.lowercased()) }) ?? true,
+               (flagValue(launchArgs, "--model") ?? policy.model)
+                   .map({ !actual.contains($0.lowercased()) }) ?? true,
                let matched = fallbackList.split(separator: ",")
                    .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() })
                    .first(where: { !$0.isEmpty && actual.contains($0) }),

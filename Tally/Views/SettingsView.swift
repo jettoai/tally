@@ -16,14 +16,13 @@ struct SettingsView: View {
     var onContentHeight: (CGFloat) -> Void = { _ in }
 
     enum Section: String, CaseIterable {
-        case accounts, launch, display, general, integrations, about
+        case accounts, launch, display, integrations, about
 
         var title: String {
             switch self {
             case .accounts: return L("Accounts")
             case .launch: return L("Launch")
             case .display: return L("Display")
-            case .general: return L("General")
             case .integrations: return L("Integrations")
             case .about: return L("About")
             }
@@ -34,7 +33,6 @@ struct SettingsView: View {
             case .accounts: return "person.2"
             case .launch: return "play.circle"
             case .display: return "slider.horizontal.3"
-            case .general: return "gearshape"
             case .integrations: return "puzzlepiece.extension"
             case .about: return "info.circle"
             }
@@ -120,7 +118,6 @@ struct SettingsView: View {
         case .accounts: sectionCard { SettingsAccountsView(store: store, settings: settings) }
         case .launch: sectionCard { SettingsLaunchView(store: store, settings: settings) }
         case .display: sectionCard { displayRows }
-        case .general: sectionCard { generalRows }
         case .integrations: sectionCard { integrationsRows }
         case .about: sectionCard { aboutRows }
         }
@@ -180,6 +177,12 @@ struct SettingsView: View {
         toggleRow(L("Glass pinned panel"),
                   subtitle: L("The pinned panel shows the desktop through frosted glass."),
                   isOn: $settings.isPanelTranslucent)
+
+        // Language and refresh cadence live here too: language decides what you read, the
+        // interval decides how fresh it is - and a two-row General pane buried both.
+        rowDivider
+
+        generalRows
     }
 
     private func toggleRow(_ title: String, subtitle: String, isOn: Binding<Bool>) -> some View {

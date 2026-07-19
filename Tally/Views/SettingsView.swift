@@ -254,6 +254,13 @@ struct SettingsView: View {
             status: integrations.shimStatus(.codex),
             install: { integrations.installShim(.codex) },
             remove: { integrations.removeShim(.codex) })
+        rowDivider
+        integrationRow(
+            title: L("Claude status line"),
+            caption: L("Shows the active account at the bottom of every claude session. An existing custom status line keeps running with the account appended, and is restored exactly on removal."),
+            status: integrations.statusLineStatus,
+            install: integrations.installStatusLine,
+            remove: integrations.removeStatusLine)
         if let error = integrations.lastError {
             rowDivider
             Text(error)

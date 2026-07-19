@@ -187,7 +187,15 @@ final class UsageStore {
         }
         onChange?()
         // Publish the non-secret snapshot the `tally` CLI reads to pick a launch account.
-        UsageSnapshot.make(accounts: accounts, launchHomes: launchHomes).write()
+        // Publish DISPLAY labels (the user's nicknames, default names as fallback) so the CLI
+        // side - status line, pick messages, tally status - speaks the same names as the panel.
+        let labeled = accounts.map { usage in
+            var copy = usage
+            copy.accountLabel = SettingsStore.shared.displayLabel(accountID: usage.id,
+                                                                  fallback: usage.accountLabel)
+            return copy
+        }
+        UsageSnapshot.make(accounts: labeled, launchHomes: launchHomes).write()
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
         scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })
 

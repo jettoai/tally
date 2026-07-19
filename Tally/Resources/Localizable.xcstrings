@@ -3625,6 +3625,151 @@
           }
         }
       }
+    },
+    "Claude status line": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 狀態列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 状态栏"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude ステータスライン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 상태 표시줄"
+          }
+        }
+      }
+    },
+    "Shows the active account and model at the bottom of every claude session. Added only where no custom status line exists; removed cleanly.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每個 claude 工作階段底部顯示目前帳號與模型。只在沒有自訂狀態列時加入；可完整移除。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每个 claude 会话底部显示当前账号与模型。只在没有自定义状态栏时加入；可完整移除。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude セッションの下部に現在のアカウントとモデルを表示します。カスタムステータスラインがない場合のみ追加され、完全に削除できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude 세션 하단에 현재 계정과 모델을 표시합니다. 사용자 지정 상태 표시줄이 없을 때만 추가되며 깔끔하게 제거됩니다."
+          }
+        }
+      }
+    },
+    "A custom status line is already set; Tally leaves it alone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有自訂狀態列；Tally 不會動它。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有自定义状态栏；Tally 不会动它。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムステータスラインが既に設定されているため、Tally は変更しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 상태 표시줄이 이미 설정되어 있어 Tally는 건드리지 않습니다."
+          }
+        }
+      }
+    },
+    "Not installed for every account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未安裝到所有帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未安装到所有账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のアカウントに未インストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 계정에 설치되지 않음"
+          }
+        }
+      }
+    },
+    "Custom setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义设置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

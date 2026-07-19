@@ -48,6 +48,39 @@ try MainActor.assumeIsolated {
     c = try String(contentsOf: f, encoding: .utf8)
     check("mid-file block strips cleanly", c == "line1\nline2\n")
 
+    // MARK: statusLine surgery (settings.json) - wrap a custom command, restore it exactly.
+    let ours = IntegrationsStore.statusLineCommand
+    let settings = tmp.appendingPathComponent("settings.json")
+    func readSettings() -> [String: Any] {
+        (try? JSONSerialization.jsonObject(with: Data(contentsOf: settings))) as? [String: Any] ?? [:]
+    }
+    func statusCommand() -> String? {
+        (readSettings()["statusLine"] as? [String: Any])?["command"] as? String
+    }
+
+    check("missing settings gets the plain registration",
+          try IntegrationsStore.upsertStatusLine(in: settings, command: ours)
+              && statusCommand() == ours)
+    check("re-install is idempotent",
+          try IntegrationsStore.upsertStatusLine(in: settings, command: ours) == false)
+    try IntegrationsStore.removeStatusLine(in: settings, command: ours)
+    check("removing the plain registration deletes the entry", statusCommand() == nil)
+
+    let custom = "~/.claude/my-status.sh --fancy 'quoted arg'"
+    let foreign: [String: Any] = ["model": "opusplan",
+                                  "statusLine": ["type": "command", "command": custom]]
+    try JSONSerialization.data(withJSONObject: foreign).write(to: settings)
+    _ = try IntegrationsStore.upsertStatusLine(in: settings, command: ours)
+    check("a custom status line is wrapped, not clobbered",
+          statusCommand()?.hasPrefix("\(ours) --wrap ") == true)
+    check("unrelated settings keys survive the wrap", readSettings()["model"] as? String == "opusplan")
+    try IntegrationsStore.removeStatusLine(in: settings, command: ours)
+    check("removal restores the custom command exactly", statusCommand() == custom)
+    check("unrelated settings keys survive the restore", readSettings()["model"] as? String == "opusplan")
+
+    try IntegrationsStore.removeStatusLine(in: settings, command: ours)
+    check("removing over a foreign command leaves it untouched", statusCommand() == custom)
+
     try? FileManager.default.removeItem(at: tmp)
 }
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")

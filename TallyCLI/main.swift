@@ -271,6 +271,51 @@ func runLaunchDir(_ providerID: String) {
     }
 }
 
+/// `tally statusline claude` - Claude Code's statusLine hook (registered by the app's
+/// Integrations pane): reads the session JSON claude pipes on stdin, prints "account · model".
+/// The account is whichever home this claude was launched with (the hook inherits its env),
+/// labeled with the user's nickname from the snapshot. Fail-open at every step: a status line
+/// must render SOMETHING, never error.
+func runStatusline(args: [String]) -> Never {
+    let home = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]
+        ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude").path
+    let (snapshot, _) = loadSnapshot()
+    let label = snapshot?.accounts.first { $0.launchHome == home }?.label
+        ?? URL(fileURLWithPath: home).lastPathComponent
+    let input = FileHandle.standardInput.readDataToEndOfFile()
+
+    // Wrapped mode: the user's own status line (carried as base64 - see IntegrationsStore)
+    // keeps the lead position, fed the same JSON; the account is appended. Augmentation,
+    // never replacement.
+    if let wrapIndex = args.firstIndex(of: "--wrap"), wrapIndex + 1 < args.count,
+       let original = Data(base64Encoded: args[wrapIndex + 1])
+           .flatMap({ String(data: $0, encoding: .utf8) }) {
+        var lead = ""
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", original]
+        let stdinPipe = Pipe(), stdoutPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = FileHandle.nullDevice
+        if (try? process.run()) != nil {
+            stdinPipe.fileHandleForWriting.write(input)
+            try? stdinPipe.fileHandleForWriting.close()
+            let out = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            lead = String(data: out, encoding: .utf8)?
+                .split(separator: "\n").first.map(String.init) ?? ""
+        }
+        print(lead.isEmpty ? label : "\(lead) · \(label)")
+        exit(0)
+    }
+
+    let json = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any]
+    let model = (json?["model"] as? [String: Any])?["display_name"] as? String
+    print([label, model].compactMap { $0 }.joined(separator: " · "))
+    exit(0)
+}
+
 // MARK: - Entry
 
 let arguments = Array(CommandLine.arguments.dropFirst())
@@ -287,6 +332,8 @@ case "best-dir":
     runBestDir(arguments.dropFirst().first ?? "claude")
 case "launch-dir":
     runLaunchDir(arguments.dropFirst().first ?? "codex")
+case "statusline":
+    runStatusline(args: Array(arguments.dropFirst()))
 default:
     warn("""
     usage:

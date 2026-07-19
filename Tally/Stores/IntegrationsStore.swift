@@ -69,6 +69,7 @@ final class IntegrationsStore {
 
     private(set) var cliToolStatus: Status = .notInstalled
     private(set) var shimStatuses: [Shim: Status] = [:]
+    private(set) var statusLineStatus: Status = .notInstalled
     /// Set when an install/remove fails (e.g. /usr/local/bin not writable); shown inline.
     private(set) var lastError: String?
 
@@ -79,6 +80,7 @@ final class IntegrationsStore {
     func refresh() {
         cliToolStatus = Self.detectCLITool()
         shimStatuses = Dictionary(uniqueKeysWithValues: Shim.allCases.map { ($0, Self.detectShim($0)) })
+        statusLineStatus = Self.detectStatusLine()
     }
 
     func shimStatus(_ shim: Shim) -> Status { shimStatuses[shim] ?? .notInstalled }
@@ -175,6 +177,109 @@ final class IntegrationsStore {
             lastError = error.localizedDescription
         }
         refresh()
+    }
+
+    // MARK: Claude status line - "account · model" at the bottom of every claude session
+
+    /// The registered command (provenance marker too: removal only touches an entry that IS
+    /// this string). Depends on the CLI tool integration for the stable public path.
+    nonisolated static let statusLineCommand = "/usr/local/bin/tally statusline claude"
+
+    /// One settings.json per discovered claude home, deduplicated by physical file (shared
+    /// setups symlink the same settings everywhere - one edit must not be counted N times).
+    private static func claudeSettingsFiles() -> [URL] {
+        var seen = Set<String>()
+        return ClaudeAccounts.discover().compactMap { account -> URL? in
+            guard let home = account.launchHome else { return nil }
+            let url = URL(fileURLWithPath: home).appendingPathComponent("settings.json")
+            return seen.insert(url.resolvingSymlinksInPath().path).inserted ? url : nil
+        }
+    }
+
+    private static func detectStatusLine() -> Status {
+        let files = claudeSettingsFiles()
+        guard !files.isEmpty else { return .notInstalled }
+        var ours = 0
+        for file in files {
+            let settings = (try? JSONSerialization.jsonObject(
+                with: (try? Data(contentsOf: file)) ?? Data())) as? [String: Any]
+            let command = (settings?["statusLine"] as? [String: Any])?["command"] as? String
+            if command?.hasPrefix(statusLineCommand) == true { ours += 1 }
+        }
+        if ours == 0 { return .notInstalled }
+        return ours == files.count ? .installed : .broken(L("Not installed for every account"))
+    }
+
+    func installStatusLine() {
+        lastError = nil
+        do {
+            let files = Self.claudeSettingsFiles()
+            for file in files {
+                _ = try Self.upsertStatusLine(in: file, command: Self.statusLineCommand)
+            }
+            recordManifest("claudeStatusLine", paths: files.isEmpty ? nil : files.map(\.path))
+        } catch {
+            lastError = error.localizedDescription
+        }
+        refresh()
+    }
+
+    func removeStatusLine() {
+        lastError = nil
+        do {
+            for file in Self.claudeSettingsFiles() {
+                try Self.removeStatusLine(in: file, command: Self.statusLineCommand)
+            }
+            recordManifest("claudeStatusLine", paths: nil)
+        } catch {
+            lastError = error.localizedDescription
+        }
+        refresh()
+    }
+
+    /// Registers Tally's statusLine in one settings.json. A user's OWN status line is never
+    /// clobbered: its command is carried inside ours as base64 (`--wrap <b64>` - no shell
+    /// quoting minefield, exactly restorable), the CLI keeps running it and appends the
+    /// account. Returns true when the file changed. Internal for the unit tests - a mis-write
+    /// here eats user configuration. JSON round-trip note: key order is not preserved
+    /// (settings.json is machine-managed JSON; Claude Code does the same).
+    static func upsertStatusLine(in file: URL, command: String) throws -> Bool {
+        var settings = (try? JSONSerialization.jsonObject(
+            with: (try? Data(contentsOf: file)) ?? Data())) as? [String: Any] ?? [:]
+        let existing = (settings["statusLine"] as? [String: Any])?["command"] as? String
+        if existing?.hasPrefix(command) == true { return false }   // already ours - idempotent
+        var registered = command
+        if let existing, !existing.isEmpty {
+            registered += " --wrap \(Data(existing.utf8).base64EncodedString())"
+        }
+        settings["statusLine"] = ["type": "command", "command": registered]
+        let data = try JSONSerialization.data(withJSONObject: settings,
+                                              options: [.prettyPrinted, .sortedKeys])
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try data.write(to: file, options: .atomic)
+        return true
+    }
+
+    /// Reverses `upsertStatusLine` exactly: a wrapped registration restores the user's original
+    /// command; a plain one removes the entry. Anything not ours is left untouched.
+    static func removeStatusLine(in file: URL, command: String) throws {
+        guard var settings = (try? JSONSerialization.jsonObject(
+                  with: (try? Data(contentsOf: file)) ?? Data())) as? [String: Any],
+              let registered = (settings["statusLine"] as? [String: Any])?["command"] as? String,
+              registered.hasPrefix(command)
+        else { return }
+        let marker = " --wrap "
+        if let range = registered.range(of: marker),
+           let data = Data(base64Encoded: String(registered[range.upperBound...])),
+           let original = String(data: data, encoding: .utf8) {
+            settings["statusLine"] = ["type": "command", "command": original]
+        } else {
+            settings.removeValue(forKey: "statusLine")
+        }
+        let out = try JSONSerialization.data(withJSONObject: settings,
+                                             options: [.prettyPrinted, .sortedKeys])
+        try out.write(to: file, options: .atomic)
     }
 
     // MARK: Marked shell-file block

@@ -334,9 +334,11 @@ func runStatusline(args: [String]) -> Never {
             }
             return text
         }
-        quota = [piece("5h", account.sessionRemaining, account.sessionResetsAt),
-                 piece("7d", account.weeklyRemaining, account.weeklyResetsAt),
-                 piece(account.modelWindowName ?? "model", account.modelRemaining, nil)]
+        // Model tier first - the same order as the cards (the flagship window is the headline).
+        quota = [piece(account.modelWindowName ?? "model", account.modelRemaining,
+                       account.modelResetsAt),
+                 piece("5h", account.sessionRemaining, account.sessionResetsAt),
+                 piece("7d", account.weeklyRemaining, account.weeklyResetsAt)]
             .compactMap { $0 }
     }
 

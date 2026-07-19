@@ -27,8 +27,12 @@ enum DemoUsage {
                   sessionResetHours: 2.4, weeklyResetDays: 5.9, resets: 3, now: now),
             codex("Codex 2", plan: "Pro", session: 71, weekly: 14,
                   sessionResetHours: 0.9, weeklyResetDays: 3.3, resets: 1, now: now),
-            codex("Codex 3", plan: "Team", session: 18, weekly: 83,
+            codex("Codex 3", plan: "Pro", session: 18, weekly: 83,
                   sessionResetHours: 3.8, weeklyResetDays: 1.7, resets: 0, now: now),
+            // Nine accounts total (a 3-column demo screenshot lands as a full 3x3 grid); the
+            // one non-premium plan sits last, not mid-pack.
+            codex("Codex 4", plan: "Team", session: 47, weekly: 62,
+                  sessionResetHours: 1.6, weeklyResetDays: 4.8, resets: 2, now: now),
         ]
     }
 

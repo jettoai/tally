@@ -30,7 +30,7 @@ which account is burning.
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel: per-provider fleet gauges pool eight accounts (five Claude Max, three Codex) into one weekly-budget bar each, with a pace forecast (lasts about 4d 10h; sustainable at this pace) and the next staggered refill; below, every account's own card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks" width="560">
+  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel: per-provider fleet gauges pool nine accounts (five Claude Max, four Codex) into one weekly-budget bar each, with a pace forecast (lasts about 4d 10h; sustainable at this pace) and the next staggered refill; below, every account's own card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks" width="560">
 </p>
 
 ## Why Tally

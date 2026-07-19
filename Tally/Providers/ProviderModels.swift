@@ -92,6 +92,9 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     /// True when these metrics are the last-good snapshot shown because the latest refresh failed.
     /// `error` then carries the reason (for a tooltip) while the numbers stay visible.
     var isStale: Bool = false
+    /// Codex reset banking: how many banked rate-limit resets the account can still redeem
+    /// (nil = the provider doesn't report the concept).
+    var resetCreditsAvailable: Int?
 
     /// The single metric to feature at a glance: the binding model-scoped window if the provider
     /// flags one, else any model-scoped window, else the unified weekly, else session. This is the

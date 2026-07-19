@@ -23,9 +23,12 @@ enum DemoUsage {
                    modelResetDays: 4.2, sessionResetHours: 2.3, weeklyResetDays: 4.2, now: now),
             claude("Claude 5", plan: "Max 20x", model: 45, session: 89, weekly: 59,
                    modelResetDays: 2.6, sessionResetHours: 0.6, weeklyResetDays: 2.6, now: now),
-            codex("Codex", plan: "Pro", weekly: 69, weeklyResetDays: 5.9, now: now),
-            codex("Codex 2", plan: "Pro", weekly: 14, weeklyResetDays: 3.3, now: now),
-            codex("Codex 3", plan: "Business", weekly: 83, weeklyResetDays: 1.7, now: now),
+            codex("Codex", plan: "Pro", session: 42, weekly: 69,
+                  sessionResetHours: 2.4, weeklyResetDays: 5.9, resets: 3, now: now),
+            codex("Codex 2", plan: "Pro", session: 71, weekly: 14,
+                  sessionResetHours: 0.9, weeklyResetDays: 3.3, resets: 1, now: now),
+            codex("Codex 3", plan: "Team", session: 18, weekly: 83,
+                  sessionResetHours: 3.8, weeklyResetDays: 1.7, resets: 0, now: now),
         ]
     }
 
@@ -55,16 +58,25 @@ enum DemoUsage {
             refreshedAt: now)
     }
 
-    private static func codex(_ label: String, plan: String, weekly: Double,
-                              weeklyResetDays: Double, now: Date) -> AccountUsage {
+    /// A Codex account shaped like CodexAppServerClient's mapping: the 5h primary window plus
+    /// the weekly secondary, both with resets (some real plans report only the weekly; the demo
+    /// shows the full shape).
+    private static func codex(_ label: String, plan: String, session: Double, weekly: Double,
+                              sessionResetHours: Double, weeklyResetDays: Double, resets: Int,
+                              now: Date) -> AccountUsage {
         AccountUsage(
             id: "codex:demo-\(label)", providerID: "codex", accountLabel: label, planName: plan,
             metrics: [
+                UsageMetric(id: "session", kind: .session, label: "Session", modelName: nil,
+                            usedPercent: session, severity: .fromUsedPercent(session),
+                            resetsAt: now.addingTimeInterval(sessionResetHours * 3_600),
+                            isActive: false),
                 UsageMetric(id: "weekly_all", kind: .weeklyAll, label: "Weekly", modelName: nil,
                             usedPercent: weekly, severity: .fromUsedPercent(weekly),
                             resetsAt: now.addingTimeInterval(weeklyResetDays * 86_400),
                             isActive: false),
             ],
-            refreshedAt: now)
+            refreshedAt: now,
+            resetCreditsAvailable: resets > 0 ? resets : nil)
     }
 }

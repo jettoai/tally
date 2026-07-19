@@ -11,12 +11,21 @@ enum CodexAppServerClient {
     struct Reading: Sendable {
         var metrics: [UsageMetric]
         var plan: String?
+        /// Reset banking (verified live 2026-07-19): `result.rateLimitResetCredits.availableCount`.
+        var resetCreditsAvailable: Int?
     }
 
     private struct RPCLine: Decodable {
         let id: Int?
         let result: Result?
-        struct Result: Decodable { let rateLimits: RateLimits? }
+        struct Result: Decodable {
+            let rateLimits: RateLimits?
+            let rateLimitResetCredits: ResetCredits?
+        }
+    }
+
+    private struct ResetCredits: Decodable {
+        let availableCount: Int?
     }
 
     private struct RateLimits: Decodable {
@@ -56,7 +65,8 @@ enum CodexAppServerClient {
                 isActive: false))
         }
         let plan = limits.planType?.trimmingCharacters(in: .whitespaces).capitalized
-        return Reading(metrics: metrics.uniquingIDs(), plan: (plan?.isEmpty == false) ? plan : nil)
+        return Reading(metrics: metrics.uniquingIDs(), plan: (plan?.isEmpty == false) ? plan : nil,
+                       resetCreditsAvailable: line.result?.rateLimitResetCredits?.availableCount)
     }
 
     /// Blocking JSON-RPC exchange (runs on a utility queue): the raw response line for request 2.

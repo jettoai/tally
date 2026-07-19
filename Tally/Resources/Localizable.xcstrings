@@ -3278,35 +3278,6 @@
         }
       }
     },
-    "Smart pick": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "智選"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "智选"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スマート"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "스마트"
-          }
-        }
-      }
-    },
     "Smart": {
       "extractionState": "manual",
       "localizations": {
@@ -3796,6 +3767,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "상태 표시줄의 ✦ 는 해당 세션이 Tally로 시작되었음을 나타냅니다."
+          }
+        }
+      }
+    },
+    "resets available": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "枚額度重置可兌換"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "枚额度重置可兑换"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回分のリセットが利用可能"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "회 리셋 사용 가능"
+          }
+        }
+      }
+    },
+    "reset available": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "枚額度重置可兌換"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "枚额度重置可兑换"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回分のリセットが利用可能"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "회 리셋 사용 가능"
           }
         }
       }

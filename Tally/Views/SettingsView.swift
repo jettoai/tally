@@ -142,9 +142,11 @@ struct SettingsView: View {
         HStack {
             Text(L("Meters show")).font(.subheadline)
             Spacer()
+            // Used before Left, matching the panel footer's toggle (which itself mirrors the
+            // meters' geometry: the used portion fills from the track's left edge).
             Picker("", selection: $settings.displayMode) {
-                Text(L("Left")).tag(DisplayMode.remaining)
                 Text(L("Used")).tag(DisplayMode.used)
+                Text(L("Left")).tag(DisplayMode.remaining)
             }
             .pickerStyle(.segmented)
             .labelsHidden()

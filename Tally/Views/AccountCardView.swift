@@ -37,7 +37,9 @@ struct AccountCardView: View {
     }
 
     private var launchMode: LaunchPolicyStore.Mode {
-        LaunchPolicyStore.shared.mode(usage.providerID)
+        // Demo fixtures always demonstrate Smart mode (the real policy's pinned ids can never
+        // match demo accounts, which would leave every marketing card badge-less).
+        DemoUsage.isActive ? .auto : LaunchPolicyStore.shared.mode(usage.providerID)
     }
 
     private var isPinnedActive: Bool {
@@ -47,7 +49,9 @@ struct AccountCardView: View {
     /// Whether auto mode would launch THIS account right now (the panel predicts the CLI).
     private var isAutoPick: Bool {
         let store = UsageStore.shared
-        let launchable = Set(store.discoveredAccounts.compactMap { $0.launchHome != nil ? $0.id : nil })
+        let launchable = DemoUsage.isActive
+            ? Set(store.accounts.map(\.id))   // fixtures are all "launchable" for the demo
+            : Set(store.discoveredAccounts.compactMap { $0.launchHome != nil ? $0.id : nil })
         return LaunchPolicyStore.shared.autoPickID(
             providerID: usage.providerID, accounts: store.accounts, launchable: launchable) == usage.id
     }
@@ -84,6 +88,18 @@ struct AccountCardView: View {
                     Text(L("Weekly quota only"))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                }
+                // Banked rate-limit resets (Codex reset banking): read and shown, never spent -
+                // redeeming one is the user's own economic decision, made in the official CLI.
+                if let resets = usage.resetCreditsAvailable, resets > 0 {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 9))
+                        Text(verbatim: "\(resets) ")
+                            + Text(L(resets == 1 ? "reset available" : "resets available"))
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
             }
         }
@@ -188,7 +204,9 @@ struct AccountCardView: View {
     private var autoBadge: some View {
         HStack(spacing: 3) {
             Image(systemName: "sparkles").font(.system(size: 8))
-            Text(L("Smart pick")).lineLimit(1)
+            // The short mode word, not "Smart pick": the longer badge squeezed "Claude 2"
+            // into a wrapped two-line title at demo widths (2026-07-19 screenshot round).
+            Text(L("Smart")).lineLimit(1)
         }
         .fixedSize()
         .font(.caption2.weight(.semibold))

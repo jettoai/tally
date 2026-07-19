@@ -26,7 +26,8 @@ struct CodexProvider: UsageProvider {
         return AccountUsage(
             id: account.id, providerID: id, accountLabel: account.label,
             planName: reading.plan, metrics: reading.metrics,
-            refreshedAt: Date(), error: nil
+            refreshedAt: Date(), error: nil,
+            resetCreditsAvailable: reading.resetCreditsAvailable
         )
     }
 }

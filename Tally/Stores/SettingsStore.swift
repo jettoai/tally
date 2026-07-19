@@ -84,7 +84,7 @@ final class SettingsStore {
     }
 
     /// Panel card columns: 0 = auto (1 column single-account, 2 once any provider has siblings),
-    /// or an explicit 2 / 3 for people with many accounts and the screen to spread them.
+    /// or an explicit 2 / 3 / 4 for people with many accounts and the screen to spread them.
     var panelColumns: Int {
         didSet { UserDefaults.standard.set(panelColumns, forKey: "panelColumns") }
     }
@@ -117,7 +117,7 @@ final class SettingsStore {
         languageOverride = AppLocale.override
         isUsagePanelPinned = defaults.bool(forKey: "isUsagePanelPinned")
         showFleetGauge = defaults.object(forKey: "showFleetGauge") as? Bool ?? true
-        panelColumns = [2, 3].contains(defaults.integer(forKey: "panelColumns"))
+        panelColumns = (2 ... 4).contains(defaults.integer(forKey: "panelColumns"))
             ? defaults.integer(forKey: "panelColumns") : 0
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative

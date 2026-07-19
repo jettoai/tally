@@ -164,6 +164,7 @@ struct SettingsView: View {
                 Text(L("Auto")).tag(0)
                 Text(verbatim: "2").tag(2)
                 Text(verbatim: "3").tag(3)
+                Text(verbatim: "4").tag(4)
             }
             .pickerStyle(.segmented)
             .labelsHidden()

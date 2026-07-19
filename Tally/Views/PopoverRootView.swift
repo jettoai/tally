@@ -62,18 +62,19 @@ struct PopoverRootView: View {
     /// provider has more than one visible account (the multi-account case where a single column
     /// would scroll forever) and stays a narrow single column otherwise.
     private var columnCount: Int {
-        if [2, 3].contains(settings.panelColumns) { return settings.panelColumns }
+        if (2 ... 4).contains(settings.panelColumns) { return settings.panelColumns }
         let multi = Dictionary(grouping: store.orderedAccounts, by: \.providerID).values
             .contains { $0.count > 1 }
         return multi ? 2 : 1
     }
 
-    /// Constant card width (263pt) across the 2/3-column layouts; only the window grows.
+    /// Constant card width (263pt) across the 2/3/4-column layouts; only the window grows.
     private var popoverWidth: CGFloat {
         switch columnCount {
         case 1: return 380
         case 2: return 560
-        default: return 834   // 24 padding + 3×263 cards + 2×10 gaps
+        case 3: return 834    // 24 padding + 3×263 cards + 2×10 gaps
+        default: return 1108  // 24 padding + 4×263 cards + 3×10 gaps
         }
     }
 

@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">Tally</h1>
 
-<p align="center">你所有的 AI 訂閱額度，一眼看盡，就在 macOS 選單列，<br>還有一個永遠幫你挑「餘量最多的帳號」開工的 CLI。</p>
+<p align="center">你所有的 AI 訂閱額度，一眼看盡，就在 macOS 選單列，<br>還有一個啟動器，讓每個 session 都跑在餘量撐最久的帳號上。</p>
 
 <p align="center">
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111827?style=flat-square&logo=apple&logoColor=white">
@@ -17,16 +17,17 @@
 <p align="center"><a href="README.md">English</a> · <b>繁體中文</b> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ja.md">日本語</a> · <a href="README.ko.md">한국어</a></p>
 
 Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額度）**，為同時養著**多個 Claude
-（Max/Pro）與 Codex 訂閱**的重度使用者而生：每個帳號的 5 小時工作階段、每週、旗艦模型
-額度窗並排呈現，`tally claude` 自動用餘量最好的帳號開新的 Claude Code session，撞到
-rate limit 時還會自動換帳號、續跑同一段對話。
+（Max/Pro）與 Codex 訂閱**、厭倦了猜「哪個帳號還有餘量」的重度使用者而生：每個帳號的 5 小時
+工作階段、每週、旗艦模型額度窗並排呈現，智選會在每次開新 session 時，依重置時間（不只看
+剩餘百分比）挑出當下餘量撐最久的帳號，並在對話進行中持續接手：額度撞牆時自動換帳號、
+旗艦模型被降級時搶救回來，還有一條 status line 訊號隨時顯示哪個帳號正在燃燒額度。
 
 <p align="center">
   <img src="assets/screenshot-menubar.png" alt="Tally 選單列 strip：五個 Claude 帳號帶編號徽章與工作階段／每週百分比堆疊，後接三個 Codex 帳號" width="418">
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally 釘選面板：八個帳號並排（五個 Claude Max、三個 Codex），各自的 5 小時工作階段、每週、旗艦模型額度窗、重置時間與接近上限警示" width="560">
+  <img src="assets/screenshot-panel.png" alt="Tally 釘選面板：八個帳號並排（五個 Claude Max、三個 Codex），各自的 5 小時工作階段、每週、旗艦模型額度窗、重置時間與接近上限警示；紫色智選徽章標出啟動器會挑選的帳號，標題列摘要顯示啟動預設值" width="560">
 </p>
 
 ## 為什麼是 Tally
@@ -37,10 +38,13 @@ rate limit 時還會自動換帳號、續跑同一段對話。
   真正想問的就是「哪個帳號還有餘量」。
 - **訂閱額度，不是花費估算。** Tally 顯示的是原廠實際執行的 5 小時／每週／旗艦模型額度窗，
   而不是用 token 數推算的金額猜測。
-- **儀表看完直接行動。** 儀表板存在的意義就是決定「下一步用哪個帳號」，所以 `tally claude`
-  每次都自動幫你做完這個決定。
+- **儀表看完直接行動。** 儀表板存在的意義就是決定「下一步用哪個帳號」，所以 Tally 每次都
+  自動幫你做完這個決定，並在 session 執行期間持續做下去（額度撞牆自動接手、模型被降級時
+  搶救）。
 
 ## 功能
+
+### 儀表板
 
 - **多帳號優先。** 每個 `~/.claude*` 登入與 Codex 安裝各自一張卡，N 個帳號並排呈現，
   不是單帳號 fallback。卡片可拖曳排序，順序套用到所有介面。
@@ -49,14 +53,36 @@ rate limit 時還會自動換帳號、續跑同一段對話。
 - **可釘選的毛玻璃面板。** 把儀表釘成永遠置頂的毛玻璃視窗，拖曳標題列放到任何位置。
 - **每個窗自己的重置時間。** 點任何重置文字，全部在「2d 4h 後重置」與「07/18 20:00 重置」
   之間切換。
-- **`tally` CLI。**
-  - `tally claude [參數…]`：用實測餘量最多的帳號啟動 Claude Code，所有參數原樣透傳。
-  - **自動接手**：session 中途撞到額度上限時，tally 溫和收掉、重選最佳帳號、
-    在同一個終端*續跑同一段對話*，內建 10 分鐘 3 次熔斷，可用 `--no-handoff` 或
-    `TALLY_AUTO_HANDOFF=0` 關閉。
-  - `tally resume`：同一個接手動作的手動一鍵版。
-  - `tally claude --account <名稱>`：想自己選帳號時明示指定。
-  - `tally status` / `tally best-dir <provider>`：給腳本或 shell 用。
+- **Codex 額度重置存量，看得到。** 累積的額度重置會直接顯示在卡片上（「3 枚額度重置可兌換」），
+  讓你在撞牆前就知道自己還有幾條退路；要不要兌換由你自己在官方 CLI 裡決定。
+
+### 啟動控制平面
+
+- **智選。** 新 session 一律啟動在「當下燒錢速率最高」的帳號上：用剩餘百分比除以到重置的
+  時間，橫跨 5 小時、每週、旗艦模型三個額度窗計算。快要重置的額度優先燒（放著不用就蒸發）；
+  得撐好幾天的額度會被留著；設有遲滯機制，避免噪音等級的差異讓你在帳號間跳來跳去。面板徽章
+  標出目前的選擇，理由寫在 tooltip 裡。
+- **每個 provider 三種模式。** 智選（每次啟動都由演算法決定）、手動（點卡片釘住一個帳號；
+  再點一次回到智選，即時生效，連正在跑的 session 也適用）、關閉（純儀表板，不介入啟動）。
+- **session 中途接手。** 撞到用量上限時，tally 在餘量最好的下一個帳號上續跑*同一段對話*
+  （內建 10 分鐘 3 次熔斷，可用 `--no-handoff` 或 `TALLY_AUTO_HANDOFF=0` 關閉）。若伺服器
+  悄悄把你的模型降級，會優先切到還能提供原本模型的手足帳號接手對話，只有在沒人能提供時，
+  才會套用你設定的 fallback 配對。不緊急的切換會等到回合之間的空檔再做。
+- **啟動預設值，就在設定裡。** 預設權限模式、啟動模式（continue 或 new）、模型與 reasoning
+  effort 綁成一組，另外還有一組獨立的 fallback 配對（fallback 模型＋自己的 effort＋額外
+  旗標）。只在你沒自己打旗標時才會注入：你自己下的參數永遠優先。
+- **Shell 整合。** 一鍵安裝 PATH shim，讓連裸的 `claude` / `codex` 指令都遵循你的啟動策略；
+  一鍵移除，乾淨不留痕跡。
+- **Status line 整合。** Claude Code 的 status line 會多一個紫色 ✦ Tally 訊號（代表這個
+  session 跑在 Tally 底下）與目前使用的帳號名稱。你原本自訂的 status line 會原封不動繼續
+  執行、只是後面多接一段訊號；移除時逐位元組還原成原樣，就算你不解除安裝直接刪掉 Tally
+  也照常運作。
+- **`tally` CLI。** `tally claude [參數…]`、`tally resume`（把目前目錄最新的一段對話搬到
+  另一個帳號）、`tally claude --account <名稱>`、`tally status`、`tally best-dir <provider>`，
+  全部對腳本友善。
+
+### 介面與細節
+
 - **五種語言。** English、繁體中文、简体中文、日本語、한국어，app 內即時切換。
 - **原生、零依賴。** Swift 6 + SwiftUI + AppKit。沒有 Electron、沒有套件，
   app 和 CLI 各一個 binary。
@@ -111,6 +137,9 @@ ln -s <build-products>/tally /usr/local/bin/tally
 
 </details>
 
+或者完全跳過符號連結和別名：**設定 → Integrations** 一鍵安裝 CLI 工具、shell shim
+（讓裸的 `claude` / `codex` 也遵循你的策略）與 status line 訊號，各自一鍵安裝、乾淨移除。
+
 可選的 shell 捷徑：
 
 ```sh
@@ -148,6 +177,11 @@ Tally 內建 English、繁體中文、简体中文、日本語、한국어，設
 **自動接手會弄丟我的對話嗎？**
 不會：它在下一個帳號上續跑同一份 session 紀錄（只新增、原始紀錄永不被修改）。
 被中斷的工具呼叫可能會在切換後重跑一次。
+
+**status line 整合會弄壞我自訂的 status line 嗎？**
+不會。你自己的指令會照原樣繼續執行，餵進同一份 session JSON；Tally 只是在後面加一段
+訊號，如果你已經顯示帳號名稱就會跳過那部分，移除時逐位元組還原成原本的註冊，就算
+tally 這個 binary 哪天不見了，也會直接 fallback 回執行你原本的指令。
 
 ## 授權
 

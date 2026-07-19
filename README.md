@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">Tally</h1>
 
-<p align="center">Every AI subscription you own, at a glance, in your macOS menu bar,<br>plus a CLI that always launches on the account with the most headroom left.</p>
+<p align="center">Every AI subscription you own, at a glance, in your macOS menu bar,<br>plus a launcher that puts every session on the account whose quota goes furthest.</p>
 
 <p align="center">
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111827?style=flat-square&logo=apple&logoColor=white">
@@ -19,15 +19,17 @@
 Tally is a native **macOS menu bar AI usage monitor for Claude and Codex rate limits**, built for
 people who run **multiple Claude (Max/Pro) and Codex subscriptions** and are tired of guessing
 which account still has room: every account's 5-hour session, weekly, and top-model quota windows
-sit side by side, and `tally claude` starts your next Claude Code session on the best account,
-switching accounts mid-conversation automatically when you hit a rate limit.
+sit side by side, and the Smart pick starts every new session on the account whose quota goes
+furthest right now, weighing reset times, not just remaining percent, then follows through
+mid-conversation: rate-limit handoff, flagship-model rescue, and a status-line signal that shows
+which account is burning.
 
 <p align="center">
   <img src="assets/screenshot-menubar.png" alt="Tally's menu bar strip: five Claude accounts with index badges and stacked session/weekly percentages, followed by three Codex accounts" width="418">
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel showing eight accounts side by side (five Claude Max, three Codex), each with its 5-hour session, weekly, and top-model usage windows, reset times, and near-limit warnings" width="560">
+  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel showing eight accounts side by side (five Claude Max, three Codex), each with its 5-hour session, weekly, and top-model usage windows, reset times, and near-limit warnings; purple Smart badges mark the accounts the launcher would pick, and the header strip summarizes the launch defaults" width="560">
 </p>
 
 ## Why Tally
@@ -41,9 +43,12 @@ subscriptions at once:
 - **Subscription quota, not spend estimates.** Tally shows the same 5-hour / weekly / top-model
   windows the vendors themselves enforce, instead of estimating dollars from token counts.
 - **A launcher that acts on the answer.** A dashboard's whole point is deciding where to work
-  next, so `tally claude` makes that decision for you, every time, automatically.
+  next, so Tally makes that decision for you, every time, automatically, and keeps making it
+  while the session runs (cap handoff, model-degradation rescue).
 
 ## Features
+
+### The dashboard
 
 - **Multi-account first.** Every `~/.claude*` login and Codex install is its own card: N accounts
   side by side, not a single-account fallback chain. Drag cards to reorder; the order applies
@@ -54,15 +59,41 @@ subscriptions at once:
   header to place it anywhere.
 - **Reset times everywhere.** Every window shows its own reset; click any reset label to flip all of
   them between countdown ("resets in 2d 4h") and exact time ("resets at 07/18 20:00").
-- **`tally` CLI.**
-  - `tally claude [args…]`: launch Claude Code on the account with the most proven headroom; all
-    arguments pass through untouched.
-  - **Auto-handoff**: hit a usage cap mid-session and tally terminates cleanly, re-picks the best
-    account, and resumes the *same conversation* there, with a 3-per-10-minutes fuse, and opt-out
-    via `--no-handoff` or `TALLY_AUTO_HANDOFF=0`.
-  - `tally resume`: the manual one-liner version of the same handoff.
-  - `tally claude --account <name>`: pin a specific account when you want to choose.
-  - `tally status` / `tally best-dir <provider>`: inspect from any script or shell.
+- **Codex reset banking, visible.** Banked rate-limit resets show right on the card ("3 resets
+  available"), so you know your escape hatches before you hit a wall; redeeming one stays your
+  call, in the official CLI.
+
+### The launch control plane
+
+- **Smart pick.** New sessions start on the account whose binding quota window sustains the highest
+  spend rate: remaining percent divided by time to reset, across the 5-hour, weekly, and top-model
+  windows. Quota about to reset gets burned first (it would evaporate unused); quota that must last
+  days is preserved; hysteresis keeps noise-level differences from bouncing you between accounts.
+  The panel badge marks the current pick, with the reason in its tooltip.
+- **Three modes per provider.** Smart (the algorithm decides at every launch), Manual (click a card
+  to pin an account; click again to go back to Smart, live, even for the running session), or Off
+  (a dashboard and nothing more).
+- **Mid-session follow-through.** Hit a usage cap and tally resumes the *same conversation* on the
+  next-best account (3-per-10-minutes fuse; opt out with `--no-handoff` or `TALLY_AUTO_HANDOFF=0`).
+  If the server silently downgrades your model, a sibling account that can still serve your primary
+  model takes the conversation over instead, and only when nobody can does your configured
+  fallback pairing apply. Non-urgent switches wait for a quiet moment between turns.
+- **Launch defaults, in Settings.** Default permission mode, start mode (continue vs new), model
+  and reasoning effort as one pairing, and a separate fallback pairing (fallback model + its own
+  effort + extra flags). Injected only when you didn't type the flag yourself: your own arguments
+  always win.
+- **Shell integration.** One click installs PATH shims so even bare `claude` / `codex` commands
+  follow your launch policy; one click removes them just as cleanly.
+- **Status line integration.** Your Claude Code status line gains a purple ✦ Tally signal (this
+  session runs under Tally) and the active account name. An existing custom status line keeps
+  running untouched with the signal appended, is restored byte-for-byte on removal, and keeps
+  working even if you delete Tally without uninstalling.
+- **`tally` CLI.** `tally claude [args…]`, `tally resume` (move this directory's latest
+  conversation to another account), `tally claude --account <name>`, `tally status`,
+  `tally best-dir <provider>`, all script-friendly.
+
+### The chrome
+
 - **5 languages.** English, 繁體中文, 简体中文, 日本語, 한국어, switchable in-app, live.
 - **Native and dependency-free.** Swift 6 + SwiftUI + AppKit. No Electron, no packages, one binary
   each for the app and the CLI.
@@ -121,6 +152,10 @@ ln -s <build-products>/tally /usr/local/bin/tally
 
 </details>
 
+Or skip the symlink and the aliases entirely: **Settings → Integrations** installs the CLI tool,
+the shell shims (bare `claude` / `codex` follow your policy), and the status line signal, each
+with one click and a clean removal.
+
 Optional shell sugar:
 
 ```sh
@@ -161,6 +196,12 @@ auto-handoff stays put rather than looping.
 **Does auto-handoff lose my conversation?**
 No: it resumes the same session transcript on the next account (additively; your original
 transcript is never modified). An interrupted tool call may re-run once after the switch.
+
+**Will the status line integration break my custom status line?**
+No. Your own command keeps running exactly as before, fed the same session JSON; Tally only
+appends its signal, skips the account name if you already show one, restores your original
+registration byte-for-byte on removal, and falls back to running your command directly if the
+tally binary ever disappears.
 
 ## License
 

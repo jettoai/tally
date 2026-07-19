@@ -285,9 +285,17 @@ struct AccountCardView: View {
         let anchor = NSApp.windows.first { $0.isVisible && $0.frame.contains(mouse) }?.frame
             ?? NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }?.visibleFrame
         if let anchor {
-            let size = alert.window.frame.size
-            alert.window.setFrameOrigin(NSPoint(x: anchor.midX - size.width / 2,
-                                                y: anchor.midY - size.height / 2))
+            let window = alert.window
+            let size = window.frame.size
+            let origin = NSPoint(x: anchor.midX - size.width / 2,
+                                 y: anchor.midY - size.height / 2)
+            window.setFrameOrigin(origin)
+            // runModal re-centres the alert window as it shows, clobbering the origin above
+            // (live multi-monitor incident 2026-07-20). Re-assert it from inside the modal
+            // run loop, right after the show.
+            RunLoop.main.perform(inModes: [.modalPanel]) {
+                window.setFrameOrigin(origin)
+            }
         }
         if alert.runModal() == .alertFirstButtonReturn { redeem() }
     }

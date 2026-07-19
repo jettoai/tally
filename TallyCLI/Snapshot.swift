@@ -192,11 +192,19 @@ func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = 
     return text
 }
 
+/// Compact two-unit countdown ("4h22m", "4d3h", "45m") - one unit hid too much ("(5d)" for
+/// 5d 23h), and the status line inherited the coarseness user-visibly.
 func shortETA(_ seconds: TimeInterval) -> String {
     let minutes = max(Int((seconds / 60).rounded()), 0)
     if minutes < 60 { return "\(minutes)m" }
-    if minutes < 48 * 60 { return "\(minutes / 60)h" }
-    return "\(minutes / (24 * 60))d"
+    let hours = minutes / 60
+    if hours < 48 {
+        let m = minutes % 60
+        return m > 0 ? "\(hours)h\(m)m" : "\(hours)h"
+    }
+    let days = hours / 24
+    let h = hours % 24
+    return h > 0 ? "\(days)d\(h)h" : "\(days)d"
 }
 
 /// Hysteresis: near-equal scores must not flip the pick. Quota percentages are coarse and

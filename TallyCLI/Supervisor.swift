@@ -244,10 +244,34 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 }
             }
 
-            // Fallback profile: the session's ACTUAL model has degraded to the configured
-            // fallback (claude fell back server-side). A weaker model can deserve a different
-            // depth and extra flags, so relaunch ONCE with the fallback pairing - same account,
-            // same conversation. Deliberate configuration, no fuse.
+            // The session's ACTUAL model degraded away from the declared primary (claude fell
+            // back server-side - e.g. the flagship weekly ran dry). Flagship-first response:
+            // a sibling whose flagship window still has real room takes the conversation and
+            // KEEPS the primary model. Not for pinned sessions (a pin means "this account"),
+            // and under the same fuse as every automatic handoff.
+            if let primary = policy.model?.lowercased(),
+               let actual = watcher.lastModel?.lowercased(),
+               !actual.contains(primary), policy.mode != "manual", fuseAllows() {
+                let (snapshot, _) = loadSnapshot()
+                let rescue = snapshot?.accounts
+                    .filter { $0.provider == provider.id && eligible($0)
+                        && $0.id != account.id && ($0.modelRemaining ?? 0) > 5 }
+                    .max {
+                        smartScore($0, primaryModel: policy.model)
+                            < smartScore($1, primaryModel: policy.model)
+                    }
+                if let rescue {
+                    warn("\(actual) took over from \(primary) → moving to \(rescue.label) " +
+                         "to stay on \(primary) (\(pickReason(rescue, primaryModel: policy.model)))")
+                    performHandoff(to: rescue)
+                    break
+                }
+            }
+
+            // Fallback profile: no sibling can serve the primary model, so accept the
+            // configured fallback - a weaker model can deserve a different depth and extra
+            // flags, so relaunch ONCE with the fallback pairing - same account, same
+            // conversation. Deliberate configuration, no fuse.
             if !fallbackApplied,
                let fallbackList = policy.fallbackModel,
                policy.fallbackEffort != nil || policy.fallbackArgs != nil,

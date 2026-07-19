@@ -196,6 +196,8 @@ final class UsageStore {
             return copy
         }
         UsageSnapshot.make(accounts: labeled, launchHomes: launchHomes).write()
+        // Sample fresh results into the burn-rate history (change-only, off-main-queue).
+        UsageHistory.shared.record(results)
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
         scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })
 

@@ -32,6 +32,7 @@ struct PopoverRootView: View {
                 header
                 Divider()
                 launchSummaryStrip
+                fleetStrip
                 content
                 Divider()
                 footer

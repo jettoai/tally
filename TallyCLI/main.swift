@@ -319,29 +319,52 @@ func runStatusline(args: [String]) -> Never {
     let sessionModel = (sessionJSON?["model"] as? [String: Any])?["display_name"] as? String
 
     var quota: [String] = []
+    var fleetPiece: String?
     if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
         let now = Date()
         // The number and bar follow the panel's used/remaining toggle; the tint always keys
         // off remaining, so severity never flips with the toggle (same rule as the meters).
         let usedMode = snapshot?.displayMode == "used"
+        // Same thresholds AND the same palette as the app's meters (TallyColor sage green /
+        // amber / softened red, 256-colour approximations) - one brand vocabulary from the
+        // panel to the terminal.
+        func tintFor(_ remaining: Double) -> String {
+            remaining < 20 ? "\u{1B}[38;5;167m"
+                : remaining < 50 ? "\u{1B}[38;5;214m" : "\u{1B}[38;5;71m"
+        }
+        func meter(_ shownPct: Double, _ tint: String) -> String {
+            let cells = 6
+            let filled = min(cells, max(shownPct > 0 ? 1 : 0,
+                                        Int((shownPct / 100 * Double(cells)).rounded())))
+            return tint + String(repeating: "█", count: filled) + reset
+                + dim + String(repeating: "░", count: cells - filled) + reset
+        }
         func piece(_ name: String, _ remaining: Double?, _ resetsAt: Date?) -> String? {
             guard let remaining else { return nil }
-            // Same thresholds AND the same palette as the app's meters (TallyColor sage green /
-            // amber / softened red, 256-colour approximations) - one brand vocabulary from the
-            // panel to the terminal.
-            let tint = remaining < 20 ? "\u{1B}[38;5;167m"
-                : remaining < 50 ? "\u{1B}[38;5;214m" : "\u{1B}[38;5;71m"
+            let tint = tintFor(remaining)
             let shown = usedMode ? 100 - remaining : remaining
-            let cells = 6
-            let filled = min(cells, max(shown > 0 ? 1 : 0,
-                                        Int((shown / 100 * Double(cells)).rounded())))
-            let bar = tint + String(repeating: "█", count: filled) + reset
-                + dim + String(repeating: "░", count: cells - filled) + reset
-            var text = "\(dim)\(name)\(reset) \(bar) \(tint)\(Int(shown.rounded()))%\(reset)"
+            var text = "\(dim)\(name)\(reset) \(meter(shown, tint)) \(tint)\(Int(shown.rounded()))%\(reset)"
             if let resetsAt, resetsAt > now {
                 text += " \(dim)(\(shortETA(resetsAt.timeIntervalSince(now))))\(reset)"
             }
             return text
+        }
+        // The fleet piece: the whole provider pool as ONE slot with its own label, in the
+        // panel gauge's units (accounts' worth left - a remaining number by nature) plus the
+        // pace forecast. Present only while the app's fleet gauge is on (same switch, same
+        // meaning; launch mode is deliberately irrelevant).
+        if let fleet = snapshot?.fleet?["claude"], fleet.capacity > 0 {
+            let remainingPct = fleet.remaining / fleet.capacity * 100
+            let tint = tintFor(remainingPct)
+            let worth = String(format: "%.1f/%d", fleet.remaining / 100,
+                               Int((fleet.capacity / 100).rounded()))
+            var text = "\(dim)fleet\(reset) \(meter(remainingPct, tint)) \(tint)\(worth)\(reset)"
+            if let dryAt = fleet.dryAt, dryAt > now {
+                text += " \(dim)(~\(shortETA(dryAt.timeIntervalSince(now))))\(reset)"
+            } else if fleet.sustainable {
+                text += " \u{1B}[38;5;71m✓\(reset)"
+            }
+            fleetPiece = text
         }
         // The tier window shows only when THIS session is actually consuming it: a sonnet
         // session doesn't burn the Fable window, so showing it there is noise (the fleet-wide
@@ -356,9 +379,12 @@ func runStatusline(args: [String]) -> Never {
             modelPiece = nil
         }
         // Model tier first - the same order as the cards (the flagship window is the headline).
+        // The account's own 7d yields to the fleet slot when the pool is shown: under smart
+        // handoff the pool IS the weekly budget, and two weekly numbers side by side confuse.
         quota = [modelPiece,
                  piece("5h", account.sessionRemaining, account.sessionResetsAt),
-                 piece("7d", account.weeklyRemaining, account.weeklyResetsAt)]
+                 fleetPiece == nil
+                     ? piece("7d", account.weeklyRemaining, account.weeklyResetsAt) : nil]
             .compactMap { $0 }
     }
 
@@ -392,10 +418,15 @@ func runStatusline(args: [String]) -> Never {
         // width-padded first line can't be pushed out of shape.
         // Full-quota mode (opt-in via the app): the whole quota line joins on its OWN line
         // beneath the custom status line - for people who drop their own quota rendering and
-        // rely on Tally's. The line is ours, so the account always shows here.
+        // rely on Tally's. The line is ours, so the account always shows here. Three zones
+        // (identity | this account's windows | the fleet pool), separated by | so the
+        // single-account numbers and the whole-fleet number never read as one list.
         if snapshot?.statuslineFullQuota == true, !quota.isEmpty {
-            let richLine = ([statusPiece, "\(dim)\(label)\(reset)"].compactMap { $0 } + quota)
+            let identityZone = [statusPiece, "\(dim)\(label)\(reset)"].compactMap { $0 }
                 .joined(separator: " · ")
+            let richLine = [identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]
+                .filter { !$0.isEmpty }
+                .joined(separator: " \(dim)|\(reset) ")
             print(body.isEmpty ? richLine : "\(body)\n\(richLine)")
             exit(0)
         }
@@ -416,8 +447,12 @@ func runStatusline(args: [String]) -> Never {
 
     // Standalone mode: Tally IS the whole status line, so it always carries the quota story
     // itself (plus the model name from the session JSON, which no other line is showing).
-    print(([identity.isEmpty ? nil : identity, sessionModel].compactMap { $0 } + quota)
-        .joined(separator: " · "))
+    // Same three-zone layout as the wrapped rich line.
+    let identityZone = [identity.isEmpty ? nil : identity, sessionModel].compactMap { $0 }
+        .joined(separator: " · ")
+    print([identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]
+        .filter { !$0.isEmpty }
+        .joined(separator: " \(dim)|\(reset) "))
     exit(0)
 }
 

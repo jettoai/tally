@@ -39,6 +39,17 @@ struct UsageSnapshot: Codable {
     var statuslineFullQuota: Bool?
     /// The panel's used/remaining toggle ("used" | "remaining") - the status line follows it.
     var displayMode: String?
+    /// Per-provider fleet pool summary (published only while the fleet gauge is on and the
+    /// provider has 2+ accounts) - the status line's fleet piece renders from this. Units match
+    /// FleetPool: one account's full weekly window = 100.
+    struct Fleet: Codable {
+        var remaining: Double
+        var capacity: Double
+        /// When the pool runs dry at the measured pace (nil = sustainable or still measuring).
+        var dryAt: Date?
+        var sustainable: Bool
+    }
+    var fleet: [String: Fleet]?
 
     static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally", isDirectory: true)
@@ -48,7 +59,7 @@ struct UsageSnapshot: Codable {
     /// `statuslineFullQuota` is handed in by the caller (SettingsStore is main-actor).
     static func make(accounts: [AccountUsage], launchHomes: [String: String],
                      statuslineFullQuota: Bool = false, displayMode: String? = nil,
-                     now: Date = Date()) -> UsageSnapshot {
+                     fleet: [String: Fleet]? = nil, now: Date = Date()) -> UsageSnapshot {
         UsageSnapshot(
             generatedAt: now,
             accounts: accounts.map { usage in
@@ -70,7 +81,8 @@ struct UsageSnapshot: Codable {
                 )
             },
             statuslineFullQuota: statuslineFullQuota,
-            displayMode: displayMode
+            displayMode: displayMode,
+            fleet: fleet
         )
     }
 

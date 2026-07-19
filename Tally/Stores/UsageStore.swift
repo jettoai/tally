@@ -213,7 +213,11 @@ final class UsageStore {
         UsageHistory.shared.samples(
             since: now.addingTimeInterval(-FleetForecast.lookbackHours * 3_600)) { samples in
             let rates = FleetForecast.weeklyRates(samples: samples, now: now)
-            Task { @MainActor in UsageStore.shared.fleetRates = rates }
+            Task { @MainActor in
+                UsageStore.shared.fleetRates = rates
+                // The snapshot's fleet forecast is computed from these rates - refresh it.
+                UsageStore.shared.republishSnapshot()
+            }
         }
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
         scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })
@@ -235,7 +239,36 @@ final class UsageStore {
         guard !BuildVariant.isDev, !DemoUsage.isActive, !lastPublishedAccounts.isEmpty else { return }
         UsageSnapshot.make(accounts: lastPublishedAccounts, launchHomes: lastLaunchHomes,
                            statuslineFullQuota: SettingsStore.shared.statuslineFullQuota,
-                           displayMode: SettingsStore.shared.displayMode.rawValue).write()
+                           displayMode: SettingsStore.shared.displayMode.rawValue,
+                           fleet: fleetForSnapshot()).write()
+    }
+
+    /// The status line's fleet piece follows the SAME switch as the panel's gauge: published
+    /// only while the gauge is on, and only for providers with a real pool (2+ accounts with a
+    /// weekly window). Launch mode is deliberately irrelevant - one toggle, one meaning.
+    private func fleetForSnapshot() -> [String: UsageSnapshot.Fleet]? {
+        guard SettingsStore.shared.showFleetGauge else { return nil }
+        var fleet: [String: UsageSnapshot.Fleet] = [:]
+        for summary in FleetMath.summaries(accounts: lastPublishedAccounts,
+                                           label: { $0.accountLabel }) {
+            guard let pool = summary.headline, pool.kind == .weeklyAll else { continue }
+            var dryAt: Date?
+            var sustainable = false
+            if let rate = fleetRates[summary.providerID] {
+                dryAt = FleetForecast.depletion(
+                    remaining: pool.totalRemaining,
+                    refills: pool.refills.map { ($0.at, $0.gain) },
+                    perHour: rate.perHour,
+                    steadyRefillPerHour: pool.steadyRefillPerHour(windowHours: 168),
+                    now: Date())
+                sustainable = dryAt == nil
+            }
+            fleet[summary.providerID] = UsageSnapshot.Fleet(
+                remaining: pool.totalRemaining,
+                capacity: Double(pool.members.count) * 100,
+                dryAt: dryAt, sustainable: sustainable)
+        }
+        return fleet.isEmpty ? nil : fleet
     }
 
     /// Last successful snapshot per account, so a failed refresh can keep showing the numbers.

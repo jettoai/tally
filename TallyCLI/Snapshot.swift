@@ -38,6 +38,15 @@ struct Snapshot: Decodable {
     var statuslineFullQuota: Bool?
     /// The panel's used/remaining toggle ("used" | "remaining"); the status line follows it.
     var displayMode: String?
+    /// Per-provider fleet pool summary (present only while the app's fleet gauge is on and the
+    /// provider has 2+ accounts). Units: one account's full weekly window = 100.
+    struct Fleet: Decodable {
+        var remaining: Double
+        var capacity: Double
+        var dryAt: Date?
+        var sustainable: Bool
+    }
+    var fleet: [String: Fleet]?
 }
 
 let snapshotURL = FileManager.default.homeDirectoryForCurrentUser

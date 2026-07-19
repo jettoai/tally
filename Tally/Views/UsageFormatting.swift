@@ -53,6 +53,9 @@ enum UsageFormat {
         return String(localized: "resets at \(resetFormatter.string(from: date))", bundle: AppLocale.bundle)
     }
 
+    /// Bare "07/18 21:36" (local time) - for labels that carry their own verb (the fleet refill).
+    static func absoluteBody(_ date: Date) -> String { resetFormatter.string(from: date) }
+
     // Now as MM/dd HH:mm, the same format as the absolute reset times so it reads as their anchor.
     private static let nowFormatter: DateFormatter = {
         let f = DateFormatter()

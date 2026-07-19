@@ -1,13 +1,15 @@
 import SwiftUI
 
-/// The fleet gauge: for each provider with 2+ accounts, the accounts' quota unified into one
-/// meter. Laid out in the exact grammar of a card's metric row (label column · bar · right-
-/// aligned value, context line beneath) so the strip reads as part of the same family: the label
-/// names the provider and fleet size ("Claude ×2"), the bar is segmented (one segment per
-/// account, the whole track = the combined budget, each tinted by its own severity), and the
-/// context line carries the pool total in accounts' worth (2.9/5), the pace forecast, and the
-/// soonest refill. The tooltip breaks every pooled window class down per account. Providers with
-/// a single account contribute nothing: a pool of one is just that account's card.
+/// The fleet gauge: for each provider with 2+ accounts, the accounts' weekly quota unified into
+/// ONE meter, in the storage-bar grammar (one continuous fill = the whole fleet's remaining,
+/// hairlines inside the fill marking each account's contribution) - chosen over per-account
+/// segments, which read as several broken little meters instead of a pool. Laid out in the
+/// cards' metric-row grammar: provider + fleet size as the label column, the pooled bar, and
+/// the total as "accounts' worth" (1.8/2) in the value column; the context line carries the
+/// pace forecast and the next refill. Who exactly is running dry stays on the cards below and
+/// in the tooltip - the gauge answers "how much does the whole fleet have and does it last",
+/// and only that. Providers with a single account contribute nothing: a pool of one is just
+/// that account's card.
 extension PopoverRootView {
     private static let fleetLabelWidth: CGFloat = 88
     private static let fleetValueWidth: CGFloat = 46
@@ -46,8 +48,8 @@ extension PopoverRootView {
                             .lineLimit(1)
                     }
                     .frame(width: Self.fleetLabelWidth, alignment: .leading)
-                    segmentedBar(pool)
-                    Text(percent(poolValue(pool)))
+                    pooledBar(pool)
+                    Text(worthValue(pool))
                         .font(.footnote.weight(.semibold).monospacedDigit())
                         .foregroundStyle(.primary)
                         .frame(width: Self.fleetValueWidth, alignment: .trailing)
@@ -57,34 +59,32 @@ extension PopoverRootView {
         }
     }
 
-    /// Mirrors the card rows' context line: the pool's own facts on the left, the soonest refill
-    /// on the right (same click-to-toggle reset label as everywhere else).
+    /// Mirrors the card rows' context line: the pace verdict on the left, the next refill on the
+    /// right (click toggles countdown/exact time, like every reset label).
     private func contextLine(_ summary: FleetSummary, _ pool: FleetPool) -> some View {
         HStack(spacing: 6) {
-            (poolWorth(pool) + forecastText(summary, pool))
+            forecastText(summary, pool)
                 .font(.caption2)
                 .lineLimit(1)
             Spacer(minLength: 6)
-            if let at = pool.nextReset, let account = pool.nextResetAccountLabel {
-                refillLabel(at: at, account: account)
+            if let refill = pool.refills.first {
+                refillLabel(refill)
             }
         }
     }
 
     private func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }
 
-    /// The headline number follows the Used/Left toggle, like every meter on the cards.
-    private func poolValue(_ pool: FleetPool) -> Double {
-        settings.displayMode == .used ? 100 - pool.averageRemaining : pool.averageRemaining
-    }
+    private func worth(_ units: Double) -> String { String(format: "%.1f", units / 100) }
 
-    /// "Weekly pool 2.9/5 left" - the combined budget in the unit a multi-account user actually
-    /// thinks in: how many accounts' worth of quota remain.
-    private func poolWorth(_ pool: FleetPool) -> Text {
-        let name = pool.kind == .weeklyAll ? L("Weekly pool") : L("Session pool")
-        let worth = String(format: "%.1f", pool.totalRemaining / 100)
-        return Text("\(name) \(worth)/\(pool.members.count) \(L("left"))")
-            .foregroundStyle(Color.secondary)
+    /// "1.8/2" - the pool total in the unit a multi-account user actually thinks in: accounts'
+    /// worth of quota. Follows the Used/Left toggle like every meter (used mode shows the worth
+    /// spent).
+    private func worthValue(_ pool: FleetPool) -> String {
+        let capacity = Double(pool.members.count) * 100
+        let shown = settings.displayMode == .used
+            ? capacity - pool.totalRemaining : pool.totalRemaining
+        return "\(worth(shown))/\(pool.members.count)"
     }
 
     /// The "does it last" verdict from the measured pace: dry-run date (amber, red inside a day),
@@ -92,7 +92,7 @@ extension PopoverRootView {
     private func forecastText(_ summary: FleetSummary, _ pool: FleetPool) -> Text {
         guard pool.kind == .weeklyAll else { return Text(verbatim: "") }
         guard let rate = store.fleetRates[summary.providerID] else {
-            return (Text(" · ") + Text(L("measuring pace…"))).foregroundStyle(.tertiary)
+            return Text(L("measuring pace…")).foregroundStyle(.tertiary)
         }
         let now = Date()
         let dry = FleetForecast.depletion(
@@ -102,55 +102,69 @@ extension PopoverRootView {
             steadyRefillPerHour: pool.steadyRefillPerHour(windowHours: 168),
             now: now)
         guard let dry else {
-            return Text(" · ").foregroundStyle(Color.secondary)
-                + Text("\(L("sustainable at this pace")) ✓").foregroundStyle(TallyColor.normal)
+            return Text("\(L("sustainable at this pace")) ✓").foregroundStyle(TallyColor.normal)
         }
         let seconds = dry.timeIntervalSince(now)
         let tint = seconds < 86_400 ? TallyColor.critical : TallyColor.warning
         let body = UsageFormat.durationBody(seconds)
-        return Text(" · ").foregroundStyle(Color.secondary)
-            + Text(String(localized: "lasts about \(body)", bundle: AppLocale.bundle))
-                .foregroundStyle(tint)
+        return Text(String(localized: "lasts about \(body)", bundle: AppLocale.bundle))
+            .foregroundStyle(tint)
     }
 
-    /// "Claude 3 resets in 19h 11m", click-to-toggle between countdown and exact time - the same
-    /// behaviour as every reset label on the cards.
-    private func refillLabel(at: Date, account: String) -> some View {
+    /// "next refill Claude in 4d 6h" - refill wording, not "resets", so it can't be confused
+    /// with the per-window reset labels on the cards. Click toggles to the exact time.
+    private func refillLabel(_ refill: FleetPool.Refill) -> some View {
         let style = settings.resetDisplay
         return TimelineView(.periodic(from: .now, by: 60)) { context in
             Button {
                 settings.resetDisplay = style.toggled
             } label: {
-                Text("\(account) \(UsageFormat.resetText(at, style: style, now: context.date) ?? "")")
+                Text(refillText(refill, style: style, now: context.date))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             .buttonStyle(.plain)
-            .help("\(account) \(UsageFormat.resetText(at, style: style.toggled, now: context.date) ?? "")")
+            .help(refillText(refill, style: style.toggled, now: context.date))
         }
     }
 
-    /// One segment per account, equal widths (equal-weight pooling), each filled by its own
-    /// value and tinted by its own severity - the union total AND the weak spot in one look.
-    /// Same fill geometry as the card bars: used grows from the left, remaining hugs the right.
-    private func segmentedBar(_ pool: FleetPool) -> some View {
+    private func refillText(_ refill: FleetPool.Refill, style: ResetDisplay, now: Date) -> String {
+        let account = refill.accountLabel
+        if style == .relative {
+            let body = UsageFormat.durationBody(max(60, refill.at.timeIntervalSince(now)))
+            return String(localized: "next refill \(account) in \(body)", bundle: AppLocale.bundle)
+        }
+        return String(localized: "next refill \(account) at \(UsageFormat.absoluteBody(refill.at))",
+                      bundle: AppLocale.bundle)
+    }
+
+    /// One continuous fill anchored like every meter (used grows left, remaining hugs right),
+    /// sized by the whole pool's total, with hairline gaps inside marking each account's
+    /// contribution. One colour for the whole pool, by the pool's own health - a single sick
+    /// account doesn't repaint the fleet (its card below carries that).
+    private func pooledBar(_ pool: FleetPool) -> some View {
         let mode = settings.displayMode
-        return HStack(spacing: 2) {
-            ForEach(Array(pool.members.enumerated()), id: \.offset) { _, member in
-                GeometryReader { geo in
-                    ZStack(alignment: mode == .used ? .leading : .trailing) {
-                        Capsule().fill(.quaternary)
-                        Capsule()
-                            .fill(member.severity.color)
-                            .frame(width: max(3, geo.size.width
-                                * (mode == .used ? 100 - member.remaining : member.remaining) / 100))
+        let capacity = Double(pool.members.count) * 100
+        let color = MetricSeverity.fromUsedPercent(100 - pool.averageRemaining).color
+        return GeometryReader { geo in
+            ZStack(alignment: mode == .used ? .leading : .trailing) {
+                Capsule().fill(.quaternary)
+                HStack(spacing: 1) {
+                    ForEach(Array(pool.members.enumerated()), id: \.offset) { _, member in
+                        let value = mode == .used ? 100 - member.remaining : member.remaining
+                        if value >= 0.5 {
+                            Rectangle()
+                                .fill(color)
+                                .frame(width: max(2, geo.size.width * value / capacity))
+                                .help("\(member.accountLabel) \(percent(member.remaining)) \(L("left"))")
+                        }
                     }
                 }
-                .frame(height: 6)
-                .help("\(member.accountLabel) \(percent(member.remaining)) \(L("left"))")
+                .clipShape(Capsule())
             }
         }
+        .frame(height: 6)
     }
 
     /// Full breakdown: every pooled window class with its weakest account, the refill schedule,

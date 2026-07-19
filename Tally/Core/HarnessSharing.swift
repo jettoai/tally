@@ -23,6 +23,17 @@ enum HarnessSharing {
         var total: Int { sharedItems.count + independentItems.count }
     }
 
+    /// True when every one of `homes` resolves `item` to one physical path - e.g. all claude
+    /// accounts sharing a single `projects` tree, which makes cross-account conversation moves
+    /// (`tally resume`) unnecessary: the conversation is already visible everywhere.
+    static func allShare(item: String, homes: [String]) -> Bool {
+        guard homes.count > 1 else { return false }
+        let resolved = homes.map {
+            URL(fileURLWithPath: $0).appendingPathComponent(item).resolvingSymlinksInPath().path
+        }
+        return Set(resolved).count == 1
+    }
+
     /// Compares every key item of `secondaryHome` against `primaryHome` by fully-resolved path -
     /// one physical copy behind both names counts as shared, however the user wired it.
     static func report(primaryHome: String, secondaryHome: String, providerID: String) -> Report {

@@ -313,6 +313,11 @@ func runStatusline(args: [String]) -> Never {
     // The quota pieces: per-window remaining as a mini meter bar + percent (tinted by room
     // left) + reset countdown. Built once, used by the standalone line and the full-quota
     // wrapped line alike; empty when the snapshot is stale or the account is unknown.
+    // Session model, straight from the status-line JSON (tracks live switches/degradations);
+    // the configured launch model is the fallback when the JSON carries none.
+    let sessionJSON = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any]
+    let sessionModel = (sessionJSON?["model"] as? [String: Any])?["display_name"] as? String
+
     var quota: [String] = []
     if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
         let now = Date()
@@ -338,9 +343,20 @@ func runStatusline(args: [String]) -> Never {
             }
             return text
         }
+        // The tier window shows only when THIS session is actually consuming it: a sonnet
+        // session doesn't burn the Fable window, so showing it there is noise (the fleet-wide
+        // Fable story lives in the panel). Matched against the live session model, falling
+        // back to the configured launch model; unknowable → shown (info beats absence).
+        let modelPiece: String?
+        if let windowName = account.modelWindowName {
+            let reference = sessionModel ?? launchPolicy("claude").model ?? windowName
+            modelPiece = reference.lowercased().contains(windowName.lowercased())
+                ? piece(windowName, account.modelRemaining, account.modelResetsAt) : nil
+        } else {
+            modelPiece = nil
+        }
         // Model tier first - the same order as the cards (the flagship window is the headline).
-        quota = [piece(account.modelWindowName ?? "model", account.modelRemaining,
-                       account.modelResetsAt),
+        quota = [modelPiece,
                  piece("5h", account.sessionRemaining, account.sessionResetsAt),
                  piece("7d", account.weeklyRemaining, account.weeklyResetsAt)]
             .compactMap { $0 }
@@ -400,9 +416,7 @@ func runStatusline(args: [String]) -> Never {
 
     // Standalone mode: Tally IS the whole status line, so it always carries the quota story
     // itself (plus the model name from the session JSON, which no other line is showing).
-    let json = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any]
-    let model = (json?["model"] as? [String: Any])?["display_name"] as? String
-    print(([identity.isEmpty ? nil : identity, model].compactMap { $0 } + quota)
+    print(([identity.isEmpty ? nil : identity, sessionModel].compactMap { $0 } + quota)
         .joined(separator: " · "))
     exit(0)
 }

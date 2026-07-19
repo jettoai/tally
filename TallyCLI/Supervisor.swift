@@ -277,17 +277,23 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 warn("cap hit, but \(handoffFuseMax) handoffs in \(Int(handoffFuseWindow / 60))m - staying put")
                 break
             }
-            // Re-read the snapshot NOW; the best other account is the handoff target.
+            // Re-read the snapshot NOW; the smartest other account is the handoff target (same
+            // burn-rate scoring as the launch pick - no hysteresis: the capped account is out
+            // of the running anyway, so there is no incumbent to stabilize).
             let (snapshot, _) = loadSnapshot()
             let target = snapshot?.accounts
                 .filter { $0.provider == provider.id && eligible($0) && $0.id != account.id }
-                .max { headroom($0) < headroom($1) }
+                .max {
+                    smartScore($0, primaryModel: policy.model)
+                        < smartScore($1, primaryModel: policy.model)
+                }
             guard let target else {
                 warn("cap hit, but no other eligible account - staying put")
                 break
             }
             guard watcher.file != nil else { break }
-            warn("cap hit → handing off to \(target.label) (headroom \(Int(headroom(target).rounded()))%)")
+            warn("cap hit → handing off to \(target.label) " +
+                 "(\(pickReason(target, primaryModel: policy.model)))")
             performHandoff(to: target)
             break
         }

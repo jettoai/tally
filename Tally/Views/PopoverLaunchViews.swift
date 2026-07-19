@@ -113,7 +113,7 @@ extension PopoverRootView {
                     commandRow("tally claude --continue", caption: L("Continue the latest session"))
                 }
                 commandRow("tally codex", caption: L("New session"))
-                commandRow("tally resume", caption: L("Hand the latest conversation to the account with the most room"))
+                commandRow("tally resume", caption: L("Move this directory's latest conversation to another account and continue there"))
             }
             integrationStatusLine
             Text(L("Click a card to pin that account (Manual); click it again to go back to Smart."))

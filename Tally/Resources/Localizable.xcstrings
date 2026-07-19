@@ -2524,35 +2524,6 @@
         }
       }
     },
-    "Hand the latest conversation to the account with the most room": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "把最近的對話交給餘量最好的帳號續聊"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "把最近的对话交给余量最好的账号续聊"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "直近の会話を最も余裕のあるアカウントへ引き継ぎ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "최근 대화를 여유가 가장 많은 계정으로 이어서"
-          }
-        }
-      }
-    },
     "Shell integration installed: plain claude and codex follow the policy.": {
       "extractionState": "manual",
       "localizations": {
@@ -3564,6 +3535,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 빌드는 업데이트 피드에 연결되어 있지 않습니다. 새 버전은 GitHub Releases에서 받으세요."
+          }
+        }
+      }
+    },
+    "Move this directory's latest conversation to another account and continue there": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把這裡最近的對話搬到另一個帳號續聊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把这里最近的对话搬到另一个账号继续聊"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このディレクトリの最新の会話を別のアカウントに移して続けます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 디렉터리의 최근 대화를 다른 계정으로 옮겨 이어갑니다"
           }
         }
       }

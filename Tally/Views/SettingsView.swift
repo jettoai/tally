@@ -245,6 +245,8 @@ struct SettingsView: View {
     @ViewBuilder
     private var integrationsRows: some View {
         let integrations = IntegrationsStore.shared
+        allIntegrationsRow(integrations)
+        rowDivider
         integrationRow(
             title: L("Command line tool"),
             caption: L("Links the tally command into /usr/local/bin so any terminal can use it."),
@@ -282,6 +284,37 @@ struct SettingsView: View {
         }
     }
 
+    /// One-click whole-set control: install everything missing, or remove everything installed.
+    /// Buttons appear only when they have work to do, so the row doubles as an at-a-glance
+    /// "is everything on?" answer.
+    private func allIntegrationsRow(_ integrations: IntegrationsStore) -> some View {
+        let entries: [(IntegrationsStore.Status, () -> Void, () -> Void)] = [
+            (integrations.cliToolStatus, integrations.installCLITool, integrations.removeCLITool),
+            (integrations.shimStatus(.claude), { integrations.installShim(.claude) },
+             { integrations.removeShim(.claude) }),
+            (integrations.shimStatus(.codex), { integrations.installShim(.codex) },
+             { integrations.removeShim(.codex) }),
+            (integrations.statusLineStatus, integrations.installStatusLine,
+             integrations.removeStatusLine),
+        ]
+        let missing = entries.filter { $0.0 != .installed }
+        let installed = entries.filter { $0.0 == .installed }
+        return HStack {
+            Text(L("All integrations")).font(.subheadline.weight(.semibold))
+            Spacer()
+            if !missing.isEmpty {
+                Button(L("Install all")) { missing.forEach { $0.1() } }
+                    .controlSize(.small)
+            }
+            if !installed.isEmpty {
+                Button(L("Remove all")) { installed.forEach { $0.2() } }
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
     private func integrationRow(title: String, caption: String, status: IntegrationsStore.Status,
                                 install: @escaping () -> Void,
                                 remove: @escaping () -> Void) -> some View {
@@ -311,13 +344,18 @@ struct SettingsView: View {
     private func statusBadge(_ status: IntegrationsStore.Status) -> some View {
         switch status {
         case .installed:
+            // Green, not gray: scanning the badges alone should answer "what's on".
             Text(L("Installed"))
+                .font(.caption2)
+                .foregroundStyle(TallyColor.normal)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(TallyColor.normal.opacity(0.15)))
+        case .notInstalled:
+            Text(L("Not installed"))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 5).padding(.vertical, 1)
                 .background(Capsule().fill(.quaternary))
-        case .notInstalled:
-            EmptyView()
         case .broken(let reason):
             Text(L("Needs attention"))
                 .font(.caption2)

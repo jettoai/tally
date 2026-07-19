@@ -32,6 +32,14 @@ final class UpdaterController: NSObject {
         set { controller?.updater.automaticallyChecksForUpdates = newValue }
     }
 
+    /// Sparkle's second, separate consent: silently download + install when an update is found
+    /// (the checkbox in the update dialog), surfaced as a Settings toggle so it isn't reachable
+    /// only through a dialog that stops appearing once you enable it.
+    var automaticallyDownloadsUpdates: Bool {
+        get { controller?.updater.automaticallyDownloadsUpdates ?? false }
+        set { controller?.updater.automaticallyDownloadsUpdates = newValue }
+    }
+
     var lastUpdateCheckDate: Date? { controller?.updater.lastUpdateCheckDate }
 
     /// User-initiated check from Settings: promote to a regular app so Sparkle's window fronts.

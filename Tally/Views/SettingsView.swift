@@ -446,6 +446,14 @@ struct SettingsView: View {
             .padding(.vertical, 8)
 
             rowDivider
+            toggleRow(L("Install updates automatically"),
+                      subtitle: L("Downloads and installs new versions in the background instead of asking each time."),
+                      isOn: Binding(
+                          get: { UpdaterController.shared.automaticallyDownloadsUpdates },
+                          set: { UpdaterController.shared.automaticallyDownloadsUpdates = $0 }
+                      ))
+
+            rowDivider
             HStack {
                 Text(L("Check for Updates…")).font(.subheadline)
                 Spacer()

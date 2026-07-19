@@ -4679,6 +4679,62 @@
           }
         }
       }
+    },
+    "Install updates automatically": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートを自動インストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 자동 설치"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动安装更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動安裝更新"
+          }
+        }
+      }
+    },
+    "Downloads and installs new versions in the background instead of asking each time.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいバージョンをバックグラウンドでダウンロード・インストールし、毎回確認しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 버전을 백그라운드에서 다운로드하고 설치하며, 매번 묻지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在后台下载并安装新版本，不再每次询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在背景下載並安裝新版本，不再每次詢問。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

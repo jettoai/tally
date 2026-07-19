@@ -16,9 +16,11 @@ extension PopoverRootView {
 
     @ViewBuilder
     var fleetStrip: some View {
-        let summaries = FleetMath.summaries(accounts: store.orderedAccounts) { usage in
-            settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
-        }
+        let summaries = settings.showFleetGauge
+            ? FleetMath.summaries(accounts: store.orderedAccounts) { usage in
+                settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
+            }
+            : []
         if !summaries.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(summaries, id: \.providerID) { summary in

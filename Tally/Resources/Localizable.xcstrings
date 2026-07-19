@@ -4316,6 +4316,62 @@
           }
         }
       }
+    },
+    "Fleet gauge": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フリートゲージ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플릿 게이지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "舰队仪表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "艦隊儀表"
+          }
+        }
+      }
+    },
+    "One bar per provider summing the weekly quota across accounts, with a pace forecast.": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロバイダごとに 1 本、全アカウントの週間クォータを合算し、ペースから残り時間を予測します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로바이더마다 한 줄로 모든 계정의 주간 쿼터를 합산하고, 최근 속도로 남은 시간을 예측합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个服务一条，加总所有账号的周额度，并按近期节奏预测还能用多久。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個服務一條，加總所有帳號的週額度，並依近期節奏預測還能用多久。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

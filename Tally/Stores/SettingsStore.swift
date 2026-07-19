@@ -78,6 +78,11 @@ final class SettingsStore {
     }
 
     /// The pinned panel draws a behind-window glass (desktop vibrancy) base instead of a solid one.
+    /// The fleet gauge (cross-account weekly pool + pace forecast) above the cards.
+    var showFleetGauge: Bool {
+        didSet { UserDefaults.standard.set(showFleetGauge, forKey: "showFleetGauge") }
+    }
+
     var isPanelTranslucent: Bool {
         didSet { UserDefaults.standard.set(isPanelTranslucent, forKey: "isPanelTranslucent") }
     }
@@ -105,6 +110,7 @@ final class SettingsStore {
         refreshIntervalMinutes = [1, 2, 5, 15].contains(interval) ? interval : 5
         languageOverride = AppLocale.override
         isUsagePanelPinned = defaults.bool(forKey: "isUsagePanelPinned")
+        showFleetGauge = defaults.object(forKey: "showFleetGauge") as? Bool ?? true
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative
     }

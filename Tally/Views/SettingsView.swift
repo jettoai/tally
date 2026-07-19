@@ -168,6 +168,12 @@ struct SettingsView: View {
 
         rowDivider
 
+        toggleRow(L("Fleet gauge"),
+                  subtitle: L("One bar per provider summing the weekly quota across accounts, with a pace forecast."),
+                  isOn: $settings.showFleetGauge)
+
+        rowDivider
+
         toggleRow(L("Glass pinned panel"),
                   subtitle: L("The pinned panel shows the desktop through frosted glass."),
                   isOn: $settings.isPanelTranslucent)

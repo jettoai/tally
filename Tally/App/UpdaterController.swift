@@ -53,8 +53,36 @@ final class UpdaterController: NSObject {
 extension UpdaterController: SPUStandardUserDriverDelegate {
     nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
 
+    nonisolated func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem,
+        state: SPUUserUpdateState) {
+        // Sparkle centres its window on the MAIN display; the user may be working on another.
+        // Move it to the screen the pointer is on (the same rule the redeem alert follows) -
+        // a beat after Sparkle has actually put it on screen.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            Self.centerSparkleWindowOnPointerScreen()
+        }
+    }
+
     nonisolated func standardUserDriverWillFinishUpdateSession() {
         // Update UI done - drop back to the menu-bar accessory policy.
         Task { @MainActor in NSApp.setActivationPolicy(.accessory) }
+    }
+
+    /// Find Sparkle's update window (its classes are the only SU*/SPU* windows in the process)
+    /// and centre it on the screen containing the pointer. No-op when nothing matches.
+    @MainActor private static func centerSparkleWindowOnPointerScreen() {
+        let mouse = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
+            ?? NSScreen.main else { return }
+        for window in NSApp.windows where window.isVisible {
+            let className = String(describing: type(of: window))
+            guard className.hasPrefix("SU") || className.hasPrefix("SPU") else { continue }
+            let frame = window.frame
+            let visible = screen.visibleFrame
+            window.setFrameOrigin(NSPoint(x: visible.midX - frame.width / 2,
+                                          y: visible.midY - frame.height / 2))
+        }
     }
 }

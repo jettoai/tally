@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// One account's card: provider + account label + plan, the headline (top-tier) meter prominent,
@@ -12,7 +13,6 @@ struct AccountCardView: View {
     var fillsRowHeight: Bool = false
 
     @State private var isHovering = false
-    @State private var showRedeemConfirm = false
     @State private var redeemBusy = false
     @State private var redeemOutcome: String?
 
@@ -97,7 +97,7 @@ struct AccountCardView: View {
                 // confirmation that spells out the cost - never automatically.
                 if let resets = usage.resetCreditsAvailable, resets > 0 {
                     Button {
-                        if !DemoUsage.isActive { showRedeemConfirm = true }
+                        if !DemoUsage.isActive { presentRedeemConfirm() }
                     } label: {
                         HStack(spacing: 3) {
                             Image(systemName: "arrow.counterclockwise")
@@ -112,12 +112,6 @@ struct AccountCardView: View {
                     .buttonStyle(.plain)
                     .disabled(redeemBusy)
                     .help(L("Use a reset"))
-                    .alert(L("Use a reset"), isPresented: $showRedeemConfirm) {
-                        Button(L("Redeem"), role: .destructive) { redeem() }
-                        Button(L("Cancel"), role: .cancel) {}
-                    } message: {
-                        Text(redeemMessage)
-                    }
                 }
                 if let redeemOutcome {
                     Text(redeemOutcome)
@@ -260,6 +254,20 @@ struct AccountCardView: View {
                          + expiry.formatted(date: .abbreviated, time: .shortened) + ".")
         }
         return parts.joined(separator: "\n\n")
+    }
+
+    /// An AppKit alert in its OWN window: presenting SwiftUI's `.alert` inside the borderless
+    /// pinned panel forced the host window opaque for the duration, turning the transparent
+    /// rounded corners square (2026-07-19). NSAlert leaves the panel untouched.
+    private func presentRedeemConfirm() {
+        let alert = NSAlert()
+        alert.messageText = L("Use a reset")
+        alert.informativeText = redeemMessage
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L("Redeem")).hasDestructiveAction = true
+        alert.addButton(withTitle: L("Cancel"))
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn { redeem() }
     }
 
     private func redeem() {

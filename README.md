@@ -62,7 +62,7 @@ subscriptions at once:
 - **Menu bar strip.** Per-account brand marks with stacked session/weekly percentages; same-provider
   accounts get a tiny index badge; hover for every account's full numbers.
 - **Pinnable glass panel.** Pin the dashboard as an always-on-top frosted-glass panel; drag the
-  header to place it anywhere.
+  header to place it anywhere, and spread many accounts across 2, 3 or 4 columns.
 - **Reset times everywhere.** Every window shows its own reset; click any reset label to flip all of
   them between countdown ("resets in 2d 4h") and exact time ("resets at 07/18 20:00").
 - **Codex reset banking, visible and redeemable.** Banked rate-limit resets show right on the
@@ -93,9 +93,13 @@ subscriptions at once:
 - **Shell integration.** One click installs PATH shims so even bare `claude` / `codex` commands
   follow your launch policy; one click removes them just as cleanly.
 - **Status line integration.** Your Claude Code status line gains a purple ✦ Tally signal (this
-  session runs under Tally) and the active account name. An existing custom status line keeps
-  running untouched with the signal appended, is restored byte-for-byte on removal, and keeps
-  working even if you delete Tally without uninstalling.
+  session runs under Tally) and the active account name; opt in to the full quota line and it
+  carries the whole story in the app's own palette: meter bars, percents and reset countdowns
+  for the model tier this session is actually consuming, the 5-hour window, and the weekly
+  budget (the pooled fleet budget when the fleet gauge is on), following the panel's used/left
+  toggle. An existing custom status line keeps running untouched with Tally's line appended,
+  is restored byte-for-byte on removal, and keeps working even if you delete Tally without
+  uninstalling.
 - **`tally` CLI.** `tally claude [args…]`, `tally resume` (move this directory's latest
   conversation to another account), `tally claude --account <name>`, `tally status`,
   `tally best-dir <provider>`, all script-friendly.

@@ -59,9 +59,11 @@ subscriptions at once:
   header to place it anywhere.
 - **Reset times everywhere.** Every window shows its own reset; click any reset label to flip all of
   them between countdown ("resets in 2d 4h") and exact time ("resets at 07/18 20:00").
-- **Codex reset banking, visible.** Banked rate-limit resets show right on the card ("3 resets
-  available"), so you know your escape hatches before you hit a wall; redeeming one stays your
-  call, in the official CLI.
+- **Codex reset banking, visible and redeemable.** Banked rate-limit resets show right on the
+  card ("3 resets available"), so you know your escape hatches before you hit a wall. Click to
+  redeem one, behind a confirmation that names the account, spells out the cost, and warns you
+  off when redeeming would mostly be wasted; the soonest-expiring credit goes first, and Tally
+  never spends one automatically.
 
 ### The launch control plane
 
@@ -70,9 +72,9 @@ subscriptions at once:
   windows. Quota about to reset gets burned first (it would evaporate unused); quota that must last
   days is preserved; hysteresis keeps noise-level differences from bouncing you between accounts.
   The panel badge marks the current pick, with the reason in its tooltip.
-- **Three modes per provider.** Smart (the algorithm decides at every launch), Manual (click a card
-  to pin an account; click again to go back to Smart, live, even for the running session), or Off
-  (a dashboard and nothing more).
+- **Three modes per provider.** Smart (the algorithm decides at every launch), Manual (the circle
+  on a card pins that account; clicking the check releases it back to Smart, live, even for the
+  running session), or Off (a dashboard and nothing more).
 - **Mid-session follow-through.** Hit a usage cap and tally resumes the *same conversation* on the
   next-best account (3-per-10-minutes fuse; opt out with `--no-handoff` or `TALLY_AUTO_HANDOFF=0`).
   If the server silently downgrades your model, a sibling account that can still serve your primary

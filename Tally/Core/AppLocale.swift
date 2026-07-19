@@ -15,6 +15,10 @@ enum AppLocale {
     static var override: String? {
         get { UserDefaults.standard.string(forKey: overrideKey) }
         set {
+            // A demo launch carries `-appLanguage` in the volatile ARGUMENT domain; any binding
+            // writeback during that run must not fossilize it into the user's real defaults
+            // (live leak: a marketing capture flipped the whole app to English, 2026-07-19).
+            guard !DemoUsage.isActive else { return }
             if let newValue { UserDefaults.standard.set(newValue, forKey: overrideKey) }
             else { UserDefaults.standard.removeObject(forKey: overrideKey) }
         }

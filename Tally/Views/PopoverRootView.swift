@@ -58,21 +58,33 @@ struct PopoverRootView: View {
         }
     }
 
-    /// Go two-column once any provider has more than one visible account - the multi-account case
-    /// where a single column would scroll forever. Otherwise stay a narrow single column.
-    private var useTwoColumns: Bool {
-        Dictionary(grouping: store.orderedAccounts, by: \.providerID).values.contains { $0.count > 1 }
+    /// How many card columns: the user's explicit 2/3 choice wins; auto goes two-column once any
+    /// provider has more than one visible account (the multi-account case where a single column
+    /// would scroll forever) and stays a narrow single column otherwise.
+    private var columnCount: Int {
+        if [2, 3].contains(settings.panelColumns) { return settings.panelColumns }
+        let multi = Dictionary(grouping: store.orderedAccounts, by: \.providerID).values
+            .contains { $0.count > 1 }
+        return multi ? 2 : 1
     }
 
-    private var popoverWidth: CGFloat { useTwoColumns ? 560 : 380 }
+    /// Constant card width (263pt) across the 2/3-column layouts; only the window grows.
+    private var popoverWidth: CGFloat {
+        switch columnCount {
+        case 1: return 380
+        case 2: return 560
+        default: return 834   // 24 padding + 3×263 cards + 2×10 gaps
+        }
+    }
 
     /// Definite card width. `.frame(maxWidth: .infinity)` cards would fight the hosting controller's
     /// `.preferredContentSize` sizing (content wants to shrink to fit, cards want infinite width) and
     /// recurse the layout engine to a stack overflow - so derive an exact width from the fixed popover
-    /// width (12pt content padding each side, 10pt gap between two columns).
+    /// width (12pt content padding each side, 10pt gap between columns).
     private var cardWidth: CGFloat {
         let inner = popoverWidth - 24
-        return useTwoColumns ? (inner - 10) / 2 : inner
+        let columns = CGFloat(columnCount)
+        return (inner - 10 * (columns - 1)) / columns
     }
 
     private var header: some View {
@@ -171,15 +183,16 @@ struct PopoverRootView: View {
     /// panel was showing → index out of range).
     @ViewBuilder
     private var accountLayout: some View {
-        if useTwoColumns {
+        let columns = columnCount
+        if columns > 1 {
             VStack(spacing: 10) {
                 ForEach(accountRows) { row in
                     HStack(alignment: .top, spacing: 10) {
                         ForEach(row.items) { usage in
                             card(usage, fillsRowHeight: true).frame(width: cardWidth, alignment: .top)
                         }
-                        // Keep a lone trailing card at half width so the grid stays aligned.
-                        if row.items.count == 1 {
+                        // Keep a short trailing row at full-grid card widths so columns stay aligned.
+                        ForEach(0 ..< columns - row.items.count, id: \.self) { _ in
                             Color.clear.frame(width: cardWidth)
                         }
                     }
@@ -257,11 +270,12 @@ struct PopoverRootView: View {
             .onEnded { _ in cardLift = nil }
     }
 
-    /// Accounts chunked into pairs for the two-column grid.
+    /// Accounts chunked into rows of the current column count.
     private var accountRows: [AccountRow] {
         let ordered = store.orderedAccounts
-        return stride(from: 0, to: ordered.count, by: 2).map { start in
-            AccountRow(items: Array(ordered[start ..< min(start + 2, ordered.count)]))
+        let columns = columnCount
+        return stride(from: 0, to: ordered.count, by: columns).map { start in
+            AccountRow(items: Array(ordered[start ..< min(start + columns, ordered.count)]))
         }
     }
 

@@ -155,6 +155,23 @@ struct SettingsView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
 
+        rowDivider
+
+        HStack {
+            Text(L("Panel columns")).font(.subheadline)
+            Spacer()
+            Picker("", selection: $settings.panelColumns) {
+                Text(L("Auto")).tag(0)
+                Text(verbatim: "2").tag(2)
+                Text(verbatim: "3").tag(3)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+
         // Only shown when some account actually reports more than one model-scoped window -
         // otherwise the toggle is a visual no-op (Anthropic currently reports a single Fable
         // window, which is the always-visible headline) that just invites "is this broken?".

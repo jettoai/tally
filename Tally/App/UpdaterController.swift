@@ -54,9 +54,11 @@ final class UpdaterController: NSObject {
     var lastUpdateCheckDate: Date? { controller?.updater.lastUpdateCheckDate }
 
     /// User-initiated check from Settings: promote to a regular app so Sparkle's window fronts.
-    /// Whatever result window Sparkle opens (update found, up to date, error) follows the
-    /// pointer's screen: it isn't ours to create, so sweep for windows that appeared after the
-    /// check started - swept twice because the feed fetch time varies.
+    /// Whatever windows Sparkle opens (checking, update found, up to date, error) follow the
+    /// pointer's screen: they aren't ours to create, so a fast poller (every 50ms, stopped when
+    /// the session ends) places each new window once, quickly enough that the move from
+    /// Sparkle's default spot is imperceptible. Fixed-delay sweeps raced the feed fetch: a
+    /// window that appeared between sweeps sat at Sparkle's position long enough to visibly jump.
     func checkForUpdates() {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -65,15 +67,19 @@ final class UpdaterController: NSObject {
         SettingsWindowController.shared.bringToFrontIfVisible()
         let before = Set(NSApp.windows.map(\.windowNumber))
         controller?.checkForUpdates(nil)
-        for delay: UInt64 in [400_000_000, 1_500_000_000, 4_000_000_000] {
+        sweepTimer?.invalidate()
+        let deadline = Date().addingTimeInterval(60)   // safety stop if the session never ends
+        sweepTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: delay)
                 Self.centerOnPointerScreen(NSApp.windows.filter {
                     $0.isVisible && !before.contains($0.windowNumber)
                 })
+                if Date() > deadline { UpdaterController.shared.sweepTimer?.invalidate() }
             }
         }
     }
+
+    private var sweepTimer: Timer?
 
     /// Windows already placed once. Sparkle RESIZES its window as the flow advances (checking →
     /// found → downloading); re-centring it on every sweep made it visibly hop up and down, so
@@ -97,8 +103,19 @@ extension UpdaterController: SPUStandardUserDriverDelegate {
     }
 
     nonisolated func standardUserDriverWillFinishUpdateSession() {
-        // Update UI done - retract to whatever the visible windows dictate (accessory when none).
-        Task { @MainActor in ActivationPolicy.refresh() }
+        // Update UI done - retract to whatever the visible windows dictate (accessory when none),
+        // and hand focus back to the Tally window the check came from. Without this, macOS
+        // treats the closing Sparkle window as "app done" and activates some other app (the
+        // check ended with the user staring at a random Finder window).
+        Task { @MainActor in
+            self.sweepTimer?.invalidate()
+            ActivationPolicy.refresh()
+            if SettingsWindowController.shared.isWindowVisible
+                || MainWindowController.shared.isWindowVisible {
+                NSApp.activate(ignoringOtherApps: true)
+                SettingsWindowController.shared.bringToFrontIfVisible()
+            }
+        }
     }
 
     /// Find Sparkle's update window (its classes are the only SU*/SPU* windows in the process)

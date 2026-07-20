@@ -420,60 +420,9 @@ struct SettingsView: View {
 
         rowDivider
 
-        // The updater is dormant without a feed URL + ED key (dev builds, or a release built
-        // outside the ship pipeline). Say so instead of hiding the section - an invisible
-        // update story reads as "updates don't exist".
-        if UpdaterController.shared.isActive {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L("Automatically check for updates")).font(.subheadline)
-                    if let last = UpdaterController.shared.lastUpdateCheckDate {
-                        Text(L("Last checked") + ": "
-                             + last.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened)
-                                 .locale(AppLocale.current)))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                Toggle(isOn: Binding(
-                    get: { UpdaterController.shared.automaticallyChecksForUpdates },
-                    set: { UpdaterController.shared.automaticallyChecksForUpdates = $0 }
-                )) { EmptyView() }
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-
-            rowDivider
-            toggleRow(L("Install updates automatically"),
-                      subtitle: L("Downloads and installs new versions in the background instead of asking each time."),
-                      isOn: Binding(
-                          get: { UpdaterController.shared.automaticallyDownloadsUpdates },
-                          set: { UpdaterController.shared.automaticallyDownloadsUpdates = $0 }
-                      ))
-
-            rowDivider
-            HStack {
-                Text(L("Check for Updates…")).font(.subheadline)
-                Spacer()
-                Button(L("Check Now")) { UpdaterController.shared.checkForUpdates() }
-                    .controlSize(.small)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-        } else {
-            HStack(alignment: .firstTextBaseline) {
-                Text(L("This build has no update feed; download new versions from GitHub Releases."))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer()
-                Link("GitHub", destination: URL(string: "https://github.com/jettoai/tally/releases")!)
-                    .font(.caption)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-        }
+        // The Sparkle rows live in their own file (SettingsUpdateRows): the two switches carry a
+        // hidden Sparkle-side dependency that needs truthful local state, not computed bindings.
+        SettingsUpdateRows()
     }
 
     private func languageName(_ code: String) -> String {

@@ -58,14 +58,22 @@ struct PopoverRootView: View {
         }
     }
 
-    /// How many card columns: the user's explicit 2/3 choice wins; auto goes two-column once any
+    /// How many card columns: the user's explicit 2/3/4 choice wins; auto goes two-column once any
     /// provider has more than one visible account (the multi-account case where a single column
-    /// would scroll forever) and stays a narrow single column otherwise.
+    /// would scroll forever) and stays a narrow single column otherwise. Either way the width
+    /// follows what's actually on screen: cards folded behind their gauge release their columns,
+    /// and a fully folded panel drops to the compact single-column strip instead of stretching
+    /// two gauge bars across a four-column-wide void.
     private var columnCount: Int {
-        if (2 ... 4).contains(settings.panelColumns) { return settings.panelColumns }
-        let multi = Dictionary(grouping: store.orderedAccounts, by: \.providerID).values
-            .contains { $0.count > 1 }
-        return multi ? 2 : 1
+        let configured: Int
+        if (2 ... 4).contains(settings.panelColumns) {
+            configured = settings.panelColumns
+        } else {
+            let multi = Dictionary(grouping: store.orderedAccounts, by: \.providerID).values
+                .contains { $0.count > 1 }
+            configured = multi ? 2 : 1
+        }
+        return max(1, min(configured, max(visibleAccounts.count, 1)))
     }
 
     /// Constant card width (263pt) across the 2/3/4-column layouts; only the window grows.

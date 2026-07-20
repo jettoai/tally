@@ -116,6 +116,7 @@ func launchPolicy(_ providerID: String) -> LaunchPolicy {
             fresh.fallbackModel = "opus"
             fresh.fallbackEffort = "ultracode"
         } else {
+            fresh.model = "gpt-5.6-sol"
             fresh.effort = "xhigh"
         }
         return fresh

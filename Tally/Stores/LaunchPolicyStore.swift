@@ -77,6 +77,7 @@ final class LaunchPolicyStore {
             policy.fallbackModel = "opus"
             policy.fallbackEffort = "ultracode"
         } else {
+            policy.model = "gpt-5.6-sol"   // tier 1, same rationale as fable above
             policy.effort = "xhigh"
         }
         return policy

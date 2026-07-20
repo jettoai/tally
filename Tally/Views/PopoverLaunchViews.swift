@@ -98,6 +98,8 @@ extension PopoverRootView {
                         .compactMap(\.launchHome)) {
                     commandRow("tally resume", caption: L("Move this directory's latest conversation to another account and continue there"))
                 }
+                commandRow("tally add claude", caption: L("Log in one more account; also works for codex"))
+                commandRow("tally update", caption: L("Check for app updates now"))
             }
             integrationStatusLine
             Text(L("A ✦ in the status line means the session was launched by Tally."))

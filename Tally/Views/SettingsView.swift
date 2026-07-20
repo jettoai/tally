@@ -162,6 +162,7 @@ struct SettingsView: View {
             Spacer()
             Picker("", selection: $settings.panelColumns) {
                 Text(L("Auto")).tag(0)
+                Text(verbatim: "1").tag(1)
                 Text(verbatim: "2").tag(2)
                 Text(verbatim: "3").tag(3)
                 Text(verbatim: "4").tag(4)

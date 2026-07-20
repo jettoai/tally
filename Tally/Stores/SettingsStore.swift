@@ -151,7 +151,7 @@ final class SettingsStore {
         showFleetGauge = defaults.object(forKey: "showFleetGauge") as? Bool ?? true
         collapsedProviders = Set(defaults.stringArray(forKey: "collapsedProviders") ?? [])
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
-        panelColumns = (2 ... 4).contains(defaults.integer(forKey: "panelColumns"))
+        panelColumns = (1 ... 4).contains(defaults.integer(forKey: "panelColumns"))
             ? defaults.integer(forKey: "panelColumns") : 0
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative

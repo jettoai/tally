@@ -66,7 +66,7 @@ struct PopoverRootView: View {
     /// two gauge bars across a four-column-wide void.
     private var columnCount: Int {
         let configured: Int
-        if (2 ... 4).contains(settings.panelColumns) {
+        if (1 ... 4).contains(settings.panelColumns) {
             configured = settings.panelColumns
         } else {
             let multi = Dictionary(grouping: store.orderedAccounts, by: \.providerID).values
@@ -344,6 +344,30 @@ struct PopoverRootView: View {
             Spacer()
             // Footer icons are one muted set (secondary); only the pin lights up (accent) when active,
             // so an unpinned pin doesn't read as already-on.
+            // Quick column switcher: the same value the Settings pane edits, surfaced where the
+            // layout is actually being looked at (switching 1-vs-4 columns is a contextual act,
+            // like collapse, not a set-once preference).
+            Menu {
+                Picker("", selection: $settings.panelColumns) {
+                    Text(L("Auto")).tag(0)
+                    Text(verbatim: "1").tag(1)
+                    Text(verbatim: "2").tag(2)
+                    Text(verbatim: "3").tag(3)
+                    Text(verbatim: "4").tag(4)
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Image(systemName: "rectangle.split.3x1")
+                    .font(.callout)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .foregroundStyle(.secondary)
+            .help(L("Panel columns"))
             Button {
                 showLaunchHelp.toggle()
             } label: {

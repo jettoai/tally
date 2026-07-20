@@ -2,6 +2,7 @@
   <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="140" alt="Tally app icon"></a>
 </p>
 <h1 align="center">Tally</h1>
+<p align="center"><sub>by <a href="https://jetto.ai">Jetto</a></sub></p>
 
 <p align="center">你的所有 AI 订阅额度，一眼看尽，就在 macOS 菜单栏，<br>还有一个启动器，让每个会话都跑在余量撑最久的账号上。</p>
 

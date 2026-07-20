@@ -2,6 +2,7 @@
   <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="140" alt="Tally app icon"></a>
 </p>
 <h1 align="center">Tally</h1>
+<p align="center"><sub>by <a href="https://jetto.ai">Jetto</a></sub></p>
 
 <p align="center">보유한 모든 AI 구독의 잔여 한도를 macOS 메뉴 막대에서 한눈에.<br>게다가 모든 세션을 「한도가 가장 오래 버티는 계정」에 태워 주는 런처까지.</p>
 

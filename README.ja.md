@@ -2,6 +2,7 @@
   <a href="https://github.com/jettoai/tally/releases/latest"><img src="assets/app-icon.svg" height="140" alt="Tally app icon"></a>
 </p>
 <h1 align="center">Tally</h1>
+<p align="center"><sub>by <a href="https://jetto.ai">Jetto</a></sub></p>
 
 <p align="center">あなたの AI サブスクリプションの残量を、macOS メニューバーでひと目で。<br>さらに、あらゆるセッションを「クォータが最も長く持つアカウント」に乗せるランチャー付き。</p>
 

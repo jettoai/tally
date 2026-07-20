@@ -5222,6 +5222,34 @@
           }
         }
       }
+    },
+    "%1$@/%2$@ accounts' worth left": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り %1$@/%2$@ アカウント分"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@/%2$@ 계정 분량 남음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩 %1$@/%2$@ 个账号份"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剩 %1$@/%2$@ 個帳號份"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

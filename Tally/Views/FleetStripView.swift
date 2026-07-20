@@ -169,14 +169,13 @@ extension PopoverRootView {
 
     private func worth(_ units: Double) -> String { String(format: "%.1f", units / 100) }
 
-    /// "1.8/2" - the pool total in the unit a multi-account user actually thinks in: accounts'
-    /// worth of quota. Follows the Used/Left toggle like every meter (used mode shows the worth
-    /// spent).
+    /// The pool's level as a percentage - the same numeric language as the cards and the menu
+    /// bar, so the whole panel reads in one unit (the label's ×N already carries the fleet size,
+    /// and the invented "accounts' worth" unit lives in the tooltip instead). Follows the
+    /// Used/Left toggle like every meter.
     private func worthValue(_ pool: FleetPool) -> String {
-        let capacity = Double(pool.members.count) * 100
-        let shown = settings.displayMode == .used
-            ? capacity - pool.totalRemaining : pool.totalRemaining
-        return "\(worth(shown))/\(pool.members.count)"
+        percent(settings.displayMode == .used
+            ? 100 - pool.averageRemaining : pool.averageRemaining)
     }
 
     /// The "does it last" verdict from the measured pace: dry-run date (amber, red inside a day),
@@ -259,6 +258,13 @@ extension PopoverRootView {
     private func fleetTooltip(_ summaries: [FleetSummary]) -> String {
         summaries.map { summary in
             var lines = ["\(ProviderCatalog.displayName(for: summary.providerID)) × \(summary.accountCount)"]
+            // The capacity-planning unit ("how many accounts' worth is left") for the leading
+            // pool - demoted from the value column, where percent is the one shared language.
+            if let pool = displayedPools(summary).first {
+                let count = "\(pool.members.count)"
+                lines.append(String(localized: "\(worth(pool.totalRemaining))/\(count) accounts' worth left",
+                                    bundle: AppLocale.bundle))
+            }
             for pool in summary.pools {
                 lines.append("\(L(pool.label)): \(percent(pool.averageRemaining)) \(L("left"))"
                     + " · \(L("lowest")) \(pool.minAccountLabel) \(percent(pool.minRemaining))")

@@ -29,6 +29,37 @@ final class MainWindowController {
         ActivationPolicy.refresh()
     }
 
+    /// Content-driven resizes (the hosting controller is the size authority here) keep the
+    /// window's BOTTOM edge by AppKit default, so collapsing cards made the whole view, and the
+    /// row just clicked, drop by the height difference. Re-anchor the TOP edge instead: position
+    /// is corrected after each resize (origin-only, never a size write, so the layout engine's
+    /// single size authority stays untouched; see the pinned panel's recursion lesson). The
+    /// window has no .resizable mask, so every resize here is content-driven.
+    private var topAnchor: CGFloat?
+
+    private func keepTopEdgeThroughResizes(_ window: NSWindow) {
+        topAnchor = window.frame.maxY
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: window, queue: .main
+        ) { [weak self, weak window] _ in
+            Task { @MainActor in
+                guard let self, let window else { return }
+                self.topAnchor = window.frame.maxY
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification, object: window, queue: .main
+        ) { [weak self, weak window] _ in
+            Task { @MainActor in
+                guard let self, let window, let top = self.topAnchor else { return }
+                let frame = window.frame
+                if abs(frame.maxY - top) > 0.5 {
+                    window.setFrameOrigin(NSPoint(x: frame.origin.x, y: top - frame.height))
+                }
+            }
+        }
+    }
+
     func show() {
         if window == nil {
             let hosting = NSHostingController(
@@ -43,6 +74,7 @@ final class MainWindowController {
             window.isReleasedWhenClosed = false
             window.setFrameAutosaveName("TallyMainWindow.v3")
             ActivationPolicy.track(window)
+            keepTopEdgeThroughResizes(window)
             self.window = window
         }
         // Summoned windows follow the user: place on the pointer's screen whenever the window

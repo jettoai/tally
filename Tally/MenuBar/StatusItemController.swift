@@ -116,7 +116,13 @@ final class StatusItemController: NSObject {
             guard let self, size.width.isFinite, size.height.isFinite, size.width > 1, size.height > 1
             else { return }
             let maxHeight = (NSScreen.main?.visibleFrame.height ?? 1200) - 40
+            // NSPopover animates contentSize changes with a springy bounce; for in-place content
+            // changes (collapsing a provider's cards) the bounce reads as the popover "jumping".
+            // Suppress the animation just for the resize - show/close keep theirs.
+            let animated = self.popover.animates
+            self.popover.animates = false
             self.popover.contentSize = CGSize(width: min(size.width, 900), height: min(size.height, maxHeight))
+            self.popover.animates = animated
         }
     }
 

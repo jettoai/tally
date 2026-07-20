@@ -76,11 +76,9 @@ extension PopoverRootView {
                         .help(L("Show or hide this provider's account cards"))
                 }
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        settings.toggleCollapsed(summary.providerID)
-                    }
-                }
+                // Instant, not animated: the surrounding window resize can't be synchronized with
+                // a SwiftUI layout animation, and the half-animated combination read as a bounce.
+                .onTapGesture { settings.toggleCollapsed(summary.providerID) }
                 contextLine(summary, pool)
             }
         }

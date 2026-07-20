@@ -344,10 +344,24 @@ struct PopoverRootView: View {
             Spacer()
             // Footer icons are one muted set (secondary); only the pin lights up (accent) when active,
             // so an unpinned pin doesn't read as already-on.
-            // Quick column switcher: the same value the Settings pane edits, surfaced where the
-            // layout is actually being looked at (switching 1-vs-4 columns is a contextual act,
-            // like collapse, not a set-once preference).
+            // The view menu: both layout dimensions behind one footer icon. "Gauges only" is the
+            // one-click version of collapsing every pooled provider (clicking a single gauge row
+            // stays the granular tool); below the divider, the same column value the Settings
+            // pane edits. Two dimensions, one door - not a knob per feature.
             Menu {
+                Toggle(L("Gauges only"), isOn: Binding(
+                    get: {
+                        let pooled = pooledProviderIDs
+                        return !pooled.isEmpty && pooled.isSubset(of: settings.collapsedProviders)
+                    },
+                    set: { on in
+                        let pooled = pooledProviderIDs
+                        if on { settings.collapsedProviders.formUnion(pooled) }
+                        else { settings.collapsedProviders.subtract(pooled) }
+                    }
+                ))
+                .disabled(pooledProviderIDs.isEmpty)
+                Divider()
                 Picker("", selection: $settings.panelColumns) {
                     Text(L("Auto")).tag(0)
                     Text(verbatim: "1").tag(1)
@@ -367,7 +381,7 @@ struct PopoverRootView: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .foregroundStyle(.secondary)
-            .help(L("Panel columns"))
+            .help(L("View options"))
             Button {
                 showLaunchHelp.toggle()
             } label: {

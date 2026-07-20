@@ -14,7 +14,24 @@ final class MainWindowController {
 
     private var window: NSWindow?
 
+    /// Whether the window should come back on the next launch. An update relaunch is just
+    /// quit + launch, so without this the dashboard the user was reading silently vanishes.
+    /// True while the window is up, false once the user closes it; at quit the last value
+    /// stands, which is exactly "restore what was open".
+    private nonisolated static let restoreKey = "restoreMainWindow"
+
     var isWindowVisible: Bool { window?.isVisible == true }
+
+    /// Reopen the window at launch if it was up when the app last quit (see `restoreKey`).
+    func restoreAtLaunchIfNeeded() {
+        if UserDefaults.standard.bool(forKey: Self.restoreKey) { show(restoring: true) }
+    }
+
+    /// Called at termination: tear-down closes must not read as the user dismissing the
+    /// window, so re-record what is actually on screen for the next launch to restore.
+    func persistRestoreState() {
+        UserDefaults.standard.set(isWindowVisible, forKey: Self.restoreKey)
+    }
 
     /// Screen-space top-left of the window content while visible, for the pin handoff (the pinned
     /// panel opens exactly where the window was, mirroring the popover-to-panel handoff).
@@ -26,6 +43,7 @@ final class MainWindowController {
 
     func close() {
         window?.orderOut(nil)
+        UserDefaults.standard.set(false, forKey: Self.restoreKey)
         ActivationPolicy.refresh()
     }
 
@@ -60,7 +78,9 @@ final class MainWindowController {
         }
     }
 
-    func show() {
+    /// `restoring` = a launch-time restore: keep the autosaved frame (the window reappears where
+    /// it was before the quit) instead of re-deriving the position from the pointer.
+    func show(restoring: Bool = false) {
         if window == nil {
             let hosting = NSHostingController(
                 rootView: PopoverRootView(store: .shared, settings: .shared))
@@ -74,12 +94,16 @@ final class MainWindowController {
             window.isReleasedWhenClosed = false
             window.setFrameAutosaveName("TallyMainWindow.v3")
             ActivationPolicy.track(window)
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { _ in UserDefaults.standard.set(false, forKey: Self.restoreKey) }
             keepTopEdgeThroughResizes(window)
             self.window = window
         }
         // Summoned windows follow the user: place on the pointer's screen whenever the window
         // isn't already up (an open window stays put - yanking it mid-use would be worse).
-        if window?.isVisible != true { window?.centerOnPointerScreen() }
+        if window?.isVisible != true, !restoring { window?.centerOnPointerScreen() }
+        UserDefaults.standard.set(true, forKey: Self.restoreKey)
         ActivationPolicy.promote()   // a visible dashboard earns a Dock / Cmd-Tab presence
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)

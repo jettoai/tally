@@ -17,9 +17,26 @@ final class SettingsWindowController {
     private var window: NSWindow?
     private var lastAppliedHeight: CGFloat = 0
 
+    /// Restore-on-launch flag, mirroring MainWindowController: an update relaunch is quit +
+    /// launch, and Settings is the LIKELIEST open window then (the update button lives in it).
+    private nonisolated static let restoreKey = "restoreSettingsWindow"
+
     var isWindowVisible: Bool { window?.isVisible == true }
 
-    func show() {
+    /// Reopen the window at launch if it was up when the app last quit (see `restoreKey`).
+    func restoreAtLaunchIfNeeded() {
+        if UserDefaults.standard.bool(forKey: Self.restoreKey) { show(restoring: true) }
+    }
+
+    /// Called at termination: tear-down closes must not read as the user dismissing the
+    /// window, so re-record what is actually on screen for the next launch to restore.
+    func persistRestoreState() {
+        UserDefaults.standard.set(isWindowVisible, forKey: Self.restoreKey)
+    }
+
+    /// `restoring` = a launch-time restore: keep the autosaved frame instead of re-centering,
+    /// so the window reappears where the user left it before the (update-driven) quit.
+    func show(restoring: Bool = false) {
         if window == nil {
             let hosting = NSHostingController(rootView: SettingsView(
                 store: .shared, settings: .shared,
@@ -34,11 +51,15 @@ final class SettingsWindowController {
             // every summon below (pointer's screen), so a stale saved origin never wins.
             window.setFrameAutosaveName("TallySettingsWindow.v5")
             ActivationPolicy.track(window)
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification, object: window, queue: .main
+            ) { _ in UserDefaults.standard.set(false, forKey: Self.restoreKey) }
             self.window = window
         }
         // Summoned windows follow the user: place on the pointer's screen whenever the window
         // isn't already up (an open window stays put - yanking it mid-use would be worse).
-        if window?.isVisible != true { window?.centerOnPointerScreen() }
+        if window?.isVisible != true, !restoring { window?.centerOnPointerScreen() }
+        UserDefaults.standard.set(true, forKey: Self.restoreKey)
         ActivationPolicy.promote()   // a visible Settings window earns a Dock / Cmd-Tab presence
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)

@@ -24,6 +24,17 @@ final class UpdaterController: NSObject {
               let key = info?["SUPublicEDKey"] as? String, !key.isEmpty else { return }
         controller = SPUStandardUpdaterController(
             startingUpdater: true, updaterDelegate: self, userDriverDelegate: self)
+        // `tally update` posts this from the CLI. Registered only when the updater is live,
+        // so dev builds (no feed) ignore the broadcast.
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(externalCheckRequested),
+            name: Self.externalCheckNotification, object: nil)
+    }
+
+    static let externalCheckNotification = Notification.Name("ai.jetto.tally.checkForUpdates")
+
+    @objc nonisolated private func externalCheckRequested() {
+        Task { @MainActor in self.checkForUpdates() }
     }
 
     /// Sparkle's own persisted preference, surfaced as a Settings toggle.

@@ -3017,35 +3017,6 @@
         }
       }
     },
-    "Model & effort": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模型與推理強度"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "模型与推理强度"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "モデルと推論強度"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모델과 추론 강도"
-          }
-        }
-      }
-    },
     "Fallback & effort": {
       "extractionState": "manual",
       "localizations": {
@@ -4789,6 +4760,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "새로고침 중…"
+          }
+        }
+      }
+    },
+    "Default model & effort": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設模型與推理強度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认模型与推理强度"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのモデルと推論強度"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 모델 및 추론 강도"
           }
         }
       }

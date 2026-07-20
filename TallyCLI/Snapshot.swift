@@ -104,7 +104,21 @@ func launchPolicy(_ providerID: String) -> LaunchPolicy {
     }
     guard let data = try? Data(contentsOf: stateURL),
           let file = try? JSONDecoder().decode(StateFile.self, from: data),
-          let policy = file.launch?[providerID] else { return LaunchPolicy() }
+          let policy = file.launch?[providerID] else {
+        // Mirror of LaunchPolicyStore.factoryDefault (the app side): a provider the user never
+        // configured launches with the power-user defaults, not with nothing.
+        var fresh = LaunchPolicy()
+        fresh.permissionMode = "bypass"
+        fresh.startMode = "continue"
+        if providerID == "claude" {
+            fresh.effort = "high"
+            fresh.fallbackModel = "opus"
+            fresh.fallbackEffort = "max"
+        } else {
+            fresh.effort = "xhigh"
+        }
+        return fresh
+    }
     return LaunchPolicy(mode: policy.mode ?? "auto",
                         pinnedAccountID: policy.pinnedAccountID,
                         pinnedHome: policy.pinnedHome,

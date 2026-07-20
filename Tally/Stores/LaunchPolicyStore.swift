@@ -61,8 +61,27 @@ final class LaunchPolicyStore {
         }
     }
 
+    /// Factory defaults for a provider the user has never configured (Albert's call, 2026-07-20):
+    /// the target user runs several paid accounts hard, so bare launches continue the last
+    /// conversation without permission prompts, at the depth the plan can afford. Model names are
+    /// deliberately NOT defaulted (they drift and are plan-dependent); "opus" is a stable alias
+    /// every Claude plan serves. The first user edit persists an entry and wins forever after.
+    static func factoryDefault(_ providerID: String) -> ProviderPolicy {
+        var policy = ProviderPolicy()
+        policy.permissionMode = .bypass
+        policy.startMode = "continue"
+        if providerID == "claude" {
+            policy.effort = "high"
+            policy.fallbackModel = "opus"
+            policy.fallbackEffort = "max"   // deeper reasoning compensates the weaker model
+        } else {
+            policy.effort = "xhigh"
+        }
+        return policy
+    }
+
     func policy(_ providerID: String) -> ProviderPolicy {
-        policies[providerID] ?? ProviderPolicy()
+        policies[providerID] ?? Self.factoryDefault(providerID)
     }
 
     func mode(_ providerID: String) -> Mode { policy(providerID).mode }

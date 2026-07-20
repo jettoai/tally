@@ -63,7 +63,7 @@ struct SettingsLaunchView: View {
             permissionRow(id)
         }
         rowDivider
-        ModelEffortRow(title: L("Model & effort"),
+        ModelEffortRow(title: L("Default model & effort"),
                        modelOptions: id == "claude" ? ModelCatalog.claudeAliases : ModelCatalog.codexModels,
                        effortLevels: id == "claude" ? EffortLevels.shared.claude : EffortLevels.shared.codex,
                        model: launchDefaultBinding(id, \.model),

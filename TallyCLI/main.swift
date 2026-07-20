@@ -280,6 +280,39 @@ func runLaunchDir(_ providerID: String) {
 
 // MARK: - Entry
 
+/// `tally add claude|codex`: create the next numbered config home and hand this terminal to the
+/// official login flow. A numbered home that exists but never finished logging in is resumed
+/// rather than skipped, so an aborted login doesn't burn a number. The default home counts too:
+/// on a machine with no account at all, `tally add` is simply the first login.
+func runAdd(_ providerID: String) -> Never {
+    guard let provider = providers.first(where: { $0.id == providerID }) else {
+        warn("usage: tally add <claude|codex>")
+        exit(2)
+    }
+    let fm = FileManager.default
+    let home = fm.homeDirectoryForCurrentUser
+    let base = provider.id == "claude" ? ".claude" : ".codex"
+    let authFile = provider.id == "claude" ? ".credentials.json" : "auth.json"
+    var chosen: (dir: URL, name: String)?
+    for n in 1 ... 99 {
+        let name = n == 1 ? base : "\(base)\(n)"
+        let dir = home.appendingPathComponent(name)
+        if !fm.fileExists(atPath: dir.appendingPathComponent(authFile).path) {
+            chosen = (dir, name)
+            break
+        }
+    }
+    guard let (dir, name) = chosen else {
+        warn("no free slot: ~/\(base) through ~/\(base)99 all have logins")
+        exit(1)
+    }
+    // codex refuses a CODEX_HOME that doesn't exist; creating it is harmless for claude.
+    try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    warn("adding a \(provider.id) account at ~/\(name) - finish the login below; the account shows up in Tally within a minute")
+    exec(provider.cli, args: provider.id == "codex" ? ["login"] : [],
+         env: launchEnv(provider, home: dir.path))
+}
+
 /// `tally update`: ask the menu bar app to run a user-initiated Sparkle check (its window
 /// follows the pointer's screen), launching the app first when it isn't running. Uses pgrep +
 /// a distributed notification so the statusline hot path never has to link AppKit.
@@ -322,6 +355,8 @@ case "statusline":
     runStatusline(args: Array(arguments.dropFirst()))
 case "update":
     runUpdate()
+case "add":
+    runAdd(arguments.dropFirst().first ?? "")
 default:
     warn("""
     usage:
@@ -334,6 +369,8 @@ default:
       tally best-dir <provider> print the export line for the best account
       tally launch-dir <provider> shim interface: like best-dir but honours the app's
                                 launch policy (off → prints nothing)
+      tally add <provider>      log in one more account (next free ~/.claudeN / ~/.codexN,
+                                directory created for you)
       tally update              check for app updates now (opens the update window)
     """)
     exit(2)

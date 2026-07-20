@@ -102,8 +102,9 @@ Tally는 **Claude와 Codex의 AI 사용량(사용 한도)을 모니터링하는 
   커스텀 status line은 그대로 실행되며 시그널만 뒤에 붙습니다. 제거하면 바이트 단위로
   원래 상태로 복원되고, Tally를 제거하지 않고 그냥 삭제해도 계속 동작합니다.
 - **`tally` CLI.** `tally claude [인자…]`, `tally resume`(현재 디렉터리의 최신 대화를 다른
-  계정으로 옮김), `tally claude --account <이름>`, `tally status`,
-  `tally best-dir <provider>`. 모두 스크립트 친화적입니다.
+  계정으로 옮김), `tally claude --account <이름>`, `tally status`, `tally add <provider>`
+  (계정 하나 더 로그인: 다음 빈 번호 선택과 설정 디렉터리 생성까지 자동), `tally best-dir
+  <provider>`. 모두 스크립트 친화적입니다.
 
 ### 외관과 디테일
 

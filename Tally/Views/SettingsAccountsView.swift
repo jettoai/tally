@@ -119,9 +119,14 @@ struct SettingsAccountsView: View {
         .settingsRowPadding()
     }
 
-    /// With no account yet the plain CLI is the whole story; otherwise point the provider's
-    /// config-home variable at the first unused numbered sibling of the default home.
+    /// With the tally CLI on PATH the whole dance (pick the next free number, create the
+    /// directory, launch the right login) is one short command. The raw fallback stays for
+    /// installs without the CLI tool: no account yet means the plain CLI is the whole story,
+    /// otherwise point the provider's config-home variable at the first unused numbered sibling.
     static func addAccountCommand(_ providerID: String, homes: [String]) -> String {
+        if IntegrationsStore.shared.cliToolStatus == .installed {
+            return "tally add \(providerID)"
+        }
         let claude = providerID == "claude"
         guard !homes.isEmpty else { return claude ? "claude" : "codex login" }
         let base = claude ? ".claude" : ".codex"

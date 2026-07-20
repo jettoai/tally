@@ -103,7 +103,8 @@ subscriptions at once:
   uninstalling.
 - **`tally` CLI.** `tally claude [args…]`, `tally resume` (move this directory's latest
   conversation to another account), `tally claude --account <name>`, `tally status`,
-  `tally best-dir <provider>`, all script-friendly.
+  `tally add <provider>` (log in one more account: next free number picked and the config
+  directory created for you), `tally best-dir <provider>`, all script-friendly.
 
 ### The chrome
 

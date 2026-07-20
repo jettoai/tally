@@ -298,7 +298,15 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                !actual.contains(primary), policy.mode != "manual", fuseAllows(),
                watcher.isQuiet() {
                 let (snapshot, _) = loadSnapshot()
-                let rescue = snapshot?.accounts
+                // Account-switching only cures QUOTA degradation. If THIS account's flagship
+                // window still has real room, the cause is something a sibling shares too
+                // (live case 2026-07-20: the session's context outgrew the flagship's
+                // subscription tier - every account hits that same wall), so switching would
+                // just churn the fuse. Skip; if quota IS the cause, the next poll's snapshot
+                // shows this account dry and the rescue proceeds.
+                let currentDry = (snapshot?.accounts
+                    .first { $0.id == account.id }?.modelRemaining).map { $0 <= 5 } ?? true
+                let rescue = !currentDry ? nil : snapshot?.accounts
                     .filter { $0.provider == provider.id && eligible($0)
                         && $0.id != account.id && ($0.modelRemaining ?? 0) > 5 }
                     .max {

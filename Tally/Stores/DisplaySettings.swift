@@ -10,14 +10,16 @@ enum DisplayMode: String, Sendable, CaseIterable {
     var toggled: DisplayMode { self == .used ? .remaining : .used }
 }
 
-/// Which window the fleet gauge headlines and the menu-bar strip's weekly number shows - the
-/// "number Tally leads with" for people who ration a specific budget. `auto` follows the launch
-/// policy's primary model (flagship-first when unset, the smart launcher's rule); `flagship`
-/// pins the top model window; `weekly` pins the account-wide weekly budget. Persisted in
+/// What the fleet gauge shows and which number the menu-bar strip leads with. `all` (default)
+/// renders EVERY pooled weekly-cycle window - the primary-model budget first, the account-wide
+/// weekly after it, because a fallback user needs both runways at once; `primary` collapses the
+/// strip to just the primary-model pool (flagship-first when no primary is declared, the smart
+/// launcher's rule); `weekly` pins the account-wide weekly budget alone. The menu bar always
+/// carries one number per window class, so it follows the leading pool. Persisted in
 /// `SettingsStore`; resolution lives in `FleetFocus`.
 enum GaugeFocus: String, Sendable, CaseIterable {
-    case auto
-    case flagship
+    case all
+    case primary
     case weekly
 }
 

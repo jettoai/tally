@@ -20,11 +20,16 @@ extension PopoverRootView {
         Set(fleetSummaries.filter { $0.headline != nil }.map(\.providerID))
     }
 
-    /// The pool this provider's gauge headlines: the focus-resolved model pool (e.g. the Fable
-    /// budget a flagship-primary user rations), else the weekly budget.
-    func resolvedHeadline(_ summary: FleetSummary) -> FleetPool? {
-        summary.headline(focusedModel: UsageStore.focusedModel(
-            providerID: summary.providerID, available: summary.modelPoolNames))
+    /// The pools this provider's gauge renders, leading pool first. "All" shows every weekly-cycle
+    /// pool (primary budget + weekly total - both runways at once); the single-pool modes show
+    /// just the focus-resolved one.
+    func displayedPools(_ summary: FleetSummary) -> [FleetPool] {
+        let focused = UsageStore.focusedModel(providerID: summary.providerID,
+                                              available: summary.modelPoolNames)
+        switch settings.gaugeFocus {
+        case .all: return summary.displayPools(focusedModel: focused)
+        case .primary, .weekly: return summary.headline(focusedModel: focused).map { [$0] } ?? []
+        }
     }
 
     var fleetSummaries: [FleetSummary] {
@@ -59,10 +64,26 @@ extension PopoverRootView {
 
     @ViewBuilder
     private func fleetGauge(_ summary: FleetSummary) -> some View {
-        if let pool = resolvedHeadline(summary) {
-            let collapsed = settings.collapsedProviders.contains(summary.providerID)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
+        let pools = displayedPools(summary)
+        if !pools.isEmpty {
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(Array(pools.enumerated()), id: \.offset) { index, pool in
+                    poolBlock(summary, pool, leading: index == 0)
+                }
+            }
+        }
+    }
+
+    /// One pool's two lines: the meter row and its context line. The FIRST pool's label column
+    /// carries the provider identity and the fold chevron (the disclosure header for the whole
+    /// provider); follow-up pools name their own window there instead, so "which budget is this
+    /// bar" reads in the same column on every line.
+    @ViewBuilder
+    private func poolBlock(_ summary: FleetSummary, _ pool: FleetPool, leading: Bool) -> some View {
+        let collapsed = settings.collapsedProviders.contains(summary.providerID)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                if leading {
                     HStack(spacing: 5) {
                         ProviderIconView(providerID: summary.providerID, size: 11)
                         (Text(ProviderCatalog.displayName(for: summary.providerID))
@@ -72,46 +93,62 @@ extension PopoverRootView {
                             .lineLimit(1)
                     }
                     .frame(width: Self.fleetLabelWidth, alignment: .leading)
-                    pooledBar(pool)
-                    Text(worthValue(pool))
-                        .font(.footnote.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(.primary)
-                        .frame(width: Self.fleetValueWidth, alignment: .trailing)
-                    // The gauge row doubles as a disclosure header: click folds this provider's
-                    // cards away (the pool stays - it IS the summary), click again brings them
-                    // back. The chevron is the affordance; the whole row is the target.
+                } else {
+                    Text(poolDisplayName(pool))
+                        .font(.footnote)
+                        .foregroundStyle(Color.secondary)
+                        .lineLimit(1)
+                        .frame(width: Self.fleetLabelWidth, alignment: .leading)
+                }
+                pooledBar(pool)
+                Text(worthValue(pool))
+                    .font(.footnote.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.primary)
+                    .frame(width: Self.fleetValueWidth, alignment: .trailing)
+                // The leading row doubles as a disclosure header: click folds this provider's
+                // cards away (the pools stay - they ARE the summary), click again brings them
+                // back. The chevron is the affordance; the whole row is the target. Follow-up
+                // rows keep an equal-width spacer so every bar column aligns.
+                if leading {
                     Image(systemName: collapsed ? "chevron.right" : "chevron.down")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.tertiary)
                         .frame(width: 12)
                         .help(L("Show or hide this provider's account cards"))
+                } else {
+                    Color.clear.frame(width: 12, height: 1)
                 }
-                .contentShape(Rectangle())
-                // Instant, not animated: the surrounding window resize can't be synchronized with
-                // a SwiftUI layout animation, and the half-animated combination read as a bounce.
-                .onTapGesture { settings.toggleCollapsed(summary.providerID) }
-                contextLine(summary, pool)
             }
+            .contentShape(Rectangle())
+            // Instant, not animated: the surrounding window resize can't be synchronized with
+            // a SwiftUI layout animation, and the half-animated combination read as a bounce.
+            .onTapGesture { if leading { settings.toggleCollapsed(summary.providerID) } }
+            contextLine(summary, pool, named: leading)
         }
     }
 
-    /// Mirrors the card rows' context line: which window this pool sums (one word - without it
-    /// nothing says the bar is the WEEKLY total) and the pace verdict on the left, the next
-    /// refill on the right (click toggles countdown/exact time, like every reset label).
-    private func contextLine(_ summary: FleetSummary, _ pool: FleetPool) -> some View {
-        let poolName: String
+    private func poolDisplayName(_ pool: FleetPool) -> String {
         switch pool.kind {
         case .weeklyModel:
             let model = pool.modelName ?? pool.label
-            poolName = String(localized: "\(model) pool", bundle: AppLocale.bundle)
+            return String(localized: "\(model) pool", bundle: AppLocale.bundle)
         case .session:
-            poolName = L("Session pool")
+            return L("Session pool")
         default:
-            poolName = L("Weekly pool")
+            return L("Weekly pool")
         }
+    }
+
+    /// Mirrors the card rows' context line: which window this pool sums (on the leading line
+    /// only - follow-up pools already name themselves in the label column) and the pace verdict
+    /// on the left, the next refill on the right (click toggles countdown/exact time, like every
+    /// reset label).
+    private func contextLine(_ summary: FleetSummary, _ pool: FleetPool, named: Bool) -> some View {
+        let prefix = named
+            ? Text("\(poolDisplayName(pool)) · ").foregroundStyle(Color.secondary)
+            : Text(verbatim: "")
         return HStack(spacing: 6) {
-            (Text("\(poolName) · ").foregroundStyle(Color.secondary)
-             + forecastText(summary, pool))
+            (prefix + forecastText(summary, pool))
                 .font(.caption2)
                 .lineLimit(1)
             Spacer(minLength: 6)

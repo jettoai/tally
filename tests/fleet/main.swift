@@ -179,36 +179,58 @@ do {
 
 // MARK: FleetFocus (gauge focus resolution)
 
-// 14. Auto follows the declared primary: a flagship primary focuses its window (alias matches
-// the versioned name), a non-flagship primary focuses nothing (weekly), and no primary is
-// flagship-first - the smart launcher's rule.
+// 14. The primary-following modes lead with the declared primary: a flagship primary focuses
+// its window (alias matches the versioned name), a non-flagship primary focuses nothing
+// (weekly), and no primary is flagship-first - the smart launcher's rule.
 do {
     let order = ["fable", "opus", "sonnet", "haiku"]
     let available = ["Fable 5"]
-    expect(FleetFocus.focusedModel(.auto, primaryModel: "fable", available: available,
+    expect(FleetFocus.focusedModel(.primary, primaryModel: "fable", available: available,
                                    flagshipOrder: order) == "Fable 5",
-           "auto + fable primary focuses the Fable window")
-    expect(FleetFocus.focusedModel(.auto, primaryModel: "sonnet", available: available,
+           "primary mode + fable primary focuses the Fable window")
+    expect(FleetFocus.focusedModel(.all, primaryModel: "fable", available: available,
+                                   flagshipOrder: order) == "Fable 5",
+           "all mode leads with the same resolution")
+    expect(FleetFocus.focusedModel(.primary, primaryModel: "sonnet", available: available,
                                    flagshipOrder: order) == nil,
-           "auto + sonnet primary focuses the weekly budget")
-    expect(FleetFocus.focusedModel(.auto, primaryModel: nil, available: available,
+           "sonnet primary focuses the weekly budget")
+    expect(FleetFocus.focusedModel(.primary, primaryModel: nil, available: available,
                                    flagshipOrder: order) == "Fable 5",
-           "auto without a primary is flagship-first")
-    expect(FleetFocus.focusedModel(.auto, primaryModel: "fable", available: [],
+           "no declared primary is flagship-first")
+    expect(FleetFocus.focusedModel(.primary, primaryModel: "fable", available: [],
                                    flagshipOrder: order) == nil,
            "no model windows means nothing to focus")
 }
 
-// 15. Explicit focus: flagship ranks by tier order; weekly always declines to focus.
+// 15. Flagship ranking honors tier order; weekly mode always declines to focus.
 do {
     let order = ["fable", "opus", "sonnet", "haiku"]
     let available = ["Opus", "Fable 5"]
-    expect(FleetFocus.focusedModel(.flagship, primaryModel: "sonnet", available: available,
-                                   flagshipOrder: order) == "Fable 5",
-           "flagship picks the top tier regardless of primary")
+    expect(FleetFocus.flagship(available, order: order) == "Fable 5",
+           "flagship ranks by tier order")
     expect(FleetFocus.focusedModel(.weekly, primaryModel: "fable", available: available,
                                    flagshipOrder: order) == nil,
            "weekly focus pins the account-wide budget")
+}
+
+// 15b. displayPools: focused model pool leads, weekly total closes; session never mixes in;
+// a session-only fleet keeps its session pool.
+do {
+    let s = summarize([
+        account("c1", metrics: [metric(.session, used: 10), metric(.weeklyAll, used: 10),
+                                metric(.weeklyModel, used: 40, model: "Fable 5")]),
+        account("c2", metrics: [metric(.session, used: 10), metric(.weeklyAll, used: 20),
+                                metric(.weeklyModel, used: 60, model: "Fable 5")]),
+    ])
+    let pools = s.first?.displayPools(focusedModel: "Fable 5") ?? []
+    expect(pools.map(\.kind) == [.weeklyModel, .weeklyAll],
+           "all-mode order is model pool then weekly total")
+    let sessionOnly = summarize([
+        account("x1", provider: "codex", metrics: [metric(.session, used: 10)]),
+        account("x2", provider: "codex", metrics: [metric(.session, used: 10)]),
+    ])
+    expect(sessionOnly.first?.displayPools(focusedModel: nil).map(\.kind) == [.session],
+           "session-only fleet keeps its session pool")
 }
 
 // 16. headline(focusedModel:) returns the named model pool, and degrades to the weekly budget

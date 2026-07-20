@@ -51,14 +51,14 @@ extension PopoverRootView {
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
-                // The number Tally leads with (gauge headline + menu-bar weekly number): follow
-                // the launch policy's primary model, pin the flagship window, or pin the weekly
-                // budget - for people who ration one specific budget (e.g. "spend Fable first").
-                Section(L("Lead with")) {
+                // What the gauges render: all pooled windows (primary budget + weekly total,
+                // both runways at once - the default), or collapsed to a single pool for people
+                // who only ration one budget. The menu-bar number follows the leading pool.
+                Section(L("Gauges show")) {
                     Picker("", selection: $settings.gaugeFocus) {
-                        Text(L("Auto (primary model)")).tag(GaugeFocus.auto)
-                        Text(L("Flagship model")).tag(GaugeFocus.flagship)
-                        Text(L("Weekly total")).tag(GaugeFocus.weekly)
+                        Text(L("All pools")).tag(GaugeFocus.all)
+                        Text(L("Primary model only")).tag(GaugeFocus.primary)
+                        Text(L("Weekly total only")).tag(GaugeFocus.weekly)
                     }
                     .pickerStyle(.inline)
                     .labelsHidden()

@@ -164,7 +164,7 @@ final class SettingsStore {
             ? defaults.integer(forKey: "panelColumns") : 0
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative
-        gaugeFocus = GaugeFocus(rawValue: defaults.string(forKey: "gaugeFocus") ?? "") ?? .auto
+        gaugeFocus = GaugeFocus(rawValue: defaults.string(forKey: "gaugeFocus") ?? "") ?? .all
     }
 
     func isEnabled(_ providerID: String) -> Bool { enabledProviders.contains(providerID) }

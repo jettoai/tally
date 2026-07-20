@@ -80,6 +80,20 @@ struct FleetSummary: Hashable {
         }
         return headline
     }
+
+    /// The pools the strip renders, in display order: the focused/primary pool leads, other model
+    /// pools follow, the account-wide weekly closes - both runways visible at once (the primary
+    /// budget a rationing user spends first AND the total the fallback keeps burning after it).
+    /// Session-only fleets keep their session pool so the strip never goes empty.
+    func displayPools(focusedModel: String?) -> [FleetPool] {
+        let weeklyCycle = pools.filter { $0.kind != .session }
+        guard !weeklyCycle.isEmpty else { return headline.map { [$0] } ?? [] }
+        func rank(_ pool: FleetPool) -> Int {
+            if pool.kind == .weeklyModel, (pool.modelName ?? pool.label) == focusedModel { return 0 }
+            return pool.kind == .weeklyModel ? 1 : 2
+        }
+        return weeklyCycle.sorted { rank($0) < rank($1) }
+    }
 }
 
 /// Which model window (if any) the display should focus - shared by the fleet gauge, the menu-bar
@@ -88,16 +102,14 @@ struct FleetSummary: Hashable {
 /// reported window carries it; no declared primary = flagship-first. Pure so the test harness
 /// compiles it standalone; the app passes the launch policy's model and ModelCatalog's tier order.
 enum FleetFocus {
-    /// The window name to focus, or nil for the account-wide weekly.
+    /// The window name the display leads with, or nil for the account-wide weekly.
     static func focusedModel(_ focus: GaugeFocus, primaryModel: String?,
                              available: [String], flagshipOrder: [String]) -> String? {
         guard !available.isEmpty else { return nil }
         switch focus {
         case .weekly:
             return nil
-        case .flagship:
-            return flagship(available, order: flagshipOrder)
-        case .auto:
+        case .all, .primary:
             let primary = primaryModel?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
             guard !primary.isEmpty else { return flagship(available, order: flagshipOrder) }
             // A declared non-flagship primary (e.g. sonnet) matches no reported window → nil →

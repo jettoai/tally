@@ -129,7 +129,9 @@ struct SettingsAccountsView: View {
         let suffix = (2 ... 99).first { !taken.contains("\(base)\($0)") } ?? 2
         return claude
             ? "CLAUDE_CONFIG_DIR=~/\(base)\(suffix) claude"
-            : "CODEX_HOME=~/\(base)\(suffix) codex login"
+            // codex refuses a CODEX_HOME that doesn't exist yet (claude creates its own), so the
+            // copyable command must create it or it fails on paste.
+            : "mkdir -p ~/\(base)\(suffix) && CODEX_HOME=~/\(base)\(suffix) codex login"
     }
 
     private func swapAccounts(_ items: [ProviderAccount], _ a: Int, _ b: Int) {

@@ -197,6 +197,13 @@ Keep each PR to one intent, and put the why in the description.
 
 ## FAQ
 
+**How is Tally different from ccusage or other usage trackers?**
+Tools like [ccusage](https://github.com/ryoppippi/ccusage) are terminal CLIs that estimate token
+spend from local logs, and most menu bar meters watch a single account. Tally is a native GUI
+that shows the quota windows the vendors actually enforce (5-hour, weekly, top-model), across
+multiple Claude and Codex accounts at once, and adds a launcher that acts on those numbers.
+Read-only, on your own paid subscriptions.
+
 **Why does macOS never ask me for keychain permission?**
 Because Tally never reads a credential: usage comes through the providers' own CLIs, and account
 discovery is an attribute-only Keychain probe (no secret returned → no consent prompt).

@@ -176,6 +176,12 @@ Tally 内置 English、繁體中文、简体中文、日本語、한국어，设
 
 ## 常见问题
 
+**Tally 和 ccusage 或其他用量工具有什么不同？**
+[ccusage](https://github.com/ryoppippi/ccusage) 这类工具是终端 CLI，从本地 log 估算 token
+花费；多数菜单栏仪表也只看单个账号。Tally 是原生 GUI，显示的是厂商实际强制的额度窗口
+（5 小时、每周、旗舰模型），同时覆盖多个 Claude 与 Codex 账号，还附带一个依据这些数字
+行动的启动器。只读，仅用于你自己付费的订阅。
+
 **为什么 macOS 从不弹钥匙串授权窗口？**
 因为 Tally 根本不读凭证：用量通过官方 CLI 获取，账号检测只做属性层的 Keychain 探测
 （不取回密钥 → 不触发授权窗口）。

@@ -17,6 +17,8 @@ final class SettingsWindowController {
     private var window: NSWindow?
     private var lastAppliedHeight: CGFloat = 0
 
+    var isWindowVisible: Bool { window?.isVisible == true }
+
     func show() {
         if window == nil {
             let hosting = NSHostingController(rootView: SettingsView(
@@ -31,11 +33,13 @@ final class SettingsWindowController {
             // Autosave keeps the size stable across launches; the position is re-derived on
             // every summon below (pointer's screen), so a stale saved origin never wins.
             window.setFrameAutosaveName("TallySettingsWindow.v5")
+            ActivationPolicy.track(window)
             self.window = window
         }
         // Summoned windows follow the user: place on the pointer's screen whenever the window
         // isn't already up (an open window stays put - yanking it mid-use would be worse).
         if window?.isVisible != true { window?.centerOnPointerScreen() }
+        ActivationPolicy.promote()   // a visible Settings window earns a Dock / Cmd-Tab presence
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }

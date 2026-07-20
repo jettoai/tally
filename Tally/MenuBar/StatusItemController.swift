@@ -128,9 +128,12 @@ final class StatusItemController: NSObject {
     private func setPinned(_ pinned: Bool) {
         SettingsStore.shared.isUsagePanelPinned = pinned
         if pinned {
-            // Hand the popover's on-screen position to the panel, then close the popover instantly.
-            let topLeft = popoverContentTopLeft()
+            // Pinning is a transformation, not a copy: whichever surface the pin was clicked in
+            // (popover or main window) hands its on-screen position to the panel and closes, so
+            // the panel visibly takes over in place.
+            let topLeft = popoverContentTopLeft() ?? MainWindowController.shared.contentTopLeft
             popover.performClose(nil)
+            MainWindowController.shared.close()
             PinnedPanelController.shared.show(atTopLeft: topLeft)
         } else {
             PinnedPanelController.shared.hide()

@@ -14,6 +14,21 @@ final class MainWindowController {
 
     private var window: NSWindow?
 
+    var isWindowVisible: Bool { window?.isVisible == true }
+
+    /// Screen-space top-left of the window content while visible, for the pin handoff (the pinned
+    /// panel opens exactly where the window was, mirroring the popover-to-panel handoff).
+    var contentTopLeft: CGPoint? {
+        guard let window, window.isVisible else { return nil }
+        let onScreen = window.convertToScreen(window.contentLayoutRect)
+        return CGPoint(x: onScreen.minX, y: onScreen.maxY)
+    }
+
+    func close() {
+        window?.orderOut(nil)
+        ActivationPolicy.refresh()
+    }
+
     func show() {
         if window == nil {
             let hosting = NSHostingController(
@@ -27,11 +42,13 @@ final class MainWindowController {
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
             window.setFrameAutosaveName("TallyMainWindow.v3")
+            ActivationPolicy.track(window)
             self.window = window
         }
         // Summoned windows follow the user: place on the pointer's screen whenever the window
         // isn't already up (an open window stays put - yanking it mid-use would be worse).
         if window?.isVisible != true { window?.centerOnPointerScreen() }
+        ActivationPolicy.promote()   // a visible dashboard earns a Dock / Cmd-Tab presence
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
     }

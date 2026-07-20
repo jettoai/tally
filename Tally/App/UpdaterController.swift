@@ -97,8 +97,8 @@ extension UpdaterController: SPUStandardUserDriverDelegate {
     }
 
     nonisolated func standardUserDriverWillFinishUpdateSession() {
-        // Update UI done - drop back to the menu-bar accessory policy.
-        Task { @MainActor in NSApp.setActivationPolicy(.accessory) }
+        // Update UI done - retract to whatever the visible windows dictate (accessory when none).
+        Task { @MainActor in ActivationPolicy.refresh() }
     }
 
     /// Find Sparkle's update window (its classes are the only SU*/SPU* windows in the process)

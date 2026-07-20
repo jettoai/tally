@@ -66,6 +66,12 @@ final class StatusItemController: NSObject {
             button.image = MenuBarStripRenderer.stripImage(segments)
             button.image?.accessibilityDescription = tooltip
             button.toolTip = tooltip
+            // README screenshot hook: demo mode + -TallyStripSnapshot <path> writes the strip
+            // as a standalone PNG (idempotent - demo data never changes between refreshes).
+            if DemoUsage.isActive,
+               let path = UserDefaults.standard.string(forKey: "TallyStripSnapshot") {
+                MenuBarStripRenderer.writeSnapshot(segments, to: path)
+            }
         }
         button.imagePosition = .imageOnly
         // Surface resizing is handled by PopoverRootView.onContentSize (it reports the real content

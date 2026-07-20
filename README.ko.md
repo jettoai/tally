@@ -27,11 +27,11 @@ Tally는 **Claude와 Codex의 AI 사용량(사용 한도)을 모니터링하는 
 됐을 때의 구조, 그리고 어느 계정이 소모되고 있는지 보여 주는 status line 시그널까지.
 
 <p align="center">
-  <img src="assets/screenshot-menubar.png" alt="Tally 메뉴 막대: 번호 배지가 붙은 다섯 개의 Claude 계정과 세션/주간 퍼센트, 이어서 세 개의 Codex 계정" width="418">
+  <img src="assets/screenshot-menubar.png" alt="Tally 메뉴 막대: 번호 배지가 붙은 다섯 개의 Claude 계정과 세션/Fable 퍼센트, 이어서 네 개의 Codex 계정의 세션/주간" width="445">
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally 고정 패널: 프로바이더별 플릿 게이지가 아홉 개의 계정(Claude Max 다섯, Codex 넷)을 각각 하나의 주간 예산 막대로 모으고, 페이스 예측(약 4d 10h 사용 가능; 이 속도면 지속 가능)과 다음 시차 충전을 함께 보여 줍니다. 그 아래에는 각 계정 고유의 카드가 5시간 세션, 주간, 최상위 모델 창을 리셋 시각, 한도 임박 경고, 그리고 런처가 현재 선택한 계정을 나타내는 보라색 스마트 선택 배지와 함께 보여 줍니다" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally 고정 패널: 프로바이더별 플릿 게이지가 아홉 개의 계정(Claude Max 다섯, Codex 넷)을 모아, Claude는 두 개의 잔량(Fable 풀과 주간 풀 막대, 각각 페이스 예측 '약 4d 12h 사용 가능'과 다음 시차 충전 포함), Codex는 주간 풀 하나(이 속도면 지속 가능)를 보여 줍니다. 그 아래에는 각 계정 고유의 카드가 5시간 세션, 주간, 최상위 모델 창을 리셋 시각, 한도 임박 경고, 그리고 런처가 현재 선택한 계정을 나타내는 보라색 스마트 선택 배지와 함께 보여 줍니다" width="834">
 </p>
 
 ## 왜 Tally인가

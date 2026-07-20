@@ -27,11 +27,11 @@ mid-conversation: rate-limit handoff, flagship-model rescue, and a status-line s
 which account is burning.
 
 <p align="center">
-  <img src="assets/screenshot-menubar.png" alt="Tally's menu bar strip: five Claude accounts with index badges and stacked session/weekly percentages, followed by three Codex accounts" width="418">
+  <img src="assets/screenshot-menubar.png" alt="Tally's menu bar strip: five Claude accounts with index badges and stacked session/Fable percentages, followed by four Codex accounts with session/weekly" width="445">
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel: per-provider fleet gauges pool nine accounts (five Claude Max, four Codex) into one weekly-budget bar each, with a pace forecast (lasts about 4d 10h; sustainable at this pace) and the next staggered refill; below, every account's own card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel: per-provider fleet gauges pool nine accounts (five Claude Max, four Codex), Claude showing both its runways at once, a Fable pool bar and a weekly pool bar, each with a pace forecast (lasts about 4d 12h) and the next staggered refill, Codex a weekly pool that is sustainable at this pace; below, every account's own card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks" width="834">
 </p>
 
 ## Why Tally

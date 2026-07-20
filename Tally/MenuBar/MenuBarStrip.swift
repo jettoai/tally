@@ -16,13 +16,17 @@ struct MenuBarSegment: Sendable {
 /// so a glance reads how many accounts and how each stands. Monochrome + `isTemplate` tints it.
 private struct MenuBarStripView: View {
     let segments: [MenuBarSegment]
+    /// Snapshot rendering overrides: the README shot drops the DEV tag and draws white-on-dark
+    /// directly instead of the template mask AppKit tints.
+    var devTag: Bool = BuildVariant.isDev
+    var tint: Color = .black
 
     var body: some View {
         HStack(spacing: 0) {
             // The dev variant announces itself right in the strip (template image is monochrome,
             // so a text tag, not a colour) - two otherwise identical icons side by side must be
             // tellable at a glance.
-            if BuildVariant.isDev {
+            if devTag {
                 Text("DEV")
                     .font(.system(size: 8, weight: .heavy))
                     .padding(.horizontal, 3)
@@ -51,7 +55,7 @@ private struct MenuBarStripView: View {
             }
         }
         .monospacedDigit()
-        .foregroundStyle(.black)   // template mask - actual tint applied by AppKit
+        .foregroundStyle(tint)   // template mask (black) - actual tint applied by AppKit
         .padding(.horizontal, 2)
         .padding(.vertical, 1)
         .fixedSize()
@@ -80,7 +84,7 @@ private struct MenuBarStripView: View {
     private func icon(_ providerID: String) -> some View {
         if let mark = ProviderMarks.path(for: providerID) {
             ProviderIconShape(pathData: mark, inset: 0.04)
-                .fill(Color.black)
+                .fill(tint)
                 .frame(width: 15, height: 15)
         } else {
             Image(systemName: ProviderCatalog.iconName(for: providerID))
@@ -114,5 +118,23 @@ enum MenuBarStripRenderer {
         lastSignature = signature
         lastImage = image
         return image
+    }
+
+    /// README/marketing snapshot: the strip as a dark menu bar draws it (white glyphs on the
+    /// bar's dark base), written as a 2x PNG. Screen-capturing the real menu bar needs TCC
+    /// grants an SSH session can't hold, so the app renders its own strip instead - same view,
+    /// same data, deterministic. Fired from `-TallyStripSnapshot <path>` in demo mode only.
+    @MainActor
+    static func writeSnapshot(_ segments: [MenuBarSegment], to path: String) {
+        let renderer = ImageRenderer(content:
+            MenuBarStripView(segments: segments, devTag: false, tint: .white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color(red: 0.11, green: 0.11, blue: 0.12)))
+        renderer.scale = 2
+        guard let cgImage = renderer.cgImage else { return }
+        try? NSBitmapImageRep(cgImage: cgImage)
+            .representation(using: .png, properties: [:])?
+            .write(to: URL(fileURLWithPath: path))
     }
 }

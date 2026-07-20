@@ -227,7 +227,7 @@ struct PopoverRootView: View {
             }
         } else {
             VStack(spacing: 8) {
-                ForEach(store.orderedAccounts) { usage in
+                ForEach(visibleAccounts) { usage in
                     card(usage).frame(width: cardWidth)
                 }
             }
@@ -294,9 +294,21 @@ struct PopoverRootView: View {
             .onEnded { _ in cardLift = nil }
     }
 
+    /// Cards on screen: a provider collapsed behind its fleet gauge hides its cards, but ONLY
+    /// while that gauge is actually rendered - no pool (single account) or gauge off, and the
+    /// cards come straight back. Cards can never be hidden with nothing summarizing them.
+    var visibleAccounts: [AccountUsage] {
+        let pooled = pooledProviderIDs
+        let collapsed = settings.collapsedProviders
+        guard !pooled.isEmpty, !collapsed.isEmpty else { return store.orderedAccounts }
+        return store.orderedAccounts.filter {
+            !(collapsed.contains($0.providerID) && pooled.contains($0.providerID))
+        }
+    }
+
     /// Accounts chunked into rows of the current column count.
     private var accountRows: [AccountRow] {
-        let ordered = store.orderedAccounts
+        let ordered = visibleAccounts
         let columns = columnCount
         return stride(from: 0, to: ordered.count, by: columns).map { start in
             AccountRow(items: Array(ordered[start ..< min(start + columns, ordered.count)]))

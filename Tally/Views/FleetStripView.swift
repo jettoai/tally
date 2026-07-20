@@ -14,13 +14,23 @@ extension PopoverRootView {
     private static let fleetLabelWidth: CGFloat = 88
     private static let fleetValueWidth: CGFloat = 46
 
-    @ViewBuilder
-    var fleetStrip: some View {
-        let summaries = settings.showFleetGauge
+    /// Providers whose gauge is actually rendered right now - the only providers a collapse
+    /// (hidden cards) may apply to.
+    var pooledProviderIDs: Set<String> {
+        Set(fleetSummaries.filter { $0.headline != nil }.map(\.providerID))
+    }
+
+    var fleetSummaries: [FleetSummary] {
+        settings.showFleetGauge
             ? FleetMath.summaries(accounts: store.orderedAccounts) { usage in
                 settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
             }
             : []
+    }
+
+    @ViewBuilder
+    var fleetStrip: some View {
+        let summaries = fleetSummaries
         if !summaries.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(summaries, id: \.providerID) { summary in
@@ -39,6 +49,7 @@ extension PopoverRootView {
     @ViewBuilder
     private func fleetGauge(_ summary: FleetSummary) -> some View {
         if let pool = summary.headline {
+            let collapsed = settings.collapsedProviders.contains(summary.providerID)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     HStack(spacing: 5) {
@@ -55,6 +66,20 @@ extension PopoverRootView {
                         .font(.footnote.weight(.semibold).monospacedDigit())
                         .foregroundStyle(.primary)
                         .frame(width: Self.fleetValueWidth, alignment: .trailing)
+                    // The gauge row doubles as a disclosure header: click folds this provider's
+                    // cards away (the pool stays - it IS the summary), click again brings them
+                    // back. The chevron is the affordance; the whole row is the target.
+                    Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 12)
+                        .help(L("Show or hide this provider's account cards"))
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        settings.toggleCollapsed(summary.providerID)
+                    }
                 }
                 contextLine(summary, pool)
             }

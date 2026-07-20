@@ -4792,6 +4792,35 @@
           }
         }
       }
+    },
+    "Show or hide this provider's account cards": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示或收合這個服務的帳號卡片"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或收起该服务的账号卡片"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロバイダのアカウントカードを表示／折りたたみ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 프로바이더의 계정 카드 표시/접기"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

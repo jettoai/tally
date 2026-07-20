@@ -85,6 +85,21 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(showFleetGauge, forKey: "showFleetGauge") }
     }
 
+    /// Providers whose account cards are folded away behind their fleet gauge (clicking the gauge
+    /// row toggles it). A view gesture, not a Settings item: the collapse only takes effect while
+    /// that provider's gauge is actually on screen, so cards can never become unreachable.
+    var collapsedProviders: Set<String> {
+        didSet { UserDefaults.standard.set(collapsedProviders.sorted(), forKey: "collapsedProviders") }
+    }
+
+    func toggleCollapsed(_ providerID: String) {
+        if collapsedProviders.contains(providerID) {
+            collapsedProviders.remove(providerID)
+        } else {
+            collapsedProviders.insert(providerID)
+        }
+    }
+
     /// Status line renders the full quota line (bars + resets) even when wrapping a custom
     /// status line - for people who drop their own quota rendering and rely on Tally's.
     /// Off = the minimal signal, which never disturbs a layout someone else designed.
@@ -134,6 +149,7 @@ final class SettingsStore {
         languageOverride = AppLocale.override
         isUsagePanelPinned = defaults.bool(forKey: "isUsagePanelPinned")
         showFleetGauge = defaults.object(forKey: "showFleetGauge") as? Bool ?? true
+        collapsedProviders = Set(defaults.stringArray(forKey: "collapsedProviders") ?? [])
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
         panelColumns = (2 ... 4).contains(defaults.integer(forKey: "panelColumns"))
             ? defaults.integer(forKey: "panelColumns") : 0

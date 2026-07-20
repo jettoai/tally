@@ -4880,35 +4880,6 @@
         }
       }
     },
-    "Log in one more account; also works for codex": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再登入一個帳號（codex 也可以）"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再登录一个账号（codex 也可以）"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アカウントをもう 1 つログイン（codex も可）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "계정 하나 더 로그인(codex도 가능)"
-          }
-        }
-      }
-    },
     "Check for app updates now": {
       "extractionState": "manual",
       "localizations": {
@@ -4934,6 +4905,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "앱 업데이트 지금 확인"
+          }
+        }
+      }
+    },
+    "Log in one more Claude account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再登入一個 Claude 帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再登录一个 Claude 账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントをもう 1 つログイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정 하나 더 로그인"
+          }
+        }
+      }
+    },
+    "Log in one more Codex account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再登入一個 Codex 帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再登录一个 Codex 账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex アカウントをもう 1 つログイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex 계정 하나 더 로그인"
           }
         }
       }

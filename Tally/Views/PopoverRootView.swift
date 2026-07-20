@@ -33,7 +33,11 @@ struct PopoverRootView: View {
                 Divider()
                 launchSummaryStrip
                 fleetStrip
-                content
+                // Fully folded (all cards behind their gauges) skips the card container entirely:
+                // its 12pt padding read as a hollow band between two dividers.
+                if store.contentState != .hasAccounts || !visibleAccounts.isEmpty {
+                    content
+                }
                 Divider()
                 footer
             }
@@ -431,16 +435,20 @@ struct PopoverRootView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
         // The jetto credit, dead centre in the footer's empty middle - quiet, on every surface,
-        // and off the header so the product wordmark stands alone.
+        // and off the header so the product wordmark stands alone. Only when the middle is
+        // actually empty: at the single-column width the icon cluster reaches the centre and
+        // the credit drew underneath it.
         .overlay {
-            HStack(spacing: 4) {
-                Text("by").font(.caption2).foregroundStyle(.tertiary)
-                ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
-                    .fill(Color.secondary, style: FillStyle(eoFill: true))
-                    .frame(width: 40, height: 9)
+            if popoverWidth >= 560 {
+                HStack(spacing: 4) {
+                    Text("by").font(.caption2).foregroundStyle(.tertiary)
+                    ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
+                        .fill(Color.secondary, style: FillStyle(eoFill: true))
+                        .frame(width: 40, height: 9)
+                }
+                .opacity(0.75)
+                .allowsHitTesting(false)
             }
-            .opacity(0.75)
-            .allowsHitTesting(false)
         }
     }
 }

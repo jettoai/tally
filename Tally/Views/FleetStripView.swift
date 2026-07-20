@@ -42,7 +42,11 @@ extension PopoverRootView {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .help(fleetTooltip(summaries))
-            Divider()
+            // The strip's own divider separates it from the cards; with every card folded away
+            // the footer's divider is next, and two adjacent dividers drew as a doubled line.
+            if !visibleAccounts.isEmpty {
+                Divider()
+            }
         }
     }
 

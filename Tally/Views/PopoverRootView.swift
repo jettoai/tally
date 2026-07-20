@@ -390,7 +390,7 @@ struct PopoverRootView: View {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help(L("Launch account"))
+            .help(L("Help"))
             .popover(isPresented: $showLaunchHelp, arrowEdge: .bottom) { launchHelp }
             Button {
                 StatusItemController.togglePin()

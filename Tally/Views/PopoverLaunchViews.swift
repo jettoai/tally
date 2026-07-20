@@ -76,7 +76,8 @@ extension PopoverRootView {
     /// installed, so say which), and what clicking a card does.
     var launchHelp: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(L("Launch account")).font(.subheadline.weight(.semibold))
+            Text(L("Help")).font(.subheadline.weight(.semibold))
+            Text(L("Terminal commands")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 6) {
                 // The claude rows follow the configured start mode, so the help never teaches a
                 // flag the user's own default already made redundant.
@@ -103,12 +104,14 @@ extension PopoverRootView {
                 commandRow("tally update", caption: L("Check for app updates now"))
             }
             integrationStatusLine
-            Text(L("A ✦ in the status line means the session was launched by Tally."))
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(L("The ◯ on a card pins that account; clicking the ✓ releases it back to Smart."))
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(L("Panel tips")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L("A ✦ in the status line means the session was launched by Tally."))
+                Text(L("The ◯ on a card pins that account; clicking the ✓ releases it back to Smart."))
+                Text(L("Click a fleet gauge to fold or unfold that provider's cards."))
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
         .frame(width: 340, alignment: .leading)

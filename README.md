@@ -118,8 +118,8 @@ subscriptions at once:
   `codex app-server`), which talk to their vendors with their own first-party identity and manage
   their own credentials. Account discovery only checks that a login *exists* (an attribute probe);
   nothing is ever read out.
-- **One poller, ever.** Only the menu-bar app runs the CLIs (every 5 minutes by default,
-  configurable down to 1). The `tally` launcher reads a local snapshot
+- **One poller, ever.** Only the menu-bar app runs the CLIs (every minute by default,
+  relaxable to 2/5/15). The `tally` launcher reads a local snapshot
   (`~/.tally/snapshot.json`: percentages and paths, never tokens), so opening ten terminals
   costs zero extra reads.
 - **Your own accounts only.** Multi-account means *your* paid subscriptions on *your* machine.

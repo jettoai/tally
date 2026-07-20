@@ -126,7 +126,11 @@ final class SettingsStore {
         // under the CLIs' own first-party identity, which gets the generous rate-limit bucket).
         let interval = defaults.integer(forKey: "refreshIntervalMinutes")
         // Clamp to the picker's options so a legacy 30/60 value can't leave the picker blank.
-        refreshIntervalMinutes = [1, 2, 5, 15].contains(interval) ? interval : 5
+        // Default to the fastest poll: the target user runs several paid accounts hard, where a
+        // 5-hour window moves percentage points per minute and stale numbers mislead smart pick
+        // (Albert's call, 2026-07-20). Overlap is guarded by isRefreshing, and users can still
+        // slow it down to 2/5/15.
+        refreshIntervalMinutes = [1, 2, 5, 15].contains(interval) ? interval : 1
         languageOverride = AppLocale.override
         isUsagePanelPinned = defaults.bool(forKey: "isUsagePanelPinned")
         showFleetGauge = defaults.object(forKey: "showFleetGauge") as? Bool ?? true

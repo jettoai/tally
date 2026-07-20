@@ -68,7 +68,8 @@ extension PopoverRootView {
         if !pools.isEmpty {
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(pools.enumerated()), id: \.offset) { index, pool in
-                    poolBlock(summary, pool, leading: index == 0)
+                    poolBlock(summary, pool, leading: index == 0,
+                              leadRefill: index == 0 ? nil : pools.first?.refills.first)
                 }
             }
         }
@@ -76,10 +77,13 @@ extension PopoverRootView {
 
     /// One pool's two lines: the meter row and its context line. The FIRST pool's label column
     /// carries the provider identity and the fold chevron (the disclosure header for the whole
-    /// provider); follow-up pools name their own window there instead, so "which budget is this
-    /// bar" reads in the same column on every line.
+    /// provider); follow-up pools leave it empty - a continuation indent, so every bar sits in
+    /// the same column and ONE grammar names the pools: always the context line under the bar.
+    /// `leadRefill` dedupes the refill label: the weekly windows of one account refill at the
+    /// same moment, and repeating "next refill ..." under every bar read as a glitch.
     @ViewBuilder
-    private func poolBlock(_ summary: FleetSummary, _ pool: FleetPool, leading: Bool) -> some View {
+    private func poolBlock(_ summary: FleetSummary, _ pool: FleetPool, leading: Bool,
+                           leadRefill: FleetPool.Refill?) -> some View {
         let collapsed = settings.collapsedProviders.contains(summary.providerID)
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
@@ -94,11 +98,7 @@ extension PopoverRootView {
                     }
                     .frame(width: Self.fleetLabelWidth, alignment: .leading)
                 } else {
-                    Text(poolDisplayName(pool))
-                        .font(.footnote)
-                        .foregroundStyle(Color.secondary)
-                        .lineLimit(1)
-                        .frame(width: Self.fleetLabelWidth, alignment: .leading)
+                    Color.clear.frame(width: Self.fleetLabelWidth, height: 1)
                 }
                 pooledBar(pool)
                 Text(worthValue(pool))
@@ -123,7 +123,7 @@ extension PopoverRootView {
             // Instant, not animated: the surrounding window resize can't be synchronized with
             // a SwiftUI layout animation, and the half-animated combination read as a bounce.
             .onTapGesture { if leading { settings.toggleCollapsed(summary.providerID) } }
-            contextLine(summary, pool, named: leading)
+            contextLine(summary, pool, leadRefill: leadRefill)
         }
     }
 
@@ -139,23 +139,30 @@ extension PopoverRootView {
         }
     }
 
-    /// Mirrors the card rows' context line: which window this pool sums (on the leading line
-    /// only - follow-up pools already name themselves in the label column) and the pace verdict
-    /// on the left, the next refill on the right (click toggles countdown/exact time, like every
-    /// reset label).
-    private func contextLine(_ summary: FleetSummary, _ pool: FleetPool, named: Bool) -> some View {
-        let prefix = named
-            ? Text("\(poolDisplayName(pool)) · ").foregroundStyle(Color.secondary)
-            : Text(verbatim: "")
-        return HStack(spacing: 6) {
-            (prefix + forecastText(summary, pool))
+    /// Mirrors the card rows' context line: which window this pool sums (one word - without it
+    /// nothing says whose budget the bar is) and the pace verdict on the left, the next refill
+    /// on the right (click toggles countdown/exact time, like every reset label). The refill is
+    /// dropped when the leading pool already shows the same moment for the same account.
+    private func contextLine(_ summary: FleetSummary, _ pool: FleetPool,
+                             leadRefill: FleetPool.Refill?) -> some View {
+        HStack(spacing: 6) {
+            (Text("\(poolDisplayName(pool)) · ").foregroundStyle(Color.secondary)
+             + forecastText(summary, pool))
                 .font(.caption2)
                 .lineLimit(1)
             Spacer(minLength: 6)
-            if let refill = pool.refills.first {
+            if let refill = pool.refills.first, !duplicates(refill, of: leadRefill) {
                 refillLabel(refill)
             }
         }
+    }
+
+    /// Same account topping up at (near enough) the same moment - the gain may differ per
+    /// window, but the label doesn't show gains, so the repeat carries no information.
+    private func duplicates(_ refill: FleetPool.Refill, of lead: FleetPool.Refill?) -> Bool {
+        guard let lead else { return false }
+        return refill.accountLabel == lead.accountLabel
+            && abs(refill.at.timeIntervalSince(lead.at)) < 60
     }
 
     private func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }

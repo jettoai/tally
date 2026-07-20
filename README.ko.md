@@ -109,8 +109,9 @@ Tally는 **Claude와 Codex의 AI 사용량(사용 한도)을 모니터링하는 
 ### 외관과 디테일
 
 - **5개 언어.** English, 繁體中文, 简体中文, 日本語, 한국어. 앱 안에서 즉시 전환.
-- **네이티브, 의존성 제로.** Swift 6 + SwiftUI + AppKit. Electron 없음, 외부 패키지
-  없음, 앱과 CLI 각각 단일 바이너리.
+- **네이티브.** Swift 6 + SwiftUI + AppKit, Electron 없음. 유일한 서드파티 의존성은
+  macOS 표준 업데이트 프레임워크인 [Sparkle](https://sparkle-project.org)이며, 앱과 CLI
+  각각 단일 바이너리.
 
 ## 동작 방식 (그리고 절대 하지 않는 것)
 
@@ -224,6 +225,17 @@ Tally는 자격 증명을 읽지 않기 때문입니다. 사용량은 공식 CLI
 Tally는 그 뒤에 시그널만 추가하며, 이미 계정 이름을 표시하고 있다면 그 부분은
 생략합니다. 제거하면 바이트 단위로 원래 등록 상태로 복원되고, 혹시 tally 바이너리가
 사라지더라도 여러분의 명령어를 직접 실행하는 방식으로 대체됩니다.
+
+## 감사의 말
+
+Tally는 이 분야를 먼저 개척한 훌륭한 프로젝트들의 길 위에 서 있습니다:
+
+- [ccusage](https://github.com/ryoppippi/ccusage): Claude Code의 로컬 로그를 사용량
+  인사이트로 바꾼 선구자로, 개발자들이 자신의 숫자를 얼마나 보고 싶어 하는지 보여주었습니다.
+- [OpenUsage](https://github.com/robinebers/openusage)와
+  [AIUsage](https://github.com/sylearn/AIUsage): 메뉴 막대에서 한눈에 보는 사용량 미터라는
+  형식을 확립했습니다. Tally는 그 한눈을 여러 계정에 동시에 향하게 하고 싶어 태어났습니다.
+- [Sparkle](https://sparkle-project.org): 앱 내 자동 업데이트를 담당합니다.
 
 ## 라이선스
 

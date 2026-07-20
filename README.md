@@ -109,8 +109,9 @@ subscriptions at once:
 ### The chrome
 
 - **5 languages.** English, 繁體中文, 简体中文, 日本語, 한국어, switchable in-app, live.
-- **Native and dependency-free.** Swift 6 + SwiftUI + AppKit. No Electron, no packages, one binary
-  each for the app and the CLI.
+- **Native.** Swift 6 + SwiftUI + AppKit, no Electron. The single third-party dependency is
+  [Sparkle](https://sparkle-project.org), the standard macOS update framework; one binary each
+  for the app and the CLI.
 
 ## How it works (and what it never does)
 
@@ -223,6 +224,17 @@ No. Your own command keeps running exactly as before, fed the same session JSON;
 appends its signal, skips the account name if you already show one, restores your original
 registration byte-for-byte on removal, and falls back to running your command directly if the
 tally binary ever disappears.
+
+## Acknowledgments
+
+Tally builds on a trail mapped by some excellent projects:
+
+- [ccusage](https://github.com/ryoppippi/ccusage) pioneered turning Claude Code's local logs into
+  usage insight, and showed how much developers want to see their numbers.
+- [OpenUsage](https://github.com/robinebers/openusage) and
+  [AIUsage](https://github.com/sylearn/AIUsage) proved the at-a-glance menu bar meter; Tally
+  exists because we wanted that glance across many accounts at once.
+- [Sparkle](https://sparkle-project.org) powers the in-app updates.
 
 ## License
 

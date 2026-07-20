@@ -53,7 +53,15 @@ final class SettingsWindowController {
             ActivationPolicy.track(window)
             NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification, object: window, queue: .main
-            ) { _ in UserDefaults.standard.set(false, forKey: Self.restoreKey) }
+            ) { _ in
+                // Quit-time tear-down also closes the window; only a close while the app keeps
+                // running is the user dismissing it (Sparkle-relaunch lesson, see AppDelegate).
+                Task { @MainActor in
+                    if !AppTermination.inProgress {
+                        UserDefaults.standard.set(false, forKey: Self.restoreKey)
+                    }
+                }
+            }
             self.window = window
         }
         // Summoned windows follow the user: place on the pointer's screen whenever the window

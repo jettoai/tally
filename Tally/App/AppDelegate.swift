@@ -1,5 +1,13 @@
 import AppKit
 
+/// Set at the first moment of app termination, before AppKit tears the windows down, so
+/// quit-time willClose notifications can be told apart from the user actually closing a window.
+@MainActor
+enum AppTermination {
+    private(set) static var inProgress = false
+    static func begin() { inProgress = true }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItemController = StatusItemController()
@@ -19,11 +27,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UpdaterController.shared.start()   // dormant unless the build carries a feed URL + ED key
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        // Quit-time window tear-down must not register as the user closing anything:
-        // snapshot the real on-screen state so the next launch restores it faithfully.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // Snapshot restore state HERE, the first termination hook, while the windows are still
+        // on screen. By applicationWillTerminate AppKit has already closed them - their
+        // willClose fired and read as the user dismissing each window, which is exactly how a
+        // Sparkle update relaunch lost every flag (verified via scripted quit, 2026-07-21).
+        // The latch keeps the willClose observers quiet through the tear-down.
+        AppTermination.begin()
         MainWindowController.shared.persistRestoreState()
         SettingsWindowController.shared.persistRestoreState()
+        return .terminateNow
     }
 
     /// Escape hatch for a hidden status item: macOS silently hides menu bar icons that

@@ -24,6 +24,9 @@ final class UpdaterController: NSObject {
               let key = info?["SUPublicEDKey"] as? String, !key.isEmpty else { return }
         controller = SPUStandardUpdaterController(
             startingUpdater: true, updaterDelegate: self, userDriverDelegate: self)
+        // Check hourly, Sparkle's minimum (default is daily): the release cadence here ships
+        // multiple versions a day, and the header chip only appears once a check has run.
+        controller?.updater.updateCheckInterval = 3_600
         // `tally update` posts this from the CLI. Registered only when the updater is live,
         // so dev builds (no feed) ignore the broadcast.
         DistributedNotificationCenter.default().addObserver(
@@ -142,15 +145,30 @@ extension UpdaterController: SPUUpdaterDelegate {
     /// update is known to be available; clicking it re-enters the standard install flow.
     nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         let version = item.displayVersionString
-        Task { @MainActor in UpdateAvailability.shared.version = version }
+        Task { @MainActor in
+            // A newer version invalidates a prior "downloaded" flag: didDownloadUpdate has not
+            // fired for this payload yet, so the chip must fall back to the detected (accent ↑)
+            // state instead of falsely promising a one-click restart. Guarded on the version so a
+            // re-check of the same, already-downloaded update keeps its green ↻.
+            if UpdateAvailability.shared.version != version {
+                UpdateAvailability.shared.isDownloaded = false
+            }
+            UpdateAvailability.shared.version = version
+        }
+    }
+
+    /// Second chip state, the Ghostty semantic: the payload is already on disk, so a click means
+    /// "restart into the new version", not "start a download". The chip goes green + ↻.
+    nonisolated func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
+        Task { @MainActor in UpdateAvailability.shared.isDownloaded = true }
     }
 
     nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
-        Task { @MainActor in UpdateAvailability.shared.version = nil }
+        Task { @MainActor in UpdateAvailability.shared.clear() }
     }
 
     nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        Task { @MainActor in UpdateAvailability.shared.version = nil }
+        Task { @MainActor in UpdateAvailability.shared.clear() }
     }
 }
 
@@ -162,4 +180,12 @@ extension UpdaterController: SPUUpdaterDelegate {
 final class UpdateAvailability {
     static let shared = UpdateAvailability()
     var version: String?
+    /// True once Sparkle has the update downloaded (auto-download on): a click now finishes
+    /// in one restart instead of walking the download dialog.
+    var isDownloaded = false
+
+    func clear() {
+        version = nil
+        isDownloaded = false
+    }
 }

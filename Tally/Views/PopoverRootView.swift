@@ -115,19 +115,23 @@ struct PopoverRootView: View {
                         .padding(.horizontal, 4).padding(.vertical, 1)
                         .overlay(Capsule().stroke(TallyColor.warning.opacity(0.6), lineWidth: 1))
                 }
-                // Docker-style nudge: an update is waiting - one click enters the install flow.
+                // Docker-style nudge, two states: detected (accent ↑, click walks the install
+                // flow) and downloaded (green ↻, the Ghostty semantic - the payload is on disk,
+                // a click just restarts into the new version).
                 if let version = UpdateAvailability.shared.version {
+                    let ready = UpdateAvailability.shared.isDownloaded
                     Button {
                         UpdaterController.shared.checkForUpdates()
                     } label: {
-                        Text(verbatim: "↑ \(version)")
+                        Text(verbatim: "\(ready ? "↻" : "↑") \(version)")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(TallyColor.ai))
+                            .background(Capsule().fill(ready ? TallyColor.normal : TallyColor.ai))
                     }
                     .buttonStyle(.plain)
-                    .help(L("Update available - click to install"))
+                    .help(ready ? L("Update downloaded - click to restart")
+                                : L("Update available - click to install"))
                 }
                 Spacer()
                 // TimelineView re-evaluates every second so "updates in 42s" counts down live (a

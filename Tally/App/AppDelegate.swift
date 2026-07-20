@@ -23,6 +23,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // there, making it the window the user most likely had focused.
         MainWindowController.shared.restoreAtLaunchIfNeeded()
         SettingsWindowController.shared.restoreAtLaunchIfNeeded()
+        // Design-preview hook (demo/dev only): -TallyUpdateChip 0.15.0 renders the header's
+        // update chip without a live feed (-TallyUpdateChipReady YES for the downloaded state),
+        // so the nudge can be reviewed and screenshotted.
+        if DemoUsage.isActive || BuildVariant.isDev,
+           let fake = UserDefaults.standard.string(forKey: "TallyUpdateChip") {
+            UpdateAvailability.shared.version = fake
+            UpdateAvailability.shared.isDownloaded = UserDefaults.standard.bool(forKey: "TallyUpdateChipReady")
+        }
         UsageStore.shared.start()
         UpdaterController.shared.start()   // dormant unless the build carries a feed URL + ED key
     }

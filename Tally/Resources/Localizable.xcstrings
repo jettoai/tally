@@ -5250,6 +5250,34 @@
           }
         }
       }
+    },
+    "Update downloaded - click to restart": {
+      "localizations": {
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートをダウンロード済み。クリックで再起動して適用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 다운로드 완료. 클릭하면 재시작하여 적용됩니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新已下载完成，点击重启即完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新已下載完成，點擊重啟即完成"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

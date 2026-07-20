@@ -20,30 +20,42 @@ enum FleetForecast {
     /// Forecasts beyond this read as false precision; a pool that survives it is "sustainable".
     static let horizon: TimeInterval = 14 * 86_400
 
-    /// Weekly-pool burn rate per provider id. Consumption = the sum of positive `used` deltas
-    /// between consecutive samples of the same account whose window did not roll over in between
-    /// (`resetAt` unchanged); a rollover resets `used` downward and contributes nothing.
+    /// One pooled window's identity in the rates dictionary: provider + window kind + model (for
+    /// model-scoped windows). The gauge looks its headline pool up with the same key, whichever
+    /// window the focus resolves to.
+    static func rateKey(provider: String, window: String, model: String?) -> String {
+        "\(provider)|\(window)" + (model.map { "|\($0.lowercased())" } ?? "")
+    }
+
+    /// Burn rate per pooled weekly-cycle window (see `rateKey`) - the account-wide weekly AND each
+    /// model-scoped weekly, so the forecast follows whichever pool the gauge headlines.
+    /// Consumption = the sum of positive `used` deltas between consecutive samples of the same
+    /// account whose window did not roll over in between (`resetAt` unchanged); a rollover resets
+    /// `used` downward and contributes nothing.
     static func weeklyRates(samples: [UsageHistory.Sample], now: Date) -> [String: FleetRate] {
-        let weekly = samples.filter { $0.window == MetricKind.weeklyAll.rawValue }
+        let weekly = samples.filter {
+            $0.window == MetricKind.weeklyAll.rawValue || $0.window == MetricKind.weeklyModel.rawValue
+        }
         var consumed: [String: Double] = [:]
         var earliest: [String: Date] = [:]
-        let bySeries = Dictionary(grouping: weekly) { "\($0.provider)|\($0.account)" }
+        let bySeries = Dictionary(grouping: weekly) {
+            "\($0.account)|" + rateKey(provider: $0.provider, window: $0.window, model: $0.model)
+        }
         for (_, rows) in bySeries {
             let sorted = rows.sorted { $0.ts < $1.ts }
             guard let first = sorted.first else { continue }
-            let provider = first.provider
-            earliest[provider] = min(earliest[provider] ?? first.ts, first.ts)
+            let key = rateKey(provider: first.provider, window: first.window, model: first.model)
+            earliest[key] = min(earliest[key] ?? first.ts, first.ts)
             for (previous, current) in zip(sorted, sorted.dropFirst())
             where previous.resetAt == current.resetAt {
-                consumed[provider, default: 0] += max(0, current.used - previous.used)
+                consumed[key, default: 0] += max(0, current.used - previous.used)
             }
         }
         var rates: [String: FleetRate] = [:]
-        for (provider, start) in earliest {
+        for (key, start) in earliest {
             let hours = min(lookbackHours, now.timeIntervalSince(start) / 3_600)
             guard hours >= minimumSampleHours else { continue }
-            rates[provider] = FleetRate(perHour: (consumed[provider] ?? 0) / hours,
-                                        sampledHours: hours)
+            rates[key] = FleetRate(perHour: (consumed[key] ?? 0) / hours, sampledHours: hours)
         }
         return rates
     }

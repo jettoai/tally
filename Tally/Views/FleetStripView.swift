@@ -20,6 +20,13 @@ extension PopoverRootView {
         Set(fleetSummaries.filter { $0.headline != nil }.map(\.providerID))
     }
 
+    /// The pool this provider's gauge headlines: the focus-resolved model pool (e.g. the Fable
+    /// budget a flagship-primary user rations), else the weekly budget.
+    func resolvedHeadline(_ summary: FleetSummary) -> FleetPool? {
+        summary.headline(focusedModel: UsageStore.focusedModel(
+            providerID: summary.providerID, available: summary.modelPoolNames))
+    }
+
     var fleetSummaries: [FleetSummary] {
         settings.showFleetGauge
             ? FleetMath.summaries(accounts: store.orderedAccounts) { usage in
@@ -52,7 +59,7 @@ extension PopoverRootView {
 
     @ViewBuilder
     private func fleetGauge(_ summary: FleetSummary) -> some View {
-        if let pool = summary.headline {
+        if let pool = resolvedHeadline(summary) {
             let collapsed = settings.collapsedProviders.contains(summary.providerID)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
@@ -92,7 +99,16 @@ extension PopoverRootView {
     /// nothing says the bar is the WEEKLY total) and the pace verdict on the left, the next
     /// refill on the right (click toggles countdown/exact time, like every reset label).
     private func contextLine(_ summary: FleetSummary, _ pool: FleetPool) -> some View {
-        let poolName = pool.kind == .weeklyAll ? L("Weekly pool") : L("Session pool")
+        let poolName: String
+        switch pool.kind {
+        case .weeklyModel:
+            let model = pool.modelName ?? pool.label
+            poolName = String(localized: "\(model) pool", bundle: AppLocale.bundle)
+        case .session:
+            poolName = L("Session pool")
+        default:
+            poolName = L("Weekly pool")
+        }
         return HStack(spacing: 6) {
             (Text("\(poolName) · ").foregroundStyle(Color.secondary)
              + forecastText(summary, pool))
@@ -122,8 +138,9 @@ extension PopoverRootView {
     /// The "does it last" verdict from the measured pace: dry-run date (amber, red inside a day),
     /// sustainable check, or "measuring" while the history is still too young to trust.
     private func forecastText(_ summary: FleetSummary, _ pool: FleetPool) -> Text {
-        guard pool.kind == .weeklyAll else { return Text(verbatim: "") }
-        guard let rate = store.fleetRates[summary.providerID] else {
+        guard pool.kind != .session else { return Text(verbatim: "") }
+        guard let rate = store.fleetRates[FleetForecast.rateKey(
+            provider: summary.providerID, window: pool.kind.rawValue, model: pool.modelName)] else {
             return Text(L("measuring pace…")).foregroundStyle(.tertiary)
         }
         let now = Date()

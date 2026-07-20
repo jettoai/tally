@@ -40,8 +40,11 @@ enum DemoUsage {
     /// faster than its combined refill budget (a concrete "lasts about …"), Codex within it
     /// (the "sustainable" state). Real instances estimate these from ~/.tally/history.jsonl.
     static var fleetRates: [String: FleetRate] {
-        ["claude": FleetRate(perHour: 4.6, sampledHours: 72),
-         "codex": FleetRate(perHour: 1.4, sampledHours: 72)]
+        // Keys cover every window the gauge focus can headline, so the forecast renders in demo
+        // whichever focus is active (Fable pool by default, weekly when switched).
+        ["claude|weeklyModel|fable": FleetRate(perHour: 4.6, sampledHours: 72),
+         "claude|weeklyAll": FleetRate(perHour: 4.6, sampledHours: 72),
+         "codex|weeklyAll": FleetRate(perHour: 1.4, sampledHours: 72)]
     }
 
     /// A Claude account shaped exactly like ClaudeUsageCLI's mapping: a model-scoped weekly window

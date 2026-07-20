@@ -132,7 +132,7 @@ do {
         sample("c1", tsHoursAgo: 10, used: 10), sample("c1", tsHoursAgo: 0, used: 30),
         sample("c2", tsHoursAgo: 10, used: 50), sample("c2", tsHoursAgo: 0, used: 60),
     ], now: now)
-    expect(rates["claude"].map { abs($0.perHour - 3) < 0.001 } == true,
+    expect(rates["claude|weeklyAll"].map { abs($0.perHour - 3) < 0.001 } == true,
            "pace sums both accounts (30 units / 10h)")
 }
 
@@ -143,7 +143,7 @@ do {
         sample("c1", tsHoursAgo: 6, used: 5, resetInDays: 7),
         sample("c1", tsHoursAgo: 0, used: 11, resetInDays: 7),
     ], now: now)
-    expect(rates["claude"].map { abs($0.perHour - 0.5) < 0.001 } == true,
+    expect(rates["claude|weeklyAll"].map { abs($0.perHour - 0.5) < 0.001 } == true,
            "rollover excluded (6 units / 12h)")
 }
 
@@ -152,7 +152,8 @@ do {
     let rates = FleetForecast.weeklyRates(samples: [
         sample("c1", tsHoursAgo: 2, used: 10), sample("c1", tsHoursAgo: 0, used: 20),
     ], now: now)
-    expect(rates["claude"] == nil, "under \(Int(FleetForecast.minimumSampleHours))h of history gives no pace")
+    expect(rates["claude|weeklyAll"] == nil,
+           "under \(Int(FleetForecast.minimumSampleHours))h of history gives no pace")
 }
 
 // 12. Depletion: linear without refills; a refill pushes the dry point out.
@@ -174,6 +175,75 @@ do {
     let dries = FleetForecast.depletion(remaining: 200, refills: [], perHour: 2,
                                         steadyRefillPerHour: 1, now: now)
     expect(dries == now.addingTimeInterval(200 * 3_600), "net overspend dries at remaining/net")
+}
+
+// MARK: FleetFocus (gauge focus resolution)
+
+// 14. Auto follows the declared primary: a flagship primary focuses its window (alias matches
+// the versioned name), a non-flagship primary focuses nothing (weekly), and no primary is
+// flagship-first - the smart launcher's rule.
+do {
+    let order = ["fable", "opus", "sonnet", "haiku"]
+    let available = ["Fable 5"]
+    expect(FleetFocus.focusedModel(.auto, primaryModel: "fable", available: available,
+                                   flagshipOrder: order) == "Fable 5",
+           "auto + fable primary focuses the Fable window")
+    expect(FleetFocus.focusedModel(.auto, primaryModel: "sonnet", available: available,
+                                   flagshipOrder: order) == nil,
+           "auto + sonnet primary focuses the weekly budget")
+    expect(FleetFocus.focusedModel(.auto, primaryModel: nil, available: available,
+                                   flagshipOrder: order) == "Fable 5",
+           "auto without a primary is flagship-first")
+    expect(FleetFocus.focusedModel(.auto, primaryModel: "fable", available: [],
+                                   flagshipOrder: order) == nil,
+           "no model windows means nothing to focus")
+}
+
+// 15. Explicit focus: flagship ranks by tier order; weekly always declines to focus.
+do {
+    let order = ["fable", "opus", "sonnet", "haiku"]
+    let available = ["Opus", "Fable 5"]
+    expect(FleetFocus.focusedModel(.flagship, primaryModel: "sonnet", available: available,
+                                   flagshipOrder: order) == "Fable 5",
+           "flagship picks the top tier regardless of primary")
+    expect(FleetFocus.focusedModel(.weekly, primaryModel: "fable", available: available,
+                                   flagshipOrder: order) == nil,
+           "weekly focus pins the account-wide budget")
+}
+
+// 16. headline(focusedModel:) returns the named model pool, and degrades to the weekly budget
+// when the name matches no pool (schema drift / missing window).
+do {
+    let s = summarize([
+        account("c1", metrics: [metric(.weeklyAll, used: 10),
+                                metric(.weeklyModel, used: 40, model: "Fable 5")]),
+        account("c2", metrics: [metric(.weeklyAll, used: 20),
+                                metric(.weeklyModel, used: 60, model: "Fable 5")]),
+    ])
+    expect(s.first?.headline(focusedModel: "Fable 5")?.kind == .weeklyModel,
+           "focused headline is the model pool")
+    expect(s.first?.modelPoolNames == ["Fable 5"], "model pool names are exposed for resolution")
+    expect(s.first?.headline(focusedModel: "Ghost")?.kind == .weeklyAll,
+           "unknown focus degrades to the weekly pool")
+    expect(s.first?.headline(focusedModel: nil)?.kind == .weeklyAll,
+           "nil focus is the weekly pool")
+}
+
+// 17. Model-scoped samples get their own rate series, keyed by rateKey.
+do {
+    let fable = { (account: String, hoursAgo: Double, used: Double) in
+        UsageHistory.Sample(ts: now.addingTimeInterval(-hoursAgo * 3_600), account: account,
+                            provider: "claude", window: "weeklyModel", model: "Fable 5",
+                            used: used, resetAt: now.addingTimeInterval(3 * 86_400))
+    }
+    let rates = FleetForecast.weeklyRates(samples: [
+        sample("c1", tsHoursAgo: 10, used: 10), sample("c1", tsHoursAgo: 0, used: 20),
+        fable("c1", 10, 0), fable("c1", 0, 40),
+    ], now: now)
+    expect(rates["claude|weeklyAll"].map { abs($0.perHour - 1) < 0.001 } == true,
+           "weekly series unchanged by model samples")
+    expect(rates["claude|weeklyModel|fable 5"].map { abs($0.perHour - 4) < 0.001 } == true,
+           "model series keyed separately (lowercased)")
 }
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

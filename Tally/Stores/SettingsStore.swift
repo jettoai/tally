@@ -126,6 +126,15 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(resetDisplay.rawValue, forKey: "resetDisplay") }
     }
 
+    /// Which window the fleet gauge and the menu-bar numbers lead with (see GaugeFocus).
+    var gaugeFocus: GaugeFocus {
+        didSet {
+            UserDefaults.standard.set(gaugeFocus.rawValue, forKey: "gaugeFocus")
+            UsageStore.shared.onChange?()          // the AppKit strip repaints only on a nudge
+            UsageStore.shared.republishSnapshot()  // the status line's fleet follows the same focus
+        }
+    }
+
     private init() {
         let defaults = UserDefaults.standard
         enabledProviders = defaults.stringArray(forKey: "enabledProviders").map(Set.init)
@@ -155,6 +164,7 @@ final class SettingsStore {
             ? defaults.integer(forKey: "panelColumns") : 0
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative
+        gaugeFocus = GaugeFocus(rawValue: defaults.string(forKey: "gaugeFocus") ?? "") ?? .auto
     }
 
     func isEnabled(_ providerID: String) -> Bool { enabledProviders.contains(providerID) }

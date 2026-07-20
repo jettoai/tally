@@ -26,7 +26,7 @@ final class UsageStore {
     /// Called on the main actor after every refresh.
     var onChange: (() -> Void)?
 
-    /// Weekly-pool burn rate per provider id, recomputed from the usage history after each
+    /// Burn rate per pooled weekly-cycle window (keyed by `FleetForecast.rateKey`), recomputed from the usage history after each
     /// refresh - what the fleet strip's "lasts about …" forecast runs on.
     private(set) var fleetRates: [String: FleetRate] = [:]
 
@@ -243,6 +243,16 @@ final class UsageStore {
                            fleet: fleetForSnapshot()).write()
     }
 
+    /// The model name the display leads with for `providerID`, given the available model window
+    /// names - the glue between the pure resolver and the app's stores. One resolution shared by
+    /// the fleet gauge, the menu-bar strip and the status line's fleet.
+    static func focusedModel(providerID: String, available: [String]) -> String? {
+        FleetFocus.focusedModel(SettingsStore.shared.gaugeFocus,
+                                primaryModel: LaunchPolicyStore.shared.policy(providerID).model,
+                                available: available,
+                                flagshipOrder: ModelCatalog.claudeAliases)
+    }
+
     /// The status line's fleet piece follows the SAME switch as the panel's gauge: published
     /// only while the gauge is on, and only for providers with a real pool (2+ accounts with a
     /// weekly window). Launch mode is deliberately irrelevant - one toggle, one meaning.
@@ -251,10 +261,14 @@ final class UsageStore {
         var fleet: [String: UsageSnapshot.Fleet] = [:]
         for summary in FleetMath.summaries(accounts: lastPublishedAccounts,
                                            label: { $0.accountLabel }) {
-            guard let pool = summary.headline, pool.kind == .weeklyAll else { continue }
+            let focused = Self.focusedModel(providerID: summary.providerID,
+                                            available: summary.modelPoolNames)
+            guard let pool = summary.headline(focusedModel: focused), pool.kind != .session
+            else { continue }
             var dryAt: Date?
             var sustainable = false
-            if let rate = fleetRates[summary.providerID] {
+            if let rate = fleetRates[FleetForecast.rateKey(
+                provider: summary.providerID, window: pool.kind.rawValue, model: pool.modelName)] {
                 dryAt = FleetForecast.depletion(
                     remaining: pool.totalRemaining,
                     refills: pool.refills.map { ($0.at, $0.gain) },
@@ -370,19 +384,19 @@ final class UsageStore {
         }.joined(separator: "\n")
     }
 
-    /// Account-wide windows only, ordered session → weekly; fall back to all metrics if none.
+    /// The strip's stacked numbers: session (5h) first, then the FOCUSED weekly window - the
+    /// model window the gauge focus resolves to (e.g. Fable), or the account-wide weekly when no
+    /// model focus applies. Same resolution as the fleet gauge, so the number in the menu bar is
+    /// the number on the gauge. Falls back to all metrics when neither window exists.
     private static func menuBarMetrics(_ account: AccountUsage) -> [UsageMetric] {
-        let accountWide = account.metrics.filter { !$0.isModelScoped }
-        return (accountWide.isEmpty ? account.metrics : accountWide)
-            .sorted { menuBarOrder($0.kind) < menuBarOrder($1.kind) }
-    }
-
-    /// Menu-bar stacking order: session (5h) first, then weekly, then anything else.
-    private static func menuBarOrder(_ kind: MetricKind) -> Int {
-        switch kind {
-        case .session: return 0
-        case .weeklyAll: return 1
-        default: return 2
-        }
+        let session = account.metrics.filter { $0.kind == .session }
+        let modelNames = account.metrics
+            .filter { $0.kind == .weeklyModel }.map { $0.modelName ?? $0.label }
+        let focused = focusedModel(providerID: account.providerID, available: modelNames)
+        let weekly = focused.flatMap { name in
+            account.metrics.first { $0.kind == .weeklyModel && ($0.modelName ?? $0.label) == name }
+        } ?? account.metrics.first { $0.kind == .weeklyAll }
+        let picked = session + [weekly].compactMap { $0 }
+        return picked.isEmpty ? account.metrics : picked
     }
 }

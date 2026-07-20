@@ -32,6 +32,8 @@ struct FleetPool: Hashable {
     var kind: MetricKind
     /// Representative window label (a localization key such as "Weekly", or a model name).
     var label: String
+    /// The model this pool is scoped to (weeklyModel pools only) - the focus resolver's handle.
+    var modelName: String?
     var members: [Member]
     /// Upcoming refills, soonest first (past resets excluded).
     var refills: [Refill]
@@ -59,9 +61,65 @@ struct FleetSummary: Hashable {
     /// Ordered session → weekly → model pools; only classes that two or more accounts share.
     var pools: [FleetPool]
 
-    /// The pool the strip headlines: the weekly budget when present (the scarce resource a
-    /// multi-account user actually rations), else the session window.
+    /// The pool the strip headlines when no model focus resolves: the weekly budget when present,
+    /// else the session window.
     var headline: FleetPool? { pools.first { $0.kind == .weeklyAll } ?? pools.first }
+
+    /// Names of the model-scoped pools, the candidates the focus resolver picks from.
+    var modelPoolNames: [String] {
+        pools.filter { $0.kind == .weeklyModel }.map { $0.modelName ?? $0.label }
+    }
+
+    /// Headline honoring a resolved model focus: the named model pool when it exists, else the
+    /// plain headline - so a missing window (schema drift, non-flagship plan) degrades to the
+    /// weekly budget instead of an empty gauge.
+    func headline(focusedModel: String?) -> FleetPool? {
+        if let name = focusedModel,
+           let pool = pools.first(where: { $0.kind == .weeklyModel && ($0.modelName ?? $0.label) == name }) {
+            return pool
+        }
+        return headline
+    }
+}
+
+/// Which model window (if any) the display should focus - shared by the fleet gauge, the menu-bar
+/// strip and the status line so "the number Tally leads with" is ONE concept. Mirrors the smart
+/// launcher's rule (TallyCLI/Snapshot.swift): a declared primary model constrains only when a
+/// reported window carries it; no declared primary = flagship-first. Pure so the test harness
+/// compiles it standalone; the app passes the launch policy's model and ModelCatalog's tier order.
+enum FleetFocus {
+    /// The window name to focus, or nil for the account-wide weekly.
+    static func focusedModel(_ focus: GaugeFocus, primaryModel: String?,
+                             available: [String], flagshipOrder: [String]) -> String? {
+        guard !available.isEmpty else { return nil }
+        switch focus {
+        case .weekly:
+            return nil
+        case .flagship:
+            return flagship(available, order: flagshipOrder)
+        case .auto:
+            let primary = primaryModel?.trimmingCharacters(in: .whitespaces).lowercased() ?? ""
+            guard !primary.isEmpty else { return flagship(available, order: flagshipOrder) }
+            // A declared non-flagship primary (e.g. sonnet) matches no reported window → nil →
+            // the weekly budget, the window that primary actually burns.
+            return available.first { matches($0, primary) }
+        }
+    }
+
+    /// The highest-tier name by the given order; names matching nothing rank last.
+    static func flagship(_ names: [String], order: [String]) -> String? {
+        names.min { rank($0, order) < rank($1, order) }
+    }
+
+    private static func rank(_ name: String, _ order: [String]) -> Int {
+        order.firstIndex { matches(name, $0) } ?? order.count
+    }
+
+    /// "Fable" matches "fable"; a versioned window name and its alias match by containment.
+    static func matches(_ windowName: String, _ model: String) -> Bool {
+        let window = windowName.lowercased(), model = model.lowercased()
+        return window == model || window.contains(model) || model.contains(window)
+    }
 }
 
 enum FleetMath {
@@ -120,6 +178,7 @@ enum FleetMath {
             }
             .filter { $0.at > now }
             .sorted { $0.at < $1.at }
-        return FleetPool(kind: kind, label: entries[0].1.label, members: members, refills: refills)
+        return FleetPool(kind: kind, label: entries[0].1.label,
+                         modelName: entries[0].1.modelName, members: members, refills: refills)
     }
 }

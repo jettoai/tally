@@ -111,9 +111,10 @@ func launchPolicy(_ providerID: String) -> LaunchPolicy {
         fresh.permissionMode = "bypass"
         fresh.startMode = "continue"
         if providerID == "claude" {
+            fresh.model = "fable"
             fresh.effort = "high"
             fresh.fallbackModel = "opus"
-            fresh.fallbackEffort = "max"
+            fresh.fallbackEffort = "ultracode"
         } else {
             fresh.effort = "xhigh"
         }

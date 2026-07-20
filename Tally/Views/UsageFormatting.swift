@@ -76,18 +76,19 @@ enum UsageFormat {
     /// (hidden templates) so the per-second string changes never push neighboring views around.
     /// Localized, so the reservation is right in every UI language.
     static var updatesInTemplates: [String] {
-        [String(localized: "updates in \("59m")", bundle: AppLocale.bundle),
-         L("updating…")]
+        [String(localized: "refreshes in \("59m")", bundle: AppLocale.bundle),
+         L("refreshing…")]
     }
 
-    /// Countdown to the next scheduled poll, e.g. "updates in 42s". Once the deadline passes the
-    /// poll is running (the CLIs take a dozen seconds), so it reads "updating…" - a countdown that
-    /// sat at zero looked broken.
+    /// Countdown to the next scheduled poll, e.g. "refreshes in 42s". Once the deadline passes the
+    /// poll is running (the CLIs take a dozen seconds), so it reads "refreshing…" - a countdown
+    /// that sat at zero looked broken. Deliberately NOT "updates in": the moment the app grew
+    /// real Sparkle updates, "updates in 3m" read as "the app updates itself in 3 minutes".
     static func updatesIn(_ date: Date?, now: Date = Date()) -> String? {
         guard let date else { return nil }
         let seconds = Int(date.timeIntervalSince(now).rounded())
-        guard seconds > 0 else { return L("updating…") }
+        guard seconds > 0 else { return L("refreshing…") }
         let body = seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m"
-        return String(localized: "updates in \(body)", bundle: AppLocale.bundle)
+        return String(localized: "refreshes in \(body)", bundle: AppLocale.bundle)
     }
 }

@@ -47,17 +47,26 @@ enum CodexAppServerClient {
         let planType: String?
     }
 
-    static func read(codexHome: String, timeout: TimeInterval = 20) async -> Reading? {
-        guard let binary = CLIRunner.resolve("codex") else { return nil }
-        let raw: Data? = await withCheckedContinuation { continuation in
+    /// Distinguishes the failure the user can act on: `cliBroken` means the app-server process
+    /// died before answering (a codex too old to know `app-server`, or one that crashes on
+    /// launch), where "read failed" would send the user chasing network or login ghosts.
+    enum Outcome {
+        case ok(Reading)
+        case cliBroken
+        case failed
+    }
+
+    static func read(codexHome: String, timeout: TimeInterval = 20) async -> Outcome {
+        guard let binary = CLIRunner.resolve("codex") else { return .failed }
+        let attempt: (line: Data?, processDied: Bool) = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 continuation.resume(returning: rateLimitsLine(binary: binary, codexHome: codexHome,
                                                               timeout: timeout))
             }
         }
-        guard let raw,
-              let line = try? JSONDecoder().decode(RPCLine.self, from: raw),
-              let limits = line.result?.rateLimits else { return nil }
+        guard let raw = attempt.line else { return attempt.processDied ? .cliBroken : .failed }
+        guard let line = try? JSONDecoder().decode(RPCLine.self, from: raw),
+              let limits = line.result?.rateLimits else { return .failed }
 
         var metrics: [UsageMetric] = []
         for window in [limits.primary, limits.secondary].compactMap({ $0 }) {
@@ -78,9 +87,9 @@ enum CodexAppServerClient {
             .compactMap(\.expiresAt)
             .min()
             .map { Date(timeIntervalSince1970: $0) }
-        return Reading(metrics: metrics.uniquingIDs(), plan: (plan?.isEmpty == false) ? plan : nil,
-                       resetCreditsAvailable: line.result?.rateLimitResetCredits?.availableCount,
-                       resetCreditsNextExpiry: nextExpiry)
+        return .ok(Reading(metrics: metrics.uniquingIDs(), plan: (plan?.isEmpty == false) ? plan : nil,
+                           resetCreditsAvailable: line.result?.rateLimitResetCredits?.availableCount,
+                           resetCreditsNextExpiry: nextExpiry))
     }
 
     /// Redeems the SOONEST-EXPIRING available banked reset for this account (waste-minimizing
@@ -133,15 +142,18 @@ enum CodexAppServerClient {
     }
 
     /// Blocking JSON-RPC exchange (runs on a utility queue): the raw response line for request 2.
-    private static func rateLimitsLine(binary: String, codexHome: String, timeout: TimeInterval) -> Data? {
-        guard let session = RPCSession(binary: binary, codexHome: codexHome) else { return nil }
+    private static func rateLimitsLine(binary: String, codexHome: String,
+                                       timeout: TimeInterval) -> (line: Data?, processDied: Bool) {
+        guard let session = RPCSession(binary: binary, codexHome: codexHome) else { return (nil, true) }
         defer { session.close() }
         let deadline = Date().addingTimeInterval(timeout)
         session.send(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"Tally","version":"1.0"}}}"#)
-        guard session.awaitLine(id: 1, until: deadline) != nil else { return nil }
+        guard session.awaitLine(id: 1, until: deadline) != nil else {
+            return (nil, session.processDied)
+        }
         session.send(#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#)
         session.send(#"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{}}"#)
-        return session.awaitLine(id: 2, until: deadline)
+        return (session.awaitLine(id: 2, until: deadline), session.processDied)
     }
 }
 
@@ -167,6 +179,10 @@ private final class RPCSession {
             buffer.append(handle.availableData)
         }
     }
+
+    /// True when app-server exited on its own (old codex without the subcommand, or a crash),
+    /// which callers use to tell "broken CLI" apart from a slow or unresponsive one.
+    var processDied: Bool { !process.isRunning }
 
     func send(_ json: String) {
         stdinPipe.fileHandleForWriting.write(Data((json + "\n").utf8))

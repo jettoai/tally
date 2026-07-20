@@ -17,7 +17,14 @@ struct CodexProvider: UsageProvider {
         guard CLIRunner.resolve("codex") != nil else {
             return .failure(account: account, providerID: id, message: L("Codex CLI not found"))
         }
-        guard let reading = await CodexAppServerClient.read(codexHome: home) else {
+        let reading: CodexAppServerClient.Reading
+        switch await CodexAppServerClient.read(codexHome: home) {
+        case .ok(let value):
+            reading = value
+        case .cliBroken:
+            return .failure(account: account, providerID: id,
+                            message: L("Codex CLI outdated, update it"))
+        case .failed:
             return .failure(account: account, providerID: id, message: L("Codex CLI read failed"))
         }
         guard !reading.metrics.isEmpty else {

@@ -5278,6 +5278,90 @@
           }
         }
       }
+    },
+    "Local build": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機建置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地构建"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカルビルド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 빌드"
+          }
+        }
+      }
+    },
+    "Development build - runs beside the installed app and never self-updates": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開發版建置，與正式安裝版並存，不會自我更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开发版构建，与正式安装版并存，不会自我更新"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発ビルドです。インストール版と併存し、自動更新は行いません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개발 빌드입니다. 설치된 앱과 나란히 실행되며 자동 업데이트되지 않습니다"
+          }
+        }
+      }
+    },
+    "Built from source without an update feed - it cannot update itself": {
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從原始碼建置、未帶更新來源，無法自我更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从源码构建、未带更新源，无法自我更新"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソースからビルドされ更新フィードがないため、自動更新できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소스에서 빌드되어 업데이트 피드가 없으므로 자동 업데이트할 수 없습니다"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

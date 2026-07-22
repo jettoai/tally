@@ -411,6 +411,24 @@ struct SettingsView: View {
                 .fill(Color.primary, style: FillStyle(eoFill: true))
                 .frame(width: 53, height: 12)
             Spacer()
+            // Which of the look-alike builds is this? DEV for the Debug flavour, "Local build"
+            // for a source-built release (dormant updater, stuck on its version forever); the
+            // installed stable shows nothing extra, its update rows below are the tell.
+            if BuildVariant.isDev {
+                Text(verbatim: "DEV")
+                    .font(.caption2)
+                    .foregroundStyle(TallyColor.warning)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
+                    .help(L("Development build - runs beside the installed app and never self-updates"))
+            } else if !UpdaterController.shared.isActive {
+                Text(L("Local build"))
+                    .font(.caption2)
+                    .foregroundStyle(TallyColor.warning)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
+                    .help(L("Built from source without an update feed - it cannot update itself"))
+            }
             Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
                 .font(.caption).foregroundStyle(.secondary)
             Link("jetto.ai", destination: URL(string: "https://jetto.ai")!)

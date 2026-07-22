@@ -63,18 +63,15 @@ struct SettingsLaunchView: View {
             permissionRow(id)
         }
         rowDivider
+        // The caption spells out the follow behavior: defaults bind at launch, and a supervised
+        // running session also adopts a changed default at its next quiet moment (a model the
+        // user typed themselves is left alone).
         ModelEffortRow(title: L("Default model & effort"),
+                       caption: L("Applies to new sessions and, at the next quiet moment, to running ones; a model you typed yourself always wins."),
                        modelOptions: id == "claude" ? ModelCatalog.claudeAliases : ModelCatalog.codexModels,
                        effortLevels: id == "claude" ? EffortLevels.shared.claude : EffortLevels.shared.codex,
                        model: launchDefaultBinding(id, \.model),
                        effort: launchDefaultBinding(id, \.effort))
-        // Defaults bind at launch, and a supervised running session also adopts a changed default
-        // at its next quiet moment (a model the user typed themselves is left alone).
-        Text(L("Applies to new sessions and, at the next quiet moment, to running ones; a model you typed yourself always wins."))
-            .font(.caption).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 14)
-            .padding(.bottom, 8)
         if id == "claude" {
             rowDivider
             ModelEffortRow(title: L("Fallback & effort"),

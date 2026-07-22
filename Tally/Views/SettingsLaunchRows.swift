@@ -93,6 +93,9 @@ extension SettingsLaunchView {
 /// with a Custom escape; effort levels from the installed claude CLI's help / codex docs.
 struct ModelEffortRow: View {
     let title: String
+    /// Optional behavior note rendered under the title, in the left column like every other
+    /// captioned row (a full-width footnote under the row read as a stray paragraph).
+    var caption: String? = nil
     let modelOptions: [String]
     let effortLevels: [String]
     @Binding var model: String?
@@ -107,8 +110,14 @@ struct ModelEffortRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(title).font(.subheadline)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline)
+                if let caption {
+                    Text(caption).font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             Spacer()
             if selection == "custom" {
                 TextField("Custom" as String, text: Binding(

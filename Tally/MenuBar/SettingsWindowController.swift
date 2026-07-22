@@ -43,9 +43,17 @@ final class SettingsWindowController {
                 onContentHeight: { [weak self] height in self?.applyContentHeight(height) }))
             hosting.sizingOptions = []   // manual sizing only - never a second authority
             let window = NSWindow(contentViewController: hosting)
-            // Dev flavour says so in the title bar - visible from every pane, not just About.
             window.title = String(localized: "Settings", bundle: AppLocale.bundle)
-                + (BuildVariant.isDev ? " (Dev)" : "")
+            // Dev flavour says so in the title bar - visible from every pane, not just About.
+            // Same chip as the panel header, as a titlebar accessory (titles can't carry style).
+            if BuildVariant.isDev {
+                let badge = NSHostingView(rootView: DevTitlebarBadge())
+                badge.frame.size = badge.fittingSize
+                let accessory = NSTitlebarAccessoryViewController()
+                accessory.view = badge
+                accessory.layoutAttribute = .trailing
+                window.addTitlebarAccessoryViewController(accessory)
+            }
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.setContentSize(NSSize(width: 500, height: 640))   // placeholder until the first report
@@ -107,5 +115,18 @@ final class SettingsWindowController {
             frame.origin.y = top - target   // keep the title bar where the user sees it
             window.setFrame(frame, display: true)
         }
+    }
+}
+
+/// The dev chip for the settings titlebar - same mark as the panel header's, so every surface
+/// of a test instance carries the one recognizable tag.
+private struct DevTitlebarBadge: View {
+    var body: some View {
+        Text(verbatim: "DEV")
+            .font(.system(size: 9, weight: .heavy))
+            .foregroundStyle(TallyColor.warning)
+            .padding(.horizontal, 4).padding(.vertical, 1)
+            .overlay(Capsule().stroke(TallyColor.warning.opacity(0.6), lineWidth: 1))
+            .padding(.trailing, 8)
     }
 }

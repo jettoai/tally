@@ -14,7 +14,7 @@ struct SettingsUpdateRows: View {
     @State private var autoInstalls = false
 
     var body: some View {
-        if UpdaterController.shared.isActive {
+        if UpdateAvailability.shared.updaterActive {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L("Automatically check for updates")).font(.subheadline)

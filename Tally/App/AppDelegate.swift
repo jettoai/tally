@@ -15,6 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu-bar accessory app: install the status item, then start the refresh loop.
         statusItemController.install()
+        // Updater before the window restores: a restored Settings window renders update rows,
+        // and they must see a live updater (plus the observable mirror, for any later render).
+        UpdaterController.shared.start()   // dormant unless the build carries a feed URL + ED key
         // Whatever was on screen at the last quit comes back: an update relaunch is just
         // quit + launch, and losing the window you were reading mid-update is disorienting.
         // (The pinned panel restores itself inside install(); the transient popover is always
@@ -32,7 +35,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UpdateAvailability.shared.isDownloaded = UserDefaults.standard.bool(forKey: "TallyUpdateChipReady")
         }
         UsageStore.shared.start()
-        UpdaterController.shared.start()   // dormant unless the build carries a feed URL + ED key
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

@@ -16,6 +16,9 @@ final class UpdaterController: NSObject {
     private var controller: SPUStandardUpdaterController?
 
     /// False in dev builds / until the ship pipeline bakes the key - callers hide their UI.
+    /// UI reads go through UpdateAvailability.updaterActive instead: this is not observable, and
+    /// a Settings window restored at launch renders before start() runs - the "no update feed"
+    /// branch it picked then stuck for the whole run (seen on every post-update relaunch).
     var isActive: Bool { controller != nil }
 
     func start() {
@@ -24,6 +27,7 @@ final class UpdaterController: NSObject {
               let key = info?["SUPublicEDKey"] as? String, !key.isEmpty else { return }
         controller = SPUStandardUpdaterController(
             startingUpdater: true, updaterDelegate: self, userDriverDelegate: self)
+        UpdateAvailability.shared.updaterActive = true
         // Check hourly, Sparkle's minimum (default is daily): the release cadence here ships
         // multiple versions a day, and the header chip only appears once a check has run.
         controller?.updater.updateCheckInterval = 3_600
@@ -183,6 +187,9 @@ final class UpdateAvailability {
     /// True once Sparkle has the update downloaded (auto-download on): a click now finishes
     /// in one restart instead of walking the download dialog.
     var isDownloaded = false
+    /// Observable mirror of UpdaterController.isActive, so views rendered before start() (a
+    /// Settings window restored at launch) correct themselves once the updater comes up.
+    var updaterActive = false
 
     func clear() {
         version = nil

@@ -421,7 +421,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
                     .help(L("Development build - runs beside the installed app and never self-updates"))
-            } else if !UpdaterController.shared.isActive {
+            } else if !UpdateAvailability.shared.updaterActive {
                 Text(L("Local build"))
                     .font(.caption2)
                     .foregroundStyle(TallyColor.warning)

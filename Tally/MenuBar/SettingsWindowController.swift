@@ -43,7 +43,9 @@ final class SettingsWindowController {
                 onContentHeight: { [weak self] height in self?.applyContentHeight(height) }))
             hosting.sizingOptions = []   // manual sizing only - never a second authority
             let window = NSWindow(contentViewController: hosting)
+            // Dev flavour says so in the title bar - visible from every pane, not just About.
             window.title = String(localized: "Settings", bundle: AppLocale.bundle)
+                + (BuildVariant.isDev ? " (Dev)" : "")
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.setContentSize(NSSize(width: 500, height: 640))   // placeholder until the first report

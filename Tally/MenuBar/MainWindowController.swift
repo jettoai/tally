@@ -85,7 +85,7 @@ final class MainWindowController {
             let hosting = NSHostingController(
                 rootView: PopoverRootView(store: .shared, settings: .shared))
             let window = NSWindow(contentViewController: hosting)
-            window.title = "Tally"          // Mission Control / Window menu name
+            window.title = BuildVariant.isDev ? "Tally Dev" : "Tally"   // Mission Control / Window menu name
             window.titleVisibility = .hidden
             // Not resizable: the content is fixed-width by design, and the hosting controller is
             // the single size authority (adding setContentSize/setFrame here recursed the layout

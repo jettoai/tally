@@ -68,9 +68,9 @@ struct SettingsLaunchView: View {
                        effortLevels: id == "claude" ? EffortLevels.shared.claude : EffortLevels.shared.codex,
                        model: launchDefaultBinding(id, \.model),
                        effort: launchDefaultBinding(id, \.effort))
-        // The one behavior people guess wrong: defaults bind at launch, they never reach into a
-        // live session (its model expectation is fixed; only the fallback profile may swap it).
-        Text(L("Applies to new sessions; a running session keeps the model it launched with (use /model inside it to switch live)."))
+        // Defaults bind at launch, and a supervised running session also adopts a changed default
+        // at its next quiet moment (a model the user typed themselves is left alone).
+        Text(L("Applies to new sessions and, at the next quiet moment, to running ones; a model you typed yourself always wins."))
             .font(.caption).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 14)

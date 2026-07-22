@@ -25,6 +25,15 @@ func autoHandoffEnabled(args: [String]) -> Bool {
     return true
 }
 
+/// Whether a running session adopts a later change to the launch-default model (Settings). Mirrors
+/// the `--no-handoff` opt-out. A hand-typed `--model` is handled separately at the call site (a
+/// deliberate model choice must never be overridden), so this only covers the explicit escape hatch.
+func autoFollowEnabled(args: [String]) -> Bool {
+    if args.contains("--no-follow") { return false }
+    if let raw = getenv("TALLY_AUTO_FOLLOW"), String(cString: raw) == "0" { return false }
+    return true
+}
+
 /// True when the fuse still has room: at most `handoffFuseMax` handoffs per rolling window,
 /// so a systemic failure (e.g. every account capped) can't burn through logins in a loop.
 func fuseAllows(now: Date = Date()) -> Bool {
@@ -170,7 +179,11 @@ func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
 }
 
 /// Resident supervision: spawn claude, tail its transcript, hand off on a cap hit.
-func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String]) -> Never {
+///
+/// `follow`: adopt a later change to the launch-default model at the next quiet moment. The caller
+/// sets it false when the user typed their own `--model` or passed `--no-follow`.
+func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String],
+                   follow: Bool = false) -> Never {
     let slug = projectSlug(forCwd: FileManager.default.currentDirectoryPath)
 
     // The parent must survive Ctrl+C - claude uses SIGINT to interrupt a turn, and the whole
@@ -179,9 +192,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     signal(SIGQUIT, SIG_IGN)
 
     var account = initial
-    var launchArgs = args.filter { $0 != "--no-handoff" }
+    var launchArgs = args.filter { $0 != "--no-handoff" && $0 != "--no-follow" }
     /// The fallback profile fires at most once per session.
     var fallbackApplied = false
+    /// The launch-default model this session currently runs on. A Settings change is adopted only
+    /// when it differs from this, and this updates on adopt, so each change fires exactly once and
+    /// an unchanged policy never churns.
+    var followedModel = flagValue(launchArgs, "--model")?.lowercased()
 
     while true {
         let launchedAt = Date()
@@ -222,7 +239,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // and live UI pin switches. Continues the SAME conversation when one exists; a session
         // with no transcript yet just starts fresh on the target (any --continue/--resume flags
         // are stripped so it can't pull up an unrelated old conversation there).
-        func performHandoff(to target: Snapshot.Account) {
+        // `countingFuse: false` for restarts that aren't cap-driven (the follow-the-default
+        // relaunch): the fuse exists to stop systemic cap loops, and a deliberate Settings change
+        // must not eat the budget a real cap hit may need minutes later.
+        func performHandoff(to target: Snapshot.Account, countingFuse: Bool = true) {
             kill(childPID, SIGTERM)   // let claude run its SessionEnd cleanup
             _ = awaitChild()
 
@@ -242,7 +262,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 }
             }
 
-            recordHandoff()
+            if countingFuse { recordHandoff() }
             account = target
             var next: [String] = []
             var skip = false
@@ -283,6 +303,22 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     performHandoff(to: target)
                     break
                 }
+            }
+
+            // Follow the launch default: changing "Default model" in Settings re-points a RUNNING
+            // session at the next quiet moment, on the SAME account and conversation. A deliberate
+            // act in the app, like a pin move, so no fuse; works in both auto and pinned modes
+            // (it never switches account). `policy` is re-read every 2s loop above already, so the
+            // change is noticed without any extra polling.
+            if follow, let newModel = policy.model, newModel.lowercased() != followedModel,
+               watcher.isQuiet() {
+                warn("launch default changed to \(newModel) → adopting it")
+                performHandoff(to: account, countingFuse: false)
+                launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
+                launchArgs += ["--model", newModel]
+                if let effort = policy.effort { launchArgs += ["--effort", effort] }
+                followedModel = newModel.lowercased()
+                break
             }
 
             // The session's ACTUAL model degraded away from the declared primary (claude fell

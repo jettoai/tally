@@ -26,6 +26,11 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     }
     let wantsHandoff = autoHandoffEnabled(args: passthrough)
     passthrough.removeAll { $0 == "--no-handoff" }   // tally's own flag, never passed through
+    // A running session follows a later Settings change to the default model UNLESS the user opted
+    // out (--no-follow) or typed their own --model (a deliberate choice outranks the default).
+    // Captured before the policy injects its own --model below.
+    let allowFollow = autoFollowEnabled(args: passthrough) && !passthrough.contains("--model")
+    passthrough.removeAll { $0 == "--no-follow" }    // tally's own flag, never passed through
 
     // An explicitly exported config home is also the user choosing by hand - honour it.
     if pinned == nil, getenv(provider.envKey) != nil {
@@ -107,7 +112,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             // switch), so the supervisor stays resident; it won't cap-handoff while pinned.
             // A CLI --account pin remains a plain exec - that flag opts out of supervision.
             if provider.id == "claude", wantsHandoff {
-                runSupervised(provider, account: match, args: passthrough)
+                runSupervised(provider, account: match, args: passthrough, follow: allowFollow)
             }
             exec(provider.cli, args: passthrough, env: launchEnv(provider, home: match.launchHome!))
         }
@@ -127,7 +132,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // Claude sessions get the resident supervisor (auto-handoff on a cap hit); an explicit
     // `--account` pin or `--no-handoff` opts out, and codex stays a plain exec for now.
     if provider.id == "claude", wantsHandoff {
-        runSupervised(provider, account: account, args: passthrough)
+        runSupervised(provider, account: account, args: passthrough, follow: allowFollow)
     }
     exec(provider.cli, args: passthrough, env: launchEnv(provider, home: account.launchHome!))
 }

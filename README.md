@@ -91,6 +91,10 @@ subscriptions at once:
   and reasoning effort as one pairing, and a separate fallback pairing (fallback model + its own
   effort + extra flags). Injected only when you didn't type the flag yourself: your own arguments
   always win.
+- **Change the model once, every session follows.** Re-point the default model or effort and
+  every running supervised session adopts it at its next quiet moment, resuming the same
+  conversation; no walking terminals to type `/model` one by one. A model or effort you typed
+  yourself is never touched, and `--no-follow` opts a session out.
 - **Shell integration.** One click installs PATH shims so even bare `claude` / `codex` commands
   follow your launch policy; one click removes them just as cleanly.
 - **Status line integration.** Your Claude Code status line gains a purple ✦ Tally signal (this

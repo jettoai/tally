@@ -110,7 +110,28 @@ struct ModelEffortRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        // The custom field lives on its own second line: sharing the main line with both pickers
+        // squeezed the caption column to ~80pt (an eight-line sliver), and the window follows the
+        // tallest pane, so every pane paid for it. Off the line, the main row's geometry is
+        // identical in both modes, and the field gets room enough for real model ids.
+        VStack(alignment: .trailing, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                mainLine
+            }
+            if selection == "custom" {
+                TextField("Custom" as String, text: Binding(
+                    get: { model ?? "" },
+                    set: { model = $0.isEmpty ? nil : $0 }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+            }
+        }
+        .settingsRowPadding()
+    }
+
+    @ViewBuilder
+    private var mainLine: some View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline)
                 if let caption {
@@ -119,14 +140,6 @@ struct ModelEffortRow: View {
                 }
             }
             Spacer()
-            if selection == "custom" {
-                TextField("Custom" as String, text: Binding(
-                    get: { model ?? "" },
-                    set: { model = $0.isEmpty ? nil : $0 }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 120)
-            }
             Picker("", selection: Binding(
                 get: { selection },
                 set: { picked in
@@ -153,8 +166,6 @@ struct ModelEffortRow: View {
             }
             .labelsHidden()
             .fixedSize()
-        }
-        .settingsRowPadding()
     }
 }
 

@@ -87,7 +87,11 @@ func runStatusline(args: [String]) -> Never {
                                Int((fleet.capacity / 100).rounded()))
             // "pool", not "fleet": the DATA label matches the panel's own ("Weekly pool") -
             // "fleet" stays the FEATURE's name (the gauge, the Settings toggle, the README).
-            var text = "\(dim)pool\(reset) \(meter(remainingPct, tint)) \(tint)\(worth)\(reset)"
+            // A model pool says WHICH ("fable pool"): the gauge focus can re-point this slot,
+            // and a bare "pool" flipping between budgets read as a wrong number (panel rule:
+            // pool names are always spelled out).
+            let label = fleet.poolName.map { "\($0.lowercased()) pool" } ?? "pool"
+            var text = "\(dim)\(label)\(reset) \(meter(remainingPct, tint)) \(tint)\(worth)\(reset)"
             if let dryAt = fleet.dryAt, dryAt > now {
                 text += " \(dim)(~\(shortETA(dryAt.timeIntervalSince(now))))\(reset)"
             } else if fleet.sustainable {

@@ -45,6 +45,8 @@ struct Snapshot: Decodable {
         var capacity: Double
         var dryAt: Date?
         var sustainable: Bool
+        /// Which pool this is when a model pool leads the gauge ("Fable"); nil = the weekly pool.
+        var poolName: String?
     }
     var fleet: [String: Fleet]?
 }

@@ -280,7 +280,8 @@ final class UsageStore {
             fleet[summary.providerID] = UsageSnapshot.Fleet(
                 remaining: pool.totalRemaining,
                 capacity: Double(pool.members.count) * 100,
-                dryAt: dryAt, sustainable: sustainable)
+                dryAt: dryAt, sustainable: sustainable,
+                poolName: pool.kind == .weeklyModel ? (pool.modelName ?? pool.label) : nil)
         }
         return fleet.isEmpty ? nil : fleet
     }

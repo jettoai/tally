@@ -48,6 +48,11 @@ struct UsageSnapshot: Codable {
         /// When the pool runs dry at the measured pace (nil = sustainable or still measuring).
         var dryAt: Date?
         var sustainable: Bool
+        /// Which pool this is when the gauge focus leads with a model pool ("Fable"); nil = the
+        /// weekly pool. The status line names the pool from this - the bare word "pool" silently
+        /// changing meaning with the focus read as a wrong number. Added in 0.16.1 (optional, so
+        /// older CLIs decode fine - the snapshot schema only ever gains fields).
+        var poolName: String?
     }
     var fleet: [String: Fleet]?
 

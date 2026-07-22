@@ -195,10 +195,19 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var launchArgs = args.filter { $0 != "--no-handoff" && $0 != "--no-follow" }
     /// The fallback profile fires at most once per session.
     var fallbackApplied = false
-    /// The launch-default model this session currently runs on. A Settings change is adopted only
-    /// when it differs from this, and this updates on adopt, so each change fires exactly once and
-    /// an unchanged policy never churns.
+    /// The launch-default pair (model, effort) this session currently runs on. A Settings change
+    /// is adopted only when the desired pair differs from this one, and this updates on adopt, so
+    /// each change fires exactly once and an unchanged policy never churns. The fallback profile
+    /// rewrites launchArgs without touching these, so a fallback in effect does not retrigger.
     var followedModel = flagValue(launchArgs, "--model")?.lowercased()
+    var followedEffort = flagValue(launchArgs, "--effort")?.lowercased()
+    /// Follow debounce: Settings exposes model and effort as two adjacent dropdowns, so one
+    /// adjustment can arrive as two policy writes seconds apart. A change is adopted only after
+    /// the desired pair has held steady for this long, so one adjustment restarts once, not twice.
+    let followDebounce: TimeInterval = 10
+    var pendingSince: Date?
+    var pendingModel: String?
+    var pendingEffort: String?
 
     while true {
         let launchedAt = Date()
@@ -305,20 +314,32 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 }
             }
 
-            // Follow the launch default: changing "Default model" in Settings re-points a RUNNING
-            // session at the next quiet moment, on the SAME account and conversation. A deliberate
-            // act in the app, like a pin move, so no fuse; works in both auto and pinned modes
-            // (it never switches account). `policy` is re-read every 2s loop above already, so the
-            // change is noticed without any extra polling.
-            if follow, let newModel = policy.model, newModel.lowercased() != followedModel,
-               watcher.isQuiet() {
-                warn("launch default changed to \(newModel) → adopting it")
-                performHandoff(to: account, countingFuse: false)
-                launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
-                launchArgs += ["--model", newModel]
-                if let effort = policy.effort { launchArgs += ["--effort", effort] }
-                followedModel = newModel.lowercased()
-                break
+            // Follow the launch default: changing "Default model & effort" in Settings re-points
+            // a RUNNING session at the next quiet moment, on the SAME account and conversation. A
+            // deliberate act in the app, like a pin move, so no fuse; works in both auto and
+            // pinned modes (it never switches account). `policy` is re-read every 2s loop above
+            // already, so the change is noticed without any extra polling. Adoption waits until
+            // the desired pair has held steady for `followDebounce` (model and effort are picked
+            // one after the other), and a change reverted within the window never restarts.
+            if follow {
+                let desired = (policy.model?.lowercased(), policy.effort?.lowercased())
+                if desired == (followedModel, followedEffort) {
+                    pendingSince = nil
+                } else if pendingSince == nil || desired != (pendingModel, pendingEffort) {
+                    (pendingModel, pendingEffort) = desired
+                    pendingSince = Date()
+                } else if let since = pendingSince,
+                          Date().timeIntervalSince(since) >= followDebounce, watcher.isQuiet() {
+                    warn("launch default changed to \(policy.model ?? "default")/" +
+                         "\(policy.effort ?? "default") → adopting it")
+                    performHandoff(to: account, countingFuse: false)
+                    launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
+                    if let model = policy.model { launchArgs += ["--model", model] }
+                    if let effort = policy.effort { launchArgs += ["--effort", effort] }
+                    (followedModel, followedEffort) = desired
+                    pendingSince = nil
+                    break
+                }
             }
 
             // The session's ACTUAL model degraded away from the declared primary (claude fell

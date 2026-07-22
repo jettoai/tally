@@ -26,10 +26,12 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     }
     let wantsHandoff = autoHandoffEnabled(args: passthrough)
     passthrough.removeAll { $0 == "--no-handoff" }   // tally's own flag, never passed through
-    // A running session follows a later Settings change to the default model UNLESS the user opted
-    // out (--no-follow) or typed their own --model (a deliberate choice outranks the default).
-    // Captured before the policy injects its own --model below.
+    // A running session follows a later Settings change to the default model/effort UNLESS the
+    // user opted out (--no-follow) or typed their own --model or --effort (a deliberate choice
+    // outranks the default, and the follow adopts the pair as a whole - it must never overwrite
+    // a hand-typed flag). Captured before the policy injects its own flags below.
     let allowFollow = autoFollowEnabled(args: passthrough) && !passthrough.contains("--model")
+        && !passthrough.contains("--effort")
     passthrough.removeAll { $0 == "--no-follow" }    // tally's own flag, never passed through
 
     // An explicitly exported config home is also the user choosing by hand - honour it.

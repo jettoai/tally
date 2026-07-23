@@ -164,6 +164,28 @@ func runStatus(json: Bool = false) {
             print("\(marker) \(account.label): session \(fmt(account.sessionRemaining)) · " +
                   "weekly \(fmt(account.weeklyRemaining)) · model \(fmt(account.modelRemaining))\(state)")
         }
+        // The pooled cross-account view, same vocabulary and units as the status line's fleet
+        // zone: accounts' worth left per pool ("fable pool 0.0/2"), dry forecast or a
+        // sustainable tick. Present only while the app's fleet gauge is on; older snapshots
+        // carry only the single headline pool.
+        let pools = (snapshot.fleetPools?[provider.id]
+            ?? snapshot.fleet?[provider.id].map { [$0] } ?? [])
+            .filter { $0.capacity > 0 }
+        if !pools.isEmpty {
+            let now = Date()
+            let pieces = pools.map { pool -> String in
+                let label = pool.poolName.map { "\($0.lowercased()) pool" } ?? "pool"
+                var text = "\(label) " + String(format: "%.1f/%d", pool.remaining / 100,
+                                                Int((pool.capacity / 100).rounded()))
+                if let dryAt = pool.dryAt, dryAt > now {
+                    text += " (~\(shortETA(dryAt.timeIntervalSince(now))) left)"
+                } else if pool.sustainable {
+                    text += " ✓"
+                }
+                return text
+            }
+            print("  fleet: \(pieces.joined(separator: " · "))")
+        }
     }
 }
 

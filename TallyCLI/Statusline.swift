@@ -30,10 +30,18 @@ func runStatusline(args: [String]) -> Never {
             ? "\(purple)✦ Tally\(reset)"
             : "\(purple)✦ Tally\(reset) \(yellow)(off)\(reset)")
         : (problem != nil ? "\(yellow)(tally off)\(reset)" : nil)
+    // Supervision health: a session launched before an app update runs an OLD supervisor with
+    // stale handoff logic, so nudge a restart. The supervisor stamps its build into the child env;
+    // a mismatch with THIS binary's version is "outdated", a missing stamp is "unknown" (an old
+    // pre-stamp supervisor, or a deliberate --no-handoff launch - so never asserted as outdated).
+    let supervisionPiece = supervisionStatus(
+        steered: steered,
+        supervisorVersion: ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_VERSION"],
+        installedVersion: supervisorBuildVersion()).note.map { "\(yellow)\($0)\(reset)" }
     // The account name only carries information when there is a choice: with one account it
     // reads as noise next to a Claude session, so the status signal stands alone.
     let siblings = snapshot?.accounts.filter { $0.provider == "claude" }.count ?? 0
-    let identity = [statusPiece, siblings > 1 ? "\(dim)\(label)\(reset)" : nil]
+    let identity = [statusPiece, supervisionPiece, siblings > 1 ? "\(dim)\(label)\(reset)" : nil]
         .compactMap { $0 }.joined(separator: " · ")
     let input = FileHandle.standardInput.readDataToEndOfFile()
 
@@ -104,7 +112,9 @@ func runStatusline(args: [String]) -> Never {
             if let dryAt = fleet.dryAt, dryAt > now {
                 text += " \(dim)(~\(shortETA(dryAt.timeIntervalSince(now))))\(reset)"
             } else if fleet.sustainable {
-                text += " \u{1B}[38;5;71m✓\(reset)"
+                // "fleet ✓", not a bare ✓: a lone checkmark in the compact line read as ambiguous
+                // (sustainable WHAT?); this says the fleet as a whole sustains the current pace.
+                text += " \u{1B}[38;5;71mfleet ✓\(reset)"
             }
             return text
         }
@@ -154,7 +164,7 @@ func runStatusline(args: [String]) -> Never {
             // The session model always rides the identity, same fixed position for every
             // model - one grammar, no conditional homes. The custom line above may show a
             // model of its own, but THIS line's model is the one tally launched or adopted.
-            let identityZone = [statusPiece, "\(dim)\(label)\(reset)", modelToken]
+            let identityZone = [statusPiece, supervisionPiece, "\(dim)\(label)\(reset)", modelToken]
                 .compactMap { $0 }
                 .joined(separator: " · ")
             let richLine = [identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]

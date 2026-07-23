@@ -151,4 +151,20 @@ check("session-local quarantine unions with the shared records",
       quarantinedAccounts(sessionLocal: ["local-1": qNow.addingTimeInterval(60)],
                           now: qNow, dir: qDir).contains("local-1"))
 
+// 11. R2/R6: the status line's supervision note. A matching version is silent; a mismatch is
+//     "outdated"; a missing supervisor version is "unknown" (never "outdated" - a --no-handoff
+//     bare launch has none either); a session not steered by Tally says nothing.
+check("matching version is silent",
+      supervisionStatus(steered: true, supervisorVersion: "0.18.0", installedVersion: "0.18.0") == .ok)
+check("a version mismatch is outdated",
+      supervisionStatus(steered: true, supervisorVersion: "0.17.0", installedVersion: "0.18.0") == .outdated)
+check("a missing supervisor version is unknown, not outdated",
+      supervisionStatus(steered: true, supervisorVersion: nil, installedVersion: "0.18.0") == .unknown)
+check("a session not steered by Tally has no note",
+      supervisionStatus(steered: false, supervisorVersion: nil, installedVersion: "0.18.0") == .notSteered)
+check("an unknown installed version can't assert outdated",
+      supervisionStatus(steered: true, supervisorVersion: "0.17.0", installedVersion: nil) == .ok)
+check("outdated renders a restart nudge", SupervisionStatus.outdated.note?.contains("restart") == true)
+check("ok renders no note", SupervisionStatus.ok.note == nil)
+
 exit(failures == 0 ? 0 : 1)

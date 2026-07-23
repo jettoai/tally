@@ -41,6 +41,52 @@ func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
     return out
 }
 
+// MARK: - Build version and supervision status
+
+/// The app version this `tally` binary ships inside, read from the enclosing bundle's Info.plist.
+/// The CLI is embedded at <App>/Contents/Helpers/tally, so the plist is two directories up from
+/// the executable. nil when not running from inside the app bundle (a standalone or dev build),
+/// which the status line renders as "unknown" rather than asserting "outdated".
+func supervisorBuildVersion() -> String? {
+    guard let exe = Bundle.main.executableURL else { return nil }
+    let plistURL = exe.deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Info.plist")
+    guard let data = try? Data(contentsOf: plistURL),
+          let plist = try? PropertyListSerialization.propertyList(from: data, format: nil)
+              as? [String: Any],
+          let version = plist["CFBundleShortVersionString"] as? String else { return nil }
+    return version
+}
+
+/// The health of the supervisor watching THIS session, judged by the status line from the version
+/// the supervisor stamped into the child env against the installed binary's own version.
+enum SupervisionStatus: Equatable {
+    case notSteered   // not launched through Tally at all - no note
+    case ok           // supervisor version matches the installed app
+    case unknown      // no version in the env: an old supervisor (pre-update) or a --no-handoff launch
+    case outdated     // supervisor version differs from the installed app: it runs stale logic
+
+    /// The status-line note, or nil when there is nothing to say.
+    var note: String? {
+        switch self {
+        case .notSteered, .ok: return nil
+        case .unknown: return "supervisor status unknown, restart after update"
+        case .outdated: return "supervisor outdated, restart after update"
+        }
+    }
+}
+
+/// Pure comparison so the status-line note is testable without a bundle. A missing supervisor
+/// version can never be called "outdated" (a --no-handoff bare launch has none either); a missing
+/// INSTALLED version means we can't compare, so assume ok rather than nag.
+func supervisionStatus(steered: Bool, supervisorVersion: String?,
+                       installedVersion: String?) -> SupervisionStatus {
+    guard steered else { return .notSteered }
+    guard let supervisorVersion else { return .unknown }
+    guard let installedVersion else { return .ok }
+    return supervisorVersion == installedVersion ? .ok : .outdated
+}
+
 // MARK: - Recovery fuse (per supervisor, in memory)
 
 /// At most `max` AUTOMATIC cross-account recoveries (a cap handoff or a degradation rescue) per

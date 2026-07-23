@@ -277,115 +277,58 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
     return leader
 }
 
-// MARK: - Machine-readable status (`tally status --json`)
+// MARK: - Shared harness (`tally add claude --share`)
 
-/// The public contract behind `tally status --json`: the surface users script against from
-/// hooks, status lines, and agent skills, so its shape is versioned and additive-only (fields
-/// may appear in later versions, never vanish or change meaning). Account fields mirror the
-/// snapshot's names on purpose; `best` and `pinned` add the one thing only the CLI knows:
-/// which account a launch would actually land on right now.
-struct StatusReport: Encodable {
-    struct Account: Encodable {
-        var id: String
-        var provider: String
-        var label: String
-        var launchHome: String?
-        /// The account `tally claude` / `tally codex` would launch right now (pin honoured);
-        /// the JSON twin of the human output's arrow marker. At most one per provider, and
-        /// none when no account is eligible.
-        var best: Bool
-        /// Manually pinned in the app (Settings, Launch account).
-        var pinned: Bool
-        var isStale: Bool
-        var error: String?
-        var sessionRemaining: Double?
-        var sessionResetsAt: Date?
-        var weeklyRemaining: Double?
-        var weeklyResetsAt: Date?
-        var modelWindowName: String?
-        var modelRemaining: Double?
-        var modelResetsAt: Date?
-        var resetCreditsAvailable: Int?
-    }
+/// What `--share` links from the main account into a new one: the HARNESS (instructions,
+/// skills, hooks, agents, settings) plus the conversation record (projects, memory) - one
+/// setup maintained once, and cross-account resume/handoff continues the same history with
+/// no copying. An allowlist on purpose: identity (credentials, .claude.json) and runtime
+/// state (sessions, tasks, caches) must stay per-account, and new runtime directories the
+/// CLI grows later must default to independent, not shared.
+let sharedHarnessItems = [
+    "CLAUDE.md", "settings.json", "settings.local.json",
+    "agents", "skills", "hooks", "commands", "plugins",
+    "memory", "projects",
+]
 
-    /// Version of THIS output contract, independent of the snapshot file's internal version.
-    var version = 1
-    var generatedAt: Date
-    /// True when the snapshot is older than the CLI trusts (the app is probably not running).
-    var stale: Bool
-    var accounts: [Account]
-    /// The pooled cross-account view, passed through from the snapshot as-is: `fleet` is the
-    /// headline pool per provider, `fleetPools` the panel's ordered pool list (leading pool
-    /// first, e.g. a Fable pool ahead of the weekly pool). Present only while the app's fleet
-    /// gauge is on and the provider has 2+ accounts. Units: one account's full weekly = 100.
-    var fleet: [String: Snapshot.Fleet]?
-    var fleetPools: [String: [Snapshot.Fleet]]?
-}
-
-func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
-                  now: Date = Date()) -> StatusReport {
-    // Known providers first (with a launch pick), then any provider this CLI doesn't know yet:
-    // the JSON mirrors the snapshot, it never silently drops an account.
-    var order = providers.map(\.id)
-    for account in snapshot.accounts where !order.contains(account.provider) {
-        order.append(account.provider)
-    }
-    var accounts: [StatusReport.Account] = []
-    for providerID in order {
-        let mine = snapshot.accounts.filter { $0.provider == providerID }
-        let policy = policies[providerID] ?? LaunchPolicy()
-        // Mirror runLaunch's full manual-pin chain: pinned account id (launch target even when
-        // capped, "launching anyway") → pinnedHome (a pin whose account transiently vanished
-        // from the snapshot still launches by home; when a listed account owns that home it IS
-        // the target, otherwise the launch lands outside this list and nobody gets the marker)
-        // → headroom pick. A provider this CLI cannot launch gets no pick at all - `best`
-        // means "would launch".
-        let known = providers.contains { $0.id == providerID }
-        let manual = known && policy.mode == "manual"
-        let pinnedAccount = manual
-            ? mine.first { $0.id == policy.pinnedAccountID && $0.launchHome != nil }
-                ?? policy.pinnedHome.flatMap { home in mine.first { $0.launchHome == home } }
-            : nil
-        let pinnedID = pinnedAccount?.id
-        let bestID: String? = if let pinnedID {
-            pinnedID
-        } else if manual, policy.pinnedHome != nil {
-            nil
-        } else if known {
-            best(providerID: providerID, in: snapshot, primaryModel: policy.model, now: now)?.id
-        } else {
-            nil
+/// Symlinks each allowlisted item of `source` into `target`. Only items that exist at the
+/// source are linked; a target entry that already exists is NEVER touched (a half-shared
+/// account stays exactly as the user built it). Returns what was linked, what was left
+/// alone, and what FAILED to link (permissions, exotic filesystems) - failures must reach
+/// the launch report, or the user walks away believing a share that never happened.
+func linkSharedHarness(from source: URL, to target: URL,
+                       items: [String] = sharedHarnessItems)
+    -> (linked: [String], kept: [String], failed: [String]) {
+    let fm = FileManager.default
+    var linked: [String] = [], kept: [String] = [], failed: [String] = []
+    for item in items {
+        let sourceItem = source.appendingPathComponent(item)
+        let targetItem = target.appendingPathComponent(item)
+        guard fm.fileExists(atPath: sourceItem.path) else { continue }
+        // lstat, not stat (attributesOfItem never traverses links): an existing symlink,
+        // even a dangling one, is "already there" too and must not be replaced.
+        if (try? fm.attributesOfItem(atPath: targetItem.path)) != nil {
+            kept.append(item)
+            continue
         }
-        for account in mine {
-            accounts.append(.init(
-                id: account.id, provider: account.provider, label: account.label,
-                launchHome: account.launchHome,
-                best: account.id == bestID, pinned: account.id == pinnedID,
-                isStale: account.isStale, error: account.error,
-                sessionRemaining: account.sessionRemaining,
-                sessionResetsAt: account.sessionResetsAt,
-                weeklyRemaining: account.weeklyRemaining,
-                weeklyResetsAt: account.weeklyResetsAt,
-                modelWindowName: account.modelWindowName,
-                modelRemaining: account.modelRemaining,
-                modelResetsAt: account.modelResetsAt,
-                resetCreditsAvailable: account.resetCreditsAvailable))
+        do {
+            try fm.createSymbolicLink(at: targetItem, withDestinationURL: sourceItem)
+            linked.append(item)
+        } catch {
+            failed.append(item)
         }
     }
-    return StatusReport(
-        generatedAt: snapshot.generatedAt,
-        stale: now.timeIntervalSince(snapshot.generatedAt) > snapshotMaxAge,
-        accounts: accounts,
-        fleet: snapshot.fleet,
-        fleetPools: snapshot.fleetPools)
+    return (linked, kept, failed)
 }
 
-func encodeStatusReport(_ report: StatusReport) -> String {
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-    let data = (try? encoder.encode(report)) ?? Data("{}".utf8)
-    return String(decoding: data, as: UTF8.self)
+/// Whether `target`'s projects directory actually resolves to `source`'s - the truth behind
+/// the privacy note, independent of HOW it got shared (this run, an earlier run, or by hand).
+func sharesProjects(source: URL, target: URL) -> Bool {
+    let sourceProjects = source.appendingPathComponent("projects")
+    let targetProjects = target.appendingPathComponent("projects")
+    guard FileManager.default.fileExists(atPath: sourceProjects.path) else { return false }
+    return targetProjects.resolvingSymlinksInPath().path
+        == sourceProjects.resolvingSymlinksInPath().path
 }
 
 func warn(_ message: String) {

@@ -318,9 +318,17 @@ func runLaunchDir(_ providerID: String) {
 /// official login flow. A numbered home that exists but never finished logging in is resumed
 /// rather than skipped, so an aborted login doesn't burn a number. The default home counts too:
 /// on a machine with no account at all, `tally add` is simply the first login.
-func runAdd(_ providerID: String) -> Never {
+///
+/// `--share` (claude for now): before the login, symlink the MAIN account's harness into the
+/// new home (see `sharedHarnessItems`) - one CLAUDE.md/skills/hooks/agents/settings maintained
+/// once, and one conversation record, so cross-account resume and handoff continue the same
+/// history. Explicitly opt-in because shared projects/ means every account can read every
+/// account's conversations; the launch report says so out loud.
+func runAdd(args: [String]) -> Never {
+    let share = args.contains("--share")
+    let providerID = args.first { !$0.hasPrefix("--") } ?? ""
     guard let provider = providers.first(where: { $0.id == providerID }) else {
-        warn("usage: tally add <claude|codex>")
+        warn("usage: tally add <claude|codex> [--share]")
         exit(2)
     }
     let fm = FileManager.default
@@ -342,6 +350,30 @@ func runAdd(_ providerID: String) -> Never {
     }
     // codex refuses a CODEX_HOME that doesn't exist; creating it is harmless for claude.
     try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    if share {
+        let mainHome = home.appendingPathComponent(base)
+        if provider.id != "claude" {
+            warn("--share is Claude-only for now - continuing without it")
+        } else if dir.path == mainHome.path {
+            warn("--share skipped: ~/\(base) IS the main account (nothing to link yet)")
+        } else {
+            let (linked, kept, failed) = linkSharedHarness(from: mainHome, to: dir)
+            if !linked.isEmpty {
+                warn("sharing the main account's harness: \(linked.joined(separator: ", "))")
+            }
+            if !kept.isEmpty {
+                warn("left as-is (already present): \(kept.joined(separator: ", "))")
+            }
+            if !failed.isEmpty {
+                warn("could not link: \(failed.joined(separator: ", ")) - check permissions; --share is incomplete")
+            }
+            // The privacy note follows the ACTUAL state, not this run's work: shared is
+            // shared whether it happened now, on an earlier run, or by hand.
+            if sharesProjects(source: mainHome, target: dir) {
+                warn("note: projects/ is shared - every account can read every account's conversations")
+            }
+        }
+    }
     warn("adding a \(provider.id) account at ~/\(name) - finish the login below; the account shows up in Tally within a minute")
     exec(provider.cli, args: provider.id == "codex" ? ["login"] : [],
          env: launchEnv(provider, home: dir.path))
@@ -390,7 +422,7 @@ case "statusline":
 case "update":
     runUpdate()
 case "add":
-    runAdd(arguments.dropFirst().first ?? "")
+    runAdd(args: Array(arguments.dropFirst()))
 default:
     warn("""
     usage:
@@ -406,6 +438,9 @@ default:
                                 launch policy (off → prints nothing)
       tally add <provider>      log in one more account (next free ~/.claudeN / ~/.codexN,
                                 directory created for you)
+      tally add claude --share  same, plus symlink the main account's harness (CLAUDE.md,
+                                skills, hooks, agents, settings, projects) into the new home:
+                                one setup maintained once, conversations shared across accounts
       tally update              check for app updates now (opens the update window)
     """)
     exit(2)

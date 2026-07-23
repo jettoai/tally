@@ -114,7 +114,9 @@ subscriptions at once:
   (add `--json` for a versioned machine-readable report: every account's windows, reset
   times, and which account a launch would land on right now, ready for your own scripts,
   hooks, and agent skills), `tally add <provider>` (log in one more account: next free
-  number picked and the config directory created for you), `tally best-dir <provider>`,
+  number picked and the config directory created for you; add `--share` to symlink the
+  main account's CLAUDE.md, skills, hooks, agents, settings, and conversation history
+  into the new home, so one setup serves every account), `tally best-dir <provider>`,
   all script-friendly.
 
 ### The chrome

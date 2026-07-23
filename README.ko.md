@@ -114,7 +114,9 @@ Tally는 **Claude와 Codex의 AI 사용량(사용 한도)을 모니터링하는 
   명시된 기계 판독형 리포트를 출력: 모든 계정의 창과 리셋 시각, 그리고 지금 실행하면 어느
   계정에 배정되는지까지, 직접 만든 스크립트, 훅, agent skill에 바로 쓸 수 있음),
   `tally add <provider>`(계정 하나 더 로그인: 다음 빈 번호 선택과 설정 디렉터리 생성까지
-  자동), `tally best-dir <provider>`. 모두 스크립트 친화적입니다.
+  자동, `--share`를 붙이면 메인 계정의 CLAUDE.md, skills, hooks, agents, 설정, 대화 기록을
+  새 디렉터리에 심볼릭 링크로 연결해 한 벌의 설정으로 모든 계정을 사용),
+  `tally best-dir <provider>`. 모두 스크립트 친화적입니다.
 
 ### 외관과 디테일
 

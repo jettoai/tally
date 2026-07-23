@@ -14,34 +14,6 @@ import Foundation
 // "Server is temporarily limiting requests (not your usage limit)", 529/500, login expiry) never
 // starts with "You've" and must never trigger a handoff.
 
-let handoffFuseWindow: TimeInterval = 10 * 60
-let handoffFuseMax = 3
-let handoffLog = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent(".tally/handoff.log")
-
-/// True when the fuse still has room: at most `handoffFuseMax` handoffs per rolling window,
-/// so a systemic failure (e.g. every account capped) can't burn through logins in a loop.
-func fuseAllows(now: Date = Date()) -> Bool {
-    guard let text = try? String(contentsOf: handoffLog, encoding: .utf8) else { return true }
-    let recent = text.split(separator: "\n")
-        .compactMap { Double($0) }
-        .filter { now.timeIntervalSince1970 - $0 < handoffFuseWindow }
-    return recent.count < handoffFuseMax
-}
-
-func recordHandoff(now: Date = Date()) {
-    let line = "\(now.timeIntervalSince1970)\n"
-    if let handle = try? FileHandle(forWritingTo: handoffLog) {
-        handle.seekToEndOfFile()
-        handle.write(Data(line.utf8))
-        try? handle.close()
-    } else {
-        try? FileManager.default.createDirectory(at: handoffLog.deletingLastPathComponent(),
-                                                 withIntermediateDirectories: true)
-        try? Data(line.utf8).write(to: handoffLog)
-    }
-}
-
 /// Watches one session transcript for a cap-hit event newer than `since`.
 struct TranscriptWatcher {
     let projectDir: URL
@@ -193,6 +165,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var pendingSince: Date?
     var pendingModel: String?
     var pendingEffort: String?
+    /// The recovery fuse for THIS supervisor, held across relaunches: at most 3 automatic
+    /// cross-account recoveries per 10 minutes (a cap handoff or a degradation rescue). In memory
+    /// and per process, so a fleet-wide drain never trips one session on another's account
+    /// switches. Deliberate moves (pin, follow) and same-account relaunches (fallback) do not count.
+    var fuse = RecoveryFuse()
 
     while true {
         let launchedAt = Date()
@@ -234,10 +211,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // and live UI pin switches. Continues the SAME conversation when one exists; a session
         // with no transcript yet just starts fresh on the target (any --continue/--resume flags
         // are stripped so it can't pull up an unrelated old conversation there).
-        // `countingFuse: false` for restarts that aren't cap-driven (the follow-the-default
-        // relaunch): the fuse exists to stop systemic cap loops, and a deliberate Settings change
-        // must not eat the budget a real cap hit may need minutes later.
-        func performHandoff(to target: Snapshot.Account, countingFuse: Bool = true) {
+        // `countingFuse` records against the per-supervisor fuse: true for AUTOMATIC recoveries
+        // (cap handoff, degradation rescue), false for deliberate or same-account relaunches (pin
+        // switch, follow adoption, fallback profile) - a Settings change must not eat the budget a
+        // real cap hit may need minutes later. `reason` is the audit-log tag only.
+        func performHandoff(to target: Snapshot.Account, reason: String, countingFuse: Bool = true) {
+            let fromLabel = account.label
             kill(childPID, SIGTERM)   // let claude run its SessionEnd cleanup
             _ = awaitChild()
 
@@ -257,7 +236,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 }
             }
 
-            if countingFuse { recordHandoff() }
+            logHandoff(sessionID: sessionFile?.deletingPathExtension().lastPathComponent,
+                       from: fromLabel, to: target.label, reason: reason)
+            if countingFuse { fuse.record() }
             account = target
             var next: [String] = []
             var skip = false
@@ -320,7 +301,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     $0.id == pinnedID && $0.provider == provider.id && $0.launchHome != nil
                 }) {
                     warn("pinned in Tally → switching to \(target.label)")
-                    performHandoff(to: target)
+                    performHandoff(to: target, reason: "pin", countingFuse: false)
                     break
                 }
             }
@@ -338,13 +319,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                             && $0.id != account.id }
                         .max { smartScore($0, primaryModel: primary)
                             < smartScore($1, primaryModel: primary) }
-                    let action = capRecoveryAction(mode: policy.mode, fuseAllows: fuseAllows(),
+                    let action = capRecoveryAction(mode: policy.mode, fuseAllows: fuse.allows(),
                                                    snapshotStale: snapshotProblem != nil,
                                                    hasTarget: target != nil)
                     if action == .handoff, let target {
                         warn("cap hit → handing off to \(target.label) " +
                              "(\(pickReason(target, primaryModel: primary)))")
-                        performHandoff(to: target)
+                        performHandoff(to: target, reason: "cap")
                         break
                     }
                     if let note = action.waitingNote, note != pending.reason {
@@ -375,7 +356,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                           Date().timeIntervalSince(since) >= followDebounce, watcher.isQuiet() {
                     warn("launch default changed to \(policy.model ?? "default")/" +
                          "\(policy.effort ?? "default") → adopting it")
-                    performHandoff(to: account, countingFuse: false)
+                    performHandoff(to: account, reason: "follow", countingFuse: false)
                     launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
                     if let model = policy.model { launchArgs += ["--model", model] }
                     if let effort = policy.effort { launchArgs += ["--effort", effort] }
@@ -395,7 +376,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // "rescued" back to fable).
             if let primary = (flagValue(launchArgs, "--model") ?? policy.model)?.lowercased(),
                let actual = watcher.lastModel?.lowercased(),
-               !actual.contains(primary), policy.mode != "manual", fuseAllows(),
+               !actual.contains(primary), policy.mode != "manual", fuse.allows(),
                watcher.isQuiet() {
                 let (snapshot, _) = loadSnapshot()
                 // Account-switching only cures QUOTA degradation. If THIS account's flagship
@@ -416,7 +397,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 if let rescue {
                     warn("\(actual) took over from \(primary) → moving to \(rescue.label) " +
                          "to stay on \(primary) (\(pickReason(rescue, primaryModel: policy.model)))")
-                    performHandoff(to: rescue)
+                    performHandoff(to: rescue, reason: "degraded")
                     break
                 }
             }
@@ -436,7 +417,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    .first(where: { !$0.isEmpty && actual.contains($0) }),
                watcher.isQuiet() {
                 warn("model fell back to \(actual) → applying fallback profile")
-                performHandoff(to: account)
+                performHandoff(to: account, reason: "fallback", countingFuse: false)
                 launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
                 launchArgs += ["--model", matched]
                 if let effort = policy.fallbackEffort { launchArgs += ["--effort", effort] }

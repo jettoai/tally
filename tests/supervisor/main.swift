@@ -119,4 +119,18 @@ let staleWatcher = watcherAfterScanning([
 check("a pre-cap assistant event does not signal recovery",
       (staleWatcher.lastMainChainEventAt.map { $0 > cappedAt }) != true)
 
+// 9. R3: the fuse is per-supervisor and in memory - five sessions hitting a fleet-wide drain at
+//    once never burn each other's budget. One fuse allows its first `max` recoveries, blocks the
+//    next, and recovers after the window; a separate fuse is fully independent.
+let fuseT0 = Date(timeIntervalSince1970: 1_800_000_000)
+var fuseA = RecoveryFuse(max: 3, window: 600)
+check("first recovery allowed", fuseA.allows(now: fuseT0)); fuseA.record(now: fuseT0)
+check("second recovery allowed", fuseA.allows(now: fuseT0)); fuseA.record(now: fuseT0)
+check("third recovery allowed", fuseA.allows(now: fuseT0)); fuseA.record(now: fuseT0)
+check("fourth recovery blocked (3 in the window)", !fuseA.allows(now: fuseT0))
+check("allowed again once the window rolls past",
+      fuseA.allows(now: fuseT0.addingTimeInterval(601)))
+var fuseB = RecoveryFuse(max: 3, window: 600)
+check("a separate supervisor's fuse is independent", fuseB.allows(now: fuseT0))
+
 exit(failures == 0 ? 0 : 1)

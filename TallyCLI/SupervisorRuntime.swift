@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 // Supervisor value types and pure decision helpers, split from Supervisor.swift so the resident
@@ -38,6 +39,55 @@ func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
         out.append(argument)
     }
     return out
+}
+
+// MARK: - Recovery fuse (per supervisor, in memory)
+
+/// At most `max` AUTOMATIC cross-account recoveries (a cap handoff or a degradation rescue) per
+/// rolling `window`, so a systemic failure can't burn through logins in a loop. Scoped to ONE
+/// supervisor process and held in memory, unlike the old shared file gate: five sessions hitting
+/// a model-window drain at the same instant each recorded into one file and tripped every other
+/// session's fuse, so nobody could hand off (2026-07-24). Deliberate moves (a pin switch, a follow
+/// adoption) and same-account relaunches (the fallback profile) are never counted.
+struct RecoveryFuse {
+    let max: Int
+    let window: TimeInterval
+    private var recent: [Date] = []
+
+    init(max: Int = 3, window: TimeInterval = 10 * 60) {
+        self.max = max
+        self.window = window
+    }
+
+    /// True while the fuse has room. Prunes entries older than the window as a side effect.
+    mutating func allows(now: Date = Date()) -> Bool {
+        recent.removeAll { now.timeIntervalSince($0) >= window }
+        return recent.count < max
+    }
+
+    mutating func record(now: Date = Date()) {
+        recent.append(now)
+    }
+}
+
+/// The shared handoff audit log (pure observability now the fuse is per supervisor). Kept for
+/// after-the-fact debugging: which session moved from which account to which, and why.
+let handoffLog = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".tally/handoff.log")
+
+/// Append one audit line, O_APPEND so concurrent supervisors interleave whole lines without a
+/// lock. Never contains a token; the fields are the session id prefix, from->to labels, and the
+/// reason. Best-effort: a logging failure must never disturb a handoff.
+func logHandoff(sessionID: String?, from: String, to: String, reason: String, now: Date = Date()) {
+    try? FileManager.default.createDirectory(at: handoffLog.deletingLastPathComponent(),
+                                             withIntermediateDirectories: true)
+    let stamp = ISO8601DateFormatter().string(from: now)
+    let sid = sessionID.map { String($0.prefix(8)) } ?? "unknown"
+    let line = "\(stamp) session=\(sid) \(from)->\(to) reason=\(reason)\n"
+    let fd = open(handoffLog.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+    guard fd >= 0 else { return }
+    _ = line.withCString { write(fd, $0, strlen($0)) }
+    close(fd)
 }
 
 // MARK: - Cap recovery

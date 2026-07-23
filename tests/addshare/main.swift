@@ -87,13 +87,63 @@ let withProjects = tmp.appendingPathComponent("claude7")
 try! fm.createDirectory(at: withProjects, withIntermediateDirectories: true)
 _ = linkSharedHarness(from: source, to: withProjects)
 check("linked projects reports as shared",
-      sharesProjects(source: source, target: withProjects))
+      sharesConversations(providerID: "claude", source: source, target: withProjects))
 let ownProjects = tmp.appendingPathComponent("claude8")
 try! fm.createDirectory(at: ownProjects.appendingPathComponent("projects"),
                         withIntermediateDirectories: true)
 _ = linkSharedHarness(from: source, to: ownProjects)
 check("an account with its OWN projects does not report as shared",
-      !sharesProjects(source: source, target: ownProjects))
+      !sharesConversations(providerID: "claude", source: source, target: ownProjects))
+
+// The codex face: its own allowlist, its own conversation entry, identity still out.
+try! "codex instructions".write(to: source.appendingPathComponent("AGENTS.md"),
+                                atomically: true, encoding: .utf8)
+try! "model = \"gpt\"".write(to: source.appendingPathComponent("config.toml"),
+                             atomically: true, encoding: .utf8)
+try! fm.createDirectory(at: source.appendingPathComponent("sessions"),
+                        withIntermediateDirectories: true)
+try! "auth".write(to: source.appendingPathComponent("auth.json"),
+                  atomically: true, encoding: .utf8)
+let codexHome = tmp.appendingPathComponent("codex2")
+try! fm.createDirectory(at: codexHome, withIntermediateDirectories: true)
+let codex = linkSharedHarness(from: source, to: codexHome, items: codexSharedItems)
+check("codex: AGENTS.md and config.toml link",
+      codex.linked.contains("AGENTS.md") && codex.linked.contains("config.toml"))
+check("codex: sessions is the shared conversation record",
+      sharesConversations(providerID: "codex", source: source, target: codexHome))
+check("codex: auth.json is never part of the share",
+      !fm.fileExists(atPath: codexHome.appendingPathComponent("auth.json").path))
+check("codex: archived conversations ride along in the record",
+      codexSharedItems.contains("archived_sessions"))
+
+// Profile v2 layers: every <name>.config.toml the main account has joins the share list.
+try! "model = \"pro\"".write(to: source.appendingPathComponent("work.config.toml"),
+                             atomically: true, encoding: .utf8)
+try! "junk".write(to: source.appendingPathComponent("config.toml.bak"),
+                  atomically: true, encoding: .utf8)
+let expanded = harnessItems(for: "codex", in: source)
+check("codex: named profiles are discovered dynamically",
+      expanded.contains("work.config.toml") && !expanded.contains("config.toml.bak"))
+check("claude list is static", harnessItems(for: "claude", in: source) == sharedHarnessItems)
+
+// --no-share on a reused directory: OUR links go, everything else stays.
+let undo = tmp.appendingPathComponent("claude9")
+try! fm.createDirectory(at: undo, withIntermediateDirectories: true)
+_ = linkSharedHarness(from: source, to: undo)
+try! "kept".write(to: undo.appendingPathComponent("memory"),
+                  atomically: true, encoding: .utf8)   // user's own file on a list name
+try! fm.createSymbolicLink(at: undo.appendingPathComponent("hooks"),
+                           withDestinationURL: tmp.appendingPathComponent("elsewhere"))
+let removed = unlinkSharedHarness(from: source, to: undo, items: sharedHarnessItems)
+check("unlink removes exactly the links pointing at the main account",
+      removed.contains("CLAUDE.md") && removed.contains("projects")
+          && !fm.fileExists(atPath: undo.appendingPathComponent("CLAUDE.md").path))
+check("unlink keeps a user's own file even on an allowlisted name",
+      (try? String(contentsOf: undo.appendingPathComponent("memory"),
+                   encoding: .utf8)) == "kept")
+check("unlink keeps a symlink pointing anywhere else",
+      (try? fm.destinationOfSymbolicLink(atPath: undo.appendingPathComponent("hooks").path))
+          == tmp.appendingPathComponent("elsewhere").path)
 
 try? fm.removeItem(at: tmp)
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")

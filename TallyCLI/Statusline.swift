@@ -47,11 +47,11 @@ func runStatusline(args: [String]) -> Never {
 
     var quota: [String] = []
     var fleetPiece: String?
-    /// Identity slot 3: the session model, WEARING ITS OWN METER when it has a dedicated
-    /// window ("Fable 5 ██ 12% (27h)"); name-only for models without one ("Opus 4.8"). The
-    /// name and its budget travel together, so the quota zone needs no label for it and no
-    /// word repeats. Starts as the bare name and upgrades below once the account is known.
-    var modelToken = sessionModel
+    /// Identity slot 3: the session model, name only, every model the same shape. Its own
+    /// window's numbers live in the panel and the menu bar hover - the line stays ONE shape
+    /// (identity | 5h | pool), and under smart handoff the pool is the budget that binds
+    /// anyway, the same yield that removed the account's own 7d from the line.
+    let modelToken = sessionModel
     if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
         let now = Date()
         // The number and bar follow the panel's used/remaining toggle; the tint always keys
@@ -103,17 +103,6 @@ func runStatusline(args: [String]) -> Never {
                 text += " \u{1B}[38;5;71m✓\(reset)"
             }
             fleetPiece = text
-        }
-        // The model wears its meter only when THIS session is actually consuming its window: a
-        // sonnet session doesn't burn the Fable window, so quota there is noise (the fleet-wide
-        // Fable story lives in the panel). Matched against the live session model, falling
-        // back to the configured launch model; unknowable → shown (info beats absence).
-        if let windowName = account.modelWindowName {
-            let reference = sessionModel ?? launchPolicy("claude").model ?? windowName
-            if reference.lowercased().contains(windowName.lowercased()) {
-                modelToken = piece(sessionModel ?? windowName,
-                                   account.modelRemaining, account.modelResetsAt) ?? modelToken
-            }
         }
         // The account's own 7d yields to the fleet slot when the pool is shown: under smart
         // handoff the pool IS the weekly budget, and two weekly numbers side by side confuse.

@@ -106,12 +106,12 @@ func runStatusline(args: [String]) -> Never {
         let modelPiece: String?
         if let windowName = account.modelWindowName {
             let reference = sessionModel ?? launchPolicy("claude").model ?? windowName
-            // The piece's label is the full session model when it matches ("Fable 5", not
-            // "Fable"): one token then carries BOTH the model identity and its quota, and the
-            // standalone line drops its separate model token instead of saying Fable twice.
+            // Plain window name as the label: the session model lives in the identity zone at
+            // a FIXED position for every model (one grammar), so this piece never wears it.
+            // The repeated word on a matched session ("Fable 5 | Fable ██") is the price of
+            // positional predictability - the same call as the panel's pool naming (v0.14).
             modelPiece = reference.lowercased().contains(windowName.lowercased())
-                ? piece(sessionModel ?? windowName, account.modelRemaining,
-                        account.modelResetsAt) : nil
+                ? piece(windowName, account.modelRemaining, account.modelResetsAt) : nil
         } else {
             modelPiece = nil
         }
@@ -159,13 +159,10 @@ func runStatusline(args: [String]) -> Never {
         // (identity | this account's windows | the fleet pool), separated by | so the
         // single-account numbers and the whole-fleet number never read as one list.
         if snapshot?.statuslineFullQuota == true, !quota.isEmpty {
-            // The session model rides the identity here too, same rule as the standalone line
-            // below: whichever model this session runs (not just the flagship), unless a
-            // matched tier piece already wears the name. The custom line above may show a
+            // The session model always rides the identity, same fixed position for every
+            // model - one grammar, no conditional homes. The custom line above may show a
             // model of its own, but THIS line's model is the one tally launched or adopted.
-            let modelToken = quota.first.map { $0.contains(sessionModel ?? "\u{0}") } == true
-                ? nil : sessionModel
-            let identityZone = [statusPiece, "\(dim)\(label)\(reset)", modelToken]
+            let identityZone = [statusPiece, "\(dim)\(label)\(reset)", sessionModel]
                 .compactMap { $0 }
                 .joined(separator: " · ")
             let richLine = [identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]
@@ -190,12 +187,9 @@ func runStatusline(args: [String]) -> Never {
     }
 
     // Standalone mode: Tally IS the whole status line, so it always carries the quota story
-    // itself. The model name joins the identity only when the tier piece isn't already
-    // wearing it (matched tier pieces carry the full model name as their label).
-    // Same three-zone layout as the wrapped rich line.
-    let modelShownInQuota = quota.first.map { $0.contains(sessionModel ?? "\u{0}") } ?? false
-    let identityZone = [identity.isEmpty ? nil : identity,
-                        modelShownInQuota ? nil : sessionModel].compactMap { $0 }
+    // itself. The model name always joins the identity, fixed position for every model - the
+    // same one-grammar rule as the wrapped rich line above.
+    let identityZone = [identity.isEmpty ? nil : identity, sessionModel].compactMap { $0 }
         .joined(separator: " · ")
     print([identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]
         .filter { !$0.isEmpty }

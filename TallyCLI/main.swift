@@ -7,7 +7,7 @@ import Foundation
 //                              stays resident and auto-hands-off on a cap hit (see Supervisor.swift)
 //   tally codex  [args…]       exec `codex` on the best Codex account
 //   tally resume [args…]       continue this directory's latest Claude session on the best account
-//   tally status               print every account's remaining windows
+//   tally status [--json]      print every account's remaining windows (--json for scripts)
 //   tally best-dir <provider>  print the `export CLAUDE_CONFIG_DIR=…` line for the best account
 //
 // Selection/launch plumbing lives in Snapshot.swift; auto-handoff in Supervisor.swift.
@@ -139,10 +139,15 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     exec(provider.cli, args: passthrough, env: launchEnv(provider, home: account.launchHome!))
 }
 
-func runStatus() {
+func runStatus(json: Bool = false) {
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
     guard let snapshot else { exit(1) }
+    if json {
+        let policies = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, launchPolicy($0.id)) })
+        print(encodeStatusReport(statusReport(snapshot, policies: policies)))
+        return
+    }
     for provider in providers {
         let accounts = snapshot.accounts.filter { $0.provider == provider.id }
         guard !accounts.isEmpty else { continue }
@@ -353,7 +358,7 @@ case "codex":
 case "resume":
     runResume(args: Array(arguments.dropFirst()))
 case "status", nil:
-    runStatus()
+    runStatus(json: arguments.contains("--json"))
 case "best-dir":
     runBestDir(arguments.dropFirst().first ?? "claude")
 case "launch-dir":
@@ -372,7 +377,8 @@ default:
       tally claude --account <n>  pin a specific account (label or config-dir name)
       tally codex [args…]       launch Codex on the best account
       tally resume [args…]      continue this directory's latest Claude session on the best account
-      tally status              show every account's remaining windows
+      tally status [--json]     show every account's remaining windows (--json: versioned
+                                machine-readable report for scripts, hooks, agent skills)
       tally best-dir <provider> print the export line for the best account
       tally launch-dir <provider> shim interface: like best-dir but honours the app's
                                 launch policy (off → prints nothing)

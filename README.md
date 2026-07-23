@@ -106,9 +106,12 @@ subscriptions at once:
   is restored byte-for-byte on removal, and keeps working even if you delete Tally without
   uninstalling.
 - **`tally` CLI.** `tally claude [args…]`, `tally resume` (move this directory's latest
-  conversation to another account), `tally claude --account <name>`, `tally status`,
-  `tally add <provider>` (log in one more account: next free number picked and the config
-  directory created for you), `tally best-dir <provider>`, all script-friendly.
+  conversation to another account), `tally claude --account <name>`, `tally status`
+  (add `--json` for a versioned machine-readable report: every account's windows, reset
+  times, and which account a launch would land on right now, ready for your own scripts,
+  hooks, and agent skills), `tally add <provider>` (log in one more account: next free
+  number picked and the config directory created for you), `tally best-dir <provider>`,
+  all script-friendly.
 
 ### The chrome
 

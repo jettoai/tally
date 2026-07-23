@@ -104,6 +104,52 @@ try MainActor.assumeIsolated {
     try IntegrationsStore.removeStatusLine(in: settings, command: ours)
     check("removing over a foreign command leaves it untouched", statusCommand() == custom)
 
+    // MARK: Claude Code skill surgery - install, refuse foreign files, remove cleanly.
+    let skillFile = tmp.appendingPathComponent("skills/tally/SKILL.md")
+    check("fresh skill install writes the file",
+          try IntegrationsStore.upsertSkill(in: skillFile) == true
+              && FileManager.default.fileExists(atPath: skillFile.path))
+    let written = try String(contentsOf: skillFile, encoding: .utf8)
+    check("installed skill carries the version marker",
+          written.contains("tally-skill v\(IntegrationsStore.skillVersion)"))
+    check("skill has frontmatter with a trigger description",
+          written.hasPrefix("---\nname: tally-quota\n") && written.contains("description: "))
+    check("re-install is idempotent", try IntegrationsStore.upsertSkill(in: skillFile) == false)
+
+    let stale = written.replacingOccurrences(
+        of: "tally-skill v\(IntegrationsStore.skillVersion)", with: "tally-skill v0")
+    try stale.write(to: skillFile, atomically: true, encoding: .utf8)
+    check("an older tally skill is upgraded in place",
+          try IntegrationsStore.upsertSkill(in: skillFile) == true
+              && String(contentsOf: skillFile, encoding: .utf8)
+                  .contains("tally-skill v\(IntegrationsStore.skillVersion)"))
+
+    try IntegrationsStore.removeSkill(in: skillFile)
+    check("remove deletes the skill and its emptied folder",
+          !FileManager.default.fileExists(atPath: skillFile.path)
+              && !FileManager.default.fileExists(atPath: skillFile.deletingLastPathComponent().path))
+
+    let userSkill = "---\nname: tally\ndescription: my own thing\n---\nmine"
+    try FileManager.default.createDirectory(at: skillFile.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try userSkill.write(to: skillFile, atomically: true, encoding: .utf8)
+    var refused = false
+    do { _ = try IntegrationsStore.upsertSkill(in: skillFile) } catch { refused = true }
+    var afterRefusal = try String(contentsOf: skillFile, encoding: .utf8)
+    check("a user's own skills/tally is never clobbered", refused && afterRefusal == userSkill)
+    try IntegrationsStore.removeSkill(in: skillFile)
+    afterRefusal = try String(contentsOf: skillFile, encoding: .utf8)
+    check("remove leaves a foreign skill untouched", afterRefusal == userSkill)
+
+    // Unreadable is NOT absent: a file we cannot inspect must never be overwritten.
+    let junk = Data([0xFF, 0xFE, 0xFA, 0x00, 0x81])   // not valid UTF-8
+    try junk.write(to: skillFile)
+    var refusedJunk = false
+    do { _ = try IntegrationsStore.upsertSkill(in: skillFile) } catch { refusedJunk = true }
+    let junkAfter = try Data(contentsOf: skillFile)
+    check("an undecodable skills/tally is refused, not clobbered",
+          refusedJunk && junkAfter == junk)
+
     try? FileManager.default.removeItem(at: tmp)
 }
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")

@@ -70,8 +70,10 @@ final class IntegrationsStore {
     private(set) var cliToolStatus: Status = .notInstalled
     private(set) var shimStatuses: [Shim: Status] = [:]
     private(set) var statusLineStatus: Status = .notInstalled
+    private(set) var skillStatus: Status = .notInstalled
     /// Set when an install/remove fails (e.g. /usr/local/bin not writable); shown inline.
-    private(set) var lastError: String?
+    /// Setter internal (not private): the skill extension file writes it too.
+    var lastError: String?
 
     private init() { refresh() }
 
@@ -81,6 +83,7 @@ final class IntegrationsStore {
         cliToolStatus = Self.detectCLITool()
         shimStatuses = Dictionary(uniqueKeysWithValues: Shim.allCases.map { ($0, Self.detectShim($0)) })
         statusLineStatus = Self.detectStatusLine()
+        skillStatus = Self.detectSkill()
     }
 
     func shimStatus(_ shim: Shim) -> Status { shimStatuses[shim] ?? .notInstalled }
@@ -117,7 +120,8 @@ final class IntegrationsStore {
     /// The dev variant never mutates shared system state (the /usr/local/bin link, shell
     /// profiles, claude settings): those integrations belong to the installed release app.
     /// UI-level disabling backs this up; this is the hard gate.
-    private func guardNotDev() -> Bool {
+    /// Internal (not private): the skill extension file uses it too.
+    func guardNotDev() -> Bool {
         guard BuildVariant.isDev else { return true }
         lastError = L("Integrations are managed by the installed release app.")
         return false
@@ -341,7 +345,8 @@ final class IntegrationsStore {
 
     // MARK: Manifest - provenance of everything installed outside the bundle
 
-    private func recordManifest(_ component: String, paths: [String]?) {
+    /// Internal (not private): the skill extension file uses it too.
+    func recordManifest(_ component: String, paths: [String]?) {
         var manifest = (try? JSONSerialization.jsonObject(
             with: (try? Data(contentsOf: Self.manifestURL)) ?? Data())) as? [String: Any] ?? [:]
         if let paths {

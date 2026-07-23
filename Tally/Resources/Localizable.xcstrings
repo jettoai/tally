@@ -5390,6 +5390,93 @@
           }
         }
       }
+    },
+    "Claude Code skill": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 技能"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 技能"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code スキル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 스킬"
+          }
+        }
+      }
+    },
+    "Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json. One skill file in every Claude account's skills folder; removed just as cleanly.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓 Claude Code 工作階段學會從 tally status --json 回答額度問題、挑選帳號。只在每個 Claude 帳號的 skills 資料夾放一個技能檔；移除時同樣完整清除。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让 Claude Code 会话学会从 tally status --json 回答额度问题、挑选账号。只在每个 Claude 账号的 skills 文件夹放一个技能文件；移除时同样完整清除。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code のセッションが tally status --json からクォータの質問に答え、アカウントを選べるようにします。各 Claude アカウントの skills フォルダにスキルファイルを 1 つ置くだけで、削除時は同じく完全に元へ戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 세션이 tally status --json으로 쿼터 질문에 답하고 계정을 고르도록 가르칩니다. 각 Claude 계정의 skills 폴더에 스킬 파일 하나만 두며, 제거 시 똑같이 완전히 정리됩니다."
+          }
+        }
+      }
+    },
+    "A different skill occupies skills/tally": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skills/tally 已被其他技能佔用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skills/tally 已被其他技能占用"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skills/tally を別のスキルが使用しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 스킬이 skills/tally를 사용하고 있습니다"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

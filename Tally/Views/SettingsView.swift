@@ -305,6 +305,13 @@ struct SettingsView: View {
             install: integrations.installStatusLine,
             remove: integrations.removeStatusLine)
         rowDivider
+        integrationRow(
+            title: L("Claude Code skill"),
+            caption: L("Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json. One skill file in every Claude account's skills folder; removed just as cleanly."),
+            status: integrations.skillStatus,
+            install: integrations.installSkill,
+            remove: integrations.removeSkill)
+        rowDivider
         toggleRow(L("Full quota in status line"),
                   subtitle: L("Adds a quota line (bars, percents, resets) even under a custom status line. Turn on if you drop your own quota rendering and rely on Tally's."),
                   isOn: $settings.statuslineFullQuota)
@@ -330,6 +337,7 @@ struct SettingsView: View {
              { integrations.removeShim(.codex) }),
             (integrations.statusLineStatus, integrations.installStatusLine,
              integrations.removeStatusLine),
+            (integrations.skillStatus, integrations.installSkill, integrations.removeSkill),
         ]
         let missing = entries.filter { $0.0 != .installed }
         let installed = entries.filter { $0.0 == .installed }

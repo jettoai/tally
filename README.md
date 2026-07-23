@@ -105,6 +105,10 @@ subscriptions at once:
   toggle. An existing custom status line keeps running untouched with Tally's line appended,
   is restored byte-for-byte on removal, and keeps working even if you delete Tally without
   uninstalling.
+- **Claude Code skill.** One click drops a small skill into every Claude account's skills
+  folder, teaching agent sessions to answer quota questions and pick accounts from
+  `tally status --json` (and to check the binding window before heavy multi-agent work);
+  removed just as cleanly.
 - **`tally` CLI.** `tally claude [args…]`, `tally resume` (move this directory's latest
   conversation to another account), `tally claude --account <name>`, `tally status`
   (add `--json` for a versioned machine-readable report: every account's windows, reset

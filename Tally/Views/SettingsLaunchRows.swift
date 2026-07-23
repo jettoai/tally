@@ -88,6 +88,55 @@ extension SettingsLaunchView {
 
 }
 
+/// The launch-default model/effort as a STAGED pair with an explicit Apply, so both are written to
+/// state.json in one atomic change. Choosing model then effort no longer produces two writes
+/// seconds apart that a running session's follow sees as two relaunches; it also makes "this
+/// re-points running sessions" a deliberate act, not a side effect of a dropdown. Running-session
+/// drift is called out generically (the app has no session registry yet, M3).
+struct StagedModelEffortRow: View {
+    let providerID: String
+    let title: String
+    let caption: String
+    let modelOptions: [String]
+    let effortLevels: [String]
+
+    @State private var stagedModel: String?
+    @State private var stagedEffort: String?
+    @State private var loaded = false
+
+    private var committedModel: String? { LaunchPolicyStore.shared.policy(providerID).model }
+    private var committedEffort: String? { LaunchPolicyStore.shared.policy(providerID).effort }
+    private var dirty: Bool { stagedModel != committedModel || stagedEffort != committedEffort }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ModelEffortRow(title: title, caption: caption, modelOptions: modelOptions,
+                           effortLevels: effortLevels,
+                           model: $stagedModel, effort: $stagedEffort)
+            if dirty {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(L("Not applied. Running sessions keep the current model and effort until you apply."))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button(L("Apply")) {
+                        LaunchPolicyStore.shared.setLaunchPair(providerID, model: stagedModel,
+                                                              effort: stagedEffort)
+                    }
+                }
+                .settingsRowPadding()
+            }
+        }
+        .onAppear {
+            // Load the committed pair once; a fresh view (re-shown pane) reloads the current value.
+            guard !loaded else { return }
+            stagedModel = committedModel
+            stagedEffort = committedEffort
+            loaded = true
+        }
+    }
+}
+
 /// Model and effort as ONE pairing (they take effect together - "which brain at which depth"),
 /// side by side in a single row. Model options come from each provider's authoritative catalog
 /// with a Custom escape; effort levels from the installed claude CLI's help / codex docs.

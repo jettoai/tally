@@ -46,10 +46,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// rewrites launchArgs without touching these, so a fallback in effect does not retrigger.
     var followedModel = flagValue(launchArgs, "--model")?.lowercased()
     var followedEffort = flagValue(launchArgs, "--effort")?.lowercased()
-    /// Follow debounce: Settings exposes model and effort as two adjacent dropdowns, so one
-    /// adjustment can arrive as two policy writes seconds apart. A change is adopted only after
-    /// the desired pair has held steady for this long, so one adjustment restarts once, not twice.
-    let followDebounce: TimeInterval = 10
+    /// Follow debounce: a short floor now that Settings writes the model+effort pair atomically on
+    /// Apply (it used to arrive as two writes seconds apart, needing a 10s window to coalesce). The
+    /// floor only guards against adopting a transient mid-write; the atomic write means one Apply is
+    /// one relaunch regardless.
+    let followDebounce: TimeInterval = 2
     var pendingSince: Date?
     var pendingModel: String?
     var pendingEffort: String?

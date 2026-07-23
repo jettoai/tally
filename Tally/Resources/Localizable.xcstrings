@@ -5477,6 +5477,64 @@
           }
         }
       }
+    },
+    "Apply": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "적용"
+          }
+        }
+      }
+    },
+    "Not applied. Running sessions keep the current model and effort until you apply.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未套用，執行中的工作階段會維持目前的模型與強度，直到你按下套用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未应用，运行中的会话会保持当前的模型与强度，直到你点击应用。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未適用です。実行中のセッションは、適用するまで現在のモデルと強度を維持します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 적용되지 않았습니다. 실행 중인 세션은 적용할 때까지 현재 모델과 강도를 유지합니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

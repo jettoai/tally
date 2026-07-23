@@ -113,6 +113,22 @@ final class LaunchPolicyStore {
         persist()
     }
 
+    /// Write the model+effort pair in ONE persist, so a running session's follow sees a single
+    /// atomic change rather than two writes seconds apart (model, then effort) that the supervisor
+    /// had to debounce. The Settings row stages both and calls this once on Apply. Empty/whitespace
+    /// collapses to nil, same rule as `setLaunchDefault`.
+    func setLaunchPair(_ providerID: String, model: String?, effort: String?) {
+        func clean(_ value: String?) -> String? {
+            let trimmed = value?.trimmingCharacters(in: .whitespaces)
+            return (trimmed?.isEmpty == false) ? trimmed : nil
+        }
+        var updated = policy(providerID)
+        updated.model = clean(model)
+        updated.effort = clean(effort)
+        policies[providerID] = updated
+        persist()
+    }
+
     /// Pin one account (and switch the provider to manual - pinning IS choosing manual).
     /// Mutates in place so unrelated settings (e.g. permission mode) survive the click.
     func pin(_ providerID: String, accountID: String, home: String?) {

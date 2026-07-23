@@ -47,6 +47,11 @@ func runStatusline(args: [String]) -> Never {
 
     var quota: [String] = []
     var fleetPiece: String?
+    /// Identity slot 3: the session model, WEARING ITS OWN METER when it has a dedicated
+    /// window ("Fable 5 ██ 12% (27h)"); name-only for models without one ("Opus 4.8"). The
+    /// name and its budget travel together, so the quota zone needs no label for it and no
+    /// word repeats. Starts as the bare name and upgrades below once the account is known.
+    var modelToken = sessionModel
     if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
         let now = Date()
         // The number and bar follow the panel's used/remaining toggle; the tint always keys
@@ -99,28 +104,20 @@ func runStatusline(args: [String]) -> Never {
             }
             fleetPiece = text
         }
-        // The tier window shows only when THIS session is actually consuming it: a sonnet
-        // session doesn't burn the Fable window, so showing it there is noise (the fleet-wide
+        // The model wears its meter only when THIS session is actually consuming its window: a
+        // sonnet session doesn't burn the Fable window, so quota there is noise (the fleet-wide
         // Fable story lives in the panel). Matched against the live session model, falling
         // back to the configured launch model; unknowable → shown (info beats absence).
-        let modelPiece: String?
         if let windowName = account.modelWindowName {
             let reference = sessionModel ?? launchPolicy("claude").model ?? windowName
-            // "model" as the label, the window's KIND, not its name: labels here are window
-            // kinds ("model", "5h", "pool") and the identity zone carries the one name. The
-            // piece only renders when the session model IS the window's model, so a name here
-            // could never say anything the identity doesn't already.
-            modelPiece = reference.lowercased().contains(windowName.lowercased())
-                ? piece("model", account.modelRemaining, account.modelResetsAt) : nil
-        } else {
-            modelPiece = nil
+            if reference.lowercased().contains(windowName.lowercased()) {
+                modelToken = piece(sessionModel ?? windowName,
+                                   account.modelRemaining, account.modelResetsAt) ?? modelToken
+            }
         }
-        // Time-ascending: 5h first, then the weekly windows - the order people read budgets in,
-        // and the 5h slot keeps its position whether or not a model window exists.
         // The account's own 7d yields to the fleet slot when the pool is shown: under smart
         // handoff the pool IS the weekly budget, and two weekly numbers side by side confuse.
         quota = [piece("5h", account.sessionRemaining, account.sessionResetsAt),
-                 modelPiece,
                  fleetPiece == nil
                      ? piece("7d", account.weeklyRemaining, account.weeklyResetsAt) : nil]
             .compactMap { $0 }
@@ -163,7 +160,7 @@ func runStatusline(args: [String]) -> Never {
             // The session model always rides the identity, same fixed position for every
             // model - one grammar, no conditional homes. The custom line above may show a
             // model of its own, but THIS line's model is the one tally launched or adopted.
-            let identityZone = [statusPiece, "\(dim)\(label)\(reset)", sessionModel]
+            let identityZone = [statusPiece, "\(dim)\(label)\(reset)", modelToken]
                 .compactMap { $0 }
                 .joined(separator: " · ")
             let richLine = [identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]
@@ -188,9 +185,9 @@ func runStatusline(args: [String]) -> Never {
     }
 
     // Standalone mode: Tally IS the whole status line, so it always carries the quota story
-    // itself. The model name always joins the identity, fixed position for every model - the
+    // itself. The model token always joins the identity, fixed position for every model - the
     // same one-grammar rule as the wrapped rich line above.
-    let identityZone = [identity.isEmpty ? nil : identity, sessionModel].compactMap { $0 }
+    let identityZone = [identity.isEmpty ? nil : identity, modelToken].compactMap { $0 }
         .joined(separator: " · ")
     print([identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]
         .filter { !$0.isEmpty }

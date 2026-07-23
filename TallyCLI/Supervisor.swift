@@ -62,9 +62,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// and per process, so a fleet-wide drain never trips one session on another's account
     /// switches. Deliberate moves (pin, follow) and same-account relaunches (fallback) do not count.
     var fuse = RecoveryFuse()
-    /// Accounts THIS supervisor saw cap, excluded from its own automatic picks until the TTL
-    /// passes (union with the cross-supervisor shared records). Persists across relaunches.
-    var quarantine: [String: Date] = [:]
+    /// Accounts THIS supervisor saw cap, with the model window that capped, excluded from its own
+    /// automatic picks for that model until the TTL passes (union with the cross-supervisor shared
+    /// records). Persists across relaunches.
+    var quarantine: [String: (model: String?, until: Date)] = [:]
     /// Stamped into the child env so the status line can tell whether the supervisor watching this
     /// session is the current build (a session launched before an app update runs stale logic).
     let supervisorVersion = supervisorBuildVersion()
@@ -190,15 +191,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 pendingCap = nil
             }
             if sawCap, pendingCap == nil {
+                let capModel = flagValue(launchArgs, "--model") ?? policy.model
                 pendingCap = PendingCapRecovery(
                     cappedAccountID: account.id, cappedAt: Date(),
-                    primaryModel: flagValue(launchArgs, "--model") ?? policy.model,
-                    nextRetry: .distantPast, reason: "")
-                // Keep every session (this one and any launching now) off the account that just
-                // capped until its snapshot catches up.
+                    primaryModel: capModel, nextRetry: .distantPast, reason: "")
+                // Keep every session (this one and any launching now) off the account for the model
+                // window that just capped until its snapshot catches up - a different model the
+                // account still serves is not blocked.
                 let until = Date().addingTimeInterval(capQuarantineTTL)
-                quarantine[account.id] = until
-                quarantineAccount(account.id, until: until)
+                quarantine[account.id] = (model: capModel, until: until)
+                quarantineAccount(account.id, model: capModel, until: until)
             }
 
             // Live pin switch: pinning another account in the Tally panel moves the RUNNING
@@ -226,7 +228,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             if plan == nil, var pending = pendingCap, Date() >= pending.nextRetry {
                 let (snapshot, snapshotProblem) = loadSnapshot()
                 let primary = pending.primaryModel
-                let excluded = quarantinedAccounts(sessionLocal: quarantine)
+                let excluded = quarantinedAccounts(forPrimary: primary, sessionLocal: quarantine)
                 let target = snapshot?.accounts
                     .filter { $0.provider == provider.id && eligible($0, primaryModel: primary)
                         && $0.id != account.id && !excluded.contains($0.id) }
@@ -283,7 +285,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                             repick = account
                         } else {
                             let (snapshot, _) = loadSnapshot()
-                            let excluded = quarantinedAccounts(sessionLocal: quarantine)
+                            let excluded = quarantinedAccounts(forPrimary: policy.model,
+                                                               sessionLocal: quarantine)
                             repick = snapshot.flatMap {
                                 incumbentSeededBest(providerID: provider.id, in: $0,
                                                     incumbentID: account.id, primaryModel: policy.model,
@@ -333,7 +336,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // EFFECTIVE primary (a hand-typed --model outranks the configured default).
                 let currentDry = (snapshot?.accounts
                     .first { $0.id == account.id }?.modelRemaining).map { $0 <= 5 } ?? true
-                let excluded = quarantinedAccounts(sessionLocal: quarantine)
+                let excluded = quarantinedAccounts(forPrimary: effectivePrimary,
+                                                   sessionLocal: quarantine)
                 let rescue = !currentDry ? nil : snapshot?.accounts
                     .filter { $0.provider == provider.id
                         && eligible($0, primaryModel: effectivePrimary)

@@ -235,33 +235,86 @@ let capQuarantineTTL: TimeInterval = 10 * 60
 let quarantineDir = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent(".tally/quarantine")
 
-/// Record that `accountID` just capped: excluded from automatic picks until `until`, across every
-/// supervisor via the shared file. The account id rides in the file body (the filename is a
-/// filesystem-safe derivative), so ids with a slash still round-trip. Best-effort.
-func quarantineAccount(_ accountID: String, until: Date, dir: URL = quarantineDir) {
+/// One recorded cap: an account, the model window that capped (nil = a whole-account quarantine,
+/// e.g. a legacy record or a flagship-first cap), and when the record expires.
+struct QuarantineRecord {
+    let accountID: String
+    let model: String?
+    let until: Date
+}
+
+/// Record that `accountID` just capped on `model`'s window, excluded from automatic picks for that
+/// model until `until`, across every supervisor via the shared file. Tab-separated so an id or a
+/// model with a space round-trips; the account id also rides in the body (the filename is a
+/// filesystem-safe derivative) so a slash survives. Best-effort.
+func quarantineAccount(_ accountID: String, model: String?, until: Date, dir: URL = quarantineDir) {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     let safe = accountID.replacingOccurrences(of: "/", with: "_")
-    try? "\(until.timeIntervalSince1970) \(accountID)"
+    try? "\(until.timeIntervalSince1970)\t\(model ?? "")\t\(accountID)"
         .write(to: dir.appendingPathComponent(safe), atomically: true, encoding: .utf8)
 }
 
-/// Account ids quarantined right now by ANY supervisor, unioned with this supervisor's own
-/// `sessionLocal` map (authoritative for accounts it capped this run). Expired records are ignored
-/// and opportunistically deleted.
-func quarantinedAccounts(sessionLocal: [String: Date] = [:], now: Date = Date(),
-                         dir: URL = quarantineDir) -> Set<String> {
-    var excluded = Set(sessionLocal.filter { $0.value > now }.keys)
+/// Parse one quarantine file body. New format is tab-separated `epoch\tmodel\taccountID` (an empty
+/// model field means whole-account); a legacy space-separated `epoch accountID` line is read as a
+/// whole-account record so an old file still quarantines conservatively.
+func parseQuarantineLine(_ raw: String, fallbackID: String) -> QuarantineRecord? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.contains("\t") {
+        let parts = trimmed.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3, let epoch = Double(parts[0]) else { return nil }
+        return QuarantineRecord(accountID: String(parts[2]),
+                                model: parts[1].isEmpty ? nil : String(parts[1]),
+                                until: Date(timeIntervalSince1970: epoch))
+    }
+    let parts = trimmed.split(separator: " ", maxSplits: 1)
+    guard let epoch = parts.first.flatMap({ Double($0) }) else { return nil }
+    let accountID = parts.count > 1 ? String(parts[1]) : fallbackID
+    return QuarantineRecord(accountID: accountID, model: nil,
+                            until: Date(timeIntervalSince1970: epoch))
+}
+
+/// Whether a quarantine on `quarantineModel` blocks a pick made for `pickModel`. Same bidirectional
+/// contains rule as `headroom`'s model-window matching: a cap on the fable window never blocks a
+/// sonnet pick (that pick does not spend the fable window), but a nil on either side (a whole-
+/// account quarantine, or a flagship-first pick with no declared primary) blocks conservatively.
+func quarantineBlocks(quarantineModel: String?, pickModel: String?) -> Bool {
+    guard let quarantined = quarantineModel?.lowercased(),
+          let pick = pickModel?.lowercased() else { return true }
+    return quarantined.contains(pick) || pick.contains(quarantined)
+}
+
+/// Every live quarantine record right now: this supervisor's own `sessionLocal` map (authoritative
+/// for what it capped this run) unioned with the cross-supervisor shared files. Session-local wins
+/// on a duplicate account. Expired shared records are ignored and opportunistically deleted.
+func quarantineRecords(sessionLocal: [String: (model: String?, until: Date)] = [:],
+                       now: Date = Date(), dir: URL = quarantineDir) -> [QuarantineRecord] {
+    var records: [QuarantineRecord] = []
+    var seen = Set<String>()
+    for (id, value) in sessionLocal where value.until > now {
+        records.append(QuarantineRecord(accountID: id, model: value.model, until: value.until))
+        seen.insert(id)
+    }
     let files = (try? FileManager.default.contentsOfDirectory(at: dir,
         includingPropertiesForKeys: nil)) ?? []
     for file in files {
-        guard let raw = try? String(contentsOf: file, encoding: .utf8) else { continue }
-        let parts = raw.split(separator: " ", maxSplits: 1)
-        guard let epoch = parts.first.flatMap({ Double($0) }) else { continue }
-        let accountID = parts.count > 1
-            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-            : file.lastPathComponent
-        if Date(timeIntervalSince1970: epoch) > now { excluded.insert(accountID) }
-        else { try? FileManager.default.removeItem(at: file) }
+        guard let raw = try? String(contentsOf: file, encoding: .utf8),
+              let record = parseQuarantineLine(raw, fallbackID: file.lastPathComponent) else { continue }
+        if record.until > now {
+            if !seen.contains(record.accountID) { records.append(record); seen.insert(record.accountID) }
+        } else {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
-    return excluded
+    return records
+}
+
+/// Account ids to exclude from an automatic pick made for `pickModel`: a quarantine only bites when
+/// its capped model window matches the pick's primary (or either side is nil). So an account whose
+/// fable window capped stays available for a sonnet launch.
+func quarantinedAccounts(forPrimary pickModel: String?,
+                         sessionLocal: [String: (model: String?, until: Date)] = [:],
+                         now: Date = Date(), dir: URL = quarantineDir) -> Set<String> {
+    Set(quarantineRecords(sessionLocal: sessionLocal, now: now, dir: dir)
+        .filter { quarantineBlocks(quarantineModel: $0.model, pickModel: pickModel) }
+        .map(\.accountID))
 }

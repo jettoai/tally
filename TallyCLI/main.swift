@@ -132,7 +132,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // Skip an account another session just saw cap: the snapshot lags the real cap, so its
     // percentage still reads healthy and picking it would drop a fresh session onto the wall that
     // just failed. If quarantine leaves nothing eligible, ignore it rather than refuse to launch.
-    let quarantined = quarantinedAccounts()
+    let quarantined = quarantinedAccounts(forPrimary: policy.model)
     guard let account = best(providerID: provider.id, in: snapshot, primaryModel: policy.model,
                              excluding: quarantined)
             ?? best(providerID: provider.id, in: snapshot, primaryModel: policy.model) else {

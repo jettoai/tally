@@ -135,21 +135,52 @@ check("a separate supervisor's fuse is independent", fuseB.allows(now: fuseT0))
 
 // 10. R5: a just-capped account is quarantined across launches via the shared per-account record,
 //     the record expires on its TTL, an id with a slash round-trips, and session-local entries
-//     union with the shared ones.
+//     union with the shared ones. `nil` model = a whole-account quarantine (blocks any pick).
 let qDir = FileManager.default.temporaryDirectory
     .appendingPathComponent("tally-quarantine-test-\(UUID().uuidString)")
 let qNow = Date(timeIntervalSince1970: 1_800_000_000)
-quarantineAccount("acct-2", until: qNow.addingTimeInterval(600), dir: qDir)
-quarantineAccount("with/slash", until: qNow.addingTimeInterval(600), dir: qDir)
+quarantineAccount("acct-2", model: nil, until: qNow.addingTimeInterval(600), dir: qDir)
+quarantineAccount("with/slash", model: nil, until: qNow.addingTimeInterval(600), dir: qDir)
 check("a freshly capped account is quarantined",
-      quarantinedAccounts(now: qNow, dir: qDir).contains("acct-2"))
+      quarantinedAccounts(forPrimary: "fable", now: qNow, dir: qDir).contains("acct-2"))
 check("an id with a slash round-trips",
-      quarantinedAccounts(now: qNow, dir: qDir).contains("with/slash"))
+      quarantinedAccounts(forPrimary: "fable", now: qNow, dir: qDir).contains("with/slash"))
 check("the record expires after its TTL",
-      !quarantinedAccounts(now: qNow.addingTimeInterval(601), dir: qDir).contains("acct-2"))
+      !quarantinedAccounts(forPrimary: "fable", now: qNow.addingTimeInterval(601), dir: qDir)
+          .contains("acct-2"))
 check("session-local quarantine unions with the shared records",
-      quarantinedAccounts(sessionLocal: ["local-1": qNow.addingTimeInterval(60)],
+      quarantinedAccounts(forPrimary: "fable",
+                          sessionLocal: ["local-1": (model: nil, until: qNow.addingTimeInterval(60))],
                           now: qNow, dir: qDir).contains("local-1"))
+
+// 10b. F2: a quarantine is scoped to the model window that capped. A fable-window cap does not
+//      exclude the account from a sonnet pick (that pick does not spend the fable window), but does
+//      from a fable pick; a nil (whole-account / legacy) quarantine blocks everything.
+let mDir = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-quarantine-model-\(UUID().uuidString)")
+quarantineAccount("acct-fable", model: "fable", until: qNow.addingTimeInterval(600), dir: mDir)
+check("a fable quarantine does not block a sonnet pick",
+      !quarantinedAccounts(forPrimary: "sonnet", now: qNow, dir: mDir).contains("acct-fable"))
+check("a fable quarantine blocks a fable pick",
+      quarantinedAccounts(forPrimary: "fable", now: qNow, dir: mDir).contains("acct-fable"))
+check("a fable quarantine blocks a nil (flagship-first) pick",
+      quarantinedAccounts(forPrimary: nil, now: qNow, dir: mDir).contains("acct-fable"))
+check("quarantineBlocks: fable does not block sonnet",
+      !quarantineBlocks(quarantineModel: "fable", pickModel: "sonnet"))
+check("quarantineBlocks: fable blocks fable",
+      quarantineBlocks(quarantineModel: "fable", pickModel: "fable"))
+check("quarantineBlocks: a nil quarantine blocks all",
+      quarantineBlocks(quarantineModel: nil, pickModel: "sonnet"))
+check("quarantineBlocks: a nil pick is blocked by any",
+      quarantineBlocks(quarantineModel: "fable", pickModel: nil))
+// A legacy space-separated record (no model field) is read as a whole-account quarantine.
+let lDir = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-quarantine-legacy-\(UUID().uuidString)")
+try! FileManager.default.createDirectory(at: lDir, withIntermediateDirectories: true)
+try! "\(qNow.addingTimeInterval(600).timeIntervalSince1970) legacy-acct"
+    .write(to: lDir.appendingPathComponent("legacy-acct"), atomically: true, encoding: .utf8)
+check("a legacy record blocks any pick (read as whole-account)",
+      quarantinedAccounts(forPrimary: "sonnet", now: qNow, dir: lDir).contains("legacy-acct"))
 
 // 11. R2/R6: the status line's supervision note. A matching version is silent; a mismatch is
 //     "outdated"; a missing supervisor version is "unknown" (never "outdated" - a --no-handoff

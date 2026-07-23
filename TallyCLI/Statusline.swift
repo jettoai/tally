@@ -106,12 +106,12 @@ func runStatusline(args: [String]) -> Never {
         let modelPiece: String?
         if let windowName = account.modelWindowName {
             let reference = sessionModel ?? launchPolicy("claude").model ?? windowName
-            // Plain window name as the label: the session model lives in the identity zone at
-            // a FIXED position for every model (one grammar), so this piece never wears it.
-            // The repeated word on a matched session ("Fable 5 | Fable ██") is the price of
-            // positional predictability - the same call as the panel's pool naming (v0.14).
+            // "model" as the label, the window's KIND, not its name: labels here are window
+            // kinds ("model", "5h", "pool") and the identity zone carries the one name. The
+            // piece only renders when the session model IS the window's model, so a name here
+            // could never say anything the identity doesn't already.
             modelPiece = reference.lowercased().contains(windowName.lowercased())
-                ? piece(windowName, account.modelRemaining, account.modelResetsAt) : nil
+                ? piece("model", account.modelRemaining, account.modelResetsAt) : nil
         } else {
             modelPiece = nil
         }

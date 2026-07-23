@@ -149,6 +149,30 @@ func capRecoveryAction(mode: String, fuseAllows: Bool, snapshotStale: Bool,
     return .handoff
 }
 
+// MARK: - Relaunch plan (coalesce one poll tick's reasons into a single respawn)
+
+/// The relaunch a single poll tick decided. The loop folds every reason that fired this tick into
+/// ONE plan so the child is killed and respawned exactly once: a cap handoff and a Settings Apply
+/// landing together used to fire two SIGTERMs and relaunch twice (2026-07-24). The account move is
+/// owned by the FIRST reason (pin > cap > degradation > fallback); a follow adoption only enriches
+/// the model/effort on whatever target that reason chose.
+struct RelaunchPlan {
+    /// The account to run on (may be the current one - follow/fallback stay put).
+    var target: Snapshot.Account
+    /// Audit-log tag.
+    var reason: String
+    /// Records against the recovery fuse: true only for automatic cross-account recoveries.
+    var countsFuse: Bool
+    /// Model/effort to set on the relaunch; nil leaves the current args' pairing untouched. A
+    /// follow adoption and a fallback fill these; a plain cap handoff or pin switch leaves them nil.
+    var model: String?
+    var effort: String?
+    /// Extra flags the fallback profile appends (e.g. --append-system-prompt).
+    var extraArgs: [String] = []
+    /// True once a follow adoption has folded its pair in, so the same tick does not do it twice.
+    var followFolded = false
+}
+
 // MARK: - Cap quarantine (recently-capped accounts, don't re-pick)
 
 /// How long a just-capped account is kept out of AUTOMATIC target selection. The app's snapshot

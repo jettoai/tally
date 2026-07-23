@@ -111,4 +111,28 @@ check("reason names the binding window (weekly, 3d)", reason.contains("weekly 60
 let reasonOld = pickReason(oldB, primaryModel: nil, now: now)
 check("reason omits ETA without reset data", reasonOld == "weekly 90%")
 
+// 9. R1 incumbent-seeded pick: a running session adopting a new model stays on its account
+//    whenever it can still serve the model, and switches only when it can't or a sibling wins
+//    decisively - no churn on noise, unlike the plain list-order best().
+func seeded(_ accounts: [Snapshot.Account], incumbent: String, primaryModel: String? = nil) -> String? {
+    let snapshot = Snapshot(version: 2, generatedAt: now, accounts: accounts)
+    return incumbentSeededBest(providerID: "claude", in: snapshot, incumbentID: incumbent,
+                               primaryModel: primaryModel, now: now)?.id
+}
+let incA = account("A", weekly: (50, inHours(120)))
+let incB = account("B", weekly: (52, inHours(120)))
+check("incumbent stays put on a noise-level difference", seeded([incA, incB], incumbent: "A") == "A")
+check("incumbent stays even when it is listed second", seeded([incB, incA], incumbent: "A") == "A")
+let weakInc = account("A", weekly: (10, inHours(120)))
+let strongSib = account("B", weekly: (80, inHours(120)))
+check("a decisively healthier sibling still wins", seeded([weakInc, strongSib], incumbent: "A") == "B")
+let incFableDry = account("A", weekly: (60, inHours(120)), model: (0, inHours(120)), modelName: "Fable")
+let sibFableOk = account("B", weekly: (40, inHours(120)), model: (50, inHours(120)), modelName: "Fable")
+check("incumbent ineligible for the new model yields to an eligible sibling",
+      seeded([incFableDry, sibFableOk], incumbent: "A", primaryModel: "fable") == "B")
+check("with a sonnet primary the same incumbent stays (fable window irrelevant)",
+      seeded([incFableDry, sibFableOk], incumbent: "A", primaryModel: "sonnet") == "A")
+let allDry = account("A", weekly: (0, inHours(120)))
+check("nothing eligible returns nil (a dead end)", seeded([allDry], incumbent: "A") == nil)
+
 exit(failures == 0 ? 0 : 1)

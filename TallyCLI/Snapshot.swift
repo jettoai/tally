@@ -289,6 +289,38 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
     return leader
 }
 
+/// The account a RUNNING session should adopt when its launch-default model changes, with the
+/// current account SEEDED as the incumbent leader: a challenger only takes over by clearing BOTH
+/// gates (1.15x rate AND an absolute gain) and being eligible for the new model. So a session
+/// stays put whenever its account can still serve the new model, and switches only when the
+/// incumbent genuinely can't (the 02:22 storm relaunched five sessions onto an account with no
+/// room for the new model) or a sibling is decisively healthier. Returns nil only when nothing,
+/// incumbent included, is eligible - a dead end the caller must not relaunch into. No banked-reset
+/// tie-breaker here: this pick is about NOT churning a serviceable session, not launch economics.
+func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID: String,
+                         primaryModel: String?, excluding: Set<String> = [],
+                         now: Date = Date()) -> Snapshot.Account? {
+    let candidates = snapshot.accounts.filter {
+        $0.provider == providerID && eligible($0, primaryModel: primaryModel)
+            && !excluding.contains($0.id)
+    }
+    // The incumbent can't serve the new model (or was quarantined): no incumbent to stabilize, so
+    // fall back to the plain best of what remains.
+    guard var leader = candidates.first(where: { $0.id == incumbentID }) else {
+        return best(providerID: providerID, in: snapshot, primaryModel: primaryModel,
+                    excluding: excluding, now: now)
+    }
+    var leaderScore = smartScore(leader, primaryModel: primaryModel, now: now)
+    for candidate in candidates where candidate.id != incumbentID {
+        let score = smartScore(candidate, primaryModel: primaryModel, now: now)
+        if score > leaderScore * smartPickMargin, score > leaderScore + smartPickMinGain {
+            leader = candidate
+            leaderScore = score
+        }
+    }
+    return leader
+}
+
 // MARK: - Shared harness (`tally add`, on by default; opt out with --no-share)
 
 /// What a shared add links from the main account into a new one: the HARNESS (instructions,

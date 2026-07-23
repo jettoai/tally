@@ -165,6 +165,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var pendingSince: Date?
     var pendingModel: String?
     var pendingEffort: String?
+    /// True while a follow adoption has nowhere to land (no account can serve the new model), so
+    /// the "waiting" note is shown once, not every tick. Cleared when an account frees up.
+    var followDeadEnd = false
     /// The recovery fuse for THIS supervisor, held across relaunches: at most 3 automatic
     /// cross-account recoveries per 10 minutes (a cap handoff or a degradation rescue). In memory
     /// and per process, so a fleet-wide drain never trips one session on another's account
@@ -272,6 +275,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             pollChild()
             guard childStatus == nil else { break }
             let policy = launchPolicy(provider.id)
+            // The single relaunch this tick will perform, if any. Reasons fire in priority order
+            // (pin > cap > degradation > fallback) and the FIRST owns the account move; a follow
+            // adoption only folds its model/effort onto that target. Executed once at the tick's
+            // end, so a cap and a Settings Apply landing together kill the child exactly once.
+            var plan: RelaunchPlan?
 
             // Cap recovery has top priority: scan for the cap BEFORE any relaunch path (pin,
             // follow, rescue, fallback), because a relaunch resets the watcher's `since` and would
@@ -309,8 +317,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     $0.id == pinnedID && $0.provider == provider.id && $0.launchHome != nil
                 }) {
                     warn("pinned in Tally → switching to \(target.label)")
-                    performHandoff(to: target, reason: "pin", countingFuse: false)
-                    break
+                    plan = RelaunchPlan(target: target, reason: "pin", countsFuse: false)
                 }
             }
 
@@ -318,42 +325,43 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // switch above still wins - moving the pin is an explicit "go here" even mid-cap). The
             // handoff is retried at a backoff while blocked, and the terminal warns only when the
             // waiting reason changes, so a stuck session is never noisy and never abandoned.
-            if var pending = pendingCap {
-                if Date() >= pending.nextRetry {
-                    let (snapshot, snapshotProblem) = loadSnapshot()
-                    let primary = pending.primaryModel
-                    let excluded = quarantinedAccounts(sessionLocal: quarantine)
-                    let target = snapshot?.accounts
-                        .filter { $0.provider == provider.id && eligible($0, primaryModel: primary)
-                            && $0.id != account.id && !excluded.contains($0.id) }
-                        .max { smartScore($0, primaryModel: primary)
-                            < smartScore($1, primaryModel: primary) }
-                    let action = capRecoveryAction(mode: policy.mode, fuseAllows: fuse.allows(),
-                                                   snapshotStale: snapshotProblem != nil,
-                                                   hasTarget: target != nil)
-                    if action == .handoff, let target {
-                        warn("cap hit → handing off to \(target.label) " +
-                             "(\(pickReason(target, primaryModel: primary)))")
-                        performHandoff(to: target, reason: "cap")
-                        break
-                    }
+            if plan == nil, var pending = pendingCap {
+                guard Date() >= pending.nextRetry else { continue }
+                let (snapshot, snapshotProblem) = loadSnapshot()
+                let primary = pending.primaryModel
+                let excluded = quarantinedAccounts(sessionLocal: quarantine)
+                let target = snapshot?.accounts
+                    .filter { $0.provider == provider.id && eligible($0, primaryModel: primary)
+                        && $0.id != account.id && !excluded.contains($0.id) }
+                    .max { smartScore($0, primaryModel: primary)
+                        < smartScore($1, primaryModel: primary) }
+                let action = capRecoveryAction(mode: policy.mode, fuseAllows: fuse.allows(),
+                                               snapshotStale: snapshotProblem != nil,
+                                               hasTarget: target != nil)
+                if action == .handoff, let target {
+                    warn("cap hit → handing off to \(target.label) " +
+                         "(\(pickReason(target, primaryModel: primary)))")
+                    // Own the account move; a follow adoption below folds its pair into this plan.
+                    plan = RelaunchPlan(target: target, reason: "cap", countsFuse: true)
+                } else {
                     if let note = action.waitingNote, note != pending.reason {
                         warn("\(account.label) capped, \(note)")
                         pending.reason = note
                     }
                     pending.nextRetry = Date().addingTimeInterval(capRetryBackoff)
                     pendingCap = pending
+                    continue
                 }
-                continue
             }
 
-            // Follow the launch default: changing "Default model & effort" in Settings re-points
-            // a RUNNING session at the next quiet moment, on the SAME account and conversation. A
-            // deliberate act in the app, like a pin move, so no fuse; works in both auto and
-            // pinned modes (it never switches account). `policy` is re-read every 2s loop above
-            // already, so the change is noticed without any extra polling. Adoption waits until
-            // the desired pair has held steady for `followDebounce` (model and effort are picked
-            // one after the other), and a change reverted within the window never restarts.
+            // Follow the launch default: changing "Default model & effort" in Settings re-points a
+            // RUNNING session. Deliberate, so no fuse. Adoption waits until the desired pair holds
+            // steady for `followDebounce` (model and effort are picked one after the other), UNLESS
+            // a relaunch is already planned this tick - then it folds in for free (one SIGTERM). In
+            // auto mode the session re-picks its account for the NEW model (incumbent-seeded, so a
+            // still-serviceable account never churns; the 02:22 storm relaunched onto an account
+            // with no room for the new model). Manual/pinned never switches account, and a dead end
+            // (no account can serve the new model) waits instead of relaunching onto a wall.
             if follow {
                 let desired = (policy.model?.lowercased(), policy.effort?.lowercased())
                 if desired == (followedModel, followedEffort) {
@@ -362,16 +370,47 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     (pendingModel, pendingEffort) = desired
                     pendingSince = Date()
                 } else if let since = pendingSince,
-                          Date().timeIntervalSince(since) >= followDebounce, watcher.isQuiet() {
-                    warn("launch default changed to \(policy.model ?? "default")/" +
-                         "\(policy.effort ?? "default") → adopting it")
-                    performHandoff(to: account, reason: "follow", countingFuse: false)
-                    launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
-                    if let model = policy.model { launchArgs += ["--model", model] }
-                    if let effort = policy.effort { launchArgs += ["--effort", effort] }
-                    (followedModel, followedEffort) = desired
-                    pendingSince = nil
-                    break
+                          plan != nil || Date().timeIntervalSince(since) >= followDebounce,
+                          watcher.isQuiet() {
+                    if var existing = plan, !existing.followFolded {
+                        existing.model = policy.model
+                        existing.effort = policy.effort
+                        existing.followFolded = true
+                        plan = existing
+                        warn("also adopting launch default \(policy.model ?? "default")/" +
+                             "\(policy.effort ?? "default")")
+                        (followedModel, followedEffort) = desired
+                        pendingSince = nil
+                    } else if plan == nil {
+                        let repick: Snapshot.Account?
+                        if policy.mode == "manual" {
+                            repick = account
+                        } else {
+                            let (snapshot, _) = loadSnapshot()
+                            let excluded = quarantinedAccounts(sessionLocal: quarantine)
+                            repick = snapshot.flatMap {
+                                incumbentSeededBest(providerID: provider.id, in: $0,
+                                                    incumbentID: account.id, primaryModel: policy.model,
+                                                    excluding: excluded)
+                            }
+                        }
+                        guard let repick else {
+                            if !followDeadEnd {
+                                warn("launch default changed to \(policy.model ?? "default"), but no " +
+                                     "eligible account can serve it yet - waiting")
+                                followDeadEnd = true
+                            }
+                            continue
+                        }
+                        followDeadEnd = false
+                        warn("launch default changed to \(policy.model ?? "default")/" +
+                             "\(policy.effort ?? "default") → adopting it" +
+                             (repick.id != account.id ? " on \(repick.label)" : ""))
+                        plan = RelaunchPlan(target: repick, reason: "follow", countsFuse: false,
+                                            model: policy.model, effort: policy.effort)
+                        (followedModel, followedEffort) = desired
+                        pendingSince = nil
+                    }
                 }
             }
 
@@ -383,7 +422,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // The expectation is what THIS session was launched with (a hand-typed --model
             // outranks the configured default - a deliberate haiku session must not be
             // "rescued" back to fable).
-            if let primary = (flagValue(launchArgs, "--model") ?? policy.model)?.lowercased(),
+            let effectivePrimary = flagValue(launchArgs, "--model") ?? policy.model
+            if plan == nil, let primary = effectivePrimary?.lowercased(),
                let actual = watcher.lastModel?.lowercased(),
                !actual.contains(primary), policy.mode != "manual", fuse.allows(),
                watcher.isQuiet() {
@@ -393,23 +433,24 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // (live case 2026-07-20: the session's context outgrew the flagship's
                 // subscription tier - every account hits that same wall), so switching would
                 // just churn the fuse. Skip; if quota IS the cause, the next poll's snapshot
-                // shows this account dry and the rescue proceeds.
+                // shows this account dry and the rescue proceeds. Score the target against the
+                // EFFECTIVE primary (a hand-typed --model outranks the configured default).
                 let currentDry = (snapshot?.accounts
                     .first { $0.id == account.id }?.modelRemaining).map { $0 <= 5 } ?? true
                 let excluded = quarantinedAccounts(sessionLocal: quarantine)
                 let rescue = !currentDry ? nil : snapshot?.accounts
-                    .filter { $0.provider == provider.id && eligible($0, primaryModel: policy.model)
+                    .filter { $0.provider == provider.id
+                        && eligible($0, primaryModel: effectivePrimary)
                         && $0.id != account.id && ($0.modelRemaining ?? 0) > 5
                         && !excluded.contains($0.id) }
                     .max {
-                        smartScore($0, primaryModel: policy.model)
-                            < smartScore($1, primaryModel: policy.model)
+                        smartScore($0, primaryModel: effectivePrimary)
+                            < smartScore($1, primaryModel: effectivePrimary)
                     }
                 if let rescue {
                     warn("\(actual) took over from \(primary) → moving to \(rescue.label) " +
-                         "to stay on \(primary) (\(pickReason(rescue, primaryModel: policy.model)))")
-                    performHandoff(to: rescue, reason: "degraded")
-                    break
+                         "to stay on \(primary) (\(pickReason(rescue, primaryModel: effectivePrimary)))")
+                    plan = RelaunchPlan(target: rescue, reason: "degraded", countsFuse: true)
                 }
             }
 
@@ -417,7 +458,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // configured fallback - a weaker model can deserve a different depth and extra
             // flags, so relaunch ONCE with the fallback pairing - same account, same
             // conversation. Deliberate configuration, no fuse.
-            if !fallbackApplied,
+            if plan == nil, !fallbackApplied,
                let fallbackList = policy.fallbackModel,
                policy.fallbackEffort != nil || policy.fallbackArgs != nil,
                let actual = watcher.lastModel?.lowercased(),
@@ -428,14 +469,22 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    .first(where: { !$0.isEmpty && actual.contains($0) }),
                watcher.isQuiet() {
                 warn("model fell back to \(actual) → applying fallback profile")
-                performHandoff(to: account, reason: "fallback", countingFuse: false)
-                launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
-                launchArgs += ["--model", matched]
-                if let effort = policy.fallbackEffort { launchArgs += ["--effort", effort] }
-                if let extra = policy.fallbackArgs {
-                    launchArgs += extra.split(separator: " ").map(String.init)
-                }
+                let extra = policy.fallbackArgs?.split(separator: " ").map(String.init) ?? []
+                plan = RelaunchPlan(target: account, reason: "fallback", countsFuse: false,
+                                    model: matched, effort: policy.fallbackEffort, extraArgs: extra)
                 fallbackApplied = true
+            }
+
+            // Execute the tick's one relaunch: terminate the child once, then apply any
+            // model/effort/extra flags this plan carries on top of the resumed args.
+            if let plan {
+                performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse)
+                if plan.model != nil || plan.effort != nil || !plan.extraArgs.isEmpty {
+                    launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
+                    if let model = plan.model { launchArgs += ["--model", model] }
+                    if let effort = plan.effort { launchArgs += ["--effort", effort] }
+                    launchArgs += plan.extraArgs
+                }
                 break
             }
         }

@@ -148,3 +148,50 @@ func capRecoveryAction(mode: String, fuseAllows: Bool, snapshotStale: Bool,
     if !hasTarget { return .waitNoTarget }
     return .handoff
 }
+
+// MARK: - Cap quarantine (recently-capped accounts, don't re-pick)
+
+/// How long a just-capped account is kept out of AUTOMATIC target selection. The app's snapshot
+/// lags the real cap - the account still reads healthy for a while after it stops serving - so a
+/// handoff (or a fresh launch moments later) would bounce right onto the wall that just failed.
+/// One shared constant for now; the right value is the P99 lag between a cap and the snapshot
+/// showing 0%, to be measured from handoff.log against snapshot history (2026-07-24 placeholder).
+let capQuarantineTTL: TimeInterval = 10 * 60
+
+/// Per-account quarantine records (~/.tally/quarantine/<account>). One file per account so
+/// concurrent supervisors never corrupt a shared document, each written atomically (Foundation's
+/// atomic write is temp + rename). This layer ONLY filters automatic selection; the snapshot,
+/// `tally status`, and the status line are never touched.
+let quarantineDir = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".tally/quarantine")
+
+/// Record that `accountID` just capped: excluded from automatic picks until `until`, across every
+/// supervisor via the shared file. The account id rides in the file body (the filename is a
+/// filesystem-safe derivative), so ids with a slash still round-trip. Best-effort.
+func quarantineAccount(_ accountID: String, until: Date, dir: URL = quarantineDir) {
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let safe = accountID.replacingOccurrences(of: "/", with: "_")
+    try? "\(until.timeIntervalSince1970) \(accountID)"
+        .write(to: dir.appendingPathComponent(safe), atomically: true, encoding: .utf8)
+}
+
+/// Account ids quarantined right now by ANY supervisor, unioned with this supervisor's own
+/// `sessionLocal` map (authoritative for accounts it capped this run). Expired records are ignored
+/// and opportunistically deleted.
+func quarantinedAccounts(sessionLocal: [String: Date] = [:], now: Date = Date(),
+                         dir: URL = quarantineDir) -> Set<String> {
+    var excluded = Set(sessionLocal.filter { $0.value > now }.keys)
+    let files = (try? FileManager.default.contentsOfDirectory(at: dir,
+        includingPropertiesForKeys: nil)) ?? []
+    for file in files {
+        guard let raw = try? String(contentsOf: file, encoding: .utf8) else { continue }
+        let parts = raw.split(separator: " ", maxSplits: 1)
+        guard let epoch = parts.first.flatMap({ Double($0) }) else { continue }
+        let accountID = parts.count > 1
+            ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            : file.lastPathComponent
+        if Date(timeIntervalSince1970: epoch) > now { excluded.insert(accountID) }
+        else { try? FileManager.default.removeItem(at: file) }
+    }
+    return excluded
+}

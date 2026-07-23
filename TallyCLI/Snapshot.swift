@@ -266,9 +266,10 @@ let smartPickMargin = 1.15
 let smartPickMinGain = 0.05   // %/h
 
 func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
-          now: Date = Date()) -> Snapshot.Account? {
+          excluding: Set<String> = [], now: Date = Date()) -> Snapshot.Account? {
     let candidates = snapshot.accounts
-        .filter { $0.provider == providerID && eligible($0, primaryModel: primaryModel) }
+        .filter { $0.provider == providerID && eligible($0, primaryModel: primaryModel)
+            && !excluding.contains($0.id) }
     guard var leader = candidates.first else { return nil }
     var leaderScore = smartScore(leader, primaryModel: primaryModel, now: now)
     for candidate in candidates.dropFirst() {

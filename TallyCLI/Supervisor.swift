@@ -170,6 +170,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// and per process, so a fleet-wide drain never trips one session on another's account
     /// switches. Deliberate moves (pin, follow) and same-account relaunches (fallback) do not count.
     var fuse = RecoveryFuse()
+    /// Accounts THIS supervisor saw cap, excluded from its own automatic picks until the TTL
+    /// passes (union with the cross-supervisor shared records). Persists across relaunches.
+    var quarantine: [String: Date] = [:]
 
     while true {
         let launchedAt = Date()
@@ -288,6 +291,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     cappedAccountID: account.id, cappedAt: Date(),
                     primaryModel: flagValue(launchArgs, "--model") ?? policy.model,
                     nextRetry: .distantPast, reason: "")
+                // Keep every session (this one and any launching now) off the account that just
+                // capped until its snapshot catches up.
+                let until = Date().addingTimeInterval(capQuarantineTTL)
+                quarantine[account.id] = until
+                quarantineAccount(account.id, until: until)
             }
 
             // Live pin switch: pinning another account in the Tally panel moves the RUNNING
@@ -314,9 +322,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 if Date() >= pending.nextRetry {
                     let (snapshot, snapshotProblem) = loadSnapshot()
                     let primary = pending.primaryModel
+                    let excluded = quarantinedAccounts(sessionLocal: quarantine)
                     let target = snapshot?.accounts
                         .filter { $0.provider == provider.id && eligible($0, primaryModel: primary)
-                            && $0.id != account.id }
+                            && $0.id != account.id && !excluded.contains($0.id) }
                         .max { smartScore($0, primaryModel: primary)
                             < smartScore($1, primaryModel: primary) }
                     let action = capRecoveryAction(mode: policy.mode, fuseAllows: fuse.allows(),
@@ -387,9 +396,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // shows this account dry and the rescue proceeds.
                 let currentDry = (snapshot?.accounts
                     .first { $0.id == account.id }?.modelRemaining).map { $0 <= 5 } ?? true
+                let excluded = quarantinedAccounts(sessionLocal: quarantine)
                 let rescue = !currentDry ? nil : snapshot?.accounts
                     .filter { $0.provider == provider.id && eligible($0, primaryModel: policy.model)
-                        && $0.id != account.id && ($0.modelRemaining ?? 0) > 5 }
+                        && $0.id != account.id && ($0.modelRemaining ?? 0) > 5
+                        && !excluded.contains($0.id) }
                     .max {
                         smartScore($0, primaryModel: policy.model)
                             < smartScore($1, primaryModel: policy.model)

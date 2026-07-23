@@ -133,4 +133,22 @@ check("allowed again once the window rolls past",
 var fuseB = RecoveryFuse(max: 3, window: 600)
 check("a separate supervisor's fuse is independent", fuseB.allows(now: fuseT0))
 
+// 10. R5: a just-capped account is quarantined across launches via the shared per-account record,
+//     the record expires on its TTL, an id with a slash round-trips, and session-local entries
+//     union with the shared ones.
+let qDir = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-quarantine-test-\(UUID().uuidString)")
+let qNow = Date(timeIntervalSince1970: 1_800_000_000)
+quarantineAccount("acct-2", until: qNow.addingTimeInterval(600), dir: qDir)
+quarantineAccount("with/slash", until: qNow.addingTimeInterval(600), dir: qDir)
+check("a freshly capped account is quarantined",
+      quarantinedAccounts(now: qNow, dir: qDir).contains("acct-2"))
+check("an id with a slash round-trips",
+      quarantinedAccounts(now: qNow, dir: qDir).contains("with/slash"))
+check("the record expires after its TTL",
+      !quarantinedAccounts(now: qNow.addingTimeInterval(601), dir: qDir).contains("acct-2"))
+check("session-local quarantine unions with the shared records",
+      quarantinedAccounts(sessionLocal: ["local-1": qNow.addingTimeInterval(60)],
+                          now: qNow, dir: qDir).contains("local-1"))
+
 exit(failures == 0 ? 0 : 1)

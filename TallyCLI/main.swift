@@ -125,8 +125,17 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         warn("pinned account not found - picking by headroom instead")
     }
 
-    guard let snapshot,
-          let account = best(providerID: provider.id, in: snapshot, primaryModel: policy.model) else {
+    guard let snapshot else {
+        warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
+        exec(provider.cli, args: passthrough, env: nil)
+    }
+    // Skip an account another session just saw cap: the snapshot lags the real cap, so its
+    // percentage still reads healthy and picking it would drop a fresh session onto the wall that
+    // just failed. If quarantine leaves nothing eligible, ignore it rather than refuse to launch.
+    let quarantined = quarantinedAccounts()
+    guard let account = best(providerID: provider.id, in: snapshot, primaryModel: policy.model,
+                             excluding: quarantined)
+            ?? best(providerID: provider.id, in: snapshot, primaryModel: policy.model) else {
         warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
         exec(provider.cli, args: passthrough, env: nil)
     }

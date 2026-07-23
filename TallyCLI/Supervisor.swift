@@ -364,7 +364,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 let currentDry = (snapshot?.accounts
                     .first { $0.id == account.id }?.modelRemaining).map { $0 <= 5 } ?? true
                 let rescue = !currentDry ? nil : snapshot?.accounts
-                    .filter { $0.provider == provider.id && eligible($0)
+                    .filter { $0.provider == provider.id && eligible($0, primaryModel: policy.model)
                         && $0.id != account.id && ($0.modelRemaining ?? 0) > 5 }
                     .max {
                         smartScore($0, primaryModel: policy.model)
@@ -418,7 +418,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // of the running anyway, so there is no incumbent to stabilize).
             let (snapshot, _) = loadSnapshot()
             let target = snapshot?.accounts
-                .filter { $0.provider == provider.id && eligible($0) && $0.id != account.id }
+                .filter { $0.provider == provider.id && eligible($0, primaryModel: policy.model)
+                    && $0.id != account.id }
                 .max {
                     smartScore($0, primaryModel: policy.model)
                         < smartScore($1, primaryModel: policy.model)

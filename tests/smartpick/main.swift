@@ -64,6 +64,18 @@ check("sonnet primary ignores the drained fable window", pick([drained, steady],
 check("no declared primary keeps the flagship window binding", pick([drained, steady]) == "B")
 check("fable primary keeps the flagship window binding", pick([drained, steady], primaryModel: "fable") == "B")
 
+// 5b. Model-aware eligibility (R7): a flagship window at 0 must not exclude an account whose
+//     declared primary is a different tier - that window is not the one it spends. With no
+//     declared primary the account stays flagship-first (the drained window still caps it).
+let fableZero = account("A", weekly: (60, inHours(100)), model: (0, inHours(100)), modelName: "Fable")
+check("sonnet primary keeps a fable-zero account eligible", eligible(fableZero, primaryModel: "sonnet"))
+check("fable primary drops a fable-zero account", !eligible(fableZero, primaryModel: "fable"))
+check("no declared primary drops a fable-zero account (flagship-first)", !eligible(fableZero))
+let sessionZero = account("A", session: (0, inHours(1)), weekly: (60, inHours(100)),
+                          model: (80, inHours(100)), modelName: "Fable")
+check("a zero non-model window still excludes regardless of primary",
+      !eligible(sessionZero, primaryModel: "sonnet"))
+
 // 6. Hysteresis: a tie stays with the first account (stable, not random), and using the leader
 //    down a point must NOT bounce the pick to the idle sibling - only a meaningful advantage
 //    (beyond smartPickMargin) flips it.

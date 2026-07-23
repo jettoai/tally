@@ -157,7 +157,7 @@ final class LaunchPolicyStore {
         let primary = policy(providerID).model
         let candidates = accounts
             .filter { $0.providerID == providerID && $0.error == nil && !$0.isStale
-                && launchable.contains($0.id) && (Self.headroom($0) ?? -1) > 0 }
+                && launchable.contains($0.id) && (Self.headroom($0, primaryModel: primary) ?? -1) > 0 }
         guard var leader = candidates.first else { return nil }
         var leaderScore = Self.smartScore(leader, primaryModel: primary)
         for candidate in candidates.dropFirst() {
@@ -178,12 +178,20 @@ final class LaunchPolicyStore {
     }
 
     /// The tightest of the windows the account reports (mirrors `UsageSnapshot.make` fields).
-    private static func headroom(_ usage: AccountUsage) -> Double? {
-        let windows = [
+    /// Mirror of the CLI's `headroom(_:primaryModel:)`: the flagship window only binds when the
+    /// declared primary model IS that tier, so a drained fable window never vetoes an account
+    /// whose primary is sonnet. Keep both sides in lockstep.
+    private static func headroom(_ usage: AccountUsage, primaryModel: String? = nil) -> Double? {
+        var windows = [
             usage.metrics.first { $0.kind == .session }?.remainingPercent,
             usage.metrics.first { $0.kind == .weeklyAll }?.remainingPercent,
-            usage.headline.flatMap { $0.isModelScoped ? $0.remainingPercent : nil },
         ].compactMap { $0 }
+        let model = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
+        let windowModel = model?.modelName?.lowercased()
+        let primary = primaryModel?.lowercased()
+        let modelWindowCounts = primary == nil || windowModel == nil
+            || windowModel!.contains(primary!) || primary!.contains(windowModel!)
+        if modelWindowCounts, let remaining = model?.remainingPercent { windows.append(remaining) }
         return windows.min()
     }
 

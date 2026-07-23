@@ -228,7 +228,8 @@ func runResume(args: [String]) -> Never {
     // Prefer the best OTHER eligible account; fall back to the source account (a plain resume).
     let primaryModel = launchPolicy(provider.id).model
     let target = snapshot.accounts
-        .filter { $0.provider == provider.id && eligible($0) && $0.id != newest.account.id }
+        .filter { $0.provider == provider.id && eligible($0, primaryModel: primaryModel)
+            && $0.id != newest.account.id }
         .max {
             smartScore($0, primaryModel: primaryModel) < smartScore($1, primaryModel: primaryModel)
         } ?? newest.account

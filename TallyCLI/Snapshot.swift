@@ -156,15 +156,25 @@ func loadSnapshot() -> (Snapshot?, String?) {
 }
 
 /// Proven headroom: the tightest of the windows the account actually reports. Any window at 0
-/// means the account is capped right now regardless of the others.
-func headroom(_ account: Snapshot.Account) -> Double {
-    let windows = [account.sessionRemaining, account.weeklyRemaining, account.modelRemaining]
-        .compactMap { $0 }
+/// means the account is capped right now regardless of the others. The flagship window only
+/// binds when the declared primary model IS that tier: a sonnet primary does not drain the fable
+/// window, so a fable window at 0 must not report the account as capped (same rule as
+/// `ratedWindows`, which the score already follows - eligibility was the one place still counting
+/// the flagship window unconditionally). No declared primary keeps it flagship-first, the app's
+/// display philosophy, and matches the historical behavior for callers that pass nil.
+func headroom(_ account: Snapshot.Account, primaryModel: String? = nil) -> Double {
+    var windows = [account.sessionRemaining, account.weeklyRemaining].compactMap { $0 }
+    let windowModel = account.modelWindowName?.lowercased()
+    let primary = primaryModel?.lowercased()
+    let modelWindowCounts = primary == nil || windowModel == nil
+        || windowModel!.contains(primary!) || primary!.contains(windowModel!)
+    if modelWindowCounts, let model = account.modelRemaining { windows.append(model) }
     return windows.min() ?? -1
 }
 
-func eligible(_ account: Snapshot.Account) -> Bool {
-    account.launchHome != nil && account.error == nil && !account.isStale && headroom(account) > 0
+func eligible(_ account: Snapshot.Account, primaryModel: String? = nil) -> Bool {
+    account.launchHome != nil && account.error == nil && !account.isStale
+        && headroom(account, primaryModel: primaryModel) > 0
 }
 
 /// One usage window with its sustainable burn rate: how much quota per hour it can spend until
@@ -257,7 +267,8 @@ let smartPickMinGain = 0.05   // %/h
 
 func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
           now: Date = Date()) -> Snapshot.Account? {
-    let candidates = snapshot.accounts.filter { $0.provider == providerID && eligible($0) }
+    let candidates = snapshot.accounts
+        .filter { $0.provider == providerID && eligible($0, primaryModel: primaryModel) }
     guard var leader = candidates.first else { return nil }
     var leaderScore = smartScore(leader, primaryModel: primaryModel, now: now)
     for candidate in candidates.dropFirst() {

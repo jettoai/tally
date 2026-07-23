@@ -216,12 +216,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 }
             }
 
-            // Cap handoff / wait: a pending cap outranks follow, rescue, and fallback (the pin
-            // switch above still wins - moving the pin is an explicit "go here" even mid-cap). The
-            // handoff is retried at a backoff while blocked, and the terminal warns only when the
-            // waiting reason changes, so a stuck session is never noisy and never abandoned.
-            if plan == nil, var pending = pendingCap {
-                guard Date() >= pending.nextRetry else { continue }
+            // Cap handoff / wait: a pending cap outranks follow, rescue, and fallback for the
+            // account MOVE (the pin switch above still wins). The backoff gate and the "waiting"
+            // branch only skip the cap HANDOFF ATTEMPT, never the rest of the tick: a blocked cap
+            // (no eligible target) must still let the follow block below run, so a single-account
+            // user who caps and then switches Settings to a model with headroom actually adopts it
+            // (the main UX complaint from the 2026-07-24 incident). rescue/fallback stay gated by
+            // `plan == nil`.
+            if plan == nil, var pending = pendingCap, Date() >= pending.nextRetry {
                 let (snapshot, snapshotProblem) = loadSnapshot()
                 let primary = pending.primaryModel
                 let excluded = quarantinedAccounts(sessionLocal: quarantine)
@@ -245,7 +247,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     }
                     pending.nextRetry = Date().addingTimeInterval(capRetryBackoff)
                     pendingCap = pending
-                    continue
                 }
             }
 

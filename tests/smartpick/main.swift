@@ -135,4 +135,13 @@ check("with a sonnet primary the same incumbent stays (fable window irrelevant)"
 let allDry = account("A", weekly: (0, inHours(120)))
 check("nothing eligible returns nil (a dead end)", seeded([allDry], incumbent: "A") == nil)
 
+// F1: a single-account user who caps the flagship window and then switches Settings to a model
+// that window doesn't gate must be able to adopt it - the follow repick targets the very account
+// that capped (this is the follow path that the cap-wait branch must no longer starve).
+let cappedFable = account("A", weekly: (55, inHours(120)), model: (0, inHours(120)), modelName: "Fable")
+check("the capped account is a valid follow target for a model it can still serve",
+      seeded([cappedFable], incumbent: "A", primaryModel: "sonnet") == "A")
+check("but not for the model whose window it just capped",
+      seeded([cappedFable], incumbent: "A", primaryModel: "fable") == nil)
+
 exit(failures == 0 ? 0 : 1)

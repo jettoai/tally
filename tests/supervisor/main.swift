@@ -186,16 +186,25 @@ check("a legacy record blocks any pick (read as whole-account)",
 //     "outdated"; a missing supervisor version is "unknown" (never "outdated" - a --no-handoff
 //     bare launch has none either); a session not steered by Tally says nothing.
 check("matching version is silent",
-      supervisionStatus(steered: true, supervisorVersion: "0.18.0", installedVersion: "0.18.0") == .ok)
+      supervisionStatus(steered: true, supervised: true, supervisorVersion: "0.18.0", installedVersion: "0.18.0") == .ok)
 check("a version mismatch is outdated",
-      supervisionStatus(steered: true, supervisorVersion: "0.17.0", installedVersion: "0.18.0") == .outdated)
+      supervisionStatus(steered: true, supervised: true, supervisorVersion: "0.17.0", installedVersion: "0.18.0") == .outdated)
 check("a missing supervisor version is unknown, not outdated",
-      supervisionStatus(steered: true, supervisorVersion: nil, installedVersion: "0.18.0") == .unknown)
+      supervisionStatus(steered: true, supervised: true, supervisorVersion: nil, installedVersion: "0.18.0") == .unknown)
 check("a session not steered by Tally has no note",
-      supervisionStatus(steered: false, supervisorVersion: nil, installedVersion: "0.18.0") == .notSteered)
+      supervisionStatus(steered: false, supervised: true, supervisorVersion: nil, installedVersion: "0.18.0") == .notSteered)
 check("an unknown installed version can't assert outdated",
-      supervisionStatus(steered: true, supervisorVersion: "0.17.0", installedVersion: nil) == .ok)
+      supervisionStatus(steered: true, supervised: true, supervisorVersion: "0.17.0", installedVersion: nil) == .ok)
 check("outdated renders a restart nudge", SupervisionStatus.outdated.note?.contains("restart") == true)
 check("ok renders no note", SupervisionStatus.ok.note == nil)
+
+// F3: a deliberate unsupervised launch (the opt-out marker is stamped) stays quiet, even without a
+// version - it is a choice, not an outdated supervisor. Only a supervised launch with no version is
+// "unknown" (an old pre-marker supervisor still gets nagged).
+check("a deliberately unsupervised launch has no note",
+      supervisionStatus(steered: true, supervised: false, supervisorVersion: nil, installedVersion: "0.18.0") == .notSupervised)
+check("notSupervised renders no note", SupervisionStatus.notSupervised.note == nil)
+check("supervised but versionless is still unknown (old supervisor)",
+      supervisionStatus(steered: true, supervised: true, supervisorVersion: nil, installedVersion: "0.18.0") == .unknown)
 
 exit(failures == 0 ? 0 : 1)

@@ -434,6 +434,10 @@ func exec(_ cli: String, args: [String], env: (key: String, value: String)?) -> 
     if let env { setenv(env.key, env.value, 1) }
     // Every launch that went through tally is marked, so the status line can show ✦.
     setenv("TALLY_LAUNCHED", "1", 1)
+    // A plain exec is deliberately unsupervised (--account pin, --no-handoff, bare fallback): mark
+    // it so the status line stays quiet instead of nagging "supervisor unknown". The resident
+    // supervisor spawns its child without this marker, so it reads as supervised.
+    setenv("TALLY_SUPERVISED", "0", 1)
     let argv = [cli] + args
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)

@@ -291,8 +291,11 @@ func runBestDir(_ providerID: String) {
     } else {
         print("export \(provider.envKey)=\(home)")
     }
-    // The status line reads this to show "this session runs under Tally" (✦).
+    // The status line reads this to show "this session runs under Tally" (✦). A shim-steered bare
+    // launch has no resident supervisor, so mark it unsupervised (the status line stays quiet
+    // rather than nagging "supervisor unknown").
     print("export TALLY_LAUNCHED=1")
+    print("export TALLY_SUPERVISED=0")
 }
 
 /// `tally launch-dir` - the machine interface for the codex/claude PATH shims. Unlike `best-dir`
@@ -318,8 +321,11 @@ func runLaunchDir(_ providerID: String) {
     } else {
         print("export \(provider.envKey)=\(home)")
     }
-    // The status line reads this to show "this session runs under Tally" (✦).
+    // The status line reads this to show "this session runs under Tally" (✦). A shim-steered bare
+    // launch has no resident supervisor, so mark it unsupervised (the status line stays quiet
+    // rather than nagging "supervisor unknown").
     print("export TALLY_LAUNCHED=1")
+    print("export TALLY_SUPERVISED=0")
 }
 
 // MARK: - Entry

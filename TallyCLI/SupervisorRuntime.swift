@@ -61,27 +61,31 @@ func supervisorBuildVersion() -> String? {
 /// The health of the supervisor watching THIS session, judged by the status line from the version
 /// the supervisor stamped into the child env against the installed binary's own version.
 enum SupervisionStatus: Equatable {
-    case notSteered   // not launched through Tally at all - no note
-    case ok           // supervisor version matches the installed app
-    case unknown      // no version in the env: an old supervisor (pre-update) or a --no-handoff launch
-    case outdated     // supervisor version differs from the installed app: it runs stale logic
+    case notSteered      // not launched through Tally at all - no note
+    case notSupervised   // launched through Tally but deliberately without a supervisor - no note
+    case ok              // supervisor version matches the installed app
+    case unknown         // no version and no opt-out marker: an old pre-update supervisor
+    case outdated        // supervisor version differs from the installed app: it runs stale logic
 
     /// The status-line note, or nil when there is nothing to say.
     var note: String? {
         switch self {
-        case .notSteered, .ok: return nil
+        case .notSteered, .notSupervised, .ok: return nil
         case .unknown: return "supervisor status unknown, restart after update"
         case .outdated: return "supervisor outdated, restart after update"
         }
     }
 }
 
-/// Pure comparison so the status-line note is testable without a bundle. A missing supervisor
-/// version can never be called "outdated" (a --no-handoff bare launch has none either); a missing
-/// INSTALLED version means we can't compare, so assume ok rather than nag.
-func supervisionStatus(steered: Bool, supervisorVersion: String?,
+/// Pure comparison so the status-line note is testable without a bundle. `supervised` is false when
+/// the launcher stamped the opt-out marker (a --account/--no-handoff plain exec, or a shim-steered
+/// bare launch): a deliberate choice, so it stays quiet rather than nagging. Only a launch that
+/// SHOULD have a supervisor but carries no version is "unknown" (an old pre-marker supervisor); a
+/// missing INSTALLED version means we can't compare, so assume ok.
+func supervisionStatus(steered: Bool, supervised: Bool, supervisorVersion: String?,
                        installedVersion: String?) -> SupervisionStatus {
     guard steered else { return .notSteered }
+    guard supervised else { return .notSupervised }
     guard let supervisorVersion else { return .unknown }
     guard let installedVersion else { return .ok }
     return supervisorVersion == installedVersion ? .ok : .outdated

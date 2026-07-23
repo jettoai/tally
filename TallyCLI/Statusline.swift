@@ -36,6 +36,7 @@ func runStatusline(args: [String]) -> Never {
     // pre-stamp supervisor, or a deliberate --no-handoff launch - so never asserted as outdated).
     let supervisionPiece = supervisionStatus(
         steered: steered,
+        supervised: ProcessInfo.processInfo.environment["TALLY_SUPERVISED"] != "0",
         supervisorVersion: ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_VERSION"],
         installedVersion: supervisorBuildVersion()).note.map { "\(yellow)\($0)\(reset)" }
     // The account name only carries information when there is a choice: with one account it

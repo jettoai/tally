@@ -68,8 +68,7 @@ extension PopoverRootView {
         if !pools.isEmpty {
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array(pools.enumerated()), id: \.offset) { index, pool in
-                    poolBlock(summary, pool, leading: index == 0,
-                              leadRefill: index == 0 ? nil : pools.first?.refills.first)
+                    poolBlock(summary, pool, leading: index == 0)
                 }
             }
         }
@@ -79,11 +78,8 @@ extension PopoverRootView {
     /// carries the provider identity and the fold chevron (the disclosure header for the whole
     /// provider); follow-up pools leave it empty - a continuation indent, so every bar sits in
     /// the same column and ONE grammar names the pools: always the context line under the bar.
-    /// `leadRefill` dedupes the refill label: the weekly windows of one account refill at the
-    /// same moment, and repeating "next refill ..." under every bar read as a glitch.
     @ViewBuilder
-    private func poolBlock(_ summary: FleetSummary, _ pool: FleetPool, leading: Bool,
-                           leadRefill: FleetPool.Refill?) -> some View {
+    private func poolBlock(_ summary: FleetSummary, _ pool: FleetPool, leading: Bool) -> some View {
         let collapsed = settings.collapsedProviders.contains(summary.providerID)
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 8) {
@@ -123,7 +119,7 @@ extension PopoverRootView {
             // Instant, not animated: the surrounding window resize can't be synchronized with
             // a SwiftUI layout animation, and the half-animated combination read as a bounce.
             .onTapGesture { if leading { settings.toggleCollapsed(summary.providerID) } }
-            contextLine(summary, pool, leadRefill: leadRefill)
+            contextLine(summary, pool)
         }
     }
 
@@ -141,28 +137,22 @@ extension PopoverRootView {
 
     /// Mirrors the card rows' context line: which window this pool sums (one word - without it
     /// nothing says whose budget the bar is) and the pace verdict on the left, the next refill
-    /// on the right (click toggles countdown/exact time, like every reset label). The refill is
-    /// dropped when the leading pool already shows the same moment for the same account.
-    private func contextLine(_ summary: FleetSummary, _ pool: FleetPool,
-                             leadRefill: FleetPool.Refill?) -> some View {
+    /// on the right (click toggles countdown/exact time, like every reset label). Every pool
+    /// shows its own refill, even when it repeats the line above: Anthropic resets the model
+    /// and weekly windows at the same moment, so a same-moment dedupe left the weekly pool's
+    /// slot PERMANENTLY empty, and the absence read as missing data, not as "same as above"
+    /// (owner-confirmed confusion, 2026-07-23). A fixed slot beats a clever blank.
+    private func contextLine(_ summary: FleetSummary, _ pool: FleetPool) -> some View {
         HStack(spacing: 6) {
             (Text("\(poolDisplayName(pool)) · ").foregroundStyle(Color.secondary)
              + forecastText(summary, pool))
                 .font(.caption2)
                 .lineLimit(1)
             Spacer(minLength: 6)
-            if let refill = pool.refills.first, !duplicates(refill, of: leadRefill) {
+            if let refill = pool.refills.first {
                 refillLabel(refill)
             }
         }
-    }
-
-    /// Same account topping up at (near enough) the same moment - the gain may differ per
-    /// window, but the label doesn't show gains, so the repeat carries no information.
-    private func duplicates(_ refill: FleetPool.Refill, of lead: FleetPool.Refill?) -> Bool {
-        guard let lead else { return false }
-        return refill.accountLabel == lead.accountLabel
-            && abs(refill.at.timeIntervalSince(lead.at)) < 60
     }
 
     private func percent(_ value: Double) -> String { "\(Int(value.rounded()))%" }

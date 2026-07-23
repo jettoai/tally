@@ -59,4 +59,31 @@ check("flagValue reads the launched model", flagValue(["--continue", "--model", 
 check("flagValue absent flag is nil", flagValue(["--continue"], "--model") == nil)
 check("flagValue dangling flag is nil", flagValue(["--model"], "--model") == nil)
 
+// 6. R8: a resumed handoff pins <id>.jsonl directly, so two sessions in one directory never
+//    cross-bind. Without an id the mtime heuristic still finds the newest file; an id that is
+//    not yet in this account's tree falls back to that heuristic too.
+func watcherLocating(resumeID: String?, files: [String: TimeInterval]) -> TranscriptWatcher {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-locate-test-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    for (name, offset) in files {
+        let url = dir.appendingPathComponent(name)
+        try! "{}".write(to: url, atomically: true, encoding: .utf8)
+        try! FileManager.default.setAttributes(
+            [.modificationDate: launch.addingTimeInterval(offset)], ofItemAtPath: url.path)
+    }
+    var watcher = TranscriptWatcher(projectDir: dir, since: launch, resumeID: resumeID)
+    watcher.locateFile()
+    return watcher
+}
+let pinnedTranscript = watcherLocating(resumeID: "aaaa", files: ["aaaa.jsonl": 10, "bbbb.jsonl": 100])
+check("resume id pins its own transcript over a newer sibling",
+      pinnedTranscript.file?.lastPathComponent == "aaaa.jsonl")
+let heuristicTranscript = watcherLocating(resumeID: nil, files: ["aaaa.jsonl": 10, "bbbb.jsonl": 100])
+check("no resume id falls back to the newest file",
+      heuristicTranscript.file?.lastPathComponent == "bbbb.jsonl")
+let missingTranscript = watcherLocating(resumeID: "cccc", files: ["aaaa.jsonl": 10, "bbbb.jsonl": 100])
+check("resume id absent from tree falls back to the heuristic",
+      missingTranscript.file?.lastPathComponent == "bbbb.jsonl")
+
 exit(failures == 0 ? 0 : 1)

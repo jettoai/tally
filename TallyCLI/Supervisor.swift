@@ -63,6 +63,11 @@ struct TranscriptWatcher {
     var file: URL?
     var offset: UInt64 = 0
     let since: Date
+    /// The session id this child was launched to resume, when known (set after a handoff, which
+    /// relaunches with `--resume <id>`). Lets `locateFile` pin `<id>.jsonl` directly instead of
+    /// guessing by mtime - two sessions in one directory otherwise cross-bind to whichever file
+    /// was touched last. nil on a fresh launch, where the heuristic still applies.
+    var resumeID: String?
     /// The model id of the newest assistant event seen so far - how the supervisor notices a
     /// server-side model fallback.
     var lastModel: String?
@@ -93,6 +98,14 @@ struct TranscriptWatcher {
     /// The newest session transcript created/updated after launch - the child's session.
     mutating func locateFile() {
         guard file == nil else { return }
+        // A resumed handoff knows its session id, so bind `<id>.jsonl` directly: mtime guessing
+        // would otherwise pick the wrong file when the directory holds a second session (a
+        // sibling tab, an unrelated older conversation). Only a first launch (no known id, or
+        // the file not yet copied into this account's tree) falls back to the heuristic below.
+        if let resumeID {
+            let pinned = projectDir.appendingPathComponent("\(resumeID).jsonl")
+            if FileManager.default.fileExists(atPath: pinned.path) { file = pinned; return }
+        }
         let files = (try? FileManager.default.contentsOfDirectory(
             at: projectDir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         let candidate = files
@@ -241,7 +254,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
 
         var watcher = TranscriptWatcher(
             projectDir: URL(fileURLWithPath: account.launchHome!).appendingPathComponent("projects/\(slug)"),
-            since: launchedAt)
+            since: launchedAt,
+            resumeID: flagValue(launchArgs, "--resume") ?? flagValue(launchArgs, "-r"))
         var handoff = false
 
         // Terminate the child and set up the relaunch on `target` - shared by cap-hit handoffs

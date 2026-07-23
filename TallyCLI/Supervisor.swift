@@ -19,21 +19,6 @@ let handoffFuseMax = 3
 let handoffLog = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent(".tally/handoff.log")
 
-func autoHandoffEnabled(args: [String]) -> Bool {
-    if args.contains("--no-handoff") { return false }
-    if let raw = getenv("TALLY_AUTO_HANDOFF"), String(cString: raw) == "0" { return false }
-    return true
-}
-
-/// Whether a running session adopts a later change to the launch-default model (Settings). Mirrors
-/// the `--no-handoff` opt-out. A hand-typed `--model` is handled separately at the call site (a
-/// deliberate model choice must never be overridden), so this only covers the explicit escape hatch.
-func autoFollowEnabled(args: [String]) -> Bool {
-    if args.contains("--no-follow") { return false }
-    if let raw = getenv("TALLY_AUTO_FOLLOW"), String(cString: raw) == "0" { return false }
-    return true
-}
-
 /// True when the fuse still has room: at most `handoffFuseMax` handoffs per rolling window,
 /// so a systemic failure (e.g. every account capped) can't burn through logins in a loop.
 func fuseAllows(now: Date = Date()) -> Bool {
@@ -71,6 +56,10 @@ struct TranscriptWatcher {
     /// The model id of the newest assistant event seen so far - how the supervisor notices a
     /// server-side model fallback.
     var lastModel: String?
+    /// The timestamp of the newest main-chain, real, post-launch assistant event. A cap recovery
+    /// is cleared when this passes the cap time (a genuine turn happened after the cap, so the
+    /// account came back on its own). Same three guards as `lastModel`.
+    var lastMainChainEventAt: Date?
 
     /// The event timestamp of one transcript line, without a full JSON parse.
     func lineTimestamp(_ line: Substring) -> Date? {
@@ -138,8 +127,9 @@ struct TranscriptWatcher {
                !line.contains("\"isSidechain\":true") {
                 let rest = line[modelKey.upperBound...]
                 if let quote = rest.firstIndex(of: "\""), rest[..<quote].hasPrefix("claude"),
-                   lineTimestamp(line).map({ $0 >= since }) ?? false {
+                   let ts = lineTimestamp(line), ts >= since {
                     lastModel = String(rest[..<quote])
+                    lastMainChainEventAt = ts
                 }
             }
             guard line.contains("\"isApiErrorMessage\":true") else { continue }
@@ -171,24 +161,6 @@ private func spawnChild(_ argv: [String], environment: [String: String]) -> pid_
     defer { for pointer in cArgs + cEnv { free(pointer) } }
     var pid: pid_t = 0
     return posix_spawnp(&pid, argv[0], nil, nil, cArgs, cEnv) == 0 ? pid : nil
-}
-
-/// `args` minus the given value-taking flags (and their values).
-/// The value following `flag` in an argument vector (nil when absent).
-func flagValue(_ args: [String], _ flag: String) -> String? {
-    guard let index = args.firstIndex(of: flag), index + 1 < args.count else { return nil }
-    return args[index + 1]
-}
-
-func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
-    var out: [String] = []
-    var skip = false
-    for argument in args {
-        if skip { skip = false; continue }
-        if flags.contains(argument) { skip = true; continue }
-        out.append(argument)
-    }
-    return out
 }
 
 /// Resident supervision: spawn claude, tail its transcript, hand off on a cap hit.
@@ -305,12 +277,37 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             handoff = true
         }
 
+        // A cap this child could not hand off yet: remembered across poll ticks so a blocked
+        // handoff retries instead of stranding the session. Reset per child - a fresh launch is
+        // a clean slate; the previous account's cap is not this one's.
+        var pendingCap: PendingCapRecovery?
+
         pollChild()
         while childStatus == nil {
             usleep(2_000_000)
             pollChild()
             guard childStatus == nil else { break }
             let policy = launchPolicy(provider.id)
+
+            // Cap recovery has top priority: scan for the cap BEFORE any relaunch path (pin,
+            // follow, rescue, fallback), because a relaunch resets the watcher's `since` and would
+            // filter the cap event as old history and lose it (2026-07-24). The scan also refreshes
+            // the model-degradation signal the rescue/fallback blocks below read.
+            let sawCap = watcher.sawCapHit()
+            // The session came back on its own - a real assistant turn on the main chain, newer
+            // than the cap (the account's window refilled, or the user waited the cooldown out) -
+            // so a later genuine cap starts fresh.
+            if let pending = pendingCap, let recovered = watcher.lastMainChainEventAt,
+               recovered > pending.cappedAt {
+                warn("\(account.label) resumed on its own - cap recovery cleared")
+                pendingCap = nil
+            }
+            if sawCap, pendingCap == nil {
+                pendingCap = PendingCapRecovery(
+                    cappedAccountID: account.id, cappedAt: Date(),
+                    primaryModel: flagValue(launchArgs, "--model") ?? policy.model,
+                    nextRetry: .distantPast, reason: "")
+            }
 
             // Live pin switch: pinning another account in the Tally panel moves the RUNNING
             // session there. An explicit human act, so no fuse; the pinned account is used even
@@ -326,6 +323,38 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     performHandoff(to: target)
                     break
                 }
+            }
+
+            // Cap handoff / wait: a pending cap outranks follow, rescue, and fallback (the pin
+            // switch above still wins - moving the pin is an explicit "go here" even mid-cap). The
+            // handoff is retried at a backoff while blocked, and the terminal warns only when the
+            // waiting reason changes, so a stuck session is never noisy and never abandoned.
+            if var pending = pendingCap {
+                if Date() >= pending.nextRetry {
+                    let (snapshot, snapshotProblem) = loadSnapshot()
+                    let primary = pending.primaryModel
+                    let target = snapshot?.accounts
+                        .filter { $0.provider == provider.id && eligible($0, primaryModel: primary)
+                            && $0.id != account.id }
+                        .max { smartScore($0, primaryModel: primary)
+                            < smartScore($1, primaryModel: primary) }
+                    let action = capRecoveryAction(mode: policy.mode, fuseAllows: fuseAllows(),
+                                                   snapshotStale: snapshotProblem != nil,
+                                                   hasTarget: target != nil)
+                    if action == .handoff, let target {
+                        warn("cap hit → handing off to \(target.label) " +
+                             "(\(pickReason(target, primaryModel: primary)))")
+                        performHandoff(to: target)
+                        break
+                    }
+                    if let note = action.waitingNote, note != pending.reason {
+                        warn("\(account.label) capped, \(note)")
+                        pending.reason = note
+                    }
+                    pending.nextRetry = Date().addingTimeInterval(capRetryBackoff)
+                    pendingCap = pending
+                }
+                continue
             }
 
             // Follow the launch default: changing "Default model & effort" in Settings re-points
@@ -417,40 +446,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 fallbackApplied = true
                 break
             }
-
-            guard watcher.sawCapHit() else { continue }
-            if policy.mode == "manual" {
-                warn("\(account.label) hit its limit - staying put (pinned in Tally; unpin to allow handoff)")
-                continue
-            }
-            guard fuseAllows() else {
-                warn("cap hit, but \(handoffFuseMax) handoffs in \(Int(handoffFuseWindow / 60))m - staying put")
-                break
-            }
-            // Re-read the snapshot NOW; the smartest other account is the handoff target (same
-            // burn-rate scoring as the launch pick - no hysteresis: the capped account is out
-            // of the running anyway, so there is no incumbent to stabilize).
-            let (snapshot, _) = loadSnapshot()
-            let target = snapshot?.accounts
-                .filter { $0.provider == provider.id && eligible($0, primaryModel: policy.model)
-                    && $0.id != account.id }
-                .max {
-                    smartScore($0, primaryModel: policy.model)
-                        < smartScore($1, primaryModel: policy.model)
-                }
-            guard let target else {
-                warn("cap hit, but no other eligible account - staying put")
-                break
-            }
-            guard watcher.file != nil else { break }
-            warn("cap hit → handing off to \(target.label) " +
-                 "(\(pickReason(target, primaryModel: policy.model)))")
-            performHandoff(to: target)
-            break
         }
 
         if handoff { continue }
-        let status = awaitChild()   // fuse/no-target: claude keeps running until it exits itself
+        let status = awaitChild()   // no relaunch pending: the child exited on its own, so do we
         let exited = (status & 0x7f) == 0
         exit(exited ? (status >> 8) & 0xff : 128 + (status & 0x7f))
     }

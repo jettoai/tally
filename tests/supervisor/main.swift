@@ -86,4 +86,37 @@ let missingTranscript = watcherLocating(resumeID: "cccc", files: ["aaaa.jsonl": 
 check("resume id absent from tree falls back to the heuristic",
       missingTranscript.file?.lastPathComponent == "bbbb.jsonl")
 
+// 7. R4: the cap-recovery priority order (pure decision, no child needed). Pinned outranks
+//    everything (staying put is what a pin means), then the fuse, then a stale snapshot, then
+//    no eligible sibling; only a clear board hands off.
+check("manual pin stays put", capRecoveryAction(mode: "manual", fuseAllows: true,
+      snapshotStale: false, hasTarget: true) == .waitPinned)
+check("spent fuse waits", capRecoveryAction(mode: "auto", fuseAllows: false,
+      snapshotStale: false, hasTarget: true) == .waitFuse)
+check("stale snapshot waits", capRecoveryAction(mode: "auto", fuseAllows: true,
+      snapshotStale: true, hasTarget: true) == .waitStale)
+check("no eligible sibling waits", capRecoveryAction(mode: "auto", fuseAllows: true,
+      snapshotStale: false, hasTarget: false) == .waitNoTarget)
+check("clear board hands off", capRecoveryAction(mode: "auto", fuseAllows: true,
+      snapshotStale: false, hasTarget: true) == .handoff)
+// Unpinning a capped session hands off with no second cap event: same pending state, mode flips
+// auto, the board is otherwise clear.
+check("unpin flips a pinned wait straight to handoff",
+      capRecoveryAction(mode: "auto", fuseAllows: true, snapshotStale: false, hasTarget: true)
+      == .handoff)
+
+// 8. A main-chain assistant event newer than the cap clears the pending recovery (came back on
+//    its own); an event OLDER than the cap (replayed history) does not.
+let cappedAt = launch.addingTimeInterval(100)
+let recoveredWatcher = watcherAfterScanning([
+    #"{"timestamp":"\#(stamp(200))","message":{"model":"claude-fable-5"}}"#,
+])
+check("a post-cap assistant event signals self-recovery",
+      (recoveredWatcher.lastMainChainEventAt.map { $0 > cappedAt }) == true)
+let staleWatcher = watcherAfterScanning([
+    #"{"timestamp":"\#(stamp(50))","message":{"model":"claude-fable-5"}}"#,
+])
+check("a pre-cap assistant event does not signal recovery",
+      (staleWatcher.lastMainChainEventAt.map { $0 > cappedAt }) != true)
+
 exit(failures == 0 ? 0 : 1)

@@ -159,7 +159,14 @@ func runStatusline(args: [String]) -> Never {
         // (identity | this account's windows | the fleet pool), separated by | so the
         // single-account numbers and the whole-fleet number never read as one list.
         if snapshot?.statuslineFullQuota == true, !quota.isEmpty {
-            let identityZone = [statusPiece, "\(dim)\(label)\(reset)"].compactMap { $0 }
+            // The session model rides the identity here too, same rule as the standalone line
+            // below: whichever model this session runs (not just the flagship), unless a
+            // matched tier piece already wears the name. The custom line above may show a
+            // model of its own, but THIS line's model is the one tally launched or adopted.
+            let modelToken = quota.first.map { $0.contains(sessionModel ?? "\u{0}") } == true
+                ? nil : sessionModel
+            let identityZone = [statusPiece, "\(dim)\(label)\(reset)", modelToken]
+                .compactMap { $0 }
                 .joined(separator: " · ")
             let richLine = [identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]
                 .filter { !$0.isEmpty }

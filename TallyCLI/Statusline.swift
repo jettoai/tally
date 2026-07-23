@@ -115,11 +115,12 @@ func runStatusline(args: [String]) -> Never {
         } else {
             modelPiece = nil
         }
-        // Model tier first - the same order as the cards (the flagship window is the headline).
+        // Time-ascending: 5h first, then the weekly windows - the order people read budgets in,
+        // and the 5h slot keeps its position whether or not a model window exists.
         // The account's own 7d yields to the fleet slot when the pool is shown: under smart
         // handoff the pool IS the weekly budget, and two weekly numbers side by side confuse.
-        quota = [modelPiece,
-                 piece("5h", account.sessionRemaining, account.sessionResetsAt),
+        quota = [piece("5h", account.sessionRemaining, account.sessionResetsAt),
+                 modelPiece,
                  fleetPiece == nil
                      ? piece("7d", account.weeklyRemaining, account.weeklyResetsAt) : nil]
             .compactMap { $0 }

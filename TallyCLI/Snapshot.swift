@@ -49,6 +49,10 @@ struct Snapshot: Decodable {
         var poolName: String?
     }
     var fleet: [String: Fleet]?
+    /// The panel's ordered pool list per provider (gauge focus applied app-side), leading pool
+    /// first - the status line renders every entry. Absent in snapshots from older apps; the
+    /// status line then falls back to the single headline pool in `fleet`.
+    var fleetPools: [String: [Fleet]]?
 }
 
 let snapshotURL = FileManager.default.homeDirectoryForCurrentUser

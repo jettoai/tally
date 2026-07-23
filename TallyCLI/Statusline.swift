@@ -81,11 +81,15 @@ func runStatusline(args: [String]) -> Never {
             }
             return text
         }
-        // The fleet piece: the whole provider pool as ONE slot with its own label, in the
+        // The fleet piece: the provider's pools as ONE zone, each with its own label, in the
         // panel gauge's units (accounts' worth left - a remaining number by nature) plus the
         // pace forecast. Present only while the app's fleet gauge is on (same switch, same
-        // meaning; launch mode is deliberately irrelevant).
-        if let fleet = snapshot?.fleet?["claude"], fleet.capacity > 0 {
+        // meaning; launch mode is deliberately irrelevant). `fleetPools` is the panel's own
+        // ordered pool list (gauge focus applied app-side), so the line shows every pool the
+        // gauge shows; a snapshot from an older app carries only the single headline pool.
+        let fleetPools = snapshot?.fleetPools?["claude"]
+            ?? snapshot?.fleet?["claude"].map { [$0] } ?? []
+        let poolPieces: [String] = fleetPools.filter { $0.capacity > 0 }.map { fleet in
             let remainingPct = fleet.remaining / fleet.capacity * 100
             let tint = tintFor(remainingPct)
             let worth = String(format: "%.1f/%d", fleet.remaining / 100,
@@ -102,8 +106,9 @@ func runStatusline(args: [String]) -> Never {
             } else if fleet.sustainable {
                 text += " \u{1B}[38;5;71m✓\(reset)"
             }
-            fleetPiece = text
+            return text
         }
+        if !poolPieces.isEmpty { fleetPiece = poolPieces.joined(separator: " · ") }
         // The account's own 7d yields to the fleet slot when the pool is shown: under smart
         // handoff the pool IS the weekly budget, and two weekly numbers side by side confuse.
         quota = [piece("5h", account.sessionRemaining, account.sessionResetsAt),

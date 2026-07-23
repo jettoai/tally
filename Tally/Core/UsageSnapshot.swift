@@ -55,6 +55,11 @@ struct UsageSnapshot: Codable {
         var poolName: String?
     }
     var fleet: [String: Fleet]?
+    /// The panel's ordered pool list per provider (gauge focus applied app-side): every pool the
+    /// fleet gauge shows, leading pool first - so the status line renders the same pools as the
+    /// panel instead of just the headline. Added in 0.17 (optional; `fleet` keeps publishing the
+    /// single headline pool for older CLIs - the snapshot schema only ever gains fields).
+    var fleetPools: [String: [Fleet]]?
 
     static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally", isDirectory: true)
@@ -64,7 +69,8 @@ struct UsageSnapshot: Codable {
     /// `statuslineFullQuota` is handed in by the caller (SettingsStore is main-actor).
     static func make(accounts: [AccountUsage], launchHomes: [String: String],
                      statuslineFullQuota: Bool = false, displayMode: String? = nil,
-                     fleet: [String: Fleet]? = nil, now: Date = Date()) -> UsageSnapshot {
+                     fleet: [String: Fleet]? = nil, fleetPools: [String: [Fleet]]? = nil,
+                     now: Date = Date()) -> UsageSnapshot {
         UsageSnapshot(
             generatedAt: now,
             accounts: accounts.map { usage in
@@ -87,7 +93,8 @@ struct UsageSnapshot: Codable {
             },
             statuslineFullQuota: statuslineFullQuota,
             displayMode: displayMode,
-            fleet: fleet
+            fleet: fleet,
+            fleetPools: fleetPools
         )
     }
 

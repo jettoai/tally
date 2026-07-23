@@ -237,10 +237,11 @@ final class UsageStore {
     /// variant and demo mode (neither may publish), or before the first successful refresh.
     func republishSnapshot() {
         guard !BuildVariant.isDev, !DemoUsage.isActive, !lastPublishedAccounts.isEmpty else { return }
+        let (fleet, fleetPools) = fleetForSnapshot()
         UsageSnapshot.make(accounts: lastPublishedAccounts, launchHomes: lastLaunchHomes,
                            statuslineFullQuota: SettingsStore.shared.statuslineFullQuota,
                            displayMode: SettingsStore.shared.displayMode.rawValue,
-                           fleet: fleetForSnapshot()).write()
+                           fleet: fleet, fleetPools: fleetPools).write()
     }
 
     /// The model name the display leads with for `providerID`, given the available model window
@@ -256,34 +257,56 @@ final class UsageStore {
     /// The status line's fleet piece follows the SAME switch as the panel's gauge: published
     /// only while the gauge is on, and only for providers with a real pool (2+ accounts with a
     /// weekly window). Launch mode is deliberately irrelevant - one toggle, one meaning.
-    private func fleetForSnapshot() -> [String: UsageSnapshot.Fleet]? {
-        guard SettingsStore.shared.showFleetGauge else { return nil }
+    ///
+    /// Two shapes from one pass: `fleet` keeps the single headline pool (the pre-0.17 contract
+    /// older CLIs render) and `fleetPools` carries the panel's ordered pool list (gauge focus
+    /// applied, session pools excluded) for CLIs that render every pool the gauge shows.
+    private func fleetForSnapshot() -> ([String: UsageSnapshot.Fleet]?,
+                                        [String: [UsageSnapshot.Fleet]]?) {
+        guard SettingsStore.shared.showFleetGauge else { return (nil, nil) }
         var fleet: [String: UsageSnapshot.Fleet] = [:]
+        var fleetPools: [String: [UsageSnapshot.Fleet]] = [:]
+        let now = Date()
         for summary in FleetMath.summaries(accounts: lastPublishedAccounts,
                                            label: { $0.accountLabel }) {
             let focused = Self.focusedModel(providerID: summary.providerID,
                                             available: summary.modelPoolNames)
-            guard let pool = summary.headline(focusedModel: focused), pool.kind != .session
-            else { continue }
-            var dryAt: Date?
-            var sustainable = false
-            if let rate = fleetRates[FleetForecast.rateKey(
-                provider: summary.providerID, window: pool.kind.rawValue, model: pool.modelName)] {
-                dryAt = FleetForecast.depletion(
+            func published(_ pool: FleetPool) -> UsageSnapshot.Fleet {
+                var dryAt: Date?
+                var sustainable = false
+                if let rate = fleetRates[FleetForecast.rateKey(
+                    provider: summary.providerID, window: pool.kind.rawValue,
+                    model: pool.modelName)] {
+                    dryAt = FleetForecast.depletion(
+                        remaining: pool.totalRemaining,
+                        refills: pool.refills.map { ($0.at, $0.gain) },
+                        perHour: rate.perHour,
+                        steadyRefillPerHour: pool.steadyRefillPerHour(windowHours: 168),
+                        now: now)
+                    sustainable = dryAt == nil
+                }
+                return UsageSnapshot.Fleet(
                     remaining: pool.totalRemaining,
-                    refills: pool.refills.map { ($0.at, $0.gain) },
-                    perHour: rate.perHour,
-                    steadyRefillPerHour: pool.steadyRefillPerHour(windowHours: 168),
-                    now: Date())
-                sustainable = dryAt == nil
+                    capacity: Double(pool.members.count) * 100,
+                    dryAt: dryAt, sustainable: sustainable,
+                    poolName: pool.kind == .weeklyModel ? (pool.modelName ?? pool.label) : nil)
             }
-            fleet[summary.providerID] = UsageSnapshot.Fleet(
-                remaining: pool.totalRemaining,
-                capacity: Double(pool.members.count) * 100,
-                dryAt: dryAt, sustainable: sustainable,
-                poolName: pool.kind == .weeklyModel ? (pool.modelName ?? pool.label) : nil)
+            if let pool = summary.headline(focusedModel: focused), pool.kind != .session {
+                fleet[summary.providerID] = published(pool)
+            }
+            // Mirrors FleetStripView.displayedPools, so the status line shows the same pools
+            // as the panel: "all" renders every weekly-cycle pool in display order, the
+            // single-pool modes just the focus-resolved headline.
+            let ordered: [FleetPool]
+            switch SettingsStore.shared.gaugeFocus {
+            case .all: ordered = summary.displayPools(focusedModel: focused)
+            case .primary, .weekly:
+                ordered = summary.headline(focusedModel: focused).map { [$0] } ?? []
+            }
+            let pools = ordered.filter { $0.kind != .session }
+            if !pools.isEmpty { fleetPools[summary.providerID] = pools.map(published) }
         }
-        return fleet.isEmpty ? nil : fleet
+        return (fleet.isEmpty ? nil : fleet, fleetPools.isEmpty ? nil : fleetPools)
     }
 
     /// Last successful snapshot per account, so a failed refresh can keep showing the numbers.

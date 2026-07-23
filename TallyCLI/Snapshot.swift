@@ -40,7 +40,7 @@ struct Snapshot: Decodable {
     var displayMode: String?
     /// Per-provider fleet pool summary (present only while the app's fleet gauge is on and the
     /// provider has 2+ accounts). Units: one account's full weekly window = 100.
-    struct Fleet: Decodable {
+    struct Fleet: Codable {
         var remaining: Double
         var capacity: Double
         var dryAt: Date?
@@ -314,6 +314,12 @@ struct StatusReport: Encodable {
     /// True when the snapshot is older than the CLI trusts (the app is probably not running).
     var stale: Bool
     var accounts: [Account]
+    /// The pooled cross-account view, passed through from the snapshot as-is: `fleet` is the
+    /// headline pool per provider, `fleetPools` the panel's ordered pool list (leading pool
+    /// first, e.g. a Fable pool ahead of the weekly pool). Present only while the app's fleet
+    /// gauge is on and the provider has 2+ accounts. Units: one account's full weekly = 100.
+    var fleet: [String: Snapshot.Fleet]?
+    var fleetPools: [String: [Snapshot.Fleet]]?
 }
 
 func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
@@ -369,7 +375,9 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
     return StatusReport(
         generatedAt: snapshot.generatedAt,
         stale: now.timeIntervalSince(snapshot.generatedAt) > snapshotMaxAge,
-        accounts: accounts)
+        accounts: accounts,
+        fleet: snapshot.fleet,
+        fleetPools: snapshot.fleetPools)
 }
 
 func encodeStatusReport(_ report: StatusReport) -> String {

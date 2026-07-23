@@ -35,7 +35,17 @@ let fixture = """
     { "id": "gemini:.gemini", "provider": "gemini", "label": "Gemini",
       "launchHome": "/Users/u/.gemini", "isStale": false,
       "weeklyRemaining": 90, "weeklyResetsAt": "2026-07-29T02:00:00Z" }
-  ]
+  ],
+  "fleet": {
+    "claude": { "remaining": 91, "capacity": 200, "sustainable": true }
+  },
+  "fleetPools": {
+    "claude": [
+      { "poolName": "Fable", "remaining": 2, "capacity": 200,
+        "dryAt": "2026-07-23T12:13:00Z", "sustainable": false },
+      { "remaining": 91, "capacity": 200, "sustainable": true }
+    ]
+  }
 }
 """
 
@@ -126,6 +136,23 @@ let orphanHome = parse(encodeStatusReport(statusReport(
 check("orphan home pin: no claude account claims best",
       accounts(orphanHome).filter { $0["provider"] as? String == "claude" }
           .allSatisfy { $0["best"] as? Bool == false })
+
+// MARK: fleet pass-through - the pooled view rides along untouched, and only when present
+let fleetTop = auto["fleet"] as? [String: [String: Any]] ?? [:]
+let claudePools = (auto["fleetPools"] as? [String: [[String: Any]]])?["claude"] ?? []
+check("headline fleet pool passes through",
+      fleetTop["claude"]?["remaining"] as? Double == 91
+          && fleetTop["claude"]?["sustainable"] as? Bool == true)
+check("ordered pool list keeps the leading pool first",
+      claudePools.first?["poolName"] as? String == "Fable"
+          && claudePools.first?["dryAt"] as? String == "2026-07-23T12:13:00Z"
+          && claudePools.count == 2)
+let bare = parse(encodeStatusReport(statusReport(
+    decodeSnapshot("""
+    { "version": 2, "generatedAt": "2026-07-23T11:55:00Z", "accounts": [] }
+    """), policies: [:], now: now)))
+check("no fleet in the snapshot, no fleet keys in the report",
+      bare["fleet"] == nil && bare["fleetPools"] == nil)
 
 // MARK: staleness - an old snapshot is reported, not hidden
 let old = parse(encodeStatusReport(statusReport(

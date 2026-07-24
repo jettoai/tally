@@ -333,4 +333,21 @@ let capScan = scanForCap([capLine])
 check("a cap event trips the cap detector", capScan.hit)
 check("a cap event raises no drift flag", capScan.watcher.lastFlag == nil)
 
+// MARK: - 18. Dead-supervisor state sweep
+
+let sweepDir = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appendingPathComponent("tally-sweep-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: sweepDir, withIntermediateDirectories: true)
+for name in ["99999", String(getpid()), "notes.txt"] {
+    try? "a\tb\tc\t1".write(to: sweepDir.appendingPathComponent(name),
+                            atomically: true, encoding: .utf8)
+}
+sweepDeadSupervisorState(dir: sweepDir)
+check("sweep reaps a dead supervisor's state file",
+      !FileManager.default.fileExists(atPath: sweepDir.appendingPathComponent("99999").path))
+check("sweep keeps a live supervisor's state file",
+      FileManager.default.fileExists(atPath: sweepDir.appendingPathComponent(String(getpid())).path))
+check("sweep leaves non-pid files alone",
+      FileManager.default.fileExists(atPath: sweepDir.appendingPathComponent("notes.txt").path))
+
 exit(failures == 0 ? 0 : 1)

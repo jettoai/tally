@@ -70,6 +70,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// session is the current build (a session launched before an app update runs stale logic).
     let supervisorVersion = supervisorBuildVersion()
     let supervisorPID = String(getpid())
+    // Reap drift-state files left by dead supervisors (a SIGKILL skips the clear path) before this
+    // one starts writing its own; also shrinks the pid-reuse window for a stale badge.
+    sweepDeadSupervisorState()
 
     while true {
         let launchedAt = Date()

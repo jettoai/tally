@@ -75,12 +75,17 @@ struct PopoverRootView: View {
         return multi ? 2 : 1
     }
 
+    /// The two-column panel width, named because two other surfaces gate on reaching it (the
+    /// footer's centered credit, the fleet strip's side-by-side gauges). Adjusting the case-2
+    /// width below without this constant would silently strand those gates.
+    static let twoColumnPanelWidth: CGFloat = 560
+
     /// Constant card width (263pt) across the 2/3/4-column layouts; only the window grows.
     /// Internal: the footer extension gates the centered credit on it.
     var popoverWidth: CGFloat {
         switch columnCount {
         case 1: return 380
-        case 2: return 560
+        case 2: return Self.twoColumnPanelWidth
         case 3: return 834    // 24 padding + 3×263 cards + 2×10 gaps
         default: return 1108  // 24 padding + 4×263 cards + 3×10 gaps
         }

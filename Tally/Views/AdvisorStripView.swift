@@ -57,10 +57,16 @@ extension PopoverRootView {
                     .foregroundStyle(advisorTint(.sufficient))
             }
             Spacer(minLength: 6)
-            // The running weekly demand, right-aligned in every state: the one number to read.
+            // The running weekly demand, right-aligned in every state: the one number to read, so
+            // it carries the fleet gauge's value weight and lands in the gauge's value column -
+            // minWidth, not a fixed width, because "1.8 acct/wk" is wider than a bare percentage
+            // and must not truncate; the trailing pad reserves the gauge's row gap + chevron slot,
+            // which is what puts the two numbers' right edges on one line.
             Text(demandFigure(reading))
-                .font(.caption2.weight(.medium).monospacedDigit())
+                .font(.footnote.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.primary)
+                .frame(minWidth: Self.fleetValueWidth, alignment: .trailing)
+                .padding(.trailing, Self.fleetRowSpacing + Self.fleetChevronWidth)
                 .layoutPriority(1)
         }
         .font(.caption2)
@@ -116,12 +122,45 @@ extension PopoverRootView {
         return String(localized: "\(demand) acct/wk", bundle: AppLocale.bundle)
     }
 
-    /// The numbers behind the verdict, for the hover tooltip - the "why" the one-liner elides.
+    /// The numbers behind the verdict, for the hover tooltip - the "why" the one-liner elides -
+    /// followed by when the provider next gets quota back, because "do I need another account"
+    /// is really "can I wait for the refill". Same wording as the gauge's refill label and the
+    /// same +gain the fleet tooltip lists, so one schedule never reads two ways.
     private func advisorTooltip(_ reading: UsageAdvisor.Reading) -> String {
         let demand = String(format: "%.1f", reading.demandPerWeek)
         let burn = "\(Int(reading.activeBurnPerHour.rounded()))%"
         let starved = String(format: "%.1fh", reading.starvedHoursPerWeek)
-        return String(localized: "weekly need \(demand) accounts · active burn \(burn)/h · starved \(starved)/wk",
-                      bundle: AppLocale.bundle)
+        var lines = [String(localized: "weekly need \(demand) accounts · active burn \(burn)/h · starved \(starved)/wk",
+                            bundle: AppLocale.bundle)]
+        let now = Date()
+        for refill in upcomingRefills(reading.provider, now: now) {
+            lines.append(refillText(refill, style: settings.resetDisplay, now: now)
+                         + " (+\(Int(refill.gain.rounded()))%)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The provider's next two quota refills. Pooled straight from FleetMath rather than through
+    /// `fleetSummaries`: that property is gated on the fleet gauge's switch and the advisor has
+    /// its own, so going through it would blank these lines whenever the gauge is hidden. The pool
+    /// picked is the one the gauge leads with, so both surfaces name the same window.
+    ///
+    /// A single-account provider has no pool at all (a pool of one is just that account), so its
+    /// own binding window stands in - built as a one-member refill, which is exactly what the pool
+    /// math would have made of it: the window's reset instant, and the used percent as the gain.
+    private func upcomingRefills(_ providerID: String, now: Date) -> [FleetPool.Refill] {
+        let accounts = store.orderedAccounts.filter { $0.providerID == providerID }
+        let summaries = FleetMath.summaries(accounts: accounts, now: now) { usage in
+            settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
+        }
+        if let summary = summaries.first, let pool = displayedPools(summary).first {
+            return Array(pool.refills.prefix(2))
+        }
+        guard accounts.count == 1, let single = accounts.first,
+              let window = single.metrics.first(where: { $0.kind == .weeklyAll }) ?? single.headline,
+              let at = window.resetsAt, at > now
+        else { return [] }
+        let label = settings.displayLabel(accountID: single.id, fallback: single.accountLabel)
+        return [FleetPool.Refill(at: at, accountLabel: label, gain: window.usedPercent)]
     }
 }

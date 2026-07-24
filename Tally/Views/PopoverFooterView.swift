@@ -127,7 +127,7 @@ extension PopoverRootView {
         // actually empty: at the single-column width the icon cluster reaches the centre and
         // the credit drew underneath it.
         .overlay {
-            if popoverWidth >= 560 {
+            if popoverWidth >= PopoverRootView.twoColumnPanelWidth {
                 HStack(spacing: 4) {
                     Text("by").font(.caption2).foregroundStyle(.tertiary)
                     ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)

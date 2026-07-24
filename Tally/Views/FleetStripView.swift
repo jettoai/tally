@@ -12,7 +12,12 @@ import SwiftUI
 /// that account's card.
 extension PopoverRootView {
     private static let fleetLabelWidth: CGFloat = 88
-    private static let fleetValueWidth: CGFloat = 46
+    /// The gauge row's trailing geometry: the value column, the gap before it, and the slot the
+    /// fold chevron occupies. Internal because the advisor strip reuses all three to land its
+    /// demand figure in exactly this column.
+    static let fleetValueWidth: CGFloat = 46
+    static let fleetRowSpacing: CGFloat = 8
+    static let fleetChevronWidth: CGFloat = 12
 
     /// Providers whose gauge is actually rendered right now - the only providers a collapse
     /// (hidden cards) may apply to.
@@ -44,9 +49,28 @@ extension PopoverRootView {
     var fleetStrip: some View {
         let summaries = fleetSummaries
         if !summaries.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(summaries, id: \.providerID) { summary in
-                    fleetGauge(summary)
+            let gauged = summaries.filter { !displayedPools($0).isEmpty }
+            Group {
+                // Exactly two gauges stand side by side: the panel is wide enough for both, and
+                // one glance then covers the whole fleet instead of two stacked bands. Any other
+                // count keeps the label-column rows - a lone column would leave half the strip
+                // empty, and three or more would squeeze the bars past reading. The width guard
+                // covers the single-column panel (380pt, what a one-card-per-provider or fully
+                // folded view sizes to): half of it leaves the context lines shredded, and the
+                // full-width rows read better there than a split ever could.
+                if gauged.count == 2, popoverWidth >= Self.twoColumnPanelWidth {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(gauged, id: \.providerID) { summary in
+                            fleetColumn(summary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(summaries, id: \.providerID) { summary in
+                            fleetGauge(summary)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 12)
@@ -74,15 +98,70 @@ extension PopoverRootView {
         }
     }
 
+    /// The side-by-side column: identity, level and the fold chevron on ONE header line, then every
+    /// pool as a full-width bar over its own context line. Half the strip has no room for the rows'
+    /// 88pt label column, so the identity moves above the bars instead of beside them - which is
+    /// what buys the bar the column's whole width and makes the split worth taking.
+    @ViewBuilder
+    private func fleetColumn(_ summary: FleetSummary) -> some View {
+        let pools = displayedPools(summary)
+        if let leading = pools.first {
+            VStack(alignment: .leading, spacing: 5) {
+                columnHeader(summary, leading)
+                ForEach(Array(pools.enumerated()), id: \.offset) { _, pool in
+                    VStack(alignment: .leading, spacing: 3) {
+                        pooledBar(pool)
+                        contextLine(summary, pool)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The column's disclosure header. The level shown is the LEADING pool's - the same number the
+    /// menu bar and the status line lead with - and the bar directly under it is that pool's, so
+    /// the pairing reads in the normal top-down order; every other pool is named on its own context
+    /// line. Whole row is the fold target, exactly like the rows' leading line.
+    private func columnHeader(_ summary: FleetSummary, _ leading: FleetPool) -> some View {
+        HStack(spacing: Self.fleetRowSpacing) {
+            HStack(spacing: 5) {
+                ProviderIconView(providerID: summary.providerID, size: 11)
+                (Text(ProviderCatalog.displayName(for: summary.providerID))
+                    .foregroundStyle(Color.secondary)
+                 + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary))
+                    .font(.footnote)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            Text(worthValue(leading))
+                .font(.footnote.weight(.semibold).monospacedDigit())
+                .foregroundStyle(.primary)
+                .layoutPriority(1)
+            foldChevron(summary)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { settings.toggleCollapsed(summary.providerID) }
+    }
+
+    /// The disclosure affordance, shared by both layouts: click folds this provider's cards away
+    /// (the pools stay - they ARE the summary), click again brings them back.
+    private func foldChevron(_ summary: FleetSummary) -> some View {
+        let collapsed = settings.collapsedProviders.contains(summary.providerID)
+        return Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.tertiary)
+            .frame(width: Self.fleetChevronWidth)
+            .help(L("Show or hide this provider's account cards"))
+    }
+
     /// One pool's two lines: the meter row and its context line. The FIRST pool's label column
     /// carries the provider identity and the fold chevron (the disclosure header for the whole
     /// provider); follow-up pools leave it empty - a continuation indent, so every bar sits in
     /// the same column and ONE grammar names the pools: always the context line under the bar.
     @ViewBuilder
     private func poolBlock(_ summary: FleetSummary, _ pool: FleetPool, leading: Bool) -> some View {
-        let collapsed = settings.collapsedProviders.contains(summary.providerID)
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 8) {
+            HStack(spacing: Self.fleetRowSpacing) {
                 if leading {
                     HStack(spacing: 5) {
                         ProviderIconView(providerID: summary.providerID, size: 11)
@@ -101,18 +180,13 @@ extension PopoverRootView {
                     .font(.footnote.weight(.semibold).monospacedDigit())
                     .foregroundStyle(.primary)
                     .frame(width: Self.fleetValueWidth, alignment: .trailing)
-                // The leading row doubles as a disclosure header: click folds this provider's
-                // cards away (the pools stay - they ARE the summary), click again brings them
-                // back. The chevron is the affordance; the whole row is the target. Follow-up
-                // rows keep an equal-width spacer so every bar column aligns.
+                // The leading row doubles as a disclosure header: the chevron is the affordance,
+                // the whole row is the target. Follow-up rows keep an equal-width spacer so every
+                // bar column aligns.
                 if leading {
-                    Image(systemName: collapsed ? "chevron.right" : "chevron.down")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 12)
-                        .help(L("Show or hide this provider's account cards"))
+                    foldChevron(summary)
                 } else {
-                    Color.clear.frame(width: 12, height: 1)
+                    Color.clear.frame(width: Self.fleetChevronWidth, height: 1)
                 }
             }
             .contentShape(Rectangle())
@@ -148,6 +222,10 @@ extension PopoverRootView {
              + forecastText(summary, pool))
                 .font(.caption2)
                 .lineLimit(1)
+                // Which pool and whether it lasts outranks the refill clock when the line is
+                // narrow (the side-by-side columns): the refill truncates first, and the tooltip
+                // still carries the full schedule. Nothing changes where both already fit.
+                .layoutPriority(1)
             Spacer(minLength: 6)
             if let refill = pool.refills.first {
                 refillLabel(refill)
@@ -211,7 +289,9 @@ extension PopoverRootView {
         }
     }
 
-    private func refillText(_ refill: FleetPool.Refill, style: ResetDisplay, now: Date) -> String {
+    /// Internal: the advisor tooltip lists the same refills in the same words, so the two surfaces
+    /// can never phrase one schedule two ways.
+    func refillText(_ refill: FleetPool.Refill, style: ResetDisplay, now: Date) -> String {
         let account = refill.accountLabel
         if style == .relative {
             let body = UsageFormat.durationBody(max(60, refill.at.timeIntervalSince(now)))

@@ -198,6 +198,33 @@ check("an unknown installed version can't assert outdated",
 check("outdated renders a restart nudge", SupervisionStatus.outdated.note?.contains("restart") == true)
 check("ok renders no note", SupervisionStatus.ok.note == nil)
 
+// 11b. The version lookup walks up from the RESOLVED executable path. The installed command is a
+//      symlink into the bundle, and reading it as invoked walked up from /usr/local/bin, found no
+//      Info.plist, and left every supervised session reporting "status unknown" forever.
+do {
+    let root = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-bundle-\(getpid())")
+    let helpers = root.appendingPathComponent("Contents/Helpers")
+    try? FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+    let plist = ["CFBundleShortVersionString": "9.9.9"] as [String: Any]
+    let data = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+    try? data?.write(to: root.appendingPathComponent("Contents/Info.plist"))
+    let real = helpers.appendingPathComponent("tally")
+    FileManager.default.createFile(atPath: real.path, contents: Data())
+    check("a bundled executable reads its version", supervisorBuildVersion(executable: real) == "9.9.9")
+
+    let link = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-link-\(getpid())")
+    try? FileManager.default.removeItem(at: link)
+    try? FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+    check("a symlinked command resolves to the same version",
+          supervisorBuildVersion(executable: link) == "9.9.9")
+    check("an executable outside any bundle has no version",
+          supervisorBuildVersion(executable: URL(fileURLWithPath: "/usr/bin/true")) == nil)
+    try? FileManager.default.removeItem(at: root)
+    try? FileManager.default.removeItem(at: link)
+}
+
 // F3: a deliberate unsupervised launch (the opt-out marker is stamped) stays quiet, even without a
 // version - it is a choice, not an outdated supervisor. Only a supervised launch with no version is
 // "unknown" (an old pre-marker supervisor still gets nagged).

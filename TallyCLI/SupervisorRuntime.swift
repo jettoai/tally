@@ -47,8 +47,14 @@ func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
 /// The CLI is embedded at <App>/Contents/Helpers/tally, so the plist is two directories up from
 /// the executable. nil when not running from inside the app bundle (a standalone or dev build),
 /// which the status line renders as "unknown" rather than asserting "outdated".
-func supervisorBuildVersion() -> String? {
-    guard let exe = Bundle.main.executableURL else { return nil }
+///
+/// The path is resolved first: the installed command is a symlink (/usr/local/bin/tally points into
+/// the bundle), and `executableURL` reports the path as invoked, so walking up from the symlink
+/// looked for /Info.plist and found nothing. Every launch through the installed command therefore
+/// stamped no version and every supervised session then read as "status unknown" forever, which no
+/// restart could clear (2026-07-25).
+func supervisorBuildVersion(executable: URL? = Bundle.main.executableURL) -> String? {
+    guard let exe = executable?.resolvingSymlinksInPath() else { return nil }
     let plistURL = exe.deletingLastPathComponent().deletingLastPathComponent()
         .appendingPathComponent("Info.plist")
     guard let data = try? Data(contentsOf: plistURL),

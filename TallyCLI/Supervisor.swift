@@ -51,9 +51,19 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// floor only guards against adopting a transient mid-write; the atomic write means one Apply is
     /// one relaunch regardless.
     let followDebounce: TimeInterval = 2
+    /// How still a session must be before a follow relaunch takes it. The 5s default proves only
+    /// that no turn is streaming, which is the right bar for a REPAIR (a cap handoff, a degradation
+    /// rescue: the sooner the better) but far too low for a preference change: five seconds of
+    /// silence is also what "read the answer, now typing the next prompt" looks like, and the
+    /// relaunch would take the half-typed prompt with it. A preference can wait for the session to
+    /// actually be left alone (owner request, 2026-07-25).
+    let followIdleSeconds: TimeInterval = 120
     var pendingSince: Date?
     var pendingModel: String?
     var pendingEffort: String?
+    /// True once the "will adopt when idle" note has been shown for the current pending pair, so a
+    /// session that is being used does not repeat it every tick.
+    var followQueuedNotice = false
     /// True while a follow adoption has nowhere to land (no account can serve the new model), so
     /// the "waiting" note is shown once, not every tick. Cleared when an account frees up.
     var followDeadEnd = false
@@ -303,12 +313,18 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 let desired = (policy.model?.lowercased(), policy.effort?.lowercased())
                 if desired == (followedModel, followedEffort) {
                     pendingSince = nil
+                    followQueuedNotice = false
                 } else if pendingSince == nil || desired != (pendingModel, pendingEffort) {
                     (pendingModel, pendingEffort) = desired
                     pendingSince = Date()
+                    followQueuedNotice = false
                 } else if let since = pendingSince,
-                          plan != nil || Date().timeIntervalSince(since) >= followDebounce,
-                          watcher.isQuiet() {
+                          // A relaunch already planned this tick carries the new pair for free, so
+                          // it never waits: the SIGTERM is happening either way. A follow standing
+                          // on its own is the only one that interrupts, so it waits for the session
+                          // to be genuinely idle rather than merely between events.
+                          plan != nil || (Date().timeIntervalSince(since) >= followDebounce
+                                          && watcher.isQuiet(followIdleSeconds)) {
                     if var existing = plan, !existing.followFolded {
                         existing.model = policy.model
                         existing.effort = policy.effort
@@ -349,6 +365,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                         (followedModel, followedEffort) = desired
                         pendingSince = nil
                     }
+                } else if !followQueuedNotice {
+                    // Queued behind an in-use session: say so once, so the change never looks lost.
+                    warn("launch default changed to \(policy.model ?? "default")/" +
+                         "\(policy.effort ?? "default") - adopting when this session goes idle")
+                    followQueuedNotice = true
                 }
             }
 

@@ -30,6 +30,12 @@ final class UsageStore {
     /// refresh - what the fleet strip's "lasts about …" forecast runs on.
     private(set) var fleetRates: [String: FleetRate] = [:]
 
+    /// The usage advisor's per-provider "do I need another account?" verdict, recomputed from the
+    /// 28-day burn history after each refresh - what the advisor strip renders. Empty until the
+    /// first history read completes, and stays empty in demo mode (its refresh returns before this
+    /// read is ever reached).
+    private(set) var advisorReadings: [UsageAdvisor.Reading] = []
+
     private let providers = ProviderCatalog.all
     private var timer: DispatchSourceTimer?
 
@@ -218,6 +224,19 @@ final class UsageStore {
                 // The snapshot's fleet forecast is computed from these rates - refresh it.
                 UsageStore.shared.republishSnapshot()
             }
+        }
+        // The advisor needs a wider window than the pace forecast (weekly demand needs weeks, not
+        // hours), so it reads the history separately. Same off-main queue, mapped into the pure
+        // advisor's own sample type.
+        UsageHistory.shared.samples(
+            since: now.addingTimeInterval(-UsageAdvisor.lookbackDays * 86_400)) { samples in
+            let advisorSamples = samples.map {
+                UsageAdvisor.Sample(ts: $0.ts, account: $0.account, provider: $0.provider,
+                                    window: $0.window, model: $0.model, used: $0.used,
+                                    resetAt: $0.resetAt)
+            }
+            let readings = UsageAdvisor.readings(samples: advisorSamples, now: now)
+            Task { @MainActor in UsageStore.shared.advisorReadings = readings }
         }
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
         scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })

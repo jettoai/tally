@@ -12,7 +12,7 @@ final class UsageHistory: @unchecked Sendable {
 
     static let fileURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally/history.jsonl")
-    static let retentionDays = 14
+    static let retentionDays = 28   // four weeks: the usage advisor's weekly-demand trend needs it
 
     /// One recorded observation. `used` is the percent used at `ts`; `resetAt` segments the series
     /// (a window whose resetAt changed has rolled over, so deltas across it are not consumption).

@@ -63,6 +63,9 @@ targets:
     platform: macOS
     sources:
       - Tally
+      # The usage advisor's pure math lives in the CLI folder (so the CLI target compiles it too);
+      # the app shares the single file rather than duplicating the calculation.
+      - path: TallyCLI/UsageAdvisor.swift
     dependencies:
       - package: Sparkle
     settings:

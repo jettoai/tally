@@ -43,10 +43,33 @@ struct StatusReport: Encodable {
     /// gauge is on and the provider has 2+ accounts. Units: one account's full weekly = 100.
     var fleet: [String: Snapshot.Fleet]?
     var fleetPools: [String: [Snapshot.Fleet]]?
+    /// The usage advisor's per-provider verdict, computed from the burn-rate history the app
+    /// records (never from the snapshot). Present only when there is any history; absent below
+    /// the collecting threshold is impossible - a young reading is emitted with `verdict:
+    /// "collecting"`. English headline; the numbers behind it let scripts phrase their own.
+    var advisor: [String: Advisor]?
+
+    struct Advisor: Encodable {
+        var headline: String
+        var verdict: String
+        var demandPerWeek: Double
+        var activeBurnPerHour: Double
+        var starvedHoursPerWeek: Double
+        var daysOfData: Double
+    }
 }
 
 func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
-                  now: Date = Date()) -> StatusReport {
+                  advisor: [UsageAdvisor.Reading] = [], now: Date = Date()) -> StatusReport {
+    let advisorByProvider = Dictionary(uniqueKeysWithValues: advisor.map { reading in
+        (reading.provider, StatusReport.Advisor(
+            headline: UsageAdvisor.englishHeadline(reading),
+            verdict: reading.verdict.rawValue,
+            demandPerWeek: reading.demandPerWeek,
+            activeBurnPerHour: reading.activeBurnPerHour,
+            starvedHoursPerWeek: reading.starvedHoursPerWeek,
+            daysOfData: reading.daysOfData))
+    })
     // Known providers first (with a launch pick), then any provider this CLI doesn't know yet:
     // the JSON mirrors the snapshot, it never silently drops an account.
     var order = providers.map(\.id)
@@ -100,7 +123,19 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
         stale: now.timeIntervalSince(snapshot.generatedAt) > snapshotMaxAge,
         accounts: accounts,
         fleet: snapshot.fleet,
-        fleetPools: snapshot.fleetPools)
+        fleetPools: snapshot.fleetPools,
+        advisor: advisorByProvider.isEmpty ? nil : advisorByProvider)
+}
+
+/// The usage advisor's per-provider readings, computed straight from the burn-rate history the app
+/// records (`~/.tally/history.jsonl`) - NOT from the snapshot, which carries no advisor data.
+/// Fail-open: a missing or unreadable file just yields no advisor, so `status` still renders.
+func loadAdvisorReadings(now: Date = Date()) -> [UsageAdvisor.Reading] {
+    let url = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".tally/history.jsonl")
+    guard let data = try? Data(contentsOf: url) else { return [] }
+    let since = now.addingTimeInterval(-UsageAdvisor.lookbackDays * 86_400)
+    return UsageAdvisor.readings(samples: UsageAdvisor.decodeSamples(data, since: since), now: now)
 }
 
 func encodeStatusReport(_ report: StatusReport) -> String {

@@ -167,9 +167,10 @@ func runStatus(json: Bool = false) {
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
     guard let snapshot else { exit(1) }
+    let advisor = loadAdvisorReadings()
     if json {
         let policies = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, launchPolicy($0.id)) })
-        print(encodeStatusReport(statusReport(snapshot, policies: policies)))
+        print(encodeStatusReport(statusReport(snapshot, policies: policies, advisor: advisor)))
         return
     }
     for provider in providers {
@@ -210,6 +211,11 @@ func runStatus(json: Bool = false) {
             }
             print("  fleet: \(pieces.joined(separator: " · "))")
         }
+    }
+    // The "should I add an account?" verdict per provider, from the recorded burn history. One
+    // trailing line each (only when there is a reading), same vocabulary as the panel's strip.
+    for reading in advisor {
+        print("advisor: \(reading.provider) \(UsageAdvisor.englishHeadline(reading))")
     }
 }
 

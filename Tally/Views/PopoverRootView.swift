@@ -33,6 +33,7 @@ struct PopoverRootView: View {
                 Divider()
                 launchSummaryStrip
                 fleetStrip
+                advisorStrip
                 // Fully folded (all cards behind their gauges) skips the card container entirely:
                 // its 12pt padding read as a hollow band between two dividers.
                 if store.contentState != .hasAccounts || !visibleAccounts.isEmpty {

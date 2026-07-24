@@ -207,4 +207,130 @@ check("notSupervised renders no note", SupervisionStatus.notSupervised.note == n
 check("supervised but versionless is still unknown (old supervisor)",
       supervisionStatus(steered: true, supervised: true, supervisorVersion: nil, installedVersion: "0.18.0") == .unknown)
 
+// 12. Safeguard flag: the real model_refusal_fallback shape parses into a SafeguardFlag with every
+//     field; a sidechain copy and one older than launch are both ignored (a resumed session replays
+//     its history, so a stale flag must never re-raise).
+func flagLine(_ offset: TimeInterval, uuid: String = "u-trigger", sidechain: Bool = false,
+              from: String = "claude-fable-5", to: String = "claude-opus-4-8",
+              category: String = "cyber") -> String {
+    #"{"type":"system","subtype":"model_refusal_fallback","level":"warning","trigger":"refusal","direction":"retry","originalModel":"\#(from)","fallbackModel":"\#(to)","apiRefusalCategory":"\#(category)","refusedUserMessageUuid":"\#(uuid)","timestamp":"\#(stamp(offset))","isSidechain":\#(sidechain)}"#
+}
+let flagged = watcherAfterScanning([flagLine(60)])
+check("a fallback event captures originalModel", flagged.lastFlag?.from == "claude-fable-5")
+check("a fallback event captures fallbackModel", flagged.lastFlag?.to == "claude-opus-4-8")
+check("a fallback event captures the refusal category", flagged.lastFlag?.category == "cyber")
+check("a fallback event captures the refused uuid", flagged.lastFlag?.refusedUUID == "u-trigger")
+check("a sidechain fallback is ignored", watcherAfterScanning([flagLine(60, sidechain: true)]).lastFlag == nil)
+check("a fallback older than launch is ignored", watcherAfterScanning([flagLine(-60)]).lastFlag == nil)
+
+// 13. User excerpt map: the refused message resolves to its prompt; an unknown uuid and a sidechain
+//     prompt both resolve to nil; the FIFO evicts the oldest past its capacity. The `parentUuid`
+//     (camelCase, no leading quote before "uuid") must not shadow the event's own uuid.
+func userLine(_ offset: TimeInterval, uuid: String, text: String, sidechain: Bool = false) -> String {
+    #"{"parentUuid":"p-\#(uuid)","type":"user","uuid":"\#(uuid)","isSidechain":\#(sidechain),"timestamp":"\#(stamp(offset))","message":{"role":"user","content":"\#(text)"}}"#
+}
+let withExcerpt = watcherAfterScanning([
+    userLine(10, uuid: "u-trigger", text: "please scan this binary for vulns"),
+    flagLine(60, uuid: "u-trigger"),
+])
+check("driftTriggerExcerpt resolves the refused prompt",
+      withExcerpt.driftTriggerExcerpt == "please scan this binary for vulns")
+let unknownExcerpt = watcherAfterScanning([
+    userLine(10, uuid: "u-other", text: "hello"),
+    flagLine(60, uuid: "u-missing"),
+])
+check("an unknown refused uuid resolves to nil", unknownExcerpt.driftTriggerExcerpt == nil)
+let sidechainUser = watcherAfterScanning([
+    userLine(10, uuid: "u-side", text: "subagent prompt", sidechain: true),
+    flagLine(60, uuid: "u-side"),
+])
+check("a sidechain user line is not remembered", sidechainUser.driftTriggerExcerpt == nil)
+var manyUsers: [String] = []
+for i in 0..<65 { manyUsers.append(userLine(Double(i), uuid: "u-\(i)", text: "prompt \(i)")) }
+check("the oldest user excerpt is evicted past capacity",
+      watcherAfterScanning(manyUsers + [flagLine(100, uuid: "u-0")]).driftTriggerExcerpt == nil)
+check("a recent user excerpt survives eviction",
+      watcherAfterScanning(manyUsers + [flagLine(100, uuid: "u-64")]).driftTriggerExcerpt == "prompt 64")
+
+// 14. DriftMonitor: a flag opens an episode; the nudge waits out the cooldown then fires once; a
+//     newer flag re-arms it; the actual model returning to the primary clears with a duration.
+let dT0 = Date(timeIntervalSince1970: 1_800_000_000)
+func mkFlag(_ offset: TimeInterval, uuid: String = "f") -> SafeguardFlag {
+    SafeguardFlag(at: dT0.addingTimeInterval(offset), from: "claude-fable-5",
+                  to: "claude-opus-4-8", category: "cyber", refusedUUID: uuid)
+}
+var mon = DriftMonitor()
+check("a flag starts an episode",
+      mon.tick(flag: mkFlag(0), actualModel: "claude-opus-4-8", primary: "fable", now: dT0)
+      == .started(mkFlag(0)))
+check("the episode is active", mon.isActive)
+check("activeFrom is the drifted-from model", mon.activeFrom == "claude-fable-5")
+check("no nudge before the cooldown", !mon.shouldNudge(now: dT0.addingTimeInterval(60)))
+check("a nudge after the cooldown", mon.shouldNudge(now: dT0.addingTimeInterval(301)))
+mon.markNudged()
+check("the nudge fires only once", !mon.shouldNudge(now: dT0.addingTimeInterval(400)))
+_ = mon.tick(flag: mkFlag(400, uuid: "f2"), actualModel: "claude-opus-4-8", primary: "fable",
+             now: dT0.addingTimeInterval(400))
+check("a newer flag re-arms the nudge cooldown", !mon.shouldNudge(now: dT0.addingTimeInterval(460)))
+check("and it re-fires after another cooldown", mon.shouldNudge(now: dT0.addingTimeInterval(701)))
+let cleared = mon.tick(flag: mkFlag(400, uuid: "f2"), actualModel: "claude-fable-5",
+                       primary: "fable", now: dT0.addingTimeInterval(800))
+check("returning to the primary clears the episode with its duration", cleared == .cleared(800))
+check("the episode is inactive after clearing", !mon.isActive)
+check("a re-read of the same flag does not re-open a cleared episode",
+      mon.tick(flag: mkFlag(400, uuid: "f2"), actualModel: "claude-fable-5", primary: "fable",
+               now: dT0.addingTimeInterval(900)) == nil)
+
+// 14b. No declared primary (Settings model cleared, no --model): the episode still opens, and the
+//      actual model returning to the drifted-from model clears it - the state machine must never
+//      hold a dead-end episode that outlives the user's /model switch-back.
+var nilPrimary = DriftMonitor()
+_ = nilPrimary.tick(flag: mkFlag(0), actualModel: "claude-opus-4-8", primary: nil, now: dT0)
+check("a flag opens an episode even with no declared primary", nilPrimary.isActive)
+check("with no primary, returning to the drifted-from model clears the episode",
+      nilPrimary.tick(flag: mkFlag(0), actualModel: "claude-fable-5", primary: nil,
+                      now: dT0.addingTimeInterval(120)) == .cleared(120))
+check("the nil-primary episode is inactive after clearing", !nilPrimary.isActive)
+
+// 15. The gate: isActive is exactly the value the fallback/rescue blocks read (they run on
+//     !isActive). Active through the episode (paths suppressed), inactive once cleared (re-enabled).
+var gateMon = DriftMonitor()
+_ = gateMon.tick(flag: mkFlag(0), actualModel: "claude-opus-4-8", primary: "fable", now: dT0)
+check("quota-degradation paths are gated while drift is active", gateMon.isActive)
+_ = gateMon.tick(flag: mkFlag(0), actualModel: "claude-fable-5", primary: "fable",
+                 now: dT0.addingTimeInterval(30))
+check("quota-degradation paths re-enable once drift clears", !gateMon.isActive)
+
+// 16. The drift state file: write -> read roundtrip, cleared -> gone, missing -> nil (injected dir).
+let sDir = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-drift-state-\(UUID().uuidString)")
+writeDriftState(mkFlag(0), pid: "12345", dir: sDir)
+check("drift state round-trips through the file",
+      readDriftState(pid: "12345", dir: sDir)
+      == DriftState(from: "claude-fable-5", to: "claude-opus-4-8", category: "cyber"))
+clearDriftState(pid: "12345", dir: sDir)
+check("clearing removes the state file", readDriftState(pid: "12345", dir: sDir) == nil)
+check("a missing state file reads as nil", readDriftState(pid: "99999", dir: sDir) == nil)
+check("shortModelName trims a claude id to its family", shortModelName("claude-fable-5") == "fable")
+check("shortModelName trims opus too", shortModelName("claude-opus-4-8") == "opus")
+
+// 17. Classification is mutually exclusive: a cap event never raises a drift flag, and a drift
+//     event never trips the cap detector (their transcript shapes do not overlap).
+func scanForCap(_ lines: [String]) -> (hit: Bool, watcher: TranscriptWatcher) {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-excl-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let file = dir.appendingPathComponent("session.jsonl")
+    try! lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+    var w = TranscriptWatcher(projectDir: dir, file: file, since: launch)
+    return (w.sawCapHit(), w)
+}
+let capLine = #"{"timestamp":"\#(stamp(60))","isApiErrorMessage":true,"message":{"content":"You've hit your session limit"}}"#
+let flagScan = scanForCap([flagLine(60, uuid: "u-x")])
+check("a drift event does not trip the cap detector", !flagScan.hit)
+check("a drift event raises a flag", flagScan.watcher.lastFlag != nil)
+let capScan = scanForCap([capLine])
+check("a cap event trips the cap detector", capScan.hit)
+check("a cap event raises no drift flag", capScan.watcher.lastFlag == nil)
+
 exit(failures == 0 ? 0 : 1)

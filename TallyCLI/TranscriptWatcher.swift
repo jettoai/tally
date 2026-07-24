@@ -27,6 +27,23 @@ struct TranscriptWatcher {
     /// is cleared when this passes the cap time (a genuine turn happened after the cap, so the
     /// account came back on its own). Same three guards as `lastModel`.
     var lastMainChainEventAt: Date?
+    /// The newest Fable safeguard fallback event seen (`model_refusal_fallback`), post-launch and
+    /// main-chain. How the supervisor notices the API forced this session onto a fallback model.
+    var lastFlag: SafeguardFlag?
+    /// A small rolling map from a user event's uuid to its text, so a fallback's
+    /// `refusedUserMessageUuid` can be resolved to a readable trigger excerpt for the log. Bounded
+    /// FIFO (a long session has thousands of turns; only recent ones can be a live trigger).
+    var recentUserExcerpts: [String: String] = [:]
+    /// Insertion order backing `recentUserExcerpts`' FIFO eviction.
+    var excerptOrder: [String] = []
+    private var excerptCapacity: Int { 64 }
+
+    /// The user prompt that triggered the current drift, resolved from the flag's refused uuid, or
+    /// nil when unknown (no flag, no uuid, or the message aged out of the FIFO).
+    var driftTriggerExcerpt: String? {
+        guard let uuid = lastFlag?.refusedUUID else { return nil }
+        return recentUserExcerpts[uuid]
+    }
 
     /// The event timestamp of one transcript line, without a full JSON parse.
     func lineTimestamp(_ line: Substring) -> Date? {
@@ -34,6 +51,46 @@ struct TranscriptWatcher {
         let rest = line[key.upperBound...]
         guard let quote = rest.firstIndex(of: "\"") else { return nil }
         return parseISO(String(rest[..<quote]))
+    }
+
+    /// The top-level `uuid` of one transcript line, without a full parse. `"uuid":"` never appears
+    /// inside `"parentUuid":"` (the leading quote guards it), so the first match is the event's own.
+    func lineUUID(_ line: Substring) -> String? {
+        guard let key = line.range(of: "\"uuid\":\"") else { return nil }
+        let rest = line[key.upperBound...]
+        guard let quote = rest.firstIndex(of: "\"") else { return nil }
+        return String(rest[..<quote])
+    }
+
+    /// A user event's visible text by substring (no full parse - every user line hits this). Reads
+    /// a string `content`, else the first `text` of an array `content`. Best-effort: an embedded
+    /// escaped quote truncates it early, fine for a snippet already capped and newline-stripped.
+    func userExcerpt(_ line: Substring) -> String? {
+        guard let key = line.range(of: "\"content\":") else { return nil }
+        let rest = line[key.upperBound...]
+        if rest.first == "\"" {
+            let body = rest.dropFirst()
+            guard let end = body.firstIndex(of: "\"") else { return nil }
+            return String(body[..<end])
+        }
+        if let textKey = rest.range(of: "\"text\":\"") {
+            let body = rest[textKey.upperBound...]
+            guard let end = body.firstIndex(of: "\"") else { return nil }
+            return String(body[..<end])
+        }
+        return nil
+    }
+
+    /// Store a user prompt under its uuid, evicting the oldest past the capacity. Re-seen uuids keep
+    /// their place (the text does not change), so the FIFO tracks distinct recent messages.
+    mutating func rememberExcerpt(uuid: String, text: String) {
+        guard recentUserExcerpts[uuid] == nil else { return }
+        recentUserExcerpts[uuid] = String(text.prefix(160))
+        excerptOrder.append(uuid)
+        if excerptOrder.count > excerptCapacity {
+            let evicted = excerptOrder.removeFirst()
+            recentUserExcerpts.removeValue(forKey: evicted)
+        }
     }
 
     /// True when the transcript has been silent for `seconds` - the between-turns proxy. An
@@ -98,6 +155,26 @@ struct TranscriptWatcher {
                     lastModel = String(rest[..<quote])
                     lastMainChainEventAt = ts
                 }
+            }
+            // Remember recent user prompts so a later fallback's refused-uuid resolves to a
+            // readable excerpt. Substring extraction (this runs on every user line), main-chain
+            // only, no time guard - a replayed old prompt just ages out of the bounded FIFO.
+            if line.contains("\"type\":\"user\""), !line.contains("\"isSidechain\":true"),
+               let uuid = lineUUID(line), let text = userExcerpt(line) {
+                rememberExcerpt(uuid: uuid, text: text)
+            }
+            // A Fable safeguard fallback: a structured system event, parsed only past a cheap
+            // substring prefilter. Guarded like the model signal (post-launch, main-chain) so a
+            // resumed session's replayed history never re-raises a stale flag.
+            if line.contains("model_refusal_fallback"),
+               let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+               (object["isSidechain"] as? Bool) != true,
+               let from = object["originalModel"] as? String,
+               let to = object["fallbackModel"] as? String,
+               let category = object["apiRefusalCategory"] as? String,
+               let when = (object["timestamp"] as? String).flatMap(parseISO), when >= since {
+                lastFlag = SafeguardFlag(at: when, from: from, to: to, category: category,
+                                         refusedUUID: object["refusedUserMessageUuid"] as? String)
             }
             guard line.contains("\"isApiErrorMessage\":true") else { continue }
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],

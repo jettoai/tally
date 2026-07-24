@@ -121,6 +121,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let fromLabel = account.label
             kill(childPID, SIGTERM)   // let claude run its SessionEnd cleanup
             _ = awaitChild()
+            clearDriftState(pid: supervisorPID)   // a new child gets a fresh drift monitor
 
             watcher.locateFile()
             let sessionFile = watcher.file
@@ -164,6 +165,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // handoff retries instead of stranding the session. Reset per child - a fresh launch is
         // a clean slate; the previous account's cap is not this one's.
         var pendingCap: PendingCapRecovery?
+        // Per-child drift tracking: the safeguard episode is this session's, and a handoff starts a
+        // fresh child (and a fresh monitor). Its state file is cleared on handoff and on exit.
+        var drift = DriftMonitor()
 
         pollChild()
         while childStatus == nil {
@@ -171,6 +175,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             pollChild()
             guard childStatus == nil else { break }
             let policy = launchPolicy(provider.id)
+            // What THIS session is expected to run: a hand-typed --model outranks the configured
+            // default (a deliberate haiku session must not be "rescued" back to fable). Read by the
+            // drift monitor and the quota-degradation paths alike.
+            let effectivePrimary = flagValue(launchArgs, "--model") ?? policy.model
             // The single relaunch this tick will perform, if any. Reasons fire in priority order
             // (pin > cap > degradation > fallback) and the FIRST owns the account move; a follow
             // adoption only folds its model/effort onto that target. Executed once at the tick's
@@ -201,6 +209,34 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 let until = Date().addingTimeInterval(capQuarantineTTL)
                 quarantine[account.id] = (model: capModel, until: until)
                 quarantineAccount(account.id, model: capModel, until: until)
+            }
+
+            // Model-drift observation: a Fable safeguard fell this session onto a fallback model (a
+            // structured model_refusal_fallback event, apart from any quota cap). Surface it - a
+            // one-time warn with the reason, a status-line badge via the state file, and a nudge to
+            // switch back once the sensitive stretch passes - and gate the quota-degradation paths
+            // below, so a deliberate safeguard switch is never mistaken for a dry flagship window.
+            // Fail-open: observation never blocks the loop, a handoff, or an exit.
+            switch drift.tick(flag: watcher.lastFlag, actualModel: watcher.lastModel,
+                              primary: effectivePrimary) {
+            case .started(let flag)?:
+                warn("\(shortModelName(flag.from)) fell back to \(shortModelName(flag.to)) " +
+                     "(\(flag.category) safeguard) - run /model \(shortModelName(flag.from)) once " +
+                     "the sensitive stretch is over")
+                logDrift(sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
+                         flag: flag, excerpt: watcher.driftTriggerExcerpt)
+                writeDriftState(flag, pid: supervisorPID)
+            case .cleared(let duration)?:
+                logDriftCleared(sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
+                                duration: duration)
+                clearDriftState(pid: supervisorPID)
+            case nil:
+                break
+            }
+            if drift.shouldNudge(), watcher.isQuiet(), let from = drift.activeFrom {
+                warn("still on the safeguard fallback after 5+ min - run /model " +
+                     "\(shortModelName(from)) to return once the sensitive stretch is over")
+                drift.markNudged()
             }
 
             // Live pin switch: pinning another account in the Tally panel moves the RUNNING
@@ -320,9 +356,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // and under the same fuse as every automatic handoff.
             // The expectation is what THIS session was launched with (a hand-typed --model
             // outranks the configured default - a deliberate haiku session must not be
-            // "rescued" back to fable).
-            let effectivePrimary = flagValue(launchArgs, "--model") ?? policy.model
-            if plan == nil, let primary = effectivePrimary?.lowercased(),
+            // "rescued" back to fable). Skipped during a safeguard drift: that switch is the
+            // API's deliberate fallback, not a quota drain a sibling account would cure.
+            if plan == nil, !drift.isActive, let primary = effectivePrimary?.lowercased(),
                let actual = watcher.lastModel?.lowercased(),
                !actual.contains(primary), policy.mode != "manual", fuse.allows(),
                watcher.isQuiet() {
@@ -358,12 +394,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // configured fallback - a weaker model can deserve a different depth and extra
             // flags, so relaunch ONCE with the fallback pairing - same account, same
             // conversation. Deliberate configuration, no fuse.
-            if plan == nil, !fallbackApplied,
+            if plan == nil, !drift.isActive, !fallbackApplied,
                let fallbackList = policy.fallbackModel,
                policy.fallbackEffort != nil || policy.fallbackArgs != nil,
                let actual = watcher.lastModel?.lowercased(),
-               (flagValue(launchArgs, "--model") ?? policy.model)
-                   .map({ !actual.contains($0.lowercased()) }) ?? true,
+               effectivePrimary.map({ !actual.contains($0.lowercased()) }) ?? true,
                let matched = fallbackList.split(separator: ",")
                    .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() })
                    .first(where: { !$0.isEmpty && actual.contains($0) }),
@@ -391,6 +426,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
 
         if handoff { continue }
         let status = awaitChild()   // no relaunch pending: the child exited on its own, so do we
+        clearDriftState(pid: supervisorPID)
         let exited = (status & 0x7f) == 0
         exit(exited ? (status >> 8) & 0xff : 128 + (status & 0x7f))
     }

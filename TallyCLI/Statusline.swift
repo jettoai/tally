@@ -39,10 +39,21 @@ func runStatusline(args: [String]) -> Never {
         supervised: ProcessInfo.processInfo.environment["TALLY_SUPERVISED"] != "0",
         supervisorVersion: ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_VERSION"],
         installedVersion: supervisorBuildVersion()).note.map { "\(yellow)\($0)\(reset)" }
+    // Model-drift badge: a Fable safeguard fell this session onto a fallback model and left it
+    // there. The supervisor writes the from/to/category to a per-pid state file; render it only
+    // while that supervisor still runs (a crashed supervisor's leftover file paints nothing). The
+    // detection lives entirely in the supervisor - the status line only reads the state it left.
+    var driftPiece: String?
+    if let pidStr = ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_PID"],
+       let pid = pid_t(pidStr), supervisorAlive(pid), let drift = readDriftState(pid: pidStr) {
+        driftPiece = "\(yellow)⚠ \(shortModelName(drift.from))→\(shortModelName(drift.to)) " +
+            "(\(drift.category))\(reset)"
+    }
     // The account name only carries information when there is a choice: with one account it
     // reads as noise next to a Claude session, so the status signal stands alone.
     let siblings = snapshot?.accounts.filter { $0.provider == "claude" }.count ?? 0
-    let identity = [statusPiece, supervisionPiece, siblings > 1 ? "\(dim)\(label)\(reset)" : nil]
+    let identity = [statusPiece, supervisionPiece, driftPiece,
+                    siblings > 1 ? "\(dim)\(label)\(reset)" : nil]
         .compactMap { $0 }.joined(separator: " · ")
     let input = FileHandle.standardInput.readDataToEndOfFile()
 
@@ -165,7 +176,8 @@ func runStatusline(args: [String]) -> Never {
             // The session model always rides the identity, same fixed position for every
             // model - one grammar, no conditional homes. The custom line above may show a
             // model of its own, but THIS line's model is the one tally launched or adopted.
-            let identityZone = [statusPiece, supervisionPiece, "\(dim)\(label)\(reset)", modelToken]
+            let identityZone = [statusPiece, supervisionPiece, driftPiece,
+                                "\(dim)\(label)\(reset)", modelToken]
                 .compactMap { $0 }
                 .joined(separator: " · ")
             let richLine = [identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]

@@ -5680,6 +5680,35 @@
           }
         }
       }
+    },
+    "so far %@ accounts/wk": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前 %@ 帳號量/週"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前 %@ 帐号量/周"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これまで週 %@ アカウント分"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 주당 %@ 계정 분량"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

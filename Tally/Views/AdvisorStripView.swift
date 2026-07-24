@@ -77,8 +77,15 @@ extension PopoverRootView {
         case .collecting:
             let days = "\(Int(reading.daysOfData))"   // floor: 6.6 days is still collecting, not "7 of 7"
             let target = "\(Int(UsageAdvisor.minimumDays))"
-            return String(localized: "collecting data (\(days) of \(target) days)",
-                          bundle: AppLocale.bundle)
+            let collecting = String(localized: "collecting data (\(days) of \(target) days)",
+                                    bundle: AppLocale.bundle)
+            // The numbers are live from day one; only the RECOMMENDATION waits for a week of
+            // history. Surface the running weekly demand inline so the strip is never a blank
+            // promise (the rest stays in the tooltip).
+            let demand = String(format: "%.1f", reading.demandPerWeek)
+            let preliminary = String(localized: "so far \(demand) accounts/wk",
+                                     bundle: AppLocale.bundle)
+            return "\(collecting) · \(preliminary)"
         case .addAccount:
             return L("consider adding an account")
         case .sufficient:

@@ -457,6 +457,8 @@ case "codex":
     runLaunch(providers[1], args: Array(arguments.dropFirst()))
 case "resume":
     runResume(args: Array(arguments.dropFirst()))
+case "worktree":
+    runWorktree(args: Array(arguments.dropFirst()))
 case "status", nil:
     runStatus(json: arguments.contains("--json"))
 case "best-dir":
@@ -479,6 +481,8 @@ default:
                                 shares project memory, runs .tally/worktree-setup.sh); bare -w lists existing
       tally codex [args…]       launch Codex on the best account
       tally resume [args…]      continue this directory's latest Claude session on the best account
+      tally worktree remove [name]  tear down a merged worktree (kill its agents, remove the
+                                worktree, its branch, and its transcripts); bare picks from a menu
       tally status [--json]     show every account's remaining windows (--json: versioned
                                 machine-readable report for scripts, hooks, agent skills)
       tally best-dir <provider> print the export line for the best account

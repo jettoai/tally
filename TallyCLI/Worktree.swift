@@ -156,8 +156,8 @@ private func promptWorktreeName(mainRepo: String, entries: [WorktreeEntry]) -> S
 }
 
 /// Resolve the git facts each menu row shows: relative age (`%cr`), a dirty flag, and the last
-/// commit subject (`%s`), which the renderer clips.
-private func buildMenuRows(_ others: [WorktreeEntry]) -> [MenuRow] {
+/// commit subject (`%s`), which the renderer clips. Shared with WorktreeTeardown.swift's remove menu.
+func buildMenuRows(_ others: [WorktreeEntry]) -> [MenuRow] {
     others.map { entry in
         let age = runGit(["-C", entry.path, "log", "-1", "--format=%cr"]).out
         let dirty = !runGit(["-C", entry.path, "status", "--porcelain"]).out.isEmpty
@@ -353,8 +353,9 @@ func stripContinueResume(_ args: inout [String]) -> Bool {
 // MARK: - Helpers
 
 /// Run git and capture trimmed stdout/stderr plus the exit code. Output is small (porcelain
-/// listings, single-line reads), so reading each pipe to EOF before waiting is safe.
-private func runGit(_ args: [String], cwd: String? = nil) -> (out: String, err: String, code: Int32) {
+/// listings, single-line reads), so reading each pipe to EOF before waiting is safe. Shared with
+/// WorktreeTeardown.swift.
+func runGit(_ args: [String], cwd: String? = nil) -> (out: String, err: String, code: Int32) {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
     process.arguments = args
@@ -384,8 +385,8 @@ private func pathExists(_ path: String) -> Bool {
 }
 
 /// Fully-resolved path (POSIX realpath, keeping the /private prefix like projectSlug), or the
-/// input unchanged when it can't be resolved.
-private func realpathString(_ path: String) -> String {
+/// input unchanged when it can't be resolved. Shared with WorktreeTeardown.swift.
+func realpathString(_ path: String) -> String {
     var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
     return realpath(path, &buffer).map { String(cString: $0) } ?? path
 }

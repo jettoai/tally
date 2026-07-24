@@ -315,4 +315,132 @@ let straddleClip = clipToDisplayWidth(straddling, columns: 21)
 check("an escape sequence at the clip boundary is kept intact", straddleClip.contains(yellow))
 check("the straddling-escape clip still respects the budget", displayColumns(straddleClip) <= 21)
 
+// MARK: - 10. Teardown: kill decision (pure)
+
+check("a claude process inside the worktree is killed",
+      shouldKill(name: "claude", cwd: "/a/b/wt", worktreePath: "/a/b/wt"))
+check("a process nested under the worktree is killed",
+      shouldKill(name: "fswatch", cwd: "/a/b/wt/sub/dir", worktreePath: "/a/b/wt"))
+check("tally is in the allowlist", shouldKill(name: "tally", cwd: "/a/b/wt", worktreePath: "/a/b/wt"))
+check("a shell is never killed even inside the worktree",
+      !shouldKill(name: "zsh", cwd: "/a/b/wt", worktreePath: "/a/b/wt"))
+check("an unrelated binary is not killed", !shouldKill(name: "node", cwd: "/a/b/wt", worktreePath: "/a/b/wt"))
+check("a sibling sharing a path prefix is not a false positive",
+      !shouldKill(name: "claude", cwd: "/a/b/wtx", worktreePath: "/a/b/wt"))
+check("a process outside the worktree is not killed",
+      !shouldKill(name: "claude", cwd: "/other/place", worktreePath: "/a/b/wt"))
+
+// MARK: - 11. Teardown: slug + transcript path guards (pure)
+
+check("the transcript slug turns / and . into -",
+      worktreeTranscriptSlug(forResolvedPath: "/Users/x/repo-feat.1")
+        == "-Users-x-repo-feat-1")
+let guardHome = "/Users/x/.claude"
+check("a target under the home's projects dir passes the guard",
+      transcriptGuardPasses(target: "\(guardHome)/projects/-Users-x-repo-feat", home: guardHome))
+check("the projects dir itself does not pass (nothing to remove)",
+      !transcriptGuardPasses(target: "\(guardHome)/projects/", home: guardHome))
+check("a path outside the projects dir is refused",
+      !transcriptGuardPasses(target: "\(guardHome)/somewhere/else", home: guardHome))
+check("a secondary account home guards on its own projects dir",
+      transcriptGuardPasses(target: "/Users/x/.claude2/projects/-Users-x-repo-feat",
+                            home: "/Users/x/.claude2") &&
+      !transcriptGuardPasses(target: "\(guardHome)/projects/-Users-x-repo-feat",
+                             home: "/Users/x/.claude2"))
+check("an empty slug yields a target that is just the prefix and is refused",
+      !transcriptGuardPasses(target: "\(guardHome)/projects/", home: guardHome))
+
+// The removal loop sweeps every account home the launch side seeds, not just the default one.
+let homeA = rp(tempDir())
+let homeB = rp(tempDir())
+let sweepSlug = "-Users-x-repo-feat"
+for base in [homeA, homeB] {
+    try? FileManager.default.createDirectory(atPath: "\(base)/projects/\(sweepSlug)",
+                                             withIntermediateDirectories: true)
+}
+check("both account homes hold the transcript dir before the sweep",
+      FileManager.default.fileExists(atPath: "\(homeA)/projects/\(sweepSlug)") &&
+      FileManager.default.fileExists(atPath: "\(homeB)/projects/\(sweepSlug)"))
+check("the sweep removes the dir in both homes and reports success",
+      removeTranscriptDirs(slug: sweepSlug, homes: [homeA, homeB]))
+check("the transcript dir is gone from the default home",
+      !FileManager.default.fileExists(atPath: "\(homeA)/projects/\(sweepSlug)"))
+check("the transcript dir is gone from the secondary home",
+      !FileManager.default.fileExists(atPath: "\(homeB)/projects/\(sweepSlug)"))
+check("a second sweep finds nothing to remove but does not fail",
+      !removeTranscriptDirs(slug: sweepSlug, homes: [homeA, homeB]))
+check("an empty slug removes nothing", !removeTranscriptDirs(slug: "", homes: [homeA, homeB]))
+
+// MARK: - 12. Teardown: git cleanup end to end (real git, no killing)
+
+// A merged worktree tears all the way down: worktree gone, branch gone, exit 0.
+let mergedRepo = tempDir()
+sh("git init -q && git config user.email t@t && git config user.name t && " +
+   "git commit -q --allow-empty -m init", cwd: mergedRepo)
+FileManager.default.changeCurrentDirectoryPath(mergedRepo)
+let mergedWt = resolveWorktree(name: "feat")   // reuse the launch resolver to create it
+sh("git commit -q --allow-empty -m work", cwd: mergedWt.path)
+sh("git merge -q feat", cwd: mergedRepo)        // fast-forward main to feat so feat is an ancestor
+let mergedCode = performWorktreeRemove(name: "feat", force: false, keepTranscripts: true,
+                                       listProcesses: { _ in [] })
+check("a merged worktree removes cleanly (exit 0)", mergedCode == 0)
+check("the merged worktree directory is gone", !FileManager.default.fileExists(atPath: mergedWt.path))
+check("the merged branch is deleted",
+      sh("git show-ref --verify --quiet refs/heads/feat", cwd: mergedRepo) != 0)
+
+// An unmerged worktree is refused without --force, then removed with it.
+let unmergedRepo = tempDir()
+sh("git init -q && git config user.email t@t && git config user.name t && " +
+   "git commit -q --allow-empty -m init", cwd: unmergedRepo)
+FileManager.default.changeCurrentDirectoryPath(unmergedRepo)
+let unmergedWt = resolveWorktree(name: "feat2")
+sh("git commit -q --allow-empty -m unmerged", cwd: unmergedWt.path)   // ahead of main, not merged
+let refusedCode = performWorktreeRemove(name: "feat2", force: false, keepTranscripts: true,
+                                        listProcesses: { _ in [] })
+check("an unmerged worktree is refused without --force (exit 1)", refusedCode == 1)
+check("the refused worktree is left in place", FileManager.default.fileExists(atPath: unmergedWt.path))
+let forcedCode = performWorktreeRemove(name: "feat2", force: true, keepTranscripts: true,
+                                       listProcesses: { _ in [] })
+check("--force removes the unmerged worktree (exit 0)", forcedCode == 0)
+check("the forced worktree directory is gone", !FileManager.default.fileExists(atPath: unmergedWt.path))
+check("--force deletes the unmerged branch (branch -D)",
+      sh("git show-ref --verify --quiet refs/heads/feat2", cwd: unmergedRepo) != 0)
+
+// A caller sitting inside the target worktree is refused before anything is torn down (git alone
+// would not refuse: the git subprocess runs from mainRepo, so only this guard protects the caller).
+let insideRepo = tempDir()
+sh("git init -q && git config user.email t@t && git config user.name t && " +
+   "git commit -q --allow-empty -m init", cwd: insideRepo)
+FileManager.default.changeCurrentDirectoryPath(insideRepo)
+let insideWt = resolveWorktree(name: "feat3")
+sh("git commit -q --allow-empty -m work", cwd: insideWt.path)
+sh("git merge -q feat3", cwd: insideRepo)       // merged, so only the cwd guard can refuse
+FileManager.default.changeCurrentDirectoryPath(insideWt.path)
+let insideCode = performWorktreeRemove(name: "feat3", force: false, keepTranscripts: true,
+                                       listProcesses: { _ in [] })
+check("removal from inside the target worktree is refused (exit 1)", insideCode == 1)
+check("the worktree the caller sits in is left in place",
+      FileManager.default.fileExists(atPath: insideWt.path))
+FileManager.default.changeCurrentDirectoryPath(insideRepo)
+
+// A tag carrying the branch's name must not shadow the branch in the merged check (gitrevisions
+// resolves tags before heads): the unmerged branch stays refused even when the tag is merged.
+let shadowRepo = tempDir()
+sh("git init -q && git config user.email t@t && git config user.name t && " +
+   "git commit -q --allow-empty -m init", cwd: shadowRepo)
+FileManager.default.changeCurrentDirectoryPath(shadowRepo)
+let shadowWt = resolveWorktree(name: "feat4")
+sh("git commit -q --allow-empty -m unmerged", cwd: shadowWt.path)
+sh("git tag feat4 HEAD", cwd: shadowRepo)       // tag at main HEAD, which IS an ancestor
+let shadowCode = performWorktreeRemove(name: "feat4", force: false, keepTranscripts: true,
+                                       listProcesses: { _ in [] })
+check("a merged same-name tag does not waive the merged gate (exit 1)", shadowCode == 1)
+check("the tag-shadowed worktree is left in place",
+      FileManager.default.fileExists(atPath: shadowWt.path))
+
+// MARK: - 13. Teardown: killWorktreeProcesses with no targets is a no-op
+
+check("killing an empty target list touches nothing and returns zero",
+      killWorktreeProcesses([]) == 0)
+
 exit(failures == 0 ? 0 : 1)

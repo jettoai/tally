@@ -393,6 +393,20 @@ func realpathString(_ path: String) -> String {
 
 /// Read one trimmed line from an open FILE stream; nil on EOF.
 private func readLine(from stream: UnsafeMutablePointer<FILE>) -> String? {
+    // A crashed or killed full-screen program (a Claude session dying to SIGTERM, say) can leave
+    // the tty raw with ICRNL off, so Enter yields a bare CR that never ends the line and echoes as
+    // ^M. Force a sane line-input mode for the duration of this read, then put back whatever was
+    // there before; the shell owns the terminal's long-term state, not us.
+    let fd = fileno(stream)
+    var saved = termios()
+    let sane = isatty(fd) == 1 && tcgetattr(fd, &saved) == 0
+    if sane {
+        var line = saved
+        line.c_iflag |= tcflag_t(ICRNL)
+        line.c_lflag |= tcflag_t(ICANON) | tcflag_t(ECHO)
+        tcsetattr(fd, TCSANOW, &line)
+    }
+    defer { if sane { var restore = saved; tcsetattr(fd, TCSANOW, &restore) } }
     var buffer = [CChar](repeating: 0, count: 4096)
     guard fgets(&buffer, Int32(buffer.count), stream) != nil else { return nil }
     let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }

@@ -85,6 +85,12 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(showFleetGauge, forKey: "showFleetGauge") }
     }
 
+    /// The usage advisor strip (the "do I need another account?" verdict line under the fleet
+    /// gauge). Its own switch, independent of the fleet gauge, so either can show alone.
+    var showAdvisor: Bool {
+        didSet { UserDefaults.standard.set(showAdvisor, forKey: "showAdvisor") }
+    }
+
     /// Providers whose account cards are folded away behind their fleet gauge (clicking the gauge
     /// row toggles it). A view gesture, not a Settings item: the collapse only takes effect while
     /// that provider's gauge is actually on screen, so cards can never become unreachable.
@@ -158,6 +164,7 @@ final class SettingsStore {
         languageOverride = AppLocale.override
         isUsagePanelPinned = defaults.bool(forKey: "isUsagePanelPinned")
         showFleetGauge = defaults.object(forKey: "showFleetGauge") as? Bool ?? true
+        showAdvisor = defaults.object(forKey: "showAdvisor") as? Bool ?? true
         collapsedProviders = Set(defaults.stringArray(forKey: "collapsedProviders") ?? [])
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
         panelColumns = (1 ... 4).contains(defaults.integer(forKey: "panelColumns"))

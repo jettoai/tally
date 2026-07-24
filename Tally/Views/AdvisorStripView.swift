@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// The usage advisor strip: one line per provider under the fleet gauge answering "at my pace, do
-/// I need another account?". A verdict glyph, the provider name, and a plain headline; the numbers
-/// behind it (weekly demand, active pace, starved hours) live in the hover tooltip so the line
-/// stays a glance. It shares the fleet gauge's visibility switch - the advisor is the fleet view's
-/// planning extension, not a separate toggle - and only ever shows "collecting data" until a week
-/// of history backs a real recommendation.
+/// I need another account?". A verdict glyph and the provider name on the left, the running weekly
+/// demand right-aligned (the number to read), and in between either a mini progress capsule while
+/// history is still collecting or the short verdict headline once a week backs it. The rest of the
+/// numbers (active pace, starved hours) live in the hover tooltip so the line stays a glance. It
+/// has its own visibility switch (`showAdvisor`), independent of the fleet gauge.
 extension PopoverRootView {
     @ViewBuilder
     var advisorStrip: some View {
@@ -26,10 +26,10 @@ extension PopoverRootView {
     }
 
     /// Readings for providers with accounts currently on screen, in the panel's account order, and
-    /// only while the shared fleet-gauge switch is on. History can outlive a removed provider, so a
-    /// reading with no live accounts is dropped.
+    /// only while the advisor switch is on. History can outlive a removed provider, so a reading
+    /// with no live accounts is dropped.
     private var visibleAdvisorReadings: [UsageAdvisor.Reading] {
-        guard settings.showFleetGauge else { return [] }
+        guard settings.showAdvisor else { return [] }
         let order = store.orderedAccounts.map(\.providerID)
         let present = Set(order)
         return store.advisorReadings
@@ -38,20 +38,50 @@ extension PopoverRootView {
     }
 
     private func advisorRow(_ reading: UsageAdvisor.Reading) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             Image(systemName: advisorGlyph(reading.verdict))
-                .font(.caption2)
                 .foregroundStyle(advisorTint(reading.verdict))
             Text(ProviderCatalog.displayName(for: reading.provider))
                 .foregroundStyle(Color.secondary)
-            Text(advisorHeadline(reading))
-                .foregroundStyle(advisorTint(reading.verdict))
-            Spacer(minLength: 0)
+            // Middle column: a progress capsule while collecting, else the verdict headline.
+            switch reading.verdict {
+            case .collecting:
+                advisorProgress(reading)
+                Text(collectingCaption(reading))
+                    .foregroundStyle(.secondary)
+            case .addAccount:
+                Text(L("consider adding an account"))
+                    .foregroundStyle(advisorTint(.addAccount))
+            case .sufficient:
+                Text(L("current accounts are sufficient"))
+                    .foregroundStyle(advisorTint(.sufficient))
+            }
+            Spacer(minLength: 6)
+            // The running weekly demand, right-aligned in every state: the one number to read.
+            Text(demandFigure(reading))
+                .font(.caption2.weight(.medium).monospacedDigit())
+                .foregroundStyle(.primary)
+                .layoutPriority(1)
         }
         .font(.caption2)
         .lineLimit(1)
         .contentShape(Rectangle())
         .help(advisorTooltip(reading))
+    }
+
+    /// Mini quota-of-history bar: a quaternary track with a secondary fill proportional to how far
+    /// the reading is toward `minimumDays`. A quiet visual of "still warming up", replacing the old
+    /// "collecting data (5 of 7 days)" sentence.
+    private func advisorProgress(_ reading: UsageAdvisor.Reading) -> some View {
+        let fraction = min(1, max(0, reading.daysOfData / UsageAdvisor.minimumDays))
+        return Capsule()
+            .fill(.quaternary)
+            .frame(width: 36, height: 3)
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(Color.secondary)
+                    .frame(width: max(2, 36 * fraction), height: 3)
+            }
     }
 
     private func advisorGlyph(_ verdict: UsageAdvisor.Verdict) -> String {
@@ -70,27 +100,20 @@ extension PopoverRootView {
         }
     }
 
-    /// The verdict as a localized one-liner. Mirrors `UsageAdvisor.englishHeadline` in meaning; the
-    /// panel keeps its own copy so the strings live in the app's xcstrings.
-    private func advisorHeadline(_ reading: UsageAdvisor.Reading) -> String {
-        switch reading.verdict {
-        case .collecting:
-            let days = "\(Int(reading.daysOfData))"   // floor: 6.6 days is still collecting, not "7 of 7"
-            let target = "\(Int(UsageAdvisor.minimumDays))"
-            let collecting = String(localized: "collecting data (\(days) of \(target) days)",
-                                    bundle: AppLocale.bundle)
-            // The numbers are live from day one; only the RECOMMENDATION waits for a week of
-            // history. Surface the running weekly demand inline so the strip is never a blank
-            // promise (the rest stays in the tooltip).
-            let demand = String(format: "%.1f", reading.demandPerWeek)
-            let preliminary = String(localized: "so far \(demand) accounts/wk",
-                                     bundle: AppLocale.bundle)
-            return "\(collecting) · \(preliminary)"
-        case .addAccount:
-            return L("consider adding an account")
-        case .sufficient:
-            return L("current accounts are sufficient")
-        }
+    /// The collecting progress as a compact "5/7d" caption next to the capsule. Floors the days,
+    /// never rounds: at 6.6 days the reading is still collecting, so "7/7d" would read as a
+    /// contradiction.
+    private func collectingCaption(_ reading: UsageAdvisor.Reading) -> String {
+        let days = "\(Int(reading.daysOfData))"
+        let target = "\(Int(UsageAdvisor.minimumDays))"
+        return String(localized: "\(days)/\(target)d", bundle: AppLocale.bundle)
+    }
+
+    /// The running weekly demand as "1.8 acct/wk". Live from day one (only the recommendation waits
+    /// for a week of history), so it shows in every state as the strip's headline number.
+    private func demandFigure(_ reading: UsageAdvisor.Reading) -> String {
+        let demand = String(format: "%.1f", reading.demandPerWeek)
+        return String(localized: "\(demand) acct/wk", bundle: AppLocale.bundle)
     }
 
     /// The numbers behind the verdict, for the hover tooltip - the "why" the one-liner elides.

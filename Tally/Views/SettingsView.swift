@@ -193,6 +193,12 @@ struct SettingsView: View {
 
         rowDivider
 
+        toggleRow(L("Usage advisor"),
+                  subtitle: L("A one-line verdict per provider: at your pace, do you need another account?"),
+                  isOn: $settings.showAdvisor)
+
+        rowDivider
+
         toggleRow(L("Glass pinned panel"),
                   subtitle: L("The pinned panel shows the desktop through frosted glass."),
                   isOn: $settings.isPanelTranslucent)

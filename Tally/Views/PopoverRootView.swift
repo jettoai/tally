@@ -167,17 +167,20 @@ struct PopoverRootView: View {
             Button {
                 Task { await store.refresh(userInitiated: true) }
             } label: {
-                Image(systemName: "arrow.clockwise")
-                    .rotationEffect(.degrees(store.isRefreshing ? 360 : 0))
-                    // Ending the spin must SNAP to zero: animating back after an interrupted
-                    // repeatForever unwinds the arrow from wherever it stopped, which reads as
-                    // the button bobbing on every refresh. 0 and 360 draw identically, so the
-                    // snap is invisible.
-                    .animation(store.isRefreshing
-                        ? .linear(duration: 1).repeatForever(autoreverses: false)
-                        : nil, value: store.isRefreshing)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
+                // A hand-rolled rotation cannot end cleanly: animating back after an interrupted
+                // repeatForever unwinds the arrow (a visible bob), and a nil animation does not
+                // cancel an in-flight repeat (the arrow spins forever). Swap to the native
+                // spinner while refreshing instead - no custom animation to get wrong.
+                Group {
+                    if store.isRefreshing {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .disabled(store.isRefreshing)

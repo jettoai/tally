@@ -17,7 +17,7 @@ struct AccountCardView: View {
 
     @State private var isHovering = false
     @State private var redeemBusy = false
-    @State private var redeemOutcome: String?
+    @State private var redeemOutcome: CodexAppServerClient.RedeemOutcome?
 
     private var label: String {
         settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
@@ -125,9 +125,10 @@ struct AccountCardView: View {
                     .help(L("Use a reset"))
                 }
                 if let redeemOutcome {
-                    Text(redeemOutcome)
+                    Text(redeemMessage(redeemOutcome))
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(redeemOutcome == .redeemed ? TallyColor.normal : .secondary)
+                        .help(redeemDetail(redeemOutcome) ?? "")
                 }
             }
         }
@@ -312,16 +313,30 @@ struct AccountCardView: View {
         if alert.runModal() == .alertFirstButtonReturn { redeem() }
     }
 
+    /// The outcome in the panel's own voice. Every case is a translated sentence: the server's own
+    /// wording never reaches the row, only the tooltip below.
+    private func redeemMessage(_ outcome: CodexAppServerClient.RedeemOutcome) -> String {
+        switch outcome {
+        case .redeemed: return L("Reset redeemed")
+        case .alreadyUsed: return L("That credit was already used")
+        case .noCredit: return L("No reset credit available")
+        case .failed: return L("Redeem failed")
+        }
+    }
+
+    /// The server's own words for a failure, for the hover tooltip: diagnosable without putting a
+    /// protocol token in front of everyone.
+    private func redeemDetail(_ outcome: CodexAppServerClient.RedeemOutcome) -> String? {
+        if case .failed(let detail) = outcome { return detail }
+        return nil
+    }
+
     private func redeem() {
         guard let home = UsageStore.shared.discoveredAccounts
             .first(where: { $0.id == usage.id })?.launchHome else { return }
         redeemBusy = true
         Task {
-            let outcome = await CodexAppServerClient.consumeSoonestResetCredit(codexHome: home)
-            redeemOutcome = outcome.map { token in
-                token.lowercased().contains("redeem") && !token.lowercased().contains("already")
-                    ? L("Reset redeemed") : token
-            } ?? L("Redeem failed")
+            redeemOutcome = await CodexAppServerClient.consumeSoonestResetCredit(codexHome: home)
             redeemBusy = false
             await UsageStore.shared.refresh(userInitiated: true)
             try? await Task.sleep(for: .seconds(8))

@@ -1,12 +1,22 @@
 import SwiftUI
 
 /// The usage advisor strip: one line per provider under the fleet gauge answering "at my pace, do
-/// I need another account?". A verdict glyph and the provider name on the left, the running weekly
-/// demand right-aligned (the number to read), and in between either a mini progress capsule while
-/// history is still collecting or the short verdict headline once a week backs it. The rest of the
-/// numbers (active pace, starved hours) live in the hover tooltip so the line stays a glance. It
-/// has its own visibility switch (`showAdvisor`), independent of the fleet gauge.
+/// I need another account?". The provider's own icon and name on the left (the same identity the
+/// gauge above uses), the running weekly demand right-aligned (the number to read), and in between
+/// either a mini progress capsule while history is still collecting or the account pips once a week
+/// backs a verdict: one filled pip per account owned, plus a single hollow one when the pace asks
+/// for another. The words behind it (the verdict sentence, active pace, starved hours, the next
+/// refills) live in the hover tooltip so the line stays a glance. It has its own visibility switch
+/// (`showAdvisor`), independent of the fleet gauge.
 extension PopoverRootView {
+    /// Pip diameter: large enough that solid and hollow are told apart at a glance, small enough to
+    /// sit inside a caption row without becoming the loudest thing in it.
+    private static let pipSize: CGFloat = 7
+    /// Beyond this many pips the row asks to be counted rather than seen; the rest fold into "+N".
+    private static let maxPips = 4
+    /// Hollow pips fold sooner: a gap of four is a sentence, not a shape.
+    private static let maxHollowPips = 3
+
     @ViewBuilder
     var advisorStrip: some View {
         let readings = visibleAdvisorReadings
@@ -39,22 +49,20 @@ extension PopoverRootView {
 
     private func advisorRow(_ reading: UsageAdvisor.Reading) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: advisorGlyph(reading.verdict))
-                .foregroundStyle(advisorTint(reading.verdict))
+            // The same identity the gauge above uses. Two stacked strips naming one provider two
+            // ways (icon there, a verdict glyph and bare text here) read as two unrelated widgets;
+            // one vocabulary makes the advisor a sibling of the gauge instead.
+            ProviderIconView(providerID: reading.provider, size: 11)
             Text(ProviderCatalog.displayName(for: reading.provider))
                 .foregroundStyle(Color.secondary)
-            // Middle column: a progress capsule while collecting, else the verdict headline.
-            switch reading.verdict {
-            case .collecting:
+            // Middle column: a progress capsule while the history is still short, else the demand
+            // pips - which say what the sentence used to say, without a sentence.
+            if reading.verdict == .collecting {
                 advisorProgress(reading)
                 Text(collectingCaption(reading))
                     .foregroundStyle(.secondary)
-            case .addAccount:
-                Text(L("consider adding an account"))
-                    .foregroundStyle(advisorTint(.addAccount))
-            case .sufficient:
-                Text(L("current accounts are sufficient"))
-                    .foregroundStyle(advisorTint(.sufficient))
+            } else {
+                demandPips(reading)
             }
             Spacer(minLength: 6)
             // The running weekly demand, right-aligned in every state: the one number to read, so
@@ -73,6 +81,11 @@ extension PopoverRootView {
         .lineLimit(1)
         .contentShape(Rectangle())
         .help(advisorTooltip(reading))
+        // The verdict is a shape now, and shapes are not read aloud: state it for VoiceOver so the
+        // row still says what it means, not just its two numbers.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(ProviderCatalog.displayName(for: reading.provider)), "
+            + "\(verdictSentence(reading)), \(demandFigure(reading))")
     }
 
     /// Mini quota-of-history bar: a quaternary track with a secondary fill proportional to how far
@@ -90,20 +103,53 @@ extension PopoverRootView {
             }
     }
 
-    private func advisorGlyph(_ verdict: UsageAdvisor.Verdict) -> String {
-        switch verdict {
-        case .collecting: return "hourglass"
-        case .addAccount: return "person.badge.plus"
-        case .sufficient: return "checkmark.circle"
+    /// The account count as pips, left to right: solid for the accounts already owned, hollow for
+    /// the ones the pace says to add. Two solid and one hollow reads as "you have two, a third is
+    /// what your week asks for" in one glance, in any language, which is the whole verdict without
+    /// a sentence to translate. How many hollow ones follows the advisor's own recommendation, not
+    /// a second threshold invented here, so the pips and the tooltip can never disagree; when the
+    /// fleet is sufficient there are none at all and the row stays calm.
+    private func demandPips(_ reading: UsageAdvisor.Reading) -> some View {
+        let owned = max(1, store.orderedAccounts.filter { $0.providerID == reading.provider }.count)
+        // Past four, pips stop being countable at a glance (and the demo fleet is five), so the
+        // rest collapse into a "+N" the eye reads instead of counts.
+        let shown = min(owned, Self.maxPips)
+        let folded = owned - shown
+        let missing = missingAccounts(reading)
+        return HStack(spacing: 3) {
+            ForEach(0 ..< shown, id: \.self) { _ in
+                Circle()
+                    .fill(Color.secondary)
+                    .frame(width: Self.pipSize, height: Self.pipSize)
+            }
+            if folded > 0 {
+                Text(verbatim: "+\(folded)").foregroundStyle(.secondary)
+            }
+            // A recommendation of one is one ring; a bigger gap becomes a ring with a multiplier,
+            // because four identical rings are counted, not seen, and they crowd the figure.
+            ForEach(0 ..< min(missing, Self.maxHollowPips), id: \.self) { _ in
+                Circle()
+                    .strokeBorder(TallyColor.warning, lineWidth: 1.2)
+                    .frame(width: Self.pipSize, height: Self.pipSize)
+            }
+            if missing > Self.maxHollowPips {
+                Text(verbatim: "×\(missing)")
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(TallyColor.warning)
+            }
         }
     }
 
-    private func advisorTint(_ verdict: UsageAdvisor.Verdict) -> Color {
-        switch verdict {
-        case .collecting: return .secondary
-        case .addAccount: return TallyColor.warning
-        case .sufficient: return TallyColor.normal
-        }
+    /// How many accounts short the week's pace leaves this provider. The shortfall the demand figure
+    /// implies (its ceiling over what is owned) when there is one, and otherwise a single account:
+    /// the verdict can also fire on a flagship window or on starved hours, where the weekly figure
+    /// alone would say nothing is missing yet the advice still stands. Zero unless the advisor is
+    /// actually recommending, so a sufficient fleet shows no warning colour at all.
+    private func missingAccounts(_ reading: UsageAdvisor.Reading) -> Int {
+        guard reading.verdict == .addAccount else { return 0 }
+        let owned = max(1, store.orderedAccounts.filter { $0.providerID == reading.provider }.count)
+        let asked = Int(min(99, max(0, reading.demandPerWeek)).rounded(.up))
+        return max(1, asked - owned)
     }
 
     /// The collecting progress as a compact "5/7d" caption next to the capsule. Floors the days,
@@ -122,6 +168,21 @@ extension PopoverRootView {
         return String(localized: "\(demand) acct/wk", bundle: AppLocale.bundle)
     }
 
+    /// The verdict in words. The row says it in pips; the tooltip is where it stays sayable, for
+    /// the reading that wants certainty rather than a glance.
+    private func verdictSentence(_ reading: UsageAdvisor.Reading) -> String {
+        switch reading.verdict {
+        case .collecting: return L("still collecting history")
+        case .sufficient: return L("current accounts are sufficient")
+        case .addAccount:
+            // Say the number when the pace asks for more than one, so the tooltip never stays
+            // vaguely singular while the row shows a multiplier.
+            let missing = missingAccounts(reading)
+            guard missing > 1 else { return L("consider adding an account") }
+            return String(localized: "at this pace, add \(missing) accounts", bundle: AppLocale.bundle)
+        }
+    }
+
     /// The numbers behind the verdict, for the hover tooltip - the "why" the one-liner elides -
     /// followed by when the provider next gets quota back, because "do I need another account"
     /// is really "can I wait for the refill". Same wording as the gauge's refill label and the
@@ -130,7 +191,8 @@ extension PopoverRootView {
         let demand = String(format: "%.1f", reading.demandPerWeek)
         let burn = "\(Int(reading.activeBurnPerHour.rounded()))%"
         let starved = String(format: "%.1fh", reading.starvedHoursPerWeek)
-        var lines = [String(localized: "weekly need \(demand) accounts · active burn \(burn)/h · starved \(starved)/wk",
+        var lines = [verdictSentence(reading),
+                     String(localized: "weekly need \(demand) accounts · active burn \(burn)/h · starved \(starved)/wk",
                             bundle: AppLocale.bundle)]
         let now = Date()
         for refill in upcomingRefills(reading.provider, now: now) {

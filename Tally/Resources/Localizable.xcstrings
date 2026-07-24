@@ -3887,6 +3887,64 @@
         }
       }
     },
+    "That credit was already used": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該次重置已使用過"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该次重置已使用过"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのクレジットは使用済みです"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 크레딧은 이미 사용됨"
+          }
+        }
+      }
+    },
+    "No reset credit available": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有可用的重置額度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可用的重置额度"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用できるリセットがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 가능한 리셋이 없음"
+          }
+        }
+      }
+    },
     "The ◯ on a card pins that account; clicking the ✓ releases it back to Smart.": {
       "extractionState": "manual",
       "localizations": {
@@ -5652,6 +5710,35 @@
         }
       }
     },
+    "at this pace, add %@ accounts": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照這個速度，建議再加 %@ 個帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照这个速度，建议再加 %@ 个账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペースならアカウントを %@ 個追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 속도라면 계정 %@개 추가 권장"
+          }
+        }
+      }
+    },
     "current accounts are sufficient": {
       "extractionState": "manual",
       "localizations": {
@@ -5677,6 +5764,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "현재 계정으로 충분합니다"
+          }
+        }
+      }
+    },
+    "still collecting history": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在累積歷史"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在累积历史"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴を蓄積中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기록 수집 중"
           }
         }
       }

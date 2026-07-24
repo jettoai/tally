@@ -97,14 +97,42 @@ enum CodexAppServerClient {
     /// write Tally ever performs against a provider, and only ever behind an explicit user
     /// confirmation. Returns a short outcome token ("redeemed", "noCredit", …); nil = transport
     /// failure before an answer.
-    static func consumeSoonestResetCredit(codexHome: String, timeout: TimeInterval = 30) async -> String? {
-        guard let binary = CLIRunner.resolve("codex") else { return nil }
+    static func consumeSoonestResetCredit(codexHome: String,
+                                          timeout: TimeInterval = 30) async -> RedeemOutcome {
+        guard let binary = CLIRunner.resolve("codex") else { return .failed(nil) }
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: consumeFlow(binary: binary, codexHome: codexHome,
-                                                           timeout: timeout))
+                continuation.resume(returning: classifyRedeem(
+                    consumeFlow(binary: binary, codexHome: codexHome, timeout: timeout)))
             }
         }
+    }
+
+    /// What a redeem attempt actually did, in the app's own terms. The server answers with a bare
+    /// protocol token whose vocabulary is its own ("reset", "redeemed", an error message), and the
+    /// panel used to print any token it could not recognise verbatim: a successful redeem answered
+    /// with "reset" surfaced as a lowercase English word floating under the card (2026-07-25). A
+    /// closed type makes that structurally impossible - no raw token can reach a view again.
+    enum RedeemOutcome: Equatable {
+        case redeemed
+        case alreadyUsed
+        case noCredit
+        /// The server's own words, kept for the hover tooltip only, never for the row.
+        case failed(String?)
+    }
+
+    /// Map the server's token onto the closed set. Success is spelled several ways across versions,
+    /// so recognition is by vocabulary rather than one exact string, and anything unrecognised is a
+    /// failure carrying its detail rather than a mystery word in the UI.
+    static func classifyRedeem(_ token: String?) -> RedeemOutcome {
+        guard let token, !token.isEmpty else { return .failed(nil) }
+        let lowered = token.lowercased()
+        if lowered.contains("already") { return .alreadyUsed }
+        if lowered == "nocredit" { return .noCredit }
+        for word in ["redeem", "reset", "success", "consumed", "ok"] where lowered.contains(word) {
+            return .redeemed
+        }
+        return .failed(token)
     }
 
     private static func consumeFlow(binary: String, codexHome: String,

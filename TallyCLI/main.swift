@@ -24,6 +24,21 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         pinned = passthrough[index + 1]
         passthrough.removeSubrange(index ... index + 1)
     }
+    // `-w/--worktree [name]` launches inside a git worktree (claude only): resolve/create it, share
+    // the project's memory, run the repo setup hook, and chdir so the supervisor and the CLI inherit
+    // it. Done before the env early-exit below so even a bare passthrough runs in the worktree.
+    let (wantsWorktree, worktreeName) = extractWorktreeFlag(&passthrough)
+    if wantsWorktree, provider.id != "claude" {
+        warn("--worktree is claude-only for now")
+        exit(2)
+    }
+    // Suppress "continue" for a worktree with no conversation to continue (fresh, or a hand-made one
+    // with no session yet): strip a hand-typed --continue/--resume (claude errors out continuing
+    // nothing) and mark it new so the policy's continue-by-default is suppressed via wantsNew.
+    let worktreeFresh = wantsWorktree ? enterWorktree(name: worktreeName) : false
+    if worktreeFresh, stripContinueResume(&passthrough) {
+        warn("no conversation in this worktree yet - starting fresh")
+    }
     let wantsHandoff = autoHandoffEnabled(args: passthrough)
     passthrough.removeAll { $0 == "--no-handoff" }   // tally's own flag, never passed through
     // A running session follows a later Settings change to the default model/effort UNLESS the
@@ -46,7 +61,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // their own on the same axis - explicit flags always win. `--new` is tally's own flag: it
     // suppresses a "continue by default" setting for this one launch and is never passed through.
     let policy = launchPolicy(provider.id)
-    let wantsNew = passthrough.contains("--new")
+    let wantsNew = passthrough.contains("--new") || worktreeFresh
     passthrough.removeAll { $0 == "--new" }
     if provider.id == "claude" {
         if let mode = policy.permissionMode,
@@ -454,6 +469,8 @@ default:
       tally claude [args…]      launch Claude Code on the best account (auto-handoff on cap hit;
                                 opt out with --no-handoff or TALLY_AUTO_HANDOFF=0)
       tally claude --account <n>  pin a specific account (label or config-dir name)
+      tally claude -w [name]    launch in a git worktree (creates ../<repo>-<name> if needed,
+                                shares project memory, runs .tally/worktree-setup.sh); bare -w lists existing
       tally codex [args…]       launch Codex on the best account
       tally resume [args…]      continue this directory's latest Claude session on the best account
       tally status [--json]     show every account's remaining windows (--json: versioned

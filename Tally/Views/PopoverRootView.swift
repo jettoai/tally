@@ -169,9 +169,13 @@ struct PopoverRootView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .rotationEffect(.degrees(store.isRefreshing ? 360 : 0))
+                    // Ending the spin must SNAP to zero: animating back after an interrupted
+                    // repeatForever unwinds the arrow from wherever it stopped, which reads as
+                    // the button bobbing on every refresh. 0 and 360 draw identically, so the
+                    // snap is invisible.
                     .animation(store.isRefreshing
                         ? .linear(duration: 1).repeatForever(autoreverses: false)
-                        : .default, value: store.isRefreshing)
+                        : nil, value: store.isRefreshing)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }

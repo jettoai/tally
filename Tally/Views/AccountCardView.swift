@@ -103,10 +103,18 @@ struct AccountCardView: View {
                         if !DemoUsage.isActive { presentRedeemConfirm() }
                     } label: {
                         HStack(spacing: 3) {
-                            Image(systemName: "arrow.counterclockwise")
-                                .font(.system(size: 9))
-                            Text(verbatim: "\(resets) ")
-                                + Text(L(resets == 1 ? "reset available" : "resets available"))
+                            // The redeem round-trips the provider's app server; without a busy
+                            // state the click reads as dead until the new quota pops in.
+                            if redeemBusy {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                Text(L("redeeming…"))
+                            } else {
+                                Image(systemName: "arrow.counterclockwise")
+                                    .font(.system(size: 9))
+                                Text(verbatim: "\(resets) ")
+                                    + Text(L(resets == 1 ? "reset available" : "resets available"))
+                            }
                         }
                         .font(.caption2)
                         .foregroundStyle(.secondary)

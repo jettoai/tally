@@ -294,7 +294,11 @@ struct AccountCardView: View {
             // (live multi-monitor incident 2026-07-20). Re-assert it from inside the modal
             // run loop, right after the show.
             RunLoop.main.perform(inModes: [.modalPanel]) {
-                window.setFrameOrigin(origin)
+                // A RunLoop.main callout always executes on the main thread; the closure just
+                // isn't annotated, so tell the compiler rather than hop actors.
+                MainActor.assumeIsolated {
+                    window.setFrameOrigin(origin)
+                }
             }
         }
         if alert.runModal() == .alertFirstButtonReturn { redeem() }

@@ -188,4 +188,131 @@ check("a failing setup hook warns without crashing", true)
 runSetupHook(WorktreeLaunch(mainRepo: tempDir(), path: tempDir(), name: "z", created: false))
 check("an absent setup hook is a no-op", true)
 
+// MARK: - 6. Menu rendering (pure)
+
+let menuRows = [
+    MenuRow(branch: "feat/a", age: "2 hours ago", dirty: false, subject: "add the thing"),
+    MenuRow(branch: "fix/b", age: "", dirty: true,
+            subject: String(repeating: "x", count: 60)),
+]
+let rendered = renderRows(menuRows, highlighted: 0)
+check("render emits one line per row plus the new-worktree line", rendered.count == 3)
+check("the highlighted row wears the cursor marker", rendered[0].contains("\u{25B8}"))
+check("a non-highlighted row has no cursor marker", !rendered[1].contains("\u{25B8}"))
+check("a dirty row shows the yellow dot", rendered[1].contains("\u{25CF}"))
+check("a clean row shows no dot", !rendered[0].contains("\u{25CF}"))
+check("an empty age renders as 'no commits'", rendered[1].contains("no commits"))
+check("the trailing line is the new-worktree option", rendered[2].contains("n) new worktree"))
+check("highlighting the new-worktree line moves the cursor there",
+      renderRows(menuRows, highlighted: 2)[2].contains("\u{25B8}") &&
+      !renderRows(menuRows, highlighted: 2)[0].contains("\u{25B8}"))
+
+check("a short subject is left intact", truncateSubject("short") == "short")
+let clipped = truncateSubject(String(repeating: "a", count: 60))
+check("a long subject clips to 40 chars ending in an ellipsis",
+      clipped.count == 40 && clipped.hasSuffix("\u{2026}"))
+check("a subject exactly at the limit is not clipped",
+      truncateSubject(String(repeating: "b", count: 40)).count == 40 &&
+      !truncateSubject(String(repeating: "b", count: 40)).hasSuffix("\u{2026}"))
+
+// MARK: - 7. Key decoding (pure)
+
+check("ESC [ A decodes to up", decodeKey([0x1B, 0x5B, 0x41]) == .up)
+check("ESC [ B decodes to down", decodeKey([0x1B, 0x5B, 0x42]) == .down)
+check("a lone ESC is a cancel, distinct from the arrow sequence", decodeKey([0x1B]) == .cancel)
+check("an unknown CSI final byte is other", decodeKey([0x1B, 0x5B, 0x43]) == .other)
+check("CR is enter", decodeKey([0x0D]) == .enter)
+check("LF is enter", decodeKey([0x0A]) == .enter)
+check("n opens a new worktree", decodeKey([0x6E]) == .newKey)
+check("N opens a new worktree", decodeKey([0x4E]) == .newKey)
+check("q cancels", decodeKey([0x71]) == .cancel)
+check("j moves down", decodeKey([0x6A]) == .down)
+check("k moves up", decodeKey([0x6B]) == .up)
+check("a digit decodes to its number", decodeKey([0x35]) == .digit(5))
+check("zero decodes as digit zero (caller treats it as out of range)",
+      decodeKey([0x30]) == .digit(0))
+check("an unrelated letter is other", decodeKey([0x7A]) == .other)
+check("an empty sequence is other", decodeKey([]) == .other)
+check("a modified arrow (ESC [ 1 ; 2 A) is other as one sequence, never a digit",
+      decodeKey([0x1B, 0x5B, 0x31, 0x3B, 0x32, 0x41]) == .other)
+check("an SS3 arrow (ESC O A) is other, not a leak of its final byte",
+      decodeKey([0x1B, 0x4F, 0x41]) == .other)
+
+// MARK: - 8. Menu state transitions (pure combo layer)
+
+// Two existing rows (rowCount = 2); highlights 0,1 are rows, 2 is the new-worktree line.
+check("down moves the highlight forward", applyKey(.down, highlighted: 0, rowCount: 2).highlighted == 1)
+check("down wraps past the new-worktree line back to the top",
+      applyKey(.down, highlighted: 2, rowCount: 2).highlighted == 0)
+check("up wraps from the top to the new-worktree line",
+      applyKey(.up, highlighted: 0, rowCount: 2).highlighted == 2)
+check("a move commits no selection", applyKey(.down, highlighted: 0, rowCount: 2).selection == nil)
+check("enter on a row selects that existing worktree",
+      applyKey(.enter, highlighted: 1, rowCount: 2).selection == .existing(1))
+check("enter on the new-worktree line selects new",
+      applyKey(.enter, highlighted: 2, rowCount: 2).selection == .newWorktree)
+check("a digit maps to a 1-based existing row",
+      applyKey(.digit(2), highlighted: 0, rowCount: 2).selection == .existing(1))
+check("an out-of-range digit is ignored, highlight unchanged",
+      applyKey(.digit(5), highlighted: 0, rowCount: 2).selection == nil &&
+      applyKey(.digit(5), highlighted: 0, rowCount: 2).highlighted == 0)
+check("digit zero is out of range and ignored",
+      applyKey(.digit(0), highlighted: 0, rowCount: 2).selection == nil)
+check("the new key always selects new regardless of highlight",
+      applyKey(.newKey, highlighted: 0, rowCount: 2).selection == .newWorktree)
+check("cancel selects cancelled", applyKey(.cancel, highlighted: 1, rowCount: 2).selection == .cancelled)
+check("an other key is a no-op",
+      applyKey(.other, highlighted: 1, rowCount: 2).selection == nil &&
+      applyKey(.other, highlighted: 1, rowCount: 2).highlighted == 1)
+
+// A full keystroke sequence: down, down (wrap to new line), then Enter -> new worktree.
+var hl = 0
+for key in [Key.down, .down, .enter] {
+    let step = applyKey(key, highlighted: hl, rowCount: 2)
+    hl = step.highlighted
+    if let sel = step.selection {
+        check("down,down,enter over 2 rows lands on new worktree", sel == .newWorktree)
+    }
+}
+
+// MARK: - 9. Width-aware line clipping (pure)
+
+check("an ASCII line within the budget is returned unchanged",
+      clipToDisplayWidth("hello", columns: 20) == "hello")
+
+// A clipped line always ends with the ellipsis followed by an ANSI reset (color cannot bleed).
+let ellipsisReset = "\u{2026}\u{1B}[0m"
+let longAscii = clipToDisplayWidth(String(repeating: "a", count: 40), columns: 21)
+check("an over-width ASCII line clips to exactly the column budget",
+      displayColumns(longAscii) == 21)
+check("a clipped ASCII line ends in an ellipsis then a reset", longAscii.hasSuffix(ellipsisReset))
+
+// A wide (CJK) scalar counts as two columns: a run of them clips to the same display width as the
+// ASCII case but keeps only half as many visible characters.
+let longCJK = clipToDisplayWidth(String(repeating: "\u{4E2D}", count: 40), columns: 21)
+check("a CJK line clips to within the column budget", displayColumns(longCJK) <= 21)
+check("wide chars count as two: the CJK clip keeps half the visible character count",
+      longAscii.filter { $0 == "a" }.count == 20 &&
+      longCJK.filter { $0 == "\u{4E2D}" }.count == 10)
+check("a clipped CJK line ends in an ellipsis then a reset", longCJK.hasSuffix(ellipsisReset))
+
+// ANSI codes cost zero display width and are not split; a clipped colored line ends with a reset so
+// its color cannot bleed onto the next physical line.
+let purple = "\u{1B}[38;5;135m"
+let reset = "\u{1B}[0m"
+let coloredLine = purple + String(repeating: "a", count: 40) + reset
+let coloredClip = clipToDisplayWidth(coloredLine, columns: 21)
+check("ANSI codes are not counted toward display width",
+      displayColumns(coloredClip) == displayColumns(longAscii))
+check("a clipped colored line ends with the reset sequence", coloredClip.hasSuffix(reset))
+check("the color code survives the clip intact", coloredClip.contains(purple))
+
+// An escape sequence straddling the clip point is copied whole, never split: a naive
+// character-count clipper would have cut the yellow code in half here.
+let yellow = "\u{1B}[33m"
+let straddling = String(repeating: "a", count: 19) + yellow + "bcdef"
+let straddleClip = clipToDisplayWidth(straddling, columns: 21)
+check("an escape sequence at the clip boundary is kept intact", straddleClip.contains(yellow))
+check("the straddling-escape clip still respects the budget", displayColumns(straddleClip) <= 21)
+
 exit(failures == 0 ? 0 : 1)

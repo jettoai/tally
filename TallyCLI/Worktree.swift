@@ -135,19 +135,45 @@ func resolveWorktree(name providedName: String?) -> WorktreeLaunch {
     return WorktreeLaunch(mainRepo: mainRepo, path: realpathString(path), name: name, created: true)
 }
 
-/// Bare `-w`: list existing worktrees on stderr and read a choice from /dev/tty (stdout stays a
-/// clean pipe for the exec that follows, and stdin belongs to the CLI). A number reuses that
-/// worktree's branch; `n` (or an empty list) prompts for a new branch name. A closed tty,
-/// empty input, or EOF exits non-zero rather than guessing.
+/// Bare `-w`: choose a worktree. With no existing worktrees, skip straight to naming a new one.
+/// Otherwise try the arrow-key menu (WorktreeMenu.swift); a non-interactive session (no tty, dumb
+/// terminal, or raw mode unavailable) falls back to the numbered stderr prompt. Either way stdout
+/// stays a clean pipe for the exec that follows and stdin belongs to the CLI. `n` prompts for a new
+/// branch name; a cancel, empty input, or EOF exits non-zero rather than guessing.
 private func promptWorktreeName(mainRepo: String, entries: [WorktreeEntry]) -> String {
+    let others = entries.filter { $0.branch != nil && !isMainCheckout($0, mainRepo: mainRepo) }
+    if others.isEmpty {
+        return promptNewBranchViaTTY()
+    }
+    if let selection = selectWorktree(rows: buildMenuRows(others)) {
+        switch selection {
+        case .existing(let index): return others[index].branch!
+        case .newWorktree: return promptNewBranchViaTTY()
+        case .cancelled: exit(1)
+        }
+    }
+    return promptNumberedMenu(others: others)
+}
+
+/// Resolve the git facts each menu row shows: relative age (`%cr`), a dirty flag, and the last
+/// commit subject (`%s`), which the renderer clips.
+private func buildMenuRows(_ others: [WorktreeEntry]) -> [MenuRow] {
+    others.map { entry in
+        let age = runGit(["-C", entry.path, "log", "-1", "--format=%cr"]).out
+        let dirty = !runGit(["-C", entry.path, "status", "--porcelain"]).out.isEmpty
+        let subject = runGit(["-C", entry.path, "log", "-1", "--format=%s"]).out
+        return MenuRow(branch: entry.branch!, age: age, dirty: dirty, subject: subject)
+    }
+}
+
+/// The numbered stderr prompt kept for non-interactive sessions: prints the list on stderr and
+/// reads one line from /dev/tty. A number reuses that worktree's branch; `n` names a new one.
+private func promptNumberedMenu(others: [WorktreeEntry]) -> String {
     guard let tty = fopen("/dev/tty", "r") else {
         warn("pass a name: tally claude -w <name>")
         exit(1)
     }
-    let others = entries.filter { $0.branch != nil && !isMainCheckout($0, mainRepo: mainRepo) }
-    if others.isEmpty {
-        return promptNewBranch(tty)
-    }
+    defer { fclose(tty) }
     var menu = "existing worktrees:\n"
     for (i, entry) in others.enumerated() {
         let age = runGit(["-C", entry.path, "log", "-1", "--format=%cr"]).out
@@ -166,6 +192,16 @@ private func promptWorktreeName(mainRepo: String, entries: [WorktreeEntry]) -> S
     }
     warn("not a valid choice")
     exit(1)
+}
+
+/// Open /dev/tty for a single line of new-branch input, used after the menu picks "new worktree".
+private func promptNewBranchViaTTY() -> String {
+    guard let tty = fopen("/dev/tty", "r") else {
+        warn("pass a name: tally claude -w <name>")
+        exit(1)
+    }
+    defer { fclose(tty) }
+    return promptNewBranch(tty)
 }
 
 private func promptNewBranch(_ tty: UnsafeMutablePointer<FILE>) -> String {

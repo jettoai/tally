@@ -214,6 +214,9 @@ final class UsageStore {
             republishSnapshot()
             // Sample fresh results into the burn-rate history (change-only, off-main-queue).
             UsageHistory.shared.record(results)
+            // Alert when the claude flagship fleet pool crosses the low/dry tripwire. Release
+            // variant only: the dev variant never owns the shared surfaces, so it never alerts.
+            notifyFlagshipDryness(accounts: labeled)
         }
         let now = Date()
         UsageHistory.shared.samples(
@@ -261,6 +264,31 @@ final class UsageStore {
                            statuslineFullQuota: SettingsStore.shared.statuslineFullQuota,
                            displayMode: SettingsStore.shared.displayMode.rawValue,
                            fleet: fleet, fleetPools: fleetPools).write()
+    }
+
+    /// Feed the claude flagship weekly pool to the dry-pool notifier. The flagship window is chosen
+    /// by tier order (not the gauge's display focus), so the tripwire watches the top model pool
+    /// regardless of what the panel currently shows. No pool (fewer than two accounts share the
+    /// flagship window) means nothing to arm.
+    private func notifyFlagshipDryness(accounts labeled: [AccountUsage]) {
+        let now = Date()
+        let summaries = FleetMath.summaries(accounts: labeled, now: now) { $0.accountLabel }
+        guard let summary = summaries.first(where: { $0.providerID == "claude" }),
+              let flagship = FleetFocus.flagship(summary.modelPoolNames,
+                                                 order: ModelCatalog.claudeAliases),
+              let pool = summary.pools.first(where: {
+                  $0.kind == .weeklyModel && ($0.modelName ?? $0.label) == flagship
+              }),
+              // No known upcoming reset means stale or partial data (e.g. wake-from-sleep with
+              // fetches still failing): a nil reset would read as a new cycle and re-fire a stale
+              // alert. Skip this round; the next successful fetch recovers naturally.
+              pool.nextReset != nil else { return }
+        DryPoolNotifier.shared.evaluate(
+            remaining: pool.totalRemaining,
+            capacity: Double(pool.members.count) * 100,
+            accountCount: pool.members.count,
+            resetAt: pool.nextReset,
+            windowName: pool.modelName ?? pool.label)
     }
 
     /// The model name the display leads with for `providerID`, given the available model window

@@ -35,6 +35,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UpdateAvailability.shared.isDownloaded = UserDefaults.standard.bool(forKey: "TallyUpdateChipReady")
         }
         UsageStore.shared.start()
+        // Volatile launch flag (argument domain): post one sample low-tier notification so the
+        // permission prompt and the alert's look can be verified without waiting for a real
+        // tripwire. No state is persisted, so a normal launch is unaffected.
+        if UserDefaults.standard.bool(forKey: "TallyDryNotifyTest") {
+            DryPoolNotifier.shared.postSampleNotification()
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

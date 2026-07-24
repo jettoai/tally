@@ -5565,6 +5565,35 @@
         }
       }
     },
+    "List worktrees; remove <name> cleans one up after merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出 worktree; remove <name> 在 merge 後清理該條"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出 worktree; remove <name> 在 merge 后清理该条"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "worktree を一覧表示; remove <name> はマージ後に片付け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "worktree 목록 표시; remove <name>은 머지 후 정리"
+          }
+        }
+      }
+    },
     "collecting data (%@ of %@ days)": {
       "extractionState": "manual",
       "localizations": {

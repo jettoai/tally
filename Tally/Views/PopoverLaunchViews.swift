@@ -89,6 +89,7 @@ extension PopoverRootView {
                     commandRow("tally claude --continue", caption: L("Continue the latest session"))
                 }
                 commandRow("tally claude -w", caption: L("Parallel session in a git worktree (bare -w lists existing)"))
+                commandRow("tally worktree", caption: L("List worktrees; remove <name> cleans one up after merge"))
                 commandRow("tally codex", caption: L("New session"))
                 // The cross-account conversation mover is only taught where it has a job:
                 // with every claude home sharing one projects tree (detected, not assumed),

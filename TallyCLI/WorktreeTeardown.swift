@@ -333,17 +333,75 @@ func removeTranscriptDirs(slug: String, homes: [String]) -> Bool {
     return removedAny
 }
 
+// MARK: - List
+
+/// One report row, tab-separated so it stays greppable and pipeable (the only worktree command that
+/// writes to stdout). Columns, in order: branch, age ("no commits" when the branch has none), a
+/// dirty marker ("*" when the working tree is dirty, "" when clean), the live agent count
+/// ("N agent"/"N agents", or "-" when none are running in the worktree), and the last commit
+/// subject truncated to fit. No ANSI: this is a machine-readable report, not the interactive menu.
+func formatWorktreeListLine(branch: String, age: String, dirty: Bool,
+                            liveAgents: Int, subject: String) -> String {
+    let ageText = age.isEmpty ? "no commits" : age
+    let dirtyText = dirty ? "*" : ""
+    let agentsText = liveAgents > 0 ? "\(liveAgents) agent\(liveAgents == 1 ? "" : "s")" : "-"
+    return "\(branch)\t\(ageText)\t\(dirtyText)\t\(agentsText)\t\(truncateSubject(subject))"
+}
+
+/// Build the report lines, one per worktree. Git facts come from `buildMenuRows` (the same age/dirty/
+/// subject the menu shows); the process list is passed in (a single scan, reused across worktrees)
+/// so tests can assert line count and content without a real scan or stdout capture.
+func worktreeListLines(_ others: [WorktreeEntry], processes: [ProcInfo]) -> [String] {
+    zip(others, buildMenuRows(others)).map { entry, row in
+        let realPath = realpathString(entry.path)
+        let liveAgents = processes.filter {
+            shouldKill(name: $0.name, cwd: $0.cwd, worktreePath: realPath)
+        }.count
+        return formatWorktreeListLine(branch: row.branch, age: row.age, dirty: row.dirty,
+                                      liveAgents: liveAgents, subject: row.subject)
+    }
+}
+
+/// `tally worktree list` (and bare `tally worktree`): print the branch-backed non-main worktrees to
+/// stdout, one greppable line each. Not a git repo warns and exits 1; an empty list notes on stderr
+/// and exits 0 (stdout stays clean for pipes).
+func runWorktreeList() -> Int32 {
+    let common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+    guard common.code == 0, !common.out.isEmpty else {
+        warn("not inside a git repository")
+        return 1
+    }
+    let mainRepo = realpathString((common.out as NSString).deletingLastPathComponent)
+    let entries = parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], cwd: mainRepo).out)
+    let others = entries.filter { $0.branch != nil && !isMainCheckout($0, mainRepo: mainRepo) }
+    if others.isEmpty {
+        warn("no worktrees")
+        return 0
+    }
+    // One process scan for the whole report: defaultListProcesses returns every candidate process
+    // (its worktreePath argument is not a filter), and shouldKill narrows per worktree below.
+    let processes = defaultListProcesses(worktreePath: mainRepo)
+    for line in worktreeListLines(others, processes: processes) {
+        print(line)
+    }
+    return 0
+}
+
 // MARK: - CLI entry
 
-/// `tally worktree <subcommand>`: dispatch the teardown subcommand. Unknown subcommands print usage
-/// and exit 2.
+/// `tally worktree <subcommand>`: dispatch. Bare (`tally worktree`) and `list` both print the report;
+/// unknown subcommands print usage and exit 2.
 func runWorktree(args: [String]) -> Never {
     switch args.first {
     case "remove":
         exit(runWorktreeRemove(args: Array(args.dropFirst())))
+    case "list", nil:
+        exit(runWorktreeList())
     default:
         warn("""
         usage:
+          tally worktree list       list this repo's worktrees, one greppable line each
+                                    (bare `tally worktree` is the same)
           tally worktree remove [name] [--force] [--keep-transcripts]
                                     remove a merged worktree: kill its agents, delete the worktree,
                                     its branch, and its transcript dir (bare: pick from a menu)

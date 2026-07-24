@@ -443,4 +443,52 @@ check("the tag-shadowed worktree is left in place",
 check("killing an empty target list touches nothing and returns zero",
       killWorktreeProcesses([]) == 0)
 
+// MARK: - 14. List: line formatting (pure)
+
+check("a clean worktree with commits and no agents formats all five columns",
+      formatWorktreeListLine(branch: "feat/a", age: "2 hours ago", dirty: false,
+                             liveAgents: 0, subject: "add the thing")
+        == "feat/a\t2 hours ago\t\t-\tadd the thing")
+check("a dirty worktree shows the * marker",
+      formatWorktreeListLine(branch: "fix/b", age: "1 day ago", dirty: true,
+                             liveAgents: 0, subject: "wip").contains("\t*\t"))
+check("an empty age renders as 'no commits'",
+      formatWorktreeListLine(branch: "new", age: "", dirty: false,
+                             liveAgents: 0, subject: "").hasPrefix("new\tno commits\t"))
+check("an empty subject leaves the trailing column empty",
+      formatWorktreeListLine(branch: "new", age: "now", dirty: false,
+                             liveAgents: 0, subject: "").hasSuffix("\t-\t"))
+check("a single live agent is singular",
+      formatWorktreeListLine(branch: "b", age: "now", dirty: false,
+                             liveAgents: 1, subject: "s").contains("\t1 agent\t"))
+check("multiple live agents are plural",
+      formatWorktreeListLine(branch: "b", age: "now", dirty: false,
+                             liveAgents: 3, subject: "s").contains("\t3 agents\t"))
+check("a long subject is truncated to the shared 40-char cap",
+      formatWorktreeListLine(branch: "b", age: "now", dirty: false, liveAgents: 0,
+                             subject: String(repeating: "x", count: 60))
+        .hasSuffix("\t" + truncateSubject(String(repeating: "x", count: 60))))
+
+// MARK: - 15. List: repo scan (real git)
+
+let listRepo = tempDir()
+sh("git init -q && git config user.email t@t && git config user.name t && " +
+   "git commit -q --allow-empty -m init", cwd: listRepo)
+FileManager.default.changeCurrentDirectoryPath(listRepo)
+check("listing a repo with no worktrees exits 0", runWorktreeList() == 0)
+
+let listWt = resolveWorktree(name: "feat-list")
+sh("git commit -q --allow-empty -m 'list subject'", cwd: listWt.path)
+let listLines = worktreeListLines(
+    [WorktreeEntry(path: listWt.path, branch: "feat-list")], processes: [])
+check("one report line per worktree", listLines.count == 1)
+check("the report line names the branch and has five tab columns",
+      listLines[0].hasPrefix("feat-list\t") && listLines[0].filter { $0 == "\t" }.count == 4)
+check("with no processes the agent column is '-'", listLines[0].contains("\t-\t"))
+let listWt2 = resolveWorktree(name: "feat-list-2")
+let listLines2 = worktreeListLines(
+    [WorktreeEntry(path: listWt.path, branch: "feat-list"),
+     WorktreeEntry(path: listWt2.path, branch: "feat-list-2")], processes: [])
+check("two worktrees produce two report lines", listLines2.count == 2)
+
 exit(failures == 0 ? 0 : 1)

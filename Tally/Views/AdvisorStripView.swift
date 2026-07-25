@@ -12,18 +12,34 @@ extension PopoverRootView {
     /// Pip diameter: large enough that solid and hollow are told apart at a glance, small enough to
     /// sit inside a caption row without becoming the loudest thing in it.
     private static let pipSize: CGFloat = 7
-    /// Beyond this many pips the row asks to be counted rather than seen; the rest fold into "+N".
-    private static let maxPips = 4
-    /// Hollow pips fold sooner: a gap of four is a sentence, not a shape.
-    private static let maxHollowPips = 3
+    /// Pips are drawn one per account, because the count is the point and a number in their place
+    /// reads as an abbreviation of it. The caps exist only so a pathological reading (a pace asking
+    /// for a dozen accounts) cannot run the row off the panel; up to here, what you see is what you
+    /// have and what you would add.
+    private static let maxPips = 6
+    private static let maxHollowPips = 6
 
     @ViewBuilder
     var advisorStrip: some View {
         let readings = visibleAdvisorReadings
         if !readings.isEmpty {
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(readings, id: \.provider) { reading in
-                    advisorRow(reading)
+            Group {
+                // Two providers stand side by side on a wide enough panel, under the fleet gauges
+                // that already split the same way: stacking two short rows down the left half left
+                // the right half empty and the advisor reading as a separate, lesser strip.
+                if readings.count == 2, popoverWidth >= Self.twoColumnPanelWidth {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(readings, id: \.provider) { reading in
+                            advisorRow(reading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(readings, id: \.provider) { reading in
+                            advisorRow(reading)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 12)
@@ -125,9 +141,9 @@ extension PopoverRootView {
             if folded > 0 {
                 Text(verbatim: "+\(folded)").foregroundStyle(.secondary)
             }
-            // A recommendation of one is one ring; a bigger gap becomes a ring with a multiplier,
-            // because four identical rings are counted, not seen, and they crowd the figure.
-            ForEach(0 ..< min(missing, Self.maxHollowPips), id: \.self) { _ in
+            // One ring per account to add. Only a gap past the cap collapses to a ring plus a
+            // multiplier, and that is a fallback for absurd numbers, not the normal reading.
+            ForEach(0 ..< (missing > Self.maxHollowPips ? 1 : missing), id: \.self) { _ in
                 Circle()
                     .strokeBorder(TallyColor.warning, lineWidth: 1.2)
                     .frame(width: Self.pipSize, height: Self.pipSize)

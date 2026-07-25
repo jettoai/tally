@@ -321,6 +321,11 @@ struct SettingsView: View {
         toggleRow(L("Full quota in status line"),
                   subtitle: L("Adds a quota line (bars, percents, resets) even under a custom status line. Turn on if you drop your own quota rendering and rely on Tally's."),
                   isOn: $settings.statuslineFullQuota)
+        rowDivider
+        // An ACTION, not an install: it sits after the install/remove set so that group stays
+        // whole, and here rather than in the panel footer, where a second circular-arrow control
+        // next to the quota refresh would read as the same thing.
+        SettingsReloadRow()
         if let error = integrations.lastError {
             rowDivider
             Text(error)

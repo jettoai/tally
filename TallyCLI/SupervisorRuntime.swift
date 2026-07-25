@@ -41,6 +41,37 @@ func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
     return out
 }
 
+/// The launch args a relaunch runs with. A known session id resumes that conversation. With no id
+/// (the child has not written a transcript yet, so the watcher located nothing) it depends on where
+/// the relaunch lands: a move to ANOTHER account drops `--continue`/`--resume` so it cannot pull up
+/// an unrelated old conversation there, but a relaunch on the SAME account keeps the original
+/// `--continue` - stripping it would open an EMPTY session instead of the one the user resumed
+/// (`tally claude --continue` restarted before its first turn, 2026-07-25). On the same home
+/// `--continue` can only reach that same latest conversation.
+func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [String] {
+    var next: [String] = []
+    var skip = false
+    for argument in args {
+        if skip { skip = false; continue }
+        switch argument {
+        case "--continue", "-c": continue
+        case "--resume", "-r": skip = true; continue
+        default: next.append(argument)
+        }
+    }
+    if let sessionID { return ["--resume", sessionID] + next }
+    guard sameAccount, args.contains(where: { $0 == "--continue" || $0 == "-c" }) else { return next }
+    return ["--continue"] + next
+}
+
+/// How still a session must be before a NON-URGENT relaunch takes it (a follow adoption, a reload
+/// request). The 5s default of `isQuiet` proves only that no turn is streaming, which is the right
+/// bar for a REPAIR (a cap handoff, a degradation rescue: the sooner the better) but far too low
+/// for a preference change: five seconds of silence is also what "read the answer, now typing the
+/// next prompt" looks like, and the relaunch would take the half-typed prompt with it. A preference
+/// can wait for the session to actually be left alone (owner request, 2026-07-25).
+let followIdleSeconds: TimeInterval = 120
+
 // MARK: - Build version and supervision status
 
 /// The app version this `tally` binary ships inside, read from the enclosing bundle's Info.plist.
@@ -177,6 +208,22 @@ struct PendingCapRecovery {
     var nextRetry: Date
     /// The last waiting-state note shown, so the terminal warns only when the reason changes.
     var reason: String
+}
+
+/// The pending cap recovery a relaunch hands to the next child, or nil to start it clean.
+///
+/// Only a RELOAD carries it. That relaunch restarts the same conversation on the same account for
+/// reasons that have nothing to do with the cap, and a capped session with no sibling to take it is
+/// by definition quiet, so a reload always restarts it - while the new child's watcher filters the
+/// original cap event away as history. Dropping the pending state there would leave the session
+/// waiting on an account that has stopped serving, with nothing left to notice when a sibling frees
+/// up: the automatic handoff would only resume after the user hit the wall a second time
+/// (2026-07-25). Every other reason genuinely changes the situation - a cap handoff moved account,
+/// a pin or follow re-pointed the session, a fallback changed the model pairing - so the next child
+/// starts from scratch, as it always has.
+func capCarriedAcrossRelaunch(_ pending: PendingCapRecovery?,
+                              reason: String) -> PendingCapRecovery? {
+    reason == "reload" ? pending : nil
 }
 
 /// What to do about a pending cap this tick, given the live launch policy and account picture.

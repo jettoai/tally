@@ -51,13 +51,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// floor only guards against adopting a transient mid-write; the atomic write means one Apply is
     /// one relaunch regardless.
     let followDebounce: TimeInterval = 2
-    /// How still a session must be before a follow relaunch takes it. The 5s default proves only
-    /// that no turn is streaming, which is the right bar for a REPAIR (a cap handoff, a degradation
-    /// rescue: the sooner the better) but far too low for a preference change: five seconds of
-    /// silence is also what "read the answer, now typing the next prompt" looks like, and the
-    /// relaunch would take the half-typed prompt with it. A preference can wait for the session to
-    /// actually be left alone (owner request, 2026-07-25).
-    let followIdleSeconds: TimeInterval = 120
     var pendingSince: Date?
     var pendingModel: String?
     var pendingEffort: String?
@@ -76,6 +69,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// automatic picks for that model until the TTL passes (union with the cross-supervisor shared
     /// records). Persists across relaunches.
     var quarantine: [String: (model: String?, until: Date)] = [:]
+    /// The `tally reload` stamp this supervisor has already served. Captured at startup so an older
+    /// request is never replayed - a child spawned now already carries the edited hooks, skills, and
+    /// instructions the request was about. Held across relaunches, like the fuse and the quarantine.
+    var reloadEpoch = readReloadRequest()?.epoch ?? 0
+    /// The stamp a "waiting for idle" note was printed for, so a session in use says it once.
+    var reloadNotice: Int?
+    /// A pending cap recovery handed from one child to the next (see `capCarriedAcrossRelaunch`).
+    var carriedCap: PendingCapRecovery?
     /// Stamped into the child env so the status line can tell whether the supervisor watching this
     /// session is the current build (a session launched before an app update runs stale logic).
     let supervisorVersion = supervisorBuildVersion()
@@ -83,6 +84,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // Reap drift-state files left by dead supervisors (a SIGKILL skips the clear path) before this
     // one starts writing its own; also shrinks the pid-reuse window for a stale badge.
     sweepDeadSupervisorState()
+    // Register in the same directory as a live supervisor (an empty file; a drift episode fills it
+    // in later): `tally reload` counts these to say how many sessions its request will restart.
+    markSupervisorLive(pid: supervisorPID)
 
     while true {
         let launchedAt = Date()
@@ -132,6 +136,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // real cap hit may need minutes later. `reason` is the audit-log tag only.
         func performHandoff(to target: Snapshot.Account, reason: String, countingFuse: Bool = true) {
             let fromLabel = account.label
+            // Read before `account` moves: a same-account relaunch (fallback profile, reload) keeps
+            // a `--continue` the watcher cannot yet turn into a session id; a real move drops it.
+            let sameAccount = target.id == account.id
             kill(childPID, SIGTERM)   // let claude run its SessionEnd cleanup
             _ = awaitChild()
             clearDriftState(pid: supervisorPID)   // a new child gets a fresh drift monitor
@@ -156,28 +163,19 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                        from: fromLabel, to: target.label, reason: reason)
             if countingFuse { fuse.record() }
             account = target
-            var next: [String] = []
-            var skip = false
-            for argument in launchArgs {
-                if skip { skip = false; continue }
-                switch argument {
-                case "--continue", "-c": continue
-                case "--resume", "-r": skip = true; continue
-                default: next.append(argument)
-                }
-            }
-            if let sessionFile {
-                launchArgs = ["--resume", sessionFile.deletingPathExtension().lastPathComponent] + next
-            } else {
-                launchArgs = next
-            }
+            launchArgs = relaunchArgs(
+                launchArgs,
+                sessionID: sessionFile?.deletingPathExtension().lastPathComponent,
+                sameAccount: sameAccount)
             handoff = true
         }
 
         // A cap this child could not hand off yet: remembered across poll ticks so a blocked
         // handoff retries instead of stranding the session. Reset per child - a fresh launch is
-        // a clean slate; the previous account's cap is not this one's.
-        var pendingCap: PendingCapRecovery?
+        // a clean slate; the previous account's cap is not this one's - except for what the last
+        // relaunch chose to hand over, which is consumed here so it can never leak further.
+        var pendingCap = carriedCap
+        carriedCap = nil
         // Per-child drift tracking: the safeguard episode is this session's, and a handoff starts a
         // fresh child (and a fresh monitor). Its state file is cleared on handoff and on exit.
         var drift = DriftMonitor()
@@ -309,7 +307,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // still-serviceable account never churns; the 02:22 storm relaunched onto an account
             // with no room for the new model). Manual/pinned never switches account, and a dead end
             // (no account can serve the new model) waits instead of relaunching onto a wall.
-            if follow {
+            // Labeled so a dead end can abandon the ADOPTION without abandoning the tick: it used
+            // to `continue`, which also skipped the reload check below, so a reload request against
+            // a session waiting on an unservable model was never even acknowledged (2026-07-25).
+            followAdoption: if follow {
                 let desired = (policy.model?.lowercased(), policy.effort?.lowercased())
                 if desired == (followedModel, followedEffort) {
                     pendingSince = nil
@@ -354,7 +355,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                      "eligible account can serve it yet - waiting")
                                 followDeadEnd = true
                             }
-                            continue
+                            break followAdoption
                         }
                         followDeadEnd = false
                         warn("launch default changed to \(policy.model ?? "default")/" +
@@ -434,9 +435,44 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 fallbackApplied = true
             }
 
+            // `tally reload`: the user edited hooks / skills / instructions and wants every
+            // supervised session to come back on them. Restarting the CHILD is enough (the
+            // supervisor reads none of that), so this is a plain same-account relaunch through the
+            // usual resume path - same conversation, no model or effort change, and no fuse (a
+            // deliberate request, not a recovery). It waits on the same idle bar a follow adoption
+            // uses so a running turn is never interrupted. Lowest priority on purpose: any relaunch
+            // already planned this tick restarts the child anyway, so the request rides along
+            // instead of queueing a second one.
+            if let request = readReloadRequest() {
+                let bar = reloadIdleBar(immediate: request.immediate)
+                // `watcher.file` is only meaningful after `isQuiet` has run its locate, which the
+                // left-to-right && guarantees; the child's age covers the pre-transcript window.
+                let quiet = plan == nil && request.epoch > reloadEpoch
+                    && reloadQuiet(transcriptQuiet: watcher.isQuiet(bar),
+                                   hasTranscript: watcher.file != nil,
+                                   childAge: Date().timeIntervalSince(launchedAt), bar: bar)
+                switch reloadDecision(captured: reloadEpoch, requested: request.epoch,
+                                      relaunchPlanned: plan != nil, isQuiet: quiet) {
+                case .none:
+                    break
+                case .fold:
+                    reloadEpoch = request.epoch
+                case .relaunch:
+                    warn("reload requested → restarting this session")
+                    plan = RelaunchPlan(target: account, reason: "reload", countsFuse: false)
+                    reloadEpoch = request.epoch
+                case .queued:
+                    if reloadNotice != request.epoch {
+                        warn("reload requested - restarting when this session goes idle")
+                        reloadNotice = request.epoch
+                    }
+                }
+            }
+
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args.
             if let plan {
+                carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)
                 performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse)
                 if plan.model != nil || plan.effort != nil || !plan.extraArgs.isEmpty {
                     launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
@@ -450,7 +486,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
 
         if handoff { continue }
         let status = awaitChild()   // no relaunch pending: the child exited on its own, so do we
-        clearDriftState(pid: supervisorPID)
+        removeSupervisorState(pid: supervisorPID)
         let exited = (status & 0x7f) == 0
         exit(exited ? (status >> 8) & 0xff : 128 + (status & 0x7f))
     }

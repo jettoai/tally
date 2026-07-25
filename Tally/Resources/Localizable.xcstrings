@@ -6200,6 +6200,296 @@
           }
         }
       }
+    },
+    "Restart every supervised session once it goes idle, so edited hooks and skills take effect": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有受監督的工作階段閒置時重新啟動，讓改過的 hooks 與 skills 生效"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有受监督的会话闲置时重新启动，让改过的 hooks 与 skills 生效"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "監視中のセッションをアイドル時に再起動し、編集した hooks や skills を反映"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감독 중인 세션을 유휴 상태일 때 재시작하여 수정한 hooks와 skills를 반영"
+          }
+        }
+      }
+    },
+    "Reload running sessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入執行中的工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载运行中的会话"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のセッションをリロード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 세션 다시 로드"
+          }
+        }
+      }
+    },
+    "Each supervised session restarts when it goes idle, so edited hooks and instructions take effect. Conversations continue.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個受監督的工作階段會在閒置時重新啟動，讓改過的 hooks 與指示生效。對話會延續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个受监督的会话会在闲置时重新启动，让改过的 hooks 与指示生效。对话会延续。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "監視中の各セッションはアイドル時に再起動し、編集した hooks や指示が反映されます。会話はそのまま続きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감독 중인 각 세션은 유휴 상태가 되면 재시작되어 수정한 hooks와 지시가 반영됩니다. 대화는 그대로 이어집니다."
+          }
+        }
+      }
+    },
+    "Reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リロード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 로드"
+          }
+        }
+      }
+    },
+    "Reload %d running session? Each restarts when it goes idle; conversations continue.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要重新載入 %d 個執行中的工作階段嗎？每個都會在閒置時重新啟動，對話會延續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要重新加载 %d 个运行中的会话吗？每个都会在闲置时重新启动，对话会延续。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のセッション %d 件をリロードしますか？各セッションはアイドル時に再起動し、会話はそのまま続きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 세션 %d개를 다시 로드할까요? 각 세션은 유휴 상태가 되면 재시작되고 대화는 그대로 이어집니다."
+          }
+        }
+      }
+    },
+    "Reload %d running sessions? Each restarts when it goes idle; conversations continue.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要重新載入 %d 個執行中的工作階段嗎？每個都會在閒置時重新啟動，對話會延續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要重新加载 %d 个运行中的会话吗？每个都会在闲置时重新启动，对话会延续。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のセッション %d 件をリロードしますか？各セッションはアイドル時に再起動し、会話はそのまま続きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 세션 %d개를 다시 로드할까요? 각 세션은 유휴 상태가 되면 재시작되고 대화는 그대로 이어집니다."
+          }
+        }
+      }
+    },
+    "No supervised sessions are running": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前沒有受監督的工作階段在執行"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前没有受监督的会话在运行"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "監視中のセッションは実行されていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 감독 세션이 없습니다"
+          }
+        }
+      }
+    },
+    "Could not request a reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法送出重新載入要求"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法送出重新加载请求"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リロードを要求できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 로드를 요청하지 못했습니다"
+          }
+        }
+      }
+    },
+    "Each restarts when it goes idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每個都會在閒置時重新啟動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个都会在闲置时重新启动"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各セッションはアイドル時に再起動します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 세션은 유휴 상태가 되면 재시작됩니다"
+          }
+        }
+      }
+    },
+    "OK": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "好"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

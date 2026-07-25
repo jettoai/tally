@@ -66,6 +66,9 @@ targets:
       # The usage advisor's pure math lives in the CLI folder (so the CLI target compiles it too);
       # the app shares the single file rather than duplicating the calculation.
       - path: TallyCLI/UsageAdvisor.swift
+      # The reload request file and the live-supervisor registry: the Settings row and `tally
+      # reload` must write the same file the same way, so both targets compile the one writer.
+      - path: TallyCLI/ReloadRequest.swift
     dependencies:
       - package: Sparkle
     settings:

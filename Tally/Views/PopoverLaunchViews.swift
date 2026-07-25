@@ -101,6 +101,7 @@ extension PopoverRootView {
                         .compactMap(\.launchHome)) {
                     commandRow("tally resume", caption: L("Move this directory's latest conversation to another account and continue there"))
                 }
+                commandRow("tally reload", caption: L("Restart every supervised session once it goes idle, so edited hooks and skills take effect"))
                 commandRow("tally add claude", caption: L("Log in one more Claude account"))
                 commandRow("tally add codex", caption: L("Log in one more Codex account"))
                 commandRow("tally update", caption: L("Check for app updates now"))

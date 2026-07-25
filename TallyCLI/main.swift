@@ -425,30 +425,6 @@ func runAdd(args: [String]) -> Never {
          env: launchEnv(provider, home: dir.path))
 }
 
-/// `tally update`: ask the menu bar app to run a user-initiated Sparkle check (its window
-/// follows the pointer's screen), launching the app first when it isn't running. Uses pgrep +
-/// a distributed notification so the statusline hot path never has to link AppKit.
-func runUpdate() {
-    func run(_ path: String, _ args: [String]) -> Int32 {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: path)
-        p.arguments = args
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        try? p.run()
-        p.waitUntilExit()
-        return p.terminationStatus
-    }
-    if run("/usr/bin/pgrep", ["-xq", "Tally"]) != 0 {
-        _ = run("/usr/bin/open", ["-b", "ai.jetto.tally"])
-        Thread.sleep(forTimeInterval: 2)   // let the updater finish starting before we knock
-    }
-    DistributedNotificationCenter.default().postNotificationName(
-        Notification.Name("ai.jetto.tally.checkForUpdates"),
-        object: nil, userInfo: nil, deliverImmediately: true)
-    print("[tally] update check requested; Tally's update window will appear in a moment.")
-}
-
 let arguments = Array(CommandLine.arguments.dropFirst())
 switch arguments.first {
 case "claude":
@@ -467,6 +443,8 @@ case "launch-dir":
     runLaunchDir(arguments.dropFirst().first ?? "codex")
 case "statusline":
     runStatusline(args: Array(arguments.dropFirst()))
+case "reload":
+    exit(runReload(args: Array(arguments.dropFirst())))
 case "update":
     runUpdate()
 case "add":
@@ -495,6 +473,10 @@ default:
                                 (CLAUDE.md/AGENTS.md, skills, hooks, agents, settings) and
                                 conversation record are symlinked in BY DEFAULT: one setup
                                 serves every account. Opt out with --no-share
+      tally reload [--now]      restart every supervised session at its next idle moment, so edited
+                                hooks, skills, and instructions take effect everywhere without
+                                visiting each terminal (--now waits only for a 5s quiet gap, so it
+                                may land closer to an active turn)
       tally update              check for app updates now (opens the update window)
     """)
     exit(2)

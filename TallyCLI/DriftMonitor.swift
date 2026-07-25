@@ -119,11 +119,11 @@ func logDriftCleared(sessionID: String?, duration: TimeInterval, now: Date = Dat
         "drift-cleared after=\(Int(duration / 60))m\n")
 }
 
-/// Per-supervisor drift state (~/.tally/supervisor-state/<supervisorPID>). The status line of the
-/// drifted session reads it to paint its badge; one file per supervisor pid so concurrent sessions
-/// never share a document, written atomically (temp + rename). Cleared on clear, handoff, and exit.
-let supervisorStateDir = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent(".tally/supervisor-state")
+// The per-supervisor state file itself (~/.tally/supervisor-state/<supervisorPID>) is declared in
+// ReloadRequest.swift, which both targets compile: its EXISTENCE is the live-session registry a
+// reload request counts, and its CONTENT is the drift episode written and read below. One file per
+// supervisor pid so concurrent sessions never share a document, written atomically (temp + rename);
+// emptied when an episode clears or on handoff, unlinked on exit.
 
 /// What the status line needs to render the drift badge (`from -> to (category)`).
 struct DriftState: Equatable {
@@ -140,9 +140,24 @@ func writeDriftState(_ flag: SafeguardFlag, pid: String, dir: URL = supervisorSt
         .write(to: dir.appendingPathComponent(pid), atomically: true, encoding: .utf8)
 }
 
-/// Remove this supervisor's drift state file (episode cleared, or the supervisor is handing off /
-/// exiting). Best-effort; a missing file is a no-op.
+/// Register this supervisor as live with no drift episode: an EMPTY state file. Written at startup
+/// and again whenever an episode ends, so a healthy session is present in the registry too and not
+/// just a drifting one. Best-effort.
+func markSupervisorLive(pid: String, dir: URL = supervisorStateDir) {
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try? "".write(to: dir.appendingPathComponent(pid), atomically: true, encoding: .utf8)
+}
+
+/// End the drift episode while the supervisor keeps running (episode cleared, or it is handing
+/// off): the badge stops because an empty body reads as no drift, and the presence entry stays so
+/// the live-session count still sees this supervisor.
 func clearDriftState(pid: String, dir: URL = supervisorStateDir) {
+    markSupervisorLive(pid: pid, dir: dir)
+}
+
+/// Unlink the whole state file: this supervisor is exiting, so it is neither drifting nor live.
+/// Best-effort; a missing file is a no-op.
+func removeSupervisorState(pid: String, dir: URL = supervisorStateDir) {
     try? FileManager.default.removeItem(at: dir.appendingPathComponent(pid))
 }
 
@@ -156,18 +171,12 @@ func readDriftState(pid: String, dir: URL = supervisorStateDir) -> DriftState? {
     return DriftState(from: String(parts[0]), to: String(parts[1]), category: String(parts[2]))
 }
 
-/// Whether a supervisor pid is still running. A leftover state file from a crashed supervisor must
-/// not paint a stale badge; EPERM (exists under another uid) counts as alive rather than risk
-/// hiding a real one, though our own launches never hit it.
-func supervisorAlive(_ pid: pid_t) -> Bool {
-    kill(pid, 0) == 0 || errno == EPERM
-}
-
 /// Unlink state files whose supervisor is gone. A SIGKILLed supervisor never runs its clear path,
 /// so files would otherwise accumulate, and once the OS reuses that pid for an unrelated process
-/// the liveness probe would repaint a stale badge. Every supervisor sweeps once at startup, which
-/// keeps the window between death and reuse short. Files that are not named for a pid are left
-/// alone (nothing of ours, or a future format).
+/// the liveness probe would repaint a stale badge (and count a session that is long gone as one a
+/// reload request will restart). Every supervisor sweeps once at startup, which keeps the window
+/// between death and reuse short. Files that are not named for a pid are left alone (nothing of
+/// ours, or a future format).
 func sweepDeadSupervisorState(dir: URL = supervisorStateDir) {
     let files = (try? FileManager.default.contentsOfDirectory(
         at: dir, includingPropertiesForKeys: nil)) ?? []

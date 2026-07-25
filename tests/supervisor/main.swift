@@ -336,7 +336,16 @@ check("drift state round-trips through the file",
       readDriftState(pid: "12345", dir: sDir)
       == DriftState(from: "claude-fable-5", to: "claude-opus-4-8", category: "cyber"))
 clearDriftState(pid: "12345", dir: sDir)
-check("clearing removes the state file", readDriftState(pid: "12345", dir: sDir) == nil)
+check("clearing ends the drift episode", readDriftState(pid: "12345", dir: sDir) == nil)
+// The file itself outlives the episode: its existence is what marks the supervisor live, so a
+// session that recovered from a drift is still counted by `tally reload`.
+check("clearing keeps the supervisor's presence entry",
+      FileManager.default.fileExists(atPath: sDir.appendingPathComponent("12345").path))
+markSupervisorLive(pid: "23456", dir: sDir)
+check("a live supervisor with no drift has no badge", readDriftState(pid: "23456", dir: sDir) == nil)
+removeSupervisorState(pid: "12345", dir: sDir)
+check("exiting unlinks the state file",
+      !FileManager.default.fileExists(atPath: sDir.appendingPathComponent("12345").path))
 check("a missing state file reads as nil", readDriftState(pid: "99999", dir: sDir) == nil)
 check("shortModelName trims a claude id to its family", shortModelName("claude-fable-5") == "fable")
 check("shortModelName trims opus too", shortModelName("claude-opus-4-8") == "opus")
@@ -376,5 +385,7 @@ check("sweep keeps a live supervisor's state file",
       FileManager.default.fileExists(atPath: sweepDir.appendingPathComponent(String(getpid())).path))
 check("sweep leaves non-pid files alone",
       FileManager.default.fileExists(atPath: sweepDir.appendingPathComponent("notes.txt").path))
+
+runReloadChecks()
 
 exit(failures == 0 ? 0 : 1)

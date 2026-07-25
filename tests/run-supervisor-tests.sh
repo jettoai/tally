@@ -4,7 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/supervisor/main.swift \
+swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/DriftMonitor.swift \
-  TallyCLI/TranscriptWatcher.swift TallyCLI/Snapshot.swift
+  TallyCLI/TranscriptWatcher.swift TallyCLI/Snapshot.swift TallyCLI/Reload.swift \
+  TallyCLI/ReloadRequest.swift
 "$out"

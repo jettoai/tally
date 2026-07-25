@@ -24,6 +24,27 @@ extension PopoverRootView {
             Spacer()
             // Footer icons are one muted set (secondary); only the pin lights up (accent) when active,
             // so an unpinned pin doesn't read as already-on.
+            // First in the group because it is the only ACTION here: everything after it changes
+            // what this window shows, and an action reads wrong buried among view toggles. The
+            // glyph is deliberately not a plain circular arrow - that is the header's quota
+            // refresh, and two circular arrows on one surface would read as the same control.
+            // Two arrows closing a loop: at the footer's 13pt a single circular arrow is the
+            // header's quota refresh and a gear-in-loop turns to mush, while this reads as
+            // "cycle it" at size (rendered and compared at 13pt before choosing).
+            // Never disabled on a live count: nothing tells SwiftUI that a session started or ended,
+            // so a rendered zero would leave the icon dead for the life of the window. The press
+            // reads the count fresh and says so (see ReloadAction.presentConfirm).
+            Button {
+                ReloadAction.presentConfirm()
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.callout)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help(L("Reload running sessions") + " · " + L("Each restarts when it goes idle"))
             // The view menu: both layout dimensions behind one footer icon. "Gauges only" is the
             // one-click version of collapsing every pooled provider (clicking a single gauge row
             // stays the granular tool); below the divider, the same column value the Settings

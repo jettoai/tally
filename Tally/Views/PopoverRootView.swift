@@ -198,7 +198,12 @@ struct PopoverRootView: View {
 
     @ViewBuilder
     private var content: some View {
-        if store.contentState != .hasAccounts {
+        // Volatile launch flag: force the empty state so its copy and the app's mark can be looked
+        // at on a machine that has accounts. Reads the argument domain, so a normal launch never
+        // sees it (same pattern as -TallyDemoData).
+        if UserDefaults.standard.bool(forKey: "TallyEmptyStatePreview") {
+            EmptyStateView(state: .noAccounts)
+        } else if store.contentState != .hasAccounts {
             EmptyStateView(state: store.contentState)
         } else {
             accountLayout

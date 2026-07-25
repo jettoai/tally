@@ -208,7 +208,7 @@ struct TallyGlyphView: View {
             AnchoredIconShape(pathData: ProviderMarks.tallyT, referenceData: ProviderMarks.tallyT)
                 .fill(Color.primary)
             AnchoredIconShape(pathData: ProviderMarks.tallyTAccent, referenceData: ProviderMarks.tallyT)
-                .fill(Color(red: 0.19, green: 0.82, blue: 0.35))
+                .fill(TallyColor.brand)
         }
         // The glyph is wider than tall (472×416 units) - callers give it a frame with roughly
         // this ratio so the fit is exact.

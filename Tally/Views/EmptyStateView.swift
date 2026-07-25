@@ -17,9 +17,14 @@ struct EmptyStateView: View {
 
     private var message: some View {
         VStack(spacing: 8) {
+            // An empty panel is the one place with room to spare, so it leads with the app's own
+            // mark rather than a stock glyph: the first thing a new user sees is what Tally is
+            // about (quota passing between accounts) before there is a single number to show.
+            TallyMarkView(glyphHeight: 26)
+                .padding(.bottom, 6)
             Image(systemName: symbol)
-                .font(.title2)
-                .foregroundStyle(.secondary)
+                .font(.title3)
+                .foregroundStyle(.tertiary)
             Text(title)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

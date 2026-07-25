@@ -25,6 +25,10 @@ enum TallyColor {
     /// marks the smart pick as "the machine chose this", distinct from the human's orange pin.
     static let ai = Color(red: 0.55, green: 0.36, blue: 0.96)
     static let critical = Color(red: 0.86, green: 0.31, blue: 0.29)  // softened red, not alarm-siren
+    /// The Relay T's shoulder green: Tally's own identity colour, not a severity. Anything drawing
+    /// the brand (the glyph, the baton beneath it) reads it from here, so the family cannot drift
+    /// by having the same literal typed twice.
+    static let brand = Color(red: 0.19, green: 0.82, blue: 0.35)
 }
 
 extension MetricSeverity {

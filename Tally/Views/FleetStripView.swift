@@ -111,7 +111,7 @@ extension PopoverRootView {
                 ForEach(Array(pools.enumerated()), id: \.offset) { _, pool in
                     VStack(alignment: .leading, spacing: 3) {
                         pooledBar(pool)
-                        contextLine(summary, pool)
+                        contextLine(summary, pool, compactRefill: true)
                     }
                 }
             }
@@ -216,19 +216,30 @@ extension PopoverRootView {
     /// and weekly windows at the same moment, so a same-moment dedupe left the weekly pool's
     /// slot PERMANENTLY empty, and the absence read as missing data, not as "same as above"
     /// (owner-confirmed confusion, 2026-07-23). A fixed slot beats a clever blank.
-    private func contextLine(_ summary: FleetSummary, _ pool: FleetPool) -> some View {
-        HStack(spacing: 6) {
+    /// The pool's context: which window it sums plus the pace verdict, and the next refill. Full
+    /// width keeps them on one line. Half width (`stacked`, the side-by-side columns) gives the
+    /// refill its own line instead of shortening it: which account refills and when are both real
+    /// information, a column is short so vertical space is the cheap axis, and the alternative was
+    /// a clock truncated to "07/25 2...".
+    /// The pool's context: which window it sums plus the pace verdict on the left, the next refill
+    /// on the right. One line, and at half width (`compactRefill`, the side-by-side columns) the two
+    /// together do not fit: 262pt cannot hold both sentences whole. The refill gives up the account
+    /// name rather than the verb, because "refill" is deliberately not "reset" (the cards below use
+    /// that word for something else) and a bare timestamp would blur the two; the account is named
+    /// in the hover, in the fleet tooltip, and on the cards themselves. Both halves carry their own
+    /// hover, so whichever one clips still answers when asked.
+    private func contextLine(_ summary: FleetSummary, _ pool: FleetPool,
+                             compactRefill: Bool = false) -> some View {
+        let phrase = forecastPhrase(summary, pool)
+        return HStack(spacing: 6) {
             (Text("\(poolDisplayName(pool)) · ").foregroundStyle(Color.secondary)
              + forecastText(summary, pool))
                 .font(.caption2)
                 .lineLimit(1)
-                // Which pool and whether it lasts outranks the refill clock when the line is
-                // narrow (the side-by-side columns): the refill truncates first, and the tooltip
-                // still carries the full schedule. Nothing changes where both already fit.
-                .layoutPriority(1)
+                .help("\(poolDisplayName(pool)) · \(phrase.text)")
             Spacer(minLength: 6)
             if let refill = pool.refills.first {
-                refillLabel(refill)
+                refillLabel(refill, compact: compactRefill).layoutPriority(1)
             }
         }
     }
@@ -249,10 +260,18 @@ extension PopoverRootView {
     /// The "does it last" verdict from the measured pace: dry-run date (amber, red inside a day),
     /// sustainable check, or "measuring" while the history is still too young to trust.
     private func forecastText(_ summary: FleetSummary, _ pool: FleetPool) -> Text {
-        guard pool.kind != .session else { return Text(verbatim: "") }
+        let phrase = forecastPhrase(summary, pool)
+        return Text(phrase.text).foregroundStyle(phrase.tint)
+    }
+
+    /// The pace verdict as words plus its tint, so the line and its tooltip cannot drift: the row
+    /// clips this sentence when a column is narrow, and the hover has to answer with the same one.
+    private func forecastPhrase(_ summary: FleetSummary,
+                                _ pool: FleetPool) -> (text: String, tint: Color) {
+        guard pool.kind != .session else { return ("", .secondary) }
         guard let rate = store.fleetRates[FleetForecast.rateKey(
             provider: summary.providerID, window: pool.kind.rawValue, model: pool.modelName)] else {
-            return Text(L("measuring pace…")).foregroundStyle(.tertiary)
+            return (L("measuring pace…"), Color.secondary.opacity(0.7))
         }
         let now = Date()
         let dry = FleetForecast.depletion(
@@ -262,43 +281,52 @@ extension PopoverRootView {
             steadyRefillPerHour: pool.steadyRefillPerHour(windowHours: 168),
             now: now)
         guard let dry else {
-            return Text("\(L("sustainable at this pace")) ✓").foregroundStyle(TallyColor.normal)
+            return ("\(L("sustainable at this pace")) ✓", TallyColor.normal)
         }
         let seconds = dry.timeIntervalSince(now)
-        let tint = seconds < 86_400 ? TallyColor.critical : TallyColor.warning
         let body = UsageFormat.durationBody(seconds)
-        return Text(String(localized: "lasts about \(body)", bundle: AppLocale.bundle))
-            .foregroundStyle(tint)
+        return (String(localized: "lasts about \(body)", bundle: AppLocale.bundle),
+                seconds < 86_400 ? TallyColor.critical : TallyColor.warning)
     }
 
     /// "next refill Claude in 4d 6h" - refill wording, not "resets", so it can't be confused
     /// with the per-window reset labels on the cards. Click toggles to the exact time.
-    private func refillLabel(_ refill: FleetPool.Refill) -> some View {
+    private func refillLabel(_ refill: FleetPool.Refill, compact: Bool = false) -> some View {
         let style = settings.resetDisplay
         return TimelineView(.periodic(from: .now, by: 60)) { context in
             Button {
                 settings.resetDisplay = style.toggled
             } label: {
-                Text(refillText(refill, style: style, now: context.date))
+                Text(refillText(refill, style: style, now: context.date, compact: compact))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
             .buttonStyle(.plain)
-            .help(refillText(refill, style: style.toggled, now: context.date))
+            // Both readings, always, and never the compact form: a truncated clock is exactly when
+            // a reader reaches for the tooltip, so it has to answer with the whole thing (which
+            // account, the date and time, and how long that is from now) rather than the same
+            // sentence in the other format.
+            .help(refillText(refill, style: .absolute, now: context.date)
+                + " · " + refillText(refill, style: .relative, now: context.date))
         }
     }
 
     /// Internal: the advisor tooltip lists the same refills in the same words, so the two surfaces
     /// can never phrase one schedule two ways.
-    func refillText(_ refill: FleetPool.Refill, style: ResetDisplay, now: Date) -> String {
+    func refillText(_ refill: FleetPool.Refill, style: ResetDisplay, now: Date,
+                    compact: Bool = false) -> String {
         let account = refill.accountLabel
         if style == .relative {
             let body = UsageFormat.durationBody(max(60, refill.at.timeIntervalSince(now)))
-            return String(localized: "next refill \(account) in \(body)", bundle: AppLocale.bundle)
+            return compact
+                ? String(localized: "refill in \(body)", bundle: AppLocale.bundle)
+                : String(localized: "next refill \(account) in \(body)", bundle: AppLocale.bundle)
         }
-        return String(localized: "next refill \(account) at \(UsageFormat.absoluteBody(refill.at))",
-                      bundle: AppLocale.bundle)
+        let clock = UsageFormat.absoluteBody(refill.at)
+        return compact
+            ? String(localized: "refill \(clock)", bundle: AppLocale.bundle)
+            : String(localized: "next refill \(account) at \(clock)", bundle: AppLocale.bundle)
     }
 
     /// One continuous fill anchored like every meter (used grows left, remaining hugs right),

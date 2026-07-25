@@ -265,11 +265,18 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 let (snapshot, snapshotProblem) = loadSnapshot()
                 let primary = pending.primaryModel
                 let excluded = quarantinedAccounts(forPrimary: primary, sessionLocal: quarantine)
-                let target = snapshot?.accounts
-                    .filter { $0.provider == provider.id && eligible($0, primaryModel: primary)
-                        && $0.id != account.id && !excluded.contains($0.id) }
-                    .max { smartScore($0, primaryModel: primary)
-                        < smartScore($1, primaryModel: primary) }
+                // Same nearly-dry gate as the launch path (AccountComfort.swift), and for the same
+                // reason: handing a capped session to an account with 1% left just caps it again a
+                // few minutes later. One `now` for the gate and the ordering so they agree.
+                let pickedAt = Date()
+                let eligibleAccounts = (snapshot?.accounts ?? []).filter {
+                    $0.provider == provider.id && eligible($0, primaryModel: primary)
+                        && $0.id != account.id && !excluded.contains($0.id)
+                }
+                let target = preferringComfortable(eligibleAccounts, primaryModel: primary,
+                                                   now: pickedAt)
+                    .max { smartScore($0, primaryModel: primary, now: pickedAt)
+                        < smartScore($1, primaryModel: primary, now: pickedAt) }
                 let action = capRecoveryAction(mode: policy.mode, fuseAllows: fuse.allows(),
                                                snapshotStale: snapshotProblem != nil,
                                                hasTarget: target != nil)

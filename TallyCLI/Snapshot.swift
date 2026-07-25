@@ -217,6 +217,18 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
     return windows
 }
 
+/// The nearly-dry gate (AccountComfort.swift) over CLI accounts. The windows it weighs are exactly
+/// the ones `ratedWindows` counts for the declared primary model, so the gate never re-decides
+/// which windows an account spends. Both CLI picks (`best` and the supervisor's cap handoff) come
+/// through here, so they drop the same accounts.
+func preferringComfortable(_ accounts: [Snapshot.Account], primaryModel: String?,
+                           now: Date) -> [Snapshot.Account] {
+    preferringComfortable(accounts, now: now) { account in
+        ratedWindows(account, primaryModel: primaryModel, now: now)
+            .map { ComfortWindow(remaining: $0.remaining, resetsAt: $0.resetsAt) }
+    }
+}
+
 /// An account's score is its TIGHTEST window's rate - the binding constraint. `best()` then picks
 /// the account whose binding constraint is loosest, which naturally prefers an account whose low
 /// session quota resets in minutes over one hoarding a bigger but slower-refreshing allowance.
@@ -267,9 +279,13 @@ let smartPickMinGain = 0.05   // %/h
 
 func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
           excluding: Set<String> = [], now: Date = Date()) -> Snapshot.Account? {
-    let candidates = snapshot.accounts
-        .filter { $0.provider == providerID && eligible($0, primaryModel: primaryModel)
-            && !excluding.contains($0.id) }
+    // The nearly-dry gate runs first (AccountComfort.swift): a rate cannot tell "healthy" from
+    // "1% left with a close reset", so accounts that are actually dry leave before the ordering.
+    let eligibleAccounts = snapshot.accounts.filter {
+        $0.provider == providerID && eligible($0, primaryModel: primaryModel)
+            && !excluding.contains($0.id)
+    }
+    let candidates = preferringComfortable(eligibleAccounts, primaryModel: primaryModel, now: now)
     guard var leader = candidates.first else { return nil }
     var leaderScore = smartScore(leader, primaryModel: primaryModel, now: now)
     for candidate in candidates.dropFirst() {

@@ -5,5 +5,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/statusjson/main.swift TallyCLI/Snapshot.swift TallyCLI/StatusReport.swift \
-    TallyCLI/UsageAdvisor.swift
+    TallyCLI/UsageAdvisor.swift TallyCLI/AccountComfort.swift
 "$out"

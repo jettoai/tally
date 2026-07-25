@@ -69,6 +69,9 @@ targets:
       # The reload request file and the live-supervisor registry: the Settings row and `tally
       # reload` must write the same file the same way, so both targets compile the one writer.
       - path: TallyCLI/ReloadRequest.swift
+      # The nearly-dry gate in front of every account pick: the panel's smart-pick badge must
+      # predict what `tally` launches, so both targets run the one implementation.
+      - path: TallyCLI/AccountComfort.swift
     dependencies:
       - package: Sparkle
     settings:

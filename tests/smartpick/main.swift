@@ -144,4 +144,57 @@ check("the capped account is a valid follow target for a model it can still serv
 check("but not for the model whose window it just capped",
       seeded([cappedFable], incumbent: "A", primaryModel: "fable") == nil)
 
+// 10. The nearly-dry gate. A rate can be highest on an account with almost nothing left, because
+//     an imminent reset divides a tiny remainder by a tiny number of hours. The two accounts below
+//     are the live 2026-07-25T11:10Z measurement, with an opus primary (so the fable window is
+//     excluded by the scoping in group 5): the rates come out 0.294 %/h for Claude against
+//     1.248 %/h for Claude 2, so the rate chose Claude 2, whose weekly window had 1% left, and the
+//     session capped within minutes.
+let healthyMain = account("claude", session: (75, inHours(1.48)), weekly: (37, inHours(125.82)))
+let nearlyDrySibling = account("claude2", session: (100, inHours(5)), weekly: (1, inHours(0.8)))
+check("the measured 2026-07-25 pick skips the account with 1% weekly left",
+      pick([healthyMain, nearlyDrySibling], primaryModel: "opus") == "claude")
+check("the rate alone would have picked it (guard the premise)",
+      smartScore(nearlyDrySibling, primaryModel: "opus", now: now)
+          > smartScore(healthyMain, primaryModel: "opus", now: now))
+
+// The refuted counterexample: 9% resetting in 3 minutes is not stranded quota, it is a full
+// window three minutes from now, and taking it beats a sibling with 11% that must last 5h.
+let aboutToRefill = account("A", session: (9, inHours(0.05)))
+let slightlyRicher = account("B", session: (11, inHours(5)))
+check("9% resetting in 3 minutes still wins over 11% that has to last five hours",
+      pick([aboutToRefill, slightlyRicher]) == "A")
+
+// Both edges of the grace window, on a window too thin to survive the gate on its own (3%): at
+// exactly 10 minutes it counts as refilled and the account stays selectable; half a minute later
+// it does not, and the healthier sibling takes the launch even though its rate is lower.
+let atGrace = account("A", session: (3, inHours(10.0 / 60)), weekly: (80, inHours(120)))
+let pastGrace = account("A", session: (3, inHours(10.5 / 60)), weekly: (80, inHours(120)))
+let plainSibling = account("B", session: (50, inHours(3)), weekly: (40, inHours(120)))
+check("a 3% window resetting in exactly 10 minutes counts as refilled",
+      pick([atGrace, plainSibling]) == "A")
+check("half a minute past the grace the same 3% window drops the account",
+      pick([pastGrace, plainSibling]) == "B")
+
+// The gate reuses the model scoping: a flagship window the declared primary does not spend must
+// not make the account look nearly dry either (it is not one of the account's counted windows).
+let dryFableOnly = account("A", weekly: (60, inHours(120)), model: (1, inHours(120)), modelName: "Fable")
+let plainerB = account("B", weekly: (40, inHours(120)))
+check("a drained fable window does not strand an account whose primary is sonnet",
+      pick([dryFableOnly, plainerB], primaryModel: "sonnet") == "A")
+
+// Nothing comfortable: launching beats stranding the user, so the field is kept whole and the
+// existing ordering (hysteresis included) still decides.
+let dryLeader = account("A", session: (1, inHours(3)), weekly: (4, inHours(100)))
+let dryChallenger = account("B", session: (2, inHours(3)), weekly: (5, inHours(100)))
+let drainedPick = pick([dryLeader, dryChallenger])
+check("an all-drained field still returns a pick", drainedPick != nil)
+check("and the drained field keeps its hysteresis", drainedPick == "A")
+
+// Two comfortable accounts near a tie must not start flapping because the gate ran first.
+let comfyA = account("A", session: (100, inHours(3)), weekly: (60, inHours(120)))
+let comfyB = account("B", session: (100, inHours(3)), weekly: (58, inHours(120)))
+check("a near-tie between two comfortable accounts stays with the leader",
+      pick([comfyA, comfyB]) == "A")
+
 exit(failures == 0 ? 0 : 1)

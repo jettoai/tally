@@ -171,13 +171,21 @@ final class LaunchPolicyStore {
 
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>) -> String? {
         let primary = policy(providerID).model
-        let candidates = accounts
-            .filter { $0.providerID == providerID && $0.error == nil && !$0.isStale
-                && launchable.contains($0.id) && (Self.headroom($0, primaryModel: primary) ?? -1) > 0 }
+        let now = Date()
+        // The CLI's nearly-dry gate, from the file both targets compile (AccountComfort.swift):
+        // the badge has to predict the launch, so the same accounts leave before the ordering.
+        let eligibleAccounts = accounts.filter {
+            $0.providerID == providerID && $0.error == nil && !$0.isStale
+                && launchable.contains($0.id) && (Self.headroom($0, primaryModel: primary) ?? -1) > 0
+        }
+        let candidates = preferringComfortable(eligibleAccounts, now: now) {
+            Self.ratedWindows($0, primaryModel: primary, now: now)
+                .map { ComfortWindow(remaining: $0.remaining, resetsAt: $0.resetsAt) }
+        }
         guard var leader = candidates.first else { return nil }
-        var leaderScore = Self.smartScore(leader, primaryModel: primary)
+        var leaderScore = Self.smartScore(leader, primaryModel: primary, now: now)
         for candidate in candidates.dropFirst() {
-            let score = Self.smartScore(candidate, primaryModel: primary)
+            let score = Self.smartScore(candidate, primaryModel: primary, now: now)
             if score > leaderScore * Self.smartPickMargin,
                score > leaderScore + Self.smartPickMinGain {
                 leader = candidate

@@ -41,22 +41,11 @@ final class ResetHintNotifier {
         saveState(next)
         guard let hint else { return }
         Task { @MainActor in
-            if await post(hint) == false { rearm(hint) }
+            // A refusal hands the announcement back so a later refresh can say it again. The state
+            // is re-read rather than reused: the refresh loop can have run while macOS answered.
+            guard await post(hint) == false else { return }
+            saveState(ResetHintLogic.rearm(state: loadState(), hint: hint))
         }
-    }
-
-    /// Hand back the one announcement this hint just spent, because the system refused to deliver
-    /// it. The cycle bookkeeping in `advance` has to be saved either way (it tracks which window
-    /// this is, not what was said), so only the fired flag is undone: someone with notifications
-    /// switched off who turns them on later in the same cycle still has a banked credit sitting on
-    /// an empty account, and that is exactly who this feature exists for.
-    private func rearm(_ hint: ResetHint) {
-        var state = loadState()
-        switch hint.reason {
-        case .drained: state.accounts[hint.accountID]?.firedDrained = false
-        case .expiring: state.accounts[hint.accountID]?.firedExpiring = false
-        }
-        saveState(state)
     }
 
     /// Post one sample drained hint (the `-TallyResetHintTest` launch flag): checks the action

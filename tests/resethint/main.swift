@@ -34,6 +34,14 @@ func hint(_ accounts: [AccountUsage], state: ResetHintState = ResetHintState())
     ResetHintLogic.advance(state: state, accounts: accounts, now: now)
 }
 
+/// One refused delivery: the notifier's path when `SystemAlert.post` answers false. A step that
+/// produced no hint leaves the state alone, so a missing hint fails the assertion after it rather
+/// than trapping here.
+func refused(_ state: ResetHintState, _ hint: ResetHint?) -> ResetHintState {
+    guard let hint else { return state }
+    return ResetHintLogic.rearm(state: state, hint: hint)
+}
+
 // 1. Nothing banked, nothing to say: an account can sit at zero all week without a hint, because
 //    there is no action to offer, and an expiry is only news while there is a credit to lose (a
 //    redeem spends the credit, and what it leaves behind is this).
@@ -210,6 +218,93 @@ do {
     let (_, second) = hint(accounts, state: afterFirst)
     expect(first?.accountID == "a" && second?.accountID == "b",
            "the runner-up account is named on the next refresh")
+}
+
+// 20. A delivery the system refused hands the announcement back. `advance` marks the reason told
+//     before macOS is asked, so without this a user who had notifications switched off and turns
+//     them on later in the same cycle never hears about the credit.
+do {
+    let accounts = [account("a", remaining: 0)]
+    let (told, first) = hint(accounts)
+    expect(first?.reason == .drained, "the drained hint fires")
+    let retry = refused(told, first)
+    expect(retry.accounts["a"]?.firedDrained == false, "a refused delivery re-arms the reason")
+    let (_, second) = hint(accounts, state: retry)
+    expect(second?.reason == .drained, "so the next refresh says it again")
+}
+
+// 21. That retry is spent, not renewable. If the refusal is ever wrong about a notification that
+//     did land, an unbounded retry would repeat the same hint on every refresh forever; after one
+//     attempt the hint stays told and waits for the next cycle.
+do {
+    let accounts = [account("a", remaining: 0)]
+    let (told, first) = hint(accounts)
+    let (toldAgain, second) = hint(accounts, state: refused(told, first))
+    let exhausted = refused(toldAgain, second)
+    expect(second?.reason == .drained, "the retry re-fires once")
+    expect(exhausted.accounts["a"]?.firedDrained == true, "a second refusal does not re-arm again")
+    let (_, third) = hint(accounts, state: exhausted)
+    expect(third == nil, "so a hint the system keeps refusing goes quiet for the rest of the cycle")
+}
+
+// 22. The allowance is per reason, like the fired flags: a drained hint that burned its retry does
+//     not cost the later use-it-or-lose-it one its own.
+do {
+    let accounts = [account("a", remaining: 0)]
+    let (told, first) = hint(accounts)
+    let (toldAgain, second) = hint(accounts, state: refused(told, first))
+    let exhausted = refused(toldAgain, second)
+    let (toldExpiring, expiring) = hint([account("a", remaining: 0, expiry: soon)],
+                                        state: exhausted)
+    expect(expiring?.reason == .expiring, "the expiring reason still fires on its own")
+    expect(refused(toldExpiring, expiring).accounts["a"]?.firedExpiring == false,
+           "and gets its own retry")
+}
+
+// 23. A new reset cycle restores the allowance: the next window is a different opportunity, so it
+//     is owed the same one retry the last one had.
+do {
+    let accounts = [account("a", remaining: 0)]
+    let (told, first) = hint(accounts)
+    let (toldAgain, second) = hint(accounts, state: refused(told, first))
+    let exhausted = refused(toldAgain, second)
+    let next = [account("a", remaining: 0, resetsAt: cycle2)]
+    let (toldNext, third) = hint(next, state: exhausted)
+    expect(third?.reason == .drained, "the next window hints again")
+    expect(refused(toldNext, third).accounts["a"]?.firedDrained == false,
+           "and a refusal there gets a fresh retry")
+}
+
+// 24. Recovery above the waste line restores it too, on the same reasoning as the fired flags: the
+//     account refilled, and its next drain is a fresh opportunity rather than a repeat.
+do {
+    let drained = [account("a", remaining: 0)]
+    let (told, first) = hint(drained)
+    let (toldAgain, second) = hint(drained, state: refused(told, first))
+    let exhausted = refused(toldAgain, second)
+    let (recovered, quiet) = hint([account("a", remaining: 100)], state: exhausted)
+    expect(quiet == nil, "a refilled account has nothing to hint about")
+    let (toldAfter, third) = hint(drained, state: recovered)
+    expect(third?.reason == .drained, "draining again after the refill hints again")
+    expect(refused(toldAfter, third).accounts["a"]?.firedDrained == false,
+           "and the refill restored the retry allowance too")
+}
+
+// 25. State written by a build that predates the retry bookkeeping still decodes. Synthesized
+//     Decodable throws on a missing key rather than falling back to the property default, and the
+//     notifier reads a decode failure as "no state at all", which would re-fire every hint already
+//     delivered this cycle. This payload is the shape found in the shipped app's defaults.
+do {
+    let legacy = Data("""
+    {"accounts":{"codex:.codex2":{"firedDrained":true,"firedExpiring":false,\
+    "cycleKey":"1785526313"}}}
+    """.utf8)
+    let decoded = try? JSONDecoder().decode(ResetHintState.self, from: legacy)
+    let entry = decoded?.accounts["codex:.codex2"]
+    expect(entry?.firedDrained == true && entry?.cycleKey == "1785526313",
+           "a payload from an older build still decodes")
+    expect(entry?.rearmedDrained == false && entry?.rearmedExpiring == false,
+           "and its missing retry allowance reads as unspent")
 }
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

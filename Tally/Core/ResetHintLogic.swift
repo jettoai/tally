@@ -29,6 +29,24 @@ struct ResetHintAccountState: Codable, Equatable {
     var cycleKey: String?
     var firedDrained = false
     var firedExpiring = false
+    /// Whether this cycle's one delivery retry has already been handed back, per reason (`rearm`).
+    var rearmedDrained = false
+    var rearmedExpiring = false
+}
+
+/// Decoded key by key so a payload written by a build without the retry bookkeeping still reads.
+/// Synthesized `Decodable` throws on a missing key instead of falling back to the property default,
+/// and `ResetHintNotifier` reads a decode failure as "no state at all", which would re-fire every
+/// hint already delivered this cycle. Declared in an extension so the memberwise init survives.
+extension ResetHintAccountState {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        cycleKey = try container.decodeIfPresent(String.self, forKey: .cycleKey)
+        firedDrained = try container.decodeIfPresent(Bool.self, forKey: .firedDrained) ?? false
+        firedExpiring = try container.decodeIfPresent(Bool.self, forKey: .firedExpiring) ?? false
+        rearmedDrained = try container.decodeIfPresent(Bool.self, forKey: .rearmedDrained) ?? false
+        rearmedExpiring = try container.decodeIfPresent(Bool.self, forKey: .rearmedExpiring) ?? false
+    }
 }
 
 /// Dedup memory for every account, persisted (UserDefaults) so an app restart or auto-update does
@@ -92,10 +110,10 @@ enum ResetHintLogic {
             var entry = ResetHintAccountState(cycleKey: key)
             if let previous, previous.cycleKey == key { entry = previous }
             let remaining = binding.remainingPercent
-            if remaining > wasteRemainingPercent {
-                entry.firedDrained = false
-                entry.firedExpiring = false
-            }
+            // A recovery is a fresh opportunity, so it wipes the entry back to an untouched one
+            // inside the same cycle: both fired flags and both retry allowances. Rebuilding it
+            // rather than clearing field by field keeps a later flag from being forgotten here.
+            if remaining > wasteRemainingPercent { entry = ResetHintAccountState(cycleKey: key) }
             next.accounts[usage.id] = entry
 
             guard let credits = usage.resetCreditsAvailable, credits > 0 else { continue }
@@ -124,6 +142,35 @@ enum ResetHintLogic {
         case .expiring: next.accounts[hint.accountID]?.firedExpiring = true
         }
         return (next, hint)
+    }
+
+    /// Hand back the one announcement a hint just spent, because the system refused to deliver it.
+    /// The cycle bookkeeping `advance` wrote stays (it tracks which window this is, not what was
+    /// said), so only the fired flag is undone: someone with notifications switched off who turns
+    /// them on later in the same cycle still has a banked credit sitting on an empty account, and
+    /// that is exactly who this feature exists for.
+    ///
+    /// Bounded to one retry per account per reason per cycle. The refusal is only as good as the
+    /// authorization answer `SystemAlert.post` reads it from, and nothing here can confirm that
+    /// answer; were it ever wrong about a notification that did land, an unbounded retry would
+    /// clear the flag on every refresh and repeat one hint forever. This bounds that path, it does
+    /// not diagnose it: no such failure has been reproduced. Past the one retry the hint stays told
+    /// and waits for the next cycle, which is what it did before any retry existed.
+    static func rearm(state: ResetHintState, hint: ResetHint) -> ResetHintState {
+        var next = state
+        guard var entry = next.accounts[hint.accountID] else { return next }
+        switch hint.reason {
+        case .drained:
+            guard !entry.rearmedDrained else { return next }
+            entry.rearmedDrained = true
+            entry.firedDrained = false
+        case .expiring:
+            guard !entry.rearmedExpiring else { return next }
+            entry.rearmedExpiring = true
+            entry.firedExpiring = false
+        }
+        next.accounts[hint.accountID] = entry
+        return next
     }
 
     /// Least waste first: the emptiest account recovers the most from one credit. Ties go to the

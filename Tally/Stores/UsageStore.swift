@@ -217,6 +217,10 @@ final class UsageStore {
             // Alert when the claude flagship fleet pool crosses the low/dry tripwire. Release
             // variant only: the dev variant never owns the shared surfaces, so it never alerts.
             notifyFlagshipDryness(accounts: labeled)
+            // And when a banked reset is worth spending: the user has to REMEMBER to look at a
+            // credit otherwise. Same rule as every other surface here - it names the account, it
+            // never redeems.
+            ResetHintNotifier.shared.evaluate(accounts: labeled)
         }
         let now = Date()
         UsageHistory.shared.samples(

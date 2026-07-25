@@ -6548,6 +6548,122 @@
           }
         }
       }
+    },
+    "%@ is out of quota": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 額度已用盡"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 额度已用尽"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のクォータが尽きました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 쿼터가 모두 소진됨"
+          }
+        }
+      }
+    },
+    "A banked reset can clear its counters now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在可用一枚重置存量清空它的用量計數。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "现在可用一枚重置存量清空它的用量计数。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストックされたリセットで今すぐ使用量カウンターをクリアできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관된 리셋으로 지금 사용량 카운터를 초기화할 수 있습니다."
+          }
+        }
+      }
+    },
+    "%@ has a banked reset expiring": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 有一枚重置存量即將到期"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 有一枚重置存量即将到期"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のストックされたリセットがまもなく期限切れ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 의 보관된 리셋이 곧 만료됨"
+          }
+        }
+      }
+    },
+    "Expires %@. Redeeming it now would not go to waste.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 到期。現在兌換不會浪費。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 到期。现在兑换不会浪费。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に期限切れ。今引き換えても無駄になりません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 에 만료됩니다. 지금 교환해도 낭비되지 않습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

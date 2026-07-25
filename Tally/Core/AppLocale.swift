@@ -30,6 +30,13 @@ enum AppLocale {
         return Locale.autoupdatingCurrent
     }
 
+    /// Abbreviated date + short time, formatted in the APP's language rather than the system's: a
+    /// zh-TW system date inside an English UI read as a missing translation (2026-07-19). The
+    /// banked-reset dialog and its notification both show one, minutes apart, so they share it.
+    static func shortDateTime(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(current))
+    }
+
     /// The bundle to resolve translations from, matching the effective language by progressively
     /// stripping subtags ("zh-Hant-TW" → "zh-Hant" → "zh"), falling back to the main bundle.
     static var bundle: Bundle {

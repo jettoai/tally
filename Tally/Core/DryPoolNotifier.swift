@@ -78,18 +78,10 @@ final class DryPoolNotifier {
             title = String(format: L("%@ pool is dry across accounts"), windowName)
             body = String(format: L("0 of %1$@ left until %2$@"), capacityText, reset)
         }
-        // Build and add inside the task so no non-Sendable notification value crosses a boundary,
-        // and await authorization first so the very first alert still shows once the user grants.
-        Task { @MainActor in
-            let center = UNUserNotificationCenter.current()
-            _ = try? await center.requestAuthorization(options: [.alert, .sound])
-            let content = UNMutableNotificationContent()
-            content.title = title
-            content.body = body
-            content.sound = .default
-            try? await center.add(UNNotificationRequest(identifier: UUID().uuidString,
-                                                        content: content, trigger: nil))
-        }
+        // No category: the pool alert is news, with nothing to press. The delivery result is not
+        // consulted because this alert re-arms on its own, as soon as the pool recovers above the
+        // re-arm line, so a refused one comes back around without bookkeeping.
+        Task { _ = await SystemAlert.post(title: title, body: body) }
     }
 
     /// Pool figures are whole "accounts' worth" units; show them as rounded integers.

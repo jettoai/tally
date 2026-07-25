@@ -13,6 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItemController = StatusItemController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Notification delegate first: a response can arrive the instant the app is up (the user
+        // clicked a banked-reset hint that launched it), and the action button only exists if its
+        // category was registered before the alert landed.
+        NotificationRouter.shared.install()
         // Menu-bar accessory app: install the status item, then start the refresh loop.
         statusItemController.install()
         // Updater before the window restores: a restored Settings window renders update rows,
@@ -40,6 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // tripwire. No state is persisted, so a normal launch is unaffected.
         if UserDefaults.standard.bool(forKey: "TallyDryNotifyTest") {
             DryPoolNotifier.shared.postSampleNotification()
+        }
+        // Same idea for the banked-reset hint (-TallyResetHintTest), which additionally carries an
+        // action button: the one piece that cannot be checked from a card.
+        if UserDefaults.standard.bool(forKey: "TallyResetHintTest") {
+            ResetHintNotifier.shared.postSampleNotification()
         }
     }
 

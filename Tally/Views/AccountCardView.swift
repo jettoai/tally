@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// One account's card: provider + account label + plan, the headline (top-tier) meter prominent,
@@ -100,7 +99,7 @@ struct AccountCardView: View {
                 // confirmation that spells out the cost - never automatically.
                 if let resets = usage.resetCreditsAvailable, resets > 0 {
                     Button {
-                        if !DemoUsage.isActive { presentRedeemConfirm() }
+                        if !DemoUsage.isActive { startRedeem() }
                     } label: {
                         HStack(spacing: 3) {
                             // The redeem round-trips the provider's app server; without a busy
@@ -125,10 +124,10 @@ struct AccountCardView: View {
                     .help(L("Use a reset"))
                 }
                 if let redeemOutcome {
-                    Text(redeemMessage(redeemOutcome))
+                    Text(RedeemAction.outcomeMessage(redeemOutcome))
                         .font(.caption2)
                         .foregroundStyle(redeemOutcome == .redeemed ? TallyColor.normal : .secondary)
-                        .help(redeemDetail(redeemOutcome) ?? "")
+                        .help(RedeemAction.outcomeDetail(redeemOutcome) ?? "")
                 }
             }
         }
@@ -254,90 +253,18 @@ struct AccountCardView: View {
 
     // MARK: Reset banking - manual redeem (the only write Tally ever performs, user-confirmed)
 
-    /// The confirmation spells out cost + irreversibility, adds the nearest expiry (an expiring
-    /// credit is nearly free to spend), and escalates when redeeming would be a WASTE: clearing
-    /// counters that are mostly empty gains almost nothing.
-    private var redeemMessage: String {
-        var parts: [String] = []
-        let bindingRemaining = usage.metrics.map(\.remainingPercent).min() ?? 0
-        if bindingRemaining > 30 {
-            parts.append(L("This account still has plenty of quota left; redeeming now would mostly be wasted."))
-        }
-        parts.append(L("Clears this account's current usage counters and consumes 1 banked reset. This cannot be undone."))
-        if let expiry = usage.resetCreditsNextExpiry {
-            // Format in the APP's language, not the system's - a zh-TW system date inside an
-            // English UI read as a missing translation (2026-07-19).
-            let style = Date.FormatStyle(date: .abbreviated, time: .shortened)
-                .locale(AppLocale.current)
-            parts.append(L("Nearest banked reset expires") + " " + expiry.formatted(style) + ".")
-        }
-        return parts.joined(separator: "\n\n")
-    }
-
-    /// An AppKit alert in its OWN window: presenting SwiftUI's `.alert` inside the borderless
-    /// pinned panel forced the host window opaque for the duration, turning the transparent
-    /// rounded corners square (2026-07-19). NSAlert leaves the panel untouched.
-    private func presentRedeemConfirm() {
-        let alert = NSAlert()
-        // The alert lives in its own window, detached from the card - it must NAME the account
-        // it is about to reset.
-        alert.messageText = "\(label) · \(L("Use a reset"))"
-        alert.informativeText = redeemMessage
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: L("Redeem")).hasDestructiveAction = true
-        alert.addButton(withTitle: L("Cancel"))
-        NSApp.activate(ignoringOtherApps: true)
-        // Center on the window the user actually clicked in (panel or popover), falling back
-        // to the screen under the pointer - never on some other monitor's main screen.
-        alert.layout()
-        let mouse = NSEvent.mouseLocation
-        let anchor = NSApp.windows.first { $0.isVisible && $0.frame.contains(mouse) }?.frame
-            ?? NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }?.visibleFrame
-        if let anchor {
-            let window = alert.window
-            let size = window.frame.size
-            let origin = NSPoint(x: anchor.midX - size.width / 2,
-                                 y: anchor.midY - size.height / 2)
-            window.setFrameOrigin(origin)
-            // runModal re-centres the alert window as it shows, clobbering the origin above
-            // (live multi-monitor incident 2026-07-20). Re-assert it from inside the modal
-            // run loop, right after the show.
-            RunLoop.main.perform(inModes: [.modalPanel]) {
-                // A RunLoop.main callout always executes on the main thread; the closure just
-                // isn't annotated, so tell the compiler rather than hop actors.
-                MainActor.assumeIsolated {
-                    window.setFrameOrigin(origin)
-                }
-            }
-        }
-        if alert.runModal() == .alertFirstButtonReturn { redeem() }
-    }
-
-    /// The outcome in the panel's own voice. Every case is a translated sentence: the server's own
-    /// wording never reaches the row, only the tooltip below.
-    private func redeemMessage(_ outcome: CodexAppServerClient.RedeemOutcome) -> String {
-        switch outcome {
-        case .redeemed: return L("Reset redeemed")
-        case .alreadyUsed: return L("That credit was already used")
-        case .noCredit: return L("No reset credit available")
-        case .failed: return L("Redeem failed")
-        }
-    }
-
-    /// The server's own words for a failure, for the hover tooltip: diagnosable without putting a
-    /// protocol token in front of everyone.
-    private func redeemDetail(_ outcome: CodexAppServerClient.RedeemOutcome) -> String? {
-        if case .failed(let detail) = outcome { return detail }
-        return nil
-    }
-
-    private func redeem() {
-        guard let home = UsageStore.shared.discoveredAccounts
-            .first(where: { $0.id == usage.id })?.launchHome else { return }
+    /// Ask through the shared confirmation, then spend through the shared redeem, with the card's
+    /// own chrome around it: a spinner while the app server answers (the click reads as dead
+    /// otherwise), then the outcome line for a few seconds. The dialog and the write live in
+    /// `RedeemAction` because the banked-reset notification opens the very same question.
+    private func startRedeem() {
+        guard RedeemAction.confirm(usage: usage, label: label) else { return }
         redeemBusy = true
         Task {
-            redeemOutcome = await CodexAppServerClient.consumeSoonestResetCredit(codexHome: home)
+            let outcome = await RedeemAction.redeem(usage: usage)
             redeemBusy = false
+            guard let outcome else { return }
+            redeemOutcome = outcome
             await UsageStore.shared.refresh(userInitiated: true)
             try? await Task.sleep(for: .seconds(8))
             redeemOutcome = nil

@@ -6490,6 +6490,64 @@
           }
         }
       }
+    },
+    "%d session is running, but it started before this version and cannot reload yet. Restart it once (exit, then launch again) and reload works from then on.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有 %d 個工作階段在執行，但它是在這個版本之前啟動的，還無法重新載入。把它重開一次（先結束、再啟動），之後就能用了。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有 %d 个会话在运行，但它是在这个版本之前启动的，还无法重新加载。把它重开一次（先结束、再启动），之后就能用了。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 件のセッションが動作中ですが、このバージョンより前に起動したためまだリロードできません。一度だけ再起動すると（終了してから起動）、以後は使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d개의 세션이 실행 중이지만 이 버전보다 먼저 시작되어 아직 다시 로드할 수 없습니다. 한 번만 재시작하면(종료 후 다시 실행) 그다음부터 작동합니다."
+          }
+        }
+      }
+    },
+    "%d sessions are running, but they started before this version and cannot reload yet. Restart each one once (exit, then launch again) and reload works from then on.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有 %d 個工作階段在執行，但它們都是在這個版本之前啟動的，還無法重新載入。每個各重開一次（先結束、再啟動），之後就能用了。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有 %d 个会话在运行，但它们都是在这个版本之前启动的，还无法重新加载。每个各重开一次（先结束、再启动），之后就能用了。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 件のセッションが動作中ですが、いずれもこのバージョンより前に起動したためまだリロードできません。それぞれ一度だけ再起動すると（終了してから起動）、以後は使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d개의 세션이 실행 중이지만 모두 이 버전보다 먼저 시작되어 아직 다시 로드할 수 없습니다. 각각 한 번씩 재시작하면(종료 후 다시 실행) 그다음부터 작동합니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

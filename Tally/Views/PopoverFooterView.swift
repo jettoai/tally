@@ -44,7 +44,7 @@ extension PopoverRootView {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help(L("Reload running sessions") + " · " + L("Each restarts when it goes idle"))
+            .help(ReloadAction.tooltip())
             // The view menu: both layout dimensions behind one footer icon. "Gauges only" is the
             // one-click version of collapsing every pooled provider (clicking a single gauge row
             // stays the granular tool); below the divider, the same column value the Settings

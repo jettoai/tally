@@ -121,12 +121,16 @@ func runReload(args: [String]) -> Int32 {
         warn("cannot write \(reloadFile.path): \(error.localizedDescription)")
         return 1
     }
-    let live = liveSupervisorCount()
-    if live == 0 {
-        warn("no supervised sessions are running")
-    } else {
+    switch currentReloadReadiness() {
+    case .ready(let live):
         warn("reload requested: \(live) supervised session\(live == 1 ? "" : "s") "
             + "will restart when idle")
+    case .nothingRunning:
+        warn("no supervised sessions are running")
+    case .legacyOnly(let count):
+        // Sessions are running, they just cannot hear the request: say so rather than report the
+        // literally-true zero, which reads as "nothing is running" to the person watching five.
+        warn(reloadLegacyNotice(count))
     }
     return 0
 }

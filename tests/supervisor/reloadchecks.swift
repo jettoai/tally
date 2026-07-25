@@ -70,13 +70,12 @@ func runReloadChecks() {
     // probe the drift badge uses). `dir` is injectable so this runs against fake state files.
     let countDir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-reload-count-\(UUID().uuidString)")
-    check("no supervisors is zero, not a crash", liveSupervisorCount(dir: countDir) == 0)
-    check("a missing registry lists no pids", liveSupervisorPids(dir: countDir).isEmpty)
+    check("a missing registry lists no pids, rather than crashing",
+          liveSupervisorPids(dir: countDir).isEmpty)
     markSupervisorLive(pid: String(getpid()), dir: countDir)
     markSupervisorLive(pid: "99999", dir: countDir)
     try! "notes".write(to: countDir.appendingPathComponent("notes.txt"), atomically: true, encoding: .utf8)
-    check("only live pids are counted", liveSupervisorCount(dir: countDir) == 1)
-    check("the live pid is this process, not the impossible one",
+    check("only live pids are listed: this process, not the impossible one",
           liveSupervisorPids(dir: countDir) == [getpid()])
     try? FileManager.default.removeItem(at: countDir)
 
@@ -99,6 +98,115 @@ func runReloadChecks() {
     check("--now's bar is the one reloadIdleBar hands out",
           reloadQuiet(transcriptQuiet: true, hasTranscript: false, childAge: 6,
                       bar: reloadIdleBar(immediate: true)))
+
+    // MARK: - 19g. Sessions from a build that cannot reload
+
+    // A supervisor started before this feature registers nothing and polls no request file, so the
+    // registry reads zero while sessions are plainly running (five of them, live, 2026-07-25). The
+    // count stays honest - none of those will restart - and the probe exists so the MESSAGE can be.
+    let probeNow = Date(timeIntervalSince1970: 1_800_000_000)
+    func proc(_ pid: pid_t, _ name: String, age: TimeInterval, ppid: pid_t = 1) -> RunningProcess {
+        RunningProcess(pid: pid, ppid: ppid, name: name,
+                       startedAt: probeNow.addingTimeInterval(-age))
+    }
+    // Children carry the names the real ones report (measured 2026-07-25): a claude child is named
+    // for its version, a homebrew codex for its build triple. They are here so each rejection below
+    // is tested by the predicate it is about, not incidentally by the missing child.
+    let scan = [
+        proc(100, "tally", age: 3600),      // a session from an older build
+        proc(1000, "2.1.220", age: 3590, ppid: 100),
+        proc(101, "tally", age: 120),       // another
+        proc(1001, "codex-aarch64-apple-darwin", age: 110, ppid: 101),
+        proc(102, "tally", age: 2),         // the status line shelling out: far too young
+        proc(1002, "sh", age: 1, ppid: 102),
+        proc(103, "claude", age: 3600),     // a child, not a supervisor
+        proc(104, "tallyx", age: 3600),     // a near miss on the name
+        proc(1004, "2.1.220", age: 3590, ppid: 104),
+        proc(105, "tally", age: 7200),      // registered: a current build, already counted
+        proc(1005, "2.1.220", age: 7100, ppid: 105),
+        proc(106, "tally", age: 7200),      // this process itself
+        proc(1006, "2.1.220", age: 7100, ppid: 106),
+    ]
+    let legacy = legacySupervisorPids(scan, excluding: [105, 106], now: probeNow)
+    check("older supervisors are found", legacy.contains(100) && legacy.contains(101))
+    check("a passing statusline call is not a session", !legacy.contains(102))
+    check("the claude child is not a supervisor", !legacy.contains(103))
+    check("a name that merely starts with tally is not ours", !legacy.contains(104))
+    check("a registered supervisor is not counted twice", !legacy.contains(105))
+    check("this process and its ancestors are excluded", !legacy.contains(106))
+    check("so the probe reports exactly the two", legacy.count == 2)
+    check("the age floor is inclusive at its edge",
+          legacySupervisorPids([proc(200, "tally", age: legacySupervisorMinAge),
+                                proc(2000, "2.1.220", age: 1, ppid: 200)],
+                               excluding: [], now: probeNow) == [200])
+    check("and rejects one second under it",
+          legacySupervisorPids([proc(201, "tally", age: legacySupervisorMinAge - 1),
+                                proc(2001, "2.1.220", age: 1, ppid: 201)],
+                               excluding: [], now: probeNow).isEmpty)
+
+    // What makes a `tally` a supervisor is the child it parents. `tally worktree` and the worktree
+    // picker sit in a raw-mode read for as long as the user takes to choose, far past the age
+    // floor, so without this they would be reported as sessions needing a restart while they
+    // supervise nothing.
+    //
+    // The child is matched structurally, never by name: the claude child renames itself to its
+    // version and so is called something new every release, and a homebrew codex reports its build
+    // triple. Requiring a child called "claude" or "codex" would have counted none of the eight
+    // supervisors running when this was measured (2026-07-25), so both spellings appear below.
+    check("a tally waiting on a menu, parenting nothing, is not a session",
+          legacySupervisorPids([proc(300, "tally", age: 600)],
+                               excluding: [], now: probeNow).isEmpty)
+    check("the same process once it has launched a child named for its version is",
+          legacySupervisorPids([proc(300, "tally", age: 600),
+                                proc(3000, "2.1.220", age: 5, ppid: 300)],
+                               excluding: [], now: probeNow) == [300])
+    check("and a codex child named for its build triple counts the same",
+          legacySupervisorPids([proc(303, "tally", age: 600),
+                                proc(3003, "codex-aarch64-apple-darwin", age: 5, ppid: 303)],
+                               excluding: [], now: probeNow) == [303])
+    // The pairing is to THIS pid. Another supervisor's child elsewhere in the scan says nothing
+    // about a tally that has none of its own.
+    check("someone else's child does not promote an idle tally",
+          legacySupervisorPids([proc(301, "tally", age: 600),
+                                proc(3001, "2.1.220", age: 5, ppid: 999)],
+                               excluding: [], now: probeNow).isEmpty)
+
+    // The bound on the pid scan that feeds all of the above. `proc_listallpids` returns a COUNT of
+    // pids from its second call, not the byte count its argument is given in, so reading it as
+    // bytes inspected a quarter of the machine and hid any supervisor past that point (measured
+    // 2026-07-25: 1010 pids returned against `ps -A`'s 1011 lines, where the byte reading stopped
+    // at 252).
+    check("the returned value is a pid count, not a byte count",
+          scannedPidCount(1010, capacity: 1029) == 1010)
+    check("exactly filling the buffer is not clamped away",
+          scannedPidCount(1029, capacity: 1029) == 1029)
+    // Processes launched between the sizing call and the fill can push the count past the buffer,
+    // which would be a read out of bounds rather than a miscount.
+    check("a count past the buffer is clamped to it", scannedPidCount(1200, capacity: 1029) == 1029)
+    check("no pids is no scan", scannedPidCount(0, capacity: 1029) == 0)
+    check("an error from libproc is no scan", scannedPidCount(-1, capacity: 1029) == 0)
+    check("an empty buffer is never indexed", scannedPidCount(10, capacity: 0) == 0)
+
+    // The three-way answer every surface reads. A registered session outranks a legacy one: it will
+    // really restart, so that is the news.
+    check("registered sessions are the ordinary case", reloadReadiness(live: 3, legacy: 0) == .ready(3))
+    check("registered wins over legacy on a mixed machine",
+          reloadReadiness(live: 1, legacy: 4) == .ready(1))
+    check("nothing running is nothing running",
+          reloadReadiness(live: 0, legacy: 0) == .nothingRunning)
+    check("legacy only is its own state, with its own count",
+          reloadReadiness(live: 0, legacy: 5) == .legacyOnly(5))
+
+    // The sentence that state produces: what is true, then the one action. Singular and plural, and
+    // the same text everywhere (the app passes L, the CLI takes the English as written).
+    check("the legacy notice counts the sessions", reloadLegacyNotice(5).hasPrefix("5 sessions are running"))
+    check("it says they cannot reload yet", reloadLegacyNotice(5).contains("cannot reload yet"))
+    check("and its second sentence is the action",
+          reloadLegacyNotice(5).contains("Restart each one once (exit, then launch again)"))
+    check("one session reads as one", reloadLegacyNotice(1).hasPrefix("1 session is running"))
+    check("with the singular action", reloadLegacyNotice(1).contains("Restart it once"))
+    check("localization is applied to the whole sentence, not a fragment",
+          reloadLegacyNotice(2, localize: { _ in "translated %d" }) == "translated 2")
 
     // MARK: - 20. Relaunch arguments
 

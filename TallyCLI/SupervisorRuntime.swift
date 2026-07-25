@@ -1,9 +1,26 @@
 import Darwin
 import Foundation
 
-// Supervisor value types and pure decision helpers, split from Supervisor.swift so the resident
-// loop stays under the file-size cap and the logic that CAN be tested without spawning a child is
-// testable on its own (tests/supervisor compiles this alongside Supervisor.swift + Snapshot.swift).
+// Supervisor value types, pure decision helpers, and the small pieces of plumbing the resident loop
+// needs but does not have to hold: split from Supervisor.swift so that file stays under the size cap
+// and the logic that CAN be tested without spawning a child is testable on its own
+// (tests/supervisor compiles this alongside Supervisor.swift + Snapshot.swift).
+
+// MARK: - Child process
+
+/// posix_spawnp keeping the child in OUR process group. Foundation's `Process` puts the child in
+/// a NEW process group, so the interactive child is background to the terminal and job control
+/// stops it with SIGTTIN the moment it reads (claude suspended `T`, blank screen, 2026-07-18).
+/// Same-group spawn reproduces what a plain exec gives: the child shares the foreground group.
+func spawnChild(_ argv: [String], environment: [String: String]) -> pid_t? {
+    var cArgs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
+    cArgs.append(nil)
+    var cEnv: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") }
+    cEnv.append(nil)
+    defer { for pointer in cArgs + cEnv { free(pointer) } }
+    var pid: pid_t = 0
+    return posix_spawnp(&pid, argv[0], nil, nil, cArgs, cEnv) == 0 ? pid : nil
+}
 
 // MARK: - Launch-flag helpers
 

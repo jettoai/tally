@@ -148,6 +148,146 @@ func runReloadChecks() {
     check("nothing pending stays nothing pending",
           capCarriedAcrossRelaunch(nil, reason: "reload") == nil)
 
+    // MARK: - 23. Supervisor self-update after an app update
+
+    // The gates, in the order they bite. `captured` is the version this supervisor started on and
+    // `installed` what the bundle reports NOW (verified live: a running process sees the new value
+    // the moment the bundle is replaced under it), so a LATER installed version means the app
+    // updated underneath us and this process is running stale logic.
+    let clear = { (captured: String?, installed: String?, quiet: Bool, planned: Bool,
+                   cap: Bool, uptime: TimeInterval, attempted: String?) in
+        selfUpdateTarget(captured: captured, installed: installed, isQuiet: quiet,
+                         relaunchPlanned: planned, capPending: cap, uptime: uptime,
+                         attempted: attempted)
+    }
+    check("everything clear upgrades to the installed version",
+          clear("0.25.0", "0.26.0", true, false, false, 300, nil) == "0.26.0")
+    check("the same version is nothing to do",
+          clear("0.26.0", "0.26.0", true, false, false, 300, nil) == nil)
+    // Newer, not merely different. The exec is one-way (the child is already gone), and an older
+    // build has no `__resupervise`: it would print the usage text, exit, and take the session with
+    // it. An older DMG installed over the top, or a Release rebuilt from an earlier checkout, is
+    // exactly this case, and a bundle alternating between two versions would exec on every tick.
+    check("an older installed build is never exec'd into",
+          clear("0.26.0", "0.25.0", true, false, false, 300, nil) == nil)
+    check("versions compare by component, not as strings",
+          clear("0.9.0", "0.10.0", true, false, false, 300, nil) == "0.10.0")
+    check("and not the other way round",
+          clear("0.10.0", "0.9.0", true, false, false, 300, nil) == nil)
+    check("a longer version string beats its own prefix",
+          clear("0.26", "0.26.1", true, false, false, 300, nil) == "0.26.1")
+    check("equal after padding is still nothing to do",
+          clear("0.26", "0.26.0", true, false, false, 300, nil) == nil)
+    check("a version we cannot parse stays put",
+          clear("0.25.0", "0.26.0-beta", true, false, false, 300, nil) == nil)
+    check("no installed version (mid-install, or no bundle) waits",
+          clear("0.25.0", nil, true, false, false, 300, nil) == nil)
+    check("a dev build with no captured version never self-updates",
+          clear(nil, "0.26.0", true, false, false, 300, nil) == nil)
+    check("neither version known does nothing",
+          clear(nil, nil, true, false, false, 300, nil) == nil)
+    check("a session mid-turn waits",
+          clear("0.25.0", "0.26.0", false, false, false, 300, nil) == nil)
+    check("a relaunch already planned this tick waits",
+          clear("0.25.0", "0.26.0", true, true, false, 300, nil) == nil)
+    // A capped session is holding state (which account capped, when to retry) that an exec would
+    // drop, and it is quiet by definition, so it would upgrade instantly if this gate were missing.
+    check("a pending cap recovery waits",
+          clear("0.25.0", "0.26.0", true, false, true, 300, nil) == nil)
+    check("a child younger than the loop-safety floor waits",
+          clear("0.25.0", "0.26.0", true, false, false, selfUpdateMinUptime - 1, nil) == nil)
+    check("exactly at the floor is allowed",
+          clear("0.25.0", "0.26.0", true, false, false, selfUpdateMinUptime, nil) == "0.26.0")
+    // Loop safety: a bundle that still reports the old version after the exec would otherwise have
+    // every generation exec again. The target the last exec aimed for is never attempted twice.
+    check("the target a previous exec already tried is not tried again",
+          clear("0.25.0", "0.26.0", true, false, false, 300, "0.26.0") == nil)
+    check("but a genuinely newer version still upgrades",
+          clear("0.25.0", "0.26.1", true, false, false, 300, "0.26.0") == "0.26.1")
+
+    // The argv that carries continuity across the exec: the account is named so the new supervisor
+    // cannot re-pick, and the child args (already carrying --resume <session>) ride after the "--".
+    check("the exec argv names the account and pins the conversation",
+          selfUpdateArgv(binary: "/usr/local/bin/tally", id: "acct-2", label: "Claude 2",
+                         home: "/Users/x/.claude2", follow: true,
+                         args: ["--resume", "abc", "--model", "fable"])
+          == ["/usr/local/bin/tally", resuperviseCommand, "--id", "acct-2", "--label", "Claude 2",
+              "--home", "/Users/x/.claude2", "--follow", "--", "--resume", "abc", "--model", "fable"])
+    check("an opted-out session stays opted out across the upgrade",
+          selfUpdateArgv(binary: "/usr/local/bin/tally", id: "a", label: "A", home: "/h",
+                         follow: false, args: []).contains("--no-follow"))
+    check("the separator is present even with no child args",
+          selfUpdateArgv(binary: "/usr/local/bin/tally", id: "a", label: "A", home: "/h",
+                         follow: true, args: []).last == "--")
+
+    // The two halves of that contract are written by DIFFERENT builds, so they are tested as a round
+    // trip: what one version writes, the next version's parser must read back unchanged. `dropFirst`
+    // removes the binary path and the subcommand, which main.swift consumes before parsing.
+    func roundTrip(id: String, label: String, home: String, follow: Bool,
+                   args: [String]) -> (id: String, label: String, home: String,
+                                       follow: Bool, childArgs: [String]) {
+        parseResuperviseArgs(Array(selfUpdateArgv(binary: "/usr/local/bin/tally", id: id,
+                                                  label: label, home: home, follow: follow,
+                                                  args: args).dropFirst(2)))
+    }
+    let trip = roundTrip(id: "acct-2", label: "Claude 2", home: "/Users/x/.claude2", follow: true,
+                         args: ["--resume", "abc", "--model", "fable"])
+    check("the account survives the round trip", trip.id == "acct-2" && trip.label == "Claude 2")
+    check("the home survives the round trip", trip.home == "/Users/x/.claude2")
+    check("follow survives the round trip", trip.follow)
+    check("the child args survive the round trip",
+          trip.childArgs == ["--resume", "abc", "--model", "fable"])
+    check("--no-follow survives the round trip",
+          roundTrip(id: "a", label: "A", home: "/h", follow: false, args: []).follow == false)
+    // A label is whatever the previous build wrote, including something that looks like a flag: the
+    // value is taken positionally, never re-parsed. An account labelled "--home" must not be able to
+    // redirect the session into another config home.
+    let flagLabel = roundTrip(id: "a", label: "--home", home: "/real/home", follow: true,
+                              args: ["--model", "fable"])
+    check("a label that looks like a flag is still a label", flagLabel.label == "--home")
+    check("and it does not hijack the home", flagLabel.home == "/real/home")
+    check("nor swallow the child args", flagLabel.childArgs == ["--model", "fable"])
+    // Malformed input from a build that wrote a different shape: parse what is there, resume with
+    // no child args, and let the supervisor's own --home guard decide whether it can run at all.
+    check("a missing separator yields no child args",
+          parseResuperviseArgs(["--id", "a", "--label", "A", "--home", "/h", "--follow"])
+              .childArgs.isEmpty)
+    check("but everything before it is still read",
+          parseResuperviseArgs(["--id", "a", "--label", "A", "--home", "/h"]).home == "/h")
+    check("a trailing separator yields no child args",
+          parseResuperviseArgs(["--home", "/h", "--"]).childArgs.isEmpty)
+    check("a dangling flag value is empty, not a crash",
+          parseResuperviseArgs(["--home"]).home.isEmpty)
+    check("follow defaults to on when the flag is absent",
+          parseResuperviseArgs(["--home", "/h"]).follow)
+
+    // What the tick actually asks: gates, plus a real executable and a home, all answered before the
+    // caller kills anything. Versions are injected so this runs outside a bundle.
+    func due(binary: String?, home: String?, attempted: String? = nil)
+        -> (target: String, binary: String, home: String)? {
+        selfUpdateDue(captured: "0.25.0", attempted: attempted, isQuiet: true,
+                      relaunchPlanned: false, capPending: false, uptime: 300, home: home,
+                      installed: "0.26.0", binary: binary)
+    }
+    check("a clear tick with a real binary and a home upgrades",
+          due(binary: "/bin/ls", home: "/h")?.target == "0.26.0")
+    check("and it hands back the binary and home it checked",
+          due(binary: "/bin/ls", home: "/h").map { $0.binary == "/bin/ls" && $0.home == "/h" } == true)
+    check("no executable to exec means no upgrade this tick", due(binary: nil, home: "/h") == nil)
+    check("no home to pass means no upgrade at all", due(binary: "/bin/ls", home: nil) == nil)
+    check("an already-attempted target is still refused here",
+          due(binary: "/bin/ls", home: "/h", attempted: "0.26.0") == nil)
+
+    // The exec target is checked for real BEFORE the child is terminated: a bundle caught mid-install
+    // costs a skipped tick, never the session's child.
+    check("a real executable is accepted", selfUpdateBinary("/bin/ls") == "/bin/ls")
+    check("a path with nothing at it is refused", selfUpdateBinary("/nonexistent/tally") == nil)
+    check("no path at all is refused", selfUpdateBinary(nil) == nil)
+    let plainFile = NSTemporaryDirectory() + "tally-not-executable-\(getpid())"
+    FileManager.default.createFile(atPath: plainFile, contents: Data("x".utf8))
+    check("a file that is not executable is refused", selfUpdateBinary(plainFile) == nil)
+    try? FileManager.default.removeItem(atPath: plainFile)
+
     // MARK: - 22. The follow dead end must not swallow the tick
 
     // Structural, because the bug was control flow, not a value: the dead-end path used to

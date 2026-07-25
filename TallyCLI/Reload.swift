@@ -61,6 +61,45 @@ func reloadDecision(captured: Int, requested: Int?, relaunchPlanned: Bool,
     return isQuiet ? .relaunch : .queued
 }
 
+/// One poll tick's reload handling, applied to the supervisor's state: read the pending request and
+/// either plan the relaunch, fold into a relaunch the tick already planned, or say once that the
+/// request is waiting for this session to go idle.
+///
+/// The user edited hooks / skills / instructions and wants every supervised session to come back on
+/// them. Restarting the CHILD is enough (the supervisor reads none of that), so this is a plain
+/// same-account relaunch through the usual resume path: same conversation, no model or effort
+/// change, and no fuse (a deliberate request, not a recovery). It waits on the same idle bar a
+/// follow adoption uses, so a running turn is never interrupted. The supervisor calls it LAST on
+/// purpose: any relaunch already planned this tick restarts the child anyway, so the request rides
+/// along instead of queueing a second one.
+func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: inout Int?,
+                        account: Snapshot.Account, watcher: inout TranscriptWatcher,
+                        childAge: TimeInterval) {
+    guard let request = readReloadRequest() else { return }
+    let bar = reloadIdleBar(immediate: request.immediate)
+    // `watcher.file` is only meaningful after `isQuiet` has run its locate, which the left-to-right
+    // && guarantees; the child's age covers the pre-transcript window.
+    let quiet = plan == nil && request.epoch > epoch
+        && reloadQuiet(transcriptQuiet: watcher.isQuiet(bar), hasTranscript: watcher.file != nil,
+                       childAge: childAge, bar: bar)
+    switch reloadDecision(captured: epoch, requested: request.epoch,
+                          relaunchPlanned: plan != nil, isQuiet: quiet) {
+    case .none:
+        break
+    case .fold:
+        epoch = request.epoch
+    case .relaunch:
+        warn("reload requested → restarting this session")
+        plan = RelaunchPlan(target: account, reason: "reload", countsFuse: false)
+        epoch = request.epoch
+    case .queued:
+        if notice != request.epoch {
+            warn("reload requested - restarting when this session goes idle")
+            notice = request.epoch
+        }
+    }
+}
+
 // MARK: - CLI entry
 
 /// `tally reload [--now]`: stamp the request and report how many sessions will act on it. Touches

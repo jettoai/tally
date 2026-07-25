@@ -445,6 +445,8 @@ case "statusline":
     runStatusline(args: Array(arguments.dropFirst()))
 case "reload":
     exit(runReload(args: Array(arguments.dropFirst())))
+case resuperviseCommand:   // internal: a supervisor replacing itself after an app update
+    runResupervise(args: Array(arguments.dropFirst()))
 case "update":
     runUpdate()
 case "add":

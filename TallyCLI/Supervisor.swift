@@ -9,20 +9,6 @@ import Foundation
 // continues on the fresh account with no manual step. The transcript tailer that detects the cap
 // lives in TranscriptWatcher.swift; the value types and pure helpers in SupervisorRuntime.swift.
 
-/// posix_spawnp keeping the child in OUR process group. Foundation's `Process` puts the child in
-/// a NEW process group, so the interactive child is background to the terminal and job control
-/// stops it with SIGTTIN the moment it reads (claude suspended `T`, blank screen, 2026-07-18).
-/// Same-group spawn reproduces what a plain exec gives: the child shares the foreground group.
-private func spawnChild(_ argv: [String], environment: [String: String]) -> pid_t? {
-    var cArgs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
-    cArgs.append(nil)
-    var cEnv: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") }
-    cEnv.append(nil)
-    defer { for pointer in cArgs + cEnv { free(pointer) } }
-    var pid: pid_t = 0
-    return posix_spawnp(&pid, argv[0], nil, nil, cArgs, cEnv) == 0 ? pid : nil
-}
-
 /// Resident supervision: spawn claude, tail its transcript, hand off on a cap hit.
 ///
 /// `follow`: adopt a later change to the launch-default model at the next quiet moment. The caller
@@ -80,6 +66,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// Stamped into the child env so the status line can tell whether the supervisor watching this
     /// session is the current build (a session launched before an app update runs stale logic).
     let supervisorVersion = supervisorBuildVersion()
+    /// The version a self-update exec was aiming for: read from the environment when this process
+    /// IS that exec, and written again when this process attempts one of its own.
+    var selfUpdateAttempted = consumeSelfUpdateAttempt()
     let supervisorPID = String(getpid())
     // Reap drift-state files left by dead supervisors (a SIGKILL skips the clear path) before this
     // one starts writing its own; also shrinks the pid-reuse window for a stale badge.
@@ -435,39 +424,36 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 fallbackApplied = true
             }
 
-            // `tally reload`: the user edited hooks / skills / instructions and wants every
-            // supervised session to come back on them. Restarting the CHILD is enough (the
-            // supervisor reads none of that), so this is a plain same-account relaunch through the
-            // usual resume path - same conversation, no model or effort change, and no fuse (a
-            // deliberate request, not a recovery). It waits on the same idle bar a follow adoption
-            // uses so a running turn is never interrupted. Lowest priority on purpose: any relaunch
-            // already planned this tick restarts the child anyway, so the request rides along
-            // instead of queueing a second one.
-            if let request = readReloadRequest() {
-                let bar = reloadIdleBar(immediate: request.immediate)
-                // `watcher.file` is only meaningful after `isQuiet` has run its locate, which the
-                // left-to-right && guarantees; the child's age covers the pre-transcript window.
-                let quiet = plan == nil && request.epoch > reloadEpoch
-                    && reloadQuiet(transcriptQuiet: watcher.isQuiet(bar),
-                                   hasTranscript: watcher.file != nil,
-                                   childAge: Date().timeIntervalSince(launchedAt), bar: bar)
-                switch reloadDecision(captured: reloadEpoch, requested: request.epoch,
-                                      relaunchPlanned: plan != nil, isQuiet: quiet) {
-                case .none:
-                    break
-                case .fold:
-                    reloadEpoch = request.epoch
-                case .relaunch:
-                    warn("reload requested → restarting this session")
-                    plan = RelaunchPlan(target: account, reason: "reload", countsFuse: false)
-                    reloadEpoch = request.epoch
-                case .queued:
-                    if reloadNotice != request.epoch {
-                        warn("reload requested - restarting when this session goes idle")
-                        reloadNotice = request.epoch
-                    }
-                }
+            // The app updated under this supervisor, so it now runs stale logic and stamps a stale
+            // version into its child: replace THIS process with the new build (SelfUpdate.swift).
+            // Ahead of the reload check because an upgrade restarts the child too, so a pending
+            // reload request is satisfied by the same act instead of costing a second restart.
+            let childAge = Date().timeIntervalSince(launchedAt)
+            if let upgrade = selfUpdateDue(
+                   captured: supervisorVersion, attempted: selfUpdateAttempted,
+                   isQuiet: reloadQuiet(transcriptQuiet: watcher.isQuiet(followIdleSeconds),
+                                        hasTranscript: watcher.file != nil,
+                                        childAge: childAge, bar: followIdleSeconds),
+                   relaunchPlanned: plan != nil, capPending: pendingCap != nil,
+                   uptime: childAge, home: account.launchHome) {
+                // Record the attempt BEFORE acting on it: a successful exec carries it across in the
+                // environment, a failed one leaves nothing behind, and without this the session
+                // would chase the same unreachable build every minute for the rest of its life.
+                selfUpdateAttempted = upgrade.target
+                // Ends the child and rewrites launchArgs to resume this conversation, exactly as a
+                // same-account relaunch does; the exec hands those args to the new build.
+                performHandoff(to: account, reason: "self-update", countingFuse: false)
+                execSelfUpdate(to: upgrade.target, id: account.id, label: account.label,
+                               home: upgrade.home, follow: follow, args: launchArgs,
+                               binary: upgrade.binary)
+                break   // the exec failed: carry on with the child that handoff just relaunched
             }
+
+            // `tally reload`: adopt a pending request, or note that it is waiting for this session
+            // to go idle. The whole rule, and why it comes last, lives in Reload.swift.
+            applyReloadRequest(plan: &plan, epoch: &reloadEpoch, notice: &reloadNotice,
+                               account: account, watcher: &watcher,
+                               childAge: Date().timeIntervalSince(launchedAt))
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args.

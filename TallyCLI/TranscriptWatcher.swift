@@ -9,6 +9,26 @@ import Foundation
 // "Server is temporarily limiting requests (not your usage limit)", 529/500, login expiry) never
 // starts with "You've" and must never trigger a handoff.
 
+/// How long a subagent must be silent before its session counts as idle. Deliberately NOT the
+/// caller's bar: a healthy subagent writes nothing for the whole of any single long tool call, so
+/// the caller's window measures the wrong thing entirely. Measured here 2026-07-25 across three
+/// healthy packages: 61s, 52s and 109s of silence, each inside an xcodebuild or a run of the eleven
+/// suites. 109s against the 120s follow bar leaves 11 seconds of margin, so a slightly slower build
+/// crosses it and the child is relaunched mid-package.
+///
+/// 600s because that sample of three cannot be the ceiling (a package running two xcodebuilds plus
+/// the eleven suites goes past it), because the owner's stop hook already uses 600s for this exact
+/// question ("has this subagent stopped writing"), so the product and the harness agree, and
+/// because there is no process to fall back on: subagents run inside the claude process rather than
+/// as separate PIDs, leaving file mtime as the only signal. The window therefore has to absorb the
+/// longest tool call, not the typical one.
+///
+/// The cost, accepted knowingly: for up to 600s after a subagent genuinely finishes, its session
+/// still reads busy, so a reload or self-update waiting on that session is delayed by that much.
+/// Every relaunch behind this bar is non-urgent by definition (a cap handoff never waits for
+/// quiet), and a late restart costs the user a wait while an early one destroys a work package.
+let subagentIdleSeconds: TimeInterval = 600
+
 /// Watches one session transcript for a cap-hit event newer than `since`.
 struct TranscriptWatcher {
     let projectDir: URL
@@ -97,6 +117,13 @@ struct TranscriptWatcher {
     /// active turn appends events (tool calls, messages) every few seconds, so a quiet file
     /// means no response is being cut mid-stream. Non-urgent handoffs (pin follow, degradation
     /// rescue, fallback profile) wait for this; a cap hit does not (that turn is already dead).
+    ///
+    /// The session file alone is not enough: a turn blocked on a subagent appends NOTHING to it
+    /// while it waits, so the stat below reads a live work package as idle. Measured in this repo
+    /// 2026-07-25: packages run 5 to 15 minutes against the 120s follow bar, so the child was
+    /// relaunched mid-package and the subagent died with it, its work gone with no error anywhere.
+    /// Quiet therefore means the session AND its newest subagent have both been silent, each
+    /// against its own window: `seconds` for the session, `subagentIdleSeconds` for the subagent.
     mutating func isQuiet(_ seconds: TimeInterval = 5) -> Bool {
         locateFile()
         // Fresh URL on purpose: resourceValues are cached per URL instance, and a cached
@@ -105,7 +132,41 @@ struct TranscriptWatcher {
               let modified = (try? URL(fileURLWithPath: file.path)
                   .resourceValues(forKeys: [.contentModificationDateKey]))?
                   .contentModificationDate else { return true }
-        return Date().timeIntervalSince(modified) > seconds
+        guard Date().timeIntervalSince(modified) > seconds else { return false }
+        guard let subagent = newestSubagentWrite() else { return true }
+        return Date().timeIntervalSince(subagent) > subagentIdleSeconds
+    }
+
+    /// The newest write under this session's subagent transcripts, nil when it never dispatched one
+    /// (`<projectDir>/<session>.jsonl` pairs with `<projectDir>/<session>/subagents/`).
+    ///
+    /// Rescanned per call rather than bound to one file: a session runs several subagents and which
+    /// one is newest changes, and the directory only appears once the first one is dispatched. Most
+    /// sessions dispatch none, so that case costs one stat instead of a walk - this runs on every
+    /// 2s supervisor poll. The walk is recursive because a workflow fan-out nests its agents one
+    /// level deeper (`subagents/workflows/wf_*/agent-*.jsonl`), and those are the longest packages
+    /// of all. No extension filter: the directory holds only per-agent transcripts and their
+    /// metadata sidecars, and a write to either is this session waiting on a subagent.
+    func newestSubagentWrite() -> Date? {
+        guard let file else { return nil }
+        let dir = file.deletingPathExtension().appendingPathComponent("subagents")
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else { return nil }
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        // Safe against the cached-mtime trap above for the same reason: every poll walks the
+        // directory afresh, so these URLs (and their prefetched values) are built from scratch and
+        // never held across polls.
+        guard let walk = FileManager.default.enumerator(
+            at: dir, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
+        else { return nil }
+        var newest: Date?
+        for case let entry as URL in walk {
+            guard let modified = (try? entry.resourceValues(forKeys: Set(keys)))?
+                .contentModificationDate else { continue }
+            if modified > newest ?? .distantPast { newest = modified }
+        }
+        return newest
     }
 
     /// The newest session transcript created/updated after launch - the child's session.

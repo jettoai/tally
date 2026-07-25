@@ -386,6 +386,97 @@ check("sweep keeps a live supervisor's state file",
 check("sweep leaves non-pid files alone",
       FileManager.default.fileExists(atPath: sweepDir.appendingPathComponent("notes.txt").path))
 
+// MARK: - 19. Idle detection sees subagents
+
+// A session blocked on a subagent appends nothing to its OWN transcript while it waits, so the
+// session file alone reported a live work package as idle and the non-urgent relaunches took it
+// (measured in this repo 2026-07-25: packages run 5 to 15 minutes against the 120s follow bar, and
+// the subagent died with the child, losing its work silently). Quiet must mean the session AND its
+// newest subagent have both been silent for the window.
+//
+// Ages are seconds BEFORE now, so they read against a real `Date()` comparison; the bar is 60s.
+// Subagent keys are paths relative to `<session>/subagents/`, so a nested workflow agent is just a
+// key with a slash in it.
+func watcherWatchingSubagents(sessionAge: TimeInterval,
+                              subagents: [String: TimeInterval]?) -> TranscriptWatcher {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-subagent-idle-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let file = dir.appendingPathComponent("session.jsonl")
+    try! "{}".write(to: file, atomically: true, encoding: .utf8)
+    try! FileManager.default.setAttributes(
+        [.modificationDate: Date().addingTimeInterval(-sessionAge)], ofItemAtPath: file.path)
+    if let subagents {
+        let subDir = dir.appendingPathComponent("session").appendingPathComponent("subagents")
+        try! FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
+        for (name, age) in subagents {
+            let url = subDir.appendingPathComponent(name)
+            try! FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                     withIntermediateDirectories: true)
+            try! "{}".write(to: url, atomically: true, encoding: .utf8)
+            try! FileManager.default.setAttributes(
+                [.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: url.path)
+        }
+    }
+    return TranscriptWatcher(projectDir: dir, file: file, since: launch)
+}
+// The subagent arm answers on `subagentIdleSeconds`, NOT on the caller's bar: a healthy subagent
+// goes silent for the whole of any single long tool call (measured 2026-07-25 across three healthy
+// packages here: 61s, 52s, 109s of silence, all inside an xcodebuild or a run of the eleven
+// suites). The ages below are therefore chosen against that constant, not against `idleBar`.
+let idleBar: TimeInterval = 60
+let liveGap: TimeInterval = 300     // silent, but well inside the subagent window: still working
+let doneGap: TimeInterval = 700     // silent past the window: genuinely finished
+// The common case: no subagent was ever dispatched, so there is no directory and the session's own
+// silence is the whole answer.
+var noSubagents = watcherWatchingSubagents(sessionAge: 600, subagents: nil)
+check("a quiet session with no subagents directory is quiet", noSubagents.isQuiet(idleBar))
+var emptySubagents = watcherWatchingSubagents(sessionAge: 600, subagents: [:])
+check("a quiet session with an empty subagents directory is quiet", emptySubagents.isQuiet(idleBar))
+var finishedSubagents = watcherWatchingSubagents(
+    sessionAge: 600, subagents: ["agent-a1.jsonl": 900, "agent-a2.jsonl": doneGap])
+check("a quiet session whose subagents all finished long ago is quiet",
+      finishedSubagents.isQuiet(idleBar))
+// The defect: the session file is 10 minutes stale because the turn is BLOCKED on this subagent.
+var liveSubagent = watcherWatchingSubagents(sessionAge: 600, subagents: ["agent-a1.jsonl": 5])
+check("a quiet session with a freshly written subagent transcript is NOT quiet",
+      !liveSubagent.isQuiet(idleBar))
+// The measured failure: 150s of silence clears the 120s follow bar, so reusing the caller's window
+// relaunched the child on a subagent that was merely inside a slow build.
+var slowToolCall = watcherWatchingSubagents(
+    sessionAge: 600, subagents: ["agent-a1.jsonl": 150])
+check("a subagent silent past the follow bar but inside its own window is NOT quiet",
+      !slowToolCall.isQuiet(followIdleSeconds))
+// The window is not open-ended: past it, the subagent is treated as finished and the session is
+// free again. Without this bound one dispatched subagent would pin the session busy forever.
+var expiredSubagent = watcherWatchingSubagents(sessionAge: 600, subagents: ["agent-a1.jsonl": doneGap])
+check("a subagent silent past its own window lets the session be quiet again",
+      expiredSubagent.isQuiet(followIdleSeconds))
+check("the subagent window is the wider of the two bars", subagentIdleSeconds > followIdleSeconds)
+// Several subagents, and the live one is neither first nor last by name: the NEWEST decides, so
+// binding to any single file (or trusting name order) would miss it. Its gap also clears `idleBar`,
+// so only the subagent window can explain the answer.
+var mixedSubagents = watcherWatchingSubagents(
+    sessionAge: 600,
+    subagents: ["agent-a1.jsonl": 900, "agent-a2.jsonl": liveGap, "agent-a3.jsonl": 1200])
+check("the newest of several subagent files decides", !mixedSubagents.isQuiet(idleBar))
+// A workflow fan-out nests its agents one level deeper, and those are the longest packages of all.
+var workflowSubagent = watcherWatchingSubagents(
+    sessionAge: 600, subagents: ["agent-a1.jsonl": 900, "workflows/wf_1/agent-a2.jsonl": liveGap])
+check("a live workflow agent one level deeper is seen too", !workflowSubagent.isQuiet(idleBar))
+// The session's OWN window is untouched: the caller's `seconds` still decides that arm. A session
+// that wrote 6 seconds ago is quiet at the 5s urgent bar and busy at the 120s follow bar, exactly
+// as before. Had the subagent window leaked into this arm, both would read busy.
+var restingSession = watcherWatchingSubagents(sessionAge: 6, subagents: nil)
+check("the session's own window still answers to the caller's bar", restingSession.isQuiet(5))
+check("the same session is still busy at the follow bar", !restingSession.isQuiet(followIdleSeconds))
+var streamingSession = watcherWatchingSubagents(sessionAge: 4, subagents: nil)
+check("a session mid-stream is busy at the urgent bar", !streamingSession.isQuiet(5))
+check("a session mid-turn is still busy with no subagents", !streamingSession.isQuiet(idleBar))
+var streamingWithStale = watcherWatchingSubagents(sessionAge: 5, subagents: ["agent-a1.jsonl": 900])
+check("a session mid-turn stays busy even with only finished subagents",
+      !streamingWithStale.isQuiet(idleBar))
+
 runReloadChecks()
 
 exit(failures == 0 ? 0 : 1)

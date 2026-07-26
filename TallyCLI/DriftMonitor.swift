@@ -3,7 +3,8 @@ import Foundation
 
 // Safeguard model-drift observation: the value types, the pure episode state machine, the audit-log
 // writers, and the per-supervisor state file the status line reads. Split from
-// SupervisorRuntime.swift for file size; the poll-loop wiring stays in Supervisor.swift.
+// SupervisorRuntime.swift for file size, with the poll-loop wiring (`observeDrift`) at the end:
+// Supervisor.swift is at its own size cap, and the loop only needs the one call.
 
 // MARK: - Safeguard model drift (Fable falls back to Opus and stays there)
 
@@ -183,5 +184,39 @@ func sweepDeadSupervisorState(dir: URL = supervisorStateDir) {
     for file in files {
         guard let pid = pid_t(file.lastPathComponent), !supervisorAlive(pid) else { continue }
         try? FileManager.default.removeItem(at: file)
+    }
+}
+
+// MARK: - Poll-loop wiring
+
+/// One poll tick's drift observation, applied to the supervisor's state: fold this tick's transcript
+/// evidence into the episode, announce an edge, keep the status-line state file in step, and nudge a
+/// session that has sat on the fallback for minutes. Observation only - nothing here plans a
+/// relaunch; what the loop takes from it is `drift.isActive`, which gates the quota-degradation
+/// paths so a deliberate safeguard switch is never mistaken for a dry flagship window.
+///
+/// Fail-open by construction: every branch either warns or writes best-effort state, so a drift
+/// episode can never block a handoff, a reload, or an exit.
+func observeDrift(_ drift: inout DriftMonitor, watcher: inout TranscriptWatcher,
+                  primary: String?, pid: String) {
+    switch drift.tick(flag: watcher.lastFlag, actualModel: watcher.lastModel, primary: primary) {
+    case .started(let flag)?:
+        warn("\(shortModelName(flag.from)) fell back to \(shortModelName(flag.to)) " +
+             "(\(flag.category) safeguard) - run /model \(shortModelName(flag.from)) once " +
+             "the sensitive stretch is over")
+        logDrift(sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
+                 flag: flag, excerpt: watcher.driftTriggerExcerpt)
+        writeDriftState(flag, pid: pid)
+    case .cleared(let duration)?:
+        logDriftCleared(sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
+                        duration: duration)
+        clearDriftState(pid: pid)
+    case nil:
+        break
+    }
+    if drift.shouldNudge(), watcher.isQuiet(), let from = drift.activeFrom {
+        warn("still on the safeguard fallback after 5+ min - run /model " +
+             "\(shortModelName(from)) to return once the sensitive stretch is over")
+        drift.markNudged()
     }
 }

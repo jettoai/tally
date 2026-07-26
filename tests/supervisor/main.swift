@@ -198,7 +198,11 @@ check("a session not steered by Tally has no note",
       supervisionStatus(steered: false, supervised: true, supervisorVersion: nil, installedVersion: "0.18.0") == .notSteered)
 check("an unknown installed version can't assert outdated",
       supervisionStatus(steered: true, supervised: true, supervisorVersion: "0.17.0", installedVersion: nil) == .ok)
-check("outdated renders a restart nudge", SupervisionStatus.outdated.note?.contains("restart") == true)
+// The note reports the self-update that is already under way rather than asking for a manual
+// restart, which is what it meant before the supervisor could replace itself (selfupdatefoldchecks
+// holds the full wording assertions).
+check("outdated renders a note about the update in flight",
+      SupervisionStatus.outdated.note == "supervisor updating at next idle")
 check("ok renders no note", SupervisionStatus.ok.note == nil)
 
 // 11b. The version lookup walks up from the RESOLVED executable path. The installed command is a
@@ -482,6 +486,8 @@ check("a session mid-turn stays busy even with only finished subagents",
 
 runForkChecks()
 runReloadChecks()
+runSelfUpdateFoldChecks()
+runRebalanceChecks()
 runOpenTurnChecks()
 runKeyboardChecks()
 runShimChecks()

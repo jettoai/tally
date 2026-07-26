@@ -135,7 +135,12 @@ func runKeyboardChecks() {
     } else {
         check("the follow block boundaries were found here too", false)
     }
-    if let update = block(from: "if let upgrade = selfUpdateDue(", to: "performHandoff(") {
+    // The gate now guards the PLAN a lone upgrade makes rather than an exec of its own (the exec
+    // moved to the single relaunch site so a pending update can fold into a restart already
+    // happening), which changes nothing here: an upgrade nobody else is restarting for still has to
+    // find the keyboard still.
+    if let update = block(from: "if selfUpdateDue(",
+                          to: "RelaunchPlan(target: account, reason: \"self-update\"") {
         check("the self-update gate hands the keyboard answer to reloadQuiet",
               update.contains("keyboardQuiet: keyboardIdleNow(followIdleSeconds)"))
     } else {

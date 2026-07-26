@@ -130,12 +130,17 @@ enum SupervisionStatus: Equatable {
     case unknown         // no version and no opt-out marker: an old pre-update supervisor
     case outdated        // supervisor version differs from the installed app: it runs stale logic
 
-    /// The status-line note, or nil when there is nothing to say.
+    /// The status-line note, or nil when there is nothing to say. `outdated` describes what is
+    /// already under way rather than asking for anything: since 0.26.0 the supervisor replaces
+    /// itself with the new build at the next idle moment (or on the next relaunch it is making
+    /// anyway), so the old "restart after update" read as an instruction to do by hand what happens
+    /// on its own. `unknown` still asks, and must: a supervisor too old to stamp its version is also
+    /// too old to self-update, so only the user can end that session.
     var note: String? {
         switch self {
         case .notSteered, .notSupervised, .ok: return nil
         case .unknown: return "supervisor status unknown, restart after update"
-        case .outdated: return "supervisor outdated, restart after update"
+        case .outdated: return "supervisor updating at next idle"
         }
     }
 }
@@ -330,4 +335,17 @@ struct RelaunchPlan {
     var extraArgs: [String] = []
     /// True once a follow adoption has folded its pair in, so the same tick does not do it twice.
     var followFolded = false
+}
+
+/// The launch args a plan's relaunch runs with: the pairing it carries replaces whatever `--model`
+/// and `--effort` the current args hold, and its extra flags follow. A plan carrying none (a plain
+/// cap handoff, a pin switch, a reload) leaves the args exactly as the resume path produced them.
+/// One function rather than an inline rewrite because a self-update folded into the plan execs with
+/// these same args: the new build must receive what the child would have been given.
+func planLaunchArgs(_ args: [String], plan: RelaunchPlan) -> [String] {
+    guard plan.model != nil || plan.effort != nil || !plan.extraArgs.isEmpty else { return args }
+    var next = removingFlagPairs(args, ["--model", "--effort"])
+    if let model = plan.model { next += ["--model", model] }
+    if let effort = plan.effort { next += ["--effort", effort] }
+    return next + plan.extraArgs
 }

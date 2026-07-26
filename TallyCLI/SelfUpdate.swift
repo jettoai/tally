@@ -3,8 +3,10 @@ import Foundation
 
 // Supervisor self-update: after Sparkle swaps the app bundle, a supervisor that is already running
 // still executes the OLD binary's logic and keeps stamping the old version into its child, which is
-// what the status line reports as "supervisor outdated, restart after update". Restarting the child
-// cannot fix that (the stamp is decided by the supervisor), so the supervisor replaces ITSELF.
+// what the status line reports as "supervisor updating at next idle". Restarting the child cannot
+// fix that (the stamp is decided by the supervisor), so the supervisor replaces ITSELF - at the
+// next idle moment, or straight away on a restart another reason is already making (`selfUpdateFold`
+// below, which is why the status line promises the next idle rather than a manual restart).
 //
 // Detection needs no new machinery: `supervisorBuildVersion()` resolves the running executable's
 // path and reads the enclosing bundle's Info.plist on every call, so once the bundle is replaced a
@@ -205,6 +207,48 @@ func selfUpdateDue(captured: String?, attempted: String?, isQuiet: Bool, relaunc
                                         uptime: uptime, attempted: attempted)
     else { return nil }
     return (target, binary, home)
+}
+
+/// Carry out the upgrade a planned relaunch folded in, if there is one. The attempt is recorded
+/// BEFORE the exec, and both live here so no caller can do one without the other: a successful exec
+/// carries the record across in the environment, a failed one leaves nothing behind, and without it
+/// the session would chase the same unreachable build on every relaunch for the rest of its life.
+/// The account named is the one the plan MOVED TO (the exec must resume where the handoff put the
+/// conversation, not on the account it left), and the fuse rides along - an upgrade spends no
+/// recovery budget, but it must not refund what the session has already spent either. Returns
+/// normally only when there was nothing to do or the exec failed, leaving the caller to respawn.
+func execPlannedSelfUpdate(_ upgrade: (target: String, binary: String, home: String)?,
+                           attempted: inout String?, target: Snapshot.Account,
+                           follow: Bool, recoveries: [Date], args: [String]) {
+    guard let upgrade else { return }
+    attempted = upgrade.target
+    execSelfUpdate(to: upgrade.target, id: target.id, label: target.label, home: upgrade.home,
+                   follow: follow, recoveries: recoveries, args: args, binary: upgrade.binary)
+}
+
+/// The upgrade a relaunch ALREADY happening this tick should carry, or nil to come back on the build
+/// we have. Same target checks as `selfUpdateDue` (installed, newer, real, executable, not already
+/// attempted) with the two waiting gates neutralised, because they exist to protect a restart that
+/// would otherwise not happen: the child is being terminated either way, so there is no idle moment
+/// left to wait for and no loop for the uptime floor to brake. Deferring instead is what charged the
+/// user two visible restarts minutes apart (a cap handoff at 06:34, the self-update at 06:36,
+/// 2026-07-26): after the handoff, the child's age and the quiet bar both start over.
+///
+/// `capCarried` is the one piece of state an exec would drop that the plan itself does not resolve: a
+/// reload restarting a session that is still waiting for a sibling to free up hands the pending cap
+/// to the next child (`capCarriedAcrossRelaunch`), and in-memory state does not survive the exec, so
+/// the session would come back with nothing left to notice the sibling. That case waits for the next
+/// idle instead, which is what `selfUpdateDue`'s own `capPending` gate is for. A cap HANDOFF carries
+/// nothing (it just moved account), so the common case still folds.
+func selfUpdateFold(captured: String?, attempted: String?, home: String?, capCarried: Bool,
+                    installed: String? = supervisorBuildVersion(),
+                    binary: String? = selfUpdateBinary())
+    -> (target: String, binary: String, home: String)? {
+    guard !capCarried else { return nil }
+    return selfUpdateDue(captured: captured, attempted: attempted,
+                         isQuiet: true, relaunchPlanned: false, capPending: false,
+                         uptime: selfUpdateMinUptime, home: home,
+                         installed: installed, binary: binary)
 }
 
 /// Parse the exec contract's flags. Pure, and round-trip tested against `selfUpdateArgv`: the two

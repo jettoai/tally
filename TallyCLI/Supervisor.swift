@@ -220,33 +220,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 quarantineAccount(account.id, model: capModel, until: until)
             }
 
-            // Model-drift observation: a Fable safeguard fell this session onto a fallback model (a
-            // structured model_refusal_fallback event, apart from any quota cap). Surface it - a
-            // one-time warn with the reason, a status-line badge via the state file, and a nudge to
-            // switch back once the sensitive stretch passes - and gate the quota-degradation paths
-            // below, so a deliberate safeguard switch is never mistaken for a dry flagship window.
-            // Fail-open: observation never blocks the loop, a handoff, or an exit.
-            switch drift.tick(flag: watcher.lastFlag, actualModel: watcher.lastModel,
-                              primary: effectivePrimary) {
-            case .started(let flag)?:
-                warn("\(shortModelName(flag.from)) fell back to \(shortModelName(flag.to)) " +
-                     "(\(flag.category) safeguard) - run /model \(shortModelName(flag.from)) once " +
-                     "the sensitive stretch is over")
-                logDrift(sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
-                         flag: flag, excerpt: watcher.driftTriggerExcerpt)
-                writeDriftState(flag, pid: supervisorPID)
-            case .cleared(let duration)?:
-                logDriftCleared(sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
-                                duration: duration)
-                clearDriftState(pid: supervisorPID)
-            case nil:
-                break
-            }
-            if drift.shouldNudge(), watcher.isQuiet(), let from = drift.activeFrom {
-                warn("still on the safeguard fallback after 5+ min - run /model " +
-                     "\(shortModelName(from)) to return once the sensitive stretch is over")
-                drift.markNudged()
-            }
+            // Model-drift observation: surface a Fable safeguard fallback and gate the
+            // quota-degradation paths below with `drift.isActive` (DriftMonitor.swift).
+            observeDrift(&drift, watcher: &watcher, primary: effectivePrimary, pid: supervisorPID)
 
             // Live pin switch: pinning another account in the Tally panel moves the RUNNING
             // session there. An explicit human act, so no fuse; the pinned account is used even
@@ -441,32 +417,41 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 fallbackApplied = true
             }
 
+            // Idle rebalance: this account has crossed the shared nearly-dry line while a sibling
+            // has room, so move the session now, at an idle moment of its own choosing, instead of
+            // mid-turn after it hits the wall. Lowest priority
+            // of the account moves - every block above is repairing something, this one is only
+            // preventing - and gated on the same fuse plus one move per account per window cycle
+            // across supervisors, so those five sessions never stampede onto the one healthy
+            // sibling. The rules live in Rebalance.swift.
+            if plan == nil, let move = rebalanceMove(
+                   provider: provider.id, account: account, primaryModel: effectivePrimary,
+                   mode: policy.mode,
+                   isQuiet: watcher.isQuiet(followIdleSeconds) && keyboardIdleNow(followIdleSeconds),
+                   fuseAllows: fuse.allows(), quarantine: quarantine) {
+                warn("\(account.label) nearly dry, moving to \(move.target.label) before the wall " +
+                     "(\(pickReason(move.target, primaryModel: effectivePrimary)))")
+                recordRebalance(account.id, cycle: move.cycle)
+                plan = RelaunchPlan(target: move.target, reason: "rebalance", countsFuse: true)
+            }
+
             // The app updated under this supervisor, so it now runs stale logic and stamps a stale
             // version into its child: replace THIS process with the new build (SelfUpdate.swift).
+            // An upgrade on its own is a restart the session was not otherwise paying for, so it
+            // waits for a real idle moment; it plans that restart like any other reason and the
+            // block below performs the exec, so there is exactly one place the process is replaced.
             // Ahead of the reload check because an upgrade restarts the child too, so a pending
             // reload request is satisfied by the same act instead of costing a second restart.
             let childAge = Date().timeIntervalSince(launchedAt)
-            if let upgrade = selfUpdateDue(
+            if selfUpdateDue(
                    captured: supervisorVersion, attempted: selfUpdateAttempted,
                    isQuiet: reloadQuiet(transcriptQuiet: watcher.isQuiet(followIdleSeconds),
                                         hasTranscript: watcher.file != nil, childAge: childAge,
                                         bar: followIdleSeconds,
                                         keyboardQuiet: keyboardIdleNow(followIdleSeconds)),
                    relaunchPlanned: plan != nil, capPending: pendingCap != nil,
-                   uptime: childAge, home: account.launchHome) {
-                // Record the attempt BEFORE acting on it: a successful exec carries it across in the
-                // environment, a failed one leaves nothing behind, and without this the session
-                // would chase the same unreachable build every minute for the rest of its life.
-                selfUpdateAttempted = upgrade.target
-                // Ends the child and rewrites launchArgs to resume this conversation, exactly as a
-                // same-account relaunch does; the exec hands those args to the new build.
-                performHandoff(to: account, reason: "self-update", countingFuse: false)
-                // The fuse rides along: this restart is an upgrade, not a recovery, so it spends
-                // no budget, but it must not refund what the session already spent either.
-                execSelfUpdate(to: upgrade.target, id: account.id, label: account.label,
-                               home: upgrade.home, follow: follow, recoveries: fuse.carried(),
-                               args: launchArgs, binary: upgrade.binary)
-                break   // the exec failed: carry on with the child that handoff just relaunched
+                   uptime: childAge, home: account.launchHome) != nil {
+                plan = RelaunchPlan(target: account, reason: "self-update", countsFuse: false)
             }
 
             // `tally reload`: adopt a pending request, or note that it is waiting for this session
@@ -476,16 +461,24 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                childAge: Date().timeIntervalSince(launchedAt))
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
-            // model/effort/extra flags this plan carries on top of the resumed args.
+            // model/effort/extra flags this plan carries on top of the resumed args. A pending app
+            // update rides along on THIS restart instead of waiting for an idle moment that only
+            // starts counting again after it (a cap handoff at 06:34 and the self-update it
+            // deferred at 06:36, session c80ebeb2, 2026-07-26). Decided before anything is
+            // terminated, and against the account the plan moves TO, so the new build resumes the
+            // conversation where this handoff is about to put it rather than on the old account.
             if let plan {
                 carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)
+                let upgrade = selfUpdateFold(captured: supervisorVersion,
+                                             attempted: selfUpdateAttempted,
+                                             home: plan.target.launchHome,
+                                             capCarried: carriedCap != nil)
                 performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse)
-                if plan.model != nil || plan.effort != nil || !plan.extraArgs.isEmpty {
-                    launchArgs = removingFlagPairs(launchArgs, ["--model", "--effort"])
-                    if let model = plan.model { launchArgs += ["--model", model] }
-                    if let effort = plan.effort { launchArgs += ["--effort", effort] }
-                    launchArgs += plan.extraArgs
-                }
+                launchArgs = planLaunchArgs(launchArgs, plan: plan)
+                // Last, so an exec that fails falls through to the respawn below with this plan
+                // fully applied: a failed upgrade can cost the new build, never the account switch.
+                execPlannedSelfUpdate(upgrade, attempted: &selfUpdateAttempted, target: plan.target,
+                                      follow: follow, recoveries: fuse.carried(), args: launchArgs)
                 break
             }
         }

@@ -30,10 +30,11 @@ func runStatusline(args: [String]) -> Never {
             ? "\(purple)✦ Tally\(reset)"
             : "\(purple)✦ Tally\(reset) \(yellow)(off)\(reset)")
         : (problem != nil ? "\(yellow)(tally off)\(reset)" : nil)
-    // Supervision health: a session launched before an app update runs an OLD supervisor with
-    // stale handoff logic, so nudge a restart. The supervisor stamps its build into the child env;
-    // a mismatch with THIS binary's version is "outdated", a missing stamp is "unknown" (an old
-    // pre-stamp supervisor, or a deliberate --no-handoff launch - so never asserted as outdated).
+    // Supervision health: a session launched before an app update runs an OLD supervisor with stale
+    // handoff logic, so say so while it replaces itself. The supervisor stamps its build into the
+    // child env; a mismatch with THIS binary's version is "outdated", a missing stamp is "unknown"
+    // (an old pre-stamp supervisor, or a deliberate --no-handoff launch - never asserted as
+    // outdated).
     let supervisionPiece = supervisionStatus(
         steered: steered,
         supervised: ProcessInfo.processInfo.environment["TALLY_SUPERVISED"] != "0",

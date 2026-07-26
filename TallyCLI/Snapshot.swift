@@ -235,6 +235,14 @@ func preferringComfortable(_ accounts: [Snapshot.Account], primaryModel: String?
     }
 }
 
+/// Whether ONE account still has room to work in, by exactly the gate the picks apply to candidates
+/// (imminent-reset exemption included). Asked of the account a session already RUNS on, which the
+/// filtering helpers above cannot answer: they take a field and return a field.
+func accountIsComfortable(_ account: Snapshot.Account, primaryModel: String?,
+                          now: Date = Date()) -> Bool {
+    isComfortable(comfortWindows(account, primaryModel: primaryModel, now: now), now: now)
+}
+
 /// An account's score is its TIGHTEST window's rate - the binding constraint. `best()` then picks
 /// the account whose binding constraint is loosest, which naturally prefers an account whose low
 /// session quota resets in minutes over one hoarding a bigger but slower-refreshing allowance.

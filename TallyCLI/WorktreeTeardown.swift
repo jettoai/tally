@@ -45,6 +45,21 @@ func shouldKill(name: String, cwd: String, worktreePath: String) -> Bool {
     return cwd == worktreePath || cwd.hasPrefix(worktreePath + "/")
 }
 
+/// The processes a scan hands to the killer, and the same selection the list report counts as live
+/// agents. Shared by both callers so an injected scan can exercise it: `shouldKill` was never the
+/// failure, the scan feeding it was (see `defaultListProcesses`).
+func worktreeProcessesToKill(_ processes: [ProcInfo], worktreePath: String) -> [ProcInfo] {
+    processes.filter { shouldKill(name: $0.name, cwd: $0.cwd, worktreePath: worktreePath) }
+}
+
+/// Whether teardown may delete the worktree directory itself. Only true once git has let go of the
+/// path, so the normal path (where `git worktree remove` deletes the files) never reaches it.
+/// Refuses the main repo and any ancestor of it: deleting one would take the repository along.
+func worktreeDirRemovalAllowed(path: String, mainRepo: String, registered: Bool) -> Bool {
+    guard !registered, path.hasPrefix("/"), path != "/", path != mainRepo else { return false }
+    return !mainRepo.hasPrefix(path + "/")
+}
+
 /// The transcript-directory slug for a worktree: "/" and "." become "-" on the already-resolved
 /// path. Matches `projectSlug` applied to the same realpath, but stays a pure string op so it works
 /// even after the worktree directory has been removed.
@@ -65,16 +80,19 @@ func transcriptGuardPasses(target: String, home: String) -> Bool {
 
 /// Every live process (except this one and its ancestors) whose cwd libproc will report. Only
 /// processes we can inspect and signal surface here, which is exactly the set we could kill anyway.
+/// How far the pid buffer may be walked comes from `scannedPidCount` (ReloadRequest.swift, same
+/// target), which documents why the second `proc_listallpids` return must not be divided by the pid
+/// size. Doing so once ended the walk a quarter of the way through the machine, blinding both users
+/// of this scan: teardown reported "killed 0" over live agents, and `tally worktree list`
+/// undercounted the same processes in its live agent column.
 func defaultListProcesses(worktreePath: String) -> [ProcInfo] {
     let excluded = ancestorPids(of: getpid())
     let capacity = proc_listallpids(nil, 0)
     guard capacity > 0 else { return [] }
     var pids = [pid_t](repeating: 0, count: Int(capacity))
-    let bytes = proc_listallpids(&pids, Int32(Int(capacity) * MemoryLayout<pid_t>.size))
-    guard bytes > 0 else { return [] }
+    let returned = proc_listallpids(&pids, Int32(Int(capacity) * MemoryLayout<pid_t>.size))
     var result: [ProcInfo] = []
-    for index in 0 ..< Int(bytes / Int32(MemoryLayout<pid_t>.size)) {
-        let pid = pids[index]
+    for pid in pids.prefix(scannedPidCount(returned, capacity: pids.count)) {
         if pid <= 0 || excluded.contains(pid) { continue }
         guard let cwd = processCwd(pid), !cwd.isEmpty else { continue }
         result.append(ProcInfo(pid: pid, name: processName(pid), cwd: cwd))
@@ -246,9 +264,8 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
     }
 
     // 2. Kill agent processes rooted in the worktree, before the directory disappears.
-    let doomed = listProcesses(target.realPath).filter {
-        shouldKill(name: $0.name, cwd: $0.cwd, worktreePath: target.realPath)
-    }
+    let doomed = worktreeProcessesToKill(listProcesses(target.realPath),
+                                         worktreePath: target.realPath)
     let killed = killWorktreeProcesses(doomed)
 
     // 3. git cleanup: remove the worktree, then delete its branch. Idempotent: an already-gone
@@ -257,15 +274,23 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
                            : ["worktree", "remove", target.recordedPath]
     let removed = runGit(removeArgs, cwd: target.mainRepo)
     if removed.code != 0 {
-        let stillRegistered = parseWorktreePorcelain(
-            runGit(["worktree", "list", "--porcelain"], cwd: target.mainRepo).out)
-            .contains { realpathString($0.path) == target.realPath }
-        if stillRegistered {
+        // A registration whose checkout no longer validates (its .git file gone, which git reports
+        // as "prunable") fails remove while leaving the directory behind. Prune, then ask again:
+        // pruning only drops entries git already considers broken, so a healthy worktree that
+        // refused removal for a real reason (uncommitted work) still stops the teardown here.
+        _ = runGit(["worktree", "prune"], cwd: target.mainRepo)
+        if worktreeStillRegistered(target) {
             warn(removed.err.isEmpty ? "git worktree remove failed" : removed.err)
             return 1
         }
         warn("worktree already removed")
     }
+
+    // 3b. The directory outlives the registration whenever git stopped owning the path without
+    // deleting the files (the half-removed state seen 2026-07-26: every step reported success and
+    // a directory shell stayed on disk with nobody responsible for it).
+    removeOrphanedWorktreeDirectory(target)
+
     let deleteArgs = force ? ["branch", "-D", target.branch] : ["branch", "-d", target.branch]
     let branchDelete = runGit(deleteArgs, cwd: target.mainRepo)
     let branchDeleted = runGit(["show-ref", "--verify", "--quiet", "refs/heads/\(target.branch)"],
@@ -293,6 +318,32 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
         + "branch \(branchDeleted ? "deleted" : "kept"), "
         + "transcripts \(transcriptsRemoved ? "removed" : "kept"))")
     return 0
+}
+
+/// Whether git still lists the target path among this repo's worktrees. Asked again after a failed
+/// removal (and before deleting anything ourselves) since a prune in between can change the answer.
+private func worktreeStillRegistered(_ target: RemovalTarget) -> Bool {
+    parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], cwd: target.mainRepo).out)
+        .contains { realpathString($0.path) == target.realPath }
+}
+
+/// Delete the worktree directory git left behind, guarded by `worktreeDirRemovalAllowed`. A removal
+/// that failed the guard, or the deletion itself failing, only warns: the remaining teardown steps
+/// (branch, transcripts) are still worth running.
+private func removeOrphanedWorktreeDirectory(_ target: RemovalTarget) {
+    guard FileManager.default.fileExists(atPath: target.realPath) else { return }
+    guard worktreeDirRemovalAllowed(path: target.realPath, mainRepo: target.mainRepo,
+                                    registered: worktreeStillRegistered(target)) else {
+        warn("worktree directory kept (path guard): \(target.realPath)")
+        return
+    }
+    do {
+        try FileManager.default.removeItem(atPath: target.realPath)
+        warn("worktree directory removed: \(target.realPath)")
+    } catch {
+        warn("could not remove worktree directory (\(target.realPath)): "
+            + error.localizedDescription)
+    }
 }
 
 /// Delete `<home>/projects/<slug>` in each account home. The launch side (`ensureSharedMemory`)
@@ -354,9 +405,7 @@ func formatWorktreeListLine(branch: String, age: String, dirty: Bool,
 func worktreeListLines(_ others: [WorktreeEntry], processes: [ProcInfo]) -> [String] {
     zip(others, buildMenuRows(others)).map { entry, row in
         let realPath = realpathString(entry.path)
-        let liveAgents = processes.filter {
-            shouldKill(name: $0.name, cwd: $0.cwd, worktreePath: realPath)
-        }.count
+        let liveAgents = worktreeProcessesToKill(processes, worktreePath: realPath).count
         return formatWorktreeListLine(branch: row.branch, age: row.age, dirty: row.dirty,
                                       liveAgents: liveAgents, subject: row.subject)
     }

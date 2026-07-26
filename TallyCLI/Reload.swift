@@ -30,9 +30,15 @@ func reloadIdleBar(immediate: Bool) -> TimeInterval {
 /// written a turn: a terminal opened moments ago, with the first prompt half typed into it, and the
 /// bar the caller asked for never applied. Until a transcript exists the only evidence of "left
 /// alone" is how long the child has been up, so the same bar is held against that instead.
+///
+/// `keyboardQuiet` is the same bar asked of the terminal rather than the file (KeyboardIdle.swift):
+/// a prompt being typed writes nothing anywhere until it is submitted, so the transcript alone
+/// calls a user mid-sentence idle and the relaunch takes the half-typed text. It defaults to TRUE,
+/// which is both what a machine with no terminal reports and exactly the rule that stood before it
+/// existed, so every caller that has no keyboard to consult keeps its old behaviour untouched.
 func reloadQuiet(transcriptQuiet: Bool, hasTranscript: Bool, childAge: TimeInterval,
-                 bar: TimeInterval) -> Bool {
-    transcriptQuiet && (hasTranscript || childAge >= bar)
+                 bar: TimeInterval, keyboardQuiet: Bool = true) -> Bool {
+    transcriptQuiet && keyboardQuiet && (hasTranscript || childAge >= bar)
 }
 
 // MARK: - Supervisor-side decision
@@ -81,7 +87,7 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
     // && guarantees; the child's age covers the pre-transcript window.
     let quiet = plan == nil && request.epoch > epoch
         && reloadQuiet(transcriptQuiet: watcher.isQuiet(bar), hasTranscript: watcher.file != nil,
-                       childAge: childAge, bar: bar)
+                       childAge: childAge, bar: bar, keyboardQuiet: keyboardIdleNow(bar))
     switch reloadDecision(captured: epoch, requested: request.epoch,
                           relaunchPlanned: plan != nil, isQuiet: quiet) {
     case .none:

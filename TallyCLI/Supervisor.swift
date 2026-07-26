@@ -251,9 +251,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // Live pin switch: pinning another account in the Tally panel moves the RUNNING
             // session there. An explicit human act, so no fuse; the pinned account is used even
             // when capped (that is what pinning means). Waits for a quiet transcript so an
-            // in-flight response is never cut mid-stream (the next 2s poll retries).
+            // in-flight response is never cut mid-stream (the next 2s poll retries) and a quiet
+            // keyboard so a prompt being typed survives too; both default to the same 5s bar.
             if policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id,
-               watcher.isQuiet() {
+               watcher.isQuiet(), keyboardIdleNow() {
                 let (snapshot, _) = loadSnapshot()
                 if let target = snapshot?.accounts.first(where: {
                     $0.id == pinnedID && $0.provider == provider.id && $0.launchHome != nil
@@ -326,10 +327,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 } else if let since = pendingSince,
                           // A relaunch already planned this tick carries the new pair for free, so
                           // it never waits: the SIGTERM is happening either way. A follow standing
-                          // on its own is the only one that interrupts, so it waits for the session
-                          // to be genuinely idle rather than merely between events.
+                          // on its own is the only one that interrupts, so it waits for genuine
+                          // idleness: file AND keyboard, since a typed prompt reaches neither yet.
                           plan != nil || (Date().timeIntervalSince(since) >= followDebounce
-                                          && watcher.isQuiet(followIdleSeconds)) {
+                                          && watcher.isQuiet(followIdleSeconds)
+                                          && keyboardIdleNow(followIdleSeconds)) {
                     if var existing = plan, !existing.followFolded {
                         existing.model = policy.model
                         existing.effort = policy.effort
@@ -447,8 +449,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             if let upgrade = selfUpdateDue(
                    captured: supervisorVersion, attempted: selfUpdateAttempted,
                    isQuiet: reloadQuiet(transcriptQuiet: watcher.isQuiet(followIdleSeconds),
-                                        hasTranscript: watcher.file != nil,
-                                        childAge: childAge, bar: followIdleSeconds),
+                                        hasTranscript: watcher.file != nil, childAge: childAge,
+                                        bar: followIdleSeconds,
+                                        keyboardQuiet: keyboardIdleNow(followIdleSeconds)),
                    relaunchPlanned: plan != nil, capPending: pendingCap != nil,
                    uptime: childAge, home: account.launchHome) {
                 // Record the attempt BEFORE acting on it: a successful exec carries it across in the

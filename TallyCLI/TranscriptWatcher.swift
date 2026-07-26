@@ -164,12 +164,20 @@ struct TranscriptWatcher {
     /// means no response is being cut mid-stream. Non-urgent handoffs (pin follow, degradation
     /// rescue, fallback profile) wait for this; a cap hit does not (that turn is already dead).
     ///
-    /// The session file alone is not enough: a turn blocked on a subagent appends NOTHING to it
-    /// while it waits, so the stat below reads a live work package as idle. Measured in this repo
-    /// 2026-07-25: packages run 5 to 15 minutes against the 120s follow bar, so the child was
-    /// relaunched mid-package and the subagent died with it, its work gone with no error anywhere.
-    /// Quiet therefore means the session AND its newest subagent have both been silent, each
-    /// against its own window: `seconds` for the session, `subagentIdleSeconds` for the subagent.
+    /// The session file alone is not enough, in TWO ways, and silence looks identical in both.
+    ///
+    /// A turn blocked on a subagent appends NOTHING while it waits, so the stat below reads a live
+    /// work package as idle. Measured in this repo 2026-07-25: packages run 5 to 15 minutes against
+    /// the 120s follow bar, so the child was relaunched mid-package and the subagent died with it,
+    /// its work gone with no error anywhere.
+    ///
+    /// A turn inside a long TOOL CALL is the same trap one level in, and the subagent window cannot
+    /// see it: an 8-minute xcodebuild runs in the MAIN context with no subagent directory involved,
+    /// writing nothing between its `tool_use` and its `tool_result` (measured 2026-07-26: 153.7s of
+    /// silence inside one live turn, past the 120s bar). OpenTurn.swift reads that pair directly.
+    ///
+    /// Quiet therefore means all three: the file silent for `seconds`, no tool call still waiting,
+    /// and the newest subagent silent for `subagentIdleSeconds`.
     mutating func isQuiet(_ seconds: TimeInterval = 5) -> Bool {
         locateFile()
         // Fresh URL on purpose: resourceValues are cached per URL instance, and a cached
@@ -179,6 +187,11 @@ struct TranscriptWatcher {
                   .resourceValues(forKeys: [.contentModificationDateKey]))?
                   .contentModificationDate else { return true }
         guard Date().timeIntervalSince(modified) > seconds else { return false }
+        // Only past the mtime bar: a session still appending is already busy, so the tail read
+        // never runs on the hot path, only on files that have gone quiet.
+        if openTurnHoldsSession(openedAt: openToolCallStart(inTail: transcriptTail(of: file) ?? "")) {
+            return false
+        }
         guard let subagent = newestSubagentWrite() else { return true }
         return Date().timeIntervalSince(subagent) > subagentIdleSeconds
     }

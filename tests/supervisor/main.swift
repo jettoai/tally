@@ -482,5 +482,7 @@ check("a session mid-turn stays busy even with only finished subagents",
 
 runForkChecks()
 runReloadChecks()
+runOpenTurnChecks()
+runKeyboardChecks()
 
 exit(failures == 0 ? 0 : 1)

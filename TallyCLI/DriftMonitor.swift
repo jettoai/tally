@@ -18,6 +18,10 @@ struct SafeguardFlag: Equatable {
     let to: String
     let category: String
     let refusedUUID: String?
+    /// The event's OWN uuid: the pointer a restore is deduped and logged against
+    /// (SafeguardDrift.swift). Optional because a pointer is a convenience - a transcript carrying
+    /// none still drifts, and the flag's timestamp names the same line.
+    let uuid: String?
 }
 
 /// A model id trimmed to its family for a compact display: drop a leading `claude-`, keep the first
@@ -50,6 +54,11 @@ struct DriftMonitor {
     private var lastFlagAt: Date?
     private var episodeStart: Date?
     private var nudged = false
+    /// True once THIS episode's restore has been announced and logged, so the note is written once
+    /// however long the session stays busy before it can be restarted (SafeguardDrift.swift). Held
+    /// here rather than in the poll loop because it is episode state, exactly like `nudged`: a new
+    /// flag re-arms it below, and a cleared episode leaves nothing queued.
+    private(set) var restoreQueued = false
 
     /// Fold this tick's inputs into the episode, returning an edge event or nil. A strictly-newer
     /// flag opens an episode (or, mid-episode, resets the nudge cooldown); the actual model matching
@@ -59,6 +68,9 @@ struct DriftMonitor {
         if let flag, lastFlagAt.map({ flag.at > $0 }) ?? true {
             lastFlagAt = flag.at
             nudged = false
+            // A newer flag is a new switch with a pointer of its own, so it is announced and
+            // deduped on its own merits rather than being swallowed by the previous one.
+            restoreQueued = false
             if !isActive {
                 isActive = true
                 activeFrom = flag.from
@@ -74,6 +86,7 @@ struct DriftMonitor {
             activeFrom = nil
             episodeStart = nil
             nudged = false
+            restoreQueued = false
             return .cleared(duration)
         }
         return nil
@@ -87,6 +100,13 @@ struct DriftMonitor {
     }
 
     mutating func markNudged() { nudged = true }
+
+    mutating func markRestoreQueued() { restoreQueued = true }
+
+    /// Take the announcement back: the queued restore lost its target while it waited, so the badge
+    /// and the state must stop claiming one is coming. The episode itself is untouched - the session
+    /// is still drifted, it just has nothing queued against it any more.
+    mutating func clearRestoreQueued() { restoreQueued = false }
 }
 
 /// Normalize a trigger excerpt for the log: control whitespace collapsed to spaces, inner quotes
@@ -131,13 +151,31 @@ struct DriftState: Equatable {
     let from: String
     let to: String
     let category: String
+    /// True while a safeguard restore is queued and waiting for the session to go idle
+    /// (SafeguardDrift.swift). The badge says so, because the wait can be long and a restart nobody
+    /// announced reads as the session dying on its own.
+    let restorePending: Bool
+
+    init(from: String, to: String, category: String, restorePending: Bool = false) {
+        self.from = from
+        self.to = to
+        self.category = category
+        self.restorePending = restorePending
+    }
 }
 
-/// Write the active drift to this supervisor's state file. Tab-separated `from\tto\tcategory\tepoch`
-/// (the epoch rides along for after-the-fact debugging; the badge uses the first three). Best-effort.
-func writeDriftState(_ flag: SafeguardFlag, pid: String, dir: URL = supervisorStateDir) {
+/// Write the active drift to this supervisor's state file. Tab-separated
+/// `from\tto\tcategory\tepoch\trestore` (the epoch rides along for after-the-fact debugging; the
+/// badge uses the first three plus the restore marker). Best-effort.
+///
+/// The fifth field is appended rather than woven in so a file written by an older supervisor still
+/// reads (the reader takes four fields as a drift with no restore queued), which matters while an
+/// app update is rolling: the status line is the NEW binary reading a file the OLD one wrote.
+func writeDriftState(_ flag: SafeguardFlag, pid: String, restorePending: Bool = false,
+                     dir: URL = supervisorStateDir) {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    try? "\(flag.from)\t\(flag.to)\t\(flag.category)\t\(flag.at.timeIntervalSince1970)"
+    let marker = restorePending ? "restoring" : ""
+    try? "\(flag.from)\t\(flag.to)\t\(flag.category)\t\(flag.at.timeIntervalSince1970)\t\(marker)"
         .write(to: dir.appendingPathComponent(pid), atomically: true, encoding: .utf8)
 }
 
@@ -168,8 +206,9 @@ func readDriftState(pid: String, dir: URL = supervisorStateDir) -> DriftState? {
     else { return nil }
     let parts = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         .split(separator: "\t", omittingEmptySubsequences: false)
-    guard parts.count == 4 else { return nil }
-    return DriftState(from: String(parts[0]), to: String(parts[1]), category: String(parts[2]))
+    guard parts.count >= 4 else { return nil }
+    return DriftState(from: String(parts[0]), to: String(parts[1]), category: String(parts[2]),
+                      restorePending: parts.count > 4 && parts[4] == "restoring")
 }
 
 /// Unlink state files whose supervisor is gone. A SIGKILLed supervisor never runs its clear path,

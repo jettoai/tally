@@ -291,7 +291,7 @@ check("a recent user excerpt survives eviction",
 let dT0 = Date(timeIntervalSince1970: 1_800_000_000)
 func mkFlag(_ offset: TimeInterval, uuid: String = "f") -> SafeguardFlag {
     SafeguardFlag(at: dT0.addingTimeInterval(offset), from: "claude-fable-5",
-                  to: "claude-opus-4-8", category: "cyber", refusedUUID: uuid)
+                  to: "claude-opus-4-8", category: "cyber", refusedUUID: uuid, uuid: "e-\(uuid)")
 }
 var mon = DriftMonitor()
 check("a flag starts an episode",
@@ -488,6 +488,7 @@ runForkChecks()
 runReloadChecks()
 runSelfUpdateFoldChecks()
 runRebalanceChecks()
+runSafeguardChecks()
 runOpenTurnChecks()
 runKeyboardChecks()
 runShimChecks()

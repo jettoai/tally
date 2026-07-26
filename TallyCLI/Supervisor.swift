@@ -417,6 +417,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 fallbackApplied = true
             }
 
+            // Safeguard-fallback restore: the API fell this session onto a fallback model and left
+            // it at its own default depth, so put the declared depth back at an idle moment - on
+            // the fallback model, never back on the one that tripped it (SafeguardDrift.swift).
+            applySafeguardRestore(plan: &plan, drift: &drift, watcher: &watcher, account: account,
+                                  policy: policy, launchArgs: launchArgs,
+                                  fuseAllows: fuse.allows(), pid: supervisorPID)
+
             // Idle rebalance: this account has crossed the shared nearly-dry line while a sibling
             // has room, so move the session now, at an idle moment of its own choosing, instead of
             // mid-turn after it hits the wall. Lowest priority

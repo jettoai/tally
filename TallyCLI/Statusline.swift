@@ -47,8 +47,12 @@ func runStatusline(args: [String]) -> Never {
     var driftPiece: String?
     if let pidStr = ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_PID"],
        let pid = pid_t(pidStr), supervisorAlive(pid), let drift = readDriftState(pid: pidStr) {
+        // While a restore is queued the badge also says what is about to happen, in the same
+        // already-under-way voice as the supervisor's own update note: the session keeps working at
+        // the wrong depth until it is left alone, which can be a while, and a restart nobody
+        // announced reads as the session dying on its own.
         driftPiece = "\(yellow)⚠ \(shortModelName(drift.from))→\(shortModelName(drift.to)) " +
-            "(\(drift.category))\(reset)"
+            "(\(drift.category))\(drift.restorePending ? ", restoring at idle" : "")\(reset)"
     }
     // The account name only carries information when there is a choice: with one account it
     // reads as noise next to a Claude session, so the status signal stands alone.

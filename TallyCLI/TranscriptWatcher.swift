@@ -402,7 +402,8 @@ struct TranscriptWatcher {
                let category = object["apiRefusalCategory"] as? String,
                let when = (object["timestamp"] as? String).flatMap(parseISO), when >= since {
                 lastFlag = SafeguardFlag(at: when, from: from, to: to, category: category,
-                                         refusedUUID: object["refusedUserMessageUuid"] as? String)
+                                         refusedUUID: object["refusedUserMessageUuid"] as? String,
+                                         uuid: object["uuid"] as? String)
             }
             guard line.contains("\"isApiErrorMessage\":true") else { continue }
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],

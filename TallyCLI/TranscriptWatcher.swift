@@ -29,6 +29,42 @@ import Foundation
 /// quiet), and a late restart costs the user a wait while an early one destroys a work package.
 let subagentIdleSeconds: TimeInterval = 600
 
+// MARK: - Following a fork
+
+// A running claude process can move the conversation to a NEW transcript without exiting: `/clear`
+// (and a resume that forks) starts `<newID>.jsonl` while the old file stops growing. The pin below
+// then watched a dead file, so `isQuiet` measured nothing, cap detection read nothing, and the next
+// relaunch resumed the id from BEFORE the move - every turn written since was orphaned in a file
+// nothing pointed at. That happened twice in one afternoon (2026-07-26, ~2000 turns lost), which is
+// why the watcher follows the move instead of trusting the pin forever.
+//
+// A fork is told from a sibling session INSIDE the file, never by timestamps: each line carries both
+// `"session_id"` (the id the writing process was launched with) and `"sessionId"` (the file it is
+// writing now), and they differ exactly when the conversation has moved. A real orphaned line from
+// that afternoon, trimmed to the fields that matter:
+//
+//   {"type":"assistant","timestamp":"2026-07-26T04:51:24.333Z",
+//    "session_id":"3ee0aca7-ffac-4c79-b24b-3ab66a9cbe68",   <- the id the supervisor still resumed
+//    "sessionId":"31705403-4fc5-43ea-9be3-de52034b08be"}    <- the file the turns were going to
+//
+// Checked against every transcript on this machine (207 files, 2026-07-26): 19 carry a foreign
+// `session_id`, each naming exactly one earlier session in the same directory, and every sibling
+// session stamps its own id or none. A sibling can therefore never be adopted.
+
+/// How long the bound transcript must have been silent before the fork check does more than one
+/// stat. A live conversation appends every few seconds, so an active session never pays more.
+let forkScanQuietSeconds: TimeInterval = 5
+
+/// The shortest gap between two directory scans while the bound file stays quiet, so an idle session
+/// does not re-read candidates on every 2s poll.
+let forkScanInterval: TimeInterval = 10
+
+/// How much of one candidate a single scan reads before leaving the rest to the next one. The marker
+/// sits on the candidate's first assistant event, which the SessionStart hook context pushes 56 to
+/// 77 KB in (measured across six real forks here), so a megabyte is generous; transcripts are
+/// append-only, so a scan that stops short resumes exactly where it stopped.
+let forkScanBytes = 1 << 20
+
 /// Watches one session transcript for a cap-hit event newer than `since`.
 struct TranscriptWatcher {
     let projectDir: URL
@@ -56,6 +92,16 @@ struct TranscriptWatcher {
     var recentUserExcerpts: [String: String] = [:]
     /// Insertion order backing `recentUserExcerpts`' FIFO eviction.
     var excerptOrder: [String] = []
+    /// Earliest time the next fork scan may read the directory (see `forkScanInterval`).
+    var nextForkScan: Date = .distantPast
+    /// How far each candidate has been read while looking for the fork marker, so a rescan resumes
+    /// instead of starting over. Keyed by session id.
+    var forkScanOffsets: [String: UInt64] = [:]
+    /// Candidates already proven to carry the marker, so proving it costs one read, not one per
+    /// scan (and so a proof can never be scanned past and lost).
+    var forkMarked: Set<String> = []
+    /// True once the ambiguity warning has been said, so it is said once rather than every scan.
+    var forkAmbiguityWarned = false
     private var excerptCapacity: Int { 64 }
 
     /// The user prompt that triggered the current drift, resolved from the flag's refused uuid, or
@@ -140,6 +186,11 @@ struct TranscriptWatcher {
     /// The newest write under this session's subagent transcripts, nil when it never dispatched one
     /// (`<projectDir>/<session>.jsonl` pairs with `<projectDir>/<session>/subagents/`).
     ///
+    /// Derived from the watched file, so it follows a fork for free: the subagents of a moved
+    /// conversation are written under the id actually running (`341bd05d/subagents/` filled up
+    /// while the pinned `3ee0aca7` sat still, 2026-07-26), and reading the old session's directory
+    /// answered a question about a session that no longer existed.
+    ///
     /// Rescanned per call rather than bound to one file: a session runs several subagents and which
     /// one is newest changes, and the directory only appears once the first one is dispatched. Most
     /// sessions dispatch none, so that case costs one stat instead of a walk - this runs on every
@@ -169,9 +220,17 @@ struct TranscriptWatcher {
         return newest
     }
 
-    /// The newest session transcript created/updated after launch - the child's session.
-    mutating func locateFile() {
-        guard file == nil else { return }
+    /// The transcript this child is writing: bound once, then kept pointing at the live file.
+    ///
+    /// `forceForkCheck` skips the cost gates below. The relaunch path uses it: the id it resumes
+    /// has to be the live one, and there the check runs once rather than every 2s.
+    mutating func locateFile(forceForkCheck: Bool = false) {
+        if file == nil { bindFile() }
+        followFork(force: forceForkCheck)
+    }
+
+    /// The first binding: a pin when the launch resumed a known id, else the mtime heuristic.
+    private mutating func bindFile() {
         // A resumed handoff knows its session id, so bind `<id>.jsonl` directly: mtime guessing
         // would otherwise pick the wrong file when the directory holds a second session (a
         // sibling tab, an unrelated older conversation). Only a first launch (no known id, or
@@ -191,6 +250,101 @@ struct TranscriptWatcher {
             }
             .max { $0.1 < $1.1 }
         file = candidate?.0
+    }
+
+    /// Re-point at the transcript the conversation moved to, when it moved (see the fork notes at
+    /// the top of this file). Everything the watcher does from then on - quiet, cap detection, the
+    /// subagent directory, and above all the id the next relaunch resumes - follows the live file.
+    mutating func followFork(force: Bool = false, now: Date = Date()) {
+        guard let current = file else { return }
+        let boundID = current.deletingPathExtension().lastPathComponent
+        if !force {
+            // The common case costs one stat: a conversation still appending to the bound file has
+            // not moved anywhere, so nothing below needs to run.
+            guard let modified = (try? URL(fileURLWithPath: current.path)
+                    .resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate,
+                  now.timeIntervalSince(modified) > forkScanQuietSeconds,
+                  now >= nextForkScan else { return }
+            nextForkScan = now.addingTimeInterval(forkScanInterval)
+        }
+        let forks = markedForks(of: boundID)
+        guard let newest = forks.first else { return }
+        // Two marked files mean the child moved twice (two `/clear`s), and the newest is the live
+        // one - the process writes to exactly one transcript, so the others stopped growing. Only a
+        // tie leaves nothing to order them by, and guessing there is what lost the turns in the
+        // first place: keep the pin and say so.
+        if forks.count > 1, forks[1].modified >= newest.modified {
+            if !forkAmbiguityWarned {
+                warn("two session files continue this conversation - staying on " +
+                     "\(boundID.prefix(8)); resume the right one by hand if a restart loses turns")
+                forkAmbiguityWarned = true
+            }
+            return
+        }
+        file = newest.url
+        resumeID = newest.url.deletingPathExtension().lastPathComponent
+        // Cap detection restarts at the top of the new file (its events are all post-launch, and
+        // the `since` guards in `sawCapHit` still filter anything replayed from before it).
+        offset = 0
+        forkScanOffsets.removeAll()
+        forkMarked.removeAll()
+        nextForkScan = .distantPast
+    }
+
+    /// Files in this directory that carry `boundID` as their `session_id`, newest first: born after
+    /// this child launched (a transcript that predates the launch cannot be where it moved to) and
+    /// carrying the marker, which no sibling session ever does.
+    mutating func markedForks(of boundID: String) -> [(url: URL, modified: Date)] {
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .creationDateKey]
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: projectDir, includingPropertiesForKeys: keys)) ?? []
+        var found: [(url: URL, modified: Date)] = []
+        for url in files where url.pathExtension == "jsonl" {
+            let id = url.deletingPathExtension().lastPathComponent
+            guard id != boundID,
+                  let values = try? url.resourceValues(forKeys: Set(keys)),
+                  let created = values.creationDate,
+                  let modified = values.contentModificationDate,
+                  created >= since.addingTimeInterval(-5) else { continue }
+            if carriesForkMarker(url, id: id, parent: boundID) { found.append((url, modified)) }
+        }
+        return found.sorted { $0.modified > $1.modified }
+    }
+
+    /// Whether `url` holds a line written under `parent` but into `id` - the fork marker. The
+    /// substring is only a prefilter; the decision is a top-level parse, so an id merely QUOTED
+    /// inside a tool result (this repo's own transcripts are full of them) proves nothing.
+    mutating func carriesForkMarker(_ url: URL, id: String, parent: String) -> Bool {
+        if forkMarked.contains(id) { return true }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        let start = forkScanOffsets[id] ?? 0
+        handle.seek(toFileOffset: start)
+        guard let raw = try? handle.read(upToCount: forkScanBytes), !raw.isEmpty else { return false }
+        // Stop at the last complete line: decoding may not split a multi-byte character (these
+        // transcripts are full of CJK), and the next scan then resumes on a line boundary.
+        let complete: Data
+        if let newline = raw.lastIndex(of: 0x0A) {
+            complete = raw[raw.startIndex...newline]
+        } else if raw.count == forkScanBytes {
+            forkScanOffsets[id] = start + UInt64(raw.count)   // one line past a whole block: step over it
+            return false
+        } else {
+            return false   // the last line is still being written; read it whole next time
+        }
+        forkScanOffsets[id] = start + UInt64(complete.count)
+        guard let text = String(data: complete, encoding: .utf8) else { return false }
+        for line in text.split(separator: "\n") {
+            guard line.contains("\"session_id\":\"\(parent)\""),
+                  let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))
+                      as? [String: Any],
+                  object["session_id"] as? String == parent,
+                  object["sessionId"] as? String == id else { continue }
+            forkMarked.insert(id)
+            return true
+        }
+        return false
     }
 
     /// Scan newly-appended lines; true when a genuine cap-hit event (newer than launch) appears.

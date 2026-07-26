@@ -480,6 +480,7 @@ var streamingWithStale = watcherWatchingSubagents(sessionAge: 5, subagents: ["ag
 check("a session mid-turn stays busy even with only finished subagents",
       !streamingWithStale.isQuiet(idleBar))
 
+runForkChecks()
 runReloadChecks()
 
 exit(failures == 0 ? 0 : 1)

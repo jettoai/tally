@@ -137,7 +137,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             _ = awaitChild()
             clearDriftState(pid: supervisorPID)   // a new child gets a fresh drift monitor
 
-            watcher.locateFile()
+            // Forced, because the id this resumes must be the file the conversation is actually in:
+            // a child that moved (a `/clear`, a resume that forked) leaves the pinned file dead, and
+            // resuming that one orphans every turn written since (twice in one afternoon,
+            // 2026-07-26; the rule lives in TranscriptWatcher.swift).
+            watcher.locateFile(forceForkCheck: true)
             let sessionFile = watcher.file
             if let sessionFile {
                 // Make the transcript visible to the target account (no-op on a shared tree).

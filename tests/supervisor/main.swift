@@ -484,5 +484,6 @@ runForkChecks()
 runReloadChecks()
 runOpenTurnChecks()
 runKeyboardChecks()
+runShimChecks()
 
 exit(failures == 0 ? 0 : 1)

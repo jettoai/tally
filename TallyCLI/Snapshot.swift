@@ -390,7 +390,10 @@ func exec(_ cli: String, args: [String], env: (key: String, value: String)?) -> 
     let argv = [cli] + args
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)
-    execvp(cli, cargs)
+    // Past Tally's PATH shim (ProviderExecutable.swift): every caller of this function has already
+    // chosen the account, and the shim, seeing the default home's unset CLAUDE_CONFIG_DIR, would
+    // read that as a fresh launch and choose again (session c80ebeb2, 2026-07-26).
+    execvp(resolveProviderExecutable(cli), cargs)
     warn("cannot exec `\(cli)`: \(String(cString: strerror(errno)))")
     exit(127)
 }

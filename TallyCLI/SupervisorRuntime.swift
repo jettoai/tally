@@ -12,14 +12,23 @@ import Foundation
 /// a NEW process group, so the interactive child is background to the terminal and job control
 /// stops it with SIGTTIN the moment it reads (claude suspended `T`, blank screen, 2026-07-18).
 /// Same-group spawn reproduces what a plain exec gives: the child shares the foreground group.
-func spawnChild(_ argv: [String], environment: [String: String]) -> pid_t? {
+///
+/// The PROGRAM is resolved past Tally's PATH shim first (ProviderExecutable.swift): this supervisor
+/// has already picked the account, and the shim would pick again and undo the handoff that just
+/// happened (session c80ebeb2, 2026-07-26). Resolved here rather than at the call site so no future
+/// spawn can forget, and per spawn rather than once per process because a session outlives PATH
+/// changes and the walk costs a handful of `stat`s once per child launch. `argv[0]` keeps the name
+/// the caller passed, which is what a shell leaves there and what `ps` shows.
+func spawnChild(_ argv: [String], environment: [String: String],
+                shimDirectory: URL = tallyShimDirectory) -> pid_t? {
+    let program = resolveProviderExecutable(argv[0], shimDirectory: shimDirectory)
     var cArgs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cArgs.append(nil)
     var cEnv: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") }
     cEnv.append(nil)
     defer { for pointer in cArgs + cEnv { free(pointer) } }
     var pid: pid_t = 0
-    return posix_spawnp(&pid, argv[0], nil, nil, cArgs, cEnv) == 0 ? pid : nil
+    return posix_spawnp(&pid, program, nil, nil, cArgs, cEnv) == 0 ? pid : nil
 }
 
 // MARK: - Launch-flag helpers

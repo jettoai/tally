@@ -72,6 +72,9 @@ targets:
       # The nearly-dry gate in front of every account pick: the panel's smart-pick badge must
       # predict what `tally` launches, so both targets run the one implementation.
       - path: TallyCLI/AccountComfort.swift
+      # Same reason, the other exclusion the launcher applies: the badge has to skip accounts the
+      # cap quarantine is holding out, so it reads the same records the CLI writes.
+      - path: TallyCLI/Quarantine.swift
     dependencies:
       - package: Sparkle
     settings:

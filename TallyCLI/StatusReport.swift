@@ -59,8 +59,13 @@ struct StatusReport: Encodable {
     }
 }
 
+/// `quarantined` is the live cap quarantine per provider (Quarantine.swift). It is a parameter
+/// rather than a file read so the report stays a pure function, but callers must pass it: `best`
+/// promises "would launch", and a report that named an account the launcher is currently skipping
+/// would be a lie scripts act on.
 func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
-                  advisor: [UsageAdvisor.Reading] = [], now: Date = Date()) -> StatusReport {
+                  advisor: [UsageAdvisor.Reading] = [], quarantined: [String: Set<String>] = [:],
+                  now: Date = Date()) -> StatusReport {
     let advisorByProvider = Dictionary(uniqueKeysWithValues: advisor.map { reading in
         (reading.provider, StatusReport.Advisor(
             headline: UsageAdvisor.englishHeadline(reading),
@@ -98,7 +103,8 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
         } else if manual, policy.pinnedHome != nil {
             nil
         } else if known {
-            best(providerID: providerID, in: snapshot, primaryModel: policy.model, now: now)?.id
+            launchPick(providerID: providerID, in: snapshot, primaryModel: policy.model,
+                       quarantined: quarantined[providerID] ?? [], now: now)?.id
         } else {
             nil
         }

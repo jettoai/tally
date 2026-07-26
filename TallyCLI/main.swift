@@ -74,10 +74,6 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             default: break
             }
         }
-        if policy.startMode == "continue", !wantsNew,
-           !passthrough.contains(where: { ["--continue", "-c", "--resume", "-r", "--print", "-p"].contains($0) }) {
-            passthrough.append("--continue")
-        }
         if let model = policy.model, !passthrough.contains("--model") {
             passthrough += ["--model", model]
         }
@@ -99,6 +95,17 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         }
     }
 
+    // The start mode is the one launch default that cannot be decided up here: `--continue` is
+    // resolved by claude against the config home it runs under, so whether injecting it produces a
+    // session or "No conversation found to continue" depends on the account this launch lands on -
+    // known only below. Every exec path therefore finalizes its args through this.
+    func startModeArgs(_ args: [String], home: String) -> [String] {
+        guard provider.id == "claude" else { return args }
+        let (next, note) = applyStartMode(args, policy: policy, wantsNew: wantsNew, home: home)
+        if let note { warn(note) }
+        return next
+    }
+
     if let pinned {
         let query = pinned.lowercased()
         let match = snapshot?.accounts.first { account in
@@ -111,7 +118,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             exit(1)
         }
         warn("→ \(match.label) (pinned)")
-        exec(provider.cli, args: passthrough, env: launchEnv(provider, home: match.launchHome!))
+        exec(provider.cli, args: startModeArgs(passthrough, home: match.launchHome!),
+             env: launchEnv(provider, home: match.launchHome!))
     }
 
     // The app's launch policy (Settings → Launch account). A `--account` flag above outranks it.
@@ -125,42 +133,45 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
                 warn("\(match.label) is out of quota - launching anyway (pinned in Tally)")
             }
             warn("→ \(match.label) (pinned in Tally)")
+            let args = startModeArgs(passthrough, home: match.launchHome!)
             // Still supervised: a Tally pin can be MOVED from the panel mid-session (live pin
             // switch), so the supervisor stays resident; it won't cap-handoff while pinned.
             // A CLI --account pin remains a plain exec - that flag opts out of supervision.
             if provider.id == "claude", wantsHandoff {
-                runSupervised(provider, account: match, args: passthrough, follow: allowFollow)
+                runSupervised(provider, account: match, args: args, follow: allowFollow)
             }
-            exec(provider.cli, args: passthrough, env: launchEnv(provider, home: match.launchHome!))
+            exec(provider.cli, args: args, env: launchEnv(provider, home: match.launchHome!))
         }
         if let home = policy.pinnedHome {
             warn("→ pinned account (set in Tally)")
-            exec(provider.cli, args: passthrough, env: launchEnv(provider, home: home))
+            exec(provider.cli, args: startModeArgs(passthrough, home: home),
+                 env: launchEnv(provider, home: home))
         }
         warn("pinned account not found - picking by headroom instead")
     }
 
     guard let snapshot else {
         warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
-        exec(provider.cli, args: passthrough, env: nil)
+        exec(provider.cli, args: startModeArgs(passthrough, home: defaultHome(provider)), env: nil)
     }
     // Skip an account another session just saw cap: the snapshot lags the real cap, so its
     // percentage still reads healthy and picking it would drop a fresh session onto the wall that
-    // just failed. If quarantine leaves nothing eligible, ignore it rather than refuse to launch.
+    // just failed. `launchPick` also carries the "quarantine left nothing, launch anyway" fallback,
+    // and is what `tally status` and the app's badge predict this launch with.
     let quarantined = quarantinedAccounts(forPrimary: policy.model)
-    guard let account = best(providerID: provider.id, in: snapshot, primaryModel: policy.model,
-                             excluding: quarantined)
-            ?? best(providerID: provider.id, in: snapshot, primaryModel: policy.model) else {
+    guard let account = launchPick(providerID: provider.id, in: snapshot,
+                                   primaryModel: policy.model, quarantined: quarantined) else {
         warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
-        exec(provider.cli, args: passthrough, env: nil)
+        exec(provider.cli, args: startModeArgs(passthrough, home: defaultHome(provider)), env: nil)
     }
     warn("→ \(account.label) (\(pickReason(account, primaryModel: policy.model)))")
+    let args = startModeArgs(passthrough, home: account.launchHome!)
     // Claude sessions get the resident supervisor (auto-handoff on a cap hit); an explicit
     // `--account` pin or `--no-handoff` opts out, and codex stays a plain exec for now.
     if provider.id == "claude", wantsHandoff {
-        runSupervised(provider, account: account, args: passthrough, follow: allowFollow)
+        runSupervised(provider, account: account, args: args, follow: allowFollow)
     }
-    exec(provider.cli, args: passthrough, env: launchEnv(provider, home: account.launchHome!))
+    exec(provider.cli, args: args, env: launchEnv(provider, home: account.launchHome!))
 }
 
 func runStatus(json: Bool = false) {
@@ -168,16 +179,21 @@ func runStatus(json: Bool = false) {
     if let problem { warn(problem) }
     guard let snapshot else { exit(1) }
     let advisor = loadAdvisorReadings()
+    // The arrow marks the account a launch WOULD land on, so it has to skip what the launcher
+    // skips: a quarantined account (see Quarantine.swift). Read once for both output shapes.
+    let policies = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, launchPolicy($0.id)) })
+    let quarantined = policies.mapValues { quarantinedAccounts(forPrimary: $0.model) }
     if json {
-        let policies = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, launchPolicy($0.id)) })
-        print(encodeStatusReport(statusReport(snapshot, policies: policies, advisor: advisor)))
+        print(encodeStatusReport(statusReport(snapshot, policies: policies, advisor: advisor,
+                                              quarantined: quarantined)))
         return
     }
     for provider in providers {
         let accounts = snapshot.accounts.filter { $0.provider == provider.id }
         guard !accounts.isEmpty else { continue }
-        let policy = launchPolicy(provider.id)
-        let bestID = best(providerID: provider.id, in: snapshot, primaryModel: policy.model)?.id
+        let policy = policies[provider.id] ?? LaunchPolicy()
+        let bestID = launchPick(providerID: provider.id, in: snapshot, primaryModel: policy.model,
+                                quarantined: quarantined[provider.id] ?? [])?.id
         for account in accounts {
             let pinned = policy.mode == "manual" && account.id == policy.pinnedAccountID
             let marker = pinned || (policy.mode != "manual" && account.id == bestID) ? "→" : " "
@@ -350,80 +366,6 @@ func runLaunchDir(_ providerID: String) {
 }
 
 // MARK: - Entry
-
-/// `tally add claude|codex`: create the next numbered config home and hand this terminal to the
-/// official login flow. A numbered home that exists but never finished logging in is resumed
-/// rather than skipped, so an aborted login doesn't burn a number. The default home counts too:
-/// on a machine with no account at all, `tally add` is simply the first login.
-///
-/// Sharing is the DEFAULT (opt out with --no-share): before the login, the main account's
-/// harness is symlinked into the new home (see `harnessItems(for:)`) - one set of
-/// instructions/skills/hooks/agents/settings maintained once, and one conversation record,
-/// so cross-account resume and handoff continue the same history. Multi-account in Tally
-/// means one person's accounts working as one fleet; separate setups are the special case,
-/// not the default. The launch report says out loud when conversations are shared.
-func runAdd(args: [String]) -> Never {
-    let share = !args.contains("--no-share")
-    let providerID = args.first { !$0.hasPrefix("--") } ?? ""
-    guard let provider = providers.first(where: { $0.id == providerID }) else {
-        warn("usage: tally add <claude|codex> [--no-share]")
-        exit(2)
-    }
-    let fm = FileManager.default
-    let home = fm.homeDirectoryForCurrentUser
-    let base = provider.id == "claude" ? ".claude" : ".codex"
-    let authFile = provider.id == "claude" ? ".credentials.json" : "auth.json"
-    var chosen: (dir: URL, name: String)?
-    for n in 1 ... 99 {
-        let name = n == 1 ? base : "\(base)\(n)"
-        let dir = home.appendingPathComponent(name)
-        if !fm.fileExists(atPath: dir.appendingPathComponent(authFile).path) {
-            chosen = (dir, name)
-            break
-        }
-    }
-    guard let (dir, name) = chosen else {
-        warn("no free slot: ~/\(base) through ~/\(base)99 all have logins")
-        exit(1)
-    }
-    // codex refuses a CODEX_HOME that doesn't exist; creating it is harmless for claude.
-    try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
-    let mainHome = home.appendingPathComponent(base)
-    if !share, dir.path != mainHome.path {
-        // Opting out must UNDO what an earlier (aborted, default-shared) run linked into
-        // this reused directory - otherwise --no-share leaves the conversations shared.
-        let removed = unlinkSharedHarness(from: mainHome, to: dir,
-                                          items: harnessItems(for: provider.id, in: mainHome))
-        if !removed.isEmpty {
-            warn("share opted out - removed earlier share links: \(removed.joined(separator: ", "))")
-        }
-    }
-    if share {
-        if dir.path == mainHome.path {
-            warn("share skipped: ~/\(base) IS the main account (nothing to link yet)")
-        } else {
-            let (linked, kept, failed) = linkSharedHarness(from: mainHome, to: dir,
-                                                           items: harnessItems(for: provider.id, in: mainHome))
-            if !linked.isEmpty {
-                warn("sharing the main account's harness: \(linked.joined(separator: ", "))")
-            }
-            if !kept.isEmpty {
-                warn("left as-is (already present): \(kept.joined(separator: ", "))")
-            }
-            if !failed.isEmpty {
-                warn("could not link: \(failed.joined(separator: ", ")) - check permissions; the share is incomplete")
-            }
-            // The privacy note follows the ACTUAL state, not this run's work: shared is
-            // shared whether it happened now, on an earlier run, or by hand.
-            if sharesConversations(providerID: provider.id, source: mainHome, target: dir) {
-                warn("note: \(conversationEntry(provider.id))/ is shared - every account can read every account's conversations (next time: --no-share)")
-            }
-        }
-    }
-    warn("adding a \(provider.id) account at ~/\(name) - finish the login below; the account shows up in Tally within a minute")
-    exec(provider.cli, args: provider.id == "codex" ? ["login"] : [],
-         env: launchEnv(provider, home: dir.path))
-}
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 switch arguments.first {

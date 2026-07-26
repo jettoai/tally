@@ -197,4 +197,92 @@ let comfyB = account("B", session: (100, inHours(3)), weekly: (58, inHours(120))
 check("a near-tie between two comfortable accounts stays with the leader",
       pick([comfyA, comfyB]) == "A")
 
+// MARK: - launchPick: the pick every PREVIEW has to agree with (quarantine included)
+//
+// The badge and `tally status` predict the launch, so they run this rather than `best`. Ignoring
+// the quarantine made the panel name an account the launcher was skipping (2026-07-25).
+func preview(_ accounts: [Snapshot.Account], quarantined: Set<String>) -> String? {
+    let snapshot = Snapshot(version: 2, generatedAt: now, accounts: accounts)
+    return launchPick(providerID: "claude", in: snapshot, primaryModel: nil,
+                      quarantined: quarantined, now: now)?.id
+}
+
+let healthy = account("A", session: (90, inHours(3)), weekly: (80, inHours(120)))
+let sibling = account("B", session: (70, inHours(3)), weekly: (50, inHours(120)))
+check("with nothing quarantined the preview is the plain best",
+      preview([healthy, sibling], quarantined: []) == "A")
+check("a quarantined account is not previewed",
+      preview([healthy, sibling], quarantined: ["A"]) == "B")
+check("and the account that WOULD launch is named instead",
+      preview([healthy, sibling], quarantined: ["A"])
+          == best(providerID: "claude",
+                  in: Snapshot(version: 2, generatedAt: now, accounts: [healthy, sibling]),
+                  excluding: ["A"], now: now)?.id)
+// Quarantine emptying the field: the launcher launches anyway, so the preview must name that
+// account rather than go blank (a blank badge would read as "no account can be used").
+check("an all-quarantined field falls back to the unfiltered pick",
+      preview([healthy, sibling], quarantined: ["A", "B"]) == "A")
+check("a quarantine on an ineligible account changes nothing",
+      preview([healthy, sibling], quarantined: ["C"]) == "A")
+
+// MARK: - Start mode: `--continue` is only injected where claude could resolve it
+//
+// `claude --continue` in a directory the launch home has never held a session for prints "No
+// conversation found to continue" and exits, so a first launch in a new project directory used to
+// die on tally's own injected flag.
+let startModeRoot = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appendingPathComponent("tally-startmode-\(UUID().uuidString)")
+let withSession = startModeRoot.appendingPathComponent("home-used")
+let withoutSession = startModeRoot.appendingPathComponent("home-fresh")
+let workingDir = startModeRoot.appendingPathComponent("project")
+try? FileManager.default.createDirectory(at: workingDir, withIntermediateDirectories: true)
+try? FileManager.default.createDirectory(at: withoutSession, withIntermediateDirectories: true)
+let sessionDir = withSession
+    .appendingPathComponent("projects/\(projectSlug(forCwd: workingDir.path))")
+try? FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
+try? "{}".write(to: sessionDir.appendingPathComponent("abc.jsonl"), atomically: true, encoding: .utf8)
+
+var continuePolicy = LaunchPolicy()
+continuePolicy.startMode = "continue"
+func startMode(_ args: [String], home: URL, policy: LaunchPolicy = continuePolicy,
+               wantsNew: Bool = false) -> (args: [String], note: String?) {
+    applyStartMode(args, policy: policy, wantsNew: wantsNew, home: home.path, cwd: workingDir.path)
+}
+
+check("this home has a transcript for the directory", hasConversation(home: withSession.path,
+                                                                     cwd: workingDir.path))
+check("a home that has never run here has none", !hasConversation(home: withoutSession.path,
+                                                                  cwd: workingDir.path))
+let used = startMode([], home: withSession)
+check("a directory with a session keeps the injected continue", used.args == ["--continue"])
+check("and says nothing about it", used.note == nil)
+let fresh = startMode([], home: withoutSession)
+check("a directory with no session suppresses the injection", fresh.args.isEmpty)
+check("and says so once", fresh.note == "no conversation in this directory yet - starting fresh")
+// A missing home is the same situation as an empty one, not a crash.
+check("a home that does not exist suppresses it too",
+      startMode([], home: startModeRoot.appendingPathComponent("absent")).args.isEmpty)
+// The transcript check is per launch home: another account having the conversation does not let
+// claude find it, so the prediction stays exact.
+check("a sibling home's transcript does not count",
+      !hasConversation(home: withoutSession.path, cwd: workingDir.path))
+
+// A hand-typed flag is the user's own choice: never removed, never doubled, and never explained
+// away with our note (they get the CLI's own error if it cannot be resolved).
+let typed = startMode(["--continue"], home: withoutSession)
+check("a hand-typed --continue survives in a fresh directory", typed.args == ["--continue"])
+check("and is not commented on", typed.note == nil)
+check("a hand-typed --resume is left alone",
+      startMode(["--resume", "abc"], home: withoutSession).args == ["--resume", "abc"])
+check("a hand-typed -c is not doubled",
+      startMode(["-c"], home: withSession).args == ["-c"])
+check("--print is not a session to continue",
+      startMode(["-p", "hi"], home: withSession).args == ["-p", "hi"])
+// The other two ways to say no, unchanged by the transcript check.
+check("--new (wantsNew) still suppresses the injection",
+      startMode([], home: withSession, wantsNew: true).args.isEmpty)
+check("a policy that does not continue injects nothing",
+      startMode([], home: withSession, policy: LaunchPolicy()).args.isEmpty)
+try? FileManager.default.removeItem(at: startModeRoot)
+
 exit(failures == 0 ? 0 : 1)

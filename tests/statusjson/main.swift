@@ -137,6 +137,36 @@ check("orphan home pin: no claude account claims best",
       accounts(orphanHome).filter { $0["provider"] as? String == "claude" }
           .allSatisfy { $0["best"] as? Bool == false })
 
+// MARK: cap quarantine - `best` means "would launch", so it skips what the launcher skips
+// (2026-07-25: a preview that ignored the quarantine named an account no launch could land on).
+let quarantined = parse(encodeStatusReport(statusReport(
+    snapshot, policies: ["claude": LaunchPolicy()],
+    quarantined: ["claude": ["claude:.claude"]], now: now)))
+check("quarantine: the held account is not best",
+      account(quarantined, "claude:.claude")["best"] as? Bool == false)
+check("quarantine: its sibling takes the marker",
+      account(quarantined, "claude:.claude2")["best"] as? Bool == true)
+
+// Quarantine emptying the field must not erase the marker: the launcher launches on a held
+// account rather than refuse, and the report has to say which one that is.
+let allHeld = parse(encodeStatusReport(statusReport(
+    snapshot, policies: ["claude": LaunchPolicy()],
+    quarantined: ["claude": ["claude:.claude", "claude:.claude2"]], now: now)))
+check("quarantine: an all-held provider still names the unfiltered pick",
+      account(allHeld, "claude:.claude")["best"] as? Bool == true)
+
+// A quarantine on one provider must not silence another's marker.
+check("quarantine: codex keeps its own pick",
+      account(quarantined, "codex:.codex")["best"] as? Bool == true)
+
+// A manual pin outranks the quarantine, exactly as runLaunch launches it ("launching anyway").
+let pinnedHeld = parse(encodeStatusReport(statusReport(
+    snapshot,
+    policies: ["claude": LaunchPolicy(mode: "manual", pinnedAccountID: "claude:.claude2")],
+    quarantined: ["claude": ["claude:.claude2"]], now: now)))
+check("quarantine: a manual pin still launches, so it keeps the marker",
+      account(pinnedHeld, "claude:.claude2")["best"] as? Bool == true)
+
 // MARK: fleet pass-through - the pooled view rides along untouched, and only when present
 let fleetTop = auto["fleet"] as? [String: [String: Any]] ?? [:]
 let claudePools = (auto["fleetPools"] as? [String: [[String: Any]]])?["claude"] ?? []

@@ -337,108 +337,20 @@ func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID:
     return leader
 }
 
-// MARK: - Shared harness (`tally add`, on by default; opt out with --no-share)
-
-/// What a shared add links from the main account into a new one: the HARNESS (instructions,
-/// skills, hooks, agents, settings) plus the conversation record - one setup maintained
-/// once, and cross-account resume/handoff continues the same history with no copying. An
-/// allowlist on purpose: identity (credentials, .claude.json / auth.json) and runtime state
-/// (tasks, caches, sqlite stores - concurrent writers would fight over them) must stay
-/// per-account, and new runtime directories the CLIs grow later must default to
-/// independent, not shared.
-let sharedHarnessItems = [
-    "CLAUDE.md", "settings.json", "settings.local.json",
-    "agents", "skills", "hooks", "commands", "plugins",
-    "memory", "projects",
-]
-
-/// The codex face of the same idea. `sessions` plus `archived_sessions` are codex's
-/// conversation record (archiving MOVES a conversation between them - sharing only one
-/// would make archived chats vanish from the other accounts); the memory sqlite stores
-/// stay per-account on purpose (two accounts writing one database is a lock fight, unlike
-/// claude's per-session transcript files).
-let codexSharedItems = [
-    "AGENTS.md", "config.toml",
-    "agents", "skills", "hooks", "hooks.json", "rules", "plugins", "prompts",
-    "sessions", "archived_sessions",
-]
-
-/// The share list for one provider, resolved against the actual main home: codex profile
-/// v2 layers (`-p work` reads `$CODEX_HOME/work.config.toml`) are discovered dynamically,
-/// so "one setup serves every account" covers every named profile the main account has.
-func harnessItems(for providerID: String, in source: URL) -> [String] {
-    var items = providerID == "codex" ? codexSharedItems : sharedHarnessItems
-    if providerID == "codex" {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: source.path)) ?? []
-        items += names.filter {
-            $0.hasSuffix(".config.toml") && $0 != "config.toml" && $0 != ".config.toml"
-        }.sorted()
-    }
-    return items
-}
-
-/// The conversation-record entry per provider - the item the privacy note is about.
-func conversationEntry(_ providerID: String) -> String {
-    providerID == "codex" ? "sessions" : "projects"
-}
-
-/// Symlinks each allowlisted item of `source` into `target`. Only items that exist at the
-/// source are linked; a target entry that already exists is NEVER touched (a half-shared
-/// account stays exactly as the user built it). Returns what was linked, what was left
-/// alone, and what FAILED to link (permissions, exotic filesystems) - failures must reach
-/// the launch report, or the user walks away believing a share that never happened.
-func linkSharedHarness(from source: URL, to target: URL,
-                       items: [String] = sharedHarnessItems)
-    -> (linked: [String], kept: [String], failed: [String]) {
-    let fm = FileManager.default
-    var linked: [String] = [], kept: [String] = [], failed: [String] = []
-    for item in items {
-        let sourceItem = source.appendingPathComponent(item)
-        let targetItem = target.appendingPathComponent(item)
-        guard fm.fileExists(atPath: sourceItem.path) else { continue }
-        // lstat, not stat (attributesOfItem never traverses links): an existing symlink,
-        // even a dangling one, is "already there" too and must not be replaced.
-        if (try? fm.attributesOfItem(atPath: targetItem.path)) != nil {
-            kept.append(item)
-            continue
-        }
-        do {
-            try fm.createSymbolicLink(at: targetItem, withDestinationURL: sourceItem)
-            linked.append(item)
-        } catch {
-            failed.append(item)
-        }
-    }
-    return (linked, kept, failed)
-}
-
-/// Removes share links a PREVIOUS run created: only symlinks whose destination is exactly
-/// the corresponding main-home item are touched - a real file, a user's own directory, or
-/// a link pointing anywhere else survives. This is what makes `--no-share` mean what it
-/// says when an aborted login left the directory (and its links) behind.
-func unlinkSharedHarness(from source: URL, to target: URL, items: [String]) -> [String] {
-    let fm = FileManager.default
-    var removed: [String] = []
-    for item in items {
-        let targetItem = target.appendingPathComponent(item)
-        guard let destination = try? fm.destinationOfSymbolicLink(atPath: targetItem.path),
-              destination == source.appendingPathComponent(item).path,
-              (try? fm.removeItem(at: targetItem)) != nil else { continue }
-        removed.append(item)
-    }
-    return removed
-}
-
-/// Whether `target`'s conversation record actually resolves to `source`'s - the truth
-/// behind the privacy note, independent of HOW it got shared (this run, an earlier run, or
-/// by hand).
-func sharesConversations(providerID: String, source: URL, target: URL) -> Bool {
-    let entry = conversationEntry(providerID)
-    let sourceEntry = source.appendingPathComponent(entry)
-    let targetEntry = target.appendingPathComponent(entry)
-    guard FileManager.default.fileExists(atPath: sourceEntry.path) else { return false }
-    return targetEntry.resolvingSymlinksInPath().path
-        == sourceEntry.resolvingSymlinksInPath().path
+/// The account an automatic launch would actually land on: `best` with the live cap quarantine
+/// applied, falling back to the unfiltered pick when quarantine empties the field (launching on
+/// an account that just capped still beats refusing to launch).
+///
+/// Every surface that PREDICTS the launch goes through here rather than calling `best` directly,
+/// because a prediction that skips an exclusion the launcher applies is simply wrong: on
+/// 2026-07-25 the app's smart-pick badge named a quarantined account, and the reader concluded
+/// the picker was broken rather than that the badge was. One function, so a display cannot
+/// contradict what launching does.
+func launchPick(providerID: String, in snapshot: Snapshot, primaryModel: String?,
+                quarantined: Set<String>, now: Date = Date()) -> Snapshot.Account? {
+    best(providerID: providerID, in: snapshot, primaryModel: primaryModel,
+         excluding: quarantined, now: now)
+        ?? best(providerID: providerID, in: snapshot, primaryModel: primaryModel, now: now)
 }
 
 func warn(_ message: String) {
@@ -467,13 +379,54 @@ func exec(_ cli: String, args: [String], env: (key: String, value: String)?) -> 
 /// explicitly setting it to the default path makes the CLI look up a hashed item that doesn't exist
 /// ("Not logged in" - verified 2026-07-16).
 func launchEnv(_ provider: Provider, home: String) -> (key: String, value: String)? {
-    let defaultHome = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(provider.id == "claude" ? ".claude" : ".codex").path
-    if home == defaultHome {
+    if home == defaultHome(provider) {
         unsetenv(provider.envKey)
         return nil
     }
     return (provider.envKey, home)
+}
+
+/// The provider's own config home (~/.claude, ~/.codex) - where a launch that sets no env var
+/// ends up, which is what the bare-CLI fallbacks run under.
+func defaultHome(_ provider: Provider) -> String {
+    FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(provider.id == "claude" ? ".claude" : ".codex").path
+}
+
+/// Whether `home` holds a Claude session for `cwd`: exactly the directory the `claude` CLI
+/// resolves `--continue` against (`<home>/projects/<cwd-slug>/*.jsonl`). Scoped to ONE home on
+/// purpose - a sibling account having a transcript for this directory does not help, because
+/// claude would not find it either.
+func hasConversation(home: String, cwd: String = FileManager.default.currentDirectoryPath) -> Bool {
+    let dir = URL(fileURLWithPath: home)
+        .appendingPathComponent("projects/\(projectSlug(forCwd: cwd))")
+    let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
+    return files.contains { $0.hasSuffix(".jsonl") }
+}
+
+/// Session flags that mean the user already chose how this launch starts. Tally's own injection
+/// stands down for any of them; `--print`/`-p` is here because a one-shot run is not a session.
+let sessionFlags: Set<String> = ["--continue", "-c", "--resume", "-r", "--print", "-p"]
+
+/// Applies the app's "continue by default" start mode to a launch, given the home it will run
+/// under. Returns the args to launch with, plus the one line to print when the injection was
+/// suppressed (nil = nothing to say).
+///
+/// The check is against the launch account's own transcripts because `claude --continue` in a
+/// directory that home has never held a session for prints "No conversation found to continue"
+/// and exits, turning the first launch in any new project directory into a retype. A hand-typed
+/// flag is left exactly as typed: the worktree path strips one, but that is a launch into a
+/// directory the user just asked to create, whereas here someone who typed `--continue` deserves
+/// the CLI's own error rather than a silently dropped flag.
+func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home: String,
+                    cwd: String = FileManager.default.currentDirectoryPath)
+    -> (args: [String], note: String?) {
+    guard policy.startMode == "continue", !wantsNew,
+          !args.contains(where: { sessionFlags.contains($0) }) else { return (args, nil) }
+    guard hasConversation(home: home, cwd: cwd) else {
+        return (args, "no conversation in this directory yet - starting fresh")
+    }
+    return (args + ["--continue"], nil)
 }
 
 func fmt(_ value: Double?) -> String {

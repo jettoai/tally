@@ -160,23 +160,60 @@ final class LaunchPolicyStore {
 
     // MARK: Auto-pick preview
 
-    /// The account auto mode would launch right now - the same rule as the CLI's `best()`
-    /// (burn-rate scoring; capped/stale/errored accounts are out), so the panel's badge always
-    /// predicts what `tally` will actually do.
+    /// The account auto mode would launch right now - the same rule as the CLI's `launchPick()`
+    /// (burn-rate scoring; capped/stale/errored/quarantined accounts are out), so the panel's
+    /// badge always predicts what `tally` will actually do.
     /// Mirror of the CLI's `smartPickMargin` / `smartPickMinGain` - keep in lockstep.
     /// Two gates: the ratio alone lies at the low end (2% vs 3% remaining reads as +50%), so a
     /// challenger must also win by an absolute rate gain or nearly-drained siblings ping-pong.
     private static let smartPickMargin = 1.15
     private static let smartPickMinGain = 0.05   // %/h
 
-    func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>) -> String? {
+    /// How long a quarantine read is reused. `autoPickID` runs inside a SwiftUI body (once per
+    /// account card, on every redraw) and the records are files, so reading them straight would
+    /// put a directory scan plus a read per record on the render path. Missing a cap for a few
+    /// seconds costs nothing: the badge is a prediction that redraws continuously, and the
+    /// launcher itself never uses this cache - it reads the records fresh on every launch.
+    private static let quarantineCacheTTL: TimeInterval = 5
+
+    /// Kept out of the observation graph on purpose: a body that mutated observed state would
+    /// invalidate the view it is drawing.
+    @ObservationIgnored
+    private var quarantineCache: (model: String?, readAt: Date, accounts: Set<String>)?
+
+    private func quarantinedNow(primaryModel: String?, now: Date) -> Set<String> {
+        if let cache = quarantineCache, cache.model == primaryModel,
+           now.timeIntervalSince(cache.readAt) < Self.quarantineCacheTTL, cache.readAt <= now {
+            return cache.accounts
+        }
+        let live = quarantinedAccounts(forPrimary: primaryModel, now: now)
+        quarantineCache = (primaryModel, now, live)
+        return live
+    }
+
+    /// The badge the panel shows. Two steps, exactly as the launcher picks (`launchPick` on the
+    /// CLI side): the cap quarantine is applied first, and when it empties the field the
+    /// unfiltered pick is shown rather than no badge at all, because that is the account a launch
+    /// would still land on. The app had no notion of quarantine until 2026-07-26; on 2026-07-25
+    /// the badge sat on a quarantined account and its reader concluded the picker was broken.
+    func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
+                    now: Date = Date()) -> String? {
+        let excluded = quarantinedNow(primaryModel: policy(providerID).model, now: now)
+        return autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
+                          excluding: excluded, now: now)
+            ?? autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
+                          excluding: [], now: now)
+    }
+
+    private func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
+                            excluding: Set<String>, now: Date) -> String? {
         let primary = policy(providerID).model
-        let now = Date()
         // The CLI's nearly-dry gate, from the file both targets compile (AccountComfort.swift):
         // the badge has to predict the launch, so the same accounts leave before the ordering.
         let eligibleAccounts = accounts.filter {
             $0.providerID == providerID && $0.error == nil && !$0.isStale
-                && launchable.contains($0.id) && (Self.headroom($0, primaryModel: primary) ?? -1) > 0
+                && launchable.contains($0.id) && !excluding.contains($0.id)
+                && (Self.headroom($0, primaryModel: primary) ?? -1) > 0
         }
         let candidates = preferringComfortable(eligibleAccounts, now: now) {
             Self.ratedWindows($0, primaryModel: primary, now: now)

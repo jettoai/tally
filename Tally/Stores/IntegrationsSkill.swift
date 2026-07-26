@@ -6,8 +6,9 @@ import Foundation
 extension IntegrationsStore {
     // MARK: Claude Code skill - agent sessions learn to answer quota questions themselves
 
-    /// Bump when the skill markdown changes; the store flags older installs for reinstall.
-    nonisolated static let skillVersion = 1
+    /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
+    /// up to date by `autoUpdateSkill()` at the next launch.
+    nonisolated static let skillVersion = 2
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -16,7 +17,7 @@ extension IntegrationsStore {
         """
         ---
         name: tally-quota
-        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, and which account a launch would land on. Use when the user asks how much quota is left, about rate limits or resets, which account to use, or before starting heavy multi-agent work.
+        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, which account a launch would land on, and the usage advisor's verdict on whether the current accounts cover the workload. Use when the user asks how much quota is left, about rate limits or resets, which account to use, whether to add another account, how usage is trending, or before starting heavy multi-agent work.
         ---
 
         <!-- tally-skill v\(skillVersion), managed by Tally.app (Settings -> Integrations); safe to delete -->
@@ -45,8 +46,25 @@ extension IntegrationsStore {
           window as 100, so capacity 200 means two accounts. `dryAt` forecasts when the
           pool runs dry at the current pace; `sustainable: true` means the pace holds to
           the reset.
+        - `advisor.<provider>` is the usage advisor's verdict, computed from the burn-rate
+          history the app records rather than from the current percentages. The key is
+          absent when there is no history yet (the app has not been running long enough):
+          say so instead of inventing a trend.
         - Top-level `stale: true`, or a non-zero exit, means the Tally app is not running
           and the numbers are old: say so rather than quoting them as current.
+
+        Reading the advisor:
+
+        - `verdict` is one of three values. `collecting` means there is too little history
+          to judge yet, so draw no conclusion from it. `addAccount` means weekly demand or
+          starved time crossed the trigger, so another account would pay off. `sufficient`
+          means the current accounts cover the demand.
+        - `headline` is a finished English one-liner for that verdict, safe to quote as is.
+        - The numbers behind it: `demandPerWeek` is the pooled weekly burn in account-weeks
+          (1.0 is one full account's weekly quota spent per week, so 2.4 needs three
+          accounts), `starvedHoursPerWeek` is how many hours a week every account in a pool
+          sat at zero quota at once, `activeBurnPerHour` is percent of a window spent per
+          hour of actual work, and `daysOfData` is how much history the reading rests on.
 
         Guidance:
 
@@ -55,6 +73,10 @@ extension IntegrationsStore {
         - For "which account should I use", prefer the account with `best: true`;
           launching through `tally claude` / `tally codex` applies the same choice
           automatically.
+        - For "is my quota enough", "should I add an account", or "how is my usage
+          trending", answer from `advisor` and quote its `headline`: the account
+          percentages describe only this moment, the advisor is the trend. When the verdict
+          is `collecting`, say the app is still gathering history instead of guessing.
         - Before heavy multi-agent or long autonomous work, check the binding window (the
           smallest remaining among session, weekly, and model) and warn when it is nearly
           drained.
@@ -72,6 +94,26 @@ extension IntegrationsStore {
             let url = URL(fileURLWithPath: home).appendingPathComponent("skills/tally/SKILL.md")
             return seen.insert(url.resolvingSymlinksInPath().path).inserted ? url : nil
         }
+    }
+
+    /// Every path the skill can actually live at: the discovered accounts' files plus every path
+    /// the manifest remembers. Accounts that logged out since install are no longer discovered,
+    /// but their SKILL.md is still on disk, so both remove and the auto-update must see it -
+    /// otherwise an orphan lies in wait for a later re-login.
+    private static func installedSkillFiles() -> [URL] {
+        var files = claudeSkillFiles()
+        for path in manifestPaths("claudeSkill") where !files.contains(where: { $0.path == path }) {
+            files.append(URL(fileURLWithPath: path))
+        }
+        return files
+    }
+
+    /// The paths the manifest records for one component; empty when the entry, or the file, is
+    /// absent or unreadable. Internal for the unit tests.
+    static func manifestPaths(_ component: String, manifest url: URL = manifestURL) -> [String] {
+        let manifest = (try? JSONSerialization.jsonObject(
+            with: (try? Data(contentsOf: url)) ?? Data())) as? [String: Any]
+        return ((manifest?[component] as? [String: Any])?["paths"] as? [String]) ?? []
     }
 
     static func detectSkill() -> Status {
@@ -107,22 +149,53 @@ extension IntegrationsStore {
         guard guardNotDev() else { return }
         lastError = nil
         do {
-            // Accounts that logged out since install are no longer discovered, but the
-            // manifest remembers every path the skill went to - remove honours the actual
-            // install set, so no orphan skill lies in wait for a later re-login.
-            var files = Self.claudeSkillFiles()
-            let manifest = (try? JSONSerialization.jsonObject(
-                with: (try? Data(contentsOf: Self.manifestURL)) ?? Data())) as? [String: Any]
-            for path in ((manifest?["claudeSkill"] as? [String: Any])?["paths"] as? [String]) ?? []
-            where !files.contains(where: { $0.path == path }) {
-                files.append(URL(fileURLWithPath: path))
-            }
-            for file in files { try Self.removeSkill(in: file) }
+            for file in Self.installedSkillFiles() { try Self.removeSkill(in: file) }
             recordManifest("claudeSkill", paths: nil)
         } catch {
             lastError = error.localizedDescription
         }
         refresh()
+    }
+
+    /// Launch-time upkeep: a skill left behind by an older app version is brought to the current
+    /// one, so the agent guidance ships with the app instead of waiting for someone to notice the
+    /// "Older version installed" row in Settings. Deliberately narrow, and nothing here asks the
+    /// user first: an absent file stays absent (not having the skill is a choice), a foreign
+    /// skills/tally is never touched, and a failure only lands in `lastError`.
+    func autoUpdateSkill() {
+        // Shared state belongs to the release app; not `guardNotDev()`, whose user-facing error
+        // has no place in a task that runs silently at launch.
+        guard !BuildVariant.isDev else { return }
+        let result = Self.autoUpdateSkills(in: Self.installedSkillFiles())
+        // Before the early return: when EVERY update failed (an unwritable skills folder) there is
+        // nothing to record, but the failure is exactly what Settings must be able to show.
+        if let error = result.error { lastError = error }
+        guard result.updated > 0 else { return }
+        recordManifest("claudeSkill", paths: result.ours.map(\.path))
+        refresh()
+    }
+
+    /// The auto-update over a given file set, split out so it is testable without discovering the
+    /// machine's real claude homes. Rewrites every file that exists AND carries our marker AND is
+    /// not already current; returns the files that are ours (the install set the manifest should
+    /// record), how many were rewritten, and the first failure if any.
+    static func autoUpdateSkills(in files: [URL]) -> (ours: [URL], updated: Int, error: String?) {
+        var ours: [URL] = []
+        var updated = 0
+        var failure: String?
+        for file in files {
+            // Absent, unreadable, or not ours: leave it exactly as it is.
+            guard let existing = try? String(contentsOf: file, encoding: .utf8),
+                  existing.contains("tally-skill v") else { continue }
+            ours.append(file)
+            guard !existing.contains("tally-skill v\(skillVersion)") else { continue }
+            do {
+                if try upsertSkill(in: file) { updated += 1 }
+            } catch {
+                failure = failure ?? error.localizedDescription
+            }
+        }
+        return (ours, updated, failure)
     }
 
     /// Writes the skill into one skills file. A file that is not ours is never clobbered -

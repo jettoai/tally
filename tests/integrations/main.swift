@@ -150,6 +150,81 @@ try MainActor.assumeIsolated {
     check("an undecodable skills/tally is refused, not clobbered",
           refusedJunk && junkAfter == junk)
 
+    // MARK: skill content - the v2 advisor guidance, and the repo-wide no-em-dash rule.
+    let currentSkill = IntegrationsStore.skillMarkdown()
+    check("skill is at version 2", IntegrationsStore.skillVersion == 2)
+    check("skill teaches the advisor field", currentSkill.contains("advisor.<provider>"))
+    check("skill spells out every verdict",
+          currentSkill.contains("`collecting`") && currentSkill.contains("`addAccount`")
+              && currentSkill.contains("`sufficient`"))
+    check("skill points at the headline and the numbers behind it",
+          currentSkill.contains("`headline`") && currentSkill.contains("demandPerWeek")
+              && currentSkill.contains("starvedHoursPerWeek")
+              && currentSkill.contains("daysOfData"))
+    check("skill answers the capacity question from the advisor",
+          currentSkill.contains("should I add an account"))
+    check("skill carries no em dash", !currentSkill.contains("\u{2014}"))
+
+    // MARK: auto-update - old installs follow the app, absent and foreign files never do.
+    let autoDir = tmp.appendingPathComponent("auto")
+    func autoFile(_ name: String, _ content: String) throws -> URL {
+        let url = autoDir.appendingPathComponent("\(name)/SKILL.md")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try content.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+    let oldSkill = currentSkill.replacingOccurrences(
+        of: "tally-skill v\(IntegrationsStore.skillVersion)", with: "tally-skill v1")
+    let oldFile = try autoFile("old", oldSkill)
+    let currentFile = try autoFile("current", currentSkill)
+    let foreignFile = try autoFile("foreign", userSkill)
+    let orphanFile = try autoFile("orphan", oldSkill)
+    let absentFile = autoDir.appendingPathComponent("absent/SKILL.md")   // never written
+
+    let auto = IntegrationsStore.autoUpdateSkills(
+        in: [oldFile, currentFile, absentFile, foreignFile, orphanFile])
+    check("an older install is brought to the current version",
+          try String(contentsOf: oldFile, encoding: .utf8) == currentSkill)
+    check("an orphan on a manifest-only path is updated too",
+          try String(contentsOf: orphanFile, encoding: .utf8) == currentSkill)
+    check("only the outdated files count as updated", auto.updated == 2 && auto.error == nil)
+    check("an absent skill is never installed",
+          !FileManager.default.fileExists(atPath: absentFile.path))
+    check("a foreign skills/tally is never overwritten",
+          try String(contentsOf: foreignFile, encoding: .utf8) == userSkill)
+    check("a current install is left alone",
+          try String(contentsOf: currentFile, encoding: .utf8) == currentSkill)
+    check("the manifest records our files only, absent and foreign excluded",
+          auto.ours.map(\.path).sorted() == [oldFile, currentFile, orphanFile].map(\.path).sorted())
+    check("a second pass changes nothing",
+          IntegrationsStore.autoUpdateSkills(in: [oldFile, currentFile, orphanFile]).updated == 0)
+
+    // A total failure (unwritable skills folder) must still surface: nothing gets recorded, but
+    // the error travels back so `autoUpdateSkill` can put it in `lastError`. Asserted on the
+    // return value rather than the store's property: reaching `lastError` means touching the
+    // MainActor singleton, which would read and rewrite this machine's real claude homes.
+    let lockedFile = try autoFile("locked", oldSkill)
+    let lockedDir = lockedFile.deletingLastPathComponent().path
+    try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: lockedDir)
+    let locked = IntegrationsStore.autoUpdateSkills(in: [lockedFile])
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: lockedDir)
+    check("an update that cannot be written reports the failure",
+          locked.updated == 0 && locked.error != nil)
+    check("a failed update leaves the old file intact",
+          try String(contentsOf: lockedFile, encoding: .utf8) == oldSkill)
+
+    // The manifest is what makes a logged-out account's orphan reachable at all.
+    let manifest = tmp.appendingPathComponent("manifest.json")
+    try JSONSerialization.data(withJSONObject: [
+        "claudeSkill": ["paths": [orphanFile.path], "installedAt": "2026-01-01T00:00:00Z"],
+    ]).write(to: manifest)
+    check("manifest paths are read back for the install set",
+          IntegrationsStore.manifestPaths("claudeSkill", manifest: manifest) == [orphanFile.path])
+    check("a missing manifest yields no paths",
+          IntegrationsStore.manifestPaths("claudeSkill",
+                                          manifest: tmp.appendingPathComponent("nope.json")).isEmpty)
+
     try? FileManager.default.removeItem(at: tmp)
 }
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")

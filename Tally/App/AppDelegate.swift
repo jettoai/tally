@@ -39,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UpdateAvailability.shared.isDownloaded = UserDefaults.standard.bool(forKey: "TallyUpdateChipReady")
         }
         UsageStore.shared.start()
+        // An agent skill installed by an older app version is silently brought up to date, so
+        // the guidance ships with the app. Only files that are already installed and ours are
+        // touched: never an install, never someone else's skills/tally.
+        IntegrationsStore.shared.autoUpdateSkill()
         // Volatile launch flag (argument domain): post one sample low-tier notification so the
         // permission prompt and the alert's look can be verified without waiting for a real
         // tripwire. No state is persisted, so a normal launch is unaffected.

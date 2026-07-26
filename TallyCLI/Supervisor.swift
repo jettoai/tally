@@ -13,8 +13,11 @@ import Foundation
 ///
 /// `follow`: adopt a later change to the launch-default model at the next quiet moment. The caller
 /// sets it false when the user typed their own `--model` or passed `--no-follow`.
+///
+/// `recoveries`: the recovery fuse this session had already spent, handed over by the supervisor
+/// this process replaced in a self-update. Empty for every normal launch.
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String],
-                   follow: Bool = false) -> Never {
+                   follow: Bool = false, recoveries: [Date] = []) -> Never {
     let slug = projectSlug(forCwd: FileManager.default.currentDirectoryPath)
 
     // The parent must survive Ctrl+C - claude uses SIGINT to interrupt a turn, and the whole
@@ -46,11 +49,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// True while a follow adoption has nowhere to land (no account can serve the new model), so
     /// the "waiting" note is shown once, not every tick. Cleared when an account frees up.
     var followDeadEnd = false
-    /// The recovery fuse for THIS supervisor, held across relaunches: at most 3 automatic
-    /// cross-account recoveries per 10 minutes (a cap handoff or a degradation rescue). In memory
-    /// and per process, so a fleet-wide drain never trips one session on another's account
-    /// switches. Deliberate moves (pin, follow) and same-account relaunches (fallback) do not count.
-    var fuse = RecoveryFuse()
+    /// The recovery fuse for THIS session, held across relaunches AND across a self-update exec
+    /// (seeded from `recoveries`): at most 3 automatic cross-account recoveries per 10 minutes (a
+    /// cap handoff or a degradation rescue). In memory and per session, so a fleet-wide drain never
+    /// trips one session on another's account switches, while an app update mid-session cannot
+    /// hand this one a fresh budget. Deliberate moves (pin, follow) and same-account relaunches
+    /// (fallback) do not count.
+    var fuse = RecoveryFuse(recovered: recoveries)
     /// Accounts THIS supervisor saw cap, with the model window that capped, excluded from its own
     /// automatic picks for that model until the TTL passes (union with the cross-supervisor shared
     /// records). Persists across relaunches.
@@ -450,9 +455,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // Ends the child and rewrites launchArgs to resume this conversation, exactly as a
                 // same-account relaunch does; the exec hands those args to the new build.
                 performHandoff(to: account, reason: "self-update", countingFuse: false)
+                // The fuse rides along: this restart is an upgrade, not a recovery, so it spends
+                // no budget, but it must not refund what the session already spent either.
                 execSelfUpdate(to: upgrade.target, id: account.id, label: account.label,
-                               home: upgrade.home, follow: follow, args: launchArgs,
-                               binary: upgrade.binary)
+                               home: upgrade.home, follow: follow, recoveries: fuse.carried(),
+                               args: launchArgs, binary: upgrade.binary)
                 break   // the exec failed: carry on with the child that handoff just relaunched
             }
 

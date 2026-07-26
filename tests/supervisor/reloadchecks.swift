@@ -332,10 +332,12 @@ func runReloadChecks() {
     // trip: what one version writes, the next version's parser must read back unchanged. `dropFirst`
     // removes the binary path and the subcommand, which main.swift consumes before parsing.
     func roundTrip(id: String, label: String, home: String, follow: Bool,
-                   args: [String]) -> (id: String, label: String, home: String,
-                                       follow: Bool, childArgs: [String]) {
+                   recoveries: [Date] = [],
+                   args: [String]) -> (id: String, label: String, home: String, follow: Bool,
+                                       recoveries: [Date], childArgs: [String]) {
         parseResuperviseArgs(Array(selfUpdateArgv(binary: "/usr/local/bin/tally", id: id,
                                                   label: label, home: home, follow: follow,
+                                                  recoveries: recoveries,
                                                   args: args).dropFirst(2)))
     }
     let trip = roundTrip(id: "acct-2", label: "Claude 2", home: "/Users/x/.claude2", follow: true,
@@ -368,6 +370,69 @@ func runReloadChecks() {
           parseResuperviseArgs(["--home"]).home.isEmpty)
     check("follow defaults to on when the flag is absent",
           parseResuperviseArgs(["--home", "/h"]).follow)
+
+    // MARK: - 23b. The recovery fuse survives the self-update exec
+
+    // "At most 3 automatic recoveries in 10 minutes" is a promise about the SESSION, and the exec
+    // replaces the process. Reachable in one sitting before this carry existed: two recoveries
+    // spent, the account not capped at that instant (nothing gates the upgrade), the app updates,
+    // the fuse resets, and the same conversation can be restarted three more times.
+    let fuseT0 = Date(timeIntervalSince1970: 1_800_000_000)
+    var spentFuse = RecoveryFuse(max: 3, window: 600)
+    for _ in 0 ..< 3 { _ = spentFuse.allows(now: fuseT0); spentFuse.record(now: fuseT0) }
+    check("a fuse with 3 recoveries in the window refuses a fourth", !spentFuse.allows(now: fuseT0))
+    let carriedTrip = roundTrip(id: "a", label: "A", home: "/h", follow: true,
+                                recoveries: spentFuse.carried(now: fuseT0),
+                                args: ["--resume", "abc"])
+    check("the argv round trip carries the recorded recoveries",
+          carriedTrip.recoveries == [fuseT0, fuseT0, fuseT0])
+    check("carrying the fuse does not disturb the rest of the contract",
+          carriedTrip.home == "/h" && carriedTrip.follow
+              && carriedTrip.childArgs == ["--resume", "abc"])
+    var afterExec = RecoveryFuse(max: 3, window: 600, recovered: carriedTrip.recoveries,
+                                 now: fuseT0)
+    check("a fuse with 3 recent recoveries still refuses after the round trip",
+          !afterExec.allows(now: fuseT0))
+    // Absolute times, not durations: the exec takes real time (longer on a disk mid-install), and
+    // a duration re-based on arrival would hand the session a window that starts over.
+    var afterSlowExec = RecoveryFuse(max: 3, window: 600, recovered: carriedTrip.recoveries,
+                                     now: fuseT0.addingTimeInterval(601))
+    check("recoveries that aged out during a slow exec do not extend the window",
+          afterSlowExec.allows(now: fuseT0.addingTimeInterval(601)))
+
+    // Pruned before encoding: an entry past the window is dead weight the other side would drop
+    // anyway, and shipping it invites reading the list as a count rather than as times.
+    var staleFuse = RecoveryFuse(max: 3, window: 600)
+    staleFuse.record(now: fuseT0)                                  // expired by the time we encode
+    staleFuse.record(now: fuseT0.addingTimeInterval(400))          // still inside the window
+    let pruned = staleFuse.carried(now: fuseT0.addingTimeInterval(700))
+    check("entries older than the window do not survive the encoding",
+          pruned == [fuseT0.addingTimeInterval(400)])
+    check("and the flag value carries only the live one",
+          encodeRecoveryFuse(pruned) == String(fuseT0.addingTimeInterval(400).timeIntervalSince1970))
+
+    // A supervisor started normally is unchanged: no flag written, none read, a fresh fuse.
+    check("an empty fuse writes no flag at all",
+          !selfUpdateArgv(binary: "/usr/local/bin/tally", id: "a", label: "A", home: "/h",
+                          follow: true, args: []).contains(resuperviseFuseFlag))
+    check("a supervisor started without __resupervise begins with an empty fuse",
+          roundTrip(id: "a", label: "A", home: "/h", follow: true, args: []).recoveries.isEmpty)
+    var freshFuse = RecoveryFuse(max: 3, window: 600, recovered: [], now: fuseT0)
+    check("and that fuse still allows its full budget", freshFuse.allows(now: fuseT0))
+
+    // Written by a DIFFERENT build, so an unreadable value is a disagreement about the format, not
+    // something to half-believe: degrade to a fresh fuse rather than to an arbitrary count.
+    check("a malformed fuse argument degrades to an empty fuse",
+          parseResuperviseArgs(["--home", "/h", resuperviseFuseFlag, "not-a-time"])
+              .recoveries.isEmpty)
+    check("one bad field discards the whole value",
+          decodeRecoveryFuse("1800000000,,1800000001").isEmpty)
+    check("a non-finite field is not a time either", decodeRecoveryFuse("inf").isEmpty)
+    check("an empty value is simply no recoveries", decodeRecoveryFuse("").isEmpty)
+    check("a dangling fuse flag is empty, not a crash",
+          parseResuperviseArgs(["--home", "/h", resuperviseFuseFlag]).recoveries.isEmpty)
+    check("and it does not swallow the home",
+          parseResuperviseArgs([resuperviseFuseFlag, "1800000000", "--home", "/h"]).home == "/h")
 
     // What the tick actually asks: gates, plus a real executable and a home, all answered before the
     // caller kills anything. Versions are injected so this runs outside a bundle.
@@ -421,4 +486,11 @@ func runReloadChecks() {
     } else {
         check("the follow block boundaries were found", false)
     }
+
+    // The fuse carry is only real if the loop is wired to both ends of it, and neither end can be
+    // reached without spawning a child, so the source carries the invariant (as above).
+    check("the loop seeds its fuse from the carried recoveries",
+          supervisorSource.contains("RecoveryFuse(recovered: recoveries)"))
+    check("and hands the live fuse to the exec",
+          supervisorSource.contains("recoveries: fuse.carried()"))
 }

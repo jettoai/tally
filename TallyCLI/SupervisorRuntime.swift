@@ -145,22 +145,35 @@ func supervisionStatus(steered: Bool, supervised: Bool, supervisorVersion: Strin
     return supervisorVersion == installedVersion ? .ok : .outdated
 }
 
-// MARK: - Recovery fuse (per supervisor, in memory)
+// MARK: - Recovery fuse (per supervised session, in memory)
 
 /// At most `max` AUTOMATIC cross-account recoveries (a cap handoff or a degradation rescue) per
 /// rolling `window`, so a systemic failure can't burn through logins in a loop. Scoped to ONE
-/// supervisor process and held in memory, unlike the old shared file gate: five sessions hitting
+/// supervised session and held in memory, unlike the old shared file gate: five sessions hitting
 /// a model-window drain at the same instant each recorded into one file and tripped every other
 /// session's fuse, so nobody could hand off (2026-07-24). Deliberate moves (a pin switch, a follow
 /// adoption) and same-account relaunches (the fallback profile) are never counted.
+///
+/// Per SESSION, not per process, and the difference is not academic: a self-update replaces the
+/// supervisor with `execv`, so a fuse that reset there would enforce a limit the user never
+/// experiences. The sequence is reachable in one sitting: two recoveries spent, the current account
+/// not capped at that instant (so nothing blocks the upgrade), the app updates, the fuse is back to
+/// zero, and the same conversation can be restarted three more times, each restart a visible
+/// interruption. So the recoveries ride across the exec in the `__resupervise` contract
+/// (SelfUpdate.swift) and seed the new process's fuse.
 struct RecoveryFuse {
     let max: Int
     let window: TimeInterval
     private var recent: [Date] = []
 
-    init(max: Int = 3, window: TimeInterval = 10 * 60) {
+    /// `recovered` seeds the fuse from the supervisor this process replaced; empty (the default) is
+    /// a supervisor started normally. Filtered against `now` on the way in as well as on the way
+    /// out, because the exec takes real time: an entry that was live when it was encoded may have
+    /// left the window by the time the new image reads it.
+    init(max: Int = 3, window: TimeInterval = 10 * 60, recovered: [Date] = [], now: Date = Date()) {
         self.max = max
         self.window = window
+        recent = recovered.filter { now.timeIntervalSince($0) < window }
     }
 
     /// True while the fuse has room. Prunes entries older than the window as a side effect.
@@ -171,6 +184,14 @@ struct RecoveryFuse {
 
     mutating func record(now: Date = Date()) {
         recent.append(now)
+    }
+
+    /// The recoveries to hand to the process replacing this one. Pruned first (via `allows`), so an
+    /// entry past the window never travels: it could only be dead weight the new process would have
+    /// to drop anyway, and carrying it invites reading the list as a count rather than as times.
+    mutating func carried(now: Date = Date()) -> [Date] {
+        _ = allows(now: now)
+        return recent
     }
 }
 

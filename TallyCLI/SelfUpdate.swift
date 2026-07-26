@@ -16,8 +16,12 @@ import Foundation
 //
 // The replacement is an execv of the same path: the pid and the terminal's foreground process group
 // survive, so the supervisor-state registration, the status line, and the user's terminal are all
-// untouched. In-memory state (the recovery fuse, the session-local quarantine) resets, which is
-// acceptable directly after an upgrade.
+// untouched. In-memory state resets, which is acceptable for the session-local quarantine (the
+// shared per-account files outlive the exec anyway) but NOT for the recovery fuse: "at most 3
+// automatic recoveries in 10 minutes" is a promise about the user's session, and every restart it
+// permits is a conversation visibly interrupted. Two recoveries spent, the account not capped at
+// that instant, the app updates, and a reset fuse would let the same session be restarted three
+// more times. So the fuse's recorded recoveries ride across in the argv below, as absolute times.
 //
 // LOAD-BEARING ACROSS VERSIONS: `__resupervise` and its flags are a contract between two DIFFERENT
 // builds, not an internal detail. The old build writes the argv; the NEW build's parser reads it.
@@ -90,15 +94,44 @@ func selfUpdateTarget(captured: String?, installed: String?, isQuiet: Bool, rela
     return installed
 }
 
+/// The flag carrying the recovery fuse's recorded recoveries across the exec, so the limit holds
+/// for the SESSION rather than for the process. Optional by construction: a supervisor with an
+/// empty fuse writes no flag at all, which is also what every build predating it wrote.
+let resuperviseFuseFlag = "--fuse"
+
+/// The fuse's recoveries as a flag value: absolute epoch seconds, comma separated. Absolute, not
+/// "N seconds ago", because the exec takes real time (and can be delayed by a slow disk mid-install)
+/// and durations re-based on arrival would silently stretch the window they are measured in.
+func encodeRecoveryFuse(_ recoveries: [Date]) -> String {
+    recoveries.map { String($0.timeIntervalSince1970) }.joined(separator: ",")
+}
+
+/// The recoveries a previous build wrote, or none. Anything unreadable answers empty rather than a
+/// partial list: the value comes from a DIFFERENT build, so a shape we cannot fully parse is a
+/// disagreement about the format, and half-believing it would put an arbitrary number of recoveries
+/// into the new fuse. Empty degrades to exactly today's behaviour (a fresh fuse), never to a crash.
+func decodeRecoveryFuse(_ raw: String) -> [Date] {
+    guard !raw.isEmpty else { return [] }
+    var recoveries: [Date] = []
+    for field in raw.split(separator: ",", omittingEmptySubsequences: false) {
+        guard let epoch = Double(field), epoch.isFinite else { return [] }
+        recoveries.append(Date(timeIntervalSince1970: epoch))
+    }
+    return recoveries
+}
+
 /// The argv an upgrade execs. Continuity is spelled out rather than re-derived: the account is named
 /// explicitly so the new supervisor cannot re-pick a different one, and `args` already carries the
 /// `--resume <session>` the relaunch path produced, so the conversation is pinned by id. Passing the
 /// original launch argv instead would let the new process pick another account and then follow a
-/// bare `--continue` into whatever conversation happens to be newest there.
+/// bare `--continue` into whatever conversation happens to be newest there. `recoveries` is the
+/// recovery fuse's live record (already pruned by `RecoveryFuse.carried`).
 func selfUpdateArgv(binary: String, id: String, label: String, home: String, follow: Bool,
-                    args: [String]) -> [String] {
-    [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
-     follow ? "--follow" : "--no-follow", "--"] + args
+                    recoveries: [Date] = [], args: [String]) -> [String] {
+    var argv = [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
+                follow ? "--follow" : "--no-follow"]
+    if !recoveries.isEmpty { argv += [resuperviseFuseFlag, encodeRecoveryFuse(recoveries)] }
+    return argv + ["--"] + args
 }
 
 /// The path this process would exec, but only when something runnable is actually there right now.
@@ -126,12 +159,13 @@ func consumeSelfUpdateAttempt() -> String? {
 /// the life of the session; on success nothing after the execv runs. Announced first: an app update
 /// silently restarting a session is exactly the surprise the dialogs elsewhere exist to avoid.
 func execSelfUpdate(to target: String, id: String, label: String, home: String, follow: Bool,
-                    args: [String], binary: String? = Bundle.main.executableURL?.path) {
+                    recoveries: [Date] = [], args: [String],
+                    binary: String? = Bundle.main.executableURL?.path) {
     guard let binary else { return }
     warn("tally updated to \(target), restarting this session on the new build")
     setenv(selfUpdateTargetEnvKey, target, 1)
     let argv = selfUpdateArgv(binary: binary, id: id, label: label, home: home,
-                              follow: follow, args: args)
+                              follow: follow, recoveries: recoveries, args: args)
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)
     execv(binary, &cargs)
@@ -178,10 +212,14 @@ func selfUpdateDue(captured: String?, attempted: String?, isQuiet: Bool, relaunc
 /// would strand exactly the sessions that were mid-upgrade. Values are taken positionally, so a
 /// label that looks like a flag (`--label --home`) is still a label; a missing or trailing `--`
 /// yields no child args rather than an error, because the supervisor can still resume without them.
+/// An absent `--fuse` (every build before it, and any supervisor whose fuse was empty) means no
+/// recoveries, which is the fresh-fuse behaviour this contract had all along.
 func parseResuperviseArgs(_ args: [String]) -> (id: String, label: String, home: String,
-                                                follow: Bool, childArgs: [String]) {
+                                                follow: Bool, recoveries: [Date],
+                                                childArgs: [String]) {
     var id = "", label = "", home = ""
     var follow = true
+    var recoveries: [Date] = []
     var childArgs: [String] = []
     var index = 0
     while index < args.count {
@@ -193,6 +231,7 @@ func parseResuperviseArgs(_ args: [String]) -> (id: String, label: String, home:
         case "--id": id = value(); index += 2
         case "--label": label = value(); index += 2
         case "--home": home = value(); index += 2
+        case resuperviseFuseFlag: recoveries = decodeRecoveryFuse(value()); index += 2
         case "--follow": follow = true; index += 1
         case "--no-follow": follow = false; index += 1
         case "--":
@@ -201,16 +240,18 @@ func parseResuperviseArgs(_ args: [String]) -> (id: String, label: String, home:
         default: index += 1
         }
     }
-    return (id, label, home, follow, childArgs)
+    return (id, label, home, follow, recoveries, childArgs)
 }
 
-/// `tally __resupervise --id <id> --label <label> --home <path> --follow|--no-follow -- <args...>`:
-/// the other side of the exec. Rebuilds the account from what the previous supervisor passed rather
-/// than from the snapshot (which may be stale, or missing the account entirely at that instant) and
-/// resumes supervision. Only the id, label, and home are ever read from an account by the loop; the
-/// quota fields are always re-read from the live snapshot, so leaving them empty here is safe.
+/// `tally __resupervise --id <id> --label <label> --home <path> --follow|--no-follow
+/// [--fuse <epochs>] -- <args...>`: the other side of the exec. Rebuilds the account from what the
+/// previous supervisor passed rather than from the snapshot (which may be stale, or missing the
+/// account entirely at that instant) and resumes supervision, with the recovery fuse continuing
+/// where that supervisor left off. Only the id, label, and home are ever read from an account by
+/// the loop; the quota fields are always re-read from the live snapshot, so leaving them empty here
+/// is safe.
 func runResupervise(args: [String]) -> Never {
-    let (id, label, home, follow, childArgs) = parseResuperviseArgs(args)
+    let (id, label, home, follow, recoveries, childArgs) = parseResuperviseArgs(args)
     guard !home.isEmpty else {
         warn("\(resuperviseCommand) needs --home; this is an internal command")
         exit(2)
@@ -222,5 +263,6 @@ func runResupervise(args: [String]) -> Never {
         launchHome: home, sessionRemaining: nil, weeklyRemaining: nil, modelRemaining: nil,
         sessionResetsAt: nil, weeklyResetsAt: nil, modelResetsAt: nil, modelWindowName: nil,
         resetCreditsAvailable: nil, isStale: false, error: nil)
-    runSupervised(provider, account: account, args: childArgs, follow: follow)
+    runSupervised(provider, account: account, args: childArgs, follow: follow,
+                  recoveries: recoveries)
 }

@@ -272,7 +272,7 @@ enum CapAction: Equatable {
     case waitPinned    // manual pin on the capped account: staying put is what pinning means
     case waitFuse      // too many recent handoffs: cool down before burning another login
     case waitStale     // snapshot too old to trust a target pick
-    case waitNoTarget  // no other eligible account right now
+    case waitNoTarget  // no other account worth moving to right now
 
     /// The waiting-state note shown to the user (state-change-only); nil for `.handoff`.
     var waitingNote: String? {
@@ -281,7 +281,11 @@ enum CapAction: Equatable {
         case .waitPinned: return "staying put (pinned in Tally; unpin to allow handoff)"
         case .waitFuse: return "too many handoffs recently, cooling down before another"
         case .waitStale: return "waiting for a fresh snapshot before handing off"
-        case .waitNoTarget: return "no other eligible account, waiting for one to free up"
+        // Since the handoff started requiring a comfortable target, the usual reason is not that
+        // there is no sibling but that every sibling is nearly dry too, so the note names quota
+        // rather than eligibility: "no other account" would read as a lie to someone looking at a
+        // second account in the panel, and hide that the wait ends when quota returns.
+        case .waitNoTarget: return "no account with quota to spare, waiting for one to free up"
         }
     }
 }

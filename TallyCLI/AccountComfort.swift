@@ -56,12 +56,25 @@ func isComfortable(_ windows: [ComfortWindow], now: Date) -> Bool {
     return tightest > nearlyDryPercent
 }
 
-/// The gate: when any candidate is comfortable, the others are dropped BEFORE the rate ordering
-/// runs, so the ordering never has to compare a healthy account against a nearly dry one. When
-/// NOTHING is comfortable the field is kept whole, mirroring what the launcher already does when
-/// quarantine empties it: launching on a thin account beats stranding the user with no session.
+// The gate has two policies, and the difference between them is the point: what an EMPTY result
+// means depends on whether a session already exists. They are deliberately two functions rather
+// than one with a flag, so neither call site can be read as the other and quietly unified.
+
+/// The HANDOFF policy: comfortable candidates only, and no target when there are none. The session
+/// already exists, so moving it to a spent account buys a few minutes and costs a visible restart
+/// that reloads the conversation; waiting for a sibling to free up is strictly better. Callers are
+/// expected to treat the empty result as "wait", not as "give up".
+func requiringComfortable<T>(_ candidates: [T], now: Date,
+                             windows: (T) -> [ComfortWindow]) -> [T] {
+    candidates.filter { isComfortable(windows($0), now: now) }
+}
+
+/// The LAUNCH policy: comfortable candidates when there are any (so the rate ordering below never
+/// has to compare a healthy account against a nearly dry one), and otherwise the field kept whole.
+/// The fallback mirrors what the launcher already does when quarantine empties the field: there is
+/// no session yet, and launching on a thin account beats stranding the user with none at all.
 func preferringComfortable<T>(_ candidates: [T], now: Date,
                               windows: (T) -> [ComfortWindow]) -> [T] {
-    let comfortable = candidates.filter { isComfortable(windows($0), now: now) }
+    let comfortable = requiringComfortable(candidates, now: now, windows: windows)
     return comfortable.isEmpty ? candidates : comfortable
 }

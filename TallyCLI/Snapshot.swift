@@ -217,15 +217,21 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
     return windows
 }
 
-/// The nearly-dry gate (AccountComfort.swift) over CLI accounts. The windows it weighs are exactly
-/// the ones `ratedWindows` counts for the declared primary model, so the gate never re-decides
-/// which windows an account spends. Both CLI picks (`best` and the supervisor's cap handoff) come
-/// through here, so they drop the same accounts.
+/// What the nearly-dry gate (AccountComfort.swift) weighs for a CLI account: exactly the windows
+/// `ratedWindows` counts for the declared primary model, so the gate never re-decides which windows
+/// an account spends. Shared by both gate policies, so they can differ in what they do with an
+/// empty result and in nothing else.
+private func comfortWindows(_ account: Snapshot.Account, primaryModel: String?,
+                            now: Date) -> [ComfortWindow] {
+    ratedWindows(account, primaryModel: primaryModel, now: now)
+        .map { ComfortWindow(remaining: $0.remaining, resetsAt: $0.resetsAt) }
+}
+
+/// The launch-side gate: drops the nearly dry, keeps the field whole when nothing is comfortable.
 func preferringComfortable(_ accounts: [Snapshot.Account], primaryModel: String?,
                            now: Date) -> [Snapshot.Account] {
-    preferringComfortable(accounts, now: now) { account in
-        ratedWindows(account, primaryModel: primaryModel, now: now)
-            .map { ComfortWindow(remaining: $0.remaining, resetsAt: $0.resetsAt) }
+    preferringComfortable(accounts, now: now) {
+        comfortWindows($0, primaryModel: primaryModel, now: now)
     }
 }
 
@@ -335,6 +341,21 @@ func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID:
         }
     }
     return leader
+}
+
+/// The account a CAP HANDOFF moves a running session to, or nil to keep waiting on the capped one.
+/// Takes the field the supervisor has already narrowed (right provider, eligible for the running
+/// model, not the current account, not quarantined) and applies the STRICT half of the nearly-dry
+/// gate: unlike a launch, this has a live session to lose, and a thin account is not worth the
+/// restart it costs, so an empty field means wait rather than move. Waiting is not giving up: the
+/// supervisor keeps polling and hands off the moment a sibling is genuinely usable.
+func capHandoffTarget(_ eligibleAccounts: [Snapshot.Account], primaryModel: String?,
+                      now: Date = Date()) -> Snapshot.Account? {
+    requiringComfortable(eligibleAccounts, now: now) {
+        comfortWindows($0, primaryModel: primaryModel, now: now)
+    }
+    .max { smartScore($0, primaryModel: primaryModel, now: now)
+        < smartScore($1, primaryModel: primaryModel, now: now) }
 }
 
 /// The account an automatic launch would actually land on: `best` with the live cap quarantine

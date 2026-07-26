@@ -99,6 +99,9 @@ check("no eligible sibling waits", capRecoveryAction(mode: "auto", fuseAllows: t
       snapshotStale: false, hasTarget: false) == .waitNoTarget)
 check("clear board hands off", capRecoveryAction(mode: "auto", fuseAllows: true,
       snapshotStale: false, hasTarget: true) == .handoff)
+// What actually feeds `hasTarget` is checked in capgatechecks.swift (the handoff's stricter gate).
+runCapGateChecks()
+
 // Unpinning a capped session hands off with no second cap event: same pending state, mode flips
 // auto, the board is otherwise clear.
 check("unpin flips a pinned wait straight to handoff",

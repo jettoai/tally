@@ -191,6 +191,26 @@ let drainedPick = pick([dryLeader, dryChallenger])
 check("an all-drained field still returns a pick", drainedPick != nil)
 check("and the drained field keeps its hysteresis", drainedPick == "A")
 
+// The cap handoff runs the STRICTER half of the gate. The launch keeps its fallback because no
+// session is worse than a thin session; the handoff has a live session already, so moving it to a
+// spent account buys minutes and costs a visible restart that reloads the conversation. That was
+// the bounce the user reported: capped on A, handed to an already spent B, capped again, back to A.
+let comfortableRefuge = account("refuge", session: (50, inHours(3)), weekly: (40, inHours(120)))
+func handoff(_ accounts: [Snapshot.Account], primaryModel: String? = nil) -> String? {
+    capHandoffTarget(accounts, primaryModel: primaryModel, now: now)?.id
+}
+check("the handoff takes the one comfortable account",
+      handoff([dryLeader, dryChallenger, comfortableRefuge]) == "refuge")
+check("with everything dry the handoff has no target, so the supervisor waits",
+      handoff([dryLeader, dryChallenger]) == nil)
+check("the launch path in that same state still returns an account",
+      pick([dryLeader, dryChallenger]) != nil)
+// The imminent-reset grace counts here too: a thin window minutes from refilling is a real target,
+// so a session waiting on a cap is not held back by a percentage that is about to stop being true.
+let refillingSoon = account("B", session: (2, inHours(0.05)), weekly: (60, inHours(120)))
+check("an account whose window resets within the grace is a valid handoff target",
+      handoff([dryLeader, refillingSoon]) == "B")
+
 // Two comfortable accounts near a tie must not start flapping because the gate ran first.
 let comfyA = account("A", session: (100, inHours(3)), weekly: (60, inHours(120)))
 let comfyB = account("B", session: (100, inHours(3)), weekly: (58, inHours(120)))

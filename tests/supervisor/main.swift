@@ -492,5 +492,6 @@ runSafeguardChecks()
 runOpenTurnChecks()
 runKeyboardChecks()
 runShimChecks()
+runFollowChecks()
 
 exit(failures == 0 ? 0 : 1)

@@ -144,17 +144,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             watcher.locateFile(forceForkCheck: true)
             let sessionFile = watcher.file
             if let sessionFile {
-                // Make the transcript visible to the target account (no-op on a shared tree).
-                let sourceResolved = sessionFile.resolvingSymlinksInPath()
-                let destDir = URL(fileURLWithPath: target.launchHome!)
-                    .appendingPathComponent("projects/\(slug)")
-                let dest = destDir.appendingPathComponent(sessionFile.lastPathComponent)
-                if dest.resolvingSymlinksInPath() != sourceResolved,
-                   !FileManager.default.fileExists(atPath: dest.path) {
-                    try? FileManager.default.createDirectory(at: destDir,
-                                                             withIntermediateDirectories: true)
-                    try? FileManager.default.copyItem(at: sessionFile, to: dest)
-                }
+                shareTranscript(sessionFile, toHome: target.launchHome!, slug: slug)
             }
 
             logHandoff(sessionID: sessionFile?.deletingPathExtension().lastPathComponent,
@@ -293,7 +283,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // a session waiting on an unservable model was never even acknowledged (2026-07-25).
             followAdoption: if follow {
                 let desired = (policy.model?.lowercased(), policy.effort?.lowercased())
-                if desired == (followedModel, followedEffort) {
+                // Nothing to adopt: the pair follow last set, or one that another rewrite already
+                // put on the command line while leaving this baseline stale (the reasoning lives
+                // with `followAlreadySatisfied` in SupervisorRuntime.swift). Re-point the baseline
+                // and say nothing - queueing here promises a relaunch that would change nothing.
+                if desired == (followedModel, followedEffort)
+                    || followAlreadySatisfied(desiredModel: desired.0, desiredEffort: desired.1,
+                                              launchArgs: launchArgs) {
+                    (followedModel, followedEffort) = desired
                     pendingSince = nil
                     followQueuedNotice = false
                 } else if pendingSince == nil || desired != (pendingModel, pendingEffort) {

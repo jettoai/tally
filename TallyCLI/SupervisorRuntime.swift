@@ -90,6 +90,31 @@ func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [S
     return ["--continue"] + next
 }
 
+/// Whether the launch-default pair a follow adoption wants is ALREADY what this session runs, judged
+/// against the flags the child actually carries rather than against the pair follow last adopted.
+///
+/// The two can disagree. `followedModel`/`followedEffort` in the loop record what FOLLOW set, and
+/// every other rewrite of the launch args (the quota fallback profile, the safeguard restore)
+/// deliberately leaves that baseline alone so its own change is never mistaken for a Settings change.
+/// The cost is a stale baseline: once the user edits Settings to the very pair one of those rewrites
+/// already put on the command line, follow compares against the old baseline, sees a difference, and
+/// queues an adoption whose relaunch would change nothing ("adopting when this session goes idle" on
+/// a session already running opus/xhigh, then a no-op restart at the next idle moment, 2026-07-27).
+///
+/// Model comparison goes through `modelsAgree`, so the alias a user types in Settings (`opus`) counts
+/// as the full id an earlier rewrite may have written (`claude-opus-4-8`). Both sides nil is a match:
+/// neither declares a model, so there is nothing to adopt. One side nil is not, because adopting
+/// would add or drop the flag. Effort is exact (lowercased): a policy with no effort against args
+/// carrying `--effort` IS a real change, since the adoption takes that flag away.
+func followAlreadySatisfied(desiredModel: String?, desiredEffort: String?,
+                            launchArgs: [String]) -> Bool {
+    let currentModel = flagValue(launchArgs, "--model")
+    let currentEffort = flagValue(launchArgs, "--effort")?.lowercased()
+    let sameModel = (desiredModel == nil && currentModel == nil)
+        || modelsAgree(desiredModel, currentModel)
+    return sameModel && desiredEffort?.lowercased() == currentEffort
+}
+
 /// How still a session must be before a NON-URGENT relaunch takes it (a follow adoption, a reload
 /// request). The 5s default of `isQuiet` proves only that no turn is streaming, which is the right
 /// bar for a REPAIR (a cap handoff, a degradation rescue: the sooner the better) but far too low
@@ -232,6 +257,20 @@ func appendHandoffLine(_ line: String) {
     guard fd >= 0 else { return }
     _ = line.withCString { write(fd, $0, strlen($0)) }
     close(fd)
+}
+
+/// Make a conversation's transcript visible to the account a handoff moves it to, so the relaunch
+/// can `--resume` it there. A no-op on a shared tree (both homes resolve to the same file) and when
+/// the destination already holds it. Best-effort throughout: a copy that fails costs the resume, not
+/// the handoff, and the child then starts fresh on the target rather than not starting at all.
+func shareTranscript(_ sessionFile: URL, toHome home: String, slug: String) {
+    let sourceResolved = sessionFile.resolvingSymlinksInPath()
+    let destDir = URL(fileURLWithPath: home).appendingPathComponent("projects/\(slug)")
+    let dest = destDir.appendingPathComponent(sessionFile.lastPathComponent)
+    guard dest.resolvingSymlinksInPath() != sourceResolved,
+          !FileManager.default.fileExists(atPath: dest.path) else { return }
+    try? FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+    try? FileManager.default.copyItem(at: sessionFile, to: dest)
 }
 
 // MARK: - Cap recovery

@@ -7,26 +7,90 @@ import Foundation
 // file grows past the size limit.
 //
 // Shared helpers come from Worktree.swift (`runGit`, `realpathString`, `parseWorktreePorcelain`,
-// `isMainCheckout`, `buildMenuRows`), WorktreeTeardown.swift (`defaultListProcesses`,
-// `worktreeProcessesToKill`) and Snapshot.swift (`warn`). Nothing here emits ANSI: unlike the menu,
-// this output is routinely piped or redirected to a file.
+// `buildMenuRows`), WorktreeTeardown.swift (`defaultListProcesses`, `worktreeProcessesToKill`),
+// WorktreeMenu.swift (`displayColumns`, so the tree and the menu agree on how wide a CJK or emoji
+// line is) and Snapshot.swift (`warn`). Nothing here emits ANSI: unlike the menu, this output is
+// routinely piped or redirected to a file.
 
 // MARK: - Main repo resolution
 
-/// The main repo root implied by `git rev-parse --path-format=absolute --git-common-dir`: the
-/// parent of the COMMON git dir, so a caller inside a worktree resolves back to the repo that owns
-/// it (`--show-toplevel` would answer the worktree instead). Pure, so the derivation is asserted
-/// without a repo.
-func mainRepoPath(fromGitCommonDir dir: String) -> String {
-    (dir as NSString).deletingLastPathComponent
+/// The main worktree of the ORDINARY layout, where the common git dir sits at `<checkout>/.git`:
+/// strip that suffix, which is the rule git applies internally. nil when the common dir lives
+/// somewhere else (a submodule keeps it at `<super>/.git/modules/<name>`, `--separate-git-dir` puts
+/// it anywhere, a bare repo is the dir), because its parent is then not a checkout at all and the
+/// answer has to be asked for rather than computed.
+func colocatedMainRepoPath(gitCommonDir dir: String) -> String? {
+    let suffix = "/.git"
+    guard dir.hasSuffix(suffix) else { return nil }
+    return String(dir.dropLast(suffix.count))
 }
 
-/// The main repo root as a fully resolved path, or nil when git says this is not a repository.
-/// Callers decide whether that is a warning (the read commands) or an exit (teardown).
+/// Whether `candidate` really is a working tree of the repo whose common git dir is `commonDir`.
+/// Every guess below is put through this: a computed path that looks like a checkout but is not one
+/// (or belongs to a different repo) is worse than admitting we do not know, because everything
+/// downstream treats the answer as a directory to print, to cd into, and to run git in.
+private func isWorkingTree(_ candidate: String, ofCommonDir commonDir: String) -> Bool {
+    guard !candidate.isEmpty else { return false }
+    let probe = runGit(["-C", candidate, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+    return probe.code == 0 && realpathString(probe.out) == realpathString(commonDir)
+}
+
+/// The main repo's working tree, fully resolved, or nil when git says this is not a repository.
+///
+/// Four ways to the answer, each verified before it is trusted:
+///
+///  1. The caller is standing IN the main worktree (its git dir is the common one, true for every
+///     plain repo, submodule and separate-git-dir repo entered at its own checkout): git names it
+///     outright with `--show-toplevel`. `--show-toplevel` alone is not enough, because from a
+///     LINKED worktree it names that worktree rather than the main one.
+///  2. The colocated layout, common dir at `<checkout>/.git`: strip the suffix.
+///  3. `core.worktree`, which is how a submodule points back at its checkout from a linked worktree
+///     of that submodule (relative to the common dir).
+///  4. Nothing verified: the common dir, which is the answer `git worktree list` itself prints, and
+///     a warning that it is a git dir rather than a checkout.
+///
+/// Case 4 is reachable and is not an oversight: a repo made with `git init --separate-git-dir`
+/// records its working tree NOWHERE (measured 2026-07-27 on git 2.50.1: `core.worktree` unset, no
+/// path in the git dir's config, and the `.git` file in the checkout points one way only, into the
+/// git dir). Asked from a linked worktree of such a repo, git cannot answer either:
+/// `git -C <common dir> rev-parse --show-toplevel` fails with "this operation must be run in a work
+/// tree", and `--git-dir=<common dir>` resolves the toplevel from the caller's own cwd. So the
+/// information genuinely does not exist, and inventing a path would be the worse failure.
 func resolveMainRepo() -> String? {
     let common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"])
     guard common.code == 0, !common.out.isEmpty else { return nil }
-    return realpathString(mainRepoPath(fromGitCommonDir: common.out))
+    if runGit(["rev-parse", "--path-format=absolute", "--absolute-git-dir"]).out == common.out {
+        let top = runGit(["rev-parse", "--path-format=absolute", "--show-toplevel"]).out
+        if !top.isEmpty { return realpathString(top) }   // empty in a bare repo
+    }
+    if let colocated = colocatedMainRepoPath(gitCommonDir: common.out),
+       isWorkingTree(colocated, ofCommonDir: common.out) {
+        return realpathString(colocated)
+    }
+    let recorded = runGit(["config", "--get", "core.worktree"]).out
+    let absolute = recorded.hasPrefix("/") ? recorded : "\(common.out)/\(recorded)"
+    if !recorded.isEmpty, isWorkingTree(absolute, ofCommonDir: common.out) {
+        return realpathString(absolute)
+    }
+    warn("this repository records no main working tree; using its git dir \(common.out)")
+    return realpathString(common.out)
+}
+
+/// The main repo path plus every worktree git has registered. nil when git says this is not a
+/// repository; callers decide whether that is a warning (the read commands) or an exit (teardown).
+func resolveWorktreeListing() -> (mainRepo: String, entries: [WorktreeEntry])? {
+    guard let mainRepo = resolveMainRepo() else { return nil }
+    let listing = runGit(["worktree", "list", "--porcelain"], cwd: mainRepo)
+    return (mainRepo, parseWorktreePorcelain(listing.out))
+}
+
+/// The linked worktrees: every porcelain block after the FIRST, which git documents as always being
+/// the main worktree. Dropped by POSITION rather than by comparing paths to the main repo, because
+/// a repo whose git dir is not colocated with its checkout (submodule, `--separate-git-dir`) has
+/// git reporting that first block AS the git dir: a path comparison never matches it, and the main
+/// checkout would be drawn as one of its own worktrees.
+func linkedWorktrees(_ entries: [WorktreeEntry]) -> [WorktreeEntry] {
+    Array(entries.dropFirst())
 }
 
 // MARK: - Where am I (pure)
@@ -58,6 +122,19 @@ func abbreviateHomePath(_ path: String, home: String) -> String {
     return "~" + path.dropFirst(home.count)
 }
 
+/// One cell widened to `columns` terminal columns, measured with `displayColumns`
+/// (WorktreeMenu.swift, shared with the menu clipper) so a CJK or emoji cell is padded to what a
+/// terminal actually draws.
+///
+/// Padding only ever APPENDS spaces. `padding(toLength:)` did both jobs wrong at once: it counts
+/// UTF-16 units, so a branch name with an emoji was measured as shorter than it is and then cut in
+/// half, emitting a lone surrogate; and a CJK name measured by grapheme count came out a column
+/// short per character. Content is never truncated here, so the worst a mis-measured exotic scalar
+/// can now do is misalign a column by one.
+private func padToColumns(_ cell: String, _ columns: Int) -> String {
+    cell + String(repeating: " ", count: max(0, columns - displayColumns(cell)))
+}
+
 /// Lay rows of cells out as columns: every cell padded to the width of the widest in its column,
 /// joined by two spaces, with the trailing padding trimmed. Columns that are empty in every row are
 /// dropped entirely, so a tree with nothing dirty and no live agents shows no gap where those
@@ -66,13 +143,14 @@ func alignedColumns(_ rows: [[String]]) -> [String] {
     let columnCount = rows.map(\.count).max() ?? 0
     var widths = [Int](repeating: 0, count: columnCount)
     for row in rows {
-        for (index, cell) in row.enumerated() { widths[index] = max(widths[index], cell.count) }
+        for (index, cell) in row.enumerated() {
+            widths[index] = max(widths[index], displayColumns(cell))
+        }
     }
     let kept = (0 ..< columnCount).filter { widths[$0] > 0 }
     return rows.map { row in
-        var line = kept.map { index -> String in
-            let cell = index < row.count ? row[index] : ""
-            return cell.padding(toLength: widths[index], withPad: " ", startingAt: 0)
+        var line = kept.map { index in
+            padToColumns(index < row.count ? row[index] : "", widths[index])
         }.joined(separator: "  ")
         while line.hasSuffix(" ") { line.removeLast() }
         return line
@@ -88,15 +166,6 @@ struct WorktreeTreeRow {
     let dirty: Bool
     let liveAgents: Int
     let path: String
-}
-
-/// The worktrees the tree draws: everything git has registered except the main checkout, INCLUDING
-/// detached ones. `list` and `remove` keep filtering those out (they manage branch-backed lines and
-/// a detached head is not one), but the tree answers "what exists and where am I", and a caller
-/// standing in a detached worktree is exactly the one most in need of the answer: filtering it out
-/// once printed an overview with no "you are here" mark anywhere on it.
-func worktreeTreeEntries(_ entries: [WorktreeEntry], mainRepo: String) -> [WorktreeEntry] {
-    entries.filter { !isMainCheckout($0, mainRepo: mainRepo) }
 }
 
 /// Resolve each entry's git facts for the tree. Deliberately not `buildMenuRows`: that one force
@@ -158,13 +227,17 @@ func worktreeTreeLines(mainRepo: String, mainBranch: String?, rows: [WorktreeTre
 /// exits 1; a repo with no worktrees still prints its own line, since naming the main repo is half
 /// of what the command is for.
 func runWorktreeTree() -> Int32 {
-    guard let mainRepo = resolveMainRepo() else {
+    guard let (mainRepo, entries) = resolveWorktreeListing() else {
         warn("not inside a git repository")
         return 1
     }
-    let entries = parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], cwd: mainRepo).out)
-    let mainBranch = entries.first { isMainCheckout($0, mainRepo: mainRepo) }?.branch
-    let others = worktreeTreeEntries(entries, mainRepo: mainRepo)
+    let mainBranch = entries.first?.branch
+    // Every linked worktree, INCLUDING detached ones (`list` and `remove` keep filtering those
+    // out: they manage branch-backed lines and a detached head is not one). The tree answers
+    // "what exists and where am I", and a caller standing in a detached worktree is exactly the one
+    // most in need of the answer: filtering it out once printed an overview with no "you are here"
+    // mark anywhere on it.
+    let others = linkedWorktrees(entries)
     // One process scan for the whole overview (same reasoning as runWorktreeList), skipped outright
     // when there is no worktree to attribute a process to.
     let processes = others.isEmpty ? [] : defaultListProcesses(worktreePath: mainRepo)
@@ -181,8 +254,8 @@ func runWorktreeTree() -> Int32 {
 }
 
 /// `tally worktree root`: print the main repo's absolute path, one line on stdout, so a worktree
-/// session can find its way home without the `rev-parse --path-format=absolute --git-common-dir`
-/// incantation (and pipe the answer). Not a git repo warns and exits 1, like `list`.
+/// session can find its way home without hand-rolling the `rev-parse` incantation (and pipe the
+/// answer). Not a git repo warns and exits 1, like `list`.
 func runWorktreeRoot() -> Int32 {
     guard let mainRepo = resolveMainRepo() else {
         warn("not inside a git repository")
@@ -224,12 +297,11 @@ func worktreeListLines(_ others: [WorktreeEntry], processes: [ProcInfo]) -> [Str
 /// each. Not a git repo warns and exits 1; an empty list notes on stderr and exits 0 (stdout stays
 /// clean for pipes).
 func runWorktreeList() -> Int32 {
-    guard let mainRepo = resolveMainRepo() else {
+    guard let (mainRepo, entries) = resolveWorktreeListing() else {
         warn("not inside a git repository")
         return 1
     }
-    let entries = parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], cwd: mainRepo).out)
-    let others = entries.filter { $0.branch != nil && !isMainCheckout($0, mainRepo: mainRepo) }
+    let others = linkedWorktrees(entries).filter { $0.branch != nil }
     if others.isEmpty {
         warn("no worktrees")
         return 0

@@ -6,13 +6,14 @@ import Foundation
 // the worktree, removes the worktree and its branch, and deletes the orphaned transcript directory.
 //
 // Ordering is the safety design (mirrors docs/specs/current/worktree-teardown.md): merged-check ->
-// liveness gate -> kill processes -> git cleanup -> transcript cleanup. Every step that finds its
+// busy gate -> kill processes -> git cleanup -> transcript cleanup. Every step that finds its
 // target already gone prints a note and continues, so a rerun is safe. All output goes to stderr
 // (via `warn`) or /dev/tty (the menu); stdout carries nothing because this command execs nothing.
 //
 // Shared helpers come from Worktree.swift (`runGit`, `realpathString`, `parseWorktreePorcelain`,
-// `isMainCheckout`, `buildMenuRows`, `WorktreeEntry`), WorktreeTree.swift (`resolveMainRepo`, plus
-// the `tally worktree` dispatch that reaches this file) and Snapshot.swift (`warn`).
+// `buildMenuRows`, `WorktreeEntry`), WorktreeTree.swift (`resolveWorktreeListing`,
+// `linkedWorktrees`, plus the `tally worktree` dispatch that reaches this file) and Snapshot.swift
+// (`warn`).
 
 // MARK: - Process model
 
@@ -53,14 +54,11 @@ func worktreeProcessesToKill(_ processes: [ProcInfo], worktreePath: String) -> [
     processes.filter { shouldKill(name: $0.name, cwd: $0.cwd, worktreePath: worktreePath) }
 }
 
-/// The liveness gate: whether teardown may proceed while agents are still running in the worktree.
-/// The merged check alone does not protect them - a session that stopped at a clean intermediate
-/// commit (which the worktree protocol encourages) leaves a branch the main repo happily merges, so
-/// "merged" says nothing about whether anyone is still working there. Only --force waives it, and
-/// --keep-transcripts deliberately does not: it spares the transcripts, not the processes.
-func worktreeRemovalAllowed(liveAgents: Int, force: Bool) -> Bool {
-    liveAgents == 0 || force
-}
+// The busy gate itself lives in WorktreeActivity.swift (`worktreeRemovalAllowed`), with the
+// activity signal it reads: the merged check alone does not protect a running session, because a
+// session that stopped at a clean intermediate commit (which the worktree protocol encourages)
+// leaves a branch the main repo happily merges. Only --force waives the gate, and
+// --keep-transcripts deliberately does not: it spares the transcripts, not the processes.
 
 /// Whether teardown may delete the worktree directory itself. Only true once git has let go of the
 /// path, so the normal path (where `git worktree remove` deletes the files) never reaches it.
@@ -190,12 +188,11 @@ func killWorktreeProcesses(_ targets: [ProcInfo]) -> Int {
 /// menu reuses WorktreeMenu.swift; its trailing "new worktree" line is a no-op here (selecting it
 /// cancels with a hint) rather than invasively reshaping the shared renderer.
 func resolveWorktreeForRemoval(name providedName: String?) -> RemovalTarget {
-    guard let mainRepo = resolveMainRepo() else {
+    guard let (mainRepo, entries) = resolveWorktreeListing() else {
         warn("not inside a git repository")
         exit(1)
     }
-    let entries = parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], cwd: mainRepo).out)
-    let others = entries.filter { $0.branch != nil && !isMainCheckout($0, mainRepo: mainRepo) }
+    let others = linkedWorktrees(entries).filter { $0.branch != nil }
 
     let name = providedName ?? pickWorktreeToRemove(others)
 
@@ -204,7 +201,9 @@ func resolveWorktreeForRemoval(name providedName: String?) -> RemovalTarget {
         warn("no worktree for branch \(name)" + (available.isEmpty ? "" : " - available: \(available)"))
         exit(1)
     }
-    if isMainCheckout(entry, mainRepo: mainRepo) {
+    // Refuse the main checkout by identity (the first porcelain block), not by comparing its path:
+    // a repo whose git dir is not colocated with its checkout reports that block as the git dir.
+    if entries.first?.path == entry.path {
         warn("branch \(name) is the main checkout, not a worktree")
         exit(1)
     }
@@ -275,21 +274,26 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
         }
     }
 
-    // 2. Liveness gate, then kill the agent processes rooted in the worktree before the directory
-    // disappears. The count is the same selection `tally worktree list` reports in its live agent
-    // column, so what the report shows and what the gate refuses can never disagree. Refusing
-    // returns before anything is touched: no kill, no worktree removal, no branch or transcript
-    // deletion, all of which are irreversible for a session still in flight.
+    // 2. The gate, then kill the agent processes rooted in the worktree before the directory
+    // disappears. The agent count is the same selection `tally worktree list` reports in its live
+    // agent column, so the report and the refusal can never disagree; whether those agents are
+    // WORKING is read from their transcripts (WorktreeActivity.swift). Refusing returns before
+    // anything is touched: no kill, no worktree removal, no branch or transcript deletion, all of
+    // which are irreversible for a session still in flight. Idle agents are closed with a note
+    // instead, which is the ordinary end of a finished worktree.
+    let slug = worktreeTranscriptSlug(forResolvedPath: target.realPath)
+    let homes = transcriptHomes ?? sharedMemoryHomes(loadSnapshot().0)
     let doomed = worktreeProcessesToKill(listProcesses(target.realPath),
                                          worktreePath: target.realPath)
-    guard worktreeRemovalAllowed(liveAgents: doomed.count, force: force) else {
-        // Both ways out are named: someone stopped here next wants to know how to take the worktree
-        // down WITHOUT losing the conversation, and that flag combination is right there.
-        let plural = doomed.count == 1 ? "" : "s"
-        warn("worktree \(target.branch) still has \(doomed.count) live agent\(plural) - "
-            + "let them finish, or --force to kill them and delete their transcripts, "
-            + "or --force --keep-transcripts to kill them and keep the conversation")
+    let activity = doomed.isEmpty ? .idle : worktreeActivity(slug: slug, homes: homes)
+    guard worktreeRemovalAllowed(liveAgents: doomed.count, activity: activity, force: force) else {
+        warn(worktreeRemovalRefusal(branch: target.branch, liveAgents: doomed.count,
+                                    activity: activity))
         return 1
+    }
+    if !doomed.isEmpty, !force {
+        warn(worktreeIdleNote(branch: target.branch, liveAgents: doomed.count,
+                              keepTranscripts: keepTranscripts))
     }
     let killed = killWorktreeProcesses(doomed)
 
@@ -333,9 +337,7 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
     if keepTranscripts {
         warn("transcripts kept")
     } else {
-        transcriptsRemoved = removeTranscriptDirs(
-            slug: worktreeTranscriptSlug(forResolvedPath: target.realPath),
-            homes: transcriptHomes ?? sharedMemoryHomes(loadSnapshot().0))
+        transcriptsRemoved = removeTranscriptDirs(slug: slug, homes: homes)
     }
 
     warn("worktree \(target.branch) removed (killed \(killed), "

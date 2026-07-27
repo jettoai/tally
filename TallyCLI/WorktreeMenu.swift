@@ -74,43 +74,107 @@ func renderRows(_ rows: [MenuRow], highlighted: Int) -> [String] {
 
 // MARK: - Pure width measurement and clipping
 
-// East Asian wide scalar ranges: a compact heuristic (not the full Unicode East_Asian_Width table)
-// good enough for menu lines. CJK ideographs, Hangul, and fullwidth forms count as two columns.
+// Scalars a terminal draws two columns wide: a compact heuristic (not the full Unicode
+// East_Asian_Width table) good enough for menu lines and the tree's column layout.
+//
+// The first group is East_Asian_Width=Wide in the classic sense: CJK ideographs, Hangul, and
+// fullwidth forms.
+//
+// The second is emoji, which Unicode also gives East_Asian_Width=Wide and which are exactly the
+// code points whose Emoji_Presentation defaults to the coloured glyph (a terminal draws those two
+// columns; the text-presentation symbols around them stay one). Counting them as one column made
+// the tree misalign every row holding an emoji branch name by a column, and made the menu clip an
+// emoji line one column later than its budget. The pictographic planes are listed as blocks and the
+// older symbol code points individually, because their neighbours in those blocks are narrow text
+// symbols (U+2713 CHECK MARK next to U+2705 WHITE HEAVY CHECK MARK) and widening a whole block
+// there would misalign in the other direction.
 private let wideScalarRanges: [ClosedRange<UInt32>] = [
     0x1100...0x115F, 0x2E80...0xA4CF, 0xAC00...0xD7A3, 0xF900...0xFAFF,
     0xFE30...0xFE4F, 0xFF00...0xFF60, 0xFFE0...0xFFE6, 0x20000...0x3FFFD,
+    0x231A...0x231B, 0x23E9...0x23EC, 0x23F0...0x23F0, 0x23F3...0x23F3,
+    0x25FD...0x25FE, 0x2614...0x2615, 0x2648...0x2653, 0x267F...0x267F,
+    0x2693...0x2693, 0x26A1...0x26A1, 0x26AA...0x26AB, 0x26BD...0x26BE,
+    0x26C4...0x26C5, 0x26CE...0x26CE, 0x26D4...0x26D4, 0x26EA...0x26EA,
+    0x26F2...0x26F3, 0x26F5...0x26F5, 0x26FA...0x26FA, 0x26FD...0x26FD,
+    0x2705...0x2705, 0x270A...0x270B, 0x2728...0x2728, 0x274C...0x274C,
+    0x274E...0x274E, 0x2753...0x2755, 0x2757...0x2757, 0x2795...0x2797,
+    0x27B0...0x27B0, 0x27BF...0x27BF, 0x2B1B...0x2B1C, 0x2B50...0x2B50,
+    // Regional indicators: a flag is a PAIR of these and one grapheme cluster, and cluster width is
+    // the widest scalar in it, so each has to carry the full two columns the flag is drawn in.
+    0x1F1E6...0x1F1FF,
+    0x2B55...0x2B55, 0x1F004...0x1F004, 0x1F0CF...0x1F0CF, 0x1F18E...0x1F18E,
+    0x1F191...0x1F19A, 0x1F200...0x1F320, 0x1F32D...0x1F335, 0x1F337...0x1F37C,
+    0x1F37E...0x1F393, 0x1F3A0...0x1F3CA, 0x1F3CF...0x1F3D3, 0x1F3E0...0x1F3F0,
+    0x1F3F4...0x1F3F4, 0x1F3F8...0x1F43E, 0x1F440...0x1F440, 0x1F442...0x1F4FC,
+    0x1F4FF...0x1F53D, 0x1F54B...0x1F54E, 0x1F550...0x1F567, 0x1F57A...0x1F57A,
+    0x1F595...0x1F596, 0x1F5A4...0x1F5A4, 0x1F5FB...0x1F64F, 0x1F680...0x1F6C5,
+    0x1F6CC...0x1F6CC, 0x1F6D0...0x1F6D2, 0x1F6D5...0x1F6D7, 0x1F6DC...0x1F6DF,
+    0x1F6EB...0x1F6EC, 0x1F6F4...0x1F6FC, 0x1F7E0...0x1F7EB, 0x1F7F0...0x1F7F0,
+    0x1F90C...0x1F93A, 0x1F93C...0x1F945, 0x1F947...0x1F9FF, 0x1FA70...0x1FAFF,
 ]
 
-private func scalarWidth(_ scalar: Unicode.Scalar) -> Int {
-    wideScalarRanges.contains { $0.contains(scalar.value) } ? 2 : 1
+/// Scalars that ride along on the character before them and take no column of their own: combining
+/// marks, the variation selectors that pick a text or emoji presentation, the zero width joiner that
+/// fuses an emoji sequence, the skin tone modifiers, and the tag characters a subdivision flag is
+/// spelled with. Counting these as one column each is what made a decomposed "e" plus an accent two
+/// columns wide and a joined "woman technologist" five.
+private func isZeroWidth(_ scalar: Unicode.Scalar) -> Bool {
+    switch scalar.properties.generalCategory {
+    case .nonspacingMark, .enclosingMark, .spacingMark, .format:
+        return true
+    default:
+        break
+    }
+    return (0xFE00...0xFE0F).contains(scalar.value)      // variation selectors
+        || (0x1F3FB...0x1F3FF).contains(scalar.value)    // skin tone modifiers
+        || (0xE0020...0xE007F).contains(scalar.value)    // tag characters
 }
 
-/// Display columns a string occupies: East Asian wide scalars count as 2, everything else as 1, and
-/// ANSI escape sequences (ESC [ ... final byte, or ESC + one byte) render to zero width. A CSI runs
-/// from ESC [ through the first byte in 0x40...0x7E. Pure, so tests measure clipped output directly.
+private func scalarWidth(_ scalar: Unicode.Scalar) -> Int {
+    if isZeroWidth(scalar) { return 0 }
+    return wideScalarRanges.contains { $0.contains(scalar.value) } ? 2 : 1
+}
+
+/// One grapheme cluster's width: the widest scalar in it, since the rest are marks and joiners that
+/// draw on top of it rather than beside it. A cluster of nothing but zero-width scalars takes no
+/// space at all.
+private func clusterWidth(_ character: Character) -> Int {
+    character.unicodeScalars.reduce(0) { max($0, scalarWidth($1)) }
+}
+
+/// Display columns a string occupies, measured in GRAPHEME CLUSTERS: what a terminal draws as one
+/// character costs one cell (or two when it is wide), no matter how many scalars spell it. ANSI
+/// escape sequences (ESC [ ... final byte, or ESC + one byte) render to zero width; a CSI runs from
+/// ESC [ through the first byte in 0x40...0x7E. Pure, so tests measure clipped output directly.
 func displayColumns(_ line: String) -> Int {
-    let scalars = Array(line.unicodeScalars)
     var width = 0
-    var i = 0
-    while i < scalars.count {
-        if scalars[i].value == 0x1B {
-            i += 1
-            if i < scalars.count, scalars[i].value == 0x5B {
-                i += 1
-                while i < scalars.count {
-                    let byte = scalars[i].value
-                    i += 1
-                    if (0x40 ... 0x7E).contains(byte) { break }
-                }
-            } else if i < scalars.count {
-                i += 1
-            }
+    var index = line.startIndex
+    while index < line.endIndex {
+        if let next = skipEscapeSequence(in: line, at: index) {
+            index = next
             continue
         }
-        width += scalarWidth(scalars[i])
-        i += 1
+        width += clusterWidth(line[index])
+        index = line.index(after: index)
     }
     return width
+}
+
+/// The index just past the escape sequence starting at `index`, or nil when nothing starts there.
+/// ESC is a control character, so it is always a grapheme cluster of its own and can never be
+/// hidden inside one: the sequence is found and skipped whole rather than split.
+private func skipEscapeSequence(in line: String, at index: String.Index) -> String.Index? {
+    guard line[index].unicodeScalars.first?.value == 0x1B else { return nil }
+    var cursor = line.index(after: index)
+    guard cursor < line.endIndex else { return cursor }
+    guard line[cursor].unicodeScalars.first?.value == 0x5B else { return line.index(after: cursor) }
+    cursor = line.index(after: cursor)
+    while cursor < line.endIndex {
+        let byte = line[cursor].unicodeScalars.first?.value ?? 0
+        cursor = line.index(after: cursor)
+        if (0x40 ... 0x7E).contains(byte) { break }
+    }
+    return cursor
 }
 
 /// Clip a rendered line so its display width never exceeds `columns`, measuring with
@@ -118,43 +182,30 @@ func displayColumns(_ line: String) -> Int {
 /// returned untouched. When it does not fit, visible content is kept up to `columns - 1` columns
 /// (reserving one for the ellipsis), then a U+2026 and an ANSI reset are appended so a clipped
 /// colored segment cannot bleed its color onto the next line.
+/// Clipping walks grapheme clusters for the same reason measuring does: a cut between a base
+/// character and its accent, or inside a joined emoji, produces a glyph nobody typed.
 func clipToDisplayWidth(_ line: String, columns: Int) -> String {
     if columns <= 0 { return "" }
     if displayColumns(line) <= columns { return line }
-    let scalars = Array(line.unicodeScalars)
-    var out = String.UnicodeScalarView()
+    var out = ""
     var width = 0
     let budget = columns - 1
-    var i = 0
-    while i < scalars.count {
-        let scalar = scalars[i]
-        if scalar.value == 0x1B {
+    var index = line.startIndex
+    while index < line.endIndex {
+        if let next = skipEscapeSequence(in: line, at: index) {
             // Copy the whole escape sequence verbatim; zero width, and it must never be split.
-            out.append(scalar)
-            i += 1
-            if i < scalars.count, scalars[i].value == 0x5B {
-                out.append(scalars[i])
-                i += 1
-                while i < scalars.count {
-                    let byte = scalars[i].value
-                    out.append(scalars[i])
-                    i += 1
-                    if (0x40 ... 0x7E).contains(byte) { break }
-                }
-            } else if i < scalars.count {
-                out.append(scalars[i])
-                i += 1
-            }
+            out += line[index ..< next]
+            index = next
             continue
         }
-        let w = scalarWidth(scalar)
-        if width + w > budget { break }
-        out.append(scalar)
-        width += w
-        i += 1
+        let cluster = line[index]
+        let clusterColumns = clusterWidth(cluster)
+        if width + clusterColumns > budget { break }
+        out.append(cluster)
+        width += clusterColumns
+        index = line.index(after: index)
     }
-    out.append(Unicode.Scalar(0x2026)!)
-    return String(out) + ansiReset
+    return out + "\u{2026}" + ansiReset
 }
 
 // MARK: - Pure key decoding

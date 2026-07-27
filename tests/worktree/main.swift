@@ -96,10 +96,10 @@ check("path derivation is a sibling", worktreePath(mainRepo: "/Users/x/repo", na
 check("slash sanitized in the directory suffix",
       worktreePath(mainRepo: "/Users/x/repo", name: "feat/x") == "/Users/x/repo-feat-x")
 check("sanitize replaces every slash", sanitizeWorktreeName("feat/x/y") == "feat-x-y")
-check("the main checkout entry is refused (not resolved as a worktree)",
-      isMainCheckout(WorktreeEntry(path: "/Users/x/repo", branch: "main"), mainRepo: "/Users/x/repo"))
-check("a real worktree entry is not the main checkout",
-      !isMainCheckout(WorktreeEntry(path: "/Users/x/repo-feat", branch: "feat"), mainRepo: "/Users/x/repo"))
+// The main checkout is told from the linked worktrees by POSITION now (see `linkedWorktrees` and
+// its assertions in treechecks.swift), because git reports it AS the git dir when the two are not
+// colocated and no path comparison can match it. The path-comparing `isMainCheckout` it replaced
+// went with the last of its callers.
 
 // MARK: - 3. Resolve/create (real git)
 
@@ -295,6 +295,39 @@ check("wide chars count as two: the CJK clip keeps half the visible character co
       longAscii.filter { $0 == "a" }.count == 20 &&
       longCJK.filter { $0 == "\u{4E2D}" }.count == 10)
 check("a clipped CJK line ends in an ellipsis then a reset", longCJK.hasSuffix(ellipsisReset))
+
+// Emoji are two columns too (Unicode gives them East_Asian_Width=Wide, and terminals draw them
+// that way), while the narrow text symbols living beside them in the same blocks stay one.
+check("an emoji counts as two columns", displayColumns("\u{1F680}") == 2)
+check("emoji outside the pictographic planes count too",
+      displayColumns("\u{2705}") == 2 && displayColumns("\u{231A}") == 2)
+check("a text-presentation symbol next door stays one column",
+      displayColumns("\u{2713}") == 1 && displayColumns("\u{27A1}") == 1)
+check("an emoji is measured the same as a CJK character, not the same as an ASCII one",
+      displayColumns("\u{1F680}") == displayColumns("\u{4E2D}"))
+
+// Width is per GRAPHEME CLUSTER: the marks, joiners and modifiers that spell one drawn character
+// ride on it rather than beside it. Measured per scalar, the three below came out 2, 5 and 3.
+check("a decomposed accent is one column, like the composed form",
+      displayColumns("e\u{0301}") == 1 && displayColumns("\u{00E9}") == 1)
+check("a ZWJ emoji sequence is two columns, not one per scalar",
+      displayColumns("\u{1F469}\u{200D}\u{1F4BB}") == 2)
+check("a skin tone modifier adds no column of its own",
+      displayColumns("\u{1F44D}\u{1F3FD}") == 2)
+check("a variation selector adds none either",
+      displayColumns("\u{2764}\u{FE0F}") == displayColumns("\u{2764}"))
+check("a flag is one cluster of two columns",
+      displayColumns("\u{1F1F9}\u{1F1FC}") == 2)
+check("a cluster is never split by the clipper",
+      clipToDisplayWidth(String(repeating: "\u{1F469}\u{200D}\u{1F4BB}", count: 20), columns: 9)
+        .contains("\u{1F469}\u{200D}\u{1F4BB}"))
+check("and the clipped ZWJ line still respects the budget",
+      displayColumns(clipToDisplayWidth(String(repeating: "\u{1F469}\u{200D}\u{1F4BB}", count: 20),
+                                        columns: 9)) <= 9)
+let longEmoji = clipToDisplayWidth(String(repeating: "\u{1F680}", count: 40), columns: 21)
+check("an emoji line clips to within the column budget", displayColumns(longEmoji) <= 21)
+check("wide emoji count as two: the clip keeps half the visible character count",
+      longEmoji.filter { $0 == "\u{1F680}" }.count == 10)
 
 // ANSI codes cost zero display width and are not split; a clipped colored line ends with a reset so
 // its color cannot bleed onto the next physical line.

@@ -90,23 +90,24 @@ func worktreePath(mainRepo: String, name: String) -> String {
 /// warns and exits non-zero: `-w` was an explicit request, so silently falling back to a plain
 /// launch would land the user in the wrong tree.
 func resolveWorktree(name providedName: String?) -> WorktreeLaunch {
-    // The main repo root is the parent of the COMMON git dir (not --show-toplevel): running `-w`
-    // from inside a worktree then still resolves back to the same main repo.
-    let common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-    guard common.code == 0, !common.out.isEmpty else {
+    // Resolution is shared with the read-only commands (WorktreeTree.swift): running `-w` from
+    // inside a worktree resolves back to the same main repo, and a repo whose git dir is not
+    // colocated with its checkout (submodule, --separate-git-dir) is asked rather than computed.
+    // Only the failure path differs: `-w` was an explicit request, so this one exits.
+    guard let (mainRepo, entries) = resolveWorktreeListing() else {
         warn("not inside a git repository")
         exit(1)
     }
-    let mainRepo = realpathString((common.out as NSString).deletingLastPathComponent)
-    let entries = parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], cwd: mainRepo).out)
 
     let name = providedName ?? promptWorktreeName(mainRepo: mainRepo, entries: entries)
 
     // A branch already checked out in a worktree is reused at ITS recorded path (respecting an
     // existing checkout even if it doesn't follow our `<repo>-<name>` naming). Matching the main
-    // checkout is refused rather than silently resolving `-w <trunk-branch>` to "no worktree".
+    // checkout is refused rather than silently resolving `-w <trunk-branch>` to "no worktree";
+    // that check is by POSITION (the first porcelain block is the main worktree) because a path
+    // comparison never matches it when git reports that block as the git dir.
     if let existing = entries.first(where: { $0.branch == name }) {
-        if isMainCheckout(existing, mainRepo: mainRepo) {
+        if entries.first?.path == existing.path {
             warn("branch \(name) is the main checkout, not a worktree")
             exit(1)
         }
@@ -141,7 +142,7 @@ func resolveWorktree(name providedName: String?) -> WorktreeLaunch {
 /// stays a clean pipe for the exec that follows and stdin belongs to the CLI. `n` prompts for a new
 /// branch name; a cancel, empty input, or EOF exits non-zero rather than guessing.
 private func promptWorktreeName(mainRepo: String, entries: [WorktreeEntry]) -> String {
-    let others = entries.filter { $0.branch != nil && !isMainCheckout($0, mainRepo: mainRepo) }
+    let others = linkedWorktrees(entries).filter { $0.branch != nil }
     if others.isEmpty {
         return promptNewBranchViaTTY()
     }
@@ -309,12 +310,6 @@ func enterWorktree(name: String?) -> Bool {
     }
     warn("→ worktree \(wt.name)\(wt.created ? " (created)" : "")")
     return wt.created || !hasConversation
-}
-
-/// True when the entry is the main checkout (its realpath is the main repo root), which must not be
-/// reused as a worktree.
-func isMainCheckout(_ entry: WorktreeEntry, mainRepo: String) -> Bool {
-    realpathString(entry.path) == mainRepo
 }
 
 /// True when any home already holds a *.jsonl transcript for this project slug (a conversation

@@ -194,21 +194,112 @@ func runTeardownChecks() {
     check("killing an empty target list touches nothing and returns zero",
           killWorktreeProcesses([]) == 0)
 
-    // MARK: - 19. Teardown: the liveness gate (pure, then real git with a real live process)
+    // MARK: - 19. Teardown: the gate (pure, then real git with a real live process)
 
-    check("a worktree with a live agent is refused without --force",
-          !worktreeRemovalAllowed(liveAgents: 1, force: false))
-    check("many live agents are refused just the same",
-          !worktreeRemovalAllowed(liveAgents: 5, force: false))
-    check("--force waives the gate", worktreeRemovalAllowed(liveAgents: 2, force: true))
-    check("a worktree with no live agents passes the gate",
-          worktreeRemovalAllowed(liveAgents: 0, force: false))
+    // The decision. What matters is that a WORKING worktree is refused while an idle one goes
+    // through: a gate that also stopped the ordinary case (a finished session sitting at its
+    // prompt) would teach every caller to type --force, and then it would stop nothing at all.
+    check("a working worktree is refused without --force",
+          !worktreeRemovalAllowed(liveAgents: 1, activity: .busy, force: false))
+    check("--force goes through a working worktree",
+          worktreeRemovalAllowed(liveAgents: 2, activity: .busy, force: true))
+    check("an IDLE worktree needs no flag at all",
+          worktreeRemovalAllowed(liveAgents: 3, activity: .idle, force: false))
+    check("a worktree whose state cannot be read is refused",
+          !worktreeRemovalAllowed(liveAgents: 1, activity: .unknown, force: false))
+    check("--force goes through an unreadable one too",
+          worktreeRemovalAllowed(liveAgents: 1, activity: .unknown, force: true))
+    check("with no agent running there is nothing to protect, whatever the transcripts say",
+          worktreeRemovalAllowed(liveAgents: 0, activity: .busy, force: false) &&
+          worktreeRemovalAllowed(liveAgents: 0, activity: .unknown, force: false))
 
-    // End to end over a MERGED worktree, so the merged check cannot be what refuses: only the
-    // liveness gate stands between a still-running session and an irreversible teardown. The live
-    // agent is a real child process (a sleep wearing an agent's name in the injected scan), so a
-    // regression that lets the kill through is observable rather than theoretical, and nothing
-    // outside this test can ever be signalled.
+    // What it says. Both refusals name both ways out, since someone stopped here next wants to know
+    // how to take the worktree down WITHOUT losing the conversation.
+    let busyText = worktreeRemovalRefusal(branch: "feat", liveAgents: 2, activity: .busy)
+    check("the busy refusal says the worktree is working, not that it is alive",
+          busyText.contains("is still working (2 agents mid turn)") && !busyText.contains("live"))
+    let unknownText = worktreeRemovalRefusal(branch: "feat", liveAgents: 1, activity: .unknown)
+    check("the unreadable refusal says why it cannot tell",
+          unknownText.contains("1 agent") && unknownText.contains("no transcript"))
+    check("both refusals name --force and --force --keep-transcripts",
+          [busyText, unknownText].allSatisfy {
+              $0.contains("--force to close them now and delete their transcripts")
+                  && $0.contains("--force --keep-transcripts")
+          })
+    check("the idle note tells what is being closed and what happens to the conversation",
+          worktreeIdleNote(branch: "feat", liveAgents: 1, keepTranscripts: false)
+            == "worktree feat: closing 1 agent that went idle, deleting their transcripts" &&
+          worktreeIdleNote(branch: "feat", liveAgents: 2, keepTranscripts: true)
+            .hasSuffix("closing 2 agents that went idle, keeping their transcripts"))
+
+    // A transcript fixture: `body` with a chosen mtime, which is what the quiet test reads first.
+    func seedTranscript(_ dir: String, body: String, ageSeconds: TimeInterval) {
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let file = "\(dir)/session.jsonl"
+        try? body.write(toFile: file, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-ageSeconds)], ofItemAtPath: file)
+    }
+    func isoAgo(_ seconds: TimeInterval) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Date().addingTimeInterval(-seconds))
+    }
+    // A turn that finished (prose, no tool call left open) and one still inside a tool call: the
+    // second is the case a file mtime alone reads as idle, which is why the gate reads the tail.
+    let closedTurn = "{\"type\":\"assistant\",\"isSidechain\":false,\"timestamp\":\"\(isoAgo(900))\","
+        + "\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}}"
+    let openTurn = "{\"type\":\"assistant\",\"isSidechain\":false,\"timestamp\":\"\(isoAgo(60))\","
+        + "\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_open\"}]}}"
+
+    // A transcript nobody can READ must not read as quiet. `isQuiet` answers "quiet" for a file it
+    // cannot open, which is right for the supervisor and catastrophic here: the gate would call the
+    // worktree idle and delete a session it never managed to look at.
+    let blindHome = rp(tempDir())
+    let blindSlug = "-blind-worktree"
+    let blindDir = "\(blindHome)/projects/\(blindSlug)"
+    seedTranscript(blindDir, body: closedTurn, ageSeconds: 900)
+    check("a readable, silent transcript is idle",
+          worktreeActivity(slug: blindSlug, homes: [blindHome]) == .idle)
+    sh("chmod 000 '\(blindDir)/session.jsonl'")
+    check("a transcript that cannot be opened makes the worktree unknown, never idle",
+          worktreeActivity(slug: blindSlug, homes: [blindHome]) == .unknown)
+    check("and unknown is refused without --force",
+          !worktreeRemovalAllowed(liveAgents: 1, activity: .unknown, force: false))
+    sh("chmod 600 '\(blindDir)/session.jsonl'")
+    check("restoring the mode restores the reading",
+          worktreeActivity(slug: blindSlug, homes: [blindHome]) == .idle)
+    // A file listed and then deleted before it could be read is the same class of blindness.
+    try? FileManager.default.removeItem(atPath: "\(blindDir)/session.jsonl")
+    check("an empty transcript directory is unknown too (nothing to read a state from)",
+          worktreeActivity(slug: blindSlug, homes: [blindHome]) == .unknown)
+
+    // The gate judges the files it enumerated, one directory scan for the lot. Going through
+    // `isQuiet` instead would re-run fork discovery per file (and read every sibling), which is
+    // both the I/O blowup and, here, a different answer: the fork lands on the busy file.
+    let forkDir = rp(tempDir())
+    // The trailing newline matters: the fork scan only trusts lines it has read whole.
+    let forkMarker = "{\"type\":\"assistant\",\"isSidechain\":false,\"session_id\":\"a\","
+        + "\"sessionId\":\"b\",\"timestamp\":\"\(isoAgo(30))\"}\n"
+    try? closedTurn.write(toFile: "\(forkDir)/a.jsonl", atomically: true, encoding: .utf8)
+    try? forkMarker.write(toFile: "\(forkDir)/b.jsonl", atomically: true, encoding: .utf8)
+    try? FileManager.default.setAttributes(
+        [.modificationDate: Date().addingTimeInterval(-900)], ofItemAtPath: "\(forkDir)/a.jsonl")
+    let boundToA = TranscriptWatcher(projectDir: URL(fileURLWithPath: forkDir),
+                                     file: URL(fileURLWithPath: "\(forkDir)/a.jsonl"),
+                                     since: .distantPast)
+    check("the bound-file test judges the file it was given, with no fork discovery",
+          boundToA.isBoundFileQuiet(teardownIdleSeconds))
+    var following = boundToA
+    check("the supervisor's isQuiet still follows the fork, unchanged",
+          !following.isQuiet(teardownIdleSeconds))
+
+    // End to end over a MERGED worktree, so the merged check cannot be what refuses: only this gate
+    // stands between a working session and an irreversible teardown. The live agent is a real child
+    // process (a sleep wearing an agent's name in the injected scan), so a regression that lets the
+    // kill through is observable rather than theoretical, and nothing outside this test can ever be
+    // signalled. Transcripts live in a temp home injected through `transcriptHomes`, never the
+    // account homes this machine really uses.
     let liveRepo = tempDir()
     sh("git init -q && git config user.email t@t && git config user.name t && " +
        "git commit -q --allow-empty -m init", cwd: liveRepo)
@@ -224,44 +315,88 @@ func runTeardownChecks() {
     let liveAgentScan = { (_: String) in
         [ProcInfo(pid: sleeper.processIdentifier, name: "claude", cwd: liveWt.path)]
     }
-
-    // The transcript dir the teardown would delete, seeded in a temp home injected through
-    // `transcriptHomes`: the sweep must be observed without touching (or depending on being able to
-    // write to) the account homes this machine really uses.
     let liveHome = rp(tempDir())
     let liveTranscripts = "\(liveHome)/projects/\(worktreeTranscriptSlug(forResolvedPath: liveWt.path))"
-    try? FileManager.default.createDirectory(atPath: liveTranscripts,
-                                             withIntermediateDirectories: true)
+    func removeLive(force: Bool = false, keepTranscripts: Bool = false) -> Int32 {
+        performWorktreeRemove(name: "feat-live", force: force, keepTranscripts: keepTranscripts,
+                              transcriptHomes: [liveHome], listProcesses: liveAgentScan)
+    }
+    func liveWorktreeUntouched() -> Bool {
+        FileManager.default.fileExists(atPath: liveWt.path)
+            && sh("git show-ref --verify --quiet refs/heads/feat-live", cwd: liveRepo) == 0
+            && sleeper.isRunning
+    }
 
-    let gated = performWorktreeRemove(name: "feat-live", force: false, keepTranscripts: false,
-                                      transcriptHomes: [liveHome], listProcesses: liveAgentScan)
-    check("a merged worktree with a live agent is refused (exit 1)", gated == 1)
-    check("the refused worktree directory is untouched",
-          FileManager.default.fileExists(atPath: liveWt.path))
-    check("the refused worktree keeps its branch",
-          sh("git show-ref --verify --quiet refs/heads/feat-live", cwd: liveRepo) == 0)
-    check("the refused worktree keeps its transcripts",
-          FileManager.default.fileExists(atPath: liveTranscripts))
-    check("the live agent is still running after the refusal", sleeper.isRunning)
+    // No transcript anywhere: the state cannot be read, so the gate refuses rather than guess.
+    check("a worktree with no transcript to judge is refused (exit 1)", removeLive() == 1)
+    check("nothing was touched by that refusal", liveWorktreeUntouched())
+
+    // Written seconds ago: a session mid turn.
+    seedTranscript(liveTranscripts, body: closedTurn, ageSeconds: 0)
+    check("a worktree whose transcript was just written is refused (exit 1)", removeLive() == 1)
+    check("nothing was touched by the busy refusal", liveWorktreeUntouched())
+    check("its transcripts are still there",
+          FileManager.default.fileExists(atPath: "\(liveTranscripts)/session.jsonl"))
+
+    // Silent for eight minutes, past this command's own quiet bar, but the last turn is still
+    // inside a tool call: busy, and only the tail read can tell. This is the case the old
+    // process-liveness gate and a plain mtime check both get wrong in opposite directions.
+    seedTranscript(liveTranscripts, body: openTurn, ageSeconds: 700)
+    check("a worktree silent inside an open tool call is still refused (exit 1)", removeLive() == 1)
+    check("nothing was touched by the open-turn refusal", liveWorktreeUntouched())
+
+    // Silent for eight minutes with the turn CLOSED is idle, so the bar is what decides here: at
+    // 500s (past the supervisor's 120s follow bar, short of this command's 600s) the worktree is
+    // still busy. Teardown waits longer than a relaunch does because being wrong deletes the
+    // conversation instead of restarting it.
+    seedTranscript(liveTranscripts, body: closedTurn, ageSeconds: 500)
+    check("a worktree quiet for 500s is still busy, so the teardown bar is not the follow bar",
+          teardownIdleSeconds > followIdleSeconds && removeLive() == 1)
+    check("nothing was touched while it was under the bar", liveWorktreeUntouched())
 
     // --keep-transcripts is not a way around the gate: it spares transcripts, never processes.
-    check("--keep-transcripts does not waive the gate",
-          performWorktreeRemove(name: "feat-live", force: false, keepTranscripts: true,
-                                transcriptHomes: [liveHome], listProcesses: liveAgentScan) == 1)
-    check("the worktree survives the --keep-transcripts attempt too",
-          FileManager.default.fileExists(atPath: liveWt.path) && sleeper.isRunning)
+    check("--keep-transcripts does not waive the gate", removeLive(keepTranscripts: true) == 1)
+    check("nothing was touched by that attempt either", liveWorktreeUntouched())
 
-    // --force is the documented way through, and it still does the whole teardown.
-    let forced = performWorktreeRemove(name: "feat-live", force: true, keepTranscripts: false,
-                                       transcriptHomes: [liveHome], listProcesses: liveAgentScan)
-    check("--force tears down a worktree with live agents (exit 0)", forced == 0)
+    // --force is the documented way through a session that IS working, and it still does the whole
+    // teardown.
+    check("--force tears down a working worktree (exit 0)", removeLive(force: true) == 0)
     var waited = 0
     while sleeper.isRunning, waited < 50 { usleep(100_000); waited += 1 }
-    check("--force killed the live agent", !sleeper.isRunning)
+    check("--force killed the working agent", !sleeper.isRunning)
     check("the forced worktree directory is gone",
           !FileManager.default.fileExists(atPath: liveWt.path))
     check("the forced branch is deleted",
           sh("git show-ref --verify --quiet refs/heads/feat-live", cwd: liveRepo) != 0)
     check("the forced run deletes the transcripts the gate had protected",
           !FileManager.default.fileExists(atPath: liveTranscripts))
+
+    // The case the whole change is for: agents alive, quiet well past the bar, no flags typed. This
+    // is the ordinary end of a worktree, so it must not need one.
+    let idleWt = resolveWorktree(name: "feat-idle")
+    sh("git commit -q --allow-empty -m work", cwd: idleWt.path)
+    sh("git merge -q feat-idle", cwd: liveRepo)
+    let idler = Process()
+    idler.executableURL = URL(fileURLWithPath: "/bin/sleep")
+    idler.arguments = ["30"]
+    try? idler.run()
+    let idleAgentScan = { (_: String) in
+        [ProcInfo(pid: idler.processIdentifier, name: "claude", cwd: idleWt.path)]
+    }
+    let idleTranscripts = "\(liveHome)/projects/\(worktreeTranscriptSlug(forResolvedPath: idleWt.path))"
+    seedTranscript(idleTranscripts, body: closedTurn, ageSeconds: 900)
+    check("the idle worktree's transcript is in place before the run",
+          FileManager.default.fileExists(atPath: "\(idleTranscripts)/session.jsonl"))
+    let idleCode = performWorktreeRemove(name: "feat-idle", force: false, keepTranscripts: false,
+                                         transcriptHomes: [liveHome], listProcesses: idleAgentScan)
+    check("an idle worktree tears down with no flags at all (exit 0)", idleCode == 0)
+    waited = 0
+    while idler.isRunning, waited < 50 { usleep(100_000); waited += 1 }
+    check("the idle agent was closed", !idler.isRunning)
+    check("the idle worktree directory is gone",
+          !FileManager.default.fileExists(atPath: idleWt.path))
+    check("the idle branch is deleted",
+          sh("git show-ref --verify --quiet refs/heads/feat-idle", cwd: liveRepo) != 0)
+    check("the idle worktree's transcripts are deleted with it",
+          !FileManager.default.fileExists(atPath: idleTranscripts))
 }

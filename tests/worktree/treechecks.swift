@@ -8,10 +8,36 @@ import Foundation
 func runTreeChecks() {
     // MARK: - 16. Main repo derivation and current location (pure)
 
-    check("the main repo is the parent of the common git dir",
-          mainRepoPath(fromGitCommonDir: "/Users/x/repo/.git") == "/Users/x/repo")
-    check("a nested common git dir still resolves to its parent",
-          mainRepoPath(fromGitCommonDir: "/Users/x/deep/repo/.git") == "/Users/x/deep/repo")
+    check("the colocated layout strips the /.git suffix",
+          colocatedMainRepoPath(gitCommonDir: "/Users/x/repo/.git") == "/Users/x/repo")
+    check("a submodule's git dir is not colocated, so no path is computed from it",
+          colocatedMainRepoPath(gitCommonDir: "/Users/x/super/.git/modules/sub") == nil)
+    check("a bare repo's dir is not colocated either",
+          colocatedMainRepoPath(gitCommonDir: "/Users/x/repo.git") == nil)
+
+    let mainFirst = """
+    worktree /Users/x/repo
+    HEAD abc
+    branch refs/heads/main
+
+    worktree /Users/x/repo-feat
+    HEAD def
+    branch refs/heads/feat
+    """
+    check("the first porcelain block is the main worktree and is dropped",
+          linkedWorktrees(parseWorktreePorcelain(mainFirst)).map(\.path) == ["/Users/x/repo-feat"])
+    check("a listing with only a main worktree has no linked ones",
+          linkedWorktrees(parseWorktreePorcelain("worktree /Users/x/repo\nHEAD abc\n")).isEmpty)
+    check("the main block is dropped even when git reports it as a git dir (submodule shape)",
+          linkedWorktrees(parseWorktreePorcelain("""
+          worktree /Users/x/super/.git/modules/sub
+          HEAD abc
+          branch refs/heads/main
+
+          worktree /Users/x/subwt
+          HEAD def
+          branch refs/heads/wt
+          """)).map(\.path) == ["/Users/x/subwt"])
 
     let treePaths = ["/a/repo", "/a/repo-feat", "/a/repo-feat2"]
     check("standing in the main repo marks the main repo",
@@ -43,6 +69,42 @@ func runTreeChecks() {
           alignedColumns([["a", "", "long"], ["bb", "", "x"]]) == ["a   long", "bb  x"])
     check("no line ends in trailing padding",
           alignedColumns([["a", "bbb"], ["a", "b"]]) == ["a  bbb", "a  b"])
+
+    // Padding must only ever append spaces. Measuring in UTF-16 units and truncating to that
+    // measure once cut an emoji in half (a lone surrogate, which renders as U+FFFD) and left every
+    // CJK cell a column short.
+    let emojiRows = alignedColumns([["\u{1F680}ship", "x"], ["plain", "y"]])
+    check("an emoji cell survives the layout intact",
+          emojiRows[0].contains("\u{1F680}ship") && !emojiRows.joined().contains("\u{FFFD}"))
+    check("a wider ASCII neighbour still gets its own cell padded",
+          emojiRows[1].hasPrefix("plain  "))
+    check("a lone emoji cell is never split into a broken scalar",
+          alignedColumns([["\u{1F680}"], ["a"]])[0] == "\u{1F680}")
+    // An emoji branch name and an ASCII one line their next column up, which only works because
+    // the emoji is measured as the two columns a terminal draws it in.
+    let emojiAligned = alignedColumns([["\u{1F680}ship", "x"], ["plain-name", "y"]])
+    check("an emoji row and an ASCII row put their second column in the same place",
+          displayColumns(String(emojiAligned[0].prefix(while: { $0 != "x" })))
+            == displayColumns(String(emojiAligned[1].prefix(while: { $0 != "y" }))))
+    // The same for the multi-scalar spellings: a decomposed accent and a joined emoji are one
+    // drawn character each, so the column after them lands in the same place as for plain text.
+    let clusterAligned = alignedColumns([["caf\u{0065}\u{0301}", "x"],
+                                         ["\u{1F469}\u{200D}\u{1F4BB}ops", "y"],
+                                         ["abcdefg", "z"]])
+    check("a decomposed accent does not push its row out of line",
+          displayColumns(String(clusterAligned[0].prefix(while: { $0 != "x" })))
+            == displayColumns(String(clusterAligned[2].prefix(while: { $0 != "z" }))))
+    check("nor does a ZWJ emoji sequence",
+          displayColumns(String(clusterAligned[1].prefix(while: { $0 != "y" })))
+            == displayColumns(String(clusterAligned[2].prefix(while: { $0 != "z" }))))
+    let cjkRows = alignedColumns([["\u{4E2D}\u{6587}", "x"], ["abc", "y"]])
+    check("a CJK cell is measured in terminal columns, so the column stays square",
+          displayColumns(String(cjkRows[0].prefix(while: { $0 != "x" })))
+            == displayColumns(String(cjkRows[1].prefix(while: { $0 != "y" }))))
+    check("a CJK cell keeps every character it started with",
+          cjkRows[0].hasPrefix("\u{4E2D}\u{6587}") && !cjkRows.joined().contains("\u{FFFD}"))
+    check("a cell wider than its column is never cut short",
+          alignedColumns([["\u{4E2D}\u{6587}\u{5B57}"], ["ab"]])[0] == "\u{4E2D}\u{6587}\u{5B57}")
 
     let sampleRows = [
         WorktreeTreeRow(branch: "release-sync", age: "2 hours ago", dirty: false, liveAgents: 1,
@@ -164,6 +226,81 @@ func runTreeChecks() {
           fromDetached[1].hasPrefix("* ") && fromDetached[1].hasSuffix("(you are here)"))
     check("the main repo line is not the one marked",
           !fromDetached[0].contains("(you are here)"))
+
+    // A SUBMODULE, whose common git dir lives at <super>/.git/modules/<name>: deriving the repo
+    // from that dir's parent answered <super>/.git/modules, so `root` printed a path that is not a
+    // checkout and `tree` drew a phantom main line for it.
+    let superRepo = tempDir()
+    sh("git init -q && git config user.email t@t && git config user.name t && " +
+       "git commit -q --allow-empty -m init", cwd: superRepo)
+    let subOrigin = tempDir()
+    sh("git init -q && git config user.email t@t && git config user.name t && " +
+       "git commit -q --allow-empty -m init", cwd: subOrigin)
+    sh("git -c protocol.file.allow=always submodule add -q '\(subOrigin)' sub", cwd: superRepo)
+    let subPath = "\(superRepo)/sub"
+    check("the submodule really has its git dir outside its checkout",
+          !FileManager.default.fileExists(atPath: "\(subPath)/.git/HEAD"))
+    FileManager.default.changeCurrentDirectoryPath(subPath)
+    check("inside a submodule, the resolved repo is the submodule's own checkout",
+          resolveMainRepo() == rp(subPath))
+    let subTree = capturingStdout { _ = runWorktreeTree() }.split(separator: "\n").map(String.init)
+    check("a submodule's tree is its own single line, with no phantom parent",
+          subTree.count == 1 && subTree[0].contains(rp(subPath)))
+    check("the submodule's line is marked, since the caller is standing in it",
+          subTree[0].hasPrefix("* ") && !subTree[0].contains("modules"))
+
+    // The launch side resolves the same way: `tally claude -w` inside a submodule must land its
+    // worktree beside the submodule's checkout, not beside <super>/.git/modules.
+    let subLaunch = resolveWorktree(name: "feat-sub")
+    check("a worktree created from inside a submodule is a sibling of its checkout",
+          subLaunch.mainRepo == rp(subPath)
+              && rp(subLaunch.path) == rp("\(superRepo)/sub-feat-sub"))
+    check("and it is a real registered worktree of that submodule",
+          parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], cwd: subPath).out)
+            .contains { rp($0.path) == rp(subLaunch.path) })
+    check("re-entering the same name reuses it rather than creating a second",
+          rp(resolveWorktree(name: "feat-sub").path) == rp(subLaunch.path))
+
+    // The same shape from the other direction: --separate-git-dir puts the git dir anywhere.
+    let separateWork = tempDir() + "/work"
+    let separateGitDir = tempDir() + "/elsewhere.git"
+    sh("git init -q --separate-git-dir '\(separateGitDir)' '\(separateWork)'")
+    sh("git config user.email t@t && git config user.name t && " +
+       "git commit -q --allow-empty -m init", cwd: separateWork)
+    FileManager.default.changeCurrentDirectoryPath(separateWork)
+    check("a --separate-git-dir repo resolves to its working tree, not next to its git dir",
+          resolveMainRepo() == rp(separateWork))
+    let separateTree = capturingStdout { _ = runWorktreeTree() }
+        .split(separator: "\n").map(String.init)
+    check("its tree is one line for the working tree itself",
+          separateTree.count == 1 && separateTree[0].contains(rp(separateWork)))
+
+    // From a LINKED worktree of that same repo, git has nothing to answer with: `--separate-git-dir`
+    // records the working tree nowhere (no core.worktree, no path in the git dir's config, and the
+    // checkout's `.git` file points one way only). What must NOT happen is inventing a checkout.
+    let separateWt = tempDir() + "/wt"
+    sh("git worktree add -q '\(separateWt)' -b feat-separate", cwd: separateWork)
+    FileManager.default.changeCurrentDirectoryPath(separateWt)
+    check("git itself records no working tree for this layout",
+          runGit(["config", "--get", "core.worktree"]).out.isEmpty)
+    check("so the resolved path is the git dir git itself reports, not a fabricated checkout",
+          resolveMainRepo() == rp(separateGitDir))
+    let separateWtTree = capturingStdout { _ = runWorktreeTree() }
+        .split(separator: "\n").map(String.init)
+    check("the linked worktree is still drawn and still marked",
+          separateWtTree.count == 2 && separateWtTree[1].contains("feat-separate")
+              && separateWtTree[1].hasPrefix("* "))
+    check("and the main line is the git dir, which is what git worktree list says too",
+          separateWtTree[0].contains(rp(separateGitDir))
+              && parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"]).out)
+                  .first.map { rp($0.path) } == rp(separateGitDir))
+
+    // A colocated repo entered from ITS linked worktree must still resolve to the real checkout:
+    // the verification added for the layouts above must not cost the ordinary case its answer.
+    FileManager.default.changeCurrentDirectoryPath(treeWt.path)
+    check("a plain repo still resolves to its checkout from inside a linked worktree",
+          resolveMainRepo() == rp(treeRepo))
+
     FileManager.default.changeCurrentDirectoryPath(treeRepo)
 }
 

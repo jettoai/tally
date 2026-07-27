@@ -180,6 +180,19 @@ struct TranscriptWatcher {
     /// and the newest subagent silent for `subagentIdleSeconds`.
     mutating func isQuiet(_ seconds: TimeInterval = 5) -> Bool {
         locateFile()
+        return isBoundFileQuiet(seconds)
+    }
+
+    /// The quiet test itself, over the file already bound, with no fork discovery in front of it.
+    ///
+    /// Split out for a caller that has ALREADY enumerated the transcripts it means to judge (the
+    /// teardown gate, which asks about every session in a worktree at once). Going through
+    /// `isQuiet` there made each file re-scan its directory for fork markers and read up to a
+    /// megabyte of every sibling, turning one directory's worth of work into one per file: a
+    /// project with a hundred large transcripts read gigabytes and looked like a hang. The
+    /// supervisor keeps calling `isQuiet`, which is unchanged: it tails ONE live conversation and
+    /// must follow that conversation when it moves.
+    func isBoundFileQuiet(_ seconds: TimeInterval) -> Bool {
         // Fresh URL on purpose: resourceValues are cached per URL instance, and a cached
         // mtime would report an active turn as quiet forever.
         guard let file,

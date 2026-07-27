@@ -315,7 +315,7 @@ let straddleClip = clipToDisplayWidth(straddling, columns: 21)
 check("an escape sequence at the clip boundary is kept intact", straddleClip.contains(yellow))
 check("the straddling-escape clip still respects the budget", displayColumns(straddleClip) <= 21)
 
-// MARK: - 10-13. Teardown (kill decision, path guards, git cleanup, killer no-op)
+// MARK: - 10-13, 19. Teardown (kill decision, path guards, git cleanup, killer no-op, liveness gate)
 
 // Split into tests/worktree/teardownchecks.swift for file size; top-level statements only run in
 // main.swift, so those groups run as one function called from here.
@@ -368,5 +368,11 @@ let listLines2 = worktreeListLines(
     [WorktreeEntry(path: listWt.path, branch: "feat-list"),
      WorktreeEntry(path: listWt2.path, branch: "feat-list-2")], processes: [])
 check("two worktrees produce two report lines", listLines2.count == 2)
+
+// MARK: - 16-18. Tree (main repo derivation, "you are here", overview rendering, real git)
+
+// Split into tests/worktree/treechecks.swift for file size; same arrangement as the teardown
+// groups above.
+runTreeChecks()
 
 exit(failures == 0 ? 0 : 1)

@@ -6,12 +6,13 @@ import Foundation
 // the worktree, removes the worktree and its branch, and deletes the orphaned transcript directory.
 //
 // Ordering is the safety design (mirrors docs/specs/current/worktree-teardown.md): merged-check ->
-// kill processes -> git cleanup -> transcript cleanup. Every step that finds its target already
-// gone prints a note and continues, so a rerun is safe. All output goes to stderr (via `warn`) or
-// /dev/tty (the menu); stdout carries nothing because this command execs nothing.
+// liveness gate -> kill processes -> git cleanup -> transcript cleanup. Every step that finds its
+// target already gone prints a note and continues, so a rerun is safe. All output goes to stderr
+// (via `warn`) or /dev/tty (the menu); stdout carries nothing because this command execs nothing.
 //
 // Shared helpers come from Worktree.swift (`runGit`, `realpathString`, `parseWorktreePorcelain`,
-// `isMainCheckout`, `buildMenuRows`, `WorktreeEntry`) and Snapshot.swift (`warn`).
+// `isMainCheckout`, `buildMenuRows`, `WorktreeEntry`), WorktreeTree.swift (`resolveMainRepo`, plus
+// the `tally worktree` dispatch that reaches this file) and Snapshot.swift (`warn`).
 
 // MARK: - Process model
 
@@ -50,6 +51,15 @@ func shouldKill(name: String, cwd: String, worktreePath: String) -> Bool {
 /// failure, the scan feeding it was (see `defaultListProcesses`).
 func worktreeProcessesToKill(_ processes: [ProcInfo], worktreePath: String) -> [ProcInfo] {
     processes.filter { shouldKill(name: $0.name, cwd: $0.cwd, worktreePath: worktreePath) }
+}
+
+/// The liveness gate: whether teardown may proceed while agents are still running in the worktree.
+/// The merged check alone does not protect them - a session that stopped at a clean intermediate
+/// commit (which the worktree protocol encourages) leaves a branch the main repo happily merges, so
+/// "merged" says nothing about whether anyone is still working there. Only --force waives it, and
+/// --keep-transcripts deliberately does not: it spares the transcripts, not the processes.
+func worktreeRemovalAllowed(liveAgents: Int, force: Bool) -> Bool {
+    liveAgents == 0 || force
 }
 
 /// Whether teardown may delete the worktree directory itself. Only true once git has let go of the
@@ -180,12 +190,10 @@ func killWorktreeProcesses(_ targets: [ProcInfo]) -> Int {
 /// menu reuses WorktreeMenu.swift; its trailing "new worktree" line is a no-op here (selecting it
 /// cancels with a hint) rather than invasively reshaping the shared renderer.
 func resolveWorktreeForRemoval(name providedName: String?) -> RemovalTarget {
-    let common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-    guard common.code == 0, !common.out.isEmpty else {
+    guard let mainRepo = resolveMainRepo() else {
         warn("not inside a git repository")
         exit(1)
     }
-    let mainRepo = realpathString((common.out as NSString).deletingLastPathComponent)
     let entries = parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], cwd: mainRepo).out)
     let others = entries.filter { $0.branch != nil && !isMainCheckout($0, mainRepo: mainRepo) }
 
@@ -231,8 +239,12 @@ private func pickWorktreeToRemove(_ others: [WorktreeEntry]) -> String {
 // MARK: - Orchestration
 
 /// Run the full teardown for a resolved target. Returns a process exit code (0 success, 1 refusal).
-/// `listProcesses` is injected so tests exercise the git path with no real killing.
+/// Two seams exist for tests only, both defaulting to the production behaviour: `listProcesses` so
+/// the git path runs with no real killing, and `transcriptHomes` so the transcript sweep can be
+/// pointed at a temp tree instead of the account homes (a test must never write into, let alone
+/// delete from, the user's real ~/.claude/projects, and a read-only home would fail it anyway).
 func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
+                          transcriptHomes: [String]? = nil,
                           listProcesses: (String) -> [ProcInfo] = defaultListProcesses) -> Int32 {
     let target = resolveWorktreeForRemoval(name: name)
 
@@ -263,9 +275,22 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
         }
     }
 
-    // 2. Kill agent processes rooted in the worktree, before the directory disappears.
+    // 2. Liveness gate, then kill the agent processes rooted in the worktree before the directory
+    // disappears. The count is the same selection `tally worktree list` reports in its live agent
+    // column, so what the report shows and what the gate refuses can never disagree. Refusing
+    // returns before anything is touched: no kill, no worktree removal, no branch or transcript
+    // deletion, all of which are irreversible for a session still in flight.
     let doomed = worktreeProcessesToKill(listProcesses(target.realPath),
                                          worktreePath: target.realPath)
+    guard worktreeRemovalAllowed(liveAgents: doomed.count, force: force) else {
+        // Both ways out are named: someone stopped here next wants to know how to take the worktree
+        // down WITHOUT losing the conversation, and that flag combination is right there.
+        let plural = doomed.count == 1 ? "" : "s"
+        warn("worktree \(target.branch) still has \(doomed.count) live agent\(plural) - "
+            + "let them finish, or --force to kill them and delete their transcripts, "
+            + "or --force --keep-transcripts to kill them and keep the conversation")
+        return 1
+    }
     let killed = killWorktreeProcesses(doomed)
 
     // 3. git cleanup: remove the worktree, then delete its branch. Idempotent: an already-gone
@@ -308,10 +333,9 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
     if keepTranscripts {
         warn("transcripts kept")
     } else {
-        let (snapshot, _) = loadSnapshot()
         transcriptsRemoved = removeTranscriptDirs(
             slug: worktreeTranscriptSlug(forResolvedPath: target.realPath),
-            homes: sharedMemoryHomes(snapshot))
+            homes: transcriptHomes ?? sharedMemoryHomes(loadSnapshot().0))
     }
 
     warn("worktree \(target.branch) removed (killed \(killed), "
@@ -384,82 +408,10 @@ func removeTranscriptDirs(slug: String, homes: [String]) -> Bool {
     return removedAny
 }
 
-// MARK: - List
+// MARK: - Remove flags
 
-/// One report row, tab-separated so it stays greppable and pipeable (the only worktree command that
-/// writes to stdout). Columns, in order: branch, age ("no commits" when the branch has none), a
-/// dirty marker ("*" when the working tree is dirty, "" when clean), the live agent count
-/// ("N agent"/"N agents", or "-" when none are running in the worktree), and the last commit
-/// subject truncated to fit. No ANSI: this is a machine-readable report, not the interactive menu.
-func formatWorktreeListLine(branch: String, age: String, dirty: Bool,
-                            liveAgents: Int, subject: String) -> String {
-    let ageText = age.isEmpty ? "no commits" : age
-    let dirtyText = dirty ? "*" : ""
-    let agentsText = liveAgents > 0 ? "\(liveAgents) agent\(liveAgents == 1 ? "" : "s")" : "-"
-    return "\(branch)\t\(ageText)\t\(dirtyText)\t\(agentsText)\t\(truncateSubject(subject))"
-}
-
-/// Build the report lines, one per worktree. Git facts come from `buildMenuRows` (the same age/dirty/
-/// subject the menu shows); the process list is passed in (a single scan, reused across worktrees)
-/// so tests can assert line count and content without a real scan or stdout capture.
-func worktreeListLines(_ others: [WorktreeEntry], processes: [ProcInfo]) -> [String] {
-    zip(others, buildMenuRows(others)).map { entry, row in
-        let realPath = realpathString(entry.path)
-        let liveAgents = worktreeProcessesToKill(processes, worktreePath: realPath).count
-        return formatWorktreeListLine(branch: row.branch, age: row.age, dirty: row.dirty,
-                                      liveAgents: liveAgents, subject: row.subject)
-    }
-}
-
-/// `tally worktree list` (and bare `tally worktree`): print the branch-backed non-main worktrees to
-/// stdout, one greppable line each. Not a git repo warns and exits 1; an empty list notes on stderr
-/// and exits 0 (stdout stays clean for pipes).
-func runWorktreeList() -> Int32 {
-    let common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-    guard common.code == 0, !common.out.isEmpty else {
-        warn("not inside a git repository")
-        return 1
-    }
-    let mainRepo = realpathString((common.out as NSString).deletingLastPathComponent)
-    let entries = parseWorktreePorcelain(runGit(["worktree", "list", "--porcelain"], cwd: mainRepo).out)
-    let others = entries.filter { $0.branch != nil && !isMainCheckout($0, mainRepo: mainRepo) }
-    if others.isEmpty {
-        warn("no worktrees")
-        return 0
-    }
-    // One process scan for the whole report: defaultListProcesses returns every candidate process
-    // (its worktreePath argument is not a filter), and shouldKill narrows per worktree below.
-    let processes = defaultListProcesses(worktreePath: mainRepo)
-    for line in worktreeListLines(others, processes: processes) {
-        print(line)
-    }
-    return 0
-}
-
-// MARK: - CLI entry
-
-/// `tally worktree <subcommand>`: dispatch. Bare (`tally worktree`) and `list` both print the report;
-/// unknown subcommands print usage and exit 2.
-func runWorktree(args: [String]) -> Never {
-    switch args.first {
-    case "remove":
-        exit(runWorktreeRemove(args: Array(args.dropFirst())))
-    case "list", nil:
-        exit(runWorktreeList())
-    default:
-        warn("""
-        usage:
-          tally worktree list       list this repo's worktrees, one greppable line each
-                                    (bare `tally worktree` is the same)
-          tally worktree remove [name] [--force] [--keep-transcripts]
-                                    remove a merged worktree: kill its agents, delete the worktree,
-                                    its branch, and its transcript dir (bare: pick from a menu)
-        """)
-        exit(2)
-    }
-}
-
-/// Parse `remove` flags and run the teardown. Returns the process exit code.
+/// Parse `remove` flags and run the teardown. Returns the process exit code. Called by the
+/// `tally worktree` dispatch, which lives with the read-only commands in WorktreeTree.swift.
 func runWorktreeRemove(args: [String]) -> Int32 {
     var force = false
     var keepTranscripts = false

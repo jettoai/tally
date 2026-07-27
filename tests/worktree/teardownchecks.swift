@@ -1,8 +1,9 @@
 import Foundation
 
-// Groups 10-13 of the worktree assertions (kill decision, path guards, git cleanup end to end),
-// split out of main.swift for file size. They run as one function main.swift calls, which also
-// owns the shared harness (`check`, `sh`, `tempDir`, `rp`).
+// Groups 10-13 and 19 of the worktree assertions (kill decision, path guards, git cleanup end to
+// end, and the liveness gate that stands in front of all of it), split out of main.swift for file
+// size. They run as one function main.swift calls, which also owns the shared harness (`check`,
+// `sh`, `tempDir`, `rp`).
 
 func runTeardownChecks() {
     // MARK: - 10. Teardown: kill decision (pure)
@@ -192,4 +193,75 @@ func runTeardownChecks() {
 
     check("killing an empty target list touches nothing and returns zero",
           killWorktreeProcesses([]) == 0)
+
+    // MARK: - 19. Teardown: the liveness gate (pure, then real git with a real live process)
+
+    check("a worktree with a live agent is refused without --force",
+          !worktreeRemovalAllowed(liveAgents: 1, force: false))
+    check("many live agents are refused just the same",
+          !worktreeRemovalAllowed(liveAgents: 5, force: false))
+    check("--force waives the gate", worktreeRemovalAllowed(liveAgents: 2, force: true))
+    check("a worktree with no live agents passes the gate",
+          worktreeRemovalAllowed(liveAgents: 0, force: false))
+
+    // End to end over a MERGED worktree, so the merged check cannot be what refuses: only the
+    // liveness gate stands between a still-running session and an irreversible teardown. The live
+    // agent is a real child process (a sleep wearing an agent's name in the injected scan), so a
+    // regression that lets the kill through is observable rather than theoretical, and nothing
+    // outside this test can ever be signalled.
+    let liveRepo = tempDir()
+    sh("git init -q && git config user.email t@t && git config user.name t && " +
+       "git commit -q --allow-empty -m init", cwd: liveRepo)
+    FileManager.default.changeCurrentDirectoryPath(liveRepo)
+    let liveWt = resolveWorktree(name: "feat-live")
+    sh("git commit -q --allow-empty -m work", cwd: liveWt.path)
+    sh("git merge -q feat-live", cwd: liveRepo)
+
+    let sleeper = Process()
+    sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+    sleeper.arguments = ["30"]
+    try? sleeper.run()
+    let liveAgentScan = { (_: String) in
+        [ProcInfo(pid: sleeper.processIdentifier, name: "claude", cwd: liveWt.path)]
+    }
+
+    // The transcript dir the teardown would delete, seeded in a temp home injected through
+    // `transcriptHomes`: the sweep must be observed without touching (or depending on being able to
+    // write to) the account homes this machine really uses.
+    let liveHome = rp(tempDir())
+    let liveTranscripts = "\(liveHome)/projects/\(worktreeTranscriptSlug(forResolvedPath: liveWt.path))"
+    try? FileManager.default.createDirectory(atPath: liveTranscripts,
+                                             withIntermediateDirectories: true)
+
+    let gated = performWorktreeRemove(name: "feat-live", force: false, keepTranscripts: false,
+                                      transcriptHomes: [liveHome], listProcesses: liveAgentScan)
+    check("a merged worktree with a live agent is refused (exit 1)", gated == 1)
+    check("the refused worktree directory is untouched",
+          FileManager.default.fileExists(atPath: liveWt.path))
+    check("the refused worktree keeps its branch",
+          sh("git show-ref --verify --quiet refs/heads/feat-live", cwd: liveRepo) == 0)
+    check("the refused worktree keeps its transcripts",
+          FileManager.default.fileExists(atPath: liveTranscripts))
+    check("the live agent is still running after the refusal", sleeper.isRunning)
+
+    // --keep-transcripts is not a way around the gate: it spares transcripts, never processes.
+    check("--keep-transcripts does not waive the gate",
+          performWorktreeRemove(name: "feat-live", force: false, keepTranscripts: true,
+                                transcriptHomes: [liveHome], listProcesses: liveAgentScan) == 1)
+    check("the worktree survives the --keep-transcripts attempt too",
+          FileManager.default.fileExists(atPath: liveWt.path) && sleeper.isRunning)
+
+    // --force is the documented way through, and it still does the whole teardown.
+    let forced = performWorktreeRemove(name: "feat-live", force: true, keepTranscripts: false,
+                                       transcriptHomes: [liveHome], listProcesses: liveAgentScan)
+    check("--force tears down a worktree with live agents (exit 0)", forced == 0)
+    var waited = 0
+    while sleeper.isRunning, waited < 50 { usleep(100_000); waited += 1 }
+    check("--force killed the live agent", !sleeper.isRunning)
+    check("the forced worktree directory is gone",
+          !FileManager.default.fileExists(atPath: liveWt.path))
+    check("the forced branch is deleted",
+          sh("git show-ref --verify --quiet refs/heads/feat-live", cwd: liveRepo) != 0)
+    check("the forced run deletes the transcripts the gate had protected",
+          !FileManager.default.fileExists(atPath: liveTranscripts))
 }

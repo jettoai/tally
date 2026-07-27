@@ -10,8 +10,10 @@ out=$(mktemp -d)/run
 swiftc -o "$out" \
   tests/worktree/main.swift \
   tests/worktree/teardownchecks.swift \
+  tests/worktree/treechecks.swift \
   TallyCLI/Worktree.swift \
   TallyCLI/WorktreeTeardown.swift \
+  TallyCLI/WorktreeTree.swift \
   TallyCLI/WorktreeMenu.swift \
   TallyCLI/Snapshot.swift \
   TallyCLI/ProviderExecutable.swift \

@@ -312,7 +312,7 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
     }
     // The rescan is the same selection over a fresh scan: a supervisor that got a relaunch in
     // before it died leaves a process no earlier list can name (see WorktreeKill.swift).
-    let killed = killWorktreeProcesses(doomed, rescan: {
+    let killed = killWorktreeProcesses(doomed, mainRepo: target.mainRepo, rescan: {
         worktreeProcessesToKill(listProcesses(target.realPath), worktreePath: target.realPath)
     })
 

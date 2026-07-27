@@ -62,8 +62,10 @@ func terminalsToRestore(_ processes: [ProcInfo]) -> [String] {
 /// the last one is down, `rescan` is asked whether anything new appeared in the worktree, and the
 /// round repeats up to `worktreeKillRounds`. Prints "terminated <pid> <name>" for those that exited
 /// on the TERM and "killed <pid> <name>" for those that needed the KILL. Returns how many were
-/// signalled in total, respawns included. Finally hands back every terminal they were using.
-func killWorktreeProcesses(_ targets: [ProcInfo], rescan: () -> [ProcInfo] = { [] }) -> Int {
+/// signalled in total, respawns included. Finally hands back every terminal they were using, naming
+/// `mainRepo` as the directory to move to (their cwd is about to stop existing).
+func killWorktreeProcesses(_ targets: [ProcInfo], mainRepo: String = "",
+                           rescan: () -> [ProcInfo] = { [] }) -> Int {
     guard !targets.isEmpty else { return 0 }
     var batch = targets
     var signalled: [ProcInfo] = []
@@ -86,7 +88,7 @@ func killWorktreeProcesses(_ targets: [ProcInfo], rescan: () -> [ProcInfo] = { [
         warn("\(leftovers.count) process\(leftovers.count == 1 ? "" : "es") still running in the "
             + "worktree after \(worktreeKillRounds) rounds; continuing")
     }
-    restoreTerminals(terminalsToRestore(signalled))
+    restoreTerminals(terminalsToRestore(signalled), mainRepo: mainRepo)
     return signalled.count
 }
 
@@ -132,20 +134,44 @@ private let terminalResetSequence =
 ///
 /// The shell in it was deliberately not killed (killing one closes the user's tab), so what remains
 /// is a working prompt whose cwd has just been deleted: every `ls` and every tab-completion fails
-/// for a reason nothing on screen explains. One line says who did it and what to do about it. It
-/// claims only what is already true when it is written, since the git removal that follows can
-/// still refuse.
-let worktreeShellNotice = "[tally] tally worktree remove closed the agents running here; "
-    + "this worktree directory is going away, so cd elsewhere to keep using this shell"
+/// for a reason nothing on screen explains.
+///
+/// It ENDS with the command to run, main repo path spelled out in full, so the way out can be
+/// copied rather than worked out.
+///
+/// Printing is all that can be done, and that is a kernel fact rather than a preference. A
+/// process's working directory belongs to that process; the only mechanism that could move a
+/// running shell is `TIOCSTI`, which pushes bytes into a terminal's input queue as though they had
+/// been typed. Measured on macOS 26.5.2 (2026-07-27), three cases:
+///
+///   - into a pty this process opened but does not own: EACCES
+///   - into this process's OWN controlling terminal: succeeds
+///   - into another session's controlling terminal, which is the case here since the tab being
+///     rescued belongs to a different session: EPERM
+///
+/// The one case the kernel allows cannot arise either: for the tty to be ours, the caller would
+/// have to be running in the worktree's own tab, and `performWorktreeRemove` refuses to remove a
+/// worktree the caller is standing in before it ever reaches this code. So there is no arrangement
+/// in which injection both works and is needed, and the alternatives (AppleScript at the terminal
+/// app, synthetic key events) forge input into a user's session from outside and are not on the
+/// table. The line below is the whole mechanism.
+///
+/// The wording claims only what is already true when it is written, since the git removal that
+/// follows this can still refuse (a dirty worktree without --force).
+func worktreeShellNotice(mainRepo: String) -> String {
+    let wayOut = mainRepo.isEmpty ? "cd elsewhere to keep using this shell" : "run: cd \(mainRepo)"
+    return "[tally] tally worktree remove closed the agents running here; "
+        + "this worktree directory is going away, so \(wayOut)"
+}
 
 /// Put each terminal back into a state a shell can be used in. Every step is best-effort and
 /// failure is silent: a terminal that has already gone away, or that we may not open, is not a
 /// reason to report a teardown as failed. It has none of the side effects the teardown proper does.
-func restoreTerminals(_ paths: [String]) {
-    for path in paths { restoreTerminal(path) }
+func restoreTerminals(_ paths: [String], mainRepo: String = "") {
+    for path in paths { restoreTerminal(path, mainRepo: mainRepo) }
 }
 
-private func restoreTerminal(_ path: String) {
+private func restoreTerminal(_ path: String, mainRepo: String) {
     // O_NOCTTY so opening someone else's terminal cannot make it ours; O_NONBLOCK so a tty with no
     // reader on the other end cannot park the teardown in open().
     let descriptor = open(path, O_WRONLY | O_NOCTTY | O_NONBLOCK)
@@ -163,7 +189,7 @@ private func restoreTerminal(_ path: String) {
     // Last, and only once the terminal can render it: the same bytes sent through a raw-mode tty
     // would arrive as the mess this is here to replace. The leading CR ends whatever half-drawn
     // line the killed program left the cursor on.
-    write(descriptor, "\r\n\(worktreeShellNotice)\n")
+    write(descriptor, "\r\n\(worktreeShellNotice(mainRepo: mainRepo))\n")
 }
 
 /// Write a whole string to a descriptor, ignoring the result: nothing here is worth failing a

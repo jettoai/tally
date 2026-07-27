@@ -126,11 +126,17 @@ func runKillChecks() {
 
     // MARK: - 20d. Handing a terminal back
 
-    check("the notice says who printed it, what happened, and what to do",
-          worktreeShellNotice.hasPrefix("[tally] ") && worktreeShellNotice.contains("closed")
-              && worktreeShellNotice.contains("cd elsewhere"))
-    check("it is one line of ASCII with no em dash",
-          !worktreeShellNotice.contains("\n") && !worktreeShellNotice.contains("\u{2014}"))
+    let notice = worktreeShellNotice(mainRepo: "/Users/x/workspace/repo")
+    check("the notice says who printed it and what happened",
+          notice.hasPrefix("[tally] ") && notice.contains("closed"))
+    check("it ends with the command to run, so the way out can be copied whole",
+          notice.hasSuffix("run: cd /Users/x/workspace/repo"))
+    check("the path in it is the main repo, absolute",
+          notice.contains("/Users/x/workspace/repo"))
+    check("it is one line with no em dash",
+          !notice.contains("\n") && !notice.contains("\u{2014}"))
+    check("with no main repo to name it still says what to do",
+          worktreeShellNotice(mainRepo: "").hasSuffix("cd elsewhere to keep using this shell"))
 
     // A real pty put into the state a killed TUI leaves behind: canonical input and signal keys
     // off, which is what turns Ctrl+C into a byte and mouse movement into text on screen.
@@ -150,7 +156,8 @@ func runKillChecks() {
         check("the pty really is in the broken state before the restore",
               broken.c_lflag & tcflag_t(ISIG) == 0 && broken.c_lflag & tcflag_t(ICANON) == 0)
 
-        restoreTerminals([devicePath])
+        let expected = worktreeShellNotice(mainRepo: harness)
+        restoreTerminals([devicePath], mainRepo: harness)
 
         var restored = termios()
         tcgetattr(device, &restored)
@@ -164,17 +171,17 @@ func runKillChecks() {
         var seen = ""
         var reads = 0
         var buffer = [UInt8](repeating: 0, count: 4096)
-        while reads < 20, !seen.contains(worktreeShellNotice) {
+        while reads < 20, !seen.contains(expected) {
             let count = read(controller, &buffer, buffer.count)
             if count > 0 { seen += String(decoding: buffer[0 ..< count], as: UTF8.self) }
             reads += 1
             usleep(20_000)
         }
-        check("the tab is told what happened and how to get out of it",
-              seen.contains(worktreeShellNotice))
+        check("the tab is told what happened and which directory to go to",
+              seen.contains(expected) && seen.contains(harness))
         check("the notice lands after the reset, not before it",
               (seen.range(of: "\u{1B}[?1000l")?.lowerBound).map { reset in
-                  seen.range(of: worktreeShellNotice).map { $0.lowerBound > reset } ?? false
+                  seen.range(of: expected).map { $0.lowerBound > reset } ?? false
               } == true)
         check("restoring a terminal that does not exist is a no-op, not a failure",
               { restoreTerminals(["/dev/definitely-not-a-tty"]); return true }())

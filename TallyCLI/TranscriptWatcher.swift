@@ -102,6 +102,20 @@ struct TranscriptWatcher {
     var forkMarked: Set<String> = []
     /// True once the ambiguity warning has been said, so it is said once rather than every scan.
     var forkAmbiguityWarned = false
+    /// The last open-turn scan, keyed by the file it read and the mtime it read it at.
+    ///
+    /// The supervisor asks its quiet question every 2s poll (`Supervisor.swift`), and on an idle
+    /// session two or three of those asks reach the open-turn check on every single tick, because
+    /// the arguments are evaluated whether or not a relaunch is being planned. Quiet is the common
+    /// state, not the rare one, so re-reading a 256 KB tail and re-parsing every line in it to
+    /// re-derive an answer that cannot have changed is pure waste all night long.
+    ///
+    /// The SCAN is cached, never the verdict: `openTurnHoldsSession` expires the evidence at
+    /// `openTurnMaxSeconds` while the mtime stands still, so a cached verdict would wedge a session
+    /// whose child was killed mid-call as busy forever, the one thing OpenTurn.swift exists to
+    /// prevent. Invalidation needs no bookkeeping either: a fork changes the path and a write
+    /// changes the mtime, so the key stops matching exactly when the answer could differ.
+    var openScanCache: (path: String, modified: Date, openedAt: Date?)?
     private var excerptCapacity: Int { 64 }
 
     /// The user prompt that triggered the current drift, resolved from the flag's refused uuid, or
@@ -192,7 +206,7 @@ struct TranscriptWatcher {
     /// project with a hundred large transcripts read gigabytes and looked like a hang. The
     /// supervisor keeps calling `isQuiet`, which is unchanged: it tails ONE live conversation and
     /// must follow that conversation when it moves.
-    func isBoundFileQuiet(_ seconds: TimeInterval) -> Bool {
+    mutating func isBoundFileQuiet(_ seconds: TimeInterval) -> Bool {
         // Fresh URL on purpose: resourceValues are cached per URL instance, and a cached
         // mtime would report an active turn as quiet forever.
         guard let file,
@@ -200,13 +214,27 @@ struct TranscriptWatcher {
                   .resourceValues(forKeys: [.contentModificationDateKey]))?
                   .contentModificationDate else { return true }
         guard Date().timeIntervalSince(modified) > seconds else { return false }
-        // Only past the mtime bar: a session still appending is already busy, so the tail read
-        // never runs on the hot path, only on files that have gone quiet.
-        if openTurnHoldsSession(openedAt: openToolCallStart(inTail: transcriptTail(of: file) ?? "")) {
+        // Past the mtime bar is exactly where an idle session lives, so the tail read behind this
+        // is cached against the mtime already in hand (see `openScanCache`) rather than repeated
+        // on every poll. The verdict itself is still computed here, against the current clock.
+        if openTurnHoldsSession(openedAt: openTurnStart(of: file, modified: modified)) {
             return false
         }
         guard let subagent = newestSubagentWrite() else { return true }
         return Date().timeIntervalSince(subagent) > subagentIdleSeconds
+    }
+
+    /// When the still-unanswered tool call started, reading the tail only when the file has moved.
+    ///
+    /// `modified` is the mtime the caller already stat'd, both as the cache key and to keep this to
+    /// one stat per ask.
+    mutating func openTurnStart(of file: URL, modified: Date) -> Date? {
+        if let cache = openScanCache, cache.path == file.path, cache.modified == modified {
+            return cache.openedAt
+        }
+        let openedAt = openToolCallStart(inTail: transcriptTail(of: file) ?? "")
+        openScanCache = (path: file.path, modified: modified, openedAt: openedAt)
+        return openedAt
     }
 
     /// The newest write under this session's subagent transcripts, nil when it never dispatched one

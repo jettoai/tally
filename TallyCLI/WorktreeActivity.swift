@@ -90,7 +90,7 @@ func worktreeActivity(slug: String, homes: [String],
     var busy = false
     for file in files {
         guard transcriptIsReadable(file) else { return .unknown }
-        let watcher = TranscriptWatcher(projectDir: file.deletingLastPathComponent(),
+        var watcher = TranscriptWatcher(projectDir: file.deletingLastPathComponent(),
                                         file: file, since: .distantPast)
         if !watcher.isBoundFileQuiet(bar) { busy = true }
     }

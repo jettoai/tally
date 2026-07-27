@@ -245,4 +245,75 @@ func runOpenTurnChecks() {
     } else {
         check("the cap block was found by the open-turn checks", false)
     }
+
+    // MARK: - 25i. The scan is cached against the mtime; the verdict never is
+
+    // The supervisor asks this question on every 2s poll, and a quiet session is the common state
+    // rather than the rare one, so re-reading a 256 KB tail and re-parsing every line in it to
+    // re-derive an answer nothing could have changed is waste that runs all night. The cache is
+    // keyed on the file and the mtime it was read at.
+    let cacheDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-openturn-cache-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+    /// The mtime of a file on disk: what the quiet gate has already stat'd and hands to the scan.
+    /// Built from a fresh URL for the reason the gate itself does it, one line above the call:
+    /// `resourceValues` are cached per URL instance, so re-asking the same one never sees a write.
+    func mtime(_ url: URL) -> Date {
+        let fresh = URL(fileURLWithPath: url.path)
+        return ((try? fresh.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate) ?? .distantPast
+    }
+    let cachedFile = cacheDir.appendingPathComponent("cached.jsonl")
+    try! (toolUse(["toolu_a"], secondsAgo: 200) + "\n")
+        .write(to: cachedFile, atomically: true, encoding: .utf8)
+    var cachedWatcher = TranscriptWatcher(projectDir: cacheDir, file: cachedFile, since: launch)
+    let cachedStamp = mtime(cachedFile)
+    let firstScan = cachedWatcher.openTurnStart(of: cachedFile, modified: cachedStamp)
+    check("the first ask reads the open call out of the file",
+          firstScan == now.addingTimeInterval(-200))
+    // Deleting the file is what makes the next assertion a proof rather than a coincidence: a
+    // second read would find nothing and answer nil, so the same answer can only be the cached one.
+    try! FileManager.default.removeItem(at: cachedFile)
+    check("the same file at the same mtime is answered without reading it again",
+          cachedWatcher.openTurnStart(of: cachedFile, modified: cachedStamp) == firstScan)
+
+    // A file that MOVED must be re-read, or a session would stay busy long after its call came
+    // back (and a call opened after the last scan would go unseen).
+    let movingFile = cacheDir.appendingPathComponent("moving.jsonl")
+    let openBody = toolUse(["toolu_b"], secondsAgo: 200) + "\n"
+    try! openBody.write(to: movingFile, atomically: true, encoding: .utf8)
+    try! FileManager.default.setAttributes(
+        [.modificationDate: now.addingTimeInterval(-200)], ofItemAtPath: movingFile.path)
+    var movingWatcher = TranscriptWatcher(projectDir: cacheDir, file: movingFile, since: launch)
+    let openStamp = mtime(movingFile)
+    check("an unanswered call reads as busy on the first ask",
+          openTurnHoldsSession(
+            openedAt: movingWatcher.openTurnStart(of: movingFile, modified: openStamp), now: now))
+    // The result comes back, which in the real thing appends a line and stamps the file with a new
+    // mtime; the stamp is set by hand here because an atomic write carries the old one over.
+    try! (openBody + toolResult(["toolu_b"], secondsAgo: 190) + "\n")
+        .write(to: movingFile, atomically: true, encoding: .utf8)
+    try! FileManager.default.setAttributes(
+        [.modificationDate: now.addingTimeInterval(-190)], ofItemAtPath: movingFile.path)
+    let closedStamp = mtime(movingFile)
+    check("a written transcript comes back with a new mtime, so the key stops matching",
+          closedStamp != openStamp)
+    check("and the next ask rescans and sees the turn closed",
+          !openTurnHoldsSession(
+            openedAt: movingWatcher.openTurnStart(of: movingFile, modified: closedStamp), now: now))
+
+    // What must NEVER be cached is the VERDICT. It expires at `openTurnMaxSeconds` while the mtime
+    // stands perfectly still, which is exactly the state a child SIGKILLed mid-call leaves behind,
+    // so a cached verdict would wedge that session busy for the rest of its life.
+    if let opened = cachedWatcher.openTurnStart(of: cachedFile, modified: cachedStamp) {
+        check("a cached scan still holds the session inside the cap",
+              openTurnHoldsSession(openedAt: opened,
+                                   now: opened.addingTimeInterval(openTurnMaxSeconds - 1)))
+        check("and stops holding it past the cap, on the same unchanged mtime",
+              !openTurnHoldsSession(openedAt: opened,
+                                    now: opened.addingTimeInterval(openTurnMaxSeconds + 1)))
+    } else {
+        check("the cached scan still reported the open call", false)
+    }
+    try? FileManager.default.removeItem(at: cacheDir)
 }

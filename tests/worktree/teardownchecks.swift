@@ -285,7 +285,7 @@ func runTeardownChecks() {
     try? forkMarker.write(toFile: "\(forkDir)/b.jsonl", atomically: true, encoding: .utf8)
     try? FileManager.default.setAttributes(
         [.modificationDate: Date().addingTimeInterval(-900)], ofItemAtPath: "\(forkDir)/a.jsonl")
-    let boundToA = TranscriptWatcher(projectDir: URL(fileURLWithPath: forkDir),
+    var boundToA = TranscriptWatcher(projectDir: URL(fileURLWithPath: forkDir),
                                      file: URL(fileURLWithPath: "\(forkDir)/a.jsonl"),
                                      since: .distantPast)
     check("the bound-file test judges the file it was given, with no fork discovery",

@@ -43,8 +43,9 @@ struct SettingsUpdateRows: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L("Install updates automatically")).font(.subheadline)
-                    Text(L("Downloads and installs new versions in the background instead of asking each time."))
+                    Text(L("Downloads new versions in the background, then installs while you are away from the keyboard or the next time Tally quits."))
                         .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 Toggle(isOn: Binding(

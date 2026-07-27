@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import Sparkle
 
 /// Owns the Sparkle updater. Dormant unless the build carries BOTH a feed URL and an EdDSA public
@@ -50,9 +51,12 @@ final class UpdaterController: NSObject {
         set { controller?.updater.automaticallyChecksForUpdates = newValue }
     }
 
-    /// Sparkle's second, separate consent: silently download + install when an update is found
-    /// (the checkbox in the update dialog), surfaced as a Settings toggle so it isn't reachable
-    /// only through a dialog that stops appearing once you enable it.
+    /// Sparkle's second, separate consent: download and PREPARE an update in the background as soon
+    /// as one is found (the checkbox in the update dialog), surfaced as a Settings toggle so it
+    /// isn't reachable only through a dialog that stops appearing once you enable it.
+    ///
+    /// It does not decide WHEN the prepared update is installed: Sparkle queues that for app
+    /// termination, and this app takes the moment over instead (see the idle self-install below).
     var automaticallyDownloadsUpdates: Bool {
         get { controller?.updater.automaticallyDownloadsUpdates ?? false }
         set { controller?.updater.automaticallyDownloadsUpdates = newValue }
@@ -67,6 +71,12 @@ final class UpdaterController: NSObject {
     /// Sparkle's default spot is imperceptible. Fixed-delay sweeps raced the feed fetch: a
     /// window that appeared between sweeps sat at Sparkle's position long enough to visibly jump.
     func checkForUpdates() {
+        // Holding Sparkle's install handler stalls its update cycle: `sessionInProgress` stays true
+        // for as long as we hold it, and `SPUUpdater.checkForUpdates` bails out (with a log line and
+        // nothing else) while it is. A click on the header's "↻ ready" chip or on Check Now means
+        // "put the new version on", which is precisely what the held handler does, so run it rather
+        // than a check that cannot go anywhere.
+        if pendingInstall != nil { runPendingInstall(); return }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         // The window this check was clicked in comes along - only the key window fronts on
@@ -92,14 +102,111 @@ final class UpdaterController: NSObject {
     /// found → downloading); re-centring it on every sweep made it visibly hop up and down, so
     /// each window is placed exactly once and then left alone.
     private static var placedWindows = Set<Int>()
+
+    // MARK: - Idle self-install
+
+    /// Sparkle's "install this on quit" handler, held while we wait for a moment to run it, paired
+    /// with when the holding started (the clock `IdleInstall.pinnedPanelGrace` is measured against).
+    private var pendingInstall: (handler: InstallHandler, since: Date)?
+    private var idleTimer: Timer?
+
+    /// How often the idle conditions are re-tested. The install is in no hurry and the shortest
+    /// window it can accept is `IdleInstall.idleBar` (five minutes), so a minute's granularity
+    /// cannot miss one and costs nothing while it waits.
+    private static let idlePollInterval: TimeInterval = 60
+
+    /// Take the install over, then wait for a quiet moment. Idempotent: Sparkle may hand the
+    /// handler over again (it re-offers it when a termination request is cancelled), and the
+    /// waiting clock must survive that or the pinned-panel grace would restart each time.
+    private func holdInstall(_ handler: InstallHandler) {
+        pendingInstall = (handler, pendingInstall?.since ?? Date())
+        // The payload is on disk and one click from running, which is exactly what the chip's
+        // green ↻ state means. didDownloadUpdate has normally said so already; this covers the
+        // resumed-download path, where it hasn't.
+        UpdateAvailability.shared.isDownloaded = true
+        if idleTimer == nil {
+            idleTimer = Timer.scheduledTimer(withTimeInterval: Self.idlePollInterval, repeats: true) { _ in
+                Task { @MainActor in UpdaterController.shared.installIfIdle() }
+            }
+        }
+        installIfIdle()   // the moment may already be here
+    }
+
+    /// Run the held install if the conditions say so. The rules themselves are in `IdleInstall`;
+    /// this only reads the world for them.
+    private func installIfIdle() {
+        guard let pending = pendingInstall else { return }
+        guard IdleInstall.shouldInstall(
+            taskSurfaceOpen: Self.taskSurfaceOnScreen,
+            pinnedPanelOpen: PinnedPanelController.shared.isVisible,
+            secondsSinceUserInput: Self.secondsSinceUserInput(),
+            waiting: Date().timeIntervalSince(pending.since)) else { return }
+        runPendingInstall()
+    }
+
+    /// Hand the update back to Sparkle to install and relaunch. Everything is torn down first: the
+    /// app is about to be replaced, and a timer that outlived the handler would poll a state that
+    /// no longer exists.
+    private func runPendingInstall() {
+        guard let pending = pendingInstall else { return }
+        idleTimer?.invalidate()
+        idleTimer = nil
+        pendingInstall = nil
+        pending.handler.run()
+    }
+
+    /// Windows the user opened to DO something: a restart takes them away mid-task (a half-scrolled
+    /// Settings pane, a rename in progress, an alert waiting on an answer), so any of them means
+    /// wait. The pinned panel is deliberately absent - it is meant to stay up forever, so counting
+    /// it here would mean anyone who pins never gets an automatic install (`IdleInstall` gives it a
+    /// grace period instead).
+    private static var taskSurfaceOnScreen: Bool {
+        NSApp.modalWindow != nil
+            || StatusItemController.shared?.isPopoverShown == true
+            || SettingsWindowController.shared.isWindowVisible
+            || MainWindowController.shared.isWindowVisible
+    }
+
+    /// Seconds since the last keyboard or mouse event anywhere on the system. `~0` is
+    /// `kCGAnyInputEventType` from CGEventTypes.h (any HID event at all); it needs no accessibility
+    /// permission and no process list. A value that cannot be read answers zero, i.e. "someone just
+    /// typed", so a failure here can only ever postpone an install.
+    private static func secondsSinceUserInput() -> TimeInterval {
+        guard let anyInput = CGEventType(rawValue: ~0) else { return 0 }
+        return CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: anyInput)
+    }
+}
+
+/// Carries Sparkle's install block from the delegate callback to the main actor. Objective-C blocks
+/// do not import as `Sendable`, and this one is safe to send: Sparkle's own implementation of it
+/// (`SPUAutomaticUpdateDriver.m`) dispatches to the main queue before touching anything.
+private struct InstallHandler: @unchecked Sendable {
+    let run: () -> Void
 }
 
 extension UpdaterController: SPUStandardUserDriverDelegate {
     nonisolated var supportsGentleScheduledUpdateReminders: Bool { true }
 
+    /// Whether Sparkle's own alert gets to present a scheduled update. Sparkle asks this only for
+    /// scheduled checks - a user-initiated check is never routed through here, so Check Now always
+    /// gets the standard UI. The answer is `IdleInstall`'s to give.
+    nonisolated func standardUserDriverShouldHandleShowingScheduledUpdate(
+        _ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool) -> Bool {
+        // Every SPUUserDriver method is documented as main-thread (SPUUserDriver.h), and this
+        // delegate is called from inside one of them.
+        MainActor.assumeIsolated {
+            IdleInstall.standardAlertShouldShowScheduledUpdate(
+                automaticInstallsEnabled: automaticallyDownloadsUpdates)
+        }
+    }
+
     nonisolated func standardUserDriverWillHandleShowingUpdate(
         _ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem,
         state: SPUUserUpdateState) {
+        // Sparkle calls this either way. When it is NOT showing the update (we answered false
+        // above) there is no window to place and the header chip is the whole reminder, so the
+        // placement below would be chasing a window that never appears.
+        guard handleShowingUpdate else { return }
         // Sparkle centres its window on the MAIN display; the user may be working on another.
         // Move it to the screen the pointer is on (the same rule the redeem alert follows) -
         // a beat after Sparkle has actually put it on screen.
@@ -165,6 +272,18 @@ extension UpdaterController: SPUUpdaterDelegate {
     /// "restart into the new version", not "start a download". The chip goes green + ↻.
     nonisolated func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
         Task { @MainActor in UpdateAvailability.shared.isDownloaded = true }
+    }
+
+    /// The whole point of the "install automatically" toggle: Sparkle has the update prepared and
+    /// would otherwise sit on it until the app is quit, which for a menu-bar app is never. Answering
+    /// true takes the install over (Sparkle stalls its cycle and hands us the trigger), and it then
+    /// runs on the first quiet moment - see the idle self-install section above.
+    nonisolated func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
+                             immediateInstallationBlock immediateInstallHandler: @escaping () -> Void)
+        -> Bool {
+        let handler = InstallHandler(run: immediateInstallHandler)
+        Task { @MainActor in self.holdInstall(handler) }
+        return true
     }
 
     nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {

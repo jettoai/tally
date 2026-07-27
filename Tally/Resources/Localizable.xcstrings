@@ -4737,30 +4737,30 @@
         }
       }
     },
-    "Downloads and installs new versions in the background instead of asking each time.": {
+    "Downloads new versions in the background, then installs while you are away from the keyboard or the next time Tally quits.": {
       "localizations": {
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいバージョンをバックグラウンドでダウンロード・インストールし、毎回確認しません。"
+            "value": "新しいバージョンをバックグラウンドでダウンロードし、離席中または Tally の次回終了時にインストールします。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 버전을 백그라운드에서 다운로드하고 설치하며, 매번 묻지 않습니다."
+            "value": "새 버전을 백그라운드에서 다운로드하고, 자리를 비운 사이 또는 Tally가 다음에 종료될 때 설치합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在后台下载并安装新版本，不再每次询问。"
+            "value": "在后台下载新版本，并在你离开键盘时、或 Tally 下次退出时安装。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在背景下載並安裝新版本，不再每次詢問。"
+            "value": "在背景下載新版本，並在你離開鍵盤時、或 Tally 下次結束時安裝。"
           }
         }
       }

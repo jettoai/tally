@@ -18,6 +18,11 @@ final class StatusItemController: NSObject {
 
     private static let symbolCandidates = ["gauge.medium", "gauge", "chart.bar.fill"]
 
+    /// Whether the transient popover is on screen. Read by the updater before it restarts the app
+    /// into a new version: the popover is a surface the user opened to read something, and taking
+    /// it away mid-read is the interruption the idle bar exists to avoid.
+    var isPopoverShown: Bool { popover.isShown }
+
     func install() {
         Self.shared = self
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

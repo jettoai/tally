@@ -72,6 +72,14 @@ struct AccountCardView: View {
         usage.metrics.count == 1 && usage.metrics.first?.kind == .weeklyAll
     }
 
+    /// A reset was just redeemed here and the provider is still serving the spent numbers. The
+    /// rows then say the reset is landing instead of "Limit reached", which alongside the green
+    /// "Reset redeemed" line read as a redeem that did nothing. It covers every capped window on
+    /// the card because a redeem clears the whole account's counters, not one of them.
+    private var isSettlingReset: Bool {
+        RedeemPropagationStore.shared.isSettling(usage)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
@@ -80,12 +88,14 @@ struct AccountCardView: View {
                 errorRow
             } else {
                 if let headline = usage.headline {
-                    MetricRowView(metric: headline, mode: settings.displayMode, prominent: true)
+                    MetricRowView(metric: headline, mode: settings.displayMode, prominent: true,
+                                  settlingReset: isSettlingReset)
                 }
                 if !secondaryMetrics.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(secondaryMetrics) { metric in
-                            MetricRowView(metric: metric, mode: settings.displayMode)
+                            MetricRowView(metric: metric, mode: settings.displayMode,
+                                          settlingReset: isSettlingReset)
                         }
                     }
                 }
@@ -265,7 +275,7 @@ struct AccountCardView: View {
             redeemBusy = false
             guard let outcome else { return }
             redeemOutcome = outcome
-            await UsageStore.shared.refresh(userInitiated: true)
+            await RedeemAction.followThrough(outcome: outcome, usage: usage)
             try? await Task.sleep(for: .seconds(8))
             redeemOutcome = nil
         }

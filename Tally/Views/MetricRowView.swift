@@ -8,6 +8,10 @@ struct MetricRowView: View {
     let metric: UsageMetric
     let mode: DisplayMode
     var prominent: Bool = false
+    /// The account just redeemed a banked reset and the provider has not published the cleared
+    /// counters yet. An exhausted row then reports the pending reset rather than the limit it is
+    /// about to lose.
+    var settlingReset: Bool = false
 
     private static let labelWidth: CGFloat = 72
 
@@ -64,9 +68,7 @@ struct MetricRowView: View {
         if metric.severity == .critical || metric.resetsAt != nil || sessionNotStarted {
             HStack(spacing: 6) {
                 if metric.severity == .critical {
-                    Text(metric.usedPercent >= 100 ? L("Limit reached") : L("Near limit"))
-                        .font(.caption2)
-                        .foregroundStyle(TallyColor.critical)
+                    criticalNote
                 }
                 Spacer(minLength: 0)
                 if let resetsAt = metric.resetsAt {
@@ -77,6 +79,22 @@ struct MetricRowView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    /// The left half of a critical row's context line. Normally the limit in red, but neutral while
+    /// a redeemed reset settles: the number under it is stale by seconds and the quota is on its
+    /// way back, so that is a wait rather than a warning.
+    @ViewBuilder
+    private var criticalNote: some View {
+        if settlingReset && metric.usedPercent >= 100 {
+            Text(L("Reset is taking effect"))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        } else {
+            Text(metric.usedPercent >= 100 ? L("Limit reached") : L("Near limit"))
+                .font(.caption2)
+                .foregroundStyle(TallyColor.critical)
         }
     }
 

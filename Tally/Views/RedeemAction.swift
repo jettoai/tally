@@ -54,6 +54,20 @@ enum RedeemAction {
         return await CodexAppServerClient.consumeSoonestResetCredit(codexHome: home)
     }
 
+    /// The refresh every redeem is followed by, in one place so no caller can pair a success with
+    /// a plain re-read. A success hands off to `RedeemPropagationStore`, which owns that first
+    /// refresh AND the retries behind it: the provider keeps serving the spent numbers for a few
+    /// more seconds, which would otherwise leave a green "Reset redeemed" sitting over a red
+    /// "Limit reached" at 0%. Anything else spent nothing, so one re-read says all there is.
+    static func followThrough(outcome: CodexAppServerClient.RedeemOutcome?,
+                              usage: AccountUsage) async {
+        if outcome == .redeemed {
+            RedeemPropagationStore.shared.begin(usage: usage)
+        } else {
+            await UsageStore.shared.refresh(userInitiated: true)
+        }
+    }
+
     /// The outcome in the app's own voice. Every case is a translated sentence: the server's own
     /// wording never reaches a row, only the tooltip.
     static func outcomeMessage(_ outcome: CodexAppServerClient.RedeemOutcome) -> String {
@@ -96,7 +110,7 @@ enum RedeemAction {
                 presentNotice("\(label) · \(L("Use a reset"))",
                               outcomeMessage(outcome ?? .failed(nil)))
             }
-            await UsageStore.shared.refresh(userInitiated: true)
+            await followThrough(outcome: outcome, usage: usage)
         }
     }
 

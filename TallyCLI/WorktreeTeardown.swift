@@ -20,8 +20,23 @@ import Foundation
 /// One live process seen by libproc, reduced to the fields the kill decision needs.
 struct ProcInfo {
     let pid: pid_t
+    /// Its parent, when libproc would say. 0 stands for unknown, which is what a hand-built
+    /// ProcInfo in a test carries: the kill order then falls back to matching on the name.
+    let ppid: pid_t
     let name: String
     let cwd: String
+    /// Its controlling terminal (`/dev/ttysNNN`), nil when it has none (a daemon), or when the
+    /// process belongs to another user and libproc refuses to say. Carried so teardown can hand
+    /// the tab back in a usable state after killing a full-screen TUI that never got to clean up.
+    let tty: String?
+
+    init(pid: pid_t, ppid: pid_t = 0, name: String, cwd: String, tty: String? = nil) {
+        self.pid = pid
+        self.ppid = ppid
+        self.name = name
+        self.cwd = cwd
+        self.tty = tty
+    }
 }
 
 /// The worktree we resolved to tear down. `recordedPath` is the exact string git stored (fed back
@@ -103,9 +118,36 @@ func defaultListProcesses(worktreePath: String) -> [ProcInfo] {
     for pid in pids.prefix(scannedPidCount(returned, capacity: pids.count)) {
         if pid <= 0 || excluded.contains(pid) { continue }
         guard let cwd = processCwd(pid), !cwd.isEmpty else { continue }
-        result.append(ProcInfo(pid: pid, name: processName(pid), cwd: cwd))
+        let info = bsdInfo(pid)
+        result.append(ProcInfo(pid: pid, ppid: info.map { pid_t($0.pbi_ppid) } ?? 0,
+                               name: processName(pid), cwd: cwd,
+                               tty: info.flatMap(controllingTerminal)))
     }
     return result
+}
+
+/// A process's controlling terminal as a device path, or nil when it has none or the number does
+/// not name a device.
+///
+/// `e_tdev` is unsigned and carries NODEV (0xFFFFFFFF) for a process with no terminal, which is the
+/// common case (every daemon, and this process itself when it runs from a hook rather than a tab).
+/// It MUST be tested before the conversion: `dev_t` is signed, so handing NODEV to it traps and
+/// takes the whole teardown down with it (seen while measuring this, 2026-07-27).
+private func controllingTerminal(_ info: proc_bsdinfo) -> String? {
+    guard info.e_tdev != UInt32.max else { return nil }
+    guard let name = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { return nil }
+    let device = String(cString: name)
+    return device.isEmpty ? nil : "/dev/\(device)"
+}
+
+/// libproc's BSD record for a pid, or nil when it cannot be read (the process is gone, or belongs
+/// to another user: `login` running as root answers nothing here, which is why every field derived
+/// from this is optional).
+private func bsdInfo(_ pid: pid_t) -> proc_bsdinfo? {
+    var info = proc_bsdinfo()
+    let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+    guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+    return info
 }
 
 /// The current working directory of a process via proc_pidvnodepathinfo, or nil when it cannot be
@@ -152,33 +194,6 @@ private func parentPid(_ pid: pid_t) -> pid_t? {
     let size = Int32(MemoryLayout<proc_bsdinfo>.size)
     guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
     return pid_t(info.pbi_ppid)
-}
-
-/// SIGTERM the matched processes, poll up to 2 seconds for a graceful exit, then SIGKILL the
-/// survivors. Prints "terminated <pid> <name>" for those that exited on the TERM and
-/// "killed <pid> <name>" for those that needed the KILL. Returns the number targeted.
-func killWorktreeProcesses(_ targets: [ProcInfo]) -> Int {
-    guard !targets.isEmpty else { return 0 }
-    for target in targets { kill(target.pid, SIGTERM) }
-    var remaining = targets
-    let deadline = Date().addingTimeInterval(2)
-    while !remaining.isEmpty, Date() < deadline {
-        usleep(100_000)
-        var stillAlive: [ProcInfo] = []
-        for target in remaining {
-            if kill(target.pid, 0) == 0 {
-                stillAlive.append(target)
-            } else {
-                warn("terminated \(target.pid) \(target.name)")
-            }
-        }
-        remaining = stillAlive
-    }
-    for target in remaining {
-        kill(target.pid, SIGKILL)
-        warn("killed \(target.pid) \(target.name)")
-    }
-    return targets.count
 }
 
 // MARK: - Resolve the worktree to remove
@@ -295,7 +310,11 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
         warn(worktreeIdleNote(branch: target.branch, liveAgents: doomed.count,
                               keepTranscripts: keepTranscripts))
     }
-    let killed = killWorktreeProcesses(doomed)
+    // The rescan is the same selection over a fresh scan: a supervisor that got a relaunch in
+    // before it died leaves a process no earlier list can name (see WorktreeKill.swift).
+    let killed = killWorktreeProcesses(doomed, rescan: {
+        worktreeProcessesToKill(listProcesses(target.realPath), worktreePath: target.realPath)
+    })
 
     // 3. git cleanup: remove the worktree, then delete its branch. Idempotent: an already-gone
     // target just notes and continues.

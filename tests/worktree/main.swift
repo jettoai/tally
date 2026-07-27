@@ -408,4 +408,9 @@ check("two worktrees produce two report lines", listLines2.count == 2)
 // groups above.
 runTreeChecks()
 
+// MARK: - 20. Killing a worktree's processes (order, rescan, terminal restore)
+
+// Split into tests/worktree/killchecks.swift, same arrangement as the groups above.
+runKillChecks()
+
 exit(failures == 0 ? 0 : 1)

@@ -13,8 +13,10 @@ swiftc -o "$out" \
   tests/worktree/main.swift \
   tests/worktree/teardownchecks.swift \
   tests/worktree/treechecks.swift \
+  tests/worktree/killchecks.swift \
   TallyCLI/Worktree.swift \
   TallyCLI/WorktreeTeardown.swift \
+  TallyCLI/WorktreeKill.swift \
   TallyCLI/WorktreeTree.swift \
   TallyCLI/WorktreeActivity.swift \
   TallyCLI/TranscriptWatcher.swift \

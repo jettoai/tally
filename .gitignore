@@ -30,6 +30,9 @@ appcast.xml
 # Scratch
 scratchpad/
 
+# codex review writes its compiler caches here
+.review-cache/
+
 # Internal working docs (Claude Code / Codex workflow) - local only, not part of the product
 CLAUDE.md
 AGENTS.md

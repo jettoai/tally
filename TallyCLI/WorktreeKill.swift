@@ -159,9 +159,22 @@ private let terminalResetSequence =
 /// The wording claims only what is already true when it is written, since the git removal that
 /// follows this can still refuse (a dirty worktree without --force).
 func worktreeShellNotice(mainRepo: String) -> String {
-    let wayOut = mainRepo.isEmpty ? "cd elsewhere to keep using this shell" : "run: cd \(mainRepo)"
+    let wayOut = mainRepo.isEmpty
+        ? "cd elsewhere to keep using this shell"
+        : "run: cd \(shellQuoted(mainRepo))"
     return "[tally] tally worktree remove closed the agents running here; "
         + "this worktree directory is going away, so \(wayOut)"
+}
+
+/// A path the user can paste into a prompt unchanged. Left bare when every character is one a shell
+/// passes through, single quoted otherwise, with an embedded quote closed, escaped and reopened
+/// ('it'\''s') since that is the one form a single-quoted string cannot otherwise contain. A repo
+/// under "~/My Projects" is not exotic, and a command that only works for tidy paths is worse than
+/// none: it fails at the moment the user has no working directory to retry from.
+func shellQuoted(_ path: String) -> String {
+    let plain = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/._-")
+    guard path.contains(where: { !plain.contains($0) }) else { return path }
+    return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
 /// Put each terminal back into a state a shell can be used in. Every step is best-effort and

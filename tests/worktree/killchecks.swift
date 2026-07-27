@@ -137,6 +137,18 @@ func runKillChecks() {
           !notice.contains("\n") && !notice.contains("\u{2014}"))
     check("with no main repo to name it still says what to do",
           worktreeShellNotice(mainRepo: "").hasSuffix("cd elsewhere to keep using this shell"))
+    // A path with spaces has to survive being read off the screen and pasted back.
+    check("a path with spaces is quoted so the pasted command works",
+          worktreeShellNotice(mainRepo: "/Users/x/my repo")
+            .hasSuffix("run: cd '/Users/x/my repo'"))
+    check("and a quote in the path cannot break out of the quoting",
+          worktreeShellNotice(mainRepo: "/Users/x/it's")
+            .hasSuffix("run: cd '/Users/x/it'\\''s'"))
+
+    // The notice is the whole mechanism: the kernel refuses TIOCSTI into another session's
+    // terminal (EPERM, measured on macOS 26.5.2), which is the only tty this would ever aim at.
+    check("nothing is injected, so the printed command is what the user acts on",
+          worktreeShellNotice(mainRepo: "/Users/x/repo").contains("cd /Users/x/repo"))
 
     // A real pty put into the state a killed TUI leaves behind: canonical input and signal keys
     // off, which is what turns Ctrl+C into a byte and mouse movement into text on screen.

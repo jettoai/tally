@@ -64,8 +64,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// request is never replayed - a child spawned now already carries the edited hooks, skills, and
     /// instructions the request was about. Held across relaunches, like the fuse and the quarantine.
     var reloadEpoch = readReloadRequest()?.epoch ?? 0
-    /// The stamp a "waiting for idle" note was printed for, so a session in use says it once.
-    var reloadNotice: Int?
+    /// What has been said about a queued reload: the stamp it was said for, so a session in use
+    /// says it once, and when the wait began, so a wait past five minutes says so once more.
+    var reloadNotice = ReloadWait()
     /// A pending cap recovery handed from one child to the next (see `capCarriedAcrossRelaunch`).
     var carriedCap: PendingCapRecovery?
     /// Stamped into the child env so the status line can tell whether the supervisor watching this
@@ -167,12 +168,19 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // Per-child drift tracking: the safeguard episode is this session's, and a handoff starts a
         // fresh child (and a fresh monitor). Its state file is cleared on handoff and on exit.
         var drift = DriftMonitor()
+        // Per-child keyboard history. Fed once per tick below, because what the non-urgent gates
+        // need is whether stamps arrive in RUNS (typing) or alone (terminal chatter), and that is
+        // only visible across successive readings (KeyboardIdle.swift).
+        var keyboard = KeyboardActivity()
 
         pollChild()
         while childStatus == nil {
             usleep(2_000_000)
             pollChild()
             guard childStatus == nil else { break }
+            // Before any relaunch decision reads it: every gate below asks the same tracker, and it
+            // only learns anything by being given each tick's reading.
+            keyboard.observe(stamp: lastKeyboardInput())
             let policy = launchPolicy(provider.id)
             // What THIS session is expected to run: a hand-typed --model outranks the configured
             // default (a deliberate haiku session must not be "rescued" back to fable). Read by the
@@ -220,7 +228,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // in-flight response is never cut mid-stream (the next 2s poll retries) and a quiet
             // keyboard so a prompt being typed survives too; both default to the same 5s bar.
             if policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id,
-               watcher.isQuiet(), keyboardIdleNow() {
+               watcher.isQuiet(), keyboard.idle() {
                 let (snapshot, _) = loadSnapshot()
                 if let target = snapshot?.accounts.first(where: {
                     $0.id == pinnedID && $0.provider == provider.id && $0.launchHome != nil
@@ -304,7 +312,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                           // idleness: file AND keyboard, since a typed prompt reaches neither yet.
                           plan != nil || (Date().timeIntervalSince(since) >= followDebounce
                                           && watcher.isQuiet(followIdleSeconds)
-                                          && keyboardIdleNow(followIdleSeconds)) {
+                                          && keyboard.idle(followIdleSeconds)) {
                     if var existing = plan, !existing.followFolded {
                         existing.model = policy.model
                         existing.effort = policy.effort
@@ -419,7 +427,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // the fallback model, never back on the one that tripped it (SafeguardDrift.swift).
             applySafeguardRestore(plan: &plan, drift: &drift, watcher: &watcher, account: account,
                                   policy: policy, launchArgs: launchArgs,
-                                  fuseAllows: fuse.allows(), pid: supervisorPID)
+                                  fuseAllows: fuse.allows(), pid: supervisorPID,
+                                  keyboardIdle: { keyboard.idle($0) })
 
             // Idle rebalance: this account has crossed the shared nearly-dry line while a sibling
             // has room, so move the session now, at an idle moment of its own choosing, instead of
@@ -431,7 +440,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             if plan == nil, let move = rebalanceMove(
                    provider: provider.id, account: account, primaryModel: effectivePrimary,
                    mode: policy.mode,
-                   isQuiet: watcher.isQuiet(followIdleSeconds) && keyboardIdleNow(followIdleSeconds),
+                   isQuiet: watcher.isQuiet(followIdleSeconds) && keyboard.idle(followIdleSeconds),
                    fuseAllows: fuse.allows(), quarantine: quarantine) {
                 warn("\(account.label) nearly dry, moving to \(move.target.label) before the wall " +
                      "(\(pickReason(move.target, primaryModel: effectivePrimary)))")
@@ -452,7 +461,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                    isQuiet: reloadQuiet(transcriptQuiet: watcher.isQuiet(followIdleSeconds),
                                         hasTranscript: watcher.file != nil, childAge: childAge,
                                         bar: followIdleSeconds,
-                                        keyboardQuiet: keyboardIdleNow(followIdleSeconds)),
+                                        keyboardQuiet: keyboard.idle(followIdleSeconds)),
                    relaunchPlanned: plan != nil, capPending: pendingCap != nil,
                    uptime: childAge, home: account.launchHome) != nil {
                 plan = RelaunchPlan(target: account, reason: "self-update", countsFuse: false)
@@ -462,7 +471,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // to go idle. The whole rule, and why it comes last, lives in Reload.swift.
             applyReloadRequest(plan: &plan, epoch: &reloadEpoch, notice: &reloadNotice,
                                account: account, watcher: &watcher,
-                               childAge: Date().timeIntervalSince(launchedAt))
+                               childAge: Date().timeIntervalSince(launchedAt),
+                               keyboardIdle: { keyboard.idle($0) })
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args. A pending app

@@ -42,6 +42,106 @@ func runKeyboardChecks() {
     check("no terminal is not evidence at the urgent bar either",
           keyboardIdle(lastInput: nil, bar: reloadNowIdleSeconds, now: now))
 
+    // MARK: - 24a. Typing arrives in runs, terminal chatter arrives alone
+
+    // The second defect, and the reason the supervisor no longer asks the rule above directly
+    // (measured 2026-07-28, session dd704ccc on /dev/ttys015, its owner working in another window):
+    // the node was stamped four times across three minutes, 23 to 60 seconds apart, so its age
+    // never passed 61s and the 120s bar was arithmetically unreachable. Every non-urgent relaunch
+    // was held for the life of the session while all three FILE gates stood open.
+    //
+    // Age cannot separate those stamps from typing; spacing can, and spacing needs history. A
+    // raw-mode child stamps the node on every keystroke, so composition arrives as a run.
+    var unread = KeyboardActivity()
+    check("a tracker that has seen nothing is idle at the follow bar",
+          unread.idle(followIdleSeconds, now: now))
+    check("and at the urgent bar", unread.idle(reloadNowIdleSeconds, now: now))
+    unread.observe(stamp: nil)
+    check("a terminal that cannot be read is still no evidence of typing",
+          unread.idle(followIdleSeconds, now: now))
+
+    // A lone stamp holds the gate only until the window in which a SECOND stamp would have made it
+    // typing has passed. This is the whole behaviour change: 16s, not 120s.
+    var lone = KeyboardActivity()
+    lone.observe(stamp: typed(10))
+    check("a lone stamp inside the burst window still holds the follow bar",
+          !lone.idle(followIdleSeconds, now: now))
+    var loneAged = KeyboardActivity()
+    loneAged.observe(stamp: typed(16))
+    check("a lone stamp past the burst window releases the follow bar",
+          loneAged.idle(followIdleSeconds, now: now))
+
+    // A run of stamps is someone typing, and that holds the caller's FULL bar - the original
+    // feature, which must survive all of this: a prompt being composed is not an idle session.
+    var typing = KeyboardActivity()
+    for age in [12.0, 9.0, 6.0, 3.0] { typing.observe(stamp: typed(age)) }
+    check("a prompt actually being typed still blocks the 120s relaunch",
+          !typing.idle(followIdleSeconds, now: now))
+    var burst = KeyboardActivity()
+    burst.observe(stamp: typed(124))
+    burst.observe(stamp: typed(119))      // 5s apart: a run, so the bar starts from here
+    check("a burst one second short of the bar still holds it",
+          !burst.idle(followIdleSeconds, now: now))
+    var spentBurst = KeyboardActivity()
+    spentBurst.observe(stamp: typed(126))
+    spentBurst.observe(stamp: typed(121))
+    check("and releases it once the whole bar has passed since the run",
+          spentBurst.idle(followIdleSeconds, now: now))
+
+    // THE REGRESSION LOCK: the measured sequence itself, gaps of 23s, 60s and 45s, the last stamp
+    // 16s ago. The rule it replaces is asserted alongside it, because the two disagreeing on this
+    // input is the entire point - the old one is what held the session forever.
+    var chatter = KeyboardActivity()
+    for age in [144.0, 121.0, 61.0, 16.0] { chatter.observe(stamp: typed(age)) }
+    check("the measured chatter sequence clears the 120s bar",
+          chatter.idle(followIdleSeconds, now: now))
+    check("where asking only the newest stamp's age would still be holding it",
+          !keyboardIdle(lastInput: typed(16), bar: followIdleSeconds, now: now))
+
+    // Chatter arriving after a burst does not extend the burst's hold: the hold is timed from the
+    // typing, and a lone stamp carries only its own short window. Otherwise one stamp a minute
+    // (which is what the measured terminal produced) would pin the session busy forever again.
+    var afterBurst = KeyboardActivity()
+    afterBurst.observe(stamp: typed(126))
+    afterBurst.observe(stamp: typed(121))
+    afterBurst.observe(stamp: typed(61))
+    check("a lone stamp after a burst does not extend the hold",
+          afterBurst.idle(followIdleSeconds, now: now))
+
+    // The 5s call sites keep the meaning they had: min(burst window, bar) is the bar there, so
+    // every answer at that bar is the one the old rule gave.
+    var quickIdle = KeyboardActivity()
+    quickIdle.observe(stamp: typed(6))
+    check("a lone stamp 6s old is idle at the urgent bar, exactly as before",
+          quickIdle.idle(reloadNowIdleSeconds, now: now))
+    check("which is what the rule it replaced said too",
+          keyboardIdle(lastInput: typed(6), bar: reloadNowIdleSeconds, now: now))
+    var quickBusy = KeyboardActivity()
+    quickBusy.observe(stamp: typed(4))
+    check("and 4s old is still mid-stream there", !quickBusy.idle(reloadNowIdleSeconds, now: now))
+
+    // A reading OLDER than the one already held is time moving backwards (a clock adjustment, a
+    // terminal replaced under the same path), not a keystroke that arrived quickly. Its gap is
+    // negative, so a bare "gap <= 15" reads it as a burst and holds the session for two minutes on
+    // no input whatsoever.
+    var rewound = KeyboardActivity()
+    rewound.observe(stamp: typed(20))
+    rewound.observe(stamp: typed(80))     // 60s EARLIER than the stamp already held
+    check("a stamp that goes backwards is not a burst", rewound.lastBurstAt == nil)
+    check("and does not hold the follow bar", rewound.idle(followIdleSeconds, now: now))
+    check("the reading is still taken, so the next gap is measured from it",
+          rewound.lastStamp == typed(80))
+
+    // Every 2s tick re-reads the same atime until something arrives. Treating each reading as an
+    // event would make any single keystroke look like an endless burst.
+    var repeated = KeyboardActivity()
+    repeated.observe(stamp: typed(60))
+    repeated.observe(stamp: typed(60))
+    repeated.observe(stamp: typed(60))
+    check("re-reading the same stamp is not a second keystroke", repeated.lastBurstAt == nil)
+    check("so a tick that learns nothing new leaves the session idle",
+          repeated.idle(followIdleSeconds, now: now))
+
     // MARK: - 24b. What the gate does with that answer
 
     // A session the transcript calls quiet, up long enough, with a transcript located: everything
@@ -123,15 +223,30 @@ func runKeyboardChecks() {
         else { return nil }
         return String(source[start.upperBound ..< end.lowerBound])
     }
+    //
+    // They ask the per-child TRACKER, and the single-stat form it replaced no longer exists, so the
+    // literal way back to the 2026-07-28 freeze is a compile error rather than a green test run.
+    // The spelling is still pinned here because the ways back that DO compile are not: a gate that
+    // stops asking anything, or one whose tracker is never fed, reads as idle forever and every
+    // value assertion above stays green.
+    check("the tick feeds the tracker before anything decides on it",
+          source.contains("keyboard.observe(stamp: lastKeyboardInput())"))
+    if let observed = source.range(of: "keyboard.observe("),
+       let firstGate = source.range(of: "keyboard.idle(") {
+        check("the reading is taken before the first gate reads it",
+              observed.lowerBound < firstGate.lowerBound)
+    } else {
+        check("both the reading and a gate that uses it are present", false)
+    }
     if let pin = block(from: "// Live pin switch:", to: "// Cap handoff / wait:") {
-        check("the pin adoption waits for the keyboard too", pin.contains("keyboardIdleNow()"))
+        check("the pin adoption waits for the keyboard too", pin.contains("keyboard.idle()"))
     } else {
         check("the pin block boundaries were found", false)
     }
     if let follow = block(from: "followAdoption: if follow {",
                           to: "// The session's ACTUAL model degraded") {
         check("the follow adoption waits for the keyboard too",
-              follow.contains("keyboardIdleNow(followIdleSeconds)"))
+              follow.contains("keyboard.idle(followIdleSeconds)"))
     } else {
         check("the follow block boundaries were found here too", false)
     }
@@ -142,21 +257,47 @@ func runKeyboardChecks() {
     if let update = block(from: "if selfUpdateDue(",
                           to: "RelaunchPlan(target: account, reason: \"self-update\"") {
         check("the self-update gate hands the keyboard answer to reloadQuiet",
-              update.contains("keyboardQuiet: keyboardIdleNow(followIdleSeconds)"))
+              update.contains("keyboardQuiet: keyboard.idle(followIdleSeconds)"))
     } else {
         check("the self-update block boundaries were found", false)
     }
     // The one that must NOT have it: that turn is already dead and its owner is waiting on an
     // error, so the handoff is the opposite of an interruption. Nothing between the cap block's
-    // opening and the follow block may consult the keyboard.
+    // opening and the follow block may consult the keyboard, by either spelling.
     if let cap = block(from: "// Cap handoff / wait:", to: "// Follow the launch default:") {
-        check("the cap handoff never waits on the keyboard", !cap.contains("keyboardIdleNow"))
+        check("the cap handoff never waits on the keyboard",
+              !cap.contains("keyboardIdleNow") && !cap.contains("keyboard.idle"))
     } else {
         check("the cap block boundaries were found", false)
     }
-    check("`tally reload` passes the keyboard answer through",
-          ((try? String(contentsOfFile: "TallyCLI/Reload.swift", encoding: .utf8)) ?? "")
-              .contains("keyboardQuiet: keyboardIdleNow(bar)"))
+    // `tally reload` takes the answer as an argument (the tracker lives with the supervisor), so
+    // the invariant is in two halves: the supervisor hands the tracker over, and Reload.swift asks
+    // what it was handed rather than reading a stat of its own.
+    check("the reload gate is given the supervisor's tracker",
+          source.contains("keyboardIdle: { keyboard.idle($0) }"))
+    let reloadSource = (try? String(contentsOfFile: "TallyCLI/Reload.swift", encoding: .utf8)) ?? ""
+    check("the reload source is readable from the keyboard checks", !reloadSource.isEmpty)
+    check("`tally reload` passes that answer through",
+          reloadSource.contains("keyboardQuiet: keyboardQuiet"))
+    check("and reads no keyboard of its own", !reloadSource.contains("keyboardIdleNow"))
+    // The safeguard restore has the same shape and the same reason: the API left this session on a
+    // fallback model and the declared depth goes back at an idle moment, which is a relaunch nobody
+    // asked for right now, so it waits like the rest. It held out on the single stat until
+    // 2026-07-28, when it was the SECOND path found frozen behind an unreachable 120s bar.
+    check("the supervisor hands the safeguard restore the same tracker",
+          source.contains("keyboardIdle: { keyboard.idle($0) }"))
+    let safeguardSource = (try? String(contentsOfFile: "TallyCLI/SafeguardDrift.swift",
+                                       encoding: .utf8)) ?? ""
+    check("the safeguard source is readable from the keyboard checks", !safeguardSource.isEmpty)
+    check("the restore gate waits on the keyboard it was handed",
+          safeguardSource.contains("keyboardIdle(followIdleSeconds)"))
+    check("and reads no keyboard of its own",
+          !safeguardSource.contains("keyboardIdleNow"))
+    // The single-stat form is gone entirely: while it existed, every gate above could be reverted to
+    // it one call site at a time and only the one assertion naming that site would notice.
+    check("nothing in the CLI reads the keyboard through the retired single-stat form",
+          !source.contains("keyboardIdleNow") && !reloadSource.contains("keyboardIdleNow")
+              && !safeguardSource.contains("keyboardIdleNow"))
 
     // MARK: - 24f. The stat glue, against this process's own terminal
 
@@ -164,15 +305,20 @@ func runKeyboardChecks() {
     // assert a timestamp (the harness usually runs with no terminal, and when it does have one
     // nobody is typing into it), so it asserts the contract the callers depend on: a path is either
     // resolved and readable, or absent, and absent always answers "idle" rather than "busy".
+    //
+    // Driven through the tracker, which is the composition the supervisor actually runs: a reading
+    // taken off the real device node and handed to `observe`, then asked.
+    var live = KeyboardActivity()
+    live.observe(stamp: lastKeyboardInput())
     if let path = controllingTTYPath {
         check("a resolved terminal path names a device that can be read",
               lastKeyboardInput(path: path) != nil)
         // Nothing was typed in the last instant, whatever else is true of this terminal, so a zero
         // bar always clears. Anything longer would be asserting on the person running the tests.
-        check("a real terminal clears a zero bar", keyboardIdleNow(0))
+        check("a real terminal clears a zero bar", live.idle(0))
     } else {
         check("with no terminal, the reader reports nothing", lastKeyboardInput() == nil)
-        check("and the gate is therefore open", keyboardIdleNow(followIdleSeconds))
+        check("and the gate is therefore open", live.idle(followIdleSeconds))
     }
     check("a path that is not a device reads as no evidence",
           lastKeyboardInput(path: "/dev/tally-no-such-terminal") == nil)

@@ -14,7 +14,7 @@ import Foundation
 // reimplemented here, so a worktree counts as busy on exactly the evidence that keeps a reload from
 // interrupting a session (transcript written recently, a tool call still open, or a subagent still
 // writing). The test is shared; the threshold is this command's own (`teardownIdleSeconds`).
-// Keyboard idleness is deliberately NOT part of it: `keyboardIdleNow` reads THIS process's tty,
+// Keyboard idleness is deliberately NOT part of it: `lastKeyboardInput` reads THIS process's tty,
 // which says nothing about a session running in another terminal window.
 
 /// How long a worktree's sessions must have been silent before teardown treats them as idle.

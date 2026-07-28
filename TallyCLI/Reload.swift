@@ -41,6 +41,66 @@ func reloadQuiet(transcriptQuiet: Bool, hasTranscript: Bool, childAge: TimeInter
     transcriptQuiet && keyboardQuiet && (hasTranscript || childAge >= bar)
 }
 
+// MARK: - Saying that a queued request is still queued
+
+/// How long a queued request waits before it says so a second time.
+///
+/// The first note ("restarting when this session goes idle") is printed the tick a request is held
+/// back, and for a session genuinely in use that is the whole story a minute later. A wait that
+/// outlives five minutes is a different thing: either the session really has been busy that long,
+/// or a gate is stuck open-ended, which is what the keyboard gate did on a chattering terminal for
+/// as long as such sessions ran (KeyboardIdle.swift). One line, once, so the answer to "did my
+/// reload get lost" is on screen rather than in a debugging session.
+let reloadStillWaitingAfter: TimeInterval = 300
+
+/// What has already been said about a queued request. Per request: a newer stamp starts it over,
+/// so a second `tally reload` gets its own first note and its own five minute line.
+struct ReloadWait: Equatable {
+    /// The stamp the notes below were printed for, nil before anything was queued.
+    var epoch: Int?
+    var since: Date?
+    var reminded = false
+}
+
+/// What a queued request should print this tick, and the bookkeeping that keeps it to once each.
+enum ReloadWaitNote: Equatable {
+    case silent
+    /// This request is being held back: said the first tick it happens.
+    case queued
+    /// The wait has crossed `reloadStillWaitingAfter`: said once, never repeated.
+    case stillWaiting
+}
+
+func reloadWaitNote(state: inout ReloadWait, epoch: Int, now: Date = Date()) -> ReloadWaitNote {
+    guard state.epoch == epoch else {
+        state = ReloadWait(epoch: epoch, since: now)
+        return .queued
+    }
+    guard !state.reminded, let since = state.since,
+          now.timeIntervalSince(since) >= reloadStillWaitingAfter else { return .silent }
+    state.reminded = true
+    return .stillWaiting
+}
+
+/// Which gate is holding the request, named for the person reading the note. Takes the components
+/// `reloadQuiet` was just given rather than recomputing any of them, and reports them in that same
+/// order, so the name is the gate that actually decided.
+///
+/// The transcript arm is one Bool covering a live turn, an unanswered tool call, and a subagent
+/// still writing (TranscriptWatcher.isQuiet), so it names all of what it might be rather than
+/// picking one.
+func reloadWaitReason(transcriptQuiet: Bool, keyboardQuiet: Bool, hasTranscript: Bool,
+                      childAge: TimeInterval, bar: TimeInterval) -> String {
+    if !transcriptQuiet { return "session or a subagent still writing" }
+    if !keyboardQuiet { return "keyboard active" }
+    if !hasTranscript, childAge < bar { return "no transcript yet" }
+    // Unreachable from the caller, and deliberately not a crash. It is only asked on the `.queued`
+    // branch, which means `reloadQuiet` said no, which means one of the three arms above is the one
+    // that said it: the branches are that expression negated, term for term. This is what to print
+    // if a fourth term is ever added to the gate and not to this list.
+    return "session in use"
+}
+
 // MARK: - Supervisor-side decision
 
 /// What one poll tick does about the reload request it just read.
@@ -78,16 +138,28 @@ func reloadDecision(captured: Int, requested: Int?, relaunchPlanned: Bool,
 /// follow adoption uses, so a running turn is never interrupted. The supervisor calls it LAST on
 /// purpose: any relaunch already planned this tick restarts the child anyway, so the request rides
 /// along instead of queueing a second one.
-func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: inout Int?,
+/// `keyboardIdle` is the keyboard half of the bar, injected rather than read here: the supervisor
+/// holds a `KeyboardActivity` fed on every tick (a burst is only visible across readings), and a
+/// closure keeps this testable without manufacturing atimes on a real terminal.
+func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: inout ReloadWait,
                         account: Snapshot.Account, watcher: inout TranscriptWatcher,
-                        childAge: TimeInterval) {
-    guard let request = readReloadRequest() else { return }
+                        childAge: TimeInterval, keyboardIdle: (TimeInterval) -> Bool,
+                        request requested: ReloadRequest? = readReloadRequest(),
+                        now: Date = Date()) {
+    guard let request = requested else { return }
     let bar = reloadIdleBar(immediate: request.immediate)
-    // `watcher.file` is only meaningful after `isQuiet` has run its locate, which the left-to-right
-    // && guarantees; the child's age covers the pre-transcript window.
-    let quiet = plan == nil && request.epoch > epoch
-        && reloadQuiet(transcriptQuiet: watcher.isQuiet(bar), hasTranscript: watcher.file != nil,
-                       childAge: childAge, bar: bar, keyboardQuiet: keyboardIdleNow(bar))
+    // Held apart rather than folded into one expression so the note below can name the gate that
+    // actually decided, without asking any of them a second time. Only read when a request could
+    // act on them: `isQuiet` locates and tails the transcript, which is not free per tick.
+    let pending = plan == nil && request.epoch > epoch
+    // `watcher.file` is only meaningful after `isQuiet` has run its locate, hence the order here;
+    // the child's age covers the pre-transcript window.
+    let transcriptQuiet = pending && watcher.isQuiet(bar)
+    let hasTranscript = watcher.file != nil
+    let keyboardQuiet = pending && keyboardIdle(bar)
+    let quiet = pending && reloadQuiet(transcriptQuiet: transcriptQuiet,
+                                       hasTranscript: hasTranscript,
+                                       childAge: childAge, bar: bar, keyboardQuiet: keyboardQuiet)
     switch reloadDecision(captured: epoch, requested: request.epoch,
                           relaunchPlanned: plan != nil, isQuiet: quiet) {
     case .none:
@@ -99,9 +171,16 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
         plan = RelaunchPlan(target: account, reason: "reload", countsFuse: false)
         epoch = request.epoch
     case .queued:
-        if notice != request.epoch {
+        switch reloadWaitNote(state: &notice, epoch: request.epoch, now: now) {
+        case .silent:
+            break
+        case .queued:
             warn("reload requested - restarting when this session goes idle")
-            notice = request.epoch
+        case .stillWaiting:
+            let reason = reloadWaitReason(transcriptQuiet: transcriptQuiet,
+                                          keyboardQuiet: keyboardQuiet,
+                                          hasTranscript: hasTranscript, childAge: childAge, bar: bar)
+            warn("reload still waiting after 5m (\(reason))")
         }
     }
 }

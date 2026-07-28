@@ -214,7 +214,7 @@ func runRebalanceChecks() {
     check("it only asks when nothing else is already relaunching",
           loop.contains("if plan == nil, let move = rebalanceMove("))
     check("it waits for the full left-alone bar, transcript and keyboard alike",
-          loop.contains("watcher.isQuiet(followIdleSeconds) && keyboardIdleNow(followIdleSeconds)"))
+          loop.contains("watcher.isQuiet(followIdleSeconds) && keyboard.idle(followIdleSeconds)"))
     check("the move counts against the recovery fuse",
           loop.contains("RelaunchPlan(target: move.target, reason: \"rebalance\", countsFuse: true)"))
     check("and the cycle is recorded so no sibling supervisor repeats it",

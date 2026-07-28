@@ -99,6 +99,92 @@ func runReloadChecks() {
           reloadQuiet(transcriptQuiet: true, hasTranscript: false, childAge: 6,
                       bar: reloadIdleBar(immediate: true)))
 
+    // MARK: - 19f2. A request that stays queued says so a second time
+
+    // A queued request used to announce itself once and then go silent for as long as it waited,
+    // which is fine for the minute a real turn takes and a lie for the rest: when the keyboard gate
+    // could not open at all (2026-07-28), that one line was the last word a session ever said about
+    // a reload it never performed. One follow-up, on one line, at five minutes.
+    var wait = ReloadWait()
+    let waitT0 = Date(timeIntervalSince1970: 1_800_000_000)
+    check("the tick a request is first held back announces it",
+          reloadWaitNote(state: &wait, epoch: 7, now: waitT0) == .queued)
+    check("the ticks after it are silent",
+          reloadWaitNote(state: &wait, epoch: 7, now: waitT0.addingTimeInterval(2)) == .silent)
+    check("still silent a second short of the line",
+          reloadWaitNote(state: &wait, epoch: 7,
+                         now: waitT0.addingTimeInterval(reloadStillWaitingAfter - 1)) == .silent)
+    check("crossing it says so once",
+          reloadWaitNote(state: &wait, epoch: 7,
+                         now: waitT0.addingTimeInterval(reloadStillWaitingAfter)) == .stillWaiting)
+    check("and never again, however long the wait then runs",
+          reloadWaitNote(state: &wait, epoch: 7, now: waitT0.addingTimeInterval(3600)) == .silent)
+    // A second `tally reload` is a new request: its own first note, its own line, timed from when
+    // IT was queued rather than from the one before it.
+    check("a newer stamp announces itself again",
+          reloadWaitNote(state: &wait, epoch: 8, now: waitT0.addingTimeInterval(3600)) == .queued)
+    check("and is not treated as already reminded",
+          reloadWaitNote(state: &wait, epoch: 8,
+                         now: waitT0.addingTimeInterval(3600 + reloadStillWaitingAfter))
+              == .stillWaiting)
+
+    // What that line names: the gate that actually decided, read in the order `reloadQuiet` reads
+    // them, so a session held by two of them is described by the first one to say no.
+    check("a session still writing is named first",
+          reloadWaitReason(transcriptQuiet: false, keyboardQuiet: false, hasTranscript: true,
+                           childAge: 9999, bar: 120) == "session or a subagent still writing")
+    check("a quiet session held only by the keyboard names the keyboard",
+          reloadWaitReason(transcriptQuiet: true, keyboardQuiet: false, hasTranscript: true,
+                           childAge: 9999, bar: 120) == "keyboard active")
+    check("a session too young to have written a transcript says that",
+          reloadWaitReason(transcriptQuiet: true, keyboardQuiet: true, hasTranscript: false,
+                           childAge: 3, bar: 120) == "no transcript yet")
+
+    // MARK: - 19f3. The same thing through the tick itself
+
+    // The keyboard is injected, so this runs on a machine with no terminal; the request is too, so
+    // it touches no real ~/.tally. What is exercised here and nowhere else: that the answer the
+    // supervisor's tracker gives really is what holds the request back, and that the stamp survives
+    // being held so the reload still happens when the session frees up.
+    let tickDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-reload-tick-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: tickDir, withIntermediateDirectories: true)
+    let tickFile = tickDir.appendingPathComponent("session.jsonl")
+    try! "{}".write(to: tickFile, atomically: true, encoding: .utf8)
+    try! FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-9999)],
+                                           ofItemAtPath: tickFile.path)
+    var tickWatcher = TranscriptWatcher(projectDir: tickDir, file: tickFile, since: launch)
+    let tickAccount = Snapshot.Account(
+        id: "A", provider: "claude", label: "A", launchHome: "/tmp/A", sessionRemaining: 90,
+        weeklyRemaining: 90, modelRemaining: 90, sessionResetsAt: nil, weeklyResetsAt: nil,
+        modelResetsAt: nil, modelWindowName: nil, resetCreditsAvailable: nil, isStale: false,
+        error: nil)
+    let tickRequest = ReloadRequest(epoch: 101, immediate: false)
+    var tickPlan: RelaunchPlan?
+    var tickEpoch = 100
+    var tickNotice = ReloadWait()
+    let tickT0 = Date(timeIntervalSince1970: 1_800_000_000)
+    func tick(keyboardIdle: @escaping (TimeInterval) -> Bool, at moment: Date) {
+        applyReloadRequest(plan: &tickPlan, epoch: &tickEpoch, notice: &tickNotice,
+                           account: tickAccount, watcher: &tickWatcher, childAge: 9999,
+                           keyboardIdle: keyboardIdle, request: tickRequest, now: moment)
+    }
+    tick(keyboardIdle: { _ in false }, at: tickT0)
+    check("a busy keyboard queues the request rather than relaunching", tickPlan == nil)
+    check("and leaves the stamp unconsumed, so it can still fire later", tickEpoch == 100)
+    check("the wait is being timed from this tick",
+          tickNotice.epoch == 101 && tickNotice.since == tickT0)
+    check("with no reminder given yet", !tickNotice.reminded)
+    tick(keyboardIdle: { _ in false }, at: tickT0.addingTimeInterval(2))
+    check("a tick two seconds later adds nothing", !tickNotice.reminded)
+    tick(keyboardIdle: { _ in false }, at: tickT0.addingTimeInterval(reloadStillWaitingAfter))
+    check("five minutes in, the reminder has been given", tickNotice.reminded)
+    check("and the request is still only queued", tickPlan == nil && tickEpoch == 100)
+    tick(keyboardIdle: { _ in true }, at: tickT0.addingTimeInterval(reloadStillWaitingAfter + 2))
+    check("once the keyboard goes still the queued request lands", tickPlan != nil)
+    check("and the stamp is consumed so it fires exactly once", tickEpoch == 101)
+    try? FileManager.default.removeItem(at: tickDir)
+
     // MARK: - 19g. Sessions from a build that cannot reload
 
     // A supervisor started before this feature registers nothing and polls no request file, so the

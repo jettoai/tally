@@ -275,10 +275,14 @@ func logSafeguardRestore(sessionID: String?, flag: SafeguardFlag, restore: Safeg
 ///
 /// A queued restore is retracted rather than left standing when its target goes away mid-wait, which
 /// is why the announcement runs through `SafeguardPending` rather than a bare "say it once" flag.
+/// `keyboardIdle` is the keyboard half of the quiet bar, injected the way the reload gate takes it:
+/// the supervisor holds one `KeyboardActivity` per child and every non-urgent gate asks that same
+/// tracker, because a lone atime cannot tell typing from terminal chatter (KeyboardIdle.swift).
 func applySafeguardRestore(plan: inout RelaunchPlan?, drift: inout DriftMonitor,
                            watcher: inout TranscriptWatcher, account: Snapshot.Account,
                            policy: LaunchPolicy, launchArgs: [String], fuseAllows: Bool,
-                           pid: String, dir: URL = safeguardRestoreDir,
+                           pid: String, keyboardIdle: (TimeInterval) -> Bool,
+                           dir: URL = safeguardRestoreDir,
                            stateDir: URL = supervisorStateDir) {
     guard plan == nil, drift.isActive, let flag = watcher.lastFlag else { return }
     let session = watcher.file?.deletingPathExtension().lastPathComponent
@@ -314,7 +318,7 @@ func applySafeguardRestore(plan: inout RelaunchPlan?, drift: inout DriftMonitor,
     }
 
     guard let restore, fuseAllows, watcher.isQuiet(followIdleSeconds),
-          keyboardIdleNow(followIdleSeconds) else { return }
+          keyboardIdle(followIdleSeconds) else { return }
     recordSafeguardRestore(session: session, event: event, dir: dir)
     plan = RelaunchPlan(target: account, reason: "safeguard", countsFuse: true,
                         model: restore.model, effort: restore.effort,

@@ -226,6 +226,99 @@ check("the app delegates its service name instead of deriving one",
 check("and keeps no second copy of the hash rule",
       !accountsSource.contains("SHA256.hash"))
 
+// MARK: - Folder trust carried to a new account
+
+// Why this exists: `.claude.json` is deliberately NOT shared (it is an identity file that every
+// session rewrites), so a newly added account re-asks "do you trust this folder?" for every project
+// the user already vouched for on the main account. `tally add` seeds the ANSWERS instead of sharing
+// the file. Measured against claude 2.1.220 on 2026-07-28: a pre-seeded projects map is merged, not
+// reset, and the control (same config dir, a cwd absent from the map) still showed the dialog.
+
+// The asymmetry that makes this easy to get wrong: the default home keeps its state ABOVE itself.
+check("the default config dir keeps its state at the home root",
+      claudeStateFile(forConfigDir: URL(fileURLWithPath: "/Users/x/.claude")).path
+          == "/Users/x/.claude.json")
+check("every other config dir keeps its own",
+      claudeStateFile(forConfigDir: URL(fileURLWithPath: "/Users/x/.claude2")).path
+          == "/Users/x/.claude2/.claude.json")
+
+// The seed carries accepted paths and nothing else. The source below is shaped like the real file:
+// identity at the top level, per-project history inside each entry, and one project the user
+// declined.
+let stateBody = """
+{
+  "oauthAccount": {"emailAddress": "someone@example.com", "accountUuid": "u-1"},
+  "userID": "deadbeef",
+  "projects": {
+    "/Users/x/work/a": {"hasTrustDialogAccepted": true, "lastVersionBase": "2.1.220",
+                        "projectOnboardingSeenCount": 3},
+    "/Users/x/work/b": {"hasTrustDialogAccepted": true},
+    "/Users/x/work/declined": {"hasTrustDialogAccepted": false},
+    "/Users/x/work/unanswered": {"lastVersionBase": "2.1.220"}
+  }
+}
+"""
+let seed = trustedProjectSeed(fromState: Data(stateBody.utf8))
+check("every accepted path is carried", seed.count == 2 && seed["/Users/x/work/a"] != nil
+      && seed["/Users/x/work/b"] != nil)
+check("a folder the user declined is not carried", seed["/Users/x/work/declined"] == nil)
+check("and neither is one they were never asked about", seed["/Users/x/work/unanswered"] == nil)
+// The entries are REDUCED, not copied: the new account inherits the answer, not the history.
+check("an accepted entry carries the single fact and nothing else",
+      seed["/Users/x/work/a"] == ["hasTrustDialogAccepted": true])
+// The identity guard, stated as its own assertion because it is the one that matters if this ever
+// grows: no top-level field of the source may reach the seed.
+let encoded = String(decoding: (try? JSONSerialization.data(withJSONObject: ["projects": seed])) ?? Data(),
+                     as: UTF8.self)
+check("the seed carries no account identity",
+      !encoded.contains("oauthAccount") && !encoded.contains("someone@example.com")
+          && !encoded.contains("deadbeef") && !encoded.contains("accountUuid"))
+check("nor any per-project history", !encoded.contains("lastVersionBase")
+      && !encoded.contains("projectOnboardingSeenCount"))
+// Malformed or trust-free input is simply nothing to do, never a crash.
+check("a state file with no projects map seeds nothing",
+      trustedProjectSeed(fromState: Data("{\"userID\":\"x\"}".utf8)).isEmpty)
+check("an unreadable body seeds nothing",
+      trustedProjectSeed(fromState: Data("not json".utf8)).isEmpty)
+
+// Writing it: only into a home that has no state file yet.
+let seedRoot = tmp.appendingPathComponent("seed-\(UUID().uuidString)")
+let seedSource = seedRoot.appendingPathComponent(".claude")
+let seedTarget = seedRoot.appendingPathComponent(".claude4")
+try! fm.createDirectory(at: seedSource, withIntermediateDirectories: true)
+try! fm.createDirectory(at: seedTarget, withIntermediateDirectories: true)
+// The source is the DEFAULT home, so its state lives at the root beside it, not inside it.
+try! stateBody.write(to: seedRoot.appendingPathComponent(".claude.json"),
+                     atomically: true, encoding: .utf8)
+check("seeding reports how many projects it carried", seedFolderTrust(from: seedSource, to: seedTarget) == 2)
+let written = (try? Data(contentsOf: seedTarget.appendingPathComponent(".claude.json")))
+    .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check("the new home now has a state file with just the trust map",
+      (written?["projects"] as? [String: Any])?.count == 2 && written?.count == 1)
+// An aborted login left its own file here: that one is the account's, and must not be overwritten.
+check("an existing state file is never overwritten", seedFolderTrust(from: seedSource, to: seedTarget) == 0)
+check("and its contents are left exactly as they were",
+      ((try? Data(contentsOf: seedTarget.appendingPathComponent(".claude.json")))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?.count == 1)
+// Nothing to carry, nothing written: a first-ever account has no trusted folders to pass on.
+let bareSource = seedRoot.appendingPathComponent(".bare")
+let bareTarget = seedRoot.appendingPathComponent(".claude5")
+try! fm.createDirectory(at: bareSource, withIntermediateDirectories: true)
+try! "{}".write(to: bareSource.appendingPathComponent(".claude.json"), atomically: true, encoding: .utf8)
+check("a source with nothing trusted writes no file at all",
+      seedFolderTrust(from: bareSource, to: bareTarget) == 0
+          && !fm.fileExists(atPath: bareTarget.appendingPathComponent(".claude.json").path))
+check("and a source with no state file at all is simply a no-op",
+      seedFolderTrust(from: seedRoot.appendingPathComponent(".missing"), to: bareTarget) == 0)
+
+// The wiring: claude only (codex has no such prompt), and only when sharing.
+let addSource = (try? String(contentsOfFile: "TallyCLI/AddCommand.swift", encoding: .utf8)) ?? ""
+check("the add command source is readable", !addSource.isEmpty)
+check("trust is seeded only when sharing, and only for claude",
+      addSource.contains("if share, provider.id == \"claude\", dir.path != mainHome.path"))
+check("and the login message no longer promises a wait",
+      addSource.contains("as soon as the login completes") && !addSource.contains("within a minute"))
+
 try? fm.removeItem(at: tmp)
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

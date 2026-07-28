@@ -98,7 +98,16 @@ func runAdd(args: [String]) -> Never {
             }
         }
     }
-    warn("adding a \(provider.id) account at ~/\(name) - finish the login below; the account shows up in Tally within a minute")
+    // Carry over the folders the main account already trusts, so the new one does not re-ask about
+    // every project (TrustSeed.swift). Claude only: codex has no such prompt. Same condition as the
+    // harness share, because it is the same intent - these accounts are one person's fleet.
+    if share, provider.id == "claude", dir.path != mainHome.path {
+        let seeded = seedFolderTrust(from: mainHome, to: dir)
+        if seeded > 0 {
+            warn("carried over folder trust for \(seeded) project\(seeded == 1 ? "" : "s")")
+        }
+    }
+    warn("adding a \(provider.id) account at ~/\(name) - finish the login below; the account shows up in Tally as soon as the login completes")
     exec(provider.cli, args: provider.id == "codex" ? ["login"] : [],
          env: launchEnv(provider, home: dir.path))
 }

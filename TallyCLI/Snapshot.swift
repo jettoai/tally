@@ -217,14 +217,20 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
     return windows
 }
 
-/// What the nearly-dry gate (AccountComfort.swift) weighs for a CLI account: exactly the windows
-/// `ratedWindows` counts for the declared primary model, so the gate never re-decides which windows
-/// an account spends. Shared by both gate policies, so they can differ in what they do with an
-/// empty result and in nothing else.
+/// One rated window as the nearly-dry gate (AccountComfort.swift) sees it. One conversion for the
+/// whole CLI, so everything that asks the gate about a window weighs it the same way: the account
+/// gate below, and the rebalance cycle key, which has to name the window the gate is reacting to.
+func comfortWindow(_ window: RatedWindow) -> ComfortWindow {
+    ComfortWindow(remaining: window.remaining, resetsAt: window.resetsAt)
+}
+
+/// What the nearly-dry gate weighs for a CLI account: exactly the windows `ratedWindows` counts for
+/// the declared primary model, so the gate never re-decides which windows an account spends. Shared
+/// by both gate policies, so they can differ in what they do with an empty result and in nothing
+/// else.
 private func comfortWindows(_ account: Snapshot.Account, primaryModel: String?,
                             now: Date) -> [ComfortWindow] {
-    ratedWindows(account, primaryModel: primaryModel, now: now)
-        .map { ComfortWindow(remaining: $0.remaining, resetsAt: $0.resetsAt) }
+    ratedWindows(account, primaryModel: primaryModel, now: now).map(comfortWindow)
 }
 
 /// The launch-side gate: drops the nearly dry, keeps the field whole when nothing is comfortable.

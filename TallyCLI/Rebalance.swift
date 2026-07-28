@@ -29,13 +29,13 @@ import Foundation
 //    that has already been moved three times has a systemic problem no fourth move will cure.
 //  - One rebalance per account per window cycle, ACROSS supervisors. Without it the five sessions
 //    above all read the same picture on the same tick and stampede onto the one healthy sibling,
-//    which is how the 02:22 storm started. The first session to notice moves; the rest read the
-//    record and stay, and the account re-arms when the window that binds it resets.
+//    which is how the 02:22 storm started. The first session to CLAIM the cycle moves; the rest
+//    lose the claim and stay, and the account re-arms when the window that binds it resets.
 
-/// Per-account rebalance records (~/.tally/rebalance/<account>), one file per account so concurrent
-/// supervisors never corrupt a shared document, written atomically. Deliberately the same shape as
-/// the cap quarantine next door (Quarantine.swift): both answer "has something already happened to
-/// this account that every supervisor must respect", and one shape is one thing to reason about.
+/// Per-account rebalance claims (~/.tally/rebalance/<account>.<cycle>), one file per account per
+/// cycle so concurrent supervisors never corrupt a shared document. Deliberately next door to the
+/// cap quarantine (Quarantine.swift): both answer "has something already happened to this account
+/// that every supervisor must respect", and one place to look is one thing to reason about.
 let rebalanceDir = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent(".tally/rebalance")
 
@@ -50,42 +50,100 @@ let rebalanceDir = FileManager.default.homeDirectoryForCurrentUser
 /// ends the drought. Windows are the ones `ratedWindows` counts for the declared primary model, so
 /// this never disagrees with the comfort gate about which windows the account actually spends.
 ///
+/// Emptiest by the EFFECTIVE remaining the comfort gate weighs (`effectiveRemaining`), not the raw
+/// percentage, for the same reason: the key has to name the window the gate is reacting to. A
+/// session window at 3% resetting in five minutes IS a full window to the gate, so keying off its
+/// reset would expire the claim five minutes later and let one unbroken weekly drought move the
+/// same session twice.
+///
 /// nil when the account reports no windows, or its binding window has no known reset time. With no
-/// cycle to name there is nothing to dedup against, and callers treat that as "do not move": an
-/// un-deduped rebalance is exactly the stampede the record exists to prevent.
+/// cycle to name there is nothing to claim, and callers treat that as "do not move": an unclaimed
+/// rebalance is exactly the stampede the claim exists to prevent.
 func rebalanceCycleKey(_ account: Snapshot.Account, primaryModel: String?,
                        now: Date = Date()) -> String? {
     guard let binding = ratedWindows(account, primaryModel: primaryModel, now: now)
-        .min(by: { $0.remaining < $1.remaining }), let resetsAt = binding.resetsAt else { return nil }
+        .min(by: { effectiveRemaining(comfortWindow($0), now: now)
+                     < effectiveRemaining(comfortWindow($1), now: now) }),
+          let resetsAt = binding.resetsAt else { return nil }
     return String(Int(resetsAt.timeIntervalSince1970.rounded()))
 }
 
-/// Whether this account has already been rebalanced away from during `cycle`. Any other stored key
-/// (an older cycle, or nothing at all) is a fresh opportunity - the record identifies WHICH window
-/// the move was made in, so a refilled window re-arms without anyone having to expire the file.
-func rebalancedThisCycle(_ accountID: String, cycle: String, dir: URL = rebalanceDir) -> Bool {
-    let file = dir.appendingPathComponent(rebalanceRecordName(accountID))
-    guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return false }
-    return raw.trimmingCharacters(in: .whitespacesAndNewlines) == cycle
-}
-
-/// Record that this account has been rebalanced away from in `cycle`, so every other supervisor
-/// leaves it alone until the binding window resets. Best-effort: a record that cannot be written
-/// costs an extra move at worst, never a stuck session.
-func recordRebalance(_ accountID: String, cycle: String, dir: URL = rebalanceDir) {
+/// Claim the one rebalance this account gets in `cycle`, across every supervisor on the machine.
+/// True means this process won the claim and may move its session; false means another supervisor
+/// holds it (or the claim could not be written), and this session stays where it is.
+///
+/// Claiming and recording are ONE act, in one syscall: `O_CREAT | O_EXCL` either creates the file or
+/// fails because it is already there. Reading a record and writing it after the plan was made left
+/// a window in which N supervisors whose 2s ticks land together all read "not yet moved" and all
+/// moved, which is the stampede this whole record exists to prevent (the 02:22 storm above).
+/// An atomic WRITE does not help with that: it protects the file's contents, not the decision.
+///
+/// The cycle rides in the FILENAME rather than in the body, because that is what makes the check and
+/// the write inseparable: a claim that is already there belongs to someone else, and a refilled
+/// window is a new name, so the account re-arms by itself without anyone having to expire anything.
+///
+/// Refusing when the claim cannot be written for any other reason is deliberate. A rebalance repairs
+/// nothing, it is only ever early, so not moving costs at worst the cap handoff doing it later;
+/// moving without a claim costs every session on the account landing on one sibling.
+func claimRebalanceCycle(_ accountID: String, cycle: String, dir: URL = rebalanceDir) -> Bool {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    try? cycle.write(to: dir.appendingPathComponent(rebalanceRecordName(accountID)),
-                     atomically: true, encoding: .utf8)
+    guard legacyRecordAllows(accountID, cycle: cycle, dir: dir) else { return false }
+    sweepRebalanceClaims(accountID, keeping: cycle, dir: dir)
+    let fd = open(dir.appendingPathComponent(rebalanceClaimName(accountID, cycle: cycle)).path,
+                  O_CREAT | O_EXCL | O_WRONLY, 0o644)
+    guard fd >= 0 else { return false }
+    close(fd)
+    return true
 }
 
-/// The filename an account's record lives under: a filesystem-safe derivative, as in the quarantine.
-/// Both halves go through it so a slash in an id can never make the writer and the reader disagree.
+/// Whether a record written by the pre-claim shape (one bare per-account file whose BODY is the
+/// cycle) leaves this cycle open. Those files sit in `~/.tally/rebalance` on every machine that has
+/// run this feature, so one is honoured for the cycle it names, which is what stops an upgrade in
+/// the middle of a drought from handing out a second move. Nothing writes this shape any more, and a
+/// record naming any other cycle is dead weight and goes.
+private func legacyRecordAllows(_ accountID: String, cycle: String, dir: URL) -> Bool {
+    let file = dir.appendingPathComponent(rebalanceRecordName(accountID))
+    guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return true }
+    if raw.trimmingCharacters(in: .whitespacesAndNewlines) == cycle { return false }
+    try? FileManager.default.removeItem(at: file)
+    return true
+}
+
+/// Drop this account's claims from cycles that are over, so the directory does not grow one file per
+/// window cycle forever. The cycle being claimed is never swept: a reset time the snapshot has not
+/// caught up with is in the past and still the cycle we are in. Opportunistic, exactly as the
+/// quarantine expires its own records while reading them.
+private func sweepRebalanceClaims(_ accountID: String, keeping cycle: String, dir: URL,
+                                  now: Date = Date()) {
+    let prefix = rebalanceRecordName(accountID)
+    let files = (try? FileManager.default.contentsOfDirectory(at: dir,
+        includingPropertiesForKeys: nil)) ?? []
+    for file in files {
+        let name = file.lastPathComponent
+        guard let dot = name.lastIndex(of: "."), String(name[..<dot]) == prefix else { continue }
+        let stored = String(name[name.index(after: dot)...])
+        guard stored != cycle, let epoch = Double(stored),
+              Date(timeIntervalSince1970: epoch) < now else { continue }
+        try? FileManager.default.removeItem(at: file)
+    }
+}
+
+/// The file one claim lives under. The cycle is whole seconds, so it never contains a dot and the
+/// account half is always everything before the last one, however many dots an id carries
+/// (`claude:.claude3` is a real id on this machine).
+func rebalanceClaimName(_ accountID: String, cycle: String) -> String {
+    "\(rebalanceRecordName(accountID)).\(cycle)"
+}
+
+/// The filesystem-safe derivative of an account id, as in the quarantine. Every path built here goes
+/// through it, so a slash in an id can never make the writer and the reader disagree.
 func rebalanceRecordName(_ accountID: String) -> String {
     accountID.replacingOccurrences(of: "/", with: "_")
 }
 
 /// The account a running session should move to before its own account runs out, or nil to stay put.
-/// Pure, so every gate is testable without a snapshot, a child, or a filesystem.
+/// Every gate but the claim is pure, and the claim arrives as a closure, so the whole decision is
+/// testable without a snapshot, a child, or a filesystem.
 ///
 /// `candidates` is the field the caller has already narrowed exactly as the cap handoff does (right
 /// provider, eligible for the running model, not this account, not quarantined), and the target is
@@ -99,22 +157,31 @@ func rebalanceRecordName(_ accountID: String) -> String {
 ///    session runs, so a pinned session is never moved by quota reasoning, dying account or not.
 ///  - `isQuiet`: the full non-urgent bar. This is a convenience, so it may never cost a keystroke.
 ///  - `fuseAllows`: automatic moves share one budget with cap recoveries.
-///  - `alreadyThisCycle`: the cross-supervisor per-cycle record above.
 ///  - the account is not comfortable: the same gate the pick uses, so "dying" means one thing in
 ///    this repo. It already exempts a window about to refill, so 9% resetting in five minutes is
 ///    correctly read as a full window rather than as a reason to move.
-func rebalanceTarget(mode: String, isQuiet: Bool, fuseAllows: Bool, alreadyThisCycle: Bool,
+///  - `claim`: the cross-supervisor per-cycle claim above, and deliberately LAST. It is the only
+///    gate with a side effect, so asking it earlier would spend this account's one move of the cycle
+///    on a tick that then declines to move (a pinned session, a session mid-turn, nowhere better to
+///    go), and the account would sit un-rebalanceable until its window reset.
+func rebalanceTarget(mode: String, isQuiet: Bool, fuseAllows: Bool,
                      current: Snapshot.Account, candidates: [Snapshot.Account],
-                     primaryModel: String?, now: Date = Date()) -> Snapshot.Account? {
-    guard mode != "manual", isQuiet, fuseAllows, !alreadyThisCycle,
-          !accountIsComfortable(current, primaryModel: primaryModel, now: now)
+                     primaryModel: String?, now: Date = Date(),
+                     claim: () -> Bool = { true }) -> Snapshot.Account? {
+    guard mode != "manual", isQuiet, fuseAllows,
+          !accountIsComfortable(current, primaryModel: primaryModel, now: now),
+          let target = capHandoffTarget(candidates, primaryModel: primaryModel, now: now),
+          claim()
     else { return nil }
-    return capHandoffTarget(candidates, primaryModel: primaryModel, now: now)
+    return target
 }
 
-/// One poll tick's proactive move, with the live picture the gate above needs: the target to move to
-/// and the cycle key the caller records once the plan is made. nil on almost every tick, for any of
-/// the reasons above.
+/// One poll tick's proactive move, with the live picture the gate above needs. nil on almost every
+/// tick, for any of the reasons above.
+///
+/// A target comes back only once this supervisor HOLDS the cycle's claim, so there is no moment
+/// between deciding to move and recording it for a sibling supervisor to decide the same thing. The
+/// caller cannot forget to record it either, because there is nothing left to record.
 ///
 /// The snapshot is read rather than trusted from the loop's own `account`, which was fixed at launch
 /// and, after a self-update exec, carries no quota fields at all: "is the account I am ON dying" is
@@ -128,7 +195,7 @@ func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: St
                    mode: String, isQuiet: Bool, fuseAllows: Bool,
                    quarantine: [String: (model: String?, until: Date)] = [:],
                    loaded: (Snapshot?, String?) = loadSnapshot(), now: Date = Date(),
-                   dir: URL = rebalanceDir) -> (target: Snapshot.Account, cycle: String)? {
+                   dir: URL = rebalanceDir) -> Snapshot.Account? {
     let (snapshot, problem) = loaded
     guard problem == nil, let snapshot,
           let live = snapshot.accounts.first(where: { $0.id == account.id }),
@@ -139,10 +206,8 @@ func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: St
         $0.provider == provider && eligible($0, primaryModel: primaryModel)
             && $0.id != account.id && !excluded.contains($0.id)
     }
-    guard let target = rebalanceTarget(
+    return rebalanceTarget(
         mode: mode, isQuiet: isQuiet, fuseAllows: fuseAllows,
-        alreadyThisCycle: rebalancedThisCycle(account.id, cycle: cycle, dir: dir),
-        current: live, candidates: candidates, primaryModel: primaryModel, now: now)
-    else { return nil }
-    return (target, cycle)
+        current: live, candidates: candidates, primaryModel: primaryModel, now: now,
+        claim: { claimRebalanceCycle(account.id, cycle: cycle, dir: dir) })
 }

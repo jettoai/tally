@@ -346,16 +346,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // of the account moves - every block above is repairing something, this one is only
             // preventing - and gated on the same fuse plus one move per account per window cycle
             // across supervisors, so those five sessions never stampede onto the one healthy
-            // sibling. The rules live in Rebalance.swift.
-            if plan == nil, let move = rebalanceMove(
+            // sibling. A target comes back only once this supervisor has CLAIMED that cycle, so
+            // there is nothing to record here. The rules live in Rebalance.swift.
+            if plan == nil, let moveTo = rebalanceMove(
                    provider: provider.id, account: account, primaryModel: effectivePrimary,
                    mode: policy.mode,
                    isQuiet: watcher.isQuiet(followIdleSeconds) && keyboard.idle(followIdleSeconds),
                    fuseAllows: fuse.allows(), quarantine: quarantine) {
-                warn("\(account.label) nearly dry, moving to \(move.target.label) before the wall " +
-                     "(\(pickReason(move.target, primaryModel: effectivePrimary)))")
-                recordRebalance(account.id, cycle: move.cycle)
-                plan = RelaunchPlan(target: move.target, reason: "rebalance", countsFuse: true)
+                warn("\(account.label) nearly dry, moving to \(moveTo.label) before the wall " +
+                     "(\(pickReason(moveTo, primaryModel: effectivePrimary)))")
+                plan = RelaunchPlan(target: moveTo, reason: "rebalance", countsFuse: true)
             }
 
             // The app updated under this supervisor, so it now runs stale logic and stamps a stale

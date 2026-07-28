@@ -38,6 +38,8 @@ final class UsageStore {
 
     private let providers = ProviderCatalog.all
     private var timer: DispatchSourceTimer?
+    /// Held for the app's lifetime: the watcher tears its stream down when it is released.
+    private var accountWatcher: AccountDirWatcher?
 
     /// When the next automatic poll fires (main timer or an earlier failure retry) - drives the
     /// header's "updates in Xs" countdown.
@@ -53,6 +55,28 @@ final class UsageStore {
         // prompt is expected here rather than on a later silent background tick.
         Task { await refresh(userInitiated: true) }
         scheduleTimer()
+        startAccountWatcher()
+    }
+
+    /// Watches the provider config dirs so an account that finishes logging in shows up now rather
+    /// than on the next tick (AccountDirWatcher.swift). Only a change in the SET of discoverable
+    /// accounts reaches `refresh`; the discovery pass in between is local and cheap, which is what
+    /// keeps a busy `.claude.json` from turning into usage-API traffic.
+    private func startAccountWatcher() {
+        let watcher = AccountDirWatcher(
+            discoverChanged: { [weak self] in
+                guard let self else { return false }
+                let found = providers.flatMap { $0.discoverAccounts() }
+                guard accountSetChanged(from: self.discoveredAccounts, to: found) else { return false }
+                // Adopt it here so the Settings list is right even if the refresh below is queued
+                // behind one already running, and so a second event does not report the same news.
+                self.discoveredAccounts = found
+                self.onChange?()
+                return true
+            },
+            onChange: { [weak self] in Task { await self?.refresh(userInitiated: false) } })
+        watcher.start()
+        accountWatcher = watcher
     }
 
     /// Rebuild the background timer from the current interval setting.

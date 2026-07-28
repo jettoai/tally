@@ -10,5 +10,6 @@ swiftc -o "$out" tests/integrations/main.swift \
   Tally/Core/AppLocale.swift Tally/Providers/ProviderModels.swift \
   Tally/Core/DemoUsage.swift Tally/Core/BuildVariant.swift Tally/Core/FleetForecast.swift Tally/Core/UsageHistory.swift \
   Tally/Providers/Claude/ClaudeAccounts.swift Tally/Core/Keychain/KeychainReader.swift \
-  Tally/Core/Keychain/ClaudeKeychainService.swift
+  Tally/Core/Keychain/ClaudeKeychainService.swift \
+  Tally/Core/AccountDirWatcher.swift
 "$out"

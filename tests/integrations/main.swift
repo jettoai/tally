@@ -227,5 +227,74 @@ try MainActor.assumeIsolated {
 
     try? FileManager.default.removeItem(at: tmp)
 }
+
+// MARK: - Noticing a new account without polling for it
+
+// `tally add` finishes a login and the app used to learn about it on the next timer tick (a minute
+// at best, five by default). A filesystem watcher closes that gap, but the config dirs are among the
+// busiest directories on the machine: `.claude.json` is rewritten constantly by every session and
+// `projects/` is a shared symlink. So the event only ever buys a cheap local discovery pass, and
+// only a discovery pass whose ANSWER differs buys a refresh. Both filters are asserted here, because
+// getting either wrong turns typing into usage-API traffic.
+let watchHome = "/Users/x"
+check("a config dir is worth looking at",
+      accountDirEventIsInteresting(path: "/Users/x/.claude3", home: watchHome))
+check("so is something written inside one",
+      accountDirEventIsInteresting(path: "/Users/x/.claude3/projects/foo", home: watchHome))
+check("and a codex home too",
+      accountDirEventIsInteresting(path: "/Users/x/.codex2", home: watchHome))
+// The home directory ITSELF, which is how a brand new account actually arrives: at directory
+// granularity, creating `~/.claude4` is reported as a change to `~`. Rejecting this meant missing a
+// login outright, and every unit test still passed until a real stream was run against it.
+check("the home directory itself is, because a new account arrives as a new entry in it",
+      accountDirEventIsInteresting(path: "/Users/x", home: watchHome))
+// And the shape a real stream actually delivers: trailing slashes, on both the parent and the dirs.
+check("the home with the trailing slash FSEvents sends is the same answer",
+      accountDirEventIsInteresting(path: "/Users/x/", home: watchHome))
+check("a config dir with a trailing slash too",
+      accountDirEventIsInteresting(path: "/Users/x/.claude3/", home: watchHome))
+check("and a noisy subtree with one is still rejected",
+      !accountDirEventIsInteresting(path: "/Users/x/workspace/proj/", home: watchHome))
+check("a trailing slash on the home does not change the answer",
+      accountDirEventIsInteresting(path: "/Users/x/.claude", home: "/Users/x/"))
+// The traffic this exists to reject: the user's actual work.
+check("a source tree is not", !accountDirEventIsInteresting(path: "/Users/x/workspace/tally",
+                                                            home: watchHome))
+check("nor a deep path inside one",
+      !accountDirEventIsInteresting(path: "/Users/x/workspace/tally/TallyCLI/Snapshot.swift",
+                                    home: watchHome))
+// The prefix is the SAME one discovery enumerates on (`.claude` / `.codex`, ClaudeAccounts.discover
+// and CodexAccounts.discover), which is what matters: a filter narrower than discovery could hide a
+// directory discovery would have found. `.claudius` diverges at the seventh character, so both
+// reject it; `.claude-work` is a config dir under any name the user picks, so both accept it.
+check("a name that only looks similar is not a config dir",
+      !accountDirEventIsInteresting(path: "/Users/x/.claudius", home: watchHome))
+check("but a custom-suffixed config dir is, exactly as discovery treats it",
+      accountDirEventIsInteresting(path: "/Users/x/.claude-work", home: watchHome))
+check("nor anything outside the home entirely",
+      !accountDirEventIsInteresting(path: "/tmp/.claude9", home: watchHome))
+
+// The second filter: only an account appearing or disappearing is news.
+func watched(_ ids: [String], home: String = "/h") -> [ProviderAccount] {
+    ids.map { ProviderAccount(id: $0, providerID: "claude", label: $0, locator: [:],
+                              launchHome: home + "/" + $0) }
+}
+check("a new account is a change", accountSetChanged(from: watched(["a"]), to: watched(["a", "b"])))
+check("an account disappearing is too",
+      accountSetChanged(from: watched(["a", "b"]), to: watched(["a"])))
+check("the same set is not, however busy the dirs were",
+      !accountSetChanged(from: watched(["a", "b"]), to: watched(["a", "b"])))
+check("and order is not identity",
+      !accountSetChanged(from: watched(["a", "b"]), to: watched(["b", "a"])))
+check("an account whose launch home moved IS a change",
+      accountSetChanged(from: watched(["a"]), to: watched(["a"], home: "/elsewhere")))
+// Identity is the id and the launch home, and deliberately nothing else. Widening it to any field
+// that changes for other reasons (a nickname edited in Settings, and one day a usage number if this
+// type ever grows one) would spend a refresh on news the timer already covers.
+var renamed = watched(["a"])
+renamed[0].label = "a nickname the user just typed"
+check("a renamed account is the same account", !accountSetChanged(from: watched(["a"]), to: renamed))
+check("nothing to nothing is nothing", !accountSetChanged(from: [], to: []))
+check("the first account ever found is a change", accountSetChanged(from: [], to: watched(["a"])))
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

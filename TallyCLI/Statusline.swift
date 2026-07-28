@@ -44,20 +44,36 @@ func runStatusline(args: [String]) -> Never {
     // there. The supervisor writes the from/to/category to a per-pid state file; render it only
     // while that supervisor still runs (a crashed supervisor's leftover file paints nothing). The
     // detection lives entirely in the supervisor - the status line only reads the state it left.
+    //
+    // The badge is also the whole announcement now: the supervisor used to print the fallback and a
+    // five-minute reminder to stderr, over the child's own drawing, for something it was not about
+    // to act on (PendingNotice.swift). A badge that stays up for the whole episode says it better
+    // than two lines that say it twice and land on top of the input box.
     var driftPiece: String?
+    var noticePiece: String?
     if let pidStr = ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_PID"],
-       let pid = pid_t(pidStr), supervisorAlive(pid), let drift = readDriftState(pid: pidStr) {
-        // While a restore is queued the badge also says what is about to happen, in the same
-        // already-under-way voice as the supervisor's own update note: the session keeps working at
-        // the wrong depth until it is left alone, which can be a while, and a restart nobody
-        // announced reads as the session dying on its own.
-        driftPiece = "\(yellow)⚠ \(shortModelName(drift.from))→\(shortModelName(drift.to)) " +
-            "(\(drift.category))\(drift.restorePending ? ", restoring at idle" : "")\(reset)"
+       let pid = pid_t(pidStr), supervisorAlive(pid) {
+        if let drift = readDriftState(pid: pidStr) {
+            // While a restore is queued the badge says what is about to happen, in the same
+            // already-under-way voice as the supervisor's own update note: the session keeps working
+            // at the wrong depth until it is left alone, which can be a while, and a restart nobody
+            // announced reads as the session dying on its own. With nothing queued the session is
+            // staying where it is until the user moves it, so the badge carries the way back.
+            let tail = drift.restorePending
+                ? ", restoring at idle"
+                : ", /model \(shortModelName(drift.from)) to return"
+            driftPiece = "\(yellow)⚠ \(shortModelName(drift.from))→\(shortModelName(drift.to)) " +
+                "(\(drift.category))\(tail)\(reset)"
+        }
+        // What the supervisor is waiting to do (a queued reload, a model change held behind a busy
+        // session, a cap with nowhere to go yet). Dim rather than yellow: nothing is wrong, it is
+        // simply not happening yet.
+        noticePiece = pendingNoticePiece(pid: pidStr).map { "\(dim)\($0)\(reset)" }
     }
     // The account name only carries information when there is a choice: with one account it
     // reads as noise next to a Claude session, so the status signal stands alone.
     let siblings = snapshot?.accounts.filter { $0.provider == "claude" }.count ?? 0
-    let identity = [statusPiece, supervisionPiece, driftPiece,
+    let identity = [statusPiece, supervisionPiece, driftPiece, noticePiece,
                     siblings > 1 ? "\(dim)\(label)\(reset)" : nil]
         .compactMap { $0 }.joined(separator: " · ")
     let input = FileHandle.standardInput.readDataToEndOfFile()
@@ -181,7 +197,7 @@ func runStatusline(args: [String]) -> Never {
             // The session model always rides the identity, same fixed position for every
             // model - one grammar, no conditional homes. The custom line above may show a
             // model of its own, but THIS line's model is the one tally launched or adopted.
-            let identityZone = [statusPiece, supervisionPiece, driftPiece,
+            let identityZone = [statusPiece, supervisionPiece, driftPiece, noticePiece,
                                 "\(dim)\(label)\(reset)", modelToken]
                 .compactMap { $0 }
                 .joined(separator: " · ")

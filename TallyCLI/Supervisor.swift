@@ -67,6 +67,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// What has been said about a queued reload: the stamp it was said for, so a session in use
     /// says it once, and when the wait began, so a wait past five minutes says so once more.
     var reloadNotice = ReloadWait()
+    /// The status line's view of what this supervisor is waiting to do (PendingNotice.swift).
+    var pendingNotice = PendingNoticeWriter()   // cleared when it exits, swept if it is killed
     /// A pending cap recovery handed from one child to the next (see `capCarriedAcrossRelaunch`).
     var carriedCap: PendingCapRecovery?
     /// Stamped into the child env so the status line can tell whether the supervisor watching this
@@ -199,10 +201,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let sawCap = watcher.sawCapHit()
             // The session came back on its own - a real assistant turn on the main chain, newer
             // than the cap (the account's window refilled, or the user waited the cooldown out) -
-            // so a later genuine cap starts fresh.
+            // so a later genuine cap starts fresh. Unannounced: the cap badge disappearing is the
+            // news, and the turn that just succeeded already told them.
             if let pending = pendingCap, let recovered = watcher.lastMainChainEventAt,
                recovered > pending.cappedAt {
-                warn("\(account.label) resumed on its own - cap recovery cleared")
                 pendingCap = nil
             }
             if sawCap, pendingCap == nil {
@@ -269,10 +271,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     // Own the account move; a follow adoption below folds its pair into this plan.
                     plan = RelaunchPlan(target: target, reason: "cap", countsFuse: true)
                 } else {
-                    if let note = action.waitingNote, note != pending.reason {
-                        warn("\(account.label) capped, \(note)")
-                        pending.reason = note
-                    }
+                    // The reason rides in the badge (the child keeps running, so nothing may be
+                    // printed over it); it is held here so the badge only changes when it changes.
+                    if let note = action.waitingNote { pending.reason = note }
                     pending.nextRetry = Date().addingTimeInterval(capRetryBackoff)
                     pendingCap = pending
                 }
@@ -337,11 +338,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                             }
                         }
                         guard let repick else {
-                            if !followDeadEnd {
-                                warn("launch default changed to \(policy.model ?? "default"), but no " +
-                                     "eligible account can serve it yet - waiting")
-                                followDeadEnd = true
-                            }
+                            followDeadEnd = true
                             break followAdoption
                         }
                         followDeadEnd = false
@@ -353,10 +350,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                         (followedModel, followedEffort) = desired
                         pendingSince = nil
                     }
-                } else if !followQueuedNotice {
-                    // Queued behind an in-use session: say so once, so the change never looks lost.
-                    warn("launch default changed to \(policy.model ?? "default")/" +
-                         "\(policy.effort ?? "default") - adopting when this session goes idle")
+                } else {
+                    // Queued behind an in-use session: the badge carries it, so the change never
+                    // looks lost and nothing is printed over the prompt being typed.
                     followQueuedNotice = true
                 }
             }
@@ -473,6 +469,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                account: account, watcher: &watcher,
                                childAge: Date().timeIntervalSince(launchedAt),
                                keyboardIdle: { keyboard.idle($0) })
+            // The one thing this session is WAITING to do, for the status line: a deferral must
+            // not be printed onto the terminal the child draws into (PendingNotice.swift).
+            syncPendingNotice(&pendingNotice, pid: supervisorPID, reload: reloadNotice.pending,
+                              followDeadEnd: followDeadEnd, followQueued: followQueuedNotice,
+                              policy: policy, capReason: pendingCap?.reason)
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args. A pending app
@@ -500,6 +501,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         if handoff { continue }
         let status = awaitChild()   // no relaunch pending: the child exited on its own, so do we
         removeSupervisorState(pid: supervisorPID)
+        clearPendingNotice(pid: supervisorPID)
         let exited = (status & 0x7f) == 0
         exit(exited ? (status >> 8) & 0xff : 128 + (status & 0x7f))
     }

@@ -286,8 +286,8 @@ check("the oldest user excerpt is evicted past capacity",
 check("a recent user excerpt survives eviction",
       watcherAfterScanning(manyUsers + [flagLine(100, uuid: "u-64")]).driftTriggerExcerpt == "prompt 64")
 
-// 14. DriftMonitor: a flag opens an episode; the nudge waits out the cooldown then fires once; a
-//     newer flag re-arms it; the actual model returning to the primary clears with a duration.
+// 14. DriftMonitor: a flag opens an episode; a newer flag supersedes it; the actual model returning
+//     to the primary clears the episode with a duration.
 let dT0 = Date(timeIntervalSince1970: 1_800_000_000)
 func mkFlag(_ offset: TimeInterval, uuid: String = "f") -> SafeguardFlag {
     SafeguardFlag(at: dT0.addingTimeInterval(offset), from: "claude-fable-5",
@@ -299,14 +299,12 @@ check("a flag starts an episode",
       == .started(mkFlag(0)))
 check("the episode is active", mon.isActive)
 check("activeFrom is the drifted-from model", mon.activeFrom == "claude-fable-5")
-check("no nudge before the cooldown", !mon.shouldNudge(now: dT0.addingTimeInterval(60)))
-check("a nudge after the cooldown", mon.shouldNudge(now: dT0.addingTimeInterval(301)))
-mon.markNudged()
-check("the nudge fires only once", !mon.shouldNudge(now: dT0.addingTimeInterval(400)))
+// The episode is what the status line paints for as long as it lasts, so nothing here counts down
+// to a reminder any more: the badge IS the reminder, and it is on screen the whole time (the
+// five-minute nudge it replaced printed over whatever the child was drawing).
 _ = mon.tick(flag: mkFlag(400, uuid: "f2"), actualModel: "claude-opus-4-8", primary: "fable",
              now: dT0.addingTimeInterval(400))
-check("a newer flag re-arms the nudge cooldown", !mon.shouldNudge(now: dT0.addingTimeInterval(460)))
-check("and it re-fires after another cooldown", mon.shouldNudge(now: dT0.addingTimeInterval(701)))
+check("a newer flag does not close the episode", mon.isActive)
 let cleared = mon.tick(flag: mkFlag(400, uuid: "f2"), actualModel: "claude-fable-5",
                        primary: "fable", now: dT0.addingTimeInterval(800))
 check("returning to the primary clears the episode with its duration", cleared == .cleared(800))
@@ -491,6 +489,7 @@ runRebalanceChecks()
 runSafeguardChecks()
 runOpenTurnChecks()
 runKeyboardChecks()
+runPendingNoticeChecks()
 runShimChecks()
 runFollowChecks()
 

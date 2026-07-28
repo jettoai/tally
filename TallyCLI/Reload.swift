@@ -45,29 +45,37 @@ func reloadQuiet(transcriptQuiet: Bool, hasTranscript: Bool, childAge: TimeInter
 
 /// How long a queued request waits before it says so a second time.
 ///
-/// The first note ("restarting when this session goes idle") is printed the tick a request is held
-/// back, and for a session genuinely in use that is the whole story a minute later. A wait that
-/// outlives five minutes is a different thing: either the session really has been busy that long,
-/// or a gate is stuck open-ended, which is what the keyboard gate did on a chattering terminal for
-/// as long as such sessions ran (KeyboardIdle.swift). One line, once, so the answer to "did my
-/// reload get lost" is on screen rather than in a debugging session.
+/// The badge says "reload at idle" the moment a request is held back, and for a session genuinely
+/// in use that is the whole story a minute later. A wait that outlives five minutes is a different
+/// thing: either the session really has been busy that long, or a gate is stuck open-ended, which is
+/// what the keyboard gate did on a chattering terminal for as long as such sessions ran
+/// (KeyboardIdle.swift). So past this line the badge names what is holding it, and the answer to
+/// "did my reload get lost" is on screen rather than in a debugging session.
 let reloadStillWaitingAfter: TimeInterval = 300
 
-/// What has already been said about a queued request. Per request: a newer stamp starts it over,
-/// so a second `tally reload` gets its own first note and its own five minute line.
+/// What is currently being said about a queued request. Per request: a newer stamp starts it over,
+/// so a second `tally reload` gets its own badge and its own five minute line.
+///
+/// The badge lives here rather than in the poll loop because this is the only place that knows both
+/// that the request is still waiting AND which gate is holding it; the loop reads `badge` at the end
+/// of the tick and ranks it against everything else pending (PendingNotice.swift). An empty state
+/// (`epoch == nil`) is the whole signal for "nothing is queued", so it is reset the moment the
+/// request is served, folded, or found to be stale.
 struct ReloadWait: Equatable {
-    /// The stamp the notes below were printed for, nil before anything was queued.
+    /// The stamp being waited on, nil when nothing is queued.
     var epoch: Int?
     var since: Date?
     var reminded = false
+    /// What the status line shows while this request waits, and the long form beside it.
+    var pending: PendingBadge?
 }
 
-/// What a queued request should print this tick, and the bookkeeping that keeps it to once each.
+/// How the badge for a queued request reads, and how that changes once the wait grows long.
 enum ReloadWaitNote: Equatable {
     case silent
-    /// This request is being held back: said the first tick it happens.
+    /// This request is being held back: raised the first tick it happens.
     case queued
-    /// The wait has crossed `reloadStillWaitingAfter`: said once, never repeated.
+    /// The wait has crossed `reloadStillWaitingAfter`: the badge upgrades once, and stays there.
     case stillWaiting
 }
 
@@ -82,23 +90,37 @@ func reloadWaitNote(state: inout ReloadWait, epoch: Int, now: Date = Date()) -> 
     return .stillWaiting
 }
 
-/// Which gate is holding the request, named for the person reading the note. Takes the components
-/// `reloadQuiet` was just given rather than recomputing any of them, and reports them in that same
-/// order, so the name is the gate that actually decided.
+/// Which gate is holding the request, in the two lengths its two homes need: a couple of words for
+/// the status line, which shares its row with the quota meters, and the full phrase for the notice
+/// file's `detail`. One function rather than two so the short and long forms cannot come to describe
+/// different gates.
+///
+/// Takes the components `reloadQuiet` was just given rather than recomputing any of them, and tests
+/// them in that same order, so the name is the gate that actually decided.
 ///
 /// The transcript arm is one Bool covering a live turn, an unanswered tool call, and a subagent
-/// still writing (TranscriptWatcher.isQuiet), so it names all of what it might be rather than
-/// picking one.
+/// still writing (TranscriptWatcher.isQuiet), so its long form names all of what it might be rather
+/// than picking one.
+struct ReloadWaitReason: Equatable {
+    let short: String
+    let full: String
+}
+
 func reloadWaitReason(transcriptQuiet: Bool, keyboardQuiet: Bool, hasTranscript: Bool,
-                      childAge: TimeInterval, bar: TimeInterval) -> String {
-    if !transcriptQuiet { return "session or a subagent still writing" }
-    if !keyboardQuiet { return "keyboard active" }
-    if !hasTranscript, childAge < bar { return "no transcript yet" }
+                      childAge: TimeInterval, bar: TimeInterval) -> ReloadWaitReason {
+    if !transcriptQuiet {
+        return ReloadWaitReason(short: "session busy",
+                                full: "session or a subagent still writing")
+    }
+    if !keyboardQuiet { return ReloadWaitReason(short: "keyboard", full: "keyboard active") }
+    if !hasTranscript, childAge < bar {
+        return ReloadWaitReason(short: "starting up", full: "no transcript yet")
+    }
     // Unreachable from the caller, and deliberately not a crash. It is only asked on the `.queued`
     // branch, which means `reloadQuiet` said no, which means one of the three arms above is the one
-    // that said it: the branches are that expression negated, term for term. This is what to print
+    // that said it: the branches are that expression negated, term for term. This is what to show
     // if a fourth term is ever added to the gate and not to this list.
-    return "session in use"
+    return ReloadWaitReason(short: "in use", full: "session in use")
 }
 
 // MARK: - Supervisor-side decision
@@ -146,7 +168,13 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
                         childAge: TimeInterval, keyboardIdle: (TimeInterval) -> Bool,
                         request requested: ReloadRequest? = readReloadRequest(),
                         now: Date = Date()) {
-    guard let request = requested else { return }
+    guard let request = requested else {
+        // The request file went away (deleted by hand, or a home that got cleaned out) while one was
+        // queued against it. Nothing is pending any more, and a badge saying otherwise would outlive
+        // the thing it describes.
+        notice = ReloadWait()
+        return
+    }
     let bar = reloadIdleBar(immediate: request.immediate)
     // Held apart rather than folded into one expression so the note below can name the gate that
     // actually decided, without asking any of them a second time. Only read when a request could
@@ -162,12 +190,17 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
                                        childAge: childAge, bar: bar, keyboardQuiet: keyboardQuiet)
     switch reloadDecision(captured: epoch, requested: request.epoch,
                           relaunchPlanned: plan != nil, isQuiet: quiet) {
+    // Served, absorbed, or nothing to do: whichever it is, nothing is queued now, so the badge goes.
+    // `.relaunch` still speaks on the terminal, and only it: the child is about to be terminated, so
+    // there is no TUI left for the line to land in the middle of (PendingNotice.swift).
     case .none:
-        break
+        notice = ReloadWait()
     case .fold:
+        notice = ReloadWait()
         epoch = request.epoch
     case .relaunch:
         warn("reload requested → restarting this session")
+        notice = ReloadWait()
         plan = RelaunchPlan(target: account, reason: "reload", countsFuse: false)
         epoch = request.epoch
     case .queued:
@@ -175,12 +208,13 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
         case .silent:
             break
         case .queued:
-            warn("reload requested - restarting when this session goes idle")
+            notice.pending = PendingBadge("reload at idle")
         case .stillWaiting:
             let reason = reloadWaitReason(transcriptQuiet: transcriptQuiet,
                                           keyboardQuiet: keyboardQuiet,
                                           hasTranscript: hasTranscript, childAge: childAge, bar: bar)
-            warn("reload still waiting after 5m (\(reason))")
+            notice.pending = PendingBadge("reload waiting (\(reason.short))",
+                                          detail: "reload still waiting after 5m (\(reason.full))")
         }
     }
 }

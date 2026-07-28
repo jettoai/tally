@@ -101,44 +101,56 @@ func runReloadChecks() {
 
     // MARK: - 19f2. A request that stays queued says so a second time
 
-    // A queued request used to announce itself once and then go silent for as long as it waited,
-    // which is fine for the minute a real turn takes and a lie for the rest: when the keyboard gate
-    // could not open at all (2026-07-28), that one line was the last word a session ever said about
-    // a reload it never performed. One follow-up, on one line, at five minutes.
+    // A queued request raises a badge once and then holds it unchanged for as long as it waits,
+    // which is right for the minute a real turn takes and a lie for the rest: when the keyboard gate
+    // could not open at all (2026-07-28), "reload at idle" was the last word a session ever said
+    // about a reload it never performed. So the badge escalates once, at five minutes.
     var wait = ReloadWait()
     let waitT0 = Date(timeIntervalSince1970: 1_800_000_000)
-    check("the tick a request is first held back announces it",
+    check("the tick a request is first held back raises the badge",
           reloadWaitNote(state: &wait, epoch: 7, now: waitT0) == .queued)
-    check("the ticks after it are silent",
+    check("the ticks after it leave it alone",
           reloadWaitNote(state: &wait, epoch: 7, now: waitT0.addingTimeInterval(2)) == .silent)
     check("still silent a second short of the line",
           reloadWaitNote(state: &wait, epoch: 7,
                          now: waitT0.addingTimeInterval(reloadStillWaitingAfter - 1)) == .silent)
-    check("crossing it says so once",
+    check("crossing it escalates once",
           reloadWaitNote(state: &wait, epoch: 7,
                          now: waitT0.addingTimeInterval(reloadStillWaitingAfter)) == .stillWaiting)
     check("and never again, however long the wait then runs",
           reloadWaitNote(state: &wait, epoch: 7, now: waitT0.addingTimeInterval(3600)) == .silent)
     // A second `tally reload` is a new request: its own first note, its own line, timed from when
     // IT was queued rather than from the one before it.
-    check("a newer stamp announces itself again",
+    check("a newer stamp raises its own badge again",
           reloadWaitNote(state: &wait, epoch: 8, now: waitT0.addingTimeInterval(3600)) == .queued)
     check("and is not treated as already reminded",
           reloadWaitNote(state: &wait, epoch: 8,
                          now: waitT0.addingTimeInterval(3600 + reloadStillWaitingAfter))
               == .stillWaiting)
 
-    // What that line names: the gate that actually decided, read in the order `reloadQuiet` reads
-    // them, so a session held by two of them is described by the first one to say no.
-    check("a session still writing is named first",
-          reloadWaitReason(transcriptQuiet: false, keyboardQuiet: false, hasTranscript: true,
-                           childAge: 9999, bar: 120) == "session or a subagent still writing")
+    // What the escalated badge names: the gate that actually decided, read in the order
+    // `reloadQuiet` reads them, so a session held by two of them is described by the first to say
+    // no. Two lengths from one function, because the status line has a few characters and the
+    // notice file's detail has a sentence, and they must never come to describe different gates.
+    let writingReason = reloadWaitReason(transcriptQuiet: false, keyboardQuiet: false,
+                                         hasTranscript: true, childAge: 9999, bar: 120)
+    check("a session still writing is named first", writingReason.short == "session busy")
+    check("and at length for the detail line",
+          writingReason.full == "session or a subagent still writing")
+    let keyboardReason = reloadWaitReason(transcriptQuiet: true, keyboardQuiet: false,
+                                          hasTranscript: true, childAge: 9999, bar: 120)
     check("a quiet session held only by the keyboard names the keyboard",
-          reloadWaitReason(transcriptQuiet: true, keyboardQuiet: false, hasTranscript: true,
-                           childAge: 9999, bar: 120) == "keyboard active")
+          keyboardReason.short == "keyboard" && keyboardReason.full == "keyboard active")
+    let youngReason = reloadWaitReason(transcriptQuiet: true, keyboardQuiet: true,
+                                       hasTranscript: false, childAge: 3, bar: 120)
     check("a session too young to have written a transcript says that",
-          reloadWaitReason(transcriptQuiet: true, keyboardQuiet: true, hasTranscript: false,
-                           childAge: 3, bar: 120) == "no transcript yet")
+          youngReason.short == "starting up" && youngReason.full == "no transcript yet")
+    // The short form has to survive being pasted into "reload waiting (...)" on a line that already
+    // carries the quota meters.
+    for reason in [writingReason, keyboardReason, youngReason] {
+        check("the badge for \"\(reason.full)\" fits a status line",
+              "reload waiting (\(reason.short))".count <= 32)
+    }
 
     // MARK: - 19f3. The same thing through the tick itself
 
@@ -175,14 +187,32 @@ func runReloadChecks() {
     check("the wait is being timed from this tick",
           tickNotice.epoch == 101 && tickNotice.since == tickT0)
     check("with no reminder given yet", !tickNotice.reminded)
+    check("and a badge saying what is waiting",
+          tickNotice.pending == PendingBadge("reload at idle"))
     tick(keyboardIdle: { _ in false }, at: tickT0.addingTimeInterval(2))
     check("a tick two seconds later adds nothing", !tickNotice.reminded)
     tick(keyboardIdle: { _ in false }, at: tickT0.addingTimeInterval(reloadStillWaitingAfter))
     check("five minutes in, the reminder has been given", tickNotice.reminded)
+    check("and the badge has escalated to name the gate",
+          tickNotice.pending?.badge == "reload waiting (keyboard)")
+    check("with the full reason kept as the detail",
+          tickNotice.pending?.detail?.contains("keyboard active") == true)
     check("and the request is still only queued", tickPlan == nil && tickEpoch == 100)
     tick(keyboardIdle: { _ in true }, at: tickT0.addingTimeInterval(reloadStillWaitingAfter + 2))
     check("once the keyboard goes still the queued request lands", tickPlan != nil)
     check("and the stamp is consumed so it fires exactly once", tickEpoch == 101)
+    // The wait is over, so nothing may be left claiming otherwise: the badge outliving the thing it
+    // describes is exactly the failure the status line has to avoid.
+    check("the badge goes with it", tickNotice.pending == nil && tickNotice.epoch == nil)
+    // A request file deleted out from under a queued wait is the other way the wait can end.
+    var orphaned = ReloadWait(epoch: 5, since: tickT0, reminded: false,
+                              pending: PendingBadge("reload at idle"))
+    var orphanPlan: RelaunchPlan?
+    var orphanEpoch = 4
+    applyReloadRequest(plan: &orphanPlan, epoch: &orphanEpoch, notice: &orphaned,
+                       account: tickAccount, watcher: &tickWatcher, childAge: 9999,
+                       keyboardIdle: { _ in false }, request: nil, now: tickT0)
+    check("a request that no longer exists takes its badge down too", orphaned.pending == nil)
     try? FileManager.default.removeItem(at: tickDir)
 
     // MARK: - 19g. Sessions from a build that cannot reload

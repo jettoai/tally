@@ -33,13 +33,12 @@ func shortModelName(_ id: String) -> String {
 }
 
 /// Pure state machine tracking one supervised session's drift episode, so the poll loop's wiring
-/// (warn, log, nudge, gate) is testable without spawning a child. It is fed the newest safeguard
+/// (log, state file, gate) is testable without spawning a child. It is fed the newest safeguard
 /// flag, the actual serving model, and the session's expected primary each tick; it emits a
-/// `started`/`cleared` edge and answers `isActive` (the gate the quota-degradation paths read) and
-/// `shouldNudge`. A drift persists until the actual model returns to the primary (the user ran
-/// `/model` to switch back); a session with no declared primary clears against the model the flag
-/// drifted from, so the episode always has an exit. Nothing here restarts a child - observation
-/// only.
+/// `started`/`cleared` edge and answers `isActive` (the gate the quota-degradation paths read). A
+/// drift persists until the actual model returns to the primary (the user ran `/model` to switch
+/// back); a session with no declared primary clears against the model the flag drifted from, so the
+/// episode always has an exit. Nothing here restarts a child - observation only.
 struct DriftMonitor {
     enum Event: Equatable {
         case started(SafeguardFlag)
@@ -47,27 +46,26 @@ struct DriftMonitor {
     }
 
     private(set) var isActive = false
-    /// The model the session drifted away from (for the nudge's `/model <from>` hint).
+    /// The model the session drifted away from: the badge's `/model <from>` hint names it, and the
+    /// restore aims the session back at the depth it was declared with.
     private(set) var activeFrom: String?
     /// The newest flag consumed. Strictly-newer comparison dedups a flag re-read on later scans and,
     /// held past a clear, stops the same flag from re-opening a closed episode.
     private var lastFlagAt: Date?
     private var episodeStart: Date?
-    private var nudged = false
     /// True once THIS episode's restore has been announced and logged, so the note is written once
     /// however long the session stays busy before it can be restarted (SafeguardDrift.swift). Held
-    /// here rather than in the poll loop because it is episode state, exactly like `nudged`: a new
-    /// flag re-arms it below, and a cleared episode leaves nothing queued.
+    /// here rather than in the poll loop because it is episode state: a new flag re-arms it below,
+    /// and a cleared episode leaves nothing queued.
     private(set) var restoreQueued = false
 
     /// Fold this tick's inputs into the episode, returning an edge event or nil. A strictly-newer
-    /// flag opens an episode (or, mid-episode, resets the nudge cooldown); the actual model matching
-    /// the primary again closes it.
+    /// flag opens an episode (or, mid-episode, re-arms the restore it had already announced); the
+    /// actual model matching the primary again closes it.
     mutating func tick(flag: SafeguardFlag?, actualModel: String?, primary: String?,
                        now: Date = Date()) -> Event? {
         if let flag, lastFlagAt.map({ flag.at > $0 }) ?? true {
             lastFlagAt = flag.at
-            nudged = false
             // A newer flag is a new switch with a pointer of its own, so it is announced and
             // deduped on its own merits rather than being swallowed by the previous one.
             restoreQueued = false
@@ -85,21 +83,11 @@ struct DriftMonitor {
             isActive = false
             activeFrom = nil
             episodeStart = nil
-            nudged = false
             restoreQueued = false
             return .cleared(duration)
         }
         return nil
     }
-
-    /// True once a live episode has held for the cooldown and has not been nudged yet. The caller
-    /// still gates on a quiet transcript before warning, and calls `markNudged` after.
-    func shouldNudge(now: Date = Date(), cooldown: TimeInterval = 5 * 60) -> Bool {
-        guard isActive, !nudged, let lastFlagAt else { return false }
-        return now.timeIntervalSince(lastFlagAt) >= cooldown
-    }
-
-    mutating func markNudged() { nudged = true }
 
     mutating func markRestoreQueued() { restoreQueued = true }
 
@@ -217,11 +205,17 @@ func readDriftState(pid: String, dir: URL = supervisorStateDir) -> DriftState? {
 /// reload request will restart). Every supervisor sweeps once at startup, which keeps the window
 /// between death and reuse short. Files that are not named for a pid are left alone (nothing of
 /// ours, or a future format).
+///
+/// Both files a supervisor can leave behind are swept, the presence/drift file and the pending
+/// notice beside it (`supervisorStatePid` reads either name): a dead session's leftover "reload at
+/// idle" would otherwise be repainted for the next process to inherit that pid, which is the same
+/// stale-badge failure this exists to prevent.
 func sweepDeadSupervisorState(dir: URL = supervisorStateDir) {
     let files = (try? FileManager.default.contentsOfDirectory(
         at: dir, includingPropertiesForKeys: nil)) ?? []
     for file in files {
-        guard let pid = pid_t(file.lastPathComponent), !supervisorAlive(pid) else { continue }
+        guard let pid = supervisorStatePid(ofFile: file.lastPathComponent),
+              !supervisorAlive(pid) else { continue }
         try? FileManager.default.removeItem(at: file)
     }
 }
@@ -229,20 +223,23 @@ func sweepDeadSupervisorState(dir: URL = supervisorStateDir) {
 // MARK: - Poll-loop wiring
 
 /// One poll tick's drift observation, applied to the supervisor's state: fold this tick's transcript
-/// evidence into the episode, announce an edge, keep the status-line state file in step, and nudge a
-/// session that has sat on the fallback for minutes. Observation only - nothing here plans a
-/// relaunch; what the loop takes from it is `drift.isActive`, which gates the quota-degradation
-/// paths so a deliberate safeguard switch is never mistaken for a dry flagship window.
+/// evidence into the episode, log the edge, and keep the status-line state file in step.
+/// Observation only - nothing here plans a relaunch; what the loop takes from it is
+/// `drift.isActive`, which gates the quota-degradation paths so a deliberate safeguard switch is
+/// never mistaken for a dry flagship window.
 ///
-/// Fail-open by construction: every branch either warns or writes best-effort state, so a drift
-/// episode can never block a handoff, a reload, or an exit.
+/// It says nothing on the terminal. The episode is not something the supervisor is about to act on,
+/// so it belongs in the badge the status line paints for as long as the drift lasts, rather than in
+/// a line printed over the child's input box (PendingNotice.swift explains the split). The badge
+/// carries the `/model <from>` hint the announcement used to, and carries it for the whole episode
+/// instead of once, which is also what the five-minute nudge was for.
+///
+/// Fail-open by construction: every branch writes best-effort state, so a drift episode can never
+/// block a handoff, a reload, or an exit.
 func observeDrift(_ drift: inout DriftMonitor, watcher: inout TranscriptWatcher,
                   primary: String?, pid: String) {
     switch drift.tick(flag: watcher.lastFlag, actualModel: watcher.lastModel, primary: primary) {
     case .started(let flag)?:
-        warn("\(shortModelName(flag.from)) fell back to \(shortModelName(flag.to)) " +
-             "(\(flag.category) safeguard) - run /model \(shortModelName(flag.from)) once " +
-             "the sensitive stretch is over")
         logDrift(sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
                  flag: flag, excerpt: watcher.driftTriggerExcerpt)
         writeDriftState(flag, pid: pid)
@@ -252,10 +249,5 @@ func observeDrift(_ drift: inout DriftMonitor, watcher: inout TranscriptWatcher,
         clearDriftState(pid: pid)
     case nil:
         break
-    }
-    if drift.shouldNudge(), watcher.isQuiet(), let from = drift.activeFrom {
-        warn("still on the safeguard fallback after 5+ min - run /model " +
-             "\(shortModelName(from)) to return once the sensitive stretch is over")
-        drift.markNudged()
     }
 }

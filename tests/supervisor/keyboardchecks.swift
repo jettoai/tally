@@ -243,13 +243,18 @@ func runKeyboardChecks() {
     } else {
         check("the pin block boundaries were found", false)
     }
-    if let follow = block(from: "followAdoption: if follow {",
-                          to: "// The session's ACTUAL model degraded") {
-        check("the follow adoption waits for the keyboard too",
-              follow.contains("keyboard.idle(followIdleSeconds)"))
-    } else {
-        check("the follow block boundaries were found here too", false)
-    }
+    // The follow adoption moved to a file of its own, so its half of this is asserted the way the
+    // reload and safeguard gates already are: the decision asks the keyboard it was handed, and the
+    // tick hands it the tracker. Splitting the assertion is what keeps a call site that stopped
+    // passing the tracker from passing silently.
+    let followSource = (try? String(contentsOfFile: "TallyCLI/FollowAdoption.swift",
+                                    encoding: .utf8)) ?? ""
+    check("the follow adoption source is readable from the keyboard checks", !followSource.isEmpty)
+    check("the follow adoption waits for the keyboard too",
+          followSource.contains("keyboardIdle(followIdleSeconds)"))
+    check("and it reads no keyboard of its own", !followSource.contains("keyboardIdleNow"))
+    check("the tick hands the follow adoption the same tracker",
+          source.contains("keyboardIdle: { keyboard.idle($0) }"))
     // The gate now guards the PLAN a lone upgrade makes rather than an exec of its own (the exec
     // moved to the single relaunch site so a pending update can fold into a restart already
     // happening), which changes nothing here: an upgrade nobody else is restarting for still has to

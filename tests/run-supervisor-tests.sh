@@ -15,5 +15,5 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AccountComfort.swift \
   TallyCLI/Rebalance.swift TallyCLI/SafeguardDrift.swift \
   TallyCLI/KeyboardIdle.swift TallyCLI/OpenTurn.swift TallyCLI/ProviderExecutable.swift \
-  TallyCLI/PendingNotice.swift
+  TallyCLI/PendingNotice.swift TallyCLI/FollowAdoption.swift
 "$out"

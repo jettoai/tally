@@ -589,18 +589,24 @@ func runReloadChecks() {
     let supervisorSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift",
                                         encoding: .utf8)) ?? ""
     check("the supervisor source is readable from the suite", !supervisorSource.isEmpty)
-    let followStart = supervisorSource.range(of: "followAdoption: if follow {")
-    check("the follow adoption is a labeled block", followStart != nil)
-    if let followStart,
-       let followEnd = supervisorSource.range(of: "// The session's ACTUAL model degraded",
-                                              range: followStart.upperBound ..< supervisorSource.endIndex) {
-        let block = String(supervisorSource[followStart.upperBound ..< followEnd.lowerBound])
-        check("the dead end leaves the adoption, not the tick",
-              block.contains("break followAdoption"))
-        check("no bare continue skips the rest of the tick",
-              block.range(of: #"(?<![-"])\bcontinue\b"#, options: .regularExpression) == nil)
+    // The adoption is now a function of its own (FollowAdoption.swift), which makes the same
+    // invariant structural instead of conventional: abandoning it is a plain `return`, and a
+    // `continue` that would skip the rest of the tick cannot compile outside a loop at all. The
+    // check follows the code, and gains the half the label could never express - that the tick
+    // really does go on to handle the reload after the adoption gives up.
+    let followSource = (try? String(contentsOfFile: "TallyCLI/FollowAdoption.swift",
+                                    encoding: .utf8)) ?? ""
+    check("the follow adoption source is readable from the suite", !followSource.isEmpty)
+    check("the dead end leaves the adoption, not the tick",
+          followSource.contains("state.deadEnd = true") && followSource.contains("return"))
+    check("no bare continue skips the rest of the tick",
+          followSource.range(of: #"(?<![-"])\bcontinue\b"#, options: .regularExpression) == nil)
+    if let followCall = supervisorSource.range(of: "applyFollowAdoption("),
+       let reloadCall = supervisorSource.range(of: "applyReloadRequest(") {
+        check("and a reload request is still handled after it, dead end or not",
+              followCall.lowerBound < reloadCall.lowerBound)
     } else {
-        check("the follow block boundaries were found", false)
+        check("both calls were found in the tick", false)
     }
 
     // The fuse carry is only real if the loop is wired to both ends of it, and neither end can be

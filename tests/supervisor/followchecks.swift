@@ -64,21 +64,136 @@ func runFollowChecks() {
     // stale would silence this Settings change and every later one against the same pair. The
     // branch cannot be reached without spawning a child, so the source carries the invariant (the
     // same approach as the follow dead-end check in reloadchecks.swift).
-    let source = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
-    if let start = source.range(of: "followAdoption: if follow {"),
-       let end = source.range(of: "// The session's ACTUAL model degraded",
-                              range: start.upperBound ..< source.endIndex) {
-        let block = String(source[start.upperBound ..< end.lowerBound])
-        check("the follow block consults the args, not just its own baseline",
-              block.contains("followAlreadySatisfied("))
-        var baselineComesFirst = false
-        if let rebaseline = block.range(of: "(followedModel, followedEffort) = desired"),
-           let firstQueue = block.range(of: "else if pendingSince == nil") {
-            baselineComesFirst = rebaseline.lowerBound < firstQueue.lowerBound
-        }
-        check("and the satisfied branch re-points the baseline before the queueing path",
-              baselineComesFirst)
-    } else {
-        check("the follow block boundaries were found for the baseline check", false)
+    // The adoption now has a file of its own, so the block IS the file: no boundary markers to
+    // drift, and the same invariant asserted over the same code.
+    let block = (try? String(contentsOfFile: "TallyCLI/FollowAdoption.swift", encoding: .utf8)) ?? ""
+    check("the follow adoption source is readable for the baseline check", !block.isEmpty)
+    check("the follow block consults the args, not just its own baseline",
+          block.contains("followAlreadySatisfied("))
+    var baselineComesFirst = false
+    if let rebaseline = block.range(of: "(state.followedModel, state.followedEffort) = desired"),
+       let firstQueue = block.range(of: "else if state.pendingSince == nil") {
+        baselineComesFirst = rebaseline.lowerBound < firstQueue.lowerBound
     }
+    check("and the satisfied branch re-points the baseline before the queueing path",
+          baselineComesFirst)
+    // MARK: - 28. The adoption's five paths, exercised rather than inspected
+
+    // Being a function instead of a block inside the poll loop is what makes this possible at all:
+    // before the split every one of these branches needed a spawned child to reach, so the whole
+    // decision was covered by source assertions and nothing else.
+    let followNow = Date(timeIntervalSince1970: 1_800_000_000)
+    func followAccount(_ id: String, model: Double = 90) -> Snapshot.Account {
+        Snapshot.Account(id: id, provider: "claude", label: id, launchHome: "/tmp/\(id)",
+                         sessionRemaining: 90, weeklyRemaining: 90, modelRemaining: model,
+                         sessionResetsAt: followNow.addingTimeInterval(4 * 3600),
+                         weeklyResetsAt: followNow.addingTimeInterval(100 * 3600),
+                         modelResetsAt: followNow.addingTimeInterval(100 * 3600),
+                         modelWindowName: "fable", resetCreditsAvailable: nil,
+                         isStale: false, error: nil)
+    }
+    let here = followAccount("A")
+    // A transcript that has been silent for hours, so only the keyboard and the debounce decide.
+    let followDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-follow-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: followDir, withIntermediateDirectories: true)
+    let followFile = followDir.appendingPathComponent("session.jsonl")
+    try! "{}".write(to: followFile, atomically: true, encoding: .utf8)
+    try! FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-9999)],
+                                           ofItemAtPath: followFile.path)
+    var followWatcher = TranscriptWatcher(projectDir: followDir, file: followFile, since: launch)
+
+    func adopt(state: inout FollowState, plan: inout RelaunchPlan?,
+               model: String? = "fable", effort: String? = "xhigh", mode: String = "auto",
+               following: Bool = true, launchArgs: [String] = [],
+               keyboardIdle: @escaping (TimeInterval) -> Bool = { _ in true },
+               fleet: [Snapshot.Account] = [followAccount("A")]) {
+        applyFollowAdoption(
+            plan: &plan, state: &state, following: following,
+            policy: LaunchPolicy(mode: mode, model: model, effort: effort),
+            account: here, providerID: "claude", launchArgs: launchArgs, quarantine: [:],
+            watcher: &followWatcher, keyboardIdle: keyboardIdle,
+            snapshot: { (Snapshot(version: 2, generatedAt: Date(), accounts: fleet), nil) })
+    }
+
+    // Path 1: already satisfied. The baseline is re-pointed and nothing is queued or planned.
+    var satisfied = FollowState(launchArgs: ["--model", "fable", "--effort", "xhigh"])
+    var satisfiedPlan: RelaunchPlan?
+    adopt(state: &satisfied, plan: &satisfiedPlan)
+    check("an unchanged pair plans nothing", satisfiedPlan == nil)
+    check("and queues nothing", !satisfied.queuedNotice && satisfied.pendingSince == nil)
+    check("and re-points the baseline", satisfied.followedModel == "fable")
+
+    // Path 2: a real change starts the debounce clock rather than acting on the first sighting.
+    var pending = FollowState(launchArgs: ["--model", "opus"])
+    var pendingPlan: RelaunchPlan?
+    adopt(state: &pending, plan: &pendingPlan)
+    check("a new pair starts the debounce instead of adopting", pendingPlan == nil)
+    check("and records what it is waiting on", pending.pendingModel == "fable")
+    check("with the clock started", pending.pendingSince != nil)
+
+    // Path 3: folding into a relaunch this tick already planned. No waiting, no second SIGTERM.
+    var folding = FollowState(launchArgs: ["--model", "opus"])
+    var foldPlan: RelaunchPlan? = RelaunchPlan(target: here, reason: "cap", countsFuse: true)
+    adopt(state: &folding, plan: &foldPlan)          // first tick: starts the clock
+    adopt(state: &folding, plan: &foldPlan)          // second: a plan exists, so it folds at once
+    check("an existing plan takes the new pair with it", foldPlan?.followFolded == true)
+    check("and keeps its own reason and target",
+          foldPlan?.reason == "cap" && foldPlan?.target.id == "A")
+    check("the fold carries the model", foldPlan?.model == "fable")
+
+    // Path 4: standing on its own, so it waits for a quiet keyboard. This is the gate the
+    // 2026-07-28 burst tracker exists to keep openable at all.
+    var typing = FollowState(launchArgs: ["--model", "opus"])
+    var typingPlan: RelaunchPlan?
+    adopt(state: &typing, plan: &typingPlan, keyboardIdle: { _ in false })   // starts the clock
+    // The debounce is put behind us deliberately, so the keyboard is the ONLY term left that can
+    // hold this back. Without that the assertion passes for the wrong reason: the tick right after
+    // the clock starts is inside the debounce floor anyway, and would report "held" with the
+    // keyboard check deleted entirely.
+    typing.pendingSince = Date().addingTimeInterval(-followDebounce - 1)
+    adopt(state: &typing, plan: &typingPlan, keyboardIdle: { _ in false })
+    check("a busy keyboard alone holds the adoption back", typingPlan == nil)
+    check("and says so once, in the badge", typing.queuedNotice)
+    adopt(state: &typing, plan: &typingPlan)
+    check("and it lands once the keyboard goes still", typingPlan?.reason == "follow")
+    check("on an account that can serve the new model", typingPlan?.target.id == "A")
+
+    // Path 5: THE DEAD END, and the thing it must not do. No account can serve the new model, so
+    // the adoption gives up - and leaves the tick alive, because a `tally reload` queued behind it
+    // has to be handled by the blocks that run after this one (2026-07-25: it was not).
+    var stuck = FollowState(launchArgs: ["--model", "opus"])
+    var stuckPlan: RelaunchPlan?
+    adopt(state: &stuck, plan: &stuckPlan, fleet: [])
+    stuck.pendingSince = Date().addingTimeInterval(-followDebounce - 1)
+    adopt(state: &stuck, plan: &stuckPlan, fleet: [])
+    check("a dead end plans no relaunch", stuckPlan == nil)
+    check("and records itself for the badge", stuck.deadEnd)
+    // The invariant the label used to carry: giving up must not consume the pending pair either,
+    // or the change would be silently lost the moment an account frees up.
+    check("and keeps waiting on the same pair", stuck.pendingModel == "fable")
+    check("without re-pointing the baseline as though it had adopted",
+          stuck.followedModel == "opus")
+    // An account appearing clears the dead end and the adoption goes through.
+    adopt(state: &stuck, plan: &stuckPlan)
+    check("and it adopts as soon as an account can serve the model", stuckPlan?.reason == "follow")
+    check("with the dead-end badge cleared", !stuck.deadEnd)
+
+    // Manual mode never moves account: the pin means "this one", so the re-pick is the incumbent.
+    var pinned = FollowState(launchArgs: ["--model", "opus"])
+    var pinnedPlan: RelaunchPlan?
+    adopt(state: &pinned, plan: &pinnedPlan, mode: "manual", fleet: [])
+    pinned.pendingSince = Date().addingTimeInterval(-followDebounce - 1)
+    adopt(state: &pinned, plan: &pinnedPlan, mode: "manual", fleet: [])
+    check("a pinned session adopts on its own account, with no fleet to consult",
+          pinnedPlan?.target.id == "A")
+
+    // Opted out (`--no-follow`, or a hand-typed --model): nothing is read and nothing is written.
+    var optedOut = FollowState(launchArgs: ["--model", "opus"])
+    var optedOutPlan: RelaunchPlan?
+    adopt(state: &optedOut, plan: &optedOutPlan, following: false)
+    check("an opted-out session plans nothing", optedOutPlan == nil)
+    check("and its state is untouched",
+          optedOut.pendingSince == nil && optedOut.followedModel == "opus")
+    try? FileManager.default.removeItem(at: followDir)
 }

@@ -29,26 +29,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var launchArgs = args.filter { $0 != "--no-handoff" && $0 != "--no-follow" }
     /// The fallback profile fires at most once per session.
     var fallbackApplied = false
-    /// The launch-default pair (model, effort) this session currently runs on. A Settings change
-    /// is adopted only when the desired pair differs from this one, and this updates on adopt, so
-    /// each change fires exactly once and an unchanged policy never churns. The fallback profile
-    /// rewrites launchArgs without touching these, so a fallback in effect does not retrigger.
-    var followedModel = flagValue(launchArgs, "--model")?.lowercased()
-    var followedEffort = flagValue(launchArgs, "--effort")?.lowercased()
-    /// Follow debounce: a short floor now that Settings writes the model+effort pair atomically on
-    /// Apply (it used to arrive as two writes seconds apart, needing a 10s window to coalesce). The
-    /// floor only guards against adopting a transient mid-write; the atomic write means one Apply is
-    /// one relaunch regardless.
-    let followDebounce: TimeInterval = 2
-    var pendingSince: Date?
-    var pendingModel: String?
-    var pendingEffort: String?
-    /// True once the "will adopt when idle" note has been shown for the current pending pair, so a
-    /// session that is being used does not repeat it every tick.
-    var followQueuedNotice = false
-    /// True while a follow adoption has nowhere to land (no account can serve the new model), so
-    /// the "waiting" note is shown once, not every tick. Cleared when an account frees up.
-    var followDeadEnd = false
+    /// Everything the launch-default follow remembers between ticks, seeded from this session's own
+    /// command line (FollowAdoption.swift). Held across relaunches, like the fuse and the quarantine.
+    var followState = FollowState(launchArgs: launchArgs)
     /// The recovery fuse for THIS session, held across relaunches AND across a self-update exec
     /// (seeded from `recoveries`): at most 3 automatic cross-account recoveries per 10 minutes (a
     /// cap handoff or a degradation rescue). In memory and per session, so a fleet-wide drain never
@@ -279,83 +262,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 }
             }
 
-            // Follow the launch default: changing "Default model & effort" in Settings re-points a
-            // RUNNING session. Deliberate, so no fuse. Adoption waits until the desired pair holds
-            // steady for `followDebounce` (model and effort are picked one after the other), UNLESS
-            // a relaunch is already planned this tick - then it folds in for free (one SIGTERM). In
-            // auto mode the session re-picks its account for the NEW model (incumbent-seeded, so a
-            // still-serviceable account never churns; the 02:22 storm relaunched onto an account
-            // with no room for the new model). Manual/pinned never switches account, and a dead end
-            // (no account can serve the new model) waits instead of relaunching onto a wall.
-            // Labeled so a dead end can abandon the ADOPTION without abandoning the tick: it used
-            // to `continue`, which also skipped the reload check below, so a reload request against
-            // a session waiting on an unservable model was never even acknowledged (2026-07-25).
-            followAdoption: if follow {
-                let desired = (policy.model?.lowercased(), policy.effort?.lowercased())
-                // Nothing to adopt: the pair follow last set, or one that another rewrite already
-                // put on the command line while leaving this baseline stale (the reasoning lives
-                // with `followAlreadySatisfied` in SupervisorRuntime.swift). Re-point the baseline
-                // and say nothing - queueing here promises a relaunch that would change nothing.
-                if desired == (followedModel, followedEffort)
-                    || followAlreadySatisfied(desiredModel: desired.0, desiredEffort: desired.1,
-                                              launchArgs: launchArgs) {
-                    (followedModel, followedEffort) = desired
-                    pendingSince = nil
-                    followQueuedNotice = false
-                } else if pendingSince == nil || desired != (pendingModel, pendingEffort) {
-                    (pendingModel, pendingEffort) = desired
-                    pendingSince = Date()
-                    followQueuedNotice = false
-                } else if let since = pendingSince,
-                          // A relaunch already planned this tick carries the new pair for free, so
-                          // it never waits: the SIGTERM is happening either way. A follow standing
-                          // on its own is the only one that interrupts, so it waits for genuine
-                          // idleness: file AND keyboard, since a typed prompt reaches neither yet.
-                          plan != nil || (Date().timeIntervalSince(since) >= followDebounce
-                                          && watcher.isQuiet(followIdleSeconds)
-                                          && keyboard.idle(followIdleSeconds)) {
-                    if var existing = plan, !existing.followFolded {
-                        existing.model = policy.model
-                        existing.effort = policy.effort
-                        existing.followFolded = true
-                        plan = existing
-                        warn("also adopting launch default \(policy.model ?? "default")/" +
-                             "\(policy.effort ?? "default")")
-                        (followedModel, followedEffort) = desired
-                        pendingSince = nil
-                    } else if plan == nil {
-                        let repick: Snapshot.Account?
-                        if policy.mode == "manual" {
-                            repick = account
-                        } else {
-                            let (snapshot, _) = loadSnapshot()
-                            let excluded = quarantinedAccounts(forPrimary: policy.model,
-                                                               sessionLocal: quarantine)
-                            repick = snapshot.flatMap {
-                                incumbentSeededBest(providerID: provider.id, in: $0,
-                                                    incumbentID: account.id, primaryModel: policy.model,
-                                                    excluding: excluded)
-                            }
-                        }
-                        guard let repick else {
-                            followDeadEnd = true
-                            break followAdoption
-                        }
-                        followDeadEnd = false
-                        warn("launch default changed to \(policy.model ?? "default")/" +
-                             "\(policy.effort ?? "default") → adopting it" +
-                             (repick.id != account.id ? " on \(repick.label)" : ""))
-                        plan = RelaunchPlan(target: repick, reason: "follow", countsFuse: false,
-                                            model: policy.model, effort: policy.effort)
-                        (followedModel, followedEffort) = desired
-                        pendingSince = nil
-                    }
-                } else {
-                    // Queued behind an in-use session: the badge carries it, so the change never
-                    // looks lost and nothing is printed over the prompt being typed.
-                    followQueuedNotice = true
-                }
-            }
+            // Follow the launch default: a Settings change to "Default model & effort" re-points
+            // this RUNNING session at the next quiet moment. The whole rule lives in
+            // FollowAdoption.swift; what the tick supplies is the state, the plan it may fold into,
+            // and the two things it has to ask about idleness.
+            applyFollowAdoption(plan: &plan, state: &followState, following: follow, policy: policy,
+                                account: account, providerID: provider.id, launchArgs: launchArgs,
+                                quarantine: quarantine, watcher: &watcher,
+                                keyboardIdle: { keyboard.idle($0) })
 
             // The session's ACTUAL model degraded away from the declared primary (claude fell
             // back server-side - e.g. the flagship weekly ran dry). Flagship-first response:
@@ -472,7 +386,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID, reload: reloadNotice.pending,
-                              followDeadEnd: followDeadEnd, followQueued: followQueuedNotice,
+                              followDeadEnd: followState.deadEnd, followQueued: followState.queuedNotice,
                               policy: policy, capReason: pendingCap?.reason)
 
             // Execute the tick's one relaunch: terminate the child once, then apply any

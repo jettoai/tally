@@ -200,14 +200,21 @@ func runPendingNoticeChecks() {
     } else {
         check("the queued branch was found", false)
     }
-    if let deadEnd = section(loop, from: "guard let repick else {", to: "followDeadEnd = false") {
+    // Both follow branches moved to FollowAdoption.swift; the assertions moved with them, unchanged
+    // in meaning. The file also still holds the two announcements that MUST speak (an adoption
+    // terminates the child), which the speaking half below covers.
+    let followSource = (try? String(contentsOfFile: "TallyCLI/FollowAdoption.swift",
+                                    encoding: .utf8)) ?? ""
+    check("the follow adoption source is readable from the pending-notice checks",
+          !followSource.isEmpty)
+    if let deadEnd = section(followSource, from: "guard let repick else {",
+                             to: "state.deadEnd = false") {
         check("a follow with nowhere to land says nothing on the terminal",
               !deadEnd.contains("warn("))
     } else {
         check("the follow dead end was found", false)
     }
-    if let queuedFollowBranch = section(loop, from: "} else {\n                    // Queued behind",
-                                        to: "// The session's ACTUAL model degraded") {
+    if let queuedFollowBranch = section(followSource, from: "// Queued behind", to: "}") {
         check("a queued follow says nothing on the terminal",
               !queuedFollowBranch.contains("warn("))
     } else {
@@ -236,7 +243,8 @@ func runPendingNoticeChecks() {
                          "nearly dry, moving to",
                          "model fell back to",
                          "pinned in Tally → switching to"] {
-        let source = announcement.hasPrefix("reload") ? reloadSource : loop
+        let source = announcement.hasPrefix("reload") ? reloadSource
+            : announcement.hasPrefix("launch default") ? followSource : loop
         check("\"\(announcement)\" still speaks, because the child is about to go",
               source.contains("warn(\"\(announcement)") || source.contains("\(announcement)"))
     }

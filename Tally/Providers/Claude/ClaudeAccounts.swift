@@ -1,5 +1,4 @@
 import Foundation
-import CryptoKit
 
 /// Discovers Claude Code accounts on this machine. Discovery only PROBES that each config dir's
 /// Keychain login exists (an attribute check - the secret is never read); usage itself is fetched
@@ -11,15 +10,15 @@ import CryptoKit
 /// accounts independently - the whole point of the project.
 enum ClaudeAccounts {
     static let providerID = "claude"
-    private static let baseService = "Claude Code-credentials"
 
     /// Keychain service name for a given config dir. `~/.claude` → bare; others → hashed suffix.
+    ///
+    /// The derivation itself lives in Core/Keychain/ClaudeKeychainService.swift because `tally add`
+    /// needs the identical name to tell a logged-in home from a free slot, and two copies of a hash
+    /// rule fail silently when they drift (a wrong name simply finds nothing, which is
+    /// indistinguishable from "not logged in").
     static func service(forConfigDir dir: URL) -> String {
-        if dir.lastPathComponent == ".claude" { return baseService }
-        let normalized = dir.path.precomposedStringWithCanonicalMapping
-        let digest = SHA256.hash(data: Data(normalized.utf8))
-        let suffix = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
-        return "\(baseService)-\(suffix)"
+        claudeKeychainService(forConfigDir: dir)
     }
 
     /// Human label = provider name + the dir's distinguisher: `~/.claude` → "Claude",

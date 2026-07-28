@@ -47,6 +47,12 @@ targets:
     platform: macOS
     sources:
       - TallyCLI
+      # `tally add` has to tell a logged-in config home from a free slot, and a Claude Code login
+      # now lives in the Keychain rather than in a credentials file. It asks the same probe, under
+      # the same derived service name, that the app's discovery does - one implementation, because
+      # a drifted second copy of the hash rule would find nothing and read as "not logged in".
+      - path: Tally/Core/Keychain/KeychainReader.swift
+      - path: Tally/Core/Keychain/ClaudeKeychainService.swift
     settings:
       base:
         PRODUCT_NAME: tally

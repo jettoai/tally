@@ -145,6 +145,87 @@ check("unlink keeps a symlink pointing anywhere else",
       (try? fm.destinationOfSymbolicLink(atPath: undo.appendingPathComponent("hooks").path))
           == tmp.appendingPathComponent("elsewhere").path)
 
+// MARK: - Which slot `tally add` picks
+
+// The bug this locks (2026-07-28): a Claude Code login now lives in the KEYCHAIN and writes no
+// credentials file, so a probe that only looked for `<dir>/.credentials.json` read a fully
+// logged-in `~/.claude3` as an unfinished login to resume. `tally add claude` reused that home,
+// exec'd claude into it, and claude found its Keychain token and opened a session on the existing
+// account. Nothing errored: every step did what it was told.
+//
+// Both probes are injected here, so these assertions read no Keychain and do not care which
+// accounts exist on the machine running them.
+let noFiles: (String) -> Bool = { _ in false }
+let noKeychain: (URL) -> Bool = { _ in false }
+let fakeHome = URL(fileURLWithPath: "/nowhere")
+func slot(base: String = ".claude", authFile: String = ".credentials.json",
+          files: @escaping (String) -> Bool = noFiles,
+          keychain: @escaping (URL) -> Bool = noKeychain) -> String? {
+    nextFreeSlot(base: base, authFile: authFile, home: fakeHome,
+                 fileExists: files, keychainLogin: keychain).map(\.name)
+}
+
+// An old-style account: the credentials file is there, no Keychain item. Still someone's login.
+check("a dir with a credentials file is occupied",
+      slot(files: { $0.hasSuffix("/.claude/.credentials.json") }) == ".claude2")
+// THE REGRESSION LOCK: the reverse, which is what every new login looks like.
+check("a keychain-only login is occupied too, not a free slot",
+      slot(keychain: { $0.lastPathComponent == ".claude" }) == ".claude2")
+check("and the two mix, as they do on a real machine",
+      slot(files: { $0.hasSuffix("/.claude/.credentials.json") },
+           keychain: { $0.lastPathComponent == ".claude2" }) == ".claude3")
+// The resume case the numbering deliberately keeps: a home from an aborted login has neither, so
+// it is handed back rather than skipped, and an abandoned attempt never burns a number.
+check("a home with no login at all is the slot to use", slot() == ".claude")
+check("an aborted login is resumed rather than skipped",
+      slot(keychain: { ["\(fakeHome.path)/.claude"].contains($0.path) }) == ".claude2")
+// Nowhere left to go.
+check("all 99 taken has no answer", slot(keychain: { _ in true }) == nil)
+check("and the file probe alone can exhaust it too", slot(files: { _ in true }) == nil)
+
+// codex keeps its credential in a file, so the Keychain is never asked about it: a question with
+// no answer there would only ever return false, and asking it invites a copy of this bug in
+// reverse (a codex home judged free because the Keychain, correctly, knows nothing about it).
+var codexKeychainAsks = 0
+check("codex finds its own free slot from the file alone",
+      slot(base: ".codex", authFile: "auth.json",
+           files: { $0.hasSuffix("/.codex/auth.json") },
+           keychain: { _ in codexKeychainAsks += 1; return false }) == ".codex2")
+check("and the keychain is never consulted for it", codexKeychainAsks == 0)
+
+// The name the probe asks about has to be the name the app's discovery writes, or it finds nothing
+// and everything reads as "not logged in". One derivation, delegated, so they cannot drift.
+check("the default config dir uses the bare service name",
+      claudeKeychainService(forConfigDir: URL(fileURLWithPath: "/Users/x/.claude"))
+          == "Claude Code-credentials")
+check("any other dir appends 8 hex of its path hash",
+      claudeKeychainService(forConfigDir: URL(fileURLWithPath: "/Users/x/.claude2"))
+          .hasPrefix("Claude Code-credentials-"))
+check("the suffix is exactly 8 hex characters",
+      claudeKeychainService(forConfigDir: URL(fileURLWithPath: "/Users/x/.claude2"))
+          .dropFirst("Claude Code-credentials-".count).count == 8)
+check("the same dir always derives the same name",
+      claudeKeychainService(forConfigDir: URL(fileURLWithPath: "/Users/x/.claude2"))
+          == claudeKeychainService(forConfigDir: URL(fileURLWithPath: "/Users/x/.claude2")))
+check("and two dirs never share one",
+      claudeKeychainService(forConfigDir: URL(fileURLWithPath: "/Users/x/.claude2"))
+          != claudeKeychainService(forConfigDir: URL(fileURLWithPath: "/Users/x/.claude3")))
+// Measured against the real machine this bug was found on (2026-07-28): `~/.claude3` there is a
+// keychain-only login under exactly this service name, so the derivation is pinned to a value
+// observed in the wild rather than to itself.
+check("the derivation matches the name observed on the affected machine",
+      claudeKeychainService(forConfigDir: URL(fileURLWithPath: "/Users/albertliu/.claude3"))
+          == "Claude Code-credentials-72082ca3")
+
+// The app side must go through that same function rather than keeping its own copy.
+let accountsSource = (try? String(contentsOfFile: "Tally/Providers/Claude/ClaudeAccounts.swift",
+                                  encoding: .utf8)) ?? ""
+check("the app's discovery source is readable from this suite", !accountsSource.isEmpty)
+check("the app delegates its service name instead of deriving one",
+      accountsSource.contains("claudeKeychainService(forConfigDir: dir)"))
+check("and keeps no second copy of the hash rule",
+      !accountsSource.contains("SHA256.hash"))
+
 try? fm.removeItem(at: tmp)
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

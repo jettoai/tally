@@ -14,6 +14,35 @@ import Foundation
 /// so cross-account resume and handoff continue the same history. Multi-account in Tally
 /// means one person's accounts working as one fleet; separate setups are the special case,
 /// not the default. The launch report says out loud when conversations are shared.
+/// The next config home that is not already logged in, or nil when all 99 are taken.
+///
+/// "Logged in" is asked of BOTH places a credential can live, because Claude Code has two
+/// generations of credential storage in the field at once: older logins wrote
+/// `<dir>/.credentials.json`, newer ones put the OAuth token in the Keychain and write no file at
+/// all. A dir with either one is somebody's account.
+///
+/// Asking only about the file is what broke this (2026-07-28): on a machine whose third account was
+/// a Keychain-only login, `~/.claude3` looked like the aborted-login case above, so `tally add
+/// claude` reused it, exec'd claude there, and claude found the Keychain token and simply opened a
+/// session on that existing account. The report was "add opened an existing account instead of
+/// logging me in", with no error anywhere, because every step did exactly what it was told.
+///
+/// Both probes are injected so the choice is testable without a Keychain or a home directory. The
+/// Keychain one is only ever consulted for claude: a codex login is a file (`auth.json`), so asking
+/// the Keychain about it would be asking a question with no answer.
+func nextFreeSlot(base: String, authFile: String, home: URL,
+                  fileExists: (String) -> Bool,
+                  keychainLogin: (URL) -> Bool) -> (dir: URL, name: String)? {
+    for n in 1 ... 99 {
+        let name = n == 1 ? base : "\(base)\(n)"
+        let dir = home.appendingPathComponent(name)
+        if fileExists(dir.appendingPathComponent(authFile).path) { continue }
+        if base == ".claude", keychainLogin(dir) { continue }
+        return (dir, name)
+    }
+    return nil
+}
+
 func runAdd(args: [String]) -> Never {
     let share = !args.contains("--no-share")
     let providerID = args.first { !$0.hasPrefix("--") } ?? ""
@@ -25,15 +54,12 @@ func runAdd(args: [String]) -> Never {
     let home = fm.homeDirectoryForCurrentUser
     let base = provider.id == "claude" ? ".claude" : ".codex"
     let authFile = provider.id == "claude" ? ".credentials.json" : "auth.json"
-    var chosen: (dir: URL, name: String)?
-    for n in 1 ... 99 {
-        let name = n == 1 ? base : "\(base)\(n)"
-        let dir = home.appendingPathComponent(name)
-        if !fm.fileExists(atPath: dir.appendingPathComponent(authFile).path) {
-            chosen = (dir, name)
-            break
-        }
-    }
+    // The Keychain probe is an attribute check (KeychainReader.exists): it returns no secret and
+    // raises no consent prompt, so `tally add` never touches a credential to find this out.
+    let chosen = nextFreeSlot(
+        base: base, authFile: authFile, home: home,
+        fileExists: { fm.fileExists(atPath: $0) },
+        keychainLogin: { KeychainReader.exists(service: claudeKeychainService(forConfigDir: $0)) })
     guard let (dir, name) = chosen else {
         warn("no free slot: ~/\(base) through ~/\(base)99 all have logins")
         exit(1)

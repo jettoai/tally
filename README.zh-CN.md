@@ -29,7 +29,7 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally 固定面板：各 provider 的舰队仪表合并九个账号（五个 Claude Max、四个 Codex），Claude 同时显示两条跑道（Fable 池与周池长条，各附节奏预测“约可再用 4d 12h”与下一次错开回充）、Codex 一条周池（此节奏可持续）；下方每个账号各自的卡片显示 5 小时会话、每周、旗舰模型额度窗，含重置时间、接近上限警示，以及标出启动器当前选择的紫色智选徽章" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally 固定面板：各 provider 的舰队仪表合并九个账号（五个 Claude Max、四个 Codex），Claude 同时显示两条跑道（Fable 池与周池长条，各附节奏预测“约可再用 4d 12h”与下一次错开回充）、Codex 一条周池（此节奏可持续）；顾问行以账号圆点显示各 provider 的每周实际需求（5.8 acct/wk），节奏超出时标示应加开一个账号；下方每个账号各自的卡片显示 5 小时会话、每周、旗舰模型额度窗，含重置时间、接近上限警示，以及标出启动器当前选择的紫色智选徽章" width="834">
 </p>
 
 ## 为什么是 Tally

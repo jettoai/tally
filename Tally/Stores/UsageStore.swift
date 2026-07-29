@@ -32,8 +32,8 @@ final class UsageStore {
 
     /// The usage advisor's per-provider "do I need another account?" verdict, recomputed from the
     /// 28-day burn history after each refresh - what the advisor strip renders. Empty until the
-    /// first history read completes, and stays empty in demo mode (its refresh returns before this
-    /// read is ever reached).
+    /// first history read completes; demo mode fills it from fixtures instead, since a demo launch
+    /// has no history to read.
     private(set) var advisorReadings: [UsageAdvisor.Reading] = []
 
     private let providers = ProviderCatalog.all
@@ -172,6 +172,7 @@ final class UsageStore {
         if DemoUsage.isActive {
             accounts = DemoUsage.accounts()
             fleetRates = DemoUsage.fleetRates
+            advisorReadings = DemoUsage.advisorReadings
             lastRefreshedAt = Date()
             lastSuccessfulRefreshAt = lastRefreshedAt
             onChange?()
@@ -258,7 +259,9 @@ final class UsageStore {
         }
         // The advisor needs a wider window than the pace forecast (weekly demand needs weeks, not
         // hours), so it reads the history separately. Same off-main queue, mapped into the pure
-        // advisor's own sample type.
+        // advisor's own sample type. Demo mode never reaches this read (its refresh returned
+        // above); the guard below keeps the fixture readings the only ones a demo panel can show
+        // even if that early return ever moves.
         UsageHistory.shared.samples(
             since: now.addingTimeInterval(-UsageAdvisor.lookbackDays * 86_400)) { samples in
             let advisorSamples = samples.map {
@@ -267,7 +270,10 @@ final class UsageStore {
                                     resetAt: $0.resetAt)
             }
             let readings = UsageAdvisor.readings(samples: advisorSamples, now: now)
-            Task { @MainActor in UsageStore.shared.advisorReadings = readings }
+            Task { @MainActor in
+                guard !DemoUsage.isActive else { return }
+                UsageStore.shared.advisorReadings = readings
+            }
         }
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
         scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })

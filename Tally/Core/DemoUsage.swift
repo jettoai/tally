@@ -47,6 +47,24 @@ enum DemoUsage {
          "codex|weeklyAll": FleetRate(perHour: 1.4, sampledHours: 72)]
     }
 
+    /// Fabricated advisor readings so the advisor strip renders in screenshots too. Real instances
+    /// derive these from ~/.tally/history.jsonl, which a demo launch never has, so without fixtures
+    /// the strip is simply absent from the shot. The numbers continue the story the gauges above
+    /// already tell: the five Claude accounts spend more per week than they refill (pace asks for a
+    /// sixth, one hollow pip), while the four Codex accounts stay inside their budget.
+    static var advisorReadings: [UsageAdvisor.Reading] {
+        // 5.8 account-weeks over 5 accounts puts the pool past the 0.9 trigger on its own, and the
+        // starved hours cross their 2h/wk trigger too, so both paths to "add an account" agree.
+        // The active burn is the same working week seen from each provider: ~580 percent-points a
+        // week at 11%/h and ~260 at 5%/h are both about 53 hours of hands-on time.
+        [UsageAdvisor.Reading(provider: "claude", verdict: .addAccount, demandPerWeek: 5.8,
+                              activeBurnPerHour: 11, starvedHoursPerWeek: 3.4,
+                              daysOfData: 14, accountCount: 5),
+         UsageAdvisor.Reading(provider: "codex", verdict: .sufficient, demandPerWeek: 2.6,
+                              activeBurnPerHour: 5, starvedHoursPerWeek: 0,
+                              daysOfData: 14, accountCount: 4)]
+    }
+
     /// A Claude account shaped exactly like ClaudeUsageCLI's mapping: a model-scoped weekly window
     /// (the headline), the 5h session, and the all-model weekly. A nil session reset mirrors the
     /// untouched-account case ("5h starts on first use").

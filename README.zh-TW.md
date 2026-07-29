@@ -29,7 +29,7 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally 釘選面板：各 provider 的艦隊儀表合池九個帳號（五個 Claude Max、四個 Codex），Claude 同時顯示兩條跑道（Fable 池與週池長條，各附節奏預測「約可再用 4d 12h」與下一筆錯開回充）、Codex 一條週池（此節奏可持續）；下方每個帳號各自的卡片顯示 5 小時工作階段、每週、旗艦模型額度窗，含重置時間、接近上限警示，以及標出啟動器目前選擇的紫色智選徽章" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally 釘選面板：各 provider 的艦隊儀表合池九個帳號（五個 Claude Max、四個 Codex），Claude 同時顯示兩條跑道（Fable 池與週池長條，各附節奏預測「約可再用 4d 12h」與下一筆錯開回充）、Codex 一條週池（此節奏可持續）；顧問列以帳號圓點顯示各 provider 的每週實際需求（5.8 acct/wk），節奏超出時標示該加開一個帳號；下方每個帳號各自的卡片顯示 5 小時工作階段、每週、旗艦模型額度窗，含重置時間、接近上限警示，以及標出啟動器目前選擇的紫色智選徽章" width="834">
 </p>
 
 ## 為什麼是 Tally

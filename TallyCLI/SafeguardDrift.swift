@@ -34,8 +34,11 @@ import Foundation
 // The quota-driven fallback profile in Supervisor.swift reads the same pair, which is the point:
 // whether the primary became unavailable because a window ran dry or because a safeguard stepped in,
 // the session lands on the pairing the user declared for exactly that situation. The two paths are
-// disjoint (that block is gated on the drift being inactive, this one requires it), so the same
-// answer is reached from both directions and neither can fight the other.
+// disjoint (that block is gated on the drift being inactive, this one requires it), so neither can
+// fight the other. They do not answer identically any more, and the difference is deliberate: see the
+// gate below that leaves an already-declared landing place alone. A dry window is the supervisor's
+// own doing and the relaunch is the whole mechanism, while a safeguard switch already happened to a
+// running conversation, so a second restart on top of it has to earn itself.
 //
 // It is a plain same-account relaunch through the usual resume path, so the conversation continues;
 // and it settles a preference rather than repairing an outage, so it waits for the full "left alone"
@@ -47,21 +50,36 @@ import Foundation
 // all rather than restarting a session to hand it what it already has. A session already on that
 // profile is left alone for the same reason. This is the same either-half test the quota fallback
 // profile applies, so a user who configured one Settings row gets it honoured on both paths.
+//
+// ONE SHAPE OF DECLARATION IS DELIBERATELY LEFT ALONE (2026-07-29): when the model the safeguard
+// landed on is one the user already NAMED in `fallbackModel`. The safeguard's own fallback and the
+// declared fallback are then the same model, so the session is already where the declaration asks it
+// to be and there is nothing left to settle; restarting it would spend an interruption telling a
+// session to become what it already is, which reads as a restart for no reason. The depth declared
+// beside that name goes unapplied in that case, and that is the price knowingly paid: a name the user
+// wrote down as an acceptable landing place is a statement that landing there is fine as it is. The
+// drift itself is untouched (the warning and the status-line badge still report it); only the promise
+// of a relaunch is dropped. A landed model the declaration does NOT name is a different situation and
+// still restores: nothing was said about that model, so the depth and flags declared for the fallback
+// are the only answer available.
 
 /// The entry of the policy's declared fallback list that names the model the safeguard actually
 /// landed on, or nil when the list declares none of them.
 ///
 /// A list rather than one name because that is what the field holds: `fallbackModel` is
 /// comma-separated (the quota fallback profile splits it the same way), so a user who declared
-/// "opus,sonnet" has said what to run for EACH, and handing the raw string to `--model` would ask
-/// claude for a model called "opus,sonnet". Matching by model rather than taking the first entry is
-/// what keeps the promise at the top of this file: the safeguard chose which model, and the
-/// declaration only supplies the NAME the user prefers for it (their alias `opus` over the
-/// transcript's `claude-opus-4-8`) plus the depth to run it at.
+/// "opus,sonnet" has said what to run for EACH, and asking about the raw string would compare the
+/// landed model against a model called "opus,sonnet" and never match. Matching by model rather than
+/// taking the first entry is what makes the answer mean anything: the safeguard chose which model,
+/// and the question here is whether the user had already named THAT one.
 ///
-/// nil when nothing matches, and the caller then keeps the model straight from the event: a
-/// declaration naming only models the safeguard did not choose is not a reason to move the session
-/// to one of them.
+/// The restore path reads the answer as a yes/no: a landing place the user named is a landing place
+/// they accept, so the session is left where it is. The entry itself is returned rather than a Bool
+/// because it carries the alias the user writes (`opus`) rather than the transcript's full id
+/// (`claude-opus-4-8`), which is what any caller that needs to NAME the model to a launch wants; the
+/// quota fallback profile does exactly that with a matching test of its own (Supervisor.swift).
+///
+/// nil when nothing matches: the declaration said nothing about where this session landed.
 func declaredFallbackModel(_ list: String?, landedOn: String) -> String? {
     guard let list else { return nil }
     return list.split(separator: ",")
@@ -179,6 +197,12 @@ func declaredFallbackArgs(_ raw: String?) -> [String] {
 ///  - the session is still ON the model the safeguard landed it on. If it is not, the user ran
 ///    `/model` themselves and a relaunch would overwrite a deliberate choice with an older one. Not
 ///    recorded as handled: the user is free to come back, and a restore is still right if they do.
+///  - the declaration does NOT name the model the safeguard landed on. When it does name it, the
+///    safeguard's own fallback and the declared fallback are the same model: the session is already
+///    at the landing place the user wrote down, so there is nothing to settle and a restart would
+///    only confuse (the declared depth goes unapplied, which is the price of that). Past this gate
+///    the landed model is by definition unnamed, which is why the model below comes straight from
+///    the event with no lookup left to do.
 ///  - the session is not already running that profile. Model and depth are compared; the extra
 ///    flags are not, exactly as on the quota path - they are not readable back off the launch args
 ///    in any form worth trusting, and a declared depth already in place is enough to say the
@@ -189,10 +213,11 @@ func safeguardRestoreTarget(flag: SafeguardFlag, actualModel: String?, fallbackM
     let effort = fallbackEffort.flatMap { $0.isEmpty ? nil : $0 }
     let extraArgs = declaredFallbackArgs(fallbackArgs)
     guard effort != nil || !extraArgs.isEmpty, !alreadyHandled,
-          modelsAgree(actualModel, flag.to) else { return nil }
-    // The model is the safeguard's choice either way; the declaration only supplies the name the
-    // user writes it under, when they have named it at all.
-    let model = declaredFallbackModel(fallbackModel, landedOn: flag.to) ?? flag.to
+          modelsAgree(actualModel, flag.to),
+          declaredFallbackModel(fallbackModel, landedOn: flag.to) == nil else { return nil }
+    // Nothing left to look up: the declaration names none of the landed model (the gate above), so
+    // the model is the safeguard's choice, under the event's own name for it.
+    let model = flag.to
     if modelsAgree(currentModel, model),
        effort.map({ currentEffort?.lowercased() == $0.lowercased() }) ?? true { return nil }
     return SafeguardRestore(model: model, effort: effort, extraArgs: extraArgs)

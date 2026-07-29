@@ -8,6 +8,11 @@ import Foundation
 // there, running at whatever depth its LAUNCH flags carry - a depth chosen for the model it is no
 // longer on. The supervisor restarts it at the depth the home declares, at the next idle moment, on
 // the fallback model and never back on the model that tripped the safeguard.
+//
+// With one exception since 2026-07-29 (section 29b): when the landed model is one the declaration
+// already NAMES, the safeguard has produced the state the user asked for and the restart is dropped.
+// That is why the `target` helper below declares no fallback model by default: the shapes that still
+// restore are the ones whose declaration does not name where the session landed.
 
 func runSafeguardChecks() {
     // MARK: - 27. The real event shape
@@ -43,17 +48,17 @@ func runSafeguardChecks() {
     ])
     check("a quota limit raises no safeguard flag", quotaLimit.lastFlag == nil)
 
-    // MARK: - 28. The declaration that makes a restore possible
+    // MARK: - 28. The declaration a restore is decided against
     //
     // The launch policy's fallback pair, NOT Claude Code's own settings.json: the launcher already
     // overrides `effortLevel` with `--effort` on every launch, so reading it here would apply the
     // depth declared for the primary model to the fallback one. The quota fallback profile reads
-    // this same pair, so a dry window and a safeguard land on the same declared pairing.
-    check("the declared name for the landed model is used",
+    // this same pair, so a dry window and a safeguard read the same declaration.
+    check("the entry naming the landed model is found",
           declaredFallbackModel("opus", landedOn: "claude-opus-4-8") == "opus")
     // The field is a comma-separated list, so the entry naming the model the safeguard chose is the
-    // one that applies. Taking the first entry blindly would move the session to a model nobody
-    // chose, and handing the raw string to --model would ask claude for "opus,sonnet".
+    // one that answers. Taking the first entry blindly would answer about a model nobody landed on,
+    // and testing the raw string would compare against a model called "opus,sonnet" and never match.
     check("the list entry matching the landed model wins, not the first",
           declaredFallbackModel("sonnet, opus", landedOn: "claude-opus-4-8") == "opus")
     check("surrounding whitespace is trimmed",
@@ -81,7 +86,7 @@ func runSafeguardChecks() {
     // The live configuration this was measured against: fable at high to make the flagship window
     // last, opus at xhigh because that quota is not the scarce one. The pairing is deliberate,
     // which is exactly why the restore reads it rather than raising everything to one level.
-    func target(actual: String? = "claude-opus-4-8", declaredModel: String? = "opus",
+    func target(actual: String? = "claude-opus-4-8", declaredModel: String? = nil,
                 declaredEffort: String? = "xhigh", declaredArgs: String? = nil,
                 model: String? = "fable", effort: String? = "high",
                 handled: Bool = false) -> SafeguardRestore? {
@@ -90,20 +95,49 @@ func runSafeguardChecks() {
                                currentModel: model, currentEffort: effort, alreadyHandled: handled)
     }
 
-    // The case this whole feature exists for: launched fable/high, the safeguard moved it to opus,
-    // and the user declared opus/xhigh for exactly this situation.
-    check("a drifted session is restored under the declared name for that model",
-          target()?.model == "opus")
-    check("and at the depth declared for it", target()?.effort == "xhigh")
-    // With no name declared for it, the model comes straight from the event - a declaration naming
-    // only other models is never a reason to move the session to one of them.
-    check("an undeclared landed model keeps the model from the event",
-          target(declaredModel: nil)?.model == "claude-opus-4-8")
+    // The case this feature exists for: launched fable/high, the safeguard moved it to opus, and the
+    // declaration says nothing about opus - so the depth declared for the fallback is the only
+    // answer available, applied on the model the event itself names.
+    check("a drifted session onto an unnamed model is restored",
+          target()?.model == "claude-opus-4-8")
+    check("and at the depth declared for the fallback", target()?.effort == "xhigh")
+    // A declaration naming only other models is never a reason to move the session to one of them.
     check("a declaration naming other models does not redirect the session",
           target(declaredModel: "sonnet,haiku")?.model == "claude-opus-4-8")
     // Never back to the model that tripped it: standing against the safeguard only re-trips it.
     check("the restore never steers back to the model that was flagged",
           target()?.model != "claude-fable-5")
+
+    // MARK: - 29b. A landing place the user already named is left alone
+    //
+    // WAS (until 2026-07-29): a declaration naming the landed model supplied the NAME to relaunch
+    // under, and the session was restarted onto it at the declared depth. The restart settled
+    // nothing a user could see: the safeguard had already put the session on the model they wrote
+    // down as their fallback, so it was being interrupted to become what it already was. The
+    // declared depth going unapplied in this case is the price knowingly paid. The drift itself is
+    // untouched, warning and status-line badge still report the switch.
+    check("a landed model the declaration already names is left alone",
+          target(declaredModel: "opus") == nil)
+    // The alias/full-id pair is the everyday form of this: the user writes `opus`, the transcript
+    // says `claude-opus-4-8`, and the running depth is not the declared one. Still no restart.
+    check("even when the declared depth differs from the running one",
+          target(declaredModel: "opus", declaredEffort: "xhigh", effort: "high") == nil)
+    check("a multi-entry declaration naming it counts the same",
+          target(declaredModel: "opus,sonnet") == nil)
+    check("and so does one where it is not the first entry",
+          target(declaredModel: "sonnet,opus") == nil)
+    check("declared extra flags do not buy the restart back",
+          target(declaredModel: "opus", declaredEffort: nil, declaredArgs: "--a") == nil)
+    check("nor does a session sitting at a depth nobody declared",
+          target(declaredModel: "opus", effort: nil) == nil)
+    // The two shapes the gate must NOT swallow, kept beside it because that is where a later reader
+    // will look: both still restore exactly as they did before.
+    check("a declaration naming none of the landed model still restores",
+          target(declaredModel: "sonnet")
+          == SafeguardRestore(model: "claude-opus-4-8", effort: "xhigh", extraArgs: []))
+    check("and no declared model at all still restores, as it always did",
+          target(declaredModel: nil)
+          == SafeguardRestore(model: "claude-opus-4-8", effort: "xhigh", extraArgs: []))
 
     // The declaration has two independent halves and EITHER is enough, the same test the quota
     // fallback profile applies. Gating on the depth alone meant a user who declared only extra

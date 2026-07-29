@@ -50,6 +50,31 @@ let subagentIdleSeconds: TimeInterval = 600
 // Checked against every transcript on this machine (207 files, 2026-07-26): 19 carry a foreign
 // `session_id`, each naming exactly one earlier session in the same directory, and every sibling
 // session stamps its own id or none. A sibling can therefore never be adopted.
+//
+// The marker names the id the writing process was LAUNCHED with, and that id is a per-process
+// CONSTANT: one child that moves the conversation three times stamps all three new files with the
+// same launch id. It is not a chain of parent ids. Proven 2026-07-29 by three sibling files in one
+// directory, born 7/23, 13:16 and 14:34, every one of them carrying `session_id=2e61b02c`; the
+// 14:34 file does not carry the id of the 13:16 file it followed.
+//
+// Joining on the BOUND file's id therefore only ever followed the first move. Once fork1 was
+// adopted the watcher went looking for markers naming fork1, while claude kept stamping the launch
+// id, so the second move was invisible for the rest of the child's life: every idle gate that goes
+// through the bound file (transcript quiet, open turn, subagent) measured a file nothing was
+// writing and so read quiet whatever the user was doing, and the next relaunch resumed it. On
+// 2026-07-29 that cut a turn mid-flight during a self-update and orphaned about three hours of
+// conversation in the file nothing pointed at.
+//
+// So the join key is `launchID`, fixed for the life of the watcher, while `resumeID` keeps moving
+// with each adoption because it is what the next relaunch has to resume.
+//
+// A constant key opens one failure mode the chained key could not have: once the newest fork is
+// bound, the earlier and now dead fork still carries the same marker and would be adopted straight
+// back, bouncing the watcher onto a file that stopped growing. Hence a candidate is adopted only
+// when it was written MORE RECENTLY than the bound file - the live transcript is by definition the
+// one still growing. The "born after this child launched" gate stays as well, and answers a
+// different question: it excludes a PREVIOUS child's forks, which are older than this launch and
+// carry a different launch id.
 
 /// How long the bound transcript must have been silent before the fork check does more than one
 /// stat. A live conversation appends every few seconds, so an active session never pays more.
@@ -76,6 +101,13 @@ struct TranscriptWatcher {
     /// guessing by mtime - two sessions in one directory otherwise cross-bind to whichever file
     /// was touched last. nil on a fresh launch, where the heuristic still applies.
     var resumeID: String?
+    /// The fork-discovery join key: the id THIS child process was launched with, which every file
+    /// it moves the conversation into carries as its `session_id` (see the fork notes above). A
+    /// per-process constant, so unlike `resumeID` it is NEVER moved by an adoption: `resumeID`
+    /// tracks the live file because it feeds the next `--resume`, this one tracks the process.
+    /// Resolved on first use (from `resumeID`, or from the first file bound on a fresh launch)
+    /// rather than at init, so the same value is reached whichever way the watcher was built.
+    var launchID: String?
     /// The model id of the newest assistant event seen so far - how the supervisor notices a
     /// server-side model fallback.
     var lastModel: String?
@@ -312,20 +344,27 @@ struct TranscriptWatcher {
     mutating func followFork(force: Bool = false, now: Date = Date()) {
         guard let current = file else { return }
         let boundID = current.deletingPathExtension().lastPathComponent
+        // Fresh URL on purpose: resourceValues are cached per URL instance, and a stale mtime here
+        // would either hide the file the conversation just moved to or let a dead one back in.
+        let boundModified = (try? URL(fileURLWithPath: current.path)
+            .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         if !force {
             // The common case costs one stat: a conversation still appending to the bound file has
             // not moved anywhere, so nothing below needs to run.
-            guard let modified = (try? URL(fileURLWithPath: current.path)
-                    .resourceValues(forKeys: [.contentModificationDateKey]))?
-                    .contentModificationDate,
+            guard let modified = boundModified,
                   now.timeIntervalSince(modified) > forkScanQuietSeconds,
                   now >= nextForkScan else { return }
             nextForkScan = now.addingTimeInterval(forkScanInterval)
         }
-        let forks = markedForks(of: boundID)
+        // Only a file written more recently than the bound one can be where the conversation went:
+        // the process writes to exactly one transcript, so everything it left behind stopped
+        // growing. Without this the constant join key would adopt an already dead fork of this same
+        // child straight back, because it carries the very same marker as the live one.
+        let forks = markedForks(marker: launchKey(boundTo: boundID), excluding: boundID)
+            .filter { $0.modified > boundModified ?? .distantPast }
         guard let newest = forks.first else { return }
-        // Two marked files mean the child moved twice (two `/clear`s), and the newest is the live
-        // one - the process writes to exactly one transcript, so the others stopped growing. Only a
+        // Two candidates written since the bound file mean the child moved twice, and the newest is
+        // the live one - the process writes to one transcript, so the other stopped growing. Only a
         // tie leaves nothing to order them by, and guessing there is what lost the turns in the
         // first place: keep the pin and say so.
         if forks.count > 1, forks[1].modified >= newest.modified {
@@ -346,10 +385,25 @@ struct TranscriptWatcher {
         nextForkScan = .distantPast
     }
 
-    /// Files in this directory that carry `boundID` as their `session_id`, newest first: born after
+    /// The join key, resolved once and then held: the id this child was launched with, or, on a
+    /// fresh launch that resumed nothing, the id of the first file the watcher bound to. Resolving
+    /// it here rather than at init keeps every construction path (with a resume id, with a file
+    /// handed straight in, or neither) on the same value, and reads `resumeID` before any adoption
+    /// can move it.
+    private mutating func launchKey(boundTo boundID: String) -> String {
+        if let launchID { return launchID }
+        let key = resumeID ?? boundID
+        launchID = key
+        return key
+    }
+
+    /// Files in this directory that carry `marker` as their `session_id`, newest first: born after
     /// this child launched (a transcript that predates the launch cannot be where it moved to) and
-    /// carrying the marker, which no sibling session ever does.
-    mutating func markedForks(of boundID: String) -> [(url: URL, modified: Date)] {
+    /// carrying the marker, which no sibling session ever does. `boundID` is excluded because the
+    /// file already bound is not somewhere to move to, and under a constant marker it can be one of
+    /// the matches itself.
+    mutating func markedForks(marker: String,
+                              excluding boundID: String) -> [(url: URL, modified: Date)] {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .creationDateKey]
         let files = (try? FileManager.default.contentsOfDirectory(
             at: projectDir, includingPropertiesForKeys: keys)) ?? []
@@ -361,15 +415,18 @@ struct TranscriptWatcher {
                   let created = values.creationDate,
                   let modified = values.contentModificationDate,
                   created >= since.addingTimeInterval(-5) else { continue }
-            if carriesForkMarker(url, id: id, parent: boundID) { found.append((url, modified)) }
+            if carriesForkMarker(url, id: id, launchedWith: marker) {
+                found.append((url, modified))
+            }
         }
         return found.sorted { $0.modified > $1.modified }
     }
 
-    /// Whether `url` holds a line written under `parent` but into `id` - the fork marker. The
-    /// substring is only a prefilter; the decision is a top-level parse, so an id merely QUOTED
-    /// inside a tool result (this repo's own transcripts are full of them) proves nothing.
-    mutating func carriesForkMarker(_ url: URL, id: String, parent: String) -> Bool {
+    /// Whether `url` holds a line written by a process launched as `launchedWith` but into `id` -
+    /// the fork marker. The substring is only a prefilter; the decision is a top-level parse, so an
+    /// id merely QUOTED inside a tool result (this repo's own transcripts are full of them) proves
+    /// nothing.
+    mutating func carriesForkMarker(_ url: URL, id: String, launchedWith parent: String) -> Bool {
         if forkMarked.contains(id) { return true }
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }

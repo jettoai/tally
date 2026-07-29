@@ -180,14 +180,66 @@ func runForkChecks() {
     check("an unorderable tie keeps the pin", tiedWatcher.file?.lastPathComponent == "parent.jsonl")
     check("and the tie is reported once", tiedWatcher.forkAmbiguityWarned)
 
+    // 5b. The move that the chained key could never see: the SECOND move by the same child, made
+    //     after the first was already adopted. Every new transcript carries the id the process was
+    //     LAUNCHED with (`parent` here, in all three sibling files of the 2026-07-29 incident), not
+    //     the id of the file it moved from, so a watcher joining on the file it is bound to looks
+    //     for a marker nothing will ever write. From then on every idle gate measures a dead file
+    //     and every relaunch resumes it: that is the three orphaned hours and the cut turn.
+    let sequential = ForkFixture("sequential")
+    sequential.write("parent.jsonl", ["{}"], born: -3600, wrote: -30)
+    sequential.write("fork1.jsonl", [sequential.marker(own: "fork1", launched: "parent")],
+                     born: 30, wrote: 100)
+    var sequentialWatcher = sequential.watcher(pinnedTo: "parent")
+    sequentialWatcher.locateFile(forceForkCheck: true)
+    check("the first move is adopted (precondition for the second)",
+          sequentialWatcher.file?.lastPathComponent == "fork1.jsonl")
+    sequential.write("fork2.jsonl", [sequential.marker(own: "fork2", launched: "parent")],
+                     born: 200, wrote: 300)
+    sequentialWatcher.locateFile(forceForkCheck: true)
+    check("a second move by the same child is followed even after the first was adopted",
+          sequentialWatcher.file?.lastPathComponent == "fork2.jsonl")
+    let secondLive = sequentialWatcher.file?.deletingPathExtension().lastPathComponent
+    check("and the relaunch resumes the second fork, not the one it left",
+          relaunchArgs(["--resume", "parent", "--model", "fable"],
+                       sessionID: secondLive, sameAccount: true)
+          == ["--resume", "fork2", "--model", "fable"])
+    // The join key is a constant, so fork1 still carries the same marker as fork2 forever. Nothing
+    // but its mtime says it is dead, which is why adoption only ever moves forward in time.
+    sequentialWatcher.locateFile(forceForkCheck: true)
+    check("the earlier dead fork is never re-adopted once the newest is bound",
+          sequentialWatcher.file?.lastPathComponent == "fork2.jsonl")
+    check("and the pin stays on the newest too", sequentialWatcher.resumeID == "fork2")
+
+    // 5c. Quiet follows the SECOND move as well (3b, one hop further in): the file the watcher was
+    //     rebound to an hour ago is now the dead one, and the turn being cut lives in the newest.
+    let busyAgain = ForkFixture("busy-second-move")
+    busyAgain.write("parent.jsonl", ["{}"], born: -3600, wrote: -580)
+    busyAgain.write("fork1.jsonl", [busyAgain.marker(own: "fork1", launched: "parent")],
+                    born: 30, wrote: 100)
+    var busyAgainWatcher = busyAgain.watcher(pinnedTo: "parent")
+    busyAgainWatcher.locateFile(forceForkCheck: true)
+    busyAgain.write("fork2.jsonl", [busyAgain.marker(own: "fork2", launched: "parent")],
+                    born: 200, wrote: 0)
+    try! FileManager.default.setAttributes(
+        [.modificationDate: Date()],
+        ofItemAtPath: busyAgain.dir.appendingPathComponent("fork2.jsonl").path)
+    check("a second move mid-turn reads as busy", !busyAgainWatcher.isQuiet(60))
+
     // 6. The cost gates: a conversation still writing to the bound file is not scanned for at all
     //    (one stat), and once a scan has run it does not run again until the interval passes. The
     //    relaunch path forces its way past both, because there the id has to be right.
     let live2 = ForkFixture("live")
     live2.write("parent.jsonl", ["{}"], born: -3600, wrote: 0)
-    try! FileManager.default.setAttributes(
-        [.modificationDate: Date()], ofItemAtPath: live2.dir.appendingPathComponent("parent.jsonl").path)
     live2.write("fork.jsonl", [live2.marker(own: "fork", launched: "parent")], born: 30, wrote: 120)
+    // Written a second ago, with the file it moved to written since: the live transcript is always
+    // the newest one, and only the cost gate keeps the watcher on the parent below.
+    try! FileManager.default.setAttributes(
+        [.modificationDate: Date().addingTimeInterval(-1)],
+        ofItemAtPath: live2.dir.appendingPathComponent("parent.jsonl").path)
+    try! FileManager.default.setAttributes(
+        [.modificationDate: Date()],
+        ofItemAtPath: live2.dir.appendingPathComponent("fork.jsonl").path)
     var liveWatcher = live2.watcher(pinnedTo: "parent")
     liveWatcher.locateFile()
     check("a file still being written is not scanned for a fork",

@@ -34,11 +34,11 @@ import Foundation
 // The quota-driven fallback profile in Supervisor.swift reads the same pair, which is the point:
 // whether the primary became unavailable because a window ran dry or because a safeguard stepped in,
 // the session lands on the pairing the user declared for exactly that situation. The two paths are
-// disjoint (that block is gated on the drift being inactive, this one requires it), so neither can
-// fight the other. They do not answer identically any more, and the difference is deliberate: see the
-// gate below that leaves an already-declared landing place alone. A dry window is the supervisor's
-// own doing and the relaunch is the whole mechanism, while a safeguard switch already happened to a
-// running conversation, so a second restart on top of it has to earn itself.
+// disjoint (that block is gated on the drift being inactive, this one requires it), so the same
+// pairing is reached from both directions and neither can fight the other. What differs is only when
+// a restart is worth spending: a dry window is the supervisor's own doing and the relaunch IS the
+// mechanism, while a safeguard switch already happened to a running conversation, so a second restart
+// on top of it fires only when it would change something anyone could observe.
 //
 // It is a plain same-account relaunch through the usual resume path, so the conversation continues;
 // and it settles a preference rather than repairing an outage, so it waits for the full "left alone"
@@ -51,35 +51,42 @@ import Foundation
 // profile is left alone for the same reason. This is the same either-half test the quota fallback
 // profile applies, so a user who configured one Settings row gets it honoured on both paths.
 //
-// ONE SHAPE OF DECLARATION IS DELIBERATELY LEFT ALONE (2026-07-29): when the model the safeguard
-// landed on is one the user already NAMED in `fallbackModel`. The safeguard's own fallback and the
-// declared fallback are then the same model, so the session is already where the declaration asks it
-// to be and there is nothing left to settle; restarting it would spend an interruption telling a
-// session to become what it already is, which reads as a restart for no reason. The depth declared
-// beside that name goes unapplied in that case, and that is the price knowingly paid: a name the user
-// wrote down as an acceptable landing place is a statement that landing there is fine as it is. The
-// drift itself is untouched (the warning and the status-line badge still report it); only the promise
-// of a relaunch is dropped. A landed model the declaration does NOT name is a different situation and
-// still restores: nothing was said about that model, so the depth and flags declared for the fallback
-// are the only answer available.
+// WHAT "ALREADY THERE" MEANS IS THE RUNNING STATE, NOT THE LAUNCH FLAGS (2026-07-29). A restore
+// settles a difference between what the session is actually running and the pairing the declaration
+// asks for, so the question at the last gate is whether a relaunch would change anything observable.
+// Both halves of that state are read where they can be read: the model from the transcript (the gate
+// above has already established the session is on the one the safeguard landed it on), and the depth
+// from the `--effort` the child is running under. A declared depth already in place on the landed
+// model is the whole declared pairing already in place, and nothing restarts.
+//
+// This used to be decided by comparing LAUNCH FLAGS instead, the session's `--model fable` against
+// the declared `opus`, and that is exactly where the restarts that changed nothing came from: a
+// session the safeguard had moved to opus, already running the declared depth, still read as "not
+// there yet" because its launch line named a model it no longer served, so it was interrupted to
+// become what it already was. Dropping the restore entirely whenever the declaration NAMED the landed
+// model (a fix that stood for one day) removed those restarts by also removing the ones that would
+// have changed the running depth, which is the feature itself. Extra launch flags are the one half
+// with no readable running state, so a declaration of those alone still falls back to the launch-flag
+// comparison: once a relaunch has aligned the launch line, that is the only evidence the flags were
+// delivered.
 
 /// The entry of the policy's declared fallback list that names the model the safeguard actually
 /// landed on, or nil when the list declares none of them.
 ///
 /// A list rather than one name because that is what the field holds: `fallbackModel` is
 /// comma-separated (the quota fallback profile splits it the same way), so a user who declared
-/// "opus,sonnet" has said what to run for EACH, and asking about the raw string would compare the
-/// landed model against a model called "opus,sonnet" and never match. Matching by model rather than
-/// taking the first entry is what makes the answer mean anything: the safeguard chose which model,
-/// and the question here is whether the user had already named THAT one.
+/// "opus,sonnet" has said what to run for EACH, and handing the raw string to `--model` would ask
+/// claude for a model called "opus,sonnet". Matching by model rather than taking the first entry is
+/// what keeps the promise at the top of this file: the safeguard chose which model, and the
+/// declaration only supplies the NAME the user prefers for it.
 ///
-/// The restore path reads the answer as a yes/no: a landing place the user named is a landing place
-/// they accept, so the session is left where it is. The entry itself is returned rather than a Bool
-/// because it carries the alias the user writes (`opus`) rather than the transcript's full id
-/// (`claude-opus-4-8`), which is what any caller that needs to NAME the model to a launch wants; the
-/// quota fallback profile does exactly that with a matching test of its own (Supervisor.swift).
+/// The entry itself rather than a Bool because that name is the whole value: the alias the user
+/// writes (`opus`) rather than the transcript's full id (`claude-opus-4-8`), and the restore
+/// relaunches under it. The quota fallback profile picks its model the same way (Supervisor.swift).
 ///
-/// nil when nothing matches: the declaration said nothing about where this session landed.
+/// nil when nothing matches, and the caller then keeps the model straight from the event: a
+/// declaration naming only models the safeguard did not choose is not a reason to move the session
+/// to one of them.
 func declaredFallbackModel(_ list: String?, landedOn: String) -> String? {
     guard let list else { return nil }
     return list.split(separator: ",")
@@ -197,29 +204,33 @@ func declaredFallbackArgs(_ raw: String?) -> [String] {
 ///  - the session is still ON the model the safeguard landed it on. If it is not, the user ran
 ///    `/model` themselves and a relaunch would overwrite a deliberate choice with an older one. Not
 ///    recorded as handled: the user is free to come back, and a restore is still right if they do.
-///  - the declaration does NOT name the model the safeguard landed on. When it does name it, the
-///    safeguard's own fallback and the declared fallback are the same model: the session is already
-///    at the landing place the user wrote down, so there is nothing to settle and a restart would
-///    only confuse (the declared depth goes unapplied, which is the price of that). Past this gate
-///    the landed model is by definition unnamed, which is why the model below comes straight from
-///    the event with no lookup left to do.
-///  - the session is not already running that profile. Model and depth are compared; the extra
-///    flags are not, exactly as on the quota path - they are not readable back off the launch args
-///    in any form worth trusting, and a declared depth already in place is enough to say the
-///    profile landed. With no depth declared, being on the model is the whole of the answer.
+///  - the relaunch would change something observable. The session is on the landed model by the
+///    gate above, so a declared depth already running is the whole declared pairing already in
+///    place and nothing is restarted. The launch flags are deliberately NOT consulted here: a
+///    session still carrying the `--model` it was started with while serving the fallback is
+///    precisely the shape that used to produce restarts changing nothing. With no depth declared
+///    (extra flags only) there is no running state to read, exactly as on the quota path, so the
+///    launch flags do stand in for it: a launch line already naming the model is the only evidence
+///    a relaunch has delivered those flags.
 func safeguardRestoreTarget(flag: SafeguardFlag, actualModel: String?, fallbackModel: String?,
                             fallbackEffort: String?, fallbackArgs: String?, currentModel: String?,
                             currentEffort: String?, alreadyHandled: Bool) -> SafeguardRestore? {
     let effort = fallbackEffort.flatMap { $0.isEmpty ? nil : $0 }
     let extraArgs = declaredFallbackArgs(fallbackArgs)
     guard effort != nil || !extraArgs.isEmpty, !alreadyHandled,
-          modelsAgree(actualModel, flag.to),
-          declaredFallbackModel(fallbackModel, landedOn: flag.to) == nil else { return nil }
-    // Nothing left to look up: the declaration names none of the landed model (the gate above), so
-    // the model is the safeguard's choice, under the event's own name for it.
-    let model = flag.to
-    if modelsAgree(currentModel, model),
-       effort.map({ currentEffort?.lowercased() == $0.lowercased() }) ?? true { return nil }
+          modelsAgree(actualModel, flag.to) else { return nil }
+    // The model is the safeguard's choice either way; the declaration only supplies the name the
+    // user writes it under, when they have named it at all.
+    let model = declaredFallbackModel(fallbackModel, landedOn: flag.to) ?? flag.to
+    if let effort {
+        // The running state, both halves of it: the model is the landed one by the guard above, so
+        // the declared depth already in place leaves nothing a relaunch could change.
+        if currentEffort?.lowercased() == effort.lowercased() { return nil }
+    } else if modelsAgree(currentModel, model) {
+        // Flags only, and flags cannot be read back off a running child: a launch line already
+        // naming the model is the only sign a relaunch has handed them over.
+        return nil
+    }
     return SafeguardRestore(model: model, effort: effort, extraArgs: extraArgs)
 }
 

@@ -9,10 +9,10 @@ import Foundation
 // longer on. The supervisor restarts it at the depth the home declares, at the next idle moment, on
 // the fallback model and never back on the model that tripped the safeguard.
 //
-// With one exception since 2026-07-29 (section 29b): when the landed model is one the declaration
-// already NAMES, the safeguard has produced the state the user asked for and the restart is dropped.
-// That is why the `target` helper below declares no fallback model by default: the shapes that still
-// restore are the ones whose declaration does not name where the session landed.
+// The bar for firing, since 2026-07-29 (section 29b): the relaunch has to change something anyone
+// could observe. What the session is actually running decides that, the landed model plus the
+// `--effort` the child is under, not the launch line it was started with. A declared depth already
+// running on the landed model is left alone however that launch line reads.
 
 func runSafeguardChecks() {
     // MARK: - 27. The real event shape
@@ -108,36 +108,52 @@ func runSafeguardChecks() {
     check("the restore never steers back to the model that was flagged",
           target()?.model != "claude-fable-5")
 
-    // MARK: - 29b. A landing place the user already named is left alone
+    // MARK: - 29b. The bar is that the relaunch changes something observable
     //
-    // WAS (until 2026-07-29): a declaration naming the landed model supplied the NAME to relaunch
-    // under, and the session was restarted onto it at the declared depth. The restart settled
-    // nothing a user could see: the safeguard had already put the session on the model they wrote
-    // down as their fallback, so it was being interrupted to become what it already was. The
-    // declared depth going unapplied in this case is the price knowingly paid. The drift itself is
-    // untouched, warning and status-line badge still report the switch.
-    check("a landed model the declaration already names is left alone",
-          target(declaredModel: "opus") == nil)
-    // The alias/full-id pair is the everyday form of this: the user writes `opus`, the transcript
-    // says `claude-opus-4-8`, and the running depth is not the declared one. Still no restart.
-    check("even when the declared depth differs from the running one",
-          target(declaredModel: "opus", declaredEffort: "xhigh", effort: "high") == nil)
-    check("a multi-entry declaration naming it counts the same",
-          target(declaredModel: "opus,sonnet") == nil)
+    // WAS, twice over. Until 2026-07-29 this was decided by comparing LAUNCH FLAGS, the session's
+    // `--model fable` against the declared `opus`, which never agreed once a safeguard had moved the
+    // session, so one already running the declared depth was restarted to become what it already
+    // was. The first fix that day dropped the restore outright whenever the declaration NAMED the
+    // landed model, which removed those restarts by also removing the ones that would have changed
+    // the running depth. What answers now is the running state: the landed model plus the `--effort`
+    // the child is under, against the declared pairing.
+
+    // The restart-for-nothing that was reported, and the one shape this still refuses: the declared
+    // depth is already what the child runs, and only the launch line still names the primary.
+    check("a session already at the declared depth is left alone, whatever its launch line says",
+          target(declaredModel: "opus", declaredEffort: "xhigh", effort: "xhigh") == nil)
+    // And the restart the blanket gate took away with it: same declaration, but the child is running
+    // a depth nobody asked for, so the relaunch has something to settle.
+    check("a declared landing place at the wrong depth is restored",
+          target(declaredModel: "opus", declaredEffort: "xhigh", effort: "high")
+          == SafeguardRestore(model: "opus", effort: "xhigh", extraArgs: []))
+    // The name it goes back under is the user's alias, not the transcript's id: that is the whole
+    // reason the declaration is looked up by model rather than answered as a yes/no.
+    check("under the alias the user wrote, not the transcript's id",
+          target(declaredModel: "opus")?.model == "opus")
+    check("a multi-entry declaration answers with the entry that matches",
+          target(declaredModel: "opus,sonnet")?.model == "opus")
     check("and so does one where it is not the first entry",
-          target(declaredModel: "sonnet,opus") == nil)
-    check("declared extra flags do not buy the restart back",
-          target(declaredModel: "opus", declaredEffort: nil, declaredArgs: "--a") == nil)
-    check("nor does a session sitting at a depth nobody declared",
-          target(declaredModel: "opus", effort: nil) == nil)
+          target(declaredModel: "sonnet,opus")?.model == "opus")
+    // A depth the child is not running at all is a difference like any other.
+    check("a session sitting at no declared depth is restored",
+          target(declaredModel: "opus", effort: nil)?.effort == "xhigh")
     // The two shapes the gate must NOT swallow, kept beside it because that is where a later reader
-    // will look: both still restore exactly as they did before.
+    // will look: both still restore exactly as they did before, under the event's own name.
     check("a declaration naming none of the landed model still restores",
           target(declaredModel: "sonnet")
           == SafeguardRestore(model: "claude-opus-4-8", effort: "xhigh", extraArgs: []))
     check("and no declared model at all still restores, as it always did",
           target(declaredModel: nil)
           == SafeguardRestore(model: "claude-opus-4-8", effort: "xhigh", extraArgs: []))
+    // Extra flags with no depth beside them: nothing about them is readable off a running child, so
+    // the launch line stands in. It fires once, and the relaunch that aligned that line ends it.
+    check("a flags-only declaration restores while the launch line still names the primary",
+          target(declaredModel: "opus", declaredEffort: nil, declaredArgs: "--a")
+          == SafeguardRestore(model: "opus", effort: nil, extraArgs: ["--a"]))
+    check("and is left alone once a relaunch has aligned that line",
+          target(declaredModel: "opus", declaredEffort: nil, declaredArgs: "--a",
+                 model: "opus") == nil)
 
     // The declaration has two independent halves and EITHER is enough, the same test the quota
     // fallback profile applies. Gating on the depth alone meant a user who declared only extra
@@ -173,7 +189,9 @@ func runSafeguardChecks() {
     // gain from a restart, and restarting it anyway would loop.
     check("a session already on the restored pairing is left alone",
           target(model: "claude-opus-4-8", effort: "xhigh") == nil)
-    check("the alias form counts as already there too",
+    // The depth is what answers this now, so how the launch line spells the model changes nothing;
+    // both spellings are left alone on the strength of the depth alone.
+    check("and so is one whose launch line spells the model differently",
           target(model: "opus", effort: "xhigh") == nil)
     check("the same model at the wrong depth is still restored",
           target(model: "opus", effort: "high")?.effort == "xhigh")

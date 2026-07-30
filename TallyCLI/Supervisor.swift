@@ -189,20 +189,25 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             //
             // Or nobody typed and the window simply reset underneath the session, which that first
             // arm can never see: it needs an assistant turn, and an idle session produces none, so
-            // the badge hung there naming an account that was back at 100%
-            // (capRecoveredByReset, SupervisorRuntime.swift). The snapshot is read on this path
-            // only while a cap IS pending, and only after the free arm has declined, so an ordinary
-            // tick still reads nothing.
+            // the badge hung there naming an account that was back at 100%. The boundary it
+            // compares against was fixed when the cap happened, so this reads no files at all
+            // (SupervisorRuntime.swift explains why it cannot be recomputed here).
             if let pending = pendingCap,
                watcher.lastMainChainEventAt.map({ $0 > pending.cappedAt }) == true
-                   || capRecoveredByReset(pending, accounts: loadSnapshot().0?.accounts ?? []) {
+                   || capRecoveredByReset(pending) {
                 pendingCap = nil
             }
             if sawCap, pendingCap == nil {
                 let capModel = flagValue(launchArgs, "--model") ?? policy.model
+                let cappedAt = Date()
+                // The one snapshot read this path costs, taken while the evidence still exists: a
+                // cap is rare, and the next refresh puts the window that capped back at 100%.
                 pendingCap = PendingCapRecovery(
-                    cappedAccountID: account.id, cappedAt: Date(),
-                    primaryModel: capModel, nextRetry: .distantPast, reason: "")
+                    cappedAccountID: account.id, cappedAt: cappedAt, primaryModel: capModel,
+                    recoveryResetsAt: capRecoveryDeadline(
+                        accounts: loadSnapshot().0?.accounts ?? [], cappedAccountID: account.id,
+                        primaryModel: capModel, cappedAt: cappedAt),
+                    nextRetry: .distantPast, reason: "")
                 // Keep every session (this one and any launching now) off the account for the model
                 // window that just capped until its snapshot catches up - a different model the
                 // account still serves is not blocked.

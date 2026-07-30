@@ -295,6 +295,10 @@ struct PendingCapRecovery {
     /// The model this session actually runs (a hand-typed `--model` outranks the configured
     /// default), so the handoff target is scored against the right quota window.
     let primaryModel: String?
+    /// When the window this cap was hit on refills, fixed at the moment of the cap
+    /// (`capRecoveryDeadline`) and never recomputed. Reaching it is the second way the pending
+    /// state clears, for a session nobody typed into. nil when the snapshot could not name one.
+    let recoveryResetsAt: Date?
     /// Earliest time to re-attempt the handoff (backoff gate).
     var nextRetry: Date
     /// The last waiting-state note shown, so the terminal warns only when the reason changes.
@@ -317,8 +321,52 @@ func capCarriedAcrossRelaunch(_ pending: PendingCapRecovery?,
     reason == "reload" ? pending : nil
 }
 
-/// Whether the account that capped has since crossed the reset of the window that capped it, so
-/// the pending recovery no longer describes anything that is still true.
+/// When the window this cap was hit on comes back, decided ONCE at the moment of the cap and then
+/// carried in the pending state. nil when the snapshot cannot name a boundary, which means this
+/// session has only the assistant-turn clear path, exactly as before.
+///
+/// Fixed at the cap rather than recomputed each tick, and that is the whole design. The app
+/// refreshes the snapshot every minute by default (`UsageStore.scheduleTimer`), and that refresh
+/// ERASES the evidence: the window that capped goes back to 100% and its `resetsAt` jumps to the
+/// next cycle, so from the tick after it the emptiest window is some healthy one whose reset is
+/// still ahead and a recomputing check answers "not yet" forever. It would only ever fire inside
+/// the gap between the reset and the next refresh, which is to say it would be a coin flip that
+/// loses back to the original bug. A boundary captured once cannot be erased by a refresh.
+///
+/// The window is the account's emptiest by RAW remaining, not by the comfort gate's effective
+/// remaining (`effectiveRemaining`, which reads a window minutes from resetting as already full):
+/// that grace is right for "can this account take work" and wrong here, where it would name a
+/// window the session did not cap on. The windows are the ones `ratedWindows` counts for the model
+/// this session runs, so a flagship window it does not spend is not one it can have capped on.
+///
+/// Ties are taken together and the LATEST of their resets wins. A session and a weekly window both
+/// at 0% is a real picture on this machine, and waiting on the earlier of the two would clear the
+/// pending state while the other is still empty, stopping the retry that hands the conversation to
+/// a sibling.
+///
+/// The cost, stated plainly: the snapshot at the moment of the cap may not show this cap yet (the
+/// same lag that makes a capped account worth quarantining), so the emptiest window it names can be
+/// the wrong one and the session then waits for a later reset than it had to. That direction is the
+/// safe one, and it is the behaviour that shipped before this path existed: the badge stays up a
+/// while longer. Nothing here can clear a cap early.
+func capRecoveryDeadline(accounts: [Snapshot.Account], cappedAccountID: String,
+                         primaryModel: String?, cappedAt: Date) -> Date? {
+    guard let account = accounts.first(where: { $0.id == cappedAccountID }) else { return nil }
+    let windows = ratedWindows(account, primaryModel: primaryModel, now: cappedAt)
+    guard let emptiest = windows.map(\.remaining).min() else { return nil }
+    let tied = windows.filter { $0.remaining == emptiest }
+    // Every tied window has to name a reset, and it has to be one this cap could be waiting for
+    // (a stamp older than the cap belongs to a window already spent when the session hit the wall,
+    // or to a snapshot that has not moved since). One window we cannot prove refilled is one this
+    // must not clear on, so an incomplete picture answers nil rather than guessing.
+    let resets = tied.compactMap(\.resetsAt)
+    guard resets.count == tied.count, let latest = resets.max(),
+          latest > cappedAt else { return nil }
+    return latest
+}
+
+/// Whether the reset this cap was waiting for has arrived, so the pending recovery no longer
+/// describes anything that is still true.
 ///
 /// The other clear path needs a real assistant turn newer than the cap, which only a user who
 /// types can produce, and the handoff's candidate list excludes the account the session is already
@@ -326,35 +374,12 @@ func capCarriedAcrossRelaunch(_ pending: PendingCapRecovery?,
 /// badge said "no account with quota to spare" for hours after that account was back at 100% (five
 /// sessions in that state at 01:15, 2026-07-31, on a window that had reset at 00:59).
 ///
-/// A reset BOUNDARY rather than "the account looks comfortable again", deliberately. The snapshot
-/// lags a real cap by minutes and still reads healthy at the moment of the cap, which is why a
-/// capped account is quarantined instead of re-read (Quarantine.swift); a comfort check would
-/// therefore clear the pending state on the very tick that raised it and the recovery would never
-/// fire. A reset that has come and gone is not an opinion about the numbers, and no snapshot
-/// catching up can un-happen it.
-///
-/// The window is the account's emptiest by RAW remaining, not by the comfort gate's effective
-/// remaining (`effectiveRemaining`, which reads a window minutes from resetting as already full).
-/// That grace is right for "can this account take work" and wrong here: it would move the binding
-/// window off the very one being waited on during the last ten minutes before its reset, leaving
-/// this waiting on a healthy window's reset hours later. The windows are the ones `ratedWindows`
-/// counts for the model this session runs, so a flagship window it does not spend is not one it
-/// can have capped on.
-///
-/// Conservative wherever the picture is incomplete (account gone from the snapshot, no counted
-/// windows, no known reset time): clearing too early stops the retry that hands the session to a
-/// sibling, and tells the user they recovered when they have not.
-func capRecoveredByReset(_ pending: PendingCapRecovery, accounts: [Snapshot.Account],
-                         now: Date = Date()) -> Bool {
-    guard let account = accounts.first(where: { $0.id == pending.cappedAccountID }),
-          let binding = ratedWindows(account, primaryModel: pending.primaryModel, now: now)
-              .min(by: { $0.remaining < $1.remaining }),
-          let resetsAt = binding.resetsAt
-    else { return false }
-    // After the cap, not merely in the past: a reset time older than the cap belongs to a window
-    // that was already spent when the session hit the wall, or to a snapshot that has not moved
-    // since, and neither is the refill this is waiting for.
-    return resetsAt > pending.cappedAt && now >= resetsAt
+/// A reset boundary rather than "the account looks comfortable again", deliberately. The snapshot
+/// still reads healthy at the moment of the cap (the lag `capRecoveryDeadline` above describes), so
+/// a comfort check would clear the pending state on the very tick that raised it and the recovery
+/// would never fire. A reset that has come and gone is not an opinion about the numbers.
+func capRecoveredByReset(_ pending: PendingCapRecovery, now: Date = Date()) -> Bool {
+    pending.recoveryResetsAt.map { now >= $0 } == true
 }
 
 /// What to do about a pending cap this tick, given the live launch policy and account picture.

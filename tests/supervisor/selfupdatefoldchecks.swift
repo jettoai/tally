@@ -90,7 +90,8 @@ func runSelfUpdateFoldChecks() {
     // sibling. It waits for the next idle instead. A cap HANDOFF carries nothing (it just moved
     // account), so the common case still folds.
     let capped = PendingCapRecovery(cappedAccountID: "acct-1", cappedAt: launch,
-                                    primaryModel: "fable", nextRetry: launch, reason: "waiting")
+                                    primaryModel: "fable", recoveryResetsAt: nil,
+                                    nextRetry: launch, reason: "waiting")
     check("a reload that carries a pending cap does not fold the upgrade in",
           fold(capCarried: capCarriedAcrossRelaunch(capped, reason: "reload") != nil) == nil)
     check("a cap handoff carries nothing, so it folds",

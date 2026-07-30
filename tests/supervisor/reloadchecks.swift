@@ -356,7 +356,8 @@ func runReloadChecks() {
     // restarts it - and the new watcher reads the old cap event as history. Only the reload hands
     // the pending recovery over; every other reason starts the next child clean, as before.
     let capped = PendingCapRecovery(cappedAccountID: "acct-1", cappedAt: launch,
-                                    primaryModel: "fable", nextRetry: launch, reason: "waiting")
+                                    primaryModel: "fable", recoveryResetsAt: nil,
+                                    nextRetry: launch, reason: "waiting")
     check("a reload relaunch carries the pending cap",
           capCarriedAcrossRelaunch(capped, reason: "reload")?.cappedAccountID == "acct-1")
     check("a cap handoff does not (it just moved account)",

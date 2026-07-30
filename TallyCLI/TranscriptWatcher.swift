@@ -115,6 +115,12 @@ struct TranscriptWatcher {
     /// is cleared when this passes the cap time (a genuine turn happened after the cap, so the
     /// account came back on its own). Same three guards as `lastModel`.
     var lastMainChainEventAt: Date?
+    /// The timestamp the cap event `sawCapHit` last reported carries, or nil when that event had
+    /// none. The cap's OWN instant, which is up to one poll interval earlier than the moment this
+    /// process notices it: the recovery boundary is measured against the cap once and never
+    /// recomputed, so a reset landing inside that gap would otherwise be read as a stale stamp and
+    /// leave the session with no reset path for the rest of its life (SupervisorRuntime.swift).
+    var capHitAt: Date?
     /// The newest Fable safeguard fallback event seen (`model_refusal_fallback`), post-launch and
     /// main-chain. How the supervisor notices the API forced this session onto a fallback model.
     var lastFlag: SafeguardFlag?
@@ -512,8 +518,11 @@ struct TranscriptWatcher {
             guard body.hasPrefix("You've"), body.contains("limit") else { continue }
             // Ignore events older than this child (a forked resume carries the previous
             // conversation's history - including the very cap event that triggered the handoff).
-            if let stamp = object["timestamp"] as? String,
-               let when = parseISO(stamp), when < since { continue }
+            let when = (object["timestamp"] as? String).flatMap(parseISO)
+            if let when, when < since { continue }
+            // Assigned unconditionally, nil included, so a reported cap always describes THIS
+            // event rather than inheriting a stamp from one the caller already acted on.
+            capHitAt = when
             return true
         }
         return false

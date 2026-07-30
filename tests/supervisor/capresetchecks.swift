@@ -69,7 +69,7 @@ func runCapResetChecks() {
     check("a snapshot refresh that erases the evidence does not strand the pending cap",
           capRecoveredByReset(capState, now: launch.addingTimeInterval(400)))
     check("and re-deriving it from the refreshed snapshot is what would have stranded it",
-          deadline(refreshed).map { $0 > launch.addingTimeInterval(400) } == true)
+          !capRecoveredByReset(pending(refreshed), now: launch.addingTimeInterval(400)))
 
     // Two windows equally empty is a real picture (an account holding a spent weekly under a spent
     // session window). The LATER reset is the one that ends the drought: clearing on the earlier
@@ -78,13 +78,46 @@ func runCapResetChecks() {
                         weekly: 0, weeklyResetsAt: launch.addingTimeInterval(900))]
     check("two windows equally empty wait for the later reset", !recovered(bothDry, at: 400))
     check("and clear once that one arrives too", recovered(bothDry, at: 900))
-    check("the deadline is the later of the tied windows",
+    check("the deadline is the later of the dry windows",
           deadline(bothDry) == launch.addingTimeInterval(900))
+
+    // And they do not have to read as EQUALLY empty, which is the point of using the nearly-dry
+    // line rather than an exact tie with the emptiest. The snapshot lags, so two windows that are
+    // both really spent routinely come back as different numbers: locking onto the 1% window's
+    // reset a few hours out would clear the badge while the 2% weekly stays empty for days.
+    let laggedPair = [acct(session: 1, sessionResetsAt: launch.addingTimeInterval(300),
+                           weekly: 2, weeklyResetsAt: launch.addingTimeInterval(50 * 3600))]
+    check("two windows dry at different readings still wait for the later reset",
+          deadline(laggedPair) == launch.addingTimeInterval(50 * 3600))
+    check("so the near reset arriving does not clear it", !recovered(laggedPair, at: 400))
+    check("and it clears only once the far one does", recovered(laggedPair, at: 50 * 3600 + 10))
+    // The line is the shared one, not a new constant, and it is inclusive at the boundary. The
+    // window ON the line holds the LATER reset here on purpose: dropping it has to change the
+    // answer, or this asserts nothing about where the line falls.
+    check("a window exactly on the nearly-dry line counts as dry",
+          deadline([acct(session: nearlyDryPercent,
+                         sessionResetsAt: launch.addingTimeInterval(900), weekly: 0,
+                         weeklyResetsAt: launch.addingTimeInterval(300))])
+          == launch.addingTimeInterval(900))
+    check("and one above it is not part of the drought",
+          deadline([acct(session: nearlyDryPercent + 0.1,
+                         sessionResetsAt: launch.addingTimeInterval(900), weekly: 0,
+                         weeklyResetsAt: launch.addingTimeInterval(300))])
+          == launch.addingTimeInterval(300))
+    check("an account with nothing dry at all names no deadline",
+          deadline([acct(session: 50, weekly: 90)]) == nil)
 
     // A reset time older than the cap belongs to a window that was already spent when the session
     // hit the wall, or to a snapshot that has not moved since. Neither is a refill.
-    check("a reset stamped before the cap is not the refill being waited on",
-          !recovered([acct(sessionResetsAt: launch.addingTimeInterval(50))], at: 400))
+    check("a reset stamped hours before the cap is not the refill being waited on",
+          deadline([acct(sessionResetsAt: launch.addingTimeInterval(-3 * 3600))]) == nil)
+    // The bar is the cap's own instant (`TranscriptWatcher.capHitAt`), not the tick that noticed
+    // it, so a reset landing a second later is a real refill rather than a stale stamp. Measuring
+    // from the tick would put a whole poll interval of resets on the wrong side of this line, and
+    // since the boundary is fixed once, being wrong here strands the session for good.
+    check("a reset a second after the cap is still the refill being waited on",
+          deadline([acct(sessionResetsAt: cappedAt.addingTimeInterval(1))])
+          == cappedAt.addingTimeInterval(1))
 
     // Conservative wherever the picture is incomplete: clearing early stops the retry that hands
     // the session to a sibling, and claims a recovery that has not happened. Each of these leaves
@@ -96,7 +129,7 @@ func runCapResetChecks() {
           deadline([acct(session: nil, weekly: nil)]) == nil)
     check("a window with no known reset names no deadline",
           deadline([acct(sessionResetsAt: nil)]) == nil)
-    check("one tied window without a reset sinks the pair, rather than clearing on the other",
+    check("one dry window without a reset sinks the pair, rather than clearing on the other",
           deadline([acct(session: 0, sessionResetsAt: nil, weekly: 0)]) == nil)
     check("a pending cap with no deadline never clears on one",
           !capRecoveredByReset(pending([acct(sessionResetsAt: nil)]), now: .distantFuture))
@@ -109,11 +142,12 @@ func runCapResetChecks() {
           !recovered([acct(session: 100, sessionResetsAt: launch.addingTimeInterval(4 * 3600))],
                      at: 200))
 
-    // The window waited on is the emptiest by RAW remaining, not by the comfort gate's effective
-    // remaining, which reads a window minutes from resetting as already full and would name a
-    // window this session never capped on: the weekly at 90%, resetting 100 hours out.
+    // Dryness is RAW remaining, not the comfort gate's effective remaining, which reads a window
+    // minutes from resetting as already full: a session window at 0% five minutes from its reset
+    // is exactly what this waits for, and the gate would have called it comfortable.
     check("the window that capped decides, not the one the comfort gate would call binding",
-          deadline([acct(session: 0, weekly: 90)]) == launch.addingTimeInterval(300))
+          deadline([acct(session: 0, sessionResetsAt: cappedAt.addingTimeInterval(60),
+                         weekly: 90)]) == cappedAt.addingTimeInterval(60))
 
     // Windows are the ones the running model actually spends (`ratedWindows`): a flagship window
     // this session does not draw on is not what it capped on, so its reset is not the refill.
@@ -125,7 +159,25 @@ func runCapResetChecks() {
     check("but a flagship window the session does not spend is not what it waits on",
           !recovered(flagshipCapped, at: 400, model: "sonnet"))
 
-    // MARK: - 27b. The loop wiring
+    // MARK: - 27b. The instant the cap is measured from
+
+    // Real cap events carry their own timestamp (checked against this machine's transcripts,
+    // 2026-07-31: every shape has one, from the full `apiErrorStatus`/`errorDetails` form down to
+    // the bare one). None of them carries a machine-readable reset time, so the boundary still
+    // comes from the snapshot; what the event gives is the moment the cap actually happened.
+    func capLine(_ offset: TimeInterval, stamped: Bool = true) -> String {
+        let ts = stamped ? #""timestamp":"\#(stamp(offset))","# : ""
+        let body = #""message":{"content":"You've hit your session limit"}"#
+        return #"{\#(ts)"isApiErrorMessage":true,\#(body)}"#
+    }
+    check("the cap's own timestamp is what the recovery is measured from",
+          watcherAfterScanning([capLine(60)]).capHitAt == launch.addingTimeInterval(60))
+    check("a cap event carrying no timestamp leaves the instant to the caller",
+          watcherAfterScanning([capLine(60, stamped: false)]).capHitAt == nil)
+    check("and a transcript with no cap at all names no instant",
+          watcherAfterScanning([]).capHitAt == nil)
+
+    // MARK: - 27c. The loop wiring
 
     // The decision is reachable in a test; its placement in the tick is not, so the source carries
     // it (the technique the rebalance, the follow dead end and the self-update fold all use).
@@ -147,4 +199,8 @@ func runCapResetChecks() {
           loop.contains("primaryModel: capModel, cappedAt: cappedAt)"))
     check("and the clearing tick re-derives nothing from the live snapshot",
           !loop.contains("capRecoveredByReset(pending, accounts:"))
+    // Measured from the cap event, not from the tick that noticed it: one poll interval of resets
+    // sits between those two answers, and the boundary is only ever decided once.
+    check("the cap is stamped with its own instant, not the poll's",
+          loop.contains("let cappedAt = watcher.capHitAt ?? Date()"))
 }

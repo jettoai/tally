@@ -333,34 +333,36 @@ func capCarriedAcrossRelaunch(_ pending: PendingCapRecovery?,
 /// the gap between the reset and the next refresh, which is to say it would be a coin flip that
 /// loses back to the original bug. A boundary captured once cannot be erased by a refresh.
 ///
-/// The window is the account's emptiest by RAW remaining, not by the comfort gate's effective
-/// remaining (`effectiveRemaining`, which reads a window minutes from resetting as already full):
-/// that grace is right for "can this account take work" and wrong here, where it would name a
-/// window the session did not cap on. The windows are the ones `ratedWindows` counts for the model
-/// this session runs, so a flagship window it does not spend is not one it can have capped on.
+/// EVERY window at or below the shared nearly-dry line counts, and the LATEST of their resets wins.
+/// Not the emptiest window, and not an exact tie with it: the snapshot lags, so two windows that are
+/// both really spent routinely read as different numbers (1% and 2%), and an exact tie would lock
+/// onto the 1% window's reset a few hours out while the 2% weekly stays empty for days. The line is
+/// `nearlyDryPercent`, the same 5% the launch pick, the cap handoff and the dry-pool alert draw, so
+/// "dry" keeps meaning one thing in this repo. Raw remaining, not the comfort gate's effective
+/// remaining (`effectiveRemaining` reads a window minutes from resetting as already full, which is
+/// right for "can this account take work" and wrong for "which reset ends this drought"). The
+/// windows are the ones `ratedWindows` counts for the model this session runs, so a flagship window
+/// it does not spend is not one it can have capped on.
 ///
-/// Ties are taken together and the LATEST of their resets wins. A session and a weekly window both
-/// at 0% is a real picture on this machine, and waiting on the earlier of the two would clear the
-/// pending state while the other is still empty, stopping the retry that hands the conversation to
-/// a sibling.
-///
-/// The cost, stated plainly: the snapshot at the moment of the cap may not show this cap yet (the
-/// same lag that makes a capped account worth quarantining), so the emptiest window it names can be
-/// the wrong one and the session then waits for a later reset than it had to. That direction is the
-/// safe one, and it is the behaviour that shipped before this path existed: the badge stays up a
-/// while longer. Nothing here can clear a cap early.
+/// The residual risk, stated plainly because the previous version of this comment claimed there was
+/// none: if the snapshot lags so far that a window which is really empty still reads ABOVE the line,
+/// it is left out, and the boundary can then be earlier than the end of the real drought. The badge
+/// would clear while the account is still capped. Two things make that acceptable. It is self
+/// healing: the next thing the user types hits the wall again, and that cap raises a fresh pending
+/// state with a fresh boundary. And the opposite bias, never clearing, is the bug this whole path
+/// exists to fix, which does not heal on its own at all.
 func capRecoveryDeadline(accounts: [Snapshot.Account], cappedAccountID: String,
                          primaryModel: String?, cappedAt: Date) -> Date? {
     guard let account = accounts.first(where: { $0.id == cappedAccountID }) else { return nil }
-    let windows = ratedWindows(account, primaryModel: primaryModel, now: cappedAt)
-    guard let emptiest = windows.map(\.remaining).min() else { return nil }
-    let tied = windows.filter { $0.remaining == emptiest }
-    // Every tied window has to name a reset, and it has to be one this cap could be waiting for
-    // (a stamp older than the cap belongs to a window already spent when the session hit the wall,
-    // or to a snapshot that has not moved since). One window we cannot prove refilled is one this
-    // must not clear on, so an incomplete picture answers nil rather than guessing.
-    let resets = tied.compactMap(\.resetsAt)
-    guard resets.count == tied.count, let latest = resets.max(),
+    let dry = ratedWindows(account, primaryModel: primaryModel, now: cappedAt)
+        .filter { $0.remaining <= nearlyDryPercent }
+    // Every dry window has to name a reset, and the latest of them has to be one this cap could be
+    // waiting for (a stamp older than the cap belongs to a window already spent when the session
+    // hit the wall, or to a snapshot that has not moved since). A window we cannot prove refilled
+    // is one this must not clear on, so an incomplete picture answers nil rather than guessing.
+    // Nothing dry at all falls out of the same guard: no resets, so no latest, so no boundary.
+    let resets = dry.compactMap(\.resetsAt)
+    guard resets.count == dry.count, let latest = resets.max(),
           latest > cappedAt else { return nil }
     return latest
 }

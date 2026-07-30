@@ -199,7 +199,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             }
             if sawCap, pendingCap == nil {
                 let capModel = flagValue(launchArgs, "--model") ?? policy.model
-                let cappedAt = Date()
+                // The cap's own instant, not the moment this 2s poll noticed it. The recovery
+                // boundary is measured against this once and never recomputed, so the poll delay
+                // would otherwise be enough to read a reset landing inside it as a stale stamp and
+                // strand the session with no reset path at all (00:59:59 cap, 01:00:00 tick,
+                // 01:00:00 reset). Falls back to now for a cap event carrying no timestamp.
+                let cappedAt = watcher.capHitAt ?? Date()
                 // The one snapshot read this path costs, taken while the evidence still exists: a
                 // cap is rare, and the next refresh puts the window that capped back at 100%.
                 pendingCap = PendingCapRecovery(

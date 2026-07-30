@@ -5,7 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift \
-  tests/supervisor/capgatechecks.swift tests/supervisor/forkchecks.swift \
+  tests/supervisor/capgatechecks.swift tests/supervisor/capresetchecks.swift \
+  tests/supervisor/forkchecks.swift \
   tests/supervisor/keyboardchecks.swift tests/supervisor/openturnchecks.swift \
   tests/supervisor/shimchecks.swift tests/supervisor/selfupdatefoldchecks.swift \
   tests/supervisor/rebalancechecks.swift tests/supervisor/safeguardchecks.swift \

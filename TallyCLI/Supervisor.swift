@@ -186,8 +186,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // than the cap (the account's window refilled, or the user waited the cooldown out) -
             // so a later genuine cap starts fresh. Unannounced: the cap badge disappearing is the
             // news, and the turn that just succeeded already told them.
-            if let pending = pendingCap, let recovered = watcher.lastMainChainEventAt,
-               recovered > pending.cappedAt {
+            //
+            // Or nobody typed and the window simply reset underneath the session, which that first
+            // arm can never see: it needs an assistant turn, and an idle session produces none, so
+            // the badge hung there naming an account that was back at 100%
+            // (capRecoveredByReset, SupervisorRuntime.swift). The snapshot is read on this path
+            // only while a cap IS pending, and only after the free arm has declined, so an ordinary
+            // tick still reads nothing.
+            if let pending = pendingCap,
+               watcher.lastMainChainEventAt.map({ $0 > pending.cappedAt }) == true
+                   || capRecoveredByReset(pending, accounts: loadSnapshot().0?.accounts ?? []) {
                 pendingCap = nil
             }
             if sawCap, pendingCap == nil {

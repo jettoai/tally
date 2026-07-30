@@ -131,6 +131,12 @@ func runCapResetChecks() {
           deadline([acct(sessionResetsAt: nil)]) == nil)
     check("one dry window without a reset sinks the pair, rather than clearing on the other",
           deadline([acct(session: 0, sessionResetsAt: nil, weekly: 0)]) == nil)
+    // Same rule, one step further in: a stale stamp must not be able to hide behind a sibling's
+    // later reset. Taking the max alone would answer with the weekly's reset here, and the badge
+    // would clear on a window this cap was never about while the session's own stays empty.
+    check("a dry window with a stale reset sinks the pair too, however late its sibling resets",
+          deadline([acct(session: 0, sessionResetsAt: launch.addingTimeInterval(-3 * 3600),
+                         weekly: 0, weeklyResetsAt: launch.addingTimeInterval(900))]) == nil)
     check("a pending cap with no deadline never clears on one",
           !capRecoveredByReset(pending([acct(sessionResetsAt: nil)]), now: .distantFuture))
 

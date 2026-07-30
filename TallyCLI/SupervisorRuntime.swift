@@ -356,14 +356,21 @@ func capRecoveryDeadline(accounts: [Snapshot.Account], cappedAccountID: String,
     guard let account = accounts.first(where: { $0.id == cappedAccountID }) else { return nil }
     let dry = ratedWindows(account, primaryModel: primaryModel, now: cappedAt)
         .filter { $0.remaining <= nearlyDryPercent }
-    // Every dry window has to name a reset, and the latest of them has to be one this cap could be
-    // waiting for (a stamp older than the cap belongs to a window already spent when the session
-    // hit the wall, or to a snapshot that has not moved since). A window we cannot prove refilled
-    // is one this must not clear on, so an incomplete picture answers nil rather than guessing.
-    // Nothing dry at all falls out of the same guard: no resets, so no latest, so no boundary.
+    // EVERY dry window has to name a reset, and every one of those has to be a reset this cap
+    // could be waiting for: we set a boundary only when we know, for each dry window, when it
+    // comes back. Checking only the latest would let a stale stamp (a window already spent when
+    // the session hit the wall, or a snapshot that has not moved since) hide behind a sibling's
+    // later reset, and the boundary would then name a window this cap was never about.
+    //
+    // The alternative, dropping the stale window and taking the max of the rest, is rejected: a
+    // reset time in the past can mean "it refilled and the remaining figure has not caught up" or
+    // "this whole snapshot is stale and the window is still empty", and we cannot tell which. The
+    // wrong guess clears the badge on a recovery that never happened. Answering nil instead puts
+    // the session back on the assistant-turn path, which is what every other incomplete picture
+    // here does. Nothing dry at all falls out of the same guard: no resets, so no latest.
     let resets = dry.compactMap(\.resetsAt)
-    guard resets.count == dry.count, let latest = resets.max(),
-          latest > cappedAt else { return nil }
+    guard resets.count == dry.count, resets.allSatisfy({ $0 > cappedAt }),
+          let latest = resets.max() else { return nil }
     return latest
 }
 

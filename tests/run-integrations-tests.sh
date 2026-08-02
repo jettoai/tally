@@ -1,6 +1,10 @@
 #!/bin/bash
 # Compiles the shell-profile block surgery (IntegrationsStore) together with a small
 # assertion harness and runs it. No Xcode test target needed; exits non-zero on failure.
+#
+# The source list is that store's transitive closure, so it follows the app target's (project.yml),
+# which reaches outside Tally/ for the advisor: UsageAdvisor.swift lives in the CLI folder, both
+# targets compile the one copy, and the demo fixtures in DemoUsage.swift name it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
@@ -9,6 +13,7 @@ swiftc -o "$out" tests/integrations/main.swift \
   Tally/Core/UsageSnapshot.swift \
   Tally/Core/AppLocale.swift Tally/Providers/ProviderModels.swift \
   Tally/Core/DemoUsage.swift Tally/Core/BuildVariant.swift Tally/Core/FleetForecast.swift Tally/Core/UsageHistory.swift \
+  TallyCLI/UsageAdvisor.swift \
   Tally/Providers/Claude/ClaudeAccounts.swift Tally/Core/Keychain/KeychainReader.swift \
   Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/AccountDirWatcher.swift

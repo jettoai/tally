@@ -97,12 +97,21 @@ func runRebalanceChecks() {
           !carryableSession(launchArgs: ["--resume", "abc"], sessionLocated: false))
     check("and the -r spelling as well",
           !carryableSession(launchArgs: ["-r", "abc"], sessionLocated: false))
-    // A one-shot `-p` run is not a conversation anyone can lose, which is why the rule reads
-    // `sessionFlags` minus the print pair rather than `sessionFlags` itself.
-    check("a one-shot print run is not a conversation to protect",
-          carryableSession(launchArgs: ["-p", "hello"], sessionLocated: false))
-    check("and the flag set really is the shared one, less print",
-          resumeFlags == sessionFlags.subtracting(["--print", "-p"]) && resumeFlags.count == 4)
+    // A one-shot `-p` run is the third class, and the one that reads backwards: it has no
+    // conversation to lose, and is still the one launch that must NEVER move. Moving it kills a
+    // command mid-flight and runs it again over there, so its tools and its external writes happen
+    // twice - unrecoverable in a way no relaunch flag can undo.
+    check("a print run is never moved, however new it looks",
+          !carryableSession(launchArgs: ["-p", "hello"], sessionLocated: false))
+    // And crucially not once its transcript binds either: `-p` DOES write one (241 sit in each
+    // account's probe directory, which is why ClaudeUsageCLI prunes them), so a rule that asked only
+    // "is it located" would wave the print run straight through.
+    check("and not once it has written a transcript, which is the trap",
+          !carryableSession(launchArgs: ["-p", "hello"], sessionLocated: true))
+    check("the long spelling too", !carryableSession(launchArgs: ["--print"], sessionLocated: true))
+    // The two halves partition the shared set, so a flag added there cannot fall between them.
+    check("the flag halves partition the shared session set",
+          printFlags.union(resumeFlags) == sessionFlags && printFlags.isDisjoint(with: resumeFlags))
 
     // MARK: - 26b. The two guardrails
 

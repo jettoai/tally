@@ -90,28 +90,33 @@ func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [S
     return ["--continue"] + next
 }
 
-/// The flags that ask a launch to pick up an EXISTING conversation, as opposed to opening a new one.
-/// Derived from `sessionFlags` (Snapshot.swift) rather than listed again, so a flag added there is
-/// covered here too; `--print`/`-p` comes out because a one-shot run is not a conversation anybody
-/// could lose.
-let resumeFlags = sessionFlags.subtracting(["--print", "-p"])
+/// The two halves of `sessionFlags` (Snapshot.swift), partitioned rather than listed again so a flag
+/// added there lands in one of them instead of being silently uncovered here.
+let printFlags: Set<String> = ["--print", "-p"]
+let resumeFlags = sessionFlags.subtracting(printFlags)
 
-/// Whether moving this session to another account can lose a conversation, expressed the useful way
-/// round: TRUE when it cannot.
+/// Whether this session may be moved to another account, which is two questions wearing one name:
+/// can the work be CARRIED, and is re-running it safe. A launch answers to one of three classes.
 ///
-/// Two ways to be safe, and only the second one is obvious. A session that was told to resume
-/// something needs `sessionLocated`, because crossing accounts drops `--continue`/`--resume`
-/// (`relaunchArgs` above: on the target account those flags name a different conversation) and the
-/// resumed id is then the only way to bring it along. But a session that never asked to resume
-/// anything has nothing to bring: `relaunchArgs` hands the move the same args it would have handed a
-/// fresh start, which is what this session already is. Gating that one on a transcript would strand
-/// brand new sessions on a dying account for no benefit at all - they would simply be started fresh
-/// on an account with no quota left.
+///  - A `--print` run: NEVER. There is no conversation to lose, which is exactly what made this one
+///    easy to get wrong. Moving it means killing a command mid-flight and running it AGAIN on the
+///    other account, so every tool call and every external write in it happens twice. Nothing about
+///    a bound transcript makes that safe, so unlike the class below it is not a matter of waiting -
+///    and a print run does write one (241 sit in each account's probe directory right now, which is
+///    why `ClaudeUsageCLI` prunes them), so a rule reading only "is it located" would clear it.
+///  - A `--continue`/`--resume` launch: only once `sessionLocated`. Crossing accounts drops those
+///    flags (`relaunchArgs` above: on the target account they name a different conversation), so the
+///    resumed id is the only way to bring the conversation along, and it comes from the binding.
+///  - Anything else, a plain interactive launch: yes. There is nothing to carry and nothing to
+///    re-run. Gating this one too would strand brand new sessions on a dying account to protect a
+///    conversation that does not exist - `relaunchArgs` hands the move exactly the args a fresh
+///    start would have got anyway.
 ///
 /// `launchArgs` is what the CHILD was launched with, so a session that was moved once and now runs
 /// `--resume <id>` reads as resuming, which it is.
 func carryableSession(launchArgs: [String], sessionLocated: Bool) -> Bool {
-    sessionLocated || !launchArgs.contains(where: { resumeFlags.contains($0) })
+    if launchArgs.contains(where: { printFlags.contains($0) }) { return false }
+    return sessionLocated || !launchArgs.contains(where: { resumeFlags.contains($0) })
 }
 
 /// Whether the launch-default pair a follow adoption wants is ALREADY what this session runs, judged

@@ -21,13 +21,27 @@ struct TokenProjectMap: Sendable {
     private static let claudeFolder = ".claude"
     private static let codexFolder = ".codex"
 
-    /// One allow-listed project, by its path relative to the workspace folder.
+    /// One allow-listed project.
     private struct Root: Sendable {
         /// e.g. `tally`, or `acme/web` when `acme` is a container rather than a checkout.
         let relative: String
-        /// The same path in Claude Code's flattened transcript-folder spelling, so an agent's own
+        /// Every absolute path this project answers to: the one under the workspace folder, plus
+        /// its resolved path when the folder (or the workspace folder itself) is a symlink onto
+        /// another volume. A transcript records the working directory the process really had,
+        /// which is the resolved one, so a project reached through a link would otherwise be
+        /// unrecognizable and pool into Other.
+        let paths: [String]
+        /// The same paths in Claude Code's flattened transcript-folder spelling, so an agent's own
         /// cwd can be traced back to the project it was serving.
-        let munged: String
+        let munged: [String]
+
+        func owns(cwd: String) -> Bool {
+            paths.contains { cwd == $0 || cwd.hasPrefix($0 + "/") }
+        }
+
+        func owns(transcriptFolder folder: String) -> Bool {
+            munged.contains { folder == $0 || folder.hasPrefix($0 + "-") }
+        }
     }
 
     private let home: String
@@ -38,8 +52,6 @@ struct TokenProjectMap: Sendable {
     /// wins over its container, and `tally-release` is never mistaken for `tally` once the
     /// separators have been flattened away.
     private let roots: [Root]
-    /// What every project's transcript folder starts with on this machine.
-    private let mungedWorkspacePrefix: String
 
     // MARK: Building
 
@@ -58,21 +70,42 @@ struct TokenProjectMap: Sendable {
         }
         let ordered = relatives
             .sorted { (depth($0), $0.count) > (depth($1), $1.count) }
-            .map { Root(relative: $0, munged: munged($0)) }
+            .map { relative -> Root in
+                let absolute = workspace.path + "/" + relative
+                let resolved = resolvedPath(absolute)
+                let paths = resolved == absolute ? [absolute] : [absolute, resolved]
+                return Root(relative: relative, paths: paths, munged: paths.map(munged))
+            }
 
         return TokenProjectMap(home: home.path, homeComponents: components(home.path),
-                               workspace: workspace.path, roots: ordered,
-                               mungedWorkspacePrefix: munged(workspace.path) + "-")
+                               workspace: workspace.path, roots: ordered)
     }
 
     private static func directories(in url: URL) -> [String] {
         let contents = (try? FileManager.default.contentsOfDirectory(
-            at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) ?? []
-        // Resource values follow symlinks, so a project symlinked into the workspace folder (the
-        // usual way a client folder on another volume gets there) still reads as a directory.
-        return contents
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .map(\.lastPathComponent)
+            at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        // Asked through `fileExists` rather than `URL.isDirectoryKey`, which does NOT follow
+        // symlinks and reports a linked folder as "not a directory". A project symlinked into the
+        // workspace folder (how a folder living on another volume usually gets there) has to count
+        // as the directory it points at, or it never reaches the allow-list at all.
+        return contents.filter(isDirectory).map(\.lastPathComponent)
+    }
+
+    /// The path a process started here would report as its working directory.
+    ///
+    /// `realpath(3)` rather than `URL.resolvingSymlinksInPath()`: that one strips a leading
+    /// `/private`, so a folder linked to `/private/tmp/x` comes back as `/tmp/x`, which is a
+    /// spelling no transcript ever contains (`getcwd` reports the `/private` form).
+    private static func resolvedPath(_ path: String) -> String {
+        guard let resolved = realpath(path, nil) else { return path }
+        defer { free(resolved) }
+        return String(cString: resolved)
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 
     /// A git checkout: a repository (`.git` directory) or a worktree of one (`.git` file).
@@ -102,7 +135,10 @@ struct TokenProjectMap: Sendable {
         // Scratch directories are throwaway wherever they sit, including inside a project.
         guard let cwd, !cwd.isEmpty, !cwd.contains("scratchpad") else { return TokenProject.otherKey }
 
-        // Everything outside the home directory pools: that is `/tmp`, `/private/tmp`, and the
+        if let root = roots.first(where: { $0.owns(cwd: cwd) }) { return key(of: root) }
+
+        // Nothing on the allow-list, so placement is by where the directory sits under the home
+        // directory. Everything outside the home pools: that is `/tmp`, `/private/tmp`, and the
         // one-off checkouts under a temp folder, none of which is a project of the user's.
         let parts = Self.components(cwd)
         guard parts.count > homeComponents.count,
@@ -111,19 +147,14 @@ struct TokenProjectMap: Sendable {
         let rest = Array(parts.dropFirst(homeComponents.count))
         let head = rest[0]
 
-        if head == Self.workspaceFolder {
-            let tail = rest.dropFirst().joined(separator: "/")
-            guard let root = roots.first(where: { tail == $0.relative || tail.hasPrefix($0.relative + "/") })
-            else { return unplaced(cwd) }
-            return workspace + "/" + root.relative
-        }
         if head.hasPrefix(Self.claudeFolder) {
             // Agents run with their cwd inside the transcript tree of the project they serve
             // (`projects/<munged-cwd>/…`, with `subagents/` and `workflows/` below it), so their
             // tokens are credited back to that project instead of showing up as a row named after
             // a session id. Anything else under a config home is work on the harness itself.
-            if rest.count > 2, rest[1] == "projects", let root = root(munged: rest[2]) {
-                return workspace + "/" + root
+            if rest.count > 2, rest[1] == "projects",
+               let root = roots.first(where: { $0.owns(transcriptFolder: rest[2]) }) {
+                return key(of: root)
             }
             return home + "/" + Self.claudeFolder
         }
@@ -131,10 +162,10 @@ struct TokenProjectMap: Sendable {
         return unplaced(cwd)
     }
 
-    private func root(munged: String) -> String? {
-        guard munged.hasPrefix(mungedWorkspacePrefix) else { return nil }
-        let tail = munged.dropFirst(mungedWorkspacePrefix.count)
-        return roots.first { tail == $0.munged || tail.hasPrefix($0.munged + "-") }?.relative
+    /// A project's row identity is always spelled through the workspace folder, whichever of its
+    /// paths the transcript happened to record.
+    private func key(of root: Root) -> String {
+        workspace + "/" + root.relative
     }
 
     /// Where a directory goes when no rule places it: the pooled row - unless this machine has no

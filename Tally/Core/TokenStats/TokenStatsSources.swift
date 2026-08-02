@@ -32,11 +32,17 @@ enum TokenStatsSources {
                      provider: ClaudeAccounts.providerID) { $0.pathExtension == "jsonl" }
     }
 
+    /// Archiving a Codex conversation MOVES its rollout out of `sessions/` into
+    /// `archived_sessions/`, so reading only the live folder would make finished work disappear
+    /// from every range and the all-time total shrink over time. Both are read; the resolved-path
+    /// deduplication below covers the setups that symlink one archive into every config home.
     private static func codex() -> [File] {
         let home = FileManager.default.homeDirectoryForCurrentUser
         var dirs = [home.appendingPathComponent(".codex", isDirectory: true)]
         dirs += CodexAccounts.discover().compactMap { $0.launchHome.map(URL.init(fileURLWithPath:)) }
-        return files(in: roots(dirs.map { $0.appendingPathComponent("sessions", isDirectory: true) }),
+        let folders = ["sessions", "archived_sessions"]
+        return files(in: roots(dirs.flatMap { dir in
+                         folders.map { dir.appendingPathComponent($0, isDirectory: true) } }),
                      provider: CodexAccounts.providerID) {
             $0.pathExtension == "jsonl" && $0.lastPathComponent.hasPrefix("rollout-")
         }

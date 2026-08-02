@@ -25,6 +25,22 @@ struct TokenTotals: Codable, Sendable, Equatable {
         lhs.cacheRead += rhs.cacheRead
         lhs.output += rhs.output
     }
+
+    /// Raises every column to the higher of the two values and reports what that added.
+    ///
+    /// This is how a figure that is restated rather than accumulated gets counted: the same
+    /// assistant turn is written several times while it streams, each time with the usage it had
+    /// reached so far, so the truth is the highest value each column ever showed and the new part
+    /// is the difference. Column by column rather than "the last record wins", because the columns
+    /// finish at different moments.
+    mutating func raise(to peak: TokenTotals) -> TokenTotals {
+        let added = TokenTotals(input: max(0, peak.input - input),
+                                cacheWrite: max(0, peak.cacheWrite - cacheWrite),
+                                cacheRead: max(0, peak.cacheRead - cacheRead),
+                                output: max(0, peak.output - output))
+        self += added
+        return added
+    }
 }
 
 /// One aggregation cell: a local calendar day, one project, one provider. This is the finest grain

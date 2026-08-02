@@ -30,13 +30,23 @@ enum TokenStatsParser {
     /// `message.usage` of assistant lines, with `cwd` and `timestamp` at the top level.
     ///
     /// One assistant turn is written as several lines (one per content block: text, thinking, each
-    /// tool call) and every one of them repeats the SAME `message.usage`. Summing them multiplies
-    /// the real usage by roughly two, so a turn is counted once, keyed on `message.id`.
+    /// tool call), all sharing one `message.id`, and each line repeats the turn's usage AS OF that
+    /// line rather than its final figure. So the lines can neither be summed (that multiplies the
+    /// real usage by about two) nor deduplicated down to the first one (on this machine's corpus
+    /// that dropped 44.4M of 134M output tokens: 33,523 turns restated their count, and the first
+    /// line of a streamed turn typically shows single-digit output). A turn is therefore counted
+    /// as the highest value each column reached, credited one increment at a time.
+    ///
+    /// Deliberately per file, not global: resuming or forking a conversation copies earlier turns
+    /// into the new transcript, so a few ids do appear in two files. Catching those would mean
+    /// carrying every message id across the whole corpus in the cache, which costs orders of
+    /// magnitude more than the error it removes - measured at 406 of 129,164 ids, 0.3% of all
+    /// tokens on a machine with a year of history.
     private static func readClaude(_ raw: UnsafeRawBufferPointer, _ map: TokenProjectMap,
                                    into out: inout BucketAccumulator) {
         let scan = JSONScan(bytes: raw)
         var stamper = LocalDayStamper()
-        var seenMessages = Set<UInt64>()
+        var counted: [UInt64: TokenTotals] = [:]
         var projects = ProjectKeyMemo(map)
 
         forEachLine(raw) { line in
@@ -59,9 +69,6 @@ enum TokenStatsParser {
                 else if scan.key(key, is: "id") { messageID = value }
             }
             guard let usage else { return }
-            // No id (older transcripts) means no way to tell a repeat from a real turn; counting
-            // it is the safer error, since dropping it would silently lose the turn entirely.
-            if let messageID, !seenMessages.insert(fingerprint(raw, messageID)).inserted { return }
 
             var totals = TokenTotals()
             scan.forEachMember(in: usage) { key, value in
@@ -71,6 +78,14 @@ enum TokenStatsParser {
                 else if scan.key(key, is: "output_tokens") { totals.output = scan.int64(value) ?? 0 }
             }
             guard !totals.isEmpty else { return }
+
+            // No id (older transcripts) means no way to tell a restatement from a real turn;
+            // counting it whole is the safer error, since holding it back would lose the turn.
+            if let messageID {
+                let added = counted[fingerprint(raw, messageID), default: TokenTotals()].raise(to: totals)
+                guard !added.isEmpty else { return }
+                totals = added
+            }
             out.add(totals, day: day, project: projects.key(scan, cwd))
         }
     }

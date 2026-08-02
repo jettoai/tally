@@ -29,11 +29,25 @@ final class TokenStatsEngine: @unchecked Sendable {
         /// (a new token column, a different attribution rule). A mismatch discards the cache and
         /// rescans, which is slow exactly once.
         var version: Int
+        /// The time zone the day numbers were computed in. Entries are stamped with the LOCAL day
+        /// a record falls on, so a machine that has moved zones (a flight, a DST-less zone change)
+        /// would otherwise keep old entries cut on the old midnight and new ones on the new one,
+        /// and no total would be wrong in a way anyone could see. Rescanning the whole corpus is
+        /// the cheap answer to a rare event.
+        var zone: String
         var files: [String: Entry]
 
         /// 2: projects are attributed by allow-list (`TokenProjectMap`) rather than by raw cwd, so
         /// every key written by version 1 names a directory that is no longer a row.
-        static let currentVersion = 2
+        /// 3: a turn's usage is counted at its highest restated value rather than its first.
+        static let currentVersion = 3
+
+        /// A cache stamped for the rules and the zone in force right now.
+        static func current(files: [String: Entry] = [:]) -> Cache {
+            Cache(version: currentVersion, zone: TimeZone.current.identifier, files: files)
+        }
+
+        var isCurrent: Bool { version == Self.currentVersion && zone == TimeZone.current.identifier }
     }
 
     private let queue = DispatchQueue(label: "tally.token-stats", qos: .utility)
@@ -45,7 +59,7 @@ final class TokenStatsEngine: @unchecked Sendable {
     func scan(completion: @escaping @Sendable ([TokenSample]) -> Void) {
         queue.async { [self] in
             var loaded = cache ?? Self.read()
-            if loaded.version != Cache.currentVersion { loaded = Cache(version: Cache.currentVersion, files: [:]) }
+            if !loaded.isCurrent { loaded = .current() }
 
             // The allow-list of projects is read from disk once per scan, not once per file.
             let projects = TokenProjectMap.current()
@@ -66,7 +80,7 @@ final class TokenStatsEngine: @unchecked Sendable {
 
             // Assigning rather than merging drops files that were deleted since the last scan, so
             // a removed transcript stops counting instead of being pinned in the cache forever.
-            let updated = Cache(version: Cache.currentVersion, files: next)
+            let updated = Cache.current(files: next)
             cache = updated
             if changed || loaded.files.count != next.count { Self.write(updated) }
             completion(Self.merge(next))
@@ -96,7 +110,7 @@ final class TokenStatsEngine: @unchecked Sendable {
     private static func read() -> Cache {
         guard let data = try? Data(contentsOf: fileURL),
               let cache = try? JSONDecoder().decode(Cache.self, from: data) else {
-            return Cache(version: Cache.currentVersion, files: [:])
+            return .current()
         }
         return cache
     }

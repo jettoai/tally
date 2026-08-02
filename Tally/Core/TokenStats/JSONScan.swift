@@ -28,7 +28,12 @@ struct JSONScan {
             if c == UInt8(ascii: "}") { return }
             if c == UInt8(ascii: ",") { i += 1; continue }
             guard c == UInt8(ascii: "\"") else { return }   // malformed - stop where we are
+            // A key whose closing quote is not in the buffer has no range to report. This is the
+            // normal shape of a live transcript's last line (the writer had flushed as far as the
+            // next key's opening quote), so it must stop like any other malformed input rather
+            // than build a backwards range.
             let keyEnd = endOfString(i, object.upperBound)
+            guard keyEnd > i + 1, bytes[keyEnd - 1] == UInt8(ascii: "\"") else { return }
             let key = (i + 1) ..< (keyEnd - 1)
             i = skipSpace(keyEnd, object.upperBound)
             guard i < object.upperBound, bytes[i] == UInt8(ascii: ":") else { return }

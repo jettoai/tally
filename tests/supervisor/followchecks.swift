@@ -215,6 +215,27 @@ func runFollowChecks() {
     adopt(state: &fresh, plan: &freshPlan, fleet: [temptingSibling])
     check("the same fleet on a fresh snapshot does move it", freshPlan?.target.id == "B")
 
+    // The round trip that makes the injection position matter. Tally injects the policy pair into
+    // the launch args; `FollowState` then reads them back to learn what this session already runs.
+    // Appended after a `--` the flag is invisible to that reader (it stops at the marker), so the
+    // baseline came up empty, every tick compared "nothing" against the configured default, and the
+    // session queued an adoption for a setting nobody had changed - a relaunch that would have
+    // changed nothing, on a session whose prompt was meanwhile growing a copy of the flag per pass.
+    let injected = injectingOptions(["--", "summarise this"], ["--model", "fable"])
+    check("the injected pair lands where the launch args are read",
+          FollowState(launchArgs: injected).followedModel == "fable")
+    check("and the prompt is carried through unchanged",
+          injected.suffix(2) == ["--", "summarise this"])
+    // Which is the whole point: with the pair visible, an unchanged policy is a no-op.
+    var injectedState = FollowState(launchArgs: injected)
+    var injectedPlan: RelaunchPlan?
+    adopt(state: &injectedState, plan: &injectedPlan, model: "fable", effort: nil)
+    check("so an unchanged default plans no relaunch", injectedPlan == nil)
+    check("and queues nothing", !injectedState.queuedNotice && injectedState.pendingSince == nil)
+    // The old shape, kept as the guard on the premise: appended past the marker it is unreadable.
+    check("appended after the prompt it would have been invisible",
+          FollowState(launchArgs: ["--", "summarise this", "--model", "fable"]).followedModel == nil)
+
     // Opted out (`--no-follow`, or a hand-typed --model): nothing is read and nothing is written.
     var optedOut = FollowState(launchArgs: ["--model", "opus"])
     var optedOutPlan: RelaunchPlan?

@@ -246,6 +246,26 @@ func optionsOnly(_ args: [String]) -> [String] {
     return Array(args[..<end])
 }
 
+/// `args` with Tally's own flags inserted where they will be READ: before the first bare `--`, not
+/// appended after everything.
+///
+/// Appending looked equivalent because it usually is - with no `--` there is nothing to be after.
+/// With one, the injected flag lands in the PROMPT: claude never parses it, and Tally cannot see it
+/// either (every reader stops at the marker), so the launch runs without the default it thinks it
+/// applied, `FollowState` reads no `--model` and schedules an adoption for a setting that never
+/// changed, and each relaunch stacks another copy onto the end of what the user said.
+func injectingOptions(_ args: [String], _ flags: [String]) -> [String] {
+    let options = optionsOnly(args)
+    return options + flags + args[options.count...]
+}
+
+/// `args` with one of Tally's own flags dropped from the OPTIONS only. The same word past the marker
+/// is a word in the prompt, and removing it edits what the user said.
+func removingOption(_ args: [String], _ flag: String) -> [String] {
+    let options = optionsOnly(args)
+    return options.filter { $0 != flag } + args[options.count...]
+}
+
 /// Applies the app's "continue by default" start mode to a launch, given the home it will run
 /// under. Returns the args to launch with, plus the one line to print when the injection was
 /// suppressed (nil = nothing to say).
@@ -265,7 +285,7 @@ func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home
     guard hasConversation(home: home, cwd: cwd) else {
         return (args, "no conversation in this directory yet - starting fresh")
     }
-    return (args + ["--continue"], nil)
+    return (injectingOptions(args, ["--continue"]), nil)
 }
 
 func fmt(_ value: Double?) -> String {

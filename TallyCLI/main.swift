@@ -56,14 +56,17 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
        !optionsOnly(passthrough).contains(where: { printFlags.contains($0) }) {
         warn("not supervised: stdout is not a terminal (claude runs one-shot when piped)")
     }
-    passthrough.removeAll { $0 == "--no-handoff" }   // tally's own flag, never passed through
+    // Tally's own flags, never passed through - and never taken out of the PROMPT, where the
+    // same word belongs to the user (Snapshot.swift: `removingOption`).
+    passthrough = removingOption(passthrough, "--no-handoff")
     // A running session follows a later Settings change to the default model/effort UNLESS the
     // user opted out (--no-follow) or typed their own --model or --effort (a deliberate choice
     // outranks the default, and the follow adopts the pair as a whole - it must never overwrite
     // a hand-typed flag). Captured before the policy injects its own flags below.
-    let allowFollow = autoFollowEnabled(args: passthrough) && !passthrough.contains("--model")
-        && !passthrough.contains("--effort")
-    passthrough.removeAll { $0 == "--no-follow" }    // tally's own flag, never passed through
+    let allowFollow = autoFollowEnabled(args: passthrough)
+        && !optionsOnly(passthrough).contains("--model")
+        && !optionsOnly(passthrough).contains("--effort")
+    passthrough = removingOption(passthrough, "--no-follow")
 
     // An explicitly exported config home is also the user choosing by hand - honour it.
     if pinned == nil, getenv(provider.envKey) != nil {
@@ -77,37 +80,44 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // their own on the same axis - explicit flags always win. `--new` is tally's own flag: it
     // suppresses a "continue by default" setting for this one launch and is never passed through.
     let policy = launchPolicy(provider.id)
-    let wantsNew = passthrough.contains("--new") || worktreeFresh
-    passthrough.removeAll { $0 == "--new" }
+    let wantsNew = optionsOnly(passthrough).contains("--new") || worktreeFresh
+    passthrough = removingOption(passthrough, "--new")
     if provider.id == "claude" {
+        // Both halves of every one of these stop at the first `--`: the question is what the
+        // user CHOSE, and the answer goes where it will be read (Snapshot.swift).
+        let typed = optionsOnly(passthrough)
         if let mode = policy.permissionMode,
-           !passthrough.contains("--dangerously-skip-permissions"),
-           !passthrough.contains("--permission-mode") {
+           !typed.contains("--dangerously-skip-permissions"),
+           !typed.contains("--permission-mode") {
             switch mode {
-            case "plan": passthrough += ["--permission-mode", "plan"]
-            case "acceptEdits": passthrough += ["--permission-mode", "acceptEdits"]
-            case "bypass": passthrough += ["--dangerously-skip-permissions"]
+            case "plan": passthrough = injectingOptions(passthrough, ["--permission-mode", "plan"])
+            case "acceptEdits":
+                passthrough = injectingOptions(passthrough, ["--permission-mode", "acceptEdits"])
+            case "bypass":
+                passthrough = injectingOptions(passthrough, ["--dangerously-skip-permissions"])
             default: break
             }
         }
-        if let model = policy.model, !passthrough.contains("--model") {
-            passthrough += ["--model", model]
+        if let model = policy.model, !typed.contains("--model") {
+            passthrough = injectingOptions(passthrough, ["--model", model])
         }
-        if let fallback = policy.fallbackModel, !passthrough.contains("--fallback-model") {
-            passthrough += ["--fallback-model", fallback]
+        if let fallback = policy.fallbackModel, !typed.contains("--fallback-model") {
+            passthrough = injectingOptions(passthrough, ["--fallback-model", fallback])
         }
-        if let effort = policy.effort, !passthrough.contains("--effort") {
-            passthrough += ["--effort", effort]
+        if let effort = policy.effort, !typed.contains("--effort") {
+            passthrough = injectingOptions(passthrough, ["--effort", effort])
         }
     }
     if provider.id == "codex" {
+        let typed = optionsOnly(passthrough)
         if let model = policy.model,
-           !passthrough.contains("-m"), !passthrough.contains("--model") {
-            passthrough += ["-m", model]
+           !typed.contains("-m"), !typed.contains("--model") {
+            passthrough = injectingOptions(passthrough, ["-m", model])
         }
         if let effort = policy.effort,
-           !passthrough.contains(where: { $0.contains("model_reasoning_effort") }) {
-            passthrough += ["-c", "model_reasoning_effort=\"\(effort)\""]
+           !typed.contains(where: { $0.contains("model_reasoning_effort") }) {
+            passthrough = injectingOptions(passthrough,
+                                           ["-c", "model_reasoning_effort=\"\(effort)\""])
         }
     }
 

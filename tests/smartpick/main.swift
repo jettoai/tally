@@ -338,6 +338,35 @@ check("--new (wantsNew) still suppresses the injection",
       startMode([], home: withSession, wantsNew: true).args.isEmpty)
 check("a policy that does not continue injects nothing",
       startMode([], home: withSession, policy: LaunchPolicy()).args.isEmpty)
+
+// Injection lands where the flag will be READ: before the first `--`, never appended after the
+// prompt. Appended, claude would never parse it (past the marker it is prompt text) and Tally could
+// not see it either, so the launch would run without the default it believed it had applied.
+check("an injected --continue goes in front of the prompt",
+      startMode(["--", "summarise this"], home: withSession).args
+      == ["--continue", "--", "summarise this"])
+check("and the prompt itself is untouched",
+      startMode(["--", "--continue"], home: withSession).args
+      == ["--continue", "--", "--continue"])
+// Which is also why the suppression check reads only the options: a prompt that mentions the flag
+// is not the user choosing it.
+check("a session flag inside the prompt does not suppress the injection",
+      startMode(["--", "-p", "hi"], home: withSession).args == ["--continue", "--", "-p", "hi"])
+check("with no marker the injection still simply appends",
+      startMode(["--verbose"], home: withSession).args == ["--verbose", "--continue"])
+
+// The two helpers on their own, including the no-marker case that must stay a plain append.
+check("injecting with no marker appends",
+      injectingOptions(["--verbose"], ["--model", "fable"]) == ["--verbose", "--model", "fable"])
+check("injecting with a marker goes before it",
+      injectingOptions(["--verbose", "--", "hi"], ["--model", "fable"])
+      == ["--verbose", "--model", "fable", "--", "hi"])
+check("injecting into a bare prompt still precedes it",
+      injectingOptions(["--", "hi"], ["--model", "fable"]) == ["--model", "fable", "--", "hi"])
+check("removing an own flag leaves the prompt alone",
+      removingOption(["--new", "--", "--new"], "--new") == ["--", "--new"])
+check("and removes every copy before the marker",
+      removingOption(["--new", "-x", "--new"], "--new") == ["-x"])
 try? FileManager.default.removeItem(at: startModeRoot)
 
 exit(failures == 0 ? 0 : 1)

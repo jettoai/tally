@@ -37,6 +37,7 @@ final class SettingsWindowController {
     /// `restoring` = a launch-time restore: keep the autosaved frame instead of re-centering,
     /// so the window reappears where the user left it before the (update-driven) quit.
     func show(restoring: Bool = false) {
+        StatusItemController.shared?.closePopover()
         if window == nil {
             let hosting = NSHostingController(rootView: SettingsView(
                 store: .shared, settings: .shared,

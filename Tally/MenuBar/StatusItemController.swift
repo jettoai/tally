@@ -120,6 +120,13 @@ final class StatusItemController: NSObject {
         }
     }
 
+    /// Dismiss the popover when another Tally window takes the stage: that window steals key and
+    /// promotes the activation policy, which defeats the transient popover's own click-outside
+    /// dismissal and leaves it stuck on screen. No-op when closed, so callers need no condition.
+    func closePopover() {
+        popover.performClose(nil)
+    }
+
     /// Size the popover to the content's measured size (reported by `PopoverRootView.onContentSize`),
     /// deferred a run-loop turn so it never resizes from inside the SwiftUI update that reported it.
     private func applyPopoverSize(_ size: CGSize) {

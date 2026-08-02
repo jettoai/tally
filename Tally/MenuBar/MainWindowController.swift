@@ -81,6 +81,7 @@ final class MainWindowController {
     /// `restoring` = a launch-time restore: keep the autosaved frame (the window reappears where
     /// it was before the quit) instead of re-deriving the position from the pointer.
     func show(restoring: Bool = false) {
+        StatusItemController.shared?.closePopover()
         if window == nil {
             let hosting = NSHostingController(
                 rootView: PopoverRootView(store: .shared, settings: .shared))

@@ -35,12 +35,20 @@ struct TokenProjectMap: Sendable {
         /// cwd can be traced back to the project it was serving.
         let munged: [String]
 
-        func owns(cwd: String) -> Bool {
-            paths.contains { cwd == $0 || cwd.hasPrefix($0 + "/") }
+        /// How specifically this project claims a working directory: the length of the longest of
+        /// its paths that contains it, or `nil` when none does. A length rather than a yes/no
+        /// because claims nest - two projects that are siblings under the workspace folder need
+        /// not have sibling targets (`monorepo -> /Volumes/work` beside `app -> /Volumes/work/app`
+        /// puts one project's real directory INSIDE the other's), so the deepest claim has to win.
+        func claim(cwd: String) -> Int? {
+            paths.filter { cwd == $0 || cwd.hasPrefix($0 + "/") }.map(\.count).max()
         }
 
-        func owns(transcriptFolder folder: String) -> Bool {
-            munged.contains { folder == $0 || folder.hasPrefix($0 + "-") }
+        /// The same for an agent's own transcript folder, where the separators have been flattened
+        /// away, so a container's spelling is also a prefix of what sits below it - and `tally` is
+        /// a prefix of `tally-release`, which is a different project rather than a directory in it.
+        func claim(transcriptFolder folder: String) -> Int? {
+            munged.filter { folder == $0 || folder.hasPrefix($0 + "-") }.map(\.count).max()
         }
     }
 
@@ -48,9 +56,8 @@ struct TokenProjectMap: Sendable {
     /// The home path already split, because every cwd is tested against it.
     private let homeComponents: [String]
     private let workspace: String
-    /// Deepest first, then longest first: the match walks this in order, so the most specific root
-    /// wins over its container, and `tally-release` is never mistaken for `tally` once the
-    /// separators have been flattened away.
+    /// The allow-list, in no particular order: which project owns a directory is decided by whose
+    /// claim on it is the most specific one (`bestRoot`), not by position.
     private let roots: [Root]
 
     // MARK: Building
@@ -68,17 +75,15 @@ struct TokenProjectMap: Sendable {
                 .filter { isCheckout(childURL.appendingPathComponent($0, isDirectory: true)) }
                 .map { child + "/" + $0 }
         }
-        let ordered = relatives
-            .sorted { (depth($0), $0.count) > (depth($1), $1.count) }
-            .map { relative -> Root in
-                let absolute = workspace.path + "/" + relative
-                let resolved = resolvedPath(absolute)
-                let paths = resolved == absolute ? [absolute] : [absolute, resolved]
-                return Root(relative: relative, paths: paths, munged: paths.map(munged))
-            }
+        let roots = relatives.map { relative -> Root in
+            let absolute = workspace.path + "/" + relative
+            let resolved = resolvedPath(absolute)
+            let paths = resolved == absolute ? [absolute] : [absolute, resolved]
+            return Root(relative: relative, paths: paths, munged: paths.map(munged))
+        }
 
         return TokenProjectMap(home: home.path, homeComponents: components(home.path),
-                               workspace: workspace.path, roots: ordered)
+                               workspace: workspace.path, roots: roots)
     }
 
     private static func directories(in url: URL) -> [String] {
@@ -113,10 +118,6 @@ struct TokenProjectMap: Sendable {
         FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path)
     }
 
-    private static func depth(_ path: String) -> Int {
-        path.reduce(0) { $1 == "/" ? $0 + 1 : $0 }
-    }
-
     private static func components(_ path: String) -> [String] {
         path.split(separator: "/").map(String.init)
     }
@@ -135,7 +136,7 @@ struct TokenProjectMap: Sendable {
         // Scratch directories are throwaway wherever they sit, including inside a project.
         guard let cwd, !cwd.isEmpty, !cwd.contains("scratchpad") else { return TokenProject.otherKey }
 
-        if let root = roots.first(where: { $0.owns(cwd: cwd) }) { return key(of: root) }
+        if let root = bestRoot({ $0.claim(cwd: cwd) }) { return key(of: root) }
 
         // Nothing on the allow-list, so placement is by where the directory sits under the home
         // directory. Everything outside the home pools: that is `/tmp`, `/private/tmp`, and the
@@ -153,13 +154,19 @@ struct TokenProjectMap: Sendable {
             // tokens are credited back to that project instead of showing up as a row named after
             // a session id. Anything else under a config home is work on the harness itself.
             if rest.count > 2, rest[1] == "projects",
-               let root = roots.first(where: { $0.owns(transcriptFolder: rest[2]) }) {
+               let root = bestRoot({ $0.claim(transcriptFolder: rest[2]) }) {
                 return key(of: root)
             }
             return home + "/" + Self.claudeFolder
         }
         if head.hasPrefix(Self.codexFolder) { return home + "/" + Self.codexFolder }
         return unplaced(cwd)
+    }
+
+    /// The project with the most specific claim on a directory, so a project nested inside another
+    /// one's tree keeps its own row instead of being counted against the tree it sits in.
+    private func bestRoot(_ claim: (Root) -> Int?) -> Root? {
+        roots.compactMap { root in claim(root).map { (root, $0) } }.max { $0.1 < $1.1 }?.0
     }
 
     /// A project's row identity is always spelled through the workspace folder, whichever of its

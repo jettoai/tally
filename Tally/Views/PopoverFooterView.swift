@@ -3,9 +3,24 @@ import AppKit
 
 /// The popover's footer strip, split out of PopoverRootView for file size: the used/left toggle,
 /// the view menu (layout + gauge metric), help, pin, window and settings buttons, with the jetto
-/// credit centered when the width leaves the middle empty.
+/// credit between them whenever the row has room to spare.
 extension PopoverRootView {
+    /// The credit rides in the row's layout flow rather than in an overlay. An overlay draws at the
+    /// footer's centre whatever else is there, so it could only be kept off the icons by a hand-picked
+    /// width threshold - which went stale the moment the trailing group grew by a button, and that is
+    /// how it came to draw underneath them. In flow it is kept only while the row has room for it plus
+    /// 12pt of clear space on either side, and dropped whole otherwise: overlap stops being expressible.
+    /// Both variants lay the picker and the icons out identically, so neither moves as the credit goes.
     var footer: some View {
+        ViewThatFits(in: .horizontal) {
+            footerRow(showsCredit: true)
+            footerRow(showsCredit: false)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
+    private func footerRow(showsCredit: Bool) -> some View {
         HStack {
             // A segmented control, not a switch: both states are valid views (nothing is "off"), and
             // showing both labels at once means the current mode and the alternative are always legible.
@@ -21,7 +36,19 @@ extension PopoverRootView {
             .controlSize(.mini)
             .fixedSize()
             .help(L("Meters show"))
-            Spacer()
+            Spacer(minLength: 12)
+            if showsCredit {
+                // Quiet, on every surface, and off the header so the product wordmark stands alone.
+                HStack(spacing: 4) {
+                    Text("by").font(.caption2).foregroundStyle(.tertiary)
+                    ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
+                        .fill(Color.secondary, style: FillStyle(eoFill: true))
+                        .frame(width: 40, height: 9)
+                }
+                .opacity(0.75)
+                .allowsHitTesting(false)
+                Spacer(minLength: 12)
+            }
             // Footer icons are one muted set (secondary); only the pin lights up (accent) when active,
             // so an unpinned pin doesn't read as already-on.
             // First in the group because it is the only ACTION here: everything after it changes
@@ -122,24 +149,6 @@ extension PopoverRootView {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help(L("Settings…"))
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        // The jetto credit, dead centre in the footer's empty middle - quiet, on every surface,
-        // and off the header so the product wordmark stands alone. Only when the middle is
-        // actually empty: at the single-column width the icon cluster reaches the centre and
-        // the credit drew underneath it.
-        .overlay {
-            if popoverWidth >= PopoverRootView.twoColumnPanelWidth {
-                HStack(spacing: 4) {
-                    Text("by").font(.caption2).foregroundStyle(.tertiary)
-                    ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
-                        .fill(Color.secondary, style: FillStyle(eoFill: true))
-                        .frame(width: 40, height: 9)
-                }
-                .opacity(0.75)
-                .allowsHitTesting(false)
-            }
         }
     }
 

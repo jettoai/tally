@@ -9,7 +9,8 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/forkchecks.swift \
   tests/supervisor/keyboardchecks.swift tests/supervisor/openturnchecks.swift \
   tests/supervisor/shimchecks.swift tests/supervisor/selfupdatefoldchecks.swift \
-  tests/supervisor/rebalancechecks.swift tests/supervisor/safeguardchecks.swift \
+  tests/supervisor/rebalancechecks.swift tests/supervisor/rebalanceclaimchecks.swift \
+  tests/supervisor/safeguardchecks.swift \
   tests/supervisor/followchecks.swift tests/supervisor/pendingnoticechecks.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/Quarantine.swift TallyCLI/DriftMonitor.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/Snapshot.swift TallyCLI/Reload.swift \

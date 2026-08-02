@@ -107,13 +107,15 @@ func runFollowChecks() {
                model: String? = "fable", effort: String? = "xhigh", mode: String = "auto",
                following: Bool = true, launchArgs: [String] = [],
                keyboardIdle: @escaping (TimeInterval) -> Bool = { _ in true },
-               fleet: [Snapshot.Account] = [followAccount("A")]) {
+               fleet: [Snapshot.Account] = [followAccount("A")],
+               snapshotProblem: String? = nil) {
         applyFollowAdoption(
             plan: &plan, state: &state, following: following,
             policy: LaunchPolicy(mode: mode, model: model, effort: effort),
             account: here, providerID: "claude", launchArgs: launchArgs, quarantine: [:],
             watcher: &followWatcher, keyboardIdle: keyboardIdle,
-            snapshot: { (Snapshot(version: 2, generatedAt: Date(), accounts: fleet), nil) })
+            snapshot: { (Snapshot(version: 2, generatedAt: Date(), accounts: fleet),
+                         snapshotProblem) })
     }
 
     // Path 1: already satisfied. The baseline is re-pointed and nothing is queued or planned.
@@ -187,6 +189,31 @@ func runFollowChecks() {
     adopt(state: &pinned, plan: &pinnedPlan, mode: "manual", fleet: [])
     check("a pinned session adopts on its own account, with no fleet to consult",
           pinnedPlan?.target.id == "A")
+
+    // A snapshot too old to trust decides nothing about WHERE, the rule the cap handoff and the idle
+    // rebalance both hold to: a pick made on hours-old quota is how a session lands somewhere worse
+    // than it started. It still decides that the adoption happens - a Settings change that silently
+    // does nothing is the defect this whole file is a regression for - so the session comes back on
+    // the account it is already on, carrying the new pair.
+    let temptingSibling = followAccount("B")
+    var stale = FollowState(launchArgs: ["--model", "opus"])
+    var stalePlan: RelaunchPlan?
+    adopt(state: &stale, plan: &stalePlan, fleet: [temptingSibling],
+          snapshotProblem: "snapshot is 40m old")
+    stale.pendingSince = Date().addingTimeInterval(-followDebounce - 1)
+    adopt(state: &stale, plan: &stalePlan, fleet: [temptingSibling],
+          snapshotProblem: "snapshot is 40m old")
+    check("a stale snapshot moves the session nowhere", stalePlan?.target.id == "A")
+    check("but the launch default is adopted all the same", stalePlan?.model == "fable")
+    check("and it is not recorded as a dead end", !stale.deadEnd)
+    // Guard the premise: with the SAME fleet and a trustworthy snapshot, the sibling is where this
+    // session would have gone, so the check above is about the staleness and nothing else.
+    var fresh = FollowState(launchArgs: ["--model", "opus"])
+    var freshPlan: RelaunchPlan?
+    adopt(state: &fresh, plan: &freshPlan, fleet: [temptingSibling])
+    fresh.pendingSince = Date().addingTimeInterval(-followDebounce - 1)
+    adopt(state: &fresh, plan: &freshPlan, fleet: [temptingSibling])
+    check("the same fleet on a fresh snapshot does move it", freshPlan?.target.id == "B")
 
     // Opted out (`--no-follow`, or a hand-typed --model): nothing is read and nothing is written.
     var optedOut = FollowState(launchArgs: ["--model", "opus"])

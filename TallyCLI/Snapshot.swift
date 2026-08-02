@@ -333,6 +333,19 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
 /// room for the new model) or a sibling is decisively healthier. Returns nil only when nothing,
 /// incumbent included, is eligible - a dead end the caller must not relaunch into. No banked-reset
 /// tie-breaker here: this pick is about NOT churning a serviceable session, not launch economics.
+///
+/// A CHALLENGER must also clear the nearly-dry gate, which is the one thing this pick was missing:
+/// `best` has applied it since it was written, the cap handoff and the idle rebalance both apply it,
+/// and this was the last account pick in the repo deciding on a bare rate. A rate has no floor, so a
+/// nearly empty window whose reset is close beats a full one whose reset is days away - which is how
+/// two sessions moved onto an account with 4% of its week left and 1.2h until it refilled, while a
+/// sibling sat at 98% (2026-08-02T06:47Z, reason=follow; measured 3.33 %/h against 0.67 %/h).
+///
+/// The INCUMBENT is deliberately not gated. Seeding it is the whole design, and dropping a dry
+/// incumbent would turn every Settings change into a fleet-wide evacuation of a spent account, with
+/// no claim to serialize it - five sessions adopting at once would all land on the one healthy
+/// sibling, which is the storm above wearing a different hat. Moving a session off a dying account
+/// is the idle rebalance's job (Rebalance.swift), where it happens once per account per drought.
 func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID: String,
                          primaryModel: String?, excluding: Set<String> = [],
                          now: Date = Date()) -> Snapshot.Account? {
@@ -347,7 +360,10 @@ func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID:
                     excluding: excluding, now: now)
     }
     var leaderScore = smartScore(leader, primaryModel: primaryModel, now: now)
-    for candidate in candidates where candidate.id != incumbentID {
+    let challengers = requiringComfortable(candidates.filter { $0.id != incumbentID }, now: now) {
+        comfortWindows($0, primaryModel: primaryModel, now: now)
+    }
+    for candidate in challengers {
         let score = smartScore(candidate, primaryModel: primaryModel, now: now)
         if score > leaderScore * smartPickMargin, score > leaderScore + smartPickMinGain {
             leader = candidate

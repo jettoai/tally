@@ -108,14 +108,21 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
             if policy.mode == "manual" {
                 repick = account
             } else {
-                let (snapshot, _) = loadSnapshotting()
+                let (snapshot, problem) = loadSnapshotting()
                 let excluded = quarantinedAccounts(forPrimary: policy.model,
                                                    sessionLocal: quarantine)
-                repick = snapshot.flatMap {
-                    incumbentSeededBest(providerID: providerID, in: $0,
-                                        incumbentID: account.id, primaryModel: policy.model,
-                                        excluding: excluded)
-                }
+                // Numbers too old to trust move nobody, the rule the cap handoff and the idle
+                // rebalance both follow: a pick made on hours-old quota is how a session lands
+                // somewhere worse than it started. Staying is not the same as refusing, though -
+                // the adoption still happens, on this account, because a Settings change that
+                // silently does nothing is the defect this file exists to have fixed.
+                repick = problem == nil
+                    ? snapshot.flatMap {
+                        incumbentSeededBest(providerID: providerID, in: $0,
+                                            incumbentID: account.id, primaryModel: policy.model,
+                                            excluding: excluded)
+                    }
+                    : account
             }
             guard let repick else {
                 state.deadEnd = true

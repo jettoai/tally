@@ -211,6 +211,41 @@ let refillingSoon = account("B", session: (2, inHours(0.05)), weekly: (60, inHou
 check("an account whose window resets within the grace is a valid handoff target",
       handoff([dryLeader, refillingSoon]) == "B")
 
+// The follow re-pick runs the gate on its CHALLENGERS. This is the 2026-08-02T06:47Z incident,
+// replayed from the snapshot recorded a hundred seconds before it (history.jsonl): two sessions
+// adopted a new launch default and both landed on the account with 4% of its week left and 1.2h
+// until it refilled, while a sibling sat at 98% of a week that had six days to run. The rate is why
+// - 4/1.2 = 3.33 %/h beats 98/147 = 0.67 %/h - and the gate is what the other picks use to refuse
+// exactly that trade. This was the last pick in the repo deciding on a bare rate.
+let incidentIncumbent = account("claude2", session: (100, nil), weekly: (82, inHours(149.2)),
+                                model: (71, inHours(149.2)), modelName: "Fable")
+let incidentDry = account("claude4", session: (100, nil), weekly: (4, inHours(1.2)),
+                          model: (4, inHours(1.2)), modelName: "Fable")
+let incidentHealthy = account("claude3", session: (91, inHours(2.7)), weekly: (98, inHours(147.2)),
+                              model: (98, inHours(147.2)), modelName: "Fable")
+let incidentField = [incidentIncumbent, incidentDry, incidentHealthy]
+check("the follow re-pick refuses the account with 4% of its week left",
+      seeded(incidentField, incumbent: "claude2", primaryModel: "fable") == "claude3")
+check("the bare rate is what chose it (guard the premise)",
+      smartScore(incidentDry, primaryModel: "fable", now: now)
+          > smartScore(incidentHealthy, primaryModel: "fable", now: now) * smartPickMargin)
+check("and that account really was outside the imminent-reset grace",
+      !accountIsComfortable(incidentDry, primaryModel: "fable", now: now))
+// The grace still applies here, so a thin window minutes from refilling is a real challenger: the
+// gate this borrows is the same one, not a stricter copy of it.
+let challengerRefilling = account("B", session: (100, inHours(5)), weekly: (2, inHours(0.05)))
+let plainIncumbent = account("A", session: (60, inHours(4)), weekly: (30, inHours(120)))
+check("a challenger whose window resets within the grace can still take the session",
+      seeded([plainIncumbent, challengerRefilling], incumbent: "A") == "B")
+// The incumbent is deliberately NOT gated: a dying account is the idle rebalance's problem, where
+// one claim per drought stops five sessions evacuating onto one sibling at once. A Settings change
+// must not become that evacuation, so a dry incumbent with no comfortable challenger stays put.
+let dryIncumbent = account("A", session: (100, inHours(5)), weekly: (3, inHours(50)))
+check("a dry incumbent is not evicted by the gate when nothing comfortable is offered",
+      seeded([dryIncumbent, dryChallenger], incumbent: "A") == "A")
+check("but a comfortable challenger that clears both gates still takes it",
+      seeded([dryIncumbent, comfortableRefuge], incumbent: "A") == "refuge")
+
 // Two comfortable accounts near a tie must not start flapping because the gate ran first.
 let comfyA = account("A", session: (100, inHours(3)), weekly: (60, inHours(120)))
 let comfyB = account("B", session: (100, inHours(3)), weekly: (58, inHours(120)))

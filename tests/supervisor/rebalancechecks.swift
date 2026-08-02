@@ -173,6 +173,11 @@ func runRebalanceChecks() {
     // the one that says so - on stderr, where it cannot land in the output being piped.
     check("the launcher says so when the pipe is what refused",
           launcher.contains("not supervised: stdout is not a terminal"))
+    // ...and only for the provider that would have had a supervisor: both `runSupervised` calls are
+    // behind `provider.id == "claude"`, so a piped `tally codex` never lost anything to be told
+    // about. The notice and the supervision have to agree about who they are for.
+    check("and only for the provider a supervisor was on offer for",
+          launcher.contains("if provider.id == \"claude\", !wantsHandoff, !stdoutIsTTY"))
     check("and says it through the stderr writer",
           launcher.contains("warn(\"not supervised: stdout is not a terminal"))
 

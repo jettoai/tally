@@ -49,7 +49,10 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // the user typed and `--no-handoff` is something they asked for, but a redirected stdout is a
     // property of the shell line, and a session silently losing its auto-handoff is the kind of
     // thing only noticed later, at the wall. On stderr, so it cannot land in the output being piped.
-    if !wantsHandoff, !stdoutIsTTY, autoHandoffEnabled(args: passthrough),
+    // Only for the provider that would otherwise have had a supervisor: codex is a plain exec
+    // either way (the `runSupervised` calls below are both behind `provider.id == "claude"`), so
+    // telling a piped `tally codex` what it lost would be naming a thing it never had.
+    if provider.id == "claude", !wantsHandoff, !stdoutIsTTY, autoHandoffEnabled(args: passthrough),
        !optionsOnly(passthrough).contains(where: { printFlags.contains($0) }) {
         warn("not supervised: stdout is not a terminal (claude runs one-shot when piped)")
     }

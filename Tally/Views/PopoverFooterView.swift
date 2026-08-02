@@ -1,27 +1,36 @@
 import SwiftUI
 import AppKit
 
-/// The popover's footer strip, split out of PopoverRootView for file size: the used/left toggle,
-/// the view menu (layout + gauge metric), help, pin, window and settings buttons, with the jetto
-/// credit between them whenever the row has room to spare.
+/// The footer strip, split out of PopoverRootView for file size: the used/left toggle, the reload,
+/// view options, help, pin, window and settings buttons, with the jetto credit between them whenever
+/// the row has room to spare. What the surface SHOWS is switched in the header, not here: this row
+/// is the view controls, and mixing "which screen" into it made the one action here hard to find.
+
+/// The measured widths of everything in the footer that does NOT depend on the credit being shown:
+/// the two rigid clusters, plus an unrendered copy of the credit itself. Because no member changes
+/// when the credit appears or disappears, the decision below can never feed back into its own inputs
+/// and oscillate - the numbers describe the row as it would be laid out with no credit at all.
+struct FooterWidths: Equatable {
+    var picker: CGFloat = 0
+    var icons: CGFloat = 0
+    var credit: CGFloat = 0
+}
+
 extension PopoverRootView {
     /// The credit rides in the row's layout flow rather than in an overlay. An overlay draws at the
     /// footer's centre whatever else is there, so it could only be kept off the icons by a hand-picked
     /// width threshold - which went stale the moment the trailing group grew by a button, and that is
     /// how it came to draw underneath them. In flow it is kept only while the row has room for it plus
     /// 12pt of clear space on either side, and dropped whole otherwise: overlap stops being expressible.
-    /// Both variants lay the picker and the icons out identically, so neither moves as the credit goes.
+    ///
+    /// One row, never two. Deciding this with `ViewThatFits` would hand each side of the threshold its
+    /// own subtree, so crossing it tears down and rebuilds the icons - and the View options button owns
+    /// a `.popover`, which closes when its presenter is rebuilt. Changing the column count from inside
+    /// that card is exactly what crosses the threshold, so the card closed under the user's cursor
+    /// mid-adjustment. Here the row (and every control's identity in it) is the same view throughout;
+    /// only the credit between the spacers comes and goes.
     var footer: some View {
-        ViewThatFits(in: .horizontal) {
-            footerRow(showsCredit: true)
-            footerRow(showsCredit: false)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-    }
-
-    private func footerRow(showsCredit: Bool) -> some View {
-        HStack {
+        HStack(spacing: 0) {
             // A segmented control, not a switch: both states are valid views (nothing is "off"), and
             // showing both labels at once means the current mode and the alternative are always legible.
             // Used before Left, mirroring the meters' geometry: the used portion fills from the
@@ -36,19 +45,58 @@ extension PopoverRootView {
             .controlSize(.mini)
             .fixedSize()
             .help(L("Meters show"))
+            .background { widthProbe { footerWidths.picker = $0 } }
             Spacer(minLength: 12)
             if showsCredit {
-                // Quiet, on every surface, and off the header so the product wordmark stands alone.
-                HStack(spacing: 4) {
-                    Text("by").font(.caption2).foregroundStyle(.tertiary)
-                    ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
-                        .fill(Color.secondary, style: FillStyle(eoFill: true))
-                        .frame(width: 40, height: 9)
-                }
-                .opacity(0.75)
-                .allowsHitTesting(false)
+                jettoCredit
                 Spacer(minLength: 12)
             }
+            footerIcons
+        }
+        // The credit is measured off a copy that is never drawn and never laid out (a background is
+        // sized by its host, not the other way round), so its width is known even in the frames where
+        // the credit is hidden - the alternative, measuring the real one, could only ever confirm the
+        // decision it was already the result of.
+        .background(alignment: .leading) {
+            jettoCredit.hidden().background { widthProbe { footerWidths.credit = $0 } }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
+    /// Room for the credit and 12pt of clear space on both sides of it, measured rather than assumed.
+    /// Unmeasured parts read 0, which stays false: better a late credit than one drawn over the icons.
+    private var showsCredit: Bool {
+        let parts = footerWidths
+        guard parts.picker > 0, parts.icons > 0, parts.credit > 0 else { return false }
+        return parts.picker + parts.credit + parts.icons + 24 <= popoverWidth - 24
+    }
+
+    /// Reports its own width, which is its host's: `Color.clear` fills whatever it is offered, and a
+    /// background is offered exactly the size of the view it backs.
+    private func widthProbe(_ report: @escaping (CGFloat) -> Void) -> some View {
+        GeometryReader { proxy in
+            Color.clear.onChange(of: proxy.size.width, initial: true) { _, width in report(width) }
+        }
+    }
+
+    /// Quiet, on every surface, and off the header so the product wordmark stands alone.
+    private var jettoCredit: some View {
+        HStack(spacing: 4) {
+            Text("by").font(.caption2).foregroundStyle(.tertiary)
+            ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
+                .fill(Color.secondary, style: FillStyle(eoFill: true))
+                .frame(width: 40, height: 9)
+        }
+        .opacity(0.75)
+        .allowsHitTesting(false)
+    }
+
+    /// The trailing cluster, one view so it can be measured as one. Its own spacing is the stack
+    /// default, unchanged: only the row around it went to explicit spacing, so that the width the
+    /// credit needs is exactly the width it and its two 12pt margins occupy.
+    private var footerIcons: some View {
+        HStack {
             // Footer icons are one muted set (secondary); only the pin lights up (accent) when active,
             // so an unpinned pin doesn't read as already-on.
             // First in the group because it is the only ACTION here: everything after it changes
@@ -112,21 +160,6 @@ extension PopoverRootView {
             .buttonStyle(.borderless)
             .foregroundStyle(settings.isUsagePanelPinned ? Color.accentColor : Color.secondary)
             .help(settings.isUsagePanelPinned ? L("Unpin window") : L("Pin on top"))
-            // Token history has no other way in: it is a tab of a window this app does not open by
-            // itself, so without a button here nobody finds it. Straight to that tab rather than to
-            // the window's default one, so the bar chart on the button and the screen it opens are
-            // the same thing. Next to the window button because both open the dashboard.
-            Button {
-                MainWindowController.shared.show(tab: .tokens)
-            } label: {
-                Image(systemName: "chart.bar.xaxis")
-                    .font(.callout)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help(L("Token stats"))
             Button {
                 MainWindowController.shared.show()
             } label: {
@@ -150,6 +183,7 @@ extension PopoverRootView {
             .foregroundStyle(.secondary)
             .help(L("Settings…"))
         }
+        .background { widthProbe { footerWidths.icons = $0 } }
     }
 
     /// The view-options card, in the cards' own spacing vocabulary: the layout tiles first (the

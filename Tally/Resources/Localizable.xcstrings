@@ -6926,35 +6926,6 @@
         }
       }
     },
-    "Token stats": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Token 統計"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Token 统计"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トークン統計"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "토큰 통계"
-          }
-        }
-      }
-    },
     "Today": {
       "extractionState": "manual",
       "localizations": {

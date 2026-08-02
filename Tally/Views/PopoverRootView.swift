@@ -7,6 +7,15 @@ import AppKit
 /// `sizingOptions = .preferredContentSize` (set in `StatusItemController`). There is deliberately no
 /// ScrollView + measured `.frame(height:)` here: that made the popover open at one size then resize to
 /// fit, so AppKit's frame animation fought SwiftUI's layout - the classic "two clocks" stutter. Static content + one-pass sizing avoids the fight entirely.
+
+/// What a surface is showing. Not a window concept: the popover, the pinned panel and the dashboard
+/// window are all this same view, and all three can be flipped to the token history and back.
+enum SurfaceTab: String, CaseIterable, Identifiable {
+    case usage, tokens
+    var id: String { rawValue }
+    var label: String { self == .usage ? L("Usage") : L("Tokens") }
+}
+
 struct PopoverRootView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
@@ -17,6 +26,21 @@ struct PopoverRootView: View {
     /// behind-window blur). The dashboard window is opaque, so it opts out and keeps solid cards -
     /// a within-window material there would only sample that window's own grey.
     var hostDrawsGlass: Bool = true
+    var tokens: TokenStatsStore = .shared
+
+    /// Per surface, deliberately: flipping the pinned panel to token history should not also flip
+    /// the menu-bar popover, which is opened for one glance at the quota and closed again. Every
+    /// host holds one of these, so no host needs to hand its own selection in.
+    ///
+    /// It also outlives a close, because each host's view is built once and reused: reopening shows
+    /// what the user last chose rather than silently undoing it, and the header switch says which
+    /// view this is. A reset on close would be the only way to disagree, and that would need this
+    /// state hoisted back out of the surface it belongs to.
+    @State private var ownTab: SurfaceTab = .usage
+
+    /// Internal: the header extension binds its switch to it.
+    var tabSelection: Binding<SurfaceTab> { $ownTab }
+    var tab: SurfaceTab { ownTab }
 
     private static let reorderSpace = "tallyCardReorder"
     @State private var cardFrames: [String: CGRect] = [:]
@@ -25,6 +49,16 @@ struct PopoverRootView: View {
     /// cancellation - the only hook SwiftUI guarantees for a cancelled gesture (onEnded is skipped) -
     /// so cardLift cleanup keys off its reset instead of trusting onEnded alone.
     @GestureState private var isReorderDragActive = false
+    /// A need, not a preference - the same rule the glass follows for Reduce Transparency. Every
+    /// animated change on this surface reads it and goes instant.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The System Settings pane vocabulary: a short crossfade with just enough vertical drift to say
+    /// the panel was replaced rather than repainted. Symmetric, and deliberately not a push - a slide
+    /// would imply the two views sit side by side in some order, and they do not.
+    private var tabTransition: AnyTransition {
+        .opacity.combined(with: .offset(y: 8))
+    }
 
     var body: some View {
         // Rebuild the whole tree on language change. A bare read of languageOverride only re-runs THIS
@@ -33,16 +67,38 @@ struct PopoverRootView: View {
         // `.id` on the language forces a full teardown + rebuild so every L() re-resolves.
         ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
+                // Header and footer frame both tabs: the countdown and the refresh stay reachable
+                // while reading token history, and the footer button that switched here is the one
+                // that switches back (a surface that swallowed its own way out would be a trap).
                 header
                 Divider()
-                launchSummaryStrip
-                fleetStrip
-                advisorStrip
-                // Fully folded (all cards behind their gauges) skips the card container entirely:
-                // its 12pt padding read as a hollow band between two dividers.
-                if store.contentState != .hasAccounts || !visibleAccounts.isEmpty {
-                    content
+                // A ZStack of two independent conditions, not one if/else: mid-crossfade both views
+                // exist, and stacked they occupy the taller of the two rather than the sum of them.
+                // In a VStack the host would chase a height neither tab has - the surface would
+                // balloon and collapse on every switch.
+                ZStack(alignment: .top) {
+                    if tab == .usage {
+                        VStack(spacing: 0) {
+                            launchSummaryStrip
+                            fleetStrip
+                            advisorStrip
+                            // Fully folded (all cards behind their gauges) skips the card container
+                            // entirely: its 12pt padding read as a hollow band between two dividers.
+                            if store.contentState != .hasAccounts || !visibleAccounts.isEmpty {
+                                content
+                            }
+                        }
+                        .transition(tabTransition)
+                    }
+                    if tab == .tokens {
+                        TokenStatsView(store: tokens, width: popoverWidth)
+                            // Every visit brings the numbers up to date; the scan itself skips files
+                            // whose identity has not changed, so a repeat visit costs a directory walk.
+                            .onAppear { tokens.refresh() }
+                            .transition(tabTransition)
+                    }
                 }
+                .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: tab)
                 Divider()
                 footer
             }
@@ -89,13 +145,13 @@ struct PopoverRootView: View {
         return multi ? 2 : 1
     }
 
-    /// The two-column panel width, named because two other surfaces gate on reaching it (the
-    /// footer's centered credit, the fleet strip's side-by-side gauges). Adjusting the case-2
-    /// width below without this constant would silently strand those gates.
+    /// The two-column panel width, named because two other surfaces gate on reaching it (the fleet
+    /// strip's and the advisor strip's side-by-side pairs). Adjusting the case-2 width below without
+    /// this constant would silently strand those gates.
     static let twoColumnPanelWidth: CGFloat = 560
 
     /// Constant card width (263pt) across the 2/3/4-column layouts; only the window grows.
-    /// Internal: the footer extension gates the centered credit on it.
+    /// Internal: the strip and footer extensions lay themselves out against it.
     var popoverWidth: CGFloat {
         switch columnCount {
         case 1: return 380
@@ -115,101 +171,6 @@ struct PopoverRootView: View {
         return (inner - 10 * (columns - 1)) / columns
     }
 
-    private var header: some View {
-        HStack(spacing: 6) {
-            // Everything except the refresh button doubles as the pinned panel's window-move handle
-            // (an AppKit background view would steal the button's clicks, so the button sits outside).
-            // The handle carries the leading/vertical padding and fills the header's full height -
-            // backing only the text line left a thin ~17pt grab strip that was easy to miss.
-            HStack(spacing: 6) {
-                // The logotype (brand T as the initial) - a bare glyph next to the word "Tally"
-                // read as two Ts. The header is the product's line; the jetto credit lives quietly
-                // in the footer's empty centre instead of trailing the wordmark like a byline.
-                TallyWordmarkView(glyphHeight: 13)
-                // The dev variant tags every surface (menu bar strip + panel header), so a test
-                // instance can never be mistaken for the installed app.
-                if BuildVariant.isDev {
-                    Text(verbatim: "DEV")
-                        .font(.system(size: 9, weight: .heavy))
-                        .foregroundStyle(TallyColor.warning)
-                        .padding(.horizontal, 4).padding(.vertical, 1)
-                        .overlay(Capsule().stroke(TallyColor.warning.opacity(0.6), lineWidth: 1))
-                }
-                // Docker-style nudge, two states: detected (accent ↑, click walks the install
-                // flow) and downloaded (green ↻, the Ghostty semantic - the payload is on disk,
-                // a click just restarts into the new version).
-                if let version = UpdateAvailability.shared.version {
-                    let ready = UpdateAvailability.shared.isDownloaded
-                    Button {
-                        UpdaterController.shared.checkForUpdates()
-                    } label: {
-                        Text(verbatim: "\(ready ? "↻" : "↑") \(version)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(ready ? TallyColor.normal : TallyColor.ai))
-                    }
-                    .buttonStyle(.plain)
-                    .help(ready ? L("Update downloaded - click to restart")
-                                : L("Update available - click to install"))
-                }
-                Spacer()
-                // TimelineView re-evaluates every second so "updates in 42s" counts down live (a
-                // plain render would freeze it at whatever it said on open). Hierarchy: the date is
-                // the anchor the absolute reset times are read against, so it leads; the countdown
-                // is a heartbeat, so it dims.
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    HStack(spacing: 6) {
-                        Text(UsageFormat.nowShort(context.date))
-                            .font(.caption2.weight(.medium)).monospacedDigit()
-                            .foregroundStyle(.primary)
-                        if let counter = store.isRefreshing
-                            ? L("updating…")
-                            : UsageFormat.updatesIn(store.nextRefreshAt, now: context.date) {
-                            // The counter's string width changes every second; hidden templates
-                            // (the widest forms, localized) reserve a fixed slot so the ticking
-                            // never pushes the date around. Trailing-aligned to hug the button.
-                            ZStack(alignment: .trailing) {
-                                ForEach(UsageFormat.updatesInTemplates, id: \.self) {
-                                    Text($0).hidden()
-                                }
-                                Text(counter)
-                            }
-                            .font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
-                        }
-                    }
-                }
-            }
-            .padding(.leading, 12)
-            .frame(maxHeight: .infinity)
-            .background(WindowDragArea())
-            Button {
-                Task { await store.refresh(userInitiated: true) }
-            } label: {
-                // A hand-rolled rotation cannot end cleanly: animating back after an interrupted
-                // repeatForever unwinds the arrow (a visible bob), and a nil animation does not
-                // cancel an in-flight repeat (the arrow spins forever). Swap to the native
-                // spinner while refreshing instead - no custom animation to get wrong.
-                Group {
-                    if store.isRefreshing {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .disabled(store.isRefreshing)
-            .accessibilityLabel(L("Refresh"))
-            .help(L("Refresh"))
-            .padding(.trailing, 12)
-        }
-        .frame(height: 40)
-    }
-
     @ViewBuilder
     private var content: some View {
         // Volatile launch flag: force the empty state so its copy and the app's mark can be looked
@@ -226,9 +187,10 @@ struct PopoverRootView: View {
                 .tallyCardGroup(cardStyle)
                 .padding(12)
                 // Cards glide (not teleport) whenever the order changes - from a drag here or the
-                // settings window - and equally when the grouping switch re-seats every card
-                // without the order itself moving.
-                .animation(CardMotion.spring, value: cardSeatingSignature)
+                // settings window - and equally when the grouping switch or the column count re-seats
+                // every card without the order itself moving. Same spring as the drag, so a card
+                // moving under its own steam and a card moved by hand travel the same way.
+                .animation(reduceMotion ? nil : CardMotion.spring, value: cardSeatingSignature)
                 // The reorder gesture lives HERE on the stable cards container, never on a card: a
                 // live reorder changes AccountRow identities, and SwiftUI CANCELS (not ends) a
                 // gesture whose view that diff tears down - onEnded never fires, and lift state
@@ -430,10 +392,12 @@ struct PopoverRootView: View {
         return order.map { AccountGroup(providerID: $0, items: buckets[$0] ?? []) }
     }
 
-    /// What a card move animates against: the persisted order, plus the grouping switch (flipping it
-    /// moves every card while the order underneath stays byte-identical).
+    /// What a card move animates against: the persisted order, the grouping switch (flipping it moves
+    /// every card while the order underneath stays byte-identical), and the column count, which
+    /// re-seats every card without touching either. The resolved count, not the raw setting: Auto is
+    /// the mode whose number moves on its own, and it is the number the cards are laid out by.
     private var cardSeatingSignature: String {
-        (settings.groupByProvider ? "grouped:" : "flat:")
+        "cols:\(columnCount)|" + (settings.groupByProvider ? "grouped:" : "flat:")
             + store.orderedAccounts.map(\.id).joined(separator: "|")
     }
 
@@ -441,5 +405,6 @@ struct PopoverRootView: View {
     // itself is in PopoverFooterView.swift.
     @State var showLaunchHelp = false
     @State var showViewOptions = false
+    @State var footerWidths = FooterWidths()
 }
 

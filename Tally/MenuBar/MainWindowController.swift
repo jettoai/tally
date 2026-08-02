@@ -4,11 +4,12 @@ import SwiftUI
 /// Manages the main dashboard window (a menu-bar app has no window by default). Lazily created,
 /// reused, and never released so its frame autosaves across opens.
 ///
-/// The window's Usage tab hosts the SAME view as the popover and the pinned panel
-/// (PopoverRootView), so card order, drag-to-reorder, the countdown header and the footer behave
-/// identically in all three surfaces; the window adds a Tokens tab around it (MainWindowRootView),
-/// which the glanceable surfaces deliberately do not get. The titlebar shows only the traffic
-/// lights: the view carries its own branding row, and a second "Tally" in the frame would double it.
+/// The window hosts the SAME view as the popover and the pinned panel (PopoverRootView) and nothing
+/// else, so card order, drag-to-reorder, the countdown header, the footer and the switch to token
+/// history behave identically in all three surfaces. It wrapped that view in a tab bar of its own
+/// until the switch moved into the header, at which point the wrapper was two tabs for one selection
+/// and went away. The titlebar shows only the traffic lights: the view carries its own branding row,
+/// and a second "Tally" in the frame would double it.
 @MainActor
 final class MainWindowController {
     static let shared = MainWindowController()
@@ -82,17 +83,17 @@ final class MainWindowController {
     /// `restoring` = a launch-time restore: keep the autosaved frame (the window reappears where
     /// it was before the quit) instead of re-deriving the position from the pointer.
     ///
-    /// `tab` is where the window lands. Every general "open Tally" defaults to Usage - the quota is
-    /// what the app is for - and only the surfaces that are specifically about token history ask
-    /// for that tab, so the button someone pressed and the screen they get always agree.
-    func show(restoring: Bool = false, tab: MainWindowRootView.Tab = .usage) {
-        MainWindowTab.shared.tab = tab
+    /// Nothing here decides which view the window lands on any more: the surface keeps that in its
+    /// own state, so a window reopened during a session shows what its header was last switched to,
+    /// exactly like the panel and the popover do.
+    func show(restoring: Bool = false) {
         StatusItemController.shared?.closePopover()
         if window == nil {
             // Opaque window: its cards stay solid. Glass cards belong to the hosts that put glass
             // behind them (the popover's vibrancy, the pinned panel's behind-window blur).
             let hosting = NSHostingController(
-                rootView: MainWindowRootView(store: .shared, settings: .shared, tokens: .shared))
+                rootView: PopoverRootView(store: .shared, settings: .shared, hostDrawsGlass: false,
+                                          tokens: .shared))
             let window = NSWindow(contentViewController: hosting)
             window.title = BuildVariant.isDev ? "Tally Dev" : "Tally"   // Mission Control / Window menu name
             window.titleVisibility = .hidden

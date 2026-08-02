@@ -13,6 +13,10 @@ import Foundation
 /// A folder there is a project when it is a checkout; when it is only a CONTAINER of checkouts (an
 /// org folder holding two products) its children are the projects instead, because collapsing them
 /// would merge two different products into one unreadable row.
+///
+/// Attribution is baked into the cached entries, so any change to which project owns a directory
+/// has to bump `TokenStatsEngine.Cache.currentVersion`; otherwise unchanged files keep the keys the
+/// old rule gave them and the table mixes both rules.
 struct TokenProjectMap: Sendable {
     /// The folder that holds one directory per project.
     private static let workspaceFolder = "workspace"

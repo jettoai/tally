@@ -40,7 +40,9 @@ final class TokenStatsEngine: @unchecked Sendable {
         /// 2: projects are attributed by allow-list (`TokenProjectMap`) rather than by raw cwd, so
         /// every key written by version 1 names a directory that is no longer a row.
         /// 3: a turn's usage is counted at its highest restated value rather than its first.
-        static let currentVersion = 3
+        /// 4: a directory is attributed to the project whose claim on it is the deepest, so entries
+        /// written by version 3 can credit a nested project's usage to the tree it sits in.
+        static let currentVersion = 4
 
         /// A cache stamped for the rules and the zone in force right now.
         static func current(files: [String: Entry] = [:]) -> Cache {

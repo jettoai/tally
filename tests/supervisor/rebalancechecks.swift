@@ -136,6 +136,31 @@ func runRebalanceChecks() {
     // A conversation flag is the opposite case: resuming is exactly what supervision is for.
     check("a resumed conversation on a terminal is supervised",
           shouldSupervise(args: ["--continue"], stdoutIsTTY: true))
+    // Everything after a bare `--` is the PROMPT, not options: claude parses `[options] [command]
+    // [prompt]` the POSIX way, so `tally claude -- --print summarise` is an interactive session
+    // whose prompt starts with the word `--print`. Every question Tally asks about a launch has to
+    // stop where the CLI stops, or Tally reads the user's prompt as an instruction about itself.
+    check("a print flag after the end-of-options marker is a prompt word",
+          shouldSupervise(args: ["--", "--print", "summarise"], stdoutIsTTY: true))
+    check("while the same flag before it still means one-shot",
+          !shouldSupervise(args: ["--print", "--", "summarise"], stdoutIsTTY: true))
+    check("an opt-out after the marker is not an opt-out",
+          autoHandoffEnabled(args: ["--", "--no-handoff"]))
+    check("and before it still is", !autoHandoffEnabled(args: ["--no-handoff", "--"]))
+    check("the follow opt-out reads the same boundary",
+          autoFollowEnabled(args: ["--", "--no-follow"]))
+    // The carry classification too: a prompt mentioning `--continue` must not make a brand new
+    // session look like a resumed one it has to protect.
+    check("a resume flag after the marker does not make a session look resumed",
+          carryableSession(launchArgs: ["--", "--continue"], sessionLocated: false))
+    check("nor a print flag make it unmovable",
+          carryableSession(launchArgs: ["--", "-p"], sessionLocated: false))
+    // The slice itself, including the case that has no marker at all.
+    check("with no marker the whole vector is options",
+          optionsOnly(["--model", "fable"]) == ["--model", "fable"])
+    check("the marker itself is not kept", optionsOnly(["-c", "--", "-p"]) == ["-c"])
+    check("a leading marker leaves nothing to read", optionsOnly(["--", "-p"]).isEmpty)
+
     // The gate is only worth anything if the launcher asks it, and the TTY half is the half that
     // can be quietly dropped (the flag half looks complete on its own), so the source carries it.
     let launcher = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
@@ -143,7 +168,13 @@ func runRebalanceChecks() {
     check("the launcher decides supervision through the gate",
           launcher.contains("shouldSupervise(args: passthrough"))
     check("and answers the terminal question from the real terminal",
-          launcher.contains("stdoutIsTTY: isatty(STDOUT_FILENO) == 1"))
+          launcher.contains("let stdoutIsTTY = isatty(STDOUT_FILENO) == 1"))
+    // The pipe is the one reason for refusing that the user cannot see in what they typed, so it is
+    // the one that says so - on stderr, where it cannot land in the output being piped.
+    check("the launcher says so when the pipe is what refused",
+          launcher.contains("not supervised: stdout is not a terminal"))
+    check("and says it through the stderr writer",
+          launcher.contains("warn(\"not supervised: stdout is not a terminal"))
 
     // MARK: - 26b. The two guardrails
 

@@ -229,6 +229,23 @@ func hasConversation(home: String, cwd: String = FileManager.default.currentDire
 /// stands down for any of them; `--print`/`-p` is here because a one-shot run is not a session.
 let sessionFlags: Set<String> = ["--continue", "-c", "--resume", "-r", "--print", "-p"]
 
+/// The part of an argument vector that is still OPTIONS: everything before the first bare `--`.
+///
+/// claude's CLI takes `claude [options] [command] [prompt]` and parses it the POSIX way, so a bare
+/// `--` ends the options and everything after it is the prompt. `tally claude -- --print summarise`
+/// is therefore an interactive session whose prompt happens to begin with the word `--print`, and
+/// every question Tally asks about a launch ("did they opt out", "is this a one-shot run", "can this
+/// be carried") has to stop at the same place the CLI stops - otherwise Tally reads a prompt as an
+/// instruction about itself.
+///
+/// Lives here rather than with the readers in LaunchFlags.swift because `sessionFlags` does: this is
+/// the vocabulary both files share, and the dependency stays one-way (LaunchFlags reads Snapshot,
+/// never the reverse), which is also what keeps the smaller test runners compiling.
+func optionsOnly(_ args: [String]) -> [String] {
+    guard let end = args.firstIndex(of: "--") else { return args }
+    return Array(args[..<end])
+}
+
 /// Applies the app's "continue by default" start mode to a launch, given the home it will run
 /// under. Returns the args to launch with, plus the one line to print when the injection was
 /// suppressed (nil = nothing to say).
@@ -243,7 +260,8 @@ func applyStartMode(_ args: [String], policy: LaunchPolicy, wantsNew: Bool, home
                     cwd: String = FileManager.default.currentDirectoryPath)
     -> (args: [String], note: String?) {
     guard policy.startMode == "continue", !wantsNew,
-          !args.contains(where: { sessionFlags.contains($0) }) else { return (args, nil) }
+          !optionsOnly(args).contains(where: { sessionFlags.contains($0) })
+    else { return (args, nil) }
     guard hasConversation(home: home, cwd: cwd) else {
         return (args, "no conversation in this directory yet - starting fresh")
     }

@@ -43,7 +43,16 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // which resumes a conversation but RE-RUNS a command (LaunchFlags.swift). Read before the flag
     // is stripped, and before the worktree edit above can matter, because it is a question about
     // what the user actually asked for.
-    let wantsHandoff = shouldSupervise(args: passthrough, stdoutIsTTY: isatty(STDOUT_FILENO) == 1)
+    let stdoutIsTTY = isatty(STDOUT_FILENO) == 1
+    let wantsHandoff = shouldSupervise(args: passthrough, stdoutIsTTY: stdoutIsTTY)
+    // Say so when the reason was the pipe, because that reason is invisible: `--print` is something
+    // the user typed and `--no-handoff` is something they asked for, but a redirected stdout is a
+    // property of the shell line, and a session silently losing its auto-handoff is the kind of
+    // thing only noticed later, at the wall. On stderr, so it cannot land in the output being piped.
+    if !wantsHandoff, !stdoutIsTTY, autoHandoffEnabled(args: passthrough),
+       !optionsOnly(passthrough).contains(where: { printFlags.contains($0) }) {
+        warn("not supervised: stdout is not a terminal (claude runs one-shot when piped)")
+    }
     passthrough.removeAll { $0 == "--no-handoff" }   // tally's own flag, never passed through
     // A running session follows a later Settings change to the default model/effort UNLESS the
     // user opted out (--no-follow) or typed their own --model or --effort (a deliberate choice

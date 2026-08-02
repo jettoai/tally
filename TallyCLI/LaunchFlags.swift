@@ -7,7 +7,7 @@ import Foundation
 
 /// Whether auto-handoff is on for this launch (opt out with `--no-handoff` or TALLY_AUTO_HANDOFF=0).
 func autoHandoffEnabled(args: [String]) -> Bool {
-    if args.contains("--no-handoff") { return false }
+    if optionsOnly(args).contains("--no-handoff") { return false }
     if let raw = getenv("TALLY_AUTO_HANDOFF"), String(cString: raw) == "0" { return false }
     return true
 }
@@ -16,7 +16,7 @@ func autoHandoffEnabled(args: [String]) -> Bool {
 /// the `--no-handoff` opt-out. A hand-typed `--model` is handled separately at the call site (a
 /// deliberate model choice must never be overridden), so this only covers the explicit escape hatch.
 func autoFollowEnabled(args: [String]) -> Bool {
-    if args.contains("--no-follow") { return false }
+    if optionsOnly(args).contains("--no-follow") { return false }
     if let raw = getenv("TALLY_AUTO_FOLLOW"), String(cString: raw) == "0" { return false }
     return true
 }
@@ -92,8 +92,9 @@ let resumeFlags = sessionFlags.subtracting(printFlags)
 /// `launchArgs` is what the CHILD was launched with, so a session that was moved once and now runs
 /// `--resume <id>` reads as resuming, which it is.
 func carryableSession(launchArgs: [String], sessionLocated: Bool) -> Bool {
-    if launchArgs.contains(where: { printFlags.contains($0) }) { return false }
-    return sessionLocated || !launchArgs.contains(where: { resumeFlags.contains($0) })
+    let options = optionsOnly(launchArgs)
+    if options.contains(where: { printFlags.contains($0) }) { return false }
+    return sessionLocated || !options.contains(where: { resumeFlags.contains($0) })
 }
 
 /// Whether the launch-default pair a follow adoption wants is ALREADY what this session runs, judged
@@ -144,5 +145,5 @@ func followAlreadySatisfied(desiredModel: String?, desiredEffort: String?,
 /// session, and it is supervised exactly as before.
 func shouldSupervise(args: [String], stdoutIsTTY: Bool) -> Bool {
     guard autoHandoffEnabled(args: args) else { return false }
-    return stdoutIsTTY && !args.contains(where: { printFlags.contains($0) })
+    return stdoutIsTTY && !optionsOnly(args).contains(where: { printFlags.contains($0) })
 }

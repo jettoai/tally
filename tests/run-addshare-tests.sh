@@ -7,7 +7,7 @@ out=$(mktemp -d)/run
 # AddCommand.swift joins the list for `nextFreeSlot` (which slot `tally add` picks). Its two
 # Keychain files are compiled, never called: every assertion injects its own probe, so the suite
 # reads no Keychain and depends on no login existing on the machine running it.
-swiftc -o "$out" tests/addshare/main.swift TallyCLI/SharedHarness.swift TallyCLI/Snapshot.swift \
+swiftc -o "$out" tests/addshare/main.swift TallyCLI/SharedHarness.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift \
   TallyCLI/ProviderExecutable.swift TallyCLI/AccountComfort.swift TallyCLI/AddCommand.swift TallyCLI/TrustSeed.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift
 "$out"

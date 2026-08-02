@@ -27,6 +27,7 @@ swiftc -o "$out" \
   TallyCLI/SupervisorRuntime.swift \
   TallyCLI/WorktreeMenu.swift \
   TallyCLI/Snapshot.swift \
+  TallyCLI/AccountPick.swift \
   TallyCLI/ProviderExecutable.swift \
   TallyCLI/AccountComfort.swift \
   TallyCLI/ReloadRequest.swift \

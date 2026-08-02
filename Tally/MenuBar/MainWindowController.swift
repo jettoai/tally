@@ -94,6 +94,12 @@ final class MainWindowController {
         // its always-on-top form, so leaving it up stacks two identical surfaces and the floating
         // one silently eats every click on the part of this window it covers (see
         // StatusItemController.unpin). Pinning already closes this window; this is its reverse.
+        // Being the reverse, it carries the same hand-off: the panel gives up the view it was showing,
+        // so opening the dashboard off a panel reading token history does not drop the user back on
+        // the quota cards - the mirror of pinning handing this window's tab to the panel (see
+        // StatusItemController.setPinned). Nil while the panel is off screen, which leaves this
+        // window's own last selection alone.
+        if let tab = PinnedPanelController.shared.visibleTab { surfaceTab.tab = tab }
         StatusItemController.unpin()
         if window == nil {
             // Opaque window: its cards stay solid. Glass cards belong to the hosts that put glass

@@ -72,6 +72,35 @@ var s4 = ["--model", "opus"]
 check("nothing to strip returns false, args untouched",
       !stripContinueResume(&s4) && s4 == ["--model", "opus"])
 
+// Both of these read and EDIT the launch vector, so both stop at the user's `--`: past it the same
+// words are the prompt, and consuming them changes what the session was asked to do. `-w` is the
+// sharper of the two - it takes the word after it as the worktree name, so a prompt mentioning it
+// lost two words and got launched into a worktree nobody asked for.
+var p1 = ["--", "run -w twice"]
+let pr1 = extractWorktreeFlag(&p1)
+check("a worktree flag inside the prompt is not a worktree flag",
+      !pr1.found && p1 == ["--", "run -w twice"])
+var p2 = ["--", "-w", "feat"]
+let pr2 = extractWorktreeFlag(&p2)
+check("nor when the prompt's own words look exactly like the pair",
+      !pr2.found && p2 == ["--", "-w", "feat"])
+var p3 = ["-w", "feat", "--", "-w", "other"]
+let pr3 = extractWorktreeFlag(&p3)
+check("while a real one before the marker is still taken, prompt intact",
+      pr3.found && pr3.name == "feat" && p3 == ["--", "-w", "other"])
+
+var q1 = ["--", "continue -c please"]
+check("a continue word inside the prompt is not stripped",
+      !stripContinueResume(&q1) && q1 == ["--", "continue -c please"])
+var q2 = ["--", "-c"]
+check("nor one that is its own word", !stripContinueResume(&q2) && q2 == ["--", "-c"])
+var q3 = ["--resume", "abc", "--", "--resume", "abc"]
+check("while a real one before the marker still goes, with its value",
+      stripContinueResume(&q3) && q3 == ["--", "--resume", "abc"])
+var q4 = ["-c", "--continue", "--", "-c"]
+check("and every copy before the marker goes",
+      stripContinueResume(&q4) && q4 == ["--", "-c"])
+
 // MARK: - 2. Porcelain parse + path derivation
 
 let porcelain = """

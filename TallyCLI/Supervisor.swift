@@ -26,7 +26,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     signal(SIGQUIT, SIG_IGN)
 
     var account = initial
-    var launchArgs = args.filter { $0 != "--no-handoff" && $0 != "--no-follow" }
+    // Tally's own flags, dropped from the OPTIONS only: past a `--` the same word is the user's
+    // prompt, and filtering the whole vector edited what they said (Snapshot.swift).
+    var launchArgs = removingOption(removingOption(args, "--no-handoff"), "--no-follow")
     /// The fallback profile fires at most once per session.
     var fallbackApplied = false
     /// Everything the launch-default follow remembers between ticks, seeded from this session's own

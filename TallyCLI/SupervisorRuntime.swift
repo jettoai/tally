@@ -375,8 +375,14 @@ struct RelaunchPlan {
 /// these same args: the new build must receive what the child would have been given.
 func planLaunchArgs(_ args: [String], plan: RelaunchPlan) -> [String] {
     guard plan.model != nil || plan.effort != nil || !plan.extraArgs.isEmpty else { return args }
-    var next = removingFlagPairs(args, ["--model", "--effort"])
-    if let model = plan.model { next += ["--model", model] }
-    if let effort = plan.effort { next += ["--effort", effort] }
-    return next + plan.extraArgs
+    // Gathered first, then placed where they will be READ (`injectingOptions`, Snapshot.swift).
+    // Appended, a relaunch that changed the model landed it past the user's `--` and into the
+    // prompt: claude ran the OLD pairing, `FollowState` could not see the new one either, and its
+    // baseline had already been re-pointed - so the session ran on a setting nobody could observe
+    // and no later tick would ever correct it, while each pass added another copy to the prompt.
+    var injected: [String] = []
+    if let model = plan.model { injected += ["--model", model] }
+    if let effort = plan.effort { injected += ["--effort", effort] }
+    return injectingOptions(removingFlagPairs(args, ["--model", "--effort"]),
+                            injected + plan.extraArgs)
 }

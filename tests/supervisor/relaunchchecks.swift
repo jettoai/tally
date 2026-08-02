@@ -70,6 +70,16 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     check("with no marker it still strips throughout",
           removingFlagPairs(["--model", "fable", "--verbose"], ["--model"]) == ["--verbose"])
 
+    // The supervisor strips Tally's OWN flags from the vector it hands the child, and that line is
+    // only reachable with a real child, so the source carries it. It is the same edit as every other
+    // one here: a `--no-handoff` past the marker is a word the user wrote, not a flag to consume.
+    let loopSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("the supervisor source is readable from the relaunch checks", !loopSource.isEmpty)
+    check("the supervisor drops its own flags from the options only",
+          loopSource.contains(#"removingOption(removingOption(args, "--no-handoff"), "--no-follow")"#))
+    check("and does not filter the whole vector for them",
+          !loopSource.contains(#"args.filter { $0 != "--no-handoff""#))
+
     // MARK: - 21. A pending cap across a relaunch
 
     // A capped session with no sibling to take it is quiet by definition, so a reload always

@@ -236,6 +236,36 @@ func runFollowChecks() {
     check("appended after the prompt it would have been invisible",
           FollowState(launchArgs: ["--", "summarise this", "--model", "fable"]).followedModel == nil)
 
+    // The full round trip a Settings change actually takes on a session whose launch carried a
+    // prompt: the plan rewrites the launch args, the child runs them, and the NEXT tick reads them
+    // back to learn what it is running. Appended past the `--`, every step of that failed at once -
+    // claude parsed the old pairing, the reader saw nothing, and the baseline had already been
+    // re-pointed, so no later tick could notice. That is the one shape that never self-corrects.
+    let launched = injectingOptions(["--", "summarise this"], ["--model", "fable"])
+    var switched = RelaunchPlan(target: here, reason: "follow", countsFuse: false)
+    switched.model = "opus"
+    switched.effort = "xhigh"
+    let after = planLaunchArgs(launched, plan: switched)
+    check("a relaunch puts the new pair in front of the prompt",
+          after == ["--model", "opus", "--effort", "xhigh", "--", "summarise this"])
+    check("and the next tick reads the new model back",
+          FollowState(launchArgs: after).followedModel == "opus")
+    check("and the new effort with it",
+          FollowState(launchArgs: after).followedEffort == "xhigh")
+    check("the prompt survives the rewrite word for word",
+          Array(after.suffix(2)) == ["--", "summarise this"])
+    // Which closes the loop: the pair the plan applied is the pair the session reports, so an
+    // unchanged policy on the next tick plans nothing rather than adopting forever.
+    var afterSwitch = FollowState(launchArgs: after)
+    var afterSwitchPlan: RelaunchPlan?
+    adopt(state: &afterSwitch, plan: &afterSwitchPlan, model: "opus", effort: "xhigh")
+    check("so the tick after the switch is a no-op", afterSwitchPlan == nil)
+    check("with nothing queued", !afterSwitch.queuedNotice && afterSwitch.pendingSince == nil)
+    // The old flag is replaced, not accumulated: a session relaunched twice carries one pair.
+    let twice = planLaunchArgs(after, plan: switched)
+    check("a second relaunch does not stack a second pair",
+          twice == ["--model", "opus", "--effort", "xhigh", "--", "summarise this"])
+
     // Opted out (`--no-follow`, or a hand-typed --model): nothing is read and nothing is written.
     var optedOut = FollowState(launchArgs: ["--model", "opus"])
     var optedOutPlan: RelaunchPlan?

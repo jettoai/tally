@@ -31,7 +31,10 @@ struct WorktreeEntry {
 /// interactively. Returns whether the flag was present and its name; `args` has the flag and its
 /// consumed value removed in place.
 func extractWorktreeFlag(_ args: inout [String]) -> (found: Bool, name: String?) {
-    guard let index = args.firstIndex(where: { $0 == "-w" || $0 == "--worktree" }) else {
+    // Options only: `-w` inside a prompt is a word, and consuming it would also swallow the word
+    // after it. An index into the options prefix is an index into `args` (Snapshot.swift).
+    guard let index = optionsOnly(args).firstIndex(where: { $0 == "-w" || $0 == "--worktree" })
+    else {
         return (false, nil)
     }
     let next = index + 1 < args.count ? args[index + 1] : nil
@@ -329,15 +332,20 @@ func worktreeHasTranscript(slug: String, homes: [String]) -> Bool {
 func stripContinueResume(_ args: inout [String]) -> Bool {
     var removed = false
     var i = 0
-    while i < args.count {
+    // Only the options are stripped; `end` tracks the shrinking prefix so everything from the user's
+    // `--` onward is left exactly as typed (Snapshot.swift).
+    var end = optionsOnly(args).count
+    while i < end {
         switch args[i] {
         case "--continue", "-c":
             args.remove(at: i)
+            end -= 1
             removed = true
         case "--resume", "-r":
             args.remove(at: i)
+            end -= 1
             removed = true
-            if i < args.count, !args[i].hasPrefix("-") { args.remove(at: i) }
+            if i < end, !args[i].hasPrefix("-") { args.remove(at: i); end -= 1 }
         default:
             i += 1
         }

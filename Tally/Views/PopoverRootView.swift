@@ -61,10 +61,15 @@ struct PopoverRootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The System Settings pane vocabulary: a short crossfade with just enough vertical drift to say
-    /// the panel was replaced rather than repainted. Symmetric, and deliberately not a push - a slide
-    /// would imply the two views sit side by side in some order, and they do not.
+    /// the panel was replaced rather than repainted. Deliberately not a push - a slide would imply
+    /// the two views sit side by side in some order, and they do not.
+    ///
+    /// The drift is on the arriving view only. The surface takes the incoming tab's height on the
+    /// first frame of the switch, so the leaving view is already being cut off at the bottom, and
+    /// drifting it downward only pushed it further into the part that is going away. It fades where
+    /// it stands, leaving the top edge as the one thing nothing in the switch moves against.
     private var tabTransition: AnyTransition {
-        .opacity.combined(with: .offset(y: 8))
+        .asymmetric(insertion: .opacity.combined(with: .offset(y: 8)), removal: .opacity)
     }
 
     var body: some View {

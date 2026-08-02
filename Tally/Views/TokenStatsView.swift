@@ -38,13 +38,18 @@ struct TokenStatsView: View {
             }
             if store.isScanning { scanningNote }
         }
-        // The reading column is capped and centred in whatever width the account grid chose, so a
+        // The reading column is capped inside whatever width the account grid chose, so a
         // four-column window does not stretch a dozen short project names across 1108pt. The tab
         // itself still fills the window, so switching tabs never resizes it sideways.
+        //
+        // Capped at the LEADING edge, not centred: the two tabs crossfade in place, and centring
+        // started this one 142pt right of the account cards at four columns, so the switch read as
+        // the content sliding sideways. The width the cap gives up lands on the trailing side
+        // instead, where the grid's extra columns were.
         .frame(width: min(width - 24, Self.contentWidth))
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
-        .frame(width: width)
+        .frame(width: width, alignment: .leading)
     }
 
     /// A window with nothing in it, as opposed to a window whose numbers have not arrived yet - the

@@ -85,6 +85,21 @@ extension PopoverRootView {
             .buttonStyle(.borderless)
             .foregroundStyle(settings.isUsagePanelPinned ? Color.accentColor : Color.secondary)
             .help(settings.isUsagePanelPinned ? L("Unpin window") : L("Pin on top"))
+            // Token history has no other way in: it is a tab of a window this app does not open by
+            // itself, so without a button here nobody finds it. Straight to that tab rather than to
+            // the window's default one, so the bar chart on the button and the screen it opens are
+            // the same thing. Next to the window button because both open the dashboard.
+            Button {
+                MainWindowController.shared.show(tab: .tokens)
+            } label: {
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.callout)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help(L("Token stats"))
             Button {
                 MainWindowController.shared.show()
             } label: {

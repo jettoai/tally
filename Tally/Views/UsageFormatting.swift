@@ -19,6 +19,28 @@ enum UsageFormat {
         return min(1, max(0, value / 100))
     }
 
+    /// Compact token count, e.g. "842" / "12.3K" / "87.7M" / "29.4B". Three significant digits, so
+    /// every column stays the same width whatever the magnitude - token counts span six orders of
+    /// magnitude between a single turn and a month of agents, and the exact digits carry no
+    /// meaning at the top of that range. Digit-only and locale-independent, matching the app's
+    /// other figures.
+    static func compactCount(_ value: Int64) -> String {
+        let units: [(threshold: Int64, suffix: String)] =
+            [(1_000_000_000_000, "T"), (1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")]
+        guard let unit = units.first(where: { abs(value) >= $0.threshold }) else { return "\(value)" }
+        let scaled = Double(value) / Double(unit.threshold)
+        let decimals = abs(scaled) < 10 ? 2 : (abs(scaled) < 100 ? 1 : 0)
+        return String(format: "%.\(decimals)f%@", scaled, unit.suffix)
+    }
+
+    /// A 0...1 share as a whole percentage. Anything that would round to zero reads "<1%" instead:
+    /// a row is only on the table because it produced something, and "0%" next to a real token
+    /// count looks like the two disagree.
+    static func sharePercent(_ share: Double) -> String {
+        let percent = (share * 100).rounded()
+        return percent < 1 && share > 0 ? "<1%" : "\(Int(percent))%"
+    }
+
     /// Compact duration, e.g. "4d 17h" / "42m" - the body shared by the reset countdown and the
     /// fleet forecast.
     static func durationBody(_ seconds: TimeInterval) -> String {

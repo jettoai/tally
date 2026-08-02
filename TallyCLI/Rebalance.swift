@@ -264,14 +264,17 @@ func rebalanceRecordName(_ accountID: String) -> String {
 ///  - `mode`: manual means the user pinned this account. Pinning is a statement about where the
 ///    session runs, so a pinned session is never moved by quota reasoning, dying account or not.
 ///  - `isQuiet`: the full non-urgent bar. This is a convenience, so it may never cost a keystroke.
-///  - `sessionLocated`: whether the conversation can be CARRIED. Crossing accounts costs a resume
-///    id: `performHandoff` strips `--continue` on a move by design, because on the target account
-///    that flag names a different conversation entirely, so a session whose transcript is not bound
-///    yet would come back blank. The cap handoff never needed this stated - its evidence is a line
-///    IN the transcript, so it cannot run before the session is locatable - and that is exactly why
-///    this reads like a gate nobody wrote: every OTHER mover was protected by an accident of what
-///    triggers it. This one is triggered by quota, which knows nothing about conversations.
-///    (2026-08-02, both movers: the reload restart, then this one.)
+///  - `carryable`: whether moving this session can lose a conversation (`carryableSession`,
+///    SupervisorRuntime.swift). Crossing accounts costs a resume id: `performHandoff` strips
+///    `--continue` on a move by design, because on the target account that flag names a different
+///    conversation entirely, so a session that was told to resume something, and whose transcript
+///    is not bound yet, would come back blank. A session that never asked to resume anything is
+///    carried by definition - there is nothing to bring - and gating it too would strand brand new
+///    sessions on a dying account for nothing. The cap handoff never needed any of this stated: its
+///    evidence is a line IN the transcript, so it cannot run before the session is locatable. That
+///    is exactly why this reads like a gate nobody wrote - every OTHER mover was protected by an
+///    accident of what triggers it, and this one is triggered by quota, which knows nothing about
+///    conversations. (2026-08-02: the reload restart, then this, then the fresh-session half.)
 ///  - `fuseAllows`: automatic moves share one budget with cap recoveries.
 ///  - the account is not comfortable: the same gate the pick uses, so "dying" means one thing in
 ///    this repo. It already exempts a window about to refill, so 9% resetting in five minutes is
@@ -281,17 +284,17 @@ func rebalanceRecordName(_ accountID: String) -> String {
 ///    on a tick that then declines to move (a pinned session, a session mid-turn, nowhere better to
 ///    go), and the account would sit un-rebalanceable until its window reset.
 ///
-/// `sessionLocated` is declared AFTER `isQuiet` on purpose, and every caller passes it after too:
-/// Swift evaluates an argument list in source order, so the expression that runs the transcript
-/// locate (`watcher.isQuiet(...)`) is guaranteed to have run before the one that reads its result
+/// `carryable` is declared AFTER `isQuiet` on purpose, and every caller passes it after too: Swift
+/// evaluates an argument list in source order, so the expression that runs the transcript locate
+/// (`watcher.isQuiet(...)`) is guaranteed to have run before the one that reads its result
 /// (`watcher.file != nil`). Reversed, the caller would be reading a binding that had not been
 /// attempted yet, and the gate would refuse every first tick for no reason. There is no default:
 /// a mover that has not thought about whether it can carry the conversation is the bug itself.
-func rebalanceTarget(mode: String, isQuiet: Bool, sessionLocated: Bool, fuseAllows: Bool,
+func rebalanceTarget(mode: String, isQuiet: Bool, carryable: Bool, fuseAllows: Bool,
                      current: Snapshot.Account, candidates: [Snapshot.Account],
                      primaryModel: String?, now: Date = Date(),
                      claim: () -> Bool = { true }) -> Snapshot.Account? {
-    guard mode != "manual", isQuiet, sessionLocated, fuseAllows,
+    guard mode != "manual", isQuiet, carryable, fuseAllows,
           !accountIsComfortable(current, primaryModel: primaryModel, now: now),
           let target = capHandoffTarget(candidates, primaryModel: primaryModel, now: now),
           claim()
@@ -315,7 +318,7 @@ func rebalanceTarget(mode: String, isQuiet: Bool, sessionLocated: Bool, fuseAllo
 /// The field is narrowed exactly as the cap handoff narrows it: this provider, eligible for the
 /// model actually running, not the account we are on, and nothing quarantined.
 func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: String?,
-                   mode: String, isQuiet: Bool, sessionLocated: Bool, fuseAllows: Bool,
+                   mode: String, isQuiet: Bool, carryable: Bool, fuseAllows: Bool,
                    quarantine: [String: (model: String?, until: Date)] = [:],
                    loaded: (Snapshot?, String?) = loadSnapshot(), now: Date = Date(),
                    dir: URL = rebalanceDir) -> Snapshot.Account? {
@@ -330,7 +333,7 @@ func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: St
             && $0.id != account.id && !excluded.contains($0.id)
     }
     return rebalanceTarget(
-        mode: mode, isQuiet: isQuiet, sessionLocated: sessionLocated, fuseAllows: fuseAllows,
+        mode: mode, isQuiet: isQuiet, carryable: carryable, fuseAllows: fuseAllows,
         current: live, candidates: candidates, primaryModel: primaryModel, now: now,
         claim: { claimRebalanceCycle(account.id, cycle: cycle, dir: dir) })
 }

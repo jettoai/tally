@@ -366,14 +366,15 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // across supervisors, so those five sessions never stampede onto the one healthy
             // sibling. A target comes back only once this supervisor has CLAIMED that cycle, so
             // there is nothing to record here. The rules live in Rebalance.swift.
-            // `sessionLocated` sits after `isQuiet` because Swift evaluates an argument list in
-            // source order: the locate happens inside `watcher.isQuiet`, and reading `watcher.file`
-            // before it would ask about a binding nobody had attempted yet.
+            // `carryable` sits after `isQuiet` because Swift evaluates an argument list in source
+            // order: the locate happens inside `watcher.isQuiet`, and reading `watcher.file` before
+            // it would ask about a binding nobody had attempted yet.
             if plan == nil, let moveTo = rebalanceMove(
                    provider: provider.id, account: account, primaryModel: effectivePrimary,
                    mode: policy.mode,
                    isQuiet: watcher.isQuiet(followIdleSeconds) && keyboard.idle(followIdleSeconds),
-                   sessionLocated: watcher.file != nil,
+                   carryable: carryableSession(launchArgs: launchArgs,
+                                               sessionLocated: watcher.file != nil),
                    fuseAllows: fuse.allows(), quarantine: quarantine) {
                 warn("\(account.label) nearly dry, moving to \(moveTo.label) before the wall " +
                      "(\(pickReason(moveTo, primaryModel: effectivePrimary)))")
@@ -407,22 +408,23 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // `isQuiet: true` is not a bypass: the only caller of this closure is the branch reload
             // reaches when its OWN idle gate has already said yes.
             //
-            // `sessionLocated` is read HERE and captured, never inside the closure. `watcher` is
-            // passed inout to the call the closure belongs to, so `watcher.file` read from within it
-            // is a simultaneous access: measured 2026-08-02, that compiles without a word and traps
-            // at runtime ("Simultaneous accesses ... modification requires exclusive access"). The
+            // `carryable` is read HERE and captured, never inside the closure. `watcher` is passed
+            // inout to the call the closure belongs to, so `watcher.file` read from within it is a
+            // simultaneous access: measured 2026-08-02, that compiles without a word and traps at
+            // runtime ("Simultaneous accesses ... modification requires exclusive access"). The
             // locate this reads is the tick's own, run unconditionally by `watcher.sawCapHit()` at
-            // the top; reload locates again inside and gates on that, so the two can only disagree
-            // in the safe direction (this says no, reload stays put, the rebalance moves it later).
-            let sessionLocated = watcher.file != nil
+            // the top; reload can locate again inside, so the two can only disagree in the safe
+            // direction (this says no, the session stays, the rebalance moves it later).
+            let carryable = carryableSession(launchArgs: launchArgs,
+                                             sessionLocated: watcher.file != nil)
             applyReloadRequest(plan: &plan, epoch: &reloadEpoch, notice: &reloadNotice,
                                account: account, watcher: &watcher,
                                childAge: Date().timeIntervalSince(launchedAt),
-                               keyboardIdle: { keyboard.idle($0) },
+                               keyboardIdle: { keyboard.idle($0) }, carryable: carryable,
                                repick: {
                                    rebalanceMove(provider: provider.id, account: account,
                                                  primaryModel: effectivePrimary, mode: policy.mode,
-                                                 isQuiet: true, sessionLocated: sessionLocated,
+                                                 isQuiet: true, carryable: carryable,
                                                  fuseAllows: fuse.allows(),
                                                  quarantine: quarantine)
                                })

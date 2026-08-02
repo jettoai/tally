@@ -171,9 +171,16 @@ func reloadDecision(captured: Int, requested: Int?, relaunchPlanned: Bool,
 /// snapshot and, when it answers, has already taken the account's one claim for this drought. Asking
 /// on a tick that then does not relaunch would spend that claim on nothing, which is why the
 /// rebalance asks it last (Rebalance.swift) and why this asks it only on the branch that restarts.
+///
+/// `carryable` travels with it (`carryableSession`, SupervisorRuntime.swift): whether moving this
+/// session can lose a conversation, which needs the child's launch args and so cannot be answered
+/// here. It defaults to false to pair with `repick`'s own default of never moving - a caller that
+/// supplies neither has no re-pick to gate - and because the failure it guards is unrecoverable
+/// while the failure it causes is a delay.
 func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: inout ReloadWait,
                         account: Snapshot.Account, watcher: inout TranscriptWatcher,
                         childAge: TimeInterval, keyboardIdle: (TimeInterval) -> Bool,
+                        carryable: Bool = false,
                         request requested: ReloadRequest? = readReloadRequest(),
                         repick: () -> Snapshot.Account? = { nil },
                         now: Date = Date()) {
@@ -219,16 +226,22 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
         //
         // Crossing accounts costs a resume id. `performHandoff` strips `--continue` on a move by
         // design - the flag means "the newest conversation in this project", which on the TARGET
-        // account is somebody else's - so a session whose transcript is not located yet would come
-        // back BLANK. Staying is free: same account, `--continue` intact, and the idle rebalance
-        // makes this very move at its next quiet moment once there is a transcript to carry.
+        // account is somebody else's - so a session that was told to resume something, before its
+        // transcript is bound, would come back BLANK. Staying is free: same account, `--continue`
+        // intact, and the rebalance makes this move later once there is a transcript to carry. A
+        // session that never asked to resume anything is carried by definition and moves now
+        // (`carryableSession`, which is what the caller passes here).
         //
         // The cap handoff has no gate to borrow for this, only an accident of what triggers it: its
         // evidence is a LINE IN the transcript (`sawCapHit` binds the file or reports nothing), so
         // it cannot run before the session is locatable. A reload is triggered by a file in ~/.tally
-        // that knows nothing about any conversation, which is what put this state in reach. So the
-        // check is written here, over the value this function already computed once `isQuiet` ran
-        // its locate - not a second opinion about what "has a transcript" means.
+        // that knows nothing about any conversation, which is what put this state in reach.
+        //
+        // Asked of the CALLER rather than recomputed here, because the answer needs the child's
+        // launch args, which this function has no business knowing. `rebalanceMove` gates on the
+        // same value again; that is not a duplicate but a division: this one decides whether to ASK
+        // (an answer costs the account its one claim for the drought), that one is the decision's
+        // own precondition.
         //
         // Conservative rather than exact: `performHandoff` locates again and may well find the file,
         // so a refusal here can be one the id would have survived. That costs a delay; being wrong
@@ -240,7 +253,7 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
         // reload comes back on the same account and the cap is therefore still this session's
         // problem. Tag a move as a reload and the next child inherits a cap belonging to an
         // account it is no longer on.
-        if hasTranscript, let moveTo = repick(), moveTo.id != account.id {
+        if carryable, let moveTo = repick(), moveTo.id != account.id {
             warn("reload requested → restarting on \(moveTo.label), " +
                  "leaving \(account.label) before the wall")
             plan = RelaunchPlan(target: moveTo, reason: "rebalance", countsFuse: true)

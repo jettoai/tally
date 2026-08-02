@@ -30,11 +30,11 @@ func runRebalanceChecks() {
     let alsoDry = acct("C", model: 2)
     let primary = "fable"
 
-    func target(mode: String = "auto", isQuiet: Bool = true, sessionLocated: Bool = true,
+    func target(mode: String = "auto", isQuiet: Bool = true, carryable: Bool = true,
                 fuseAllows: Bool = true, current: Snapshot.Account = dying,
                 candidates: [Snapshot.Account] = [healthy],
                 claim: () -> Bool = { true }) -> Snapshot.Account? {
-        rebalanceTarget(mode: mode, isQuiet: isQuiet, sessionLocated: sessionLocated,
+        rebalanceTarget(mode: mode, isQuiet: isQuiet, carryable: carryable,
                         fuseAllows: fuseAllows, current: current, candidates: candidates,
                         primaryModel: primary, now: launch, claim: claim)
     }
@@ -70,15 +70,39 @@ func runRebalanceChecks() {
     check("a session in use is not moved", target(isQuiet: false) == nil)
 
     // A conversation that cannot be CARRIED is not moved either, however dry the account. Crossing
-    // accounts strips `--continue` on purpose (it names a different conversation over there), so
-    // without a bound transcript there is no id to resume and the session would come back blank.
-    // Reachable because an unbound watcher reports itself QUIET (`isBoundFileQuiet` returns true
-    // with no file), so the idle bar above says yes to exactly the session that cannot survive the
-    // move: a `--continue` child that has not written a turn since it launched.
-    check("a session with no transcript to carry is not moved",
-          target(sessionLocated: false) == nil)
-    check("even though the idle bar is perfectly happy with it",
-          target(isQuiet: true, sessionLocated: false) == nil)
+    // accounts strips `--continue` on purpose (it names a different conversation over there), so a
+    // session told to resume something, before its transcript is bound, has no id to resume and
+    // would come back blank. Reachable because an unbound watcher reports itself QUIET
+    // (`isBoundFileQuiet` returns true with no file), so the idle bar above says yes to exactly the
+    // session that cannot survive the move.
+    check("a session whose conversation cannot be carried is not moved",
+          target(carryable: false) == nil)
+    check("and carrying is the only thing that changed the answer",
+          target(isQuiet: true, carryable: true)?.id == "B")
+
+    // What "carryable" means, which is the half that took two goes to get right: the FIRST answer
+    // was "the transcript is bound", and that stranded every brand new session on a dying account -
+    // a launch that never asked to resume anything has nothing to lose by moving, because
+    // `relaunchArgs` hands the move exactly the args a fresh start would have got anyway.
+    check("a launch that never asked to resume is carried by definition",
+          carryableSession(launchArgs: ["--model", "fable"], sessionLocated: false))
+    check("a launch asking to continue is not, until its transcript is bound",
+          !carryableSession(launchArgs: ["--continue", "--model", "fable"], sessionLocated: false))
+    check("and is once it is", carryableSession(launchArgs: ["--continue"], sessionLocated: true))
+    check("the short spelling counts too",
+          !carryableSession(launchArgs: ["-c"], sessionLocated: false))
+    // `--resume <id>` is the shape every relaunch after the first move carries, so it must count:
+    // its id is only good on a home the transcript has been shared to, and the binding is the proof.
+    check("a resumed session needs its binding as much as a continued one",
+          !carryableSession(launchArgs: ["--resume", "abc"], sessionLocated: false))
+    check("and the -r spelling as well",
+          !carryableSession(launchArgs: ["-r", "abc"], sessionLocated: false))
+    // A one-shot `-p` run is not a conversation anyone can lose, which is why the rule reads
+    // `sessionFlags` minus the print pair rather than `sessionFlags` itself.
+    check("a one-shot print run is not a conversation to protect",
+          carryableSession(launchArgs: ["-p", "hello"], sessionLocated: false))
+    check("and the flag set really is the shared one, less print",
+          resumeFlags == sessionFlags.subtracting(["--print", "-p"]) && resumeFlags.count == 4)
 
     // MARK: - 26b. The two guardrails
 
@@ -106,11 +130,11 @@ func runRebalanceChecks() {
     // The claim is the one gate with a side effect, so it is asked LAST. A tick that was never going
     // to move must not spend this account's one move of the cycle and leave it stuck until the
     // window resets.
-    func claimAsked(mode: String = "auto", isQuiet: Bool = true, sessionLocated: Bool = true,
+    func claimAsked(mode: String = "auto", isQuiet: Bool = true, carryable: Bool = true,
                     fuseAllows: Bool = true, current: Snapshot.Account = dying,
                     candidates: [Snapshot.Account] = [healthy]) -> Bool {
         var asked = false
-        _ = target(mode: mode, isQuiet: isQuiet, sessionLocated: sessionLocated,
+        _ = target(mode: mode, isQuiet: isQuiet, carryable: carryable,
                    fuseAllows: fuseAllows, current: current,
                    candidates: candidates, claim: { asked = true; return true })
         return asked
@@ -120,7 +144,7 @@ func runRebalanceChecks() {
     check("a session in use does not spend the cycle", !claimAsked(isQuiet: false))
     // The account is left free to make this same move later, once there is a conversation to bring.
     check("a session with nothing to carry does not spend it either",
-          !claimAsked(sessionLocated: false))
+          !claimAsked(carryable: false))
     check("a spent fuse does not spend the cycle", !claimAsked(fuseAllows: false))
     check("a comfortable account does not spend the cycle",
           !claimAsked(current: acct("A", model: 40)))
@@ -200,7 +224,7 @@ func runRebalanceChecks() {
         Snapshot(version: 2, generatedAt: launch, accounts: accounts)
     }
     func move(_ accounts: [Snapshot.Account], problem: String? = nil, mode: String = "auto",
-              isQuiet: Bool = true, sessionLocated: Bool = true, fuseAllows: Bool = true,
+              isQuiet: Bool = true, carryable: Bool = true, fuseAllows: Bool = true,
               quarantine: [String: (model: String?, until: Date)] = [:],
               on: Snapshot.Account = dying, dir: URL? = nil) -> Snapshot.Account? {
         var target = dir
@@ -211,7 +235,7 @@ func runRebalanceChecks() {
             target = fresh
         }
         return rebalanceMove(provider: "claude", account: on, primaryModel: primary, mode: mode,
-                             isQuiet: isQuiet, sessionLocated: sessionLocated,
+                             isQuiet: isQuiet, carryable: carryable,
                              fuseAllows: fuseAllows, quarantine: quarantine,
                              loaded: (snapshot(accounts), problem), now: launch, dir: target!)
     }
@@ -257,14 +281,14 @@ func runRebalanceChecks() {
     check("a session in use still moves nobody here", move([dying, healthy], isQuiet: false) == nil)
     check("a spent fuse still moves nobody here", move([dying, healthy], fuseAllows: false) == nil)
     check("and a session with no transcript to carry moves nobody here",
-          move([dying, healthy], sessionLocated: false) == nil)
+          move([dying, healthy], carryable: false) == nil)
     // None of those refusals spent the cycle: an account that was pinned, busy, out of fuse or not
     // yet carrying a conversation when the tick ran is still free to move the moment those clear.
     let sparedDir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-rebalance-move-\(UUID().uuidString)")
     _ = move([dying, healthy], mode: "manual", dir: sparedDir)
     _ = move([dying, healthy], isQuiet: false, dir: sparedDir)
-    _ = move([dying, healthy], sessionLocated: false, dir: sparedDir)
+    _ = move([dying, healthy], carryable: false, dir: sparedDir)
     _ = move([dying, healthy], fuseAllows: false, dir: sparedDir)
     _ = move([dying, alsoDry], dir: sparedDir)
     check("a tick that refused to move leaves the cycle's claim untaken",

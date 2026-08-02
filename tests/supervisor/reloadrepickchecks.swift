@@ -17,7 +17,7 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
     // as a closure; what is asserted here is that reload asks it at the right moment and does the
     // right thing with both answers.
     func reloadTick(repick: @escaping () -> Snapshot.Account?,
-                    watcher: inout TranscriptWatcher,
+                    watcher: inout TranscriptWatcher, carryable: Bool = true,
                     request: ReloadRequest = ReloadRequest(epoch: 101, immediate: false),
                     keyboardIdle: @escaping (TimeInterval) -> Bool = { _ in true })
         -> (plan: RelaunchPlan?, asked: Bool) {
@@ -27,8 +27,8 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
         var asked = false
         applyReloadRequest(plan: &plan, epoch: &epoch, notice: &notice, account: tickAccount,
                            watcher: &watcher, childAge: 9999, keyboardIdle: keyboardIdle,
-                           request: request, repick: { asked = true; return repick() },
-                           now: tickT0)
+                           carryable: carryable, request: request,
+                           repick: { asked = true; return repick() }, now: tickT0)
         return (plan, asked)
     }
     func elsewhere(_ id: String) -> Snapshot.Account {
@@ -84,19 +84,20 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
                                request: ReloadRequest(epoch: 101, immediate: true))
     check("a --now reload aims its restart the same way", immediate.plan?.target.id == "B")
 
-    // A session whose transcript is not located yet: a child started with `--continue` that has not
-    // written a turn since it launched, still up long enough for a reload to take it (`reloadQuiet`
-    // accepts the child's AGE in place of a transcript, which is what puts this state in reach).
-    // Crossing accounts from here would come back BLANK - `performHandoff` strips `--continue` on a
-    // move by design, because on the target account it names a different conversation entirely - and
-    // there is no id to resume in its place.
+    // A session that was told to resume a conversation and whose transcript is not bound yet: a
+    // `--continue` child that has not written a turn since it launched, still up long enough for a
+    // reload to take it (`reloadQuiet` accepts the child's AGE in place of a transcript, which is
+    // what puts this state in reach). Crossing accounts from here would come back BLANK -
+    // `performHandoff` strips `--continue` on a move by design, because on the target account it
+    // names a different conversation entirely - and there is no id to resume in its place.
     let blindDir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-reload-unlocated-\(UUID().uuidString)")
     try? FileManager.default.createDirectory(at: blindDir, withIntermediateDirectories: true)
     var blindWatcher = TranscriptWatcher(projectDir: blindDir, since: tickT0)
-    check("the fixture really is a session with nowhere to resume from", blindWatcher.file == nil)
-    let unlocated = reloadTick(repick: { elsewhere("B") }, watcher: &blindWatcher)
-    check("a reload with no session to carry restarts where it is",
+    check("the fixture really is a session with nothing bound to resume from",
+          blindWatcher.file == nil)
+    let unlocated = reloadTick(repick: { elsewhere("B") }, watcher: &blindWatcher, carryable: false)
+    check("a reload with a conversation it cannot carry restarts where it is",
           unlocated.plan?.target.id == "A")
     check("and as a reload, so `--continue` survives the restart",
           unlocated.plan?.reason == "reload")
@@ -105,6 +106,14 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
     // conversation to bring along.
     check("and the drought's claim is never even asked for", !unlocated.asked)
     check("nor is it charged to the fuse", unlocated.plan?.countsFuse == false)
+    // The other half of the same rule: a session that never asked to resume anything has nothing to
+    // lose by moving, transcript or no transcript. Same unbound watcher, opposite answer - which is
+    // the point, because the decision is about what the child was LAUNCHED to do, not about whether
+    // a file happens to exist yet. Gating this one too would have stranded every brand new session
+    // on a dying account, to protect a conversation that does not exist.
+    let fresh = reloadTick(repick: { elsewhere("B") }, watcher: &blindWatcher, carryable: true)
+    check("a brand new session moves even with nothing bound", fresh.plan?.target.id == "B")
+    check("and it is a rebalance like any other move", fresh.plan?.reason == "rebalance")
     try? FileManager.default.removeItem(at: blindDir)
 
     // The wiring itself is not reachable in a test (it needs a child and a snapshot), so the source
@@ -118,14 +127,14 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
     // reload reaches after its OWN idle gate said yes. Asserted so that if the closure is ever moved
     // somewhere that gate has not run, this line has to be looked at again.
     check("it does not re-ask an idleness question reload has already answered",
-          loop.contains("isQuiet: true, sessionLocated: sessionLocated"))
+          loop.contains("isQuiet: true, carryable: carryable"))
     // The value is READ before the call and captured, never read from inside the closure: `watcher`
     // is passed inout to that same call, so touching it from within is a simultaneous access, which
     // compiles without a word and traps at runtime (measured 2026-08-02). A source check because the
     // natural-looking version is the broken one, and nothing else would catch it before a user did.
-    check("and it captures the located flag instead of reading the watcher under inout",
-          loop.contains("let sessionLocated = watcher.file != nil"))
-    if let capture = loop.range(of: "let sessionLocated = watcher.file != nil"),
+    check("and it captures the carryable flag instead of reading the watcher under inout",
+          loop.contains("let carryable = carryableSession("))
+    if let capture = loop.range(of: "let carryable = carryableSession("),
        let call = loop.range(of: "applyReloadRequest(") {
         check("captured before the call that borrows the watcher",
               capture.upperBound < call.lowerBound)

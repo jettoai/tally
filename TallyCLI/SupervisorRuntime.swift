@@ -90,6 +90,30 @@ func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [S
     return ["--continue"] + next
 }
 
+/// The flags that ask a launch to pick up an EXISTING conversation, as opposed to opening a new one.
+/// Derived from `sessionFlags` (Snapshot.swift) rather than listed again, so a flag added there is
+/// covered here too; `--print`/`-p` comes out because a one-shot run is not a conversation anybody
+/// could lose.
+let resumeFlags = sessionFlags.subtracting(["--print", "-p"])
+
+/// Whether moving this session to another account can lose a conversation, expressed the useful way
+/// round: TRUE when it cannot.
+///
+/// Two ways to be safe, and only the second one is obvious. A session that was told to resume
+/// something needs `sessionLocated`, because crossing accounts drops `--continue`/`--resume`
+/// (`relaunchArgs` above: on the target account those flags name a different conversation) and the
+/// resumed id is then the only way to bring it along. But a session that never asked to resume
+/// anything has nothing to bring: `relaunchArgs` hands the move the same args it would have handed a
+/// fresh start, which is what this session already is. Gating that one on a transcript would strand
+/// brand new sessions on a dying account for no benefit at all - they would simply be started fresh
+/// on an account with no quota left.
+///
+/// `launchArgs` is what the CHILD was launched with, so a session that was moved once and now runs
+/// `--resume <id>` reads as resuming, which it is.
+func carryableSession(launchArgs: [String], sessionLocated: Bool) -> Bool {
+    sessionLocated || !launchArgs.contains(where: { resumeFlags.contains($0) })
+}
+
 /// Whether the launch-default pair a follow adoption wants is ALREADY what this session runs, judged
 /// against the flags the child actually carries rather than against the pair follow last adopted.
 ///

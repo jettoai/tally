@@ -34,6 +34,42 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
           relaunchArgs(["--resume", "old", "--verbose"], sessionID: nil, sameAccount: true)
           == ["--verbose"])
 
+    // MARK: - 20b. The prompt is not an argument vector
+
+    // Everything from a bare `--` onward is what the USER SAID, and a relaunch rewrites arguments,
+    // not sentences. A prompt containing `-c` is the case that bites: the old rewrite stripped it
+    // wherever it appeared, so the session came back having quietly lost a word of its own
+    // instruction - a conversation edited by the thing meant to preserve it.
+    check("a continue flag inside the prompt is passed through untouched",
+          relaunchArgs(["--", "run", "-c", "twice"], sessionID: nil, sameAccount: false)
+          == ["--", "run", "-c", "twice"])
+    check("and it is not read as a request to continue either",
+          relaunchArgs(["--", "-c"], sessionID: nil, sameAccount: true) == ["--", "-c"])
+    check("while a real one before the marker still is",
+          relaunchArgs(["-c", "--", "-c"], sessionID: nil, sameAccount: true)
+          == ["--continue", "--", "-c"])
+    // A resume pair in the prompt must not eat the word after it, which the value-skipping rewrite
+    // would have done.
+    check("a resume word in the prompt does not swallow the next one",
+          relaunchArgs(["--", "--resume", "yesterday"], sessionID: nil, sameAccount: false)
+          == ["--", "--resume", "yesterday"])
+    // The located-id path rebuilds the front of the vector and must still leave the prompt alone.
+    check("resuming by id keeps the prompt behind the marker",
+          relaunchArgs(["--continue", "--", "-c"], sessionID: "abc", sameAccount: true)
+          == ["--resume", "abc", "--", "-c"])
+
+    // The same boundary, for the two readers next door. `flagValue` answers with the flag the user
+    // ASKED for, not one they mentioned.
+    check("a model flag in the prompt is not the session's model",
+          flagValue(["--model", "fable", "--", "--model", "opus"], "--model") == "fable")
+    check("and a flag that only appears in the prompt is not set at all",
+          flagValue(["--", "--model", "opus"], "--model") == nil)
+    check("removing pairs leaves the prompt exactly as it was",
+          removingFlagPairs(["--model", "fable", "--", "--model", "opus"], ["--model"])
+          == ["--", "--model", "opus"])
+    check("with no marker it still strips throughout",
+          removingFlagPairs(["--model", "fable", "--verbose"], ["--model"]) == ["--verbose"])
+
     // MARK: - 21. A pending cap across a relaunch
 
     // A capped session with no sibling to take it is quiet by definition, so a reload always

@@ -21,22 +21,28 @@ func autoFollowEnabled(args: [String]) -> Bool {
     return true
 }
 
-/// The value following `flag` in an argument vector (nil when absent or dangling).
+/// The value following `flag` in an argument vector (nil when absent or dangling). Read from the
+/// OPTIONS only: past a bare `--` the same word is part of the user's prompt, and `--model` there is
+/// something they wrote, not something they asked for.
 func flagValue(_ args: [String], _ flag: String) -> String? {
-    guard let index = args.firstIndex(of: flag), index + 1 < args.count else { return nil }
-    return args[index + 1]
+    let options = optionsOnly(args)
+    guard let index = options.firstIndex(of: flag), index + 1 < options.count else { return nil }
+    return options[index + 1]
 }
 
-/// `args` minus the given value-taking flags (and their values).
+/// `args` minus the given value-taking flags (and their values), with everything from a bare `--`
+/// onward passed through untouched: that part is the prompt, and editing it edits what the user
+/// said.
 func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
+    let options = optionsOnly(args)
     var out: [String] = []
     var skip = false
-    for argument in args {
+    for argument in options {
         if skip { skip = false; continue }
         if flags.contains(argument) { skip = true; continue }
         out.append(argument)
     }
-    return out
+    return out + args[options.count...]
 }
 
 /// The launch args a relaunch runs with. A known session id resumes that conversation. With no id
@@ -47,9 +53,14 @@ func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
 /// (`tally claude --continue` restarted before its first turn, 2026-07-25). On the same home
 /// `--continue` can only reach that same latest conversation.
 func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [String] {
+    // Only the OPTIONS are rewritten. Everything from a bare `--` onward is the prompt, and a prompt
+    // that happens to contain `-c` is a sentence, not a request to continue: stripping it edits what
+    // the user said, and the session comes back having quietly lost a word of its own instruction.
+    let options = optionsOnly(args)
+    let prompt = Array(args[options.count...])
     var next: [String] = []
     var skip = false
-    for argument in args {
+    for argument in options {
         if skip { skip = false; continue }
         switch argument {
         case "--continue", "-c": continue
@@ -57,8 +68,10 @@ func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [S
         default: next.append(argument)
         }
     }
+    next += prompt
     if let sessionID { return ["--resume", sessionID] + next }
-    guard sameAccount, args.contains(where: { $0 == "--continue" || $0 == "-c" }) else { return next }
+    guard sameAccount, options.contains(where: { $0 == "--continue" || $0 == "-c" })
+    else { return next }
     return ["--continue"] + next
 }
 

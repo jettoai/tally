@@ -286,6 +286,37 @@ func runRebalanceClaimChecks(primaryModel primary: String, weeklyCycle: String,
           !claimRebalanceCycle("acct-lock", cycle: cycleOne, dir: lockDir))
     check("while a genuinely new drought still gets its move",
           claimRebalanceCycle("acct-lock", cycle: String(Int(cycleOne)! + 10 * 3600), dir: lockDir))
+
+    // The one shape that can sit at the lock's path and never open: a DIRECTORY, which is what the
+    // lock was while this was a `mkdir` claim, left behind by a supervisor killed holding it. `open`
+    // answers EISDIR forever and the reaper went out with the shape, so without this the account
+    // would never rebalance again. Only ever seen on a machine that ran that unreleased build, which
+    // is exactly the machine this is developed on.
+    let debrisLock = lockDir.appendingPathComponent("acct-debris.lock")
+    try? FileManager.default.createDirectory(at: debrisLock, withIntermediateDirectories: true)
+    check("a directory left at the lock's path does not strand the account",
+          claimRebalanceCycle("acct-debris", cycle: cycleOne, dir: lockDir))
+    // And it is gone as a directory, replaced by the regular file every other tick expects, so the
+    // next tick takes the ordinary path rather than clearing debris again.
+    var isDirectory: ObjCBool = true
+    check("and the path is a plain lock file from then on",
+          FileManager.default.fileExists(atPath: debrisLock.path, isDirectory: &isDirectory)
+              && !isDirectory.boolValue)
+    check("which the next tick uses without ceremony",
+          claimRebalanceCycle("acct-debris", cycle: String(Int(cycleOne)! + 5 * 3600), dir: lockDir))
+    // A directory with something in it is somebody else's data: `rmdir` refuses it, so the retry
+    // fails too and the account stays put. Refusing is the answer to every obstacle here, and the
+    // one thing that must not happen is taking the section without the lock.
+    let occupied = lockDir.appendingPathComponent("acct-occupied.lock")
+    try? FileManager.default.createDirectory(at: occupied, withIntermediateDirectories: true)
+    try? Data().write(to: occupied.appendingPathComponent("someone-elses-file"))
+    check("a lock path occupied by a non-empty directory refuses rather than moving",
+          !claimRebalanceCycle("acct-occupied", cycle: cycleOne, dir: lockDir))
+    check("and nothing was claimed on the way past",
+          !claimExists("acct-occupied", cycle: cycleOne, in: lockDir))
+    check("while the directory it could not clear is untouched",
+          FileManager.default.fileExists(atPath: occupied
+              .appendingPathComponent("someone-elses-file").path))
     try? FileManager.default.removeItem(at: lockDir)
     try? FileManager.default.removeItem(at: recordDir)
 }

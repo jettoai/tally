@@ -160,9 +160,27 @@ func claimRebalanceCycle(_ accountID: String, cycle: String, dir: URL = rebalanc
 /// The lock sits beside the claims it guards and is named so the claim scan cannot mistake it for
 /// one: `lock` is not an epoch, so `rebalanceCycleHeld` skips it as it skips any other stray file.
 /// It is opened, never created-and-removed (the invariant above).
+///
+/// One thing can sit at that path and refuse to be opened forever: a DIRECTORY, which is the shape
+/// the lock had while this was a `mkdir` claim, left behind by a supervisor killed while holding it.
+/// `open` answers EISDIR to that every time, and the reaper that used to clear it is gone with the
+/// shape, so the account would never rebalance again. One `rmdir` and one retry cost nothing and
+/// clear it.
+///
+/// That `rmdir` cannot break the invariant above, and this is why the debris is cleared with `rmdir`
+/// rather than with anything more general: it removes empty directories and nothing else, answering
+/// ENOTDIR to a regular file, so the one path that must never be unlinked is one it CANNOT unlink.
+/// Nor can the retry double-open the section: two supervisors that both find the directory both call
+/// `rmdir`, only one of them removes it, and both then open the same newly created inode, where
+/// `flock` arbitrates exactly as it does on every other tick. A directory that is not empty is
+/// somebody else's data, `rmdir` refuses it, the retry fails too, and the account stays put.
 private func acquireRebalanceLock(_ accountID: String, dir: URL) -> Int32? {
     let path = dir.appendingPathComponent("\(rebalanceRecordName(accountID)).lock").path
-    let fd = open(path, O_CREAT | O_WRONLY, 0o644)
+    var fd = open(path, O_CREAT | O_WRONLY, 0o644)
+    if fd < 0 {
+        rmdir(path)
+        fd = open(path, O_CREAT | O_WRONLY, 0o644)
+    }
     guard fd >= 0 else { return nil }
     guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { close(fd); return nil }
     return fd

@@ -20,6 +20,7 @@ swiftc -o "$out" \
   TallyCLI/WorktreeTree.swift \
   TallyCLI/WorktreeActivity.swift \
   TallyCLI/TranscriptWatcher.swift \
+  TallyCLI/TranscriptFork.swift \
   TallyCLI/DriftMonitor.swift \
   TallyCLI/SafeguardDrift.swift \
   TallyCLI/KeyboardIdle.swift \

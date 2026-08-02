@@ -118,5 +118,20 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
     // reload reaches after its OWN idle gate said yes. Asserted so that if the closure is ever moved
     // somewhere that gate has not run, this line has to be looked at again.
     check("it does not re-ask an idleness question reload has already answered",
-          loop.contains("isQuiet: true, fuseAllows: fuse.allows()"))
+          loop.contains("isQuiet: true, sessionLocated: sessionLocated"))
+    // The value is READ before the call and captured, never read from inside the closure: `watcher`
+    // is passed inout to that same call, so touching it from within is a simultaneous access, which
+    // compiles without a word and traps at runtime (measured 2026-08-02). A source check because the
+    // natural-looking version is the broken one, and nothing else would catch it before a user did.
+    check("and it captures the located flag instead of reading the watcher under inout",
+          loop.contains("let sessionLocated = watcher.file != nil"))
+    if let capture = loop.range(of: "let sessionLocated = watcher.file != nil"),
+       let call = loop.range(of: "applyReloadRequest(") {
+        check("captured before the call that borrows the watcher",
+              capture.upperBound < call.lowerBound)
+        let closure = loop[call.lowerBound...].prefix(900)
+        check("and the closure itself never touches the watcher", !closure.contains("watcher.file"))
+    } else {
+        check("the capture and the call were both found in the tick", false)
+    }
 }

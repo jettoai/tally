@@ -113,6 +113,38 @@ func runRebalanceChecks() {
     check("the flag halves partition the shared session set",
           printFlags.union(resumeFlags) == sessionFlags && printFlags.isDisjoint(with: resumeFlags))
 
+    // MARK: - 26a2. Which launches get a supervisor at all
+
+    // The entry gate, and the reason the print class above is now belt AND braces: a one-shot run
+    // gets no supervisor, so none of the movers can reach it. Every supervisor action restarts the
+    // child, which a conversation survives (resumed by id) and a command does not - it simply runs
+    // again, tool calls and external writes included. The movers each had to learn that separately,
+    // which is the tell that the question belonged at the door.
+    check("an ordinary interactive launch is supervised",
+          shouldSupervise(args: ["--model", "fable"], stdoutIsTTY: true))
+    check("a --print run is not", !shouldSupervise(args: ["--print", "hi"], stdoutIsTTY: true))
+    check("nor the short spelling", !shouldSupervise(args: ["-p", "hi"], stdoutIsTTY: true))
+    // claude enters print mode implicitly when stdout is not a terminal, so `tally claude '...' |
+    // tee out` is a one-shot run carrying no flag that says so. Reading the terminal is how the CLI
+    // itself decides, so it is how this decides.
+    check("a piped launch is not supervised even with no print flag",
+          !shouldSupervise(args: ["--model", "fable"], stdoutIsTTY: false))
+    check("and a piped print run is doubly not", !shouldSupervise(args: ["-p"], stdoutIsTTY: false))
+    // The existing opt-out still wins on its own, ahead of any of this.
+    check("--no-handoff still opts out of an interactive launch",
+          !shouldSupervise(args: ["--no-handoff"], stdoutIsTTY: true))
+    // A conversation flag is the opposite case: resuming is exactly what supervision is for.
+    check("a resumed conversation on a terminal is supervised",
+          shouldSupervise(args: ["--continue"], stdoutIsTTY: true))
+    // The gate is only worth anything if the launcher asks it, and the TTY half is the half that
+    // can be quietly dropped (the flag half looks complete on its own), so the source carries it.
+    let launcher = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
+    check("the launcher source is readable from these checks", !launcher.isEmpty)
+    check("the launcher decides supervision through the gate",
+          launcher.contains("shouldSupervise(args: passthrough"))
+    check("and answers the terminal question from the real terminal",
+          launcher.contains("stdoutIsTTY: isatty(STDOUT_FILENO) == 1"))
+
     // MARK: - 26b. The two guardrails
 
     // The recovery fuse, shared with cap recoveries: a session already moved three times in ten

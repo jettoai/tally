@@ -39,7 +39,11 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     if worktreeFresh, stripContinueResume(&passthrough) {
         warn("no conversation in this worktree yet - starting fresh")
     }
-    let wantsHandoff = autoHandoffEnabled(args: passthrough)
+    // A one-shot run is deliberately left unsupervised: every supervisor action restarts the child,
+    // which resumes a conversation but RE-RUNS a command (LaunchFlags.swift). Read before the flag
+    // is stripped, and before the worktree edit above can matter, because it is a question about
+    // what the user actually asked for.
+    let wantsHandoff = shouldSupervise(args: passthrough, stdoutIsTTY: isatty(STDOUT_FILENO) == 1)
     passthrough.removeAll { $0 == "--no-handoff" }   // tally's own flag, never passed through
     // A running session follows a later Settings change to the default model/effort UNLESS the
     // user opted out (--no-follow) or typed their own --model or --effort (a deliberate choice

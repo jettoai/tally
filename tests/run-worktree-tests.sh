@@ -25,6 +25,7 @@ swiftc -o "$out" \
   TallyCLI/KeyboardIdle.swift \
   TallyCLI/OpenTurn.swift \
   TallyCLI/SupervisorRuntime.swift \
+  TallyCLI/LaunchFlags.swift \
   TallyCLI/WorktreeMenu.swift \
   TallyCLI/Snapshot.swift \
   TallyCLI/AccountPick.swift \

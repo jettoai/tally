@@ -13,7 +13,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/reloadrepickchecks.swift tests/supervisor/relaunchchecks.swift \
   tests/supervisor/safeguardchecks.swift \
   tests/supervisor/followchecks.swift tests/supervisor/pendingnoticechecks.swift \
-  TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/Quarantine.swift TallyCLI/DriftMonitor.swift \
+  TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/DriftMonitor.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift TallyCLI/Reload.swift \
   TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AccountComfort.swift \
   TallyCLI/Rebalance.swift TallyCLI/SafeguardDrift.swift \

@@ -238,6 +238,38 @@ final class SettingsStore {
         return true
     }
 
+    /// Drag-reorder INSIDE one provider's section (the grouped layout). Same reading as
+    /// `moveAccount` - past the target when moving forward, before it when moving backward - but the
+    /// result is written back through `applyProviderOrder`: the provider's slots in the global order
+    /// keep their positions and only which sibling sits in which slot changes.
+    ///
+    /// A global move is wrong here twice over. It shifts the other providers' entries, and because
+    /// the sections are ordered by each provider's FIRST appearance in the global order, a move past
+    /// a foreign entry can swap two whole sections: `[Claude1, Codex1, Claude2, Codex2]` with
+    /// Claude1 dropped on Claude2 became `[Codex1, Claude2, Claude1, Codex2]`, which put Codex's
+    /// section above Claude's and silently rewrote the flat order the user would see again the
+    /// moment grouping went back off (Codex review, 2026-08-02).
+    ///
+    /// A target from another provider returns false: sections own their cards, so a foreign card is
+    /// no seat. That rule lives here rather than at the gesture, so it cannot be forgotten by a
+    /// second caller.
+    @discardableResult
+    func moveAccountWithinProvider(_ dragged: String, onto target: String,
+                                   siblingIDs: [String], allIDs: [String]) -> Bool {
+        let siblings = Set(siblingIDs)
+        guard siblings.contains(dragged), siblings.contains(target) else { return false }
+        let current = orderedAccountIDs(allIDs).filter(siblings.contains)
+        guard let from = current.firstIndex(of: dragged),
+              let to = current.firstIndex(of: target) else { return false }
+        var members = current
+        members.remove(at: from)
+        guard let adjusted = members.firstIndex(of: target) else { return false }
+        members.insert(dragged, at: min(from < to ? adjusted + 1 : adjusted, members.count))
+        guard members != current else { return false }
+        applyProviderOrder(orderedProviderIDs: members, allIDs: allIDs)
+        return true
+    }
+
     /// The effective display label for an account (override or the provider default).
     func displayLabel(accountID: String, fallback: String) -> String {
         let override = accountLabels[accountID]?.trimmingCharacters(in: .whitespaces)

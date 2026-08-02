@@ -376,15 +376,21 @@ struct PopoverRootView: View {
                                                  excluding: lift.id,
                                                  orderedIDs: store.orderedAccounts.map(\.id))
                 else { return }
-                // Grouped layout: every provider owns its own section, so a card dropped on another
-                // provider's card has no seat there. Ignore that target rather than commit a move
-                // the sections would immediately undo (the card would jump back under its heading).
-                guard !settings.groupByProvider || store.orderedAccounts
-                    .first(where: { $0.id == target })?.providerID == lift.usage.providerID
-                else { return }
+                // Grouped layout reorders WITHIN the provider's own slots: the sections are ordered
+                // by each provider's first appearance in the global order, so a plain global move
+                // could swap two whole sections and rewrite the flat order behind the user's back
+                // (see `moveAccountWithinProvider`). It also returns false for a card dropped on
+                // another provider's card, which is the no-op the sections imply.
+                let allIDs = store.accounts.map(\.id)
                 var moved = false
                 withAnimation(CardMotion.spring) {
-                    moved = settings.moveAccount(lift.id, onto: target, allIDs: store.accounts.map(\.id))
+                    moved = settings.groupByProvider
+                        ? settings.moveAccountWithinProvider(
+                            lift.id, onto: target,
+                            siblingIDs: store.accounts
+                                .filter { $0.providerID == lift.usage.providerID }.map(\.id),
+                            allIDs: allIDs)
+                        : settings.moveAccount(lift.id, onto: target, allIDs: allIDs)
                 }
                 if moved { Haptics.snap() }
             }

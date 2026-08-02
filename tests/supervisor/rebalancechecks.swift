@@ -252,6 +252,58 @@ func runRebalanceChecks() {
           !FileManager.default.fileExists(atPath: recordDir
               .appendingPathComponent(rebalanceRecordName("acct-legacy")).path))
 
+    // MARK: - 26d-jitter. A reported reset that moves is still one drought
+
+    // Reset times are parsed out of `/usage`'s human text, whose finest unit is the minute, so one
+    // unbroken window is reported a minute later or earlier as the underlying instant rounds one way
+    // or the other. Matching cycles by equality read that wobble as a new cycle and handed the
+    // account a second move: Claude 2's session window at 1% moved two sessions ten minutes apart on
+    // 2026-08-02, leaving claims for that ONE window at 06:39:00Z and 06:40:00Z, and Claude's spent
+    // weekly did the same twenty-four minutes apart (16:59:00Z and 17:00:00Z) the same morning.
+    // Dated well ahead so no claim here is ever swept for being over on the wall clock: what these
+    // assert is the OFFSETS, and the incident's own two claims were 60s apart in exactly this way.
+    // The expired case has its own account below, where being in the past is the point.
+    let reported = 1_900_000_000.0
+    func jitterClaim(_ accountID: String, _ offset: Double) -> Bool {
+        claimRebalanceCycle(accountID, cycle: String(Int(reported + offset)), dir: recordDir)
+    }
+    check("the drought's claim is taken", jitterClaim("acct-jitter", 0))
+    check("the same window reported a minute later is not a second move",
+          !jitterClaim("acct-jitter", 60))
+    check("nor is a minute earlier", !jitterClaim("acct-jitter", -60))
+    check("nor anything else inside the tolerance",
+          !jitterClaim("acct-jitter", rebalanceCycleTolerance))
+    // Nothing lands on disk for the moves that were refused, so the near miss cannot come back as a
+    // record of its own.
+    check("a refused near miss leaves no claim behind",
+          !claimExists("acct-jitter", cycle: String(Int(reported + 60)), in: recordDir))
+    // The re-arm the tolerance must not swallow: windows are hours long, so a genuine new cycle is
+    // never a few minutes away. The 5h session window is the shortest one there is.
+    check("the window actually resetting five hours on is a new drought",
+          jitterClaim("acct-jitter", 5 * 3600))
+    check("which is then held in its turn", !jitterClaim("acct-jitter", 5 * 3600))
+    check("and the drought before it still holds too", !jitterClaim("acct-jitter", 0))
+
+    // A claim whose reset has passed is normally swept, but not while it is still THIS drought's:
+    // a reset time the snapshot has not caught up with is in the past and still the cycle we are in,
+    // which is exactly the case the tolerance exists for.
+    check("a claim from a past drought is taken", claimRebalanceCycle("acct-jitter-past",
+                                                                      cycle: past, dir: recordDir))
+    check("and a reading a minute off it is still the same drought, expired or not",
+          !claimRebalanceCycle("acct-jitter-past", cycle: String(Int(past)! + 60), dir: recordDir))
+    check("so the claim survives the sweep it walked past",
+          claimExists("acct-jitter-past", cycle: past, in: recordDir))
+
+    // The pre-claim shape carries a cycle in its BODY and one is live on this machine
+    // (~/.tally/rebalance/claude:.claude3), so it must not hand out the second move either.
+    writeLegacy("acct-legacy-jitter", cycle: String(Int(reported)))
+    check("a record from the old shape blocks a reading a minute off its own",
+          !claimRebalanceCycle("acct-legacy-jitter", cycle: String(Int(reported + 60)),
+                               dir: recordDir))
+    check("and is still dropped once the window really has reset",
+          claimRebalanceCycle("acct-legacy-jitter", cycle: String(Int(reported + 5 * 3600)),
+                              dir: recordDir))
+
     // The whole point of the claim: N supervisors whose 2s ticks land in the same window ask at
     // once, and exactly one of them moves. A read followed by a write leaves the gap this closes.
     let racers = 32
@@ -286,7 +338,9 @@ func runRebalanceChecks() {
     // move (measured 5, 2 and 1 winners on three runs of a deliberately broken build). An atomic
     // claim answers 1 in every round by construction, so requiring that of all of them turns a
     // coin-flip into a check that a torn claim cannot pass.
-    let rounds = (0 ..< 8).map { racedWins(cycle: String(1_800_000_000 + $0)) }
+    // An hour apart, because rounds are meant to be DISTINCT droughts and a claim now holds for
+    // every key within a few minutes of it (26d-jitter below).
+    let rounds = (0 ..< 8).map { racedWins(cycle: String(1_800_000_000 + $0 * 3600)) }
     check("exactly one of 32 simultaneous supervisors claims the cycle, every round (won: \(rounds))",
           rounds.allSatisfy { $0 == 1 })
     try? FileManager.default.removeItem(at: recordDir)
@@ -366,6 +420,28 @@ func runRebalanceChecks() {
     _ = move([dying, alsoDry], dir: sparedDir)
     check("a tick that refused to move leaves the cycle's claim untaken",
           move([dying, healthy], dir: sparedDir)?.id == "B")
+
+    // The incident end to end, on the path that produced it. An account whose SESSION window is the
+    // spent one keys off that window's reset, and that reset is reported to the minute: the same 1%
+    // window read 06:39 on one poll and 06:40 on the next, and Claude 2 handed out a second move ten
+    // minutes after the first (2026-08-02). One drought is one move, however the clock is reported.
+    let driftDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-rebalance-move-\(UUID().uuidString)")
+    var driedSession = acct("A", model: 90)
+    driedSession.sessionRemaining = 1
+    check("the first tick on a spent session window moves",
+          move([driedSession, healthy], on: driedSession, dir: driftDir)?.id == "B")
+    var slipped = driedSession
+    slipped.sessionResetsAt = driedSession.sessionResetsAt!.addingTimeInterval(60)
+    check("and the same window reported a minute later does not move a second session",
+          move([slipped, healthy], on: slipped, dir: driftDir) == nil)
+    // What must still get through: the window really did reset, five hours on, and was drained
+    // again. That is a new drought and it gets its own move.
+    var nextWindow = driedSession
+    nextWindow.sessionResetsAt = driedSession.sessionResetsAt!.addingTimeInterval(5 * 3600)
+    check("but a window that actually reset and drained again is moved once more",
+          move([nextWindow, healthy], on: nextWindow, dir: driftDir)?.id == "B")
+    try? FileManager.default.removeItem(at: driftDir)
     for dir in scratchDirs + [moveDir, sparedDir] {
         try? FileManager.default.removeItem(at: dir)
     }

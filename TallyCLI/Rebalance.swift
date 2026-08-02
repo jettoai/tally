@@ -31,6 +31,16 @@ import Foundation
 //    above all read the same picture on the same tick and stampede onto the one healthy sibling,
 //    which is how the 02:22 storm started. The first session to CLAIM the cycle moves; the rest
 //    lose the claim and stay, and the account re-arms when the window that binds it resets.
+//
+// "The window that binds it resets" is a question about a REPORTED reset time, and reported reset
+// times move: they are parsed out of `/usage`'s human text, whose finest unit is the minute
+// ("resets Aug 2 at 2:39pm"), so the same unbroken window is reported a minute later or earlier as
+// the underlying instant rounds one way or the other. That wobble read as a new cycle and re-armed
+// the claim mid-drought, which is the connected chain of handoffs the claim exists to prevent:
+// Claude 2's session window at 1% moved two sessions ten minutes apart on 2026-08-02 (its claims
+// for that one window sit on disk as 06:39:00Z and 06:40:00Z), and Claude's spent weekly did the
+// same twenty-four minutes apart the same morning. So a cycle is matched by NEARNESS rather than by
+// equality (`rebalanceCycleTolerance`).
 
 /// Per-account rebalance claims (~/.tally/rebalance/<account>.<cycle>), one file per account per
 /// cycle so concurrent supervisors never corrupt a shared document. Deliberately next door to the
@@ -39,11 +49,29 @@ import Foundation
 let rebalanceDir = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent(".tally/rebalance")
 
+/// How far a reported reset time may move and still name the SAME drought. The `/usage` text these
+/// times are parsed from carries minutes and no finer, so one unbroken window is reported up to a
+/// minute apart between polls (every reset time on this machine is minute-aligned, and the two
+/// leaked claims above are exactly 60s apart). Five minutes clears that comfortably while staying
+/// far below the shortest window a genuine new cycle can arrive on - the 5h session window - so no
+/// real reset is ever mistaken for jitter.
+let rebalanceCycleTolerance: TimeInterval = 5 * 60
+
+/// Whether two cycle keys name the same drought: the same reported reset, or one that has moved no
+/// further than the source's own resolution can move it. Keys that are not epochs at all, which
+/// nothing writes, match only themselves.
+private func namesSameDrought(_ one: String, _ other: String) -> Bool {
+    guard let a = Double(one), let b = Double(other) else { return one == other }
+    return abs(a - b) <= rebalanceCycleTolerance
+}
+
 /// The cycle of the window that BINDS this account: its emptiest counted window, keyed by that
 /// window's reset time in whole seconds. Same derivation as the app's per-cycle dedup
 /// (`DryPoolLogic.resetKey`, used by `ResetHintLogic`), for the same reason: the record has to
-/// survive sub-second jitter in a reported reset time without reading as a new cycle, and it has to
-/// re-arm by itself when the window actually refills.
+/// survive jitter in a reported reset time without reading as a new cycle, and it has to re-arm by
+/// itself when the window actually refills. Whole seconds are only half of the first half - the
+/// jitter this source actually produces is a whole minute - so the comparison, not the key, is
+/// where the tolerance lives.
 ///
 /// The BINDING window rather than any particular one, because that is what makes the account dry:
 /// a spent weekly under a fresh session window is a spent account, and it is the weekly's reset that
@@ -82,13 +110,18 @@ func rebalanceCycleKey(_ account: Snapshot.Account, primaryModel: String?,
 /// the write inseparable: a claim that is already there belongs to someone else, and a refilled
 /// window is a new name, so the account re-arms by itself without anyone having to expire anything.
 ///
+/// The nearness check in front of it costs none of that. It can only ever REFUSE, never grant, so
+/// two supervisors that computed the same key are still arbitrated by the create alone and exactly
+/// one of them still wins; what it adds is that a key a minute off the one on disk loses too,
+/// instead of being a second name for a drought that has already been claimed.
+///
 /// Refusing when the claim cannot be written for any other reason is deliberate. A rebalance repairs
 /// nothing, it is only ever early, so not moving costs at worst the cap handoff doing it later;
 /// moving without a claim costs every session on the account landing on one sibling.
 func claimRebalanceCycle(_ accountID: String, cycle: String, dir: URL = rebalanceDir) -> Bool {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    guard legacyRecordAllows(accountID, cycle: cycle, dir: dir) else { return false }
-    sweepRebalanceClaims(accountID, keeping: cycle, dir: dir)
+    guard legacyRecordAllows(accountID, cycle: cycle, dir: dir),
+          !rebalanceCycleHeld(accountID, cycle: cycle, dir: dir) else { return false }
     let fd = open(dir.appendingPathComponent(rebalanceClaimName(accountID, cycle: cycle)).path,
                   O_CREAT | O_EXCL | O_WRONLY, 0o644)
     guard fd >= 0 else { return false }
@@ -104,28 +137,41 @@ func claimRebalanceCycle(_ accountID: String, cycle: String, dir: URL = rebalanc
 private func legacyRecordAllows(_ accountID: String, cycle: String, dir: URL) -> Bool {
     let file = dir.appendingPathComponent(rebalanceRecordName(accountID))
     guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return true }
-    if raw.trimmingCharacters(in: .whitespacesAndNewlines) == cycle { return false }
+    if namesSameDrought(raw.trimmingCharacters(in: .whitespacesAndNewlines), cycle) { return false }
     try? FileManager.default.removeItem(at: file)
     return true
 }
 
-/// Drop this account's claims from cycles that are over, so the directory does not grow one file per
-/// window cycle forever. The cycle being claimed is never swept: a reset time the snapshot has not
-/// caught up with is in the past and still the cycle we are in. Opportunistic, exactly as the
-/// quarantine expires its own records while reading them.
-private func sweepRebalanceClaims(_ accountID: String, keeping cycle: String, dir: URL,
-                                  now: Date = Date()) {
+/// Whether one of this account's claims already names this drought, dropping the ones from droughts
+/// that are over while it looks so the directory does not grow one file per window cycle forever.
+///
+/// Both halves are the same walk over the same files and they answer with the same rule, so they are
+/// one pass rather than two: a claim is either this drought's, in which case it is held and must
+/// never be swept, or it is another one's, in which case it is dead the moment its reset is behind
+/// us. Expiring records while reading them is what the quarantine next door does, for the reason
+/// this shares - the only moment anyone cares about a stale record is the moment they read past it.
+///
+/// A claim within the tolerance is kept even when its reset is behind us, because that is the case
+/// the tolerance is FOR: a reset time the snapshot has not caught up with is in the past and still
+/// the drought we are in. The real re-arm is the next window, which is hours away and nowhere near.
+private func rebalanceCycleHeld(_ accountID: String, cycle: String, dir: URL,
+                                now: Date = Date()) -> Bool {
     let prefix = rebalanceRecordName(accountID)
     let files = (try? FileManager.default.contentsOfDirectory(at: dir,
         includingPropertiesForKeys: nil)) ?? []
+    var held = false
     for file in files {
         let name = file.lastPathComponent
         guard let dot = name.lastIndex(of: "."), String(name[..<dot]) == prefix else { continue }
         let stored = String(name[name.index(after: dot)...])
-        guard stored != cycle, let epoch = Double(stored),
-              Date(timeIntervalSince1970: epoch) < now else { continue }
-        try? FileManager.default.removeItem(at: file)
+        guard let epoch = Double(stored) else { continue }
+        if namesSameDrought(stored, cycle) {
+            held = true
+        } else if Date(timeIntervalSince1970: epoch) < now {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
+    return held
 }
 
 /// The file one claim lives under. The cycle is whole seconds, so it never contains a dot and the

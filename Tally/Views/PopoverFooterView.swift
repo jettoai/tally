@@ -72,14 +72,6 @@ extension PopoverRootView {
         return parts.picker + parts.credit + parts.icons + 24 <= popoverWidth - 24
     }
 
-    /// Reports its own width, which is its host's: `Color.clear` fills whatever it is offered, and a
-    /// background is offered exactly the size of the view it backs.
-    private func widthProbe(_ report: @escaping (CGFloat) -> Void) -> some View {
-        GeometryReader { proxy in
-            Color.clear.onChange(of: proxy.size.width, initial: true) { _, width in report(width) }
-        }
-    }
-
     /// Quiet, on every surface, and off the header so the product wordmark stands alone.
     private var jettoCredit: some View {
         HStack(spacing: 4) {

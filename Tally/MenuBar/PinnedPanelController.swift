@@ -100,13 +100,17 @@ final class PinnedPanelController {
     static let shared = PinnedPanelController()
 
     private var panel: PinnedUsagePanel?
+    /// The panel's own Usage / Tokens selection, seeded by the pin hand-off (see `show`).
+    private let surfaceTab = SurfaceTabState()
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
-    /// Show the panel. When `topLeft` is given (the pin hand-off from the popover), open there;
-    /// otherwise reuse the autosaved frame (launch restore / re-show). The size is driven by the
+    /// Show the panel. When `topLeft` is given (the pin hand-off from the popover or the window),
+    /// open there and on the view that surface was showing; otherwise reuse the autosaved frame and
+    /// whatever the panel was last left on (launch restore / re-show). The size is driven by the
     /// content's measured size via `PopoverRootView.onContentSize` → `resize(to:)`.
-    func show(atTopLeft topLeft: CGPoint?) {
+    func show(atTopLeft topLeft: CGPoint?, showing tab: SurfaceTab? = nil) {
+        if let tab { surfaceTab.tab = tab }
         let panel = panel ?? makePanel()
         self.panel = panel
         if let topLeft { panel.setFrameTopLeftPoint(topLeft) }
@@ -163,7 +167,8 @@ final class PinnedPanelController {
         // got this from NSPopover). Same PopoverRootView, same shared stores.
         let content = AnyView(
             PopoverRootView(store: .shared, settings: .shared,
-                            onContentSize: { [weak self] size in self?.resize(to: size) })
+                            onContentSize: { [weak self] size in self?.resize(to: size) },
+                            tabState: surfaceTab)
                 .background(PanelBackdrop(settings: .shared))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)))
         let hostView = FirstMouseHostingView(rootView: content)

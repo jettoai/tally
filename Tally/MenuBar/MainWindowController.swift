@@ -15,6 +15,8 @@ final class MainWindowController {
     static let shared = MainWindowController()
 
     private var window: NSWindow?
+    /// The window's own Usage / Tokens selection, kept here so the pin hand-off can read it.
+    let surfaceTab = SurfaceTabState()
 
     /// Whether the window should come back on the next launch. An update relaunch is just
     /// quit + launch, so without this the dashboard the user was reading silently vanishes.
@@ -93,7 +95,7 @@ final class MainWindowController {
             // behind them (the popover's vibrancy, the pinned panel's behind-window blur).
             let hosting = NSHostingController(
                 rootView: PopoverRootView(store: .shared, settings: .shared, hostDrawsGlass: false,
-                                          tokens: .shared))
+                                          tokens: .shared, tabState: surfaceTab))
             let window = NSWindow(contentViewController: hosting)
             window.title = BuildVariant.isDev ? "Tally Dev" : "Tally"   // Mission Control / Window menu name
             window.titleVisibility = .hidden

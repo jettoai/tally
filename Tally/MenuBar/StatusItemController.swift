@@ -15,6 +15,8 @@ final class StatusItemController: NSObject {
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
     private var popoverHost: NSHostingController<PopoverRootView>?
+    /// The popover's own Usage / Tokens selection, kept here so the pin hand-off can read it.
+    private let popoverTab = SurfaceTabState()
 
     private static let symbolCandidates = ["gauge.medium", "gauge", "chart.bar.fill"]
 
@@ -42,7 +44,8 @@ final class StatusItemController: NSObject {
         // engine into a stack-overflow crash.
         let host = NSHostingController(
             rootView: PopoverRootView(store: UsageStore.shared, settings: SettingsStore.shared,
-                                      onContentSize: { [weak self] size in self?.applyPopoverSize(size) }))
+                                      onContentSize: { [weak self] size in self?.applyPopoverSize(size) },
+                                      tabState: popoverTab))
         host.sizingOptions = []
         popoverHost = host
         popover.contentViewController = host
@@ -153,12 +156,15 @@ final class StatusItemController: NSObject {
         SettingsStore.shared.isUsagePanelPinned = pinned
         if pinned {
             // Pinning is a transformation, not a copy: whichever surface the pin was clicked in
-            // (popover or main window) hands its on-screen position to the panel and closes, so
-            // the panel visibly takes over in place.
-            let topLeft = popoverContentTopLeft() ?? MainWindowController.shared.contentTopLeft
+            // (popover or main window) hands its on-screen position AND the view it is showing to
+            // the panel and closes, so the panel visibly takes over in place. Handing over only the
+            // position would have made pinning the Tokens tab a way to leave it.
+            let fromPopover = popoverContentTopLeft()
+            let source = fromPopover != nil ? popoverTab : MainWindowController.shared.surfaceTab
+            let topLeft = fromPopover ?? MainWindowController.shared.contentTopLeft
             popover.performClose(nil)
             MainWindowController.shared.close()
-            PinnedPanelController.shared.show(atTopLeft: topLeft)
+            PinnedPanelController.shared.show(atTopLeft: topLeft, showing: source.tab)
         } else {
             PinnedPanelController.shared.hide()
         }

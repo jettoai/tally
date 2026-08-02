@@ -16,6 +16,23 @@ enum SurfaceTab: String, CaseIterable, Identifiable {
     var label: String { self == .usage ? L("Usage") : L("Tokens") }
 }
 
+/// One surface's tab selection, one instance per host - deliberately not shared: flipping the pinned
+/// panel to token history should not also flip the menu-bar popover, which is opened for one glance
+/// at the quota and closed again.
+///
+/// It lives with the host controller rather than in the view's own `@State` because pinning is a
+/// hand-off, not a copy: the panel that replaces the popover has to open on the view the user was
+/// reading, and `@State` can only ever be seeded by the view that owns it. The controllers stay the
+/// only writers from outside, and only at that one moment.
+///
+/// It also outlives a close, because each host's view is built once and reused: reopening shows what
+/// the user last chose rather than silently undoing it, and the header switch says which view this is.
+@MainActor
+@Observable
+final class SurfaceTabState {
+    var tab: SurfaceTab = .usage
+}
+
 struct PopoverRootView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
@@ -27,20 +44,10 @@ struct PopoverRootView: View {
     /// a within-window material there would only sample that window's own grey.
     var hostDrawsGlass: Bool = true
     var tokens: TokenStatsStore = .shared
+    /// This surface's own tab selection, held by its host controller (see `SurfaceTabState`).
+    @Bindable var tabState: SurfaceTabState
 
-    /// Per surface, deliberately: flipping the pinned panel to token history should not also flip
-    /// the menu-bar popover, which is opened for one glance at the quota and closed again. Every
-    /// host holds one of these, so no host needs to hand its own selection in.
-    ///
-    /// It also outlives a close, because each host's view is built once and reused: reopening shows
-    /// what the user last chose rather than silently undoing it, and the header switch says which
-    /// view this is. A reset on close would be the only way to disagree, and that would need this
-    /// state hoisted back out of the surface it belongs to.
-    @State private var ownTab: SurfaceTab = .usage
-
-    /// Internal: the header extension binds its switch to it.
-    var tabSelection: Binding<SurfaceTab> { $ownTab }
-    var tab: SurfaceTab { ownTab }
+    var tab: SurfaceTab { tabState.tab }
 
     private static let reorderSpace = "tallyCardReorder"
     @State private var cardFrames: [String: CGRect] = [:]
@@ -401,10 +408,21 @@ struct PopoverRootView: View {
             + store.orderedAccounts.map(\.id).joined(separator: "|")
     }
 
-    // Footer state lives here (stored properties can't live in extensions); the footer view
-    // itself is in PopoverFooterView.swift.
+    // Header and footer state lives here (stored properties can't live in extensions); those two
+    // views are in PopoverHeaderView.swift and PopoverFooterView.swift.
     @State var showLaunchHelp = false
     @State var showViewOptions = false
     @State var footerWidths = FooterWidths()
+    @State var headerWidths = HeaderWidths()
+
+    /// Reports its own width, which is its host's: `Color.clear` fills whatever it is offered, and a
+    /// background is offered exactly the size of the view it backs. Both strips measure with it -
+    /// each fits a row of rigid clusters into a fixed width and drops the softest part when it runs
+    /// out, and neither can be told the widths any other way.
+    func widthProbe(_ report: @escaping (CGFloat) -> Void) -> some View {
+        GeometryReader { proxy in
+            Color.clear.onChange(of: proxy.size.width, initial: true) { _, width in report(width) }
+        }
+    }
 }
 

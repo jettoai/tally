@@ -90,6 +90,11 @@ final class MainWindowController {
     /// exactly like the panel and the popover do.
     func show(restoring: Bool = false) {
         StatusItemController.shared?.closePopover()
+        // The pinned panel gives way too, and for a harder reason than tidiness: it is THIS view in
+        // its always-on-top form, so leaving it up stacks two identical surfaces and the floating
+        // one silently eats every click on the part of this window it covers (see
+        // StatusItemController.unpin). Pinning already closes this window; this is its reverse.
+        StatusItemController.unpin()
         if window == nil {
             // Opaque window: its cards stay solid. Glass cards belong to the hosts that put glass
             // behind them (the popover's vibrancy, the pinned panel's behind-window blur).

@@ -152,22 +152,38 @@ final class StatusItemController: NSObject {
         shared?.setPinned(!SettingsStore.shared.isUsagePanelPinned)
     }
 
+    /// Retire the pinned panel, the other half of the transformation below - called by the dashboard
+    /// window as it takes the stage.
+    ///
+    /// The two are one surface in two forms, and the panel floats above every normal window, so
+    /// leaving it up while the dashboard opens stacks two IDENTICAL views with the floating one on
+    /// top: every click on the covered part of the dashboard is silently eaten by the panel. It
+    /// looks like a dead region rather than an overlap precisely because both surfaces render the
+    /// same view, and which part is covered changes as the window resizes - switching the dashboard
+    /// to Tokens shrinks it (top-anchored), pulling its footer up into the panel's band, so the
+    /// whole footer stops responding while the header above the panel still works.
+    ///
+    /// Unpinning rather than merely hiding keeps the state honest: the window's footer button reads
+    /// "Pin on top" again, which is exactly what it now does.
+    static func unpin() {
+        guard SettingsStore.shared.isUsagePanelPinned else { return }
+        SettingsStore.shared.isUsagePanelPinned = false
+        PinnedPanelController.shared.hide()
+    }
+
     private func setPinned(_ pinned: Bool) {
-        SettingsStore.shared.isUsagePanelPinned = pinned
-        if pinned {
-            // Pinning is a transformation, not a copy: whichever surface the pin was clicked in
-            // (popover or main window) hands its on-screen position AND the view it is showing to
-            // the panel and closes, so the panel visibly takes over in place. Handing over only the
-            // position would have made pinning the Tokens tab a way to leave it.
-            let fromPopover = popoverContentTopLeft()
-            let source = fromPopover != nil ? popoverTab : MainWindowController.shared.surfaceTab
-            let topLeft = fromPopover ?? MainWindowController.shared.contentTopLeft
-            popover.performClose(nil)
-            MainWindowController.shared.close()
-            PinnedPanelController.shared.show(atTopLeft: topLeft, showing: source.tab)
-        } else {
-            PinnedPanelController.shared.hide()
-        }
+        guard pinned else { return Self.unpin() }
+        SettingsStore.shared.isUsagePanelPinned = true
+        // Pinning is a transformation, not a copy: whichever surface the pin was clicked in
+        // (popover or main window) hands its on-screen position AND the view it is showing to
+        // the panel and closes, so the panel visibly takes over in place. Handing over only the
+        // position would have made pinning the Tokens tab a way to leave it.
+        let fromPopover = popoverContentTopLeft()
+        let source = fromPopover != nil ? popoverTab : MainWindowController.shared.surfaceTab
+        let topLeft = fromPopover ?? MainWindowController.shared.contentTopLeft
+        popover.performClose(nil)
+        MainWindowController.shared.close()
+        PinnedPanelController.shared.show(atTopLeft: topLeft, showing: source.tab)
     }
 
     /// The screen-space top-left of the popover's content, so the panel can open exactly where the

@@ -307,17 +307,20 @@ func runRebalanceChecks() {
     // The whole point of the claim: N supervisors whose 2s ticks land in the same window ask at
     // once, and exactly one of them moves. A read followed by a write leaves the gap this closes.
     let racers = 32
-    /// How many of `racers` threads win one cycle, all of them released from a barrier together.
-    func racedWins(cycle: String) -> Int {
+    /// How many of `racers` threads win, all of them released from a barrier together. `cycle` names
+    /// the key each racer carries, so one round can put them all on one reading of the drought or
+    /// split them across two.
+    func racedWins(account: String = "acct-race", cycle: (Int) -> String) -> Int {
         let race = ClaimRace()
-        for _ in 0 ..< racers {
+        for racer in 0 ..< racers {
+            let key = cycle(racer)
             Thread {
                 race.gate.lock()
                 race.ready += 1
                 race.gate.broadcast()
                 while !race.released { race.gate.wait() }
                 race.gate.unlock()
-                let won = claimRebalanceCycle("acct-race", cycle: cycle, dir: recordDir)
+                let won = claimRebalanceCycle(account, cycle: key, dir: recordDir)
                 race.gate.lock()
                 if won { race.wins += 1 }
                 race.done += 1
@@ -339,10 +342,86 @@ func runRebalanceChecks() {
     // claim answers 1 in every round by construction, so requiring that of all of them turns a
     // coin-flip into a check that a torn claim cannot pass.
     // An hour apart, because rounds are meant to be DISTINCT droughts and a claim now holds for
-    // every key within a few minutes of it (26d-jitter below).
-    let rounds = (0 ..< 8).map { racedWins(cycle: String(1_800_000_000 + $0 * 3600)) }
+    // every key within a few minutes of it (26d-jitter above).
+    let rounds = (0 ..< 8).map { round in
+        racedWins { _ in String(1_800_000_000 + round * 3600) }
+    }
     check("exactly one of 32 simultaneous supervisors claims the cycle, every round (won: \(rounds))",
           rounds.allSatisfy { $0 == 1 })
+
+    // And the harder half of the same question, which the one-syscall claim could not answer: the
+    // racers do NOT agree on the key. Supervisors reading either side of a snapshot refresh hold two
+    // readings of ONE drought, a minute apart, and `O_EXCL` arbitrates a NAME - so each side found
+    // nothing near its own key, each created a different file, and both moved (two winners in every
+    // round, 2026-08-02 second review). Exactly one may win however the readings are split.
+    let split = (0 ..< 8).map { round in
+        racedWins(account: "acct-split-race") { racer in
+            String(1_900_100_000 + round * 3600 + (racer % 2) * 60)
+        }
+    }
+    check("exactly one wins even when the supervisors disagree about the minute (won: \(split))",
+          split.allSatisfy { $0 == 1 })
+
+    // MARK: - 26d-blind. Not being able to look is not the same as nothing being there
+
+    // Every other obstacle in this file answers "stay put", and so must an unreadable directory: a
+    // scan read as an empty one is the one way the claim can grant a move it has no evidence for.
+    // 0o300 is the shape that makes the difference visible - entries can still be CREATED, so a
+    // fail-open claim would sail through and write itself a record it never looked for.
+    let blindDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-rebalance-blind-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: blindDir, withIntermediateDirectories: true)
+    check("a claim lands while the directory can be read",
+          claimRebalanceCycle("acct-blind", cycle: cycleOne, dir: blindDir))
+    try? FileManager.default.setAttributes([.posixPermissions: 0o300],
+                                           ofItemAtPath: blindDir.path)
+    let blindCycle = String(Int(cycleOne)! + 5 * 3600)
+    check("a directory that cannot be listed refuses rather than granting a blind move",
+          !claimRebalanceCycle("acct-blind", cycle: blindCycle, dir: blindDir))
+    try? FileManager.default.setAttributes([.posixPermissions: 0o700],
+                                           ofItemAtPath: blindDir.path)
+    check("and the refusal left nothing behind", !claimExists("acct-blind", cycle: blindCycle,
+                                                              in: blindDir))
+    check("while the claim it could not see is still there",
+          claimExists("acct-blind", cycle: cycleOne, in: blindDir))
+    // A refusal is not a strand: the section releases its lock on the way out however it answered,
+    // so the account claims normally the moment the directory can be read again.
+    check("and the account is free again once it can be read",
+          claimRebalanceCycle("acct-blind", cycle: blindCycle, dir: blindDir))
+    try? FileManager.default.removeItem(at: blindDir)
+
+    // MARK: - 26d-lock. The lock the decision runs under
+
+    // Contention loses rather than waits: a supervisor already inside the section is about to answer
+    // this same question, so waiting for it would only be a slower way to be refused.
+    let lockDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-rebalance-lock-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: lockDir, withIntermediateDirectories: true)
+    let heldLock = lockDir.appendingPathComponent("acct-lock.lock")
+    try? FileManager.default.createDirectory(at: heldLock, withIntermediateDirectories: true)
+    check("an account whose decision another supervisor is inside is left alone",
+          !claimRebalanceCycle("acct-lock", cycle: cycleOne, dir: lockDir))
+    check("and nothing was written while it was locked out",
+          !claimExists("acct-lock", cycle: cycleOne, in: lockDir))
+    try? FileManager.default.removeItem(at: heldLock)
+    check("and claims normally as soon as the section is free",
+          claimRebalanceCycle("acct-lock", cycle: cycleOne, dir: lockDir))
+    check("and the section leaves no lock behind",
+          !FileManager.default.fileExists(atPath: heldLock.path))
+    // Debris from a supervisor killed inside the section would otherwise strand the account for the
+    // rest of the drought. It is cleared on sight once it is older than the TTL, and the tick that
+    // clears it still loses: two supervisors can both find the same lock stale, and both entering
+    // is the double claim all of this exists to prevent.
+    let staleLock = lockDir.appendingPathComponent("acct-stale.lock")
+    try? FileManager.default.createDirectory(at: staleLock, withIntermediateDirectories: true)
+    try? FileManager.default.setAttributes(
+        [.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: staleLock.path)
+    check("a lock left behind by a dead supervisor still costs this tick",
+          !claimRebalanceCycle("acct-stale", cycle: cycleOne, dir: lockDir))
+    check("but it is cleared on the way past", !FileManager.default.fileExists(atPath: staleLock.path))
+    check("so the next tick claims normally",
+          claimRebalanceCycle("acct-stale", cycle: cycleOne, dir: lockDir))
+    try? FileManager.default.removeItem(at: lockDir)
     try? FileManager.default.removeItem(at: recordDir)
 
     // MARK: - 26e. One tick's decision against the live picture

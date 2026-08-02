@@ -55,6 +55,10 @@ let rebalanceDir = FileManager.default.homeDirectoryForCurrentUser
 /// leaked claims above are exactly 60s apart). Five minutes clears that comfortably while staying
 /// far below the shortest window a genuine new cycle can arrive on - the 5h session window - so no
 /// real reset is ever mistaken for jitter.
+///
+/// The app keeps its own copy of this rule (`DryPoolLogic.cycleTolerance` and `namesSameCycle`,
+/// used by the dry-pool alert and `ResetHintLogic`) because the two live in different targets; they
+/// are the same tolerance for the same reason, and should move together.
 let rebalanceCycleTolerance: TimeInterval = 5 * 60
 
 /// Whether two cycle keys name the same drought: the same reported reset, or one that has moved no
@@ -96,30 +100,48 @@ func rebalanceCycleKey(_ account: Snapshot.Account, primaryModel: String?,
     return String(Int(resetsAt.timeIntervalSince1970.rounded()))
 }
 
+/// How long an account's decision lock may sit before it is treated as debris. The section it
+/// guards is one directory scan and one create, so a lock older than this belongs to a supervisor
+/// that was killed inside it rather than to one still working.
+private let rebalanceLockTTL: TimeInterval = 60
+
 /// Claim the one rebalance this account gets in `cycle`, across every supervisor on the machine.
 /// True means this process won the claim and may move its session; false means another supervisor
-/// holds it (or the claim could not be written), and this session stays where it is.
+/// holds it, is deciding right now, or the claim could not be written - and this session stays where
+/// it is.
 ///
-/// Claiming and recording are ONE act, in one syscall: `O_CREAT | O_EXCL` either creates the file or
-/// fails because it is already there. Reading a record and writing it after the plan was made left
-/// a window in which N supervisors whose 2s ticks land together all read "not yet moved" and all
-/// moved, which is the stampede this whole record exists to prevent (the 02:22 storm above).
-/// An atomic WRITE does not help with that: it protects the file's contents, not the decision.
+/// The whole decision runs under a per-account lock, because matching cycles by NEARNESS made the
+/// one-syscall claim this used to be unsound. `O_CREAT | O_EXCL` arbitrates one NAME: while every
+/// supervisor that agreed on the drought also agreed on the filename, the create WAS the decision
+/// and there was nothing else to protect. Nearness broke that tie between the name and the decision.
+/// Two supervisors reading either side of a snapshot refresh hold `t` and `t+60`, each scans and
+/// finds no claim near its own key, and each then creates a DIFFERENT file, successfully. Both win,
+/// both move, and the drought hands out exactly the second move the tolerance was added to prevent
+/// (32 threads alternating the two keys: two winners in every one of 100 rounds, 2026-08-02).
 ///
-/// The cycle rides in the FILENAME rather than in the body, because that is what makes the check and
-/// the write inseparable: a claim that is already there belongs to someone else, and a refilled
-/// window is a new name, so the account re-arms by itself without anyone having to expire anything.
+/// `mkdir` is the atomic primitive that puts the check and the write back together: it either
+/// creates the directory or fails because someone else already did, so one supervisor at a time
+/// reads this account's claims and writes its own. Contention simply LOSES rather than waiting, the
+/// same answer this function gives to every other obstacle: a rebalance repairs nothing, and a
+/// supervisor that lost the lock was about to lose the claim to whoever holds it anyway.
 ///
-/// The nearness check in front of it costs none of that. It can only ever REFUSE, never grant, so
-/// two supervisors that computed the same key are still arbitrated by the create alone and exactly
-/// one of them still wins; what it adds is that a key a minute off the one on disk loses too,
-/// instead of being a second name for a drought that has already been claimed.
+/// A lock left behind by a supervisor killed inside the section is cleared on sight once it is
+/// older than `rebalanceLockTTL`, and the tick that clears it still loses. Clearing and then
+/// retrying immediately would be a second way to double-claim - two supervisors can both find the
+/// same lock stale, and both would then be inside - whereas two that both clear it and both stay put
+/// cost nothing but one 2s tick.
+///
+/// The cycle rides in the FILENAME rather than in the body, because that is what lets the account
+/// re-arm by itself: a refilled window is a new name, so nothing has to expire anything, and the
+/// lock only has to cover the moment of decision rather than the life of the record.
 ///
 /// Refusing when the claim cannot be written for any other reason is deliberate. A rebalance repairs
 /// nothing, it is only ever early, so not moving costs at worst the cap handoff doing it later;
 /// moving without a claim costs every session on the account landing on one sibling.
 func claimRebalanceCycle(_ accountID: String, cycle: String, dir: URL = rebalanceDir) -> Bool {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    guard let lock = acquireRebalanceLock(accountID, dir: dir) else { return false }
+    defer { rmdir(lock.path) }
     guard legacyRecordAllows(accountID, cycle: cycle, dir: dir),
           !rebalanceCycleHeld(accountID, cycle: cycle, dir: dir) else { return false }
     let fd = open(dir.appendingPathComponent(rebalanceClaimName(accountID, cycle: cycle)).path,
@@ -127,6 +149,21 @@ func claimRebalanceCycle(_ accountID: String, cycle: String, dir: URL = rebalanc
     guard fd >= 0 else { return false }
     close(fd)
     return true
+}
+
+/// Take this account's decision lock, or nil when another supervisor is inside it. The lock sits
+/// beside the claims it guards and is named so that the claim scan cannot mistake it for one
+/// (`lock` is not an epoch, so `rebalanceCycleHeld` skips it as it skips any other stray file).
+private func acquireRebalanceLock(_ accountID: String, dir: URL, now: Date = Date()) -> URL? {
+    let lock = dir.appendingPathComponent("\(rebalanceRecordName(accountID)).lock",
+                                          isDirectory: true)
+    if mkdir(lock.path, 0o755) == 0 { return lock }
+    let taken = (try? lock.resourceValues(forKeys: [.contentModificationDateKey]))?
+        .contentModificationDate
+    // Debris, or a holder that has been stopped for a minute inside a scan that takes microseconds.
+    // Clearing it is all this tick does with it (see above: reclaiming and entering are two ticks).
+    if let taken, now.timeIntervalSince(taken) > rebalanceLockTTL { rmdir(lock.path) }
+    return nil
 }
 
 /// Whether a record written by the pre-claim shape (one bare per-account file whose BODY is the
@@ -154,11 +191,16 @@ private func legacyRecordAllows(_ accountID: String, cycle: String, dir: URL) ->
 /// A claim within the tolerance is kept even when its reset is behind us, because that is the case
 /// the tolerance is FOR: a reset time the snapshot has not caught up with is in the past and still
 /// the drought we are in. The real re-arm is the next window, which is hours away and nowhere near.
+///
+/// A directory that cannot be listed answers HELD, not "no claims". Reading the failure as an empty
+/// directory is the one way this can hand out a move it has no evidence for, and every other
+/// obstacle here already answers "stay put": the cost of a wrong refusal is the cap handoff doing
+/// the same move later, the cost of a wrong grant is the whole account's sessions on one sibling.
 private func rebalanceCycleHeld(_ accountID: String, cycle: String, dir: URL,
                                 now: Date = Date()) -> Bool {
     let prefix = rebalanceRecordName(accountID)
-    let files = (try? FileManager.default.contentsOfDirectory(at: dir,
-        includingPropertiesForKeys: nil)) ?? []
+    guard let files = try? FileManager.default.contentsOfDirectory(at: dir,
+        includingPropertiesForKeys: nil) else { return true }
     var held = false
     for file in files {
         let name = file.lastPathComponent

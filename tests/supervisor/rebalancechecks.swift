@@ -310,9 +310,10 @@ func runRebalanceChecks() {
     /// How many of `racers` threads win, all of them released from a barrier together. `cycle` names
     /// the key each racer carries, so one round can put them all on one reading of the drought or
     /// split them across two.
-    func racedWins(account: String = "acct-race", cycle: (Int) -> String) -> Int {
+    func racedWins(account: String = "acct-race", count: Int = racers,
+                   cycle: (Int) -> String) -> Int {
         let race = ClaimRace()
-        for racer in 0 ..< racers {
+        for racer in 0 ..< count {
             let key = cycle(racer)
             Thread {
                 race.gate.lock()
@@ -329,10 +330,10 @@ func runRebalanceChecks() {
             }.start()
         }
         race.gate.lock()
-        while race.ready < racers { race.gate.wait() }   // every thread is parked on the barrier
+        while race.ready < count { race.gate.wait() }   // every thread is parked on the barrier
         race.released = true
         race.gate.broadcast()
-        while race.done < racers { race.gate.wait() }
+        while race.done < count { race.gate.wait() }
         race.gate.unlock()
         return race.wins
     }
@@ -361,6 +362,22 @@ func runRebalanceChecks() {
     }
     check("exactly one wins even when the supervisors disagree about the minute (won: \(split))",
           split.allSatisfy { $0 == 1 })
+
+    // The same race started from the state a killed supervisor leaves behind. Under a lock the
+    // winner created and deleted, that state was a problem to be reaped, and the reaping was itself
+    // a race: a reaper deletes whatever sits at the path, which by then can be the NEXT holder's
+    // lock. Under `flock` the debris is just a lock file nobody holds, which is also the steady
+    // state after any successful claim, so it is not a special case at all - it is asserted here
+    // because it was one, and 64 racers because the reaper's window was widest under load.
+    let debris = (0 ..< 8).map { round -> Int in
+        let lock = recordDir.appendingPathComponent("acct-debris-race.lock")
+        try? Data().write(to: lock)   // left behind by a supervisor that never came back
+        return racedWins(account: "acct-debris-race", count: 64) { racer in
+            String(1_900_200_000 + round * 3600 + (racer % 2) * 60)
+        }
+    }
+    check("exactly one wins from a dead supervisor's leftovers too (won: \(debris))",
+          debris.allSatisfy { $0 == 1 })
 
     // MARK: - 26d-blind. Not being able to look is not the same as nothing being there
 
@@ -398,29 +415,33 @@ func runRebalanceChecks() {
         .appendingPathComponent("tally-rebalance-lock-\(UUID().uuidString)")
     try? FileManager.default.createDirectory(at: lockDir, withIntermediateDirectories: true)
     let heldLock = lockDir.appendingPathComponent("acct-lock.lock")
-    try? FileManager.default.createDirectory(at: heldLock, withIntermediateDirectories: true)
+    // A supervisor inside the section, held exactly as the code holds it. `flock` excludes per open
+    // file description, not per process, so a second descriptor on this same file is refused here
+    // for the same reason it would be refused from another process.
+    let holder = open(heldLock.path, O_CREAT | O_WRONLY, 0o644)
+    check("the lock can be taken at all", holder >= 0 && flock(holder, LOCK_EX | LOCK_NB) == 0)
     check("an account whose decision another supervisor is inside is left alone",
           !claimRebalanceCycle("acct-lock", cycle: cycleOne, dir: lockDir))
     check("and nothing was written while it was locked out",
           !claimExists("acct-lock", cycle: cycleOne, in: lockDir))
-    try? FileManager.default.removeItem(at: heldLock)
-    check("and claims normally as soon as the section is free",
+    // The release is the kernel's, and it happens on close - which is what a killed supervisor's
+    // descriptors do too, so this is also the "died holding it" case. No reaper, no TTL, no debris.
+    close(holder)
+    check("and claims normally the moment the holder lets go",
           claimRebalanceCycle("acct-lock", cycle: cycleOne, dir: lockDir))
-    check("and the section leaves no lock behind",
-          !FileManager.default.fileExists(atPath: heldLock.path))
-    // Debris from a supervisor killed inside the section would otherwise strand the account for the
-    // rest of the drought. It is cleared on sight once it is older than the TTL, and the tick that
-    // clears it still loses: two supervisors can both find the same lock stale, and both entering
-    // is the double claim all of this exists to prevent.
-    let staleLock = lockDir.appendingPathComponent("acct-stale.lock")
-    try? FileManager.default.createDirectory(at: staleLock, withIntermediateDirectories: true)
-    try? FileManager.default.setAttributes(
-        [.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: staleLock.path)
-    check("a lock left behind by a dead supervisor still costs this tick",
-          !claimRebalanceCycle("acct-stale", cycle: cycleOne, dir: lockDir))
-    check("but it is cleared on the way past", !FileManager.default.fileExists(atPath: staleLock.path))
-    check("so the next tick claims normally",
-          claimRebalanceCycle("acct-stale", cycle: cycleOne, dir: lockDir))
+    // INVARIANT: the lock file outlives the section. Two `flock` calls exclude each other only on
+    // one inode, so a lock file that gets deleted and re-created is one two holders can both take.
+    check("and the lock file is still there afterwards, never unlinked",
+          FileManager.default.fileExists(atPath: heldLock.path))
+    // Which means the steady state is a lock file nobody holds, on every claim after the first.
+    check("a lock file nobody holds does not stand in the way",
+          claimRebalanceCycle("acct-lock", cycle: String(Int(cycleOne)! + 5 * 3600), dir: lockDir))
+    // And the scan must not read that permanent file as a claim: `lock` is not an epoch. If it did,
+    // this account would look like it held a drought it never claimed.
+    check("and it is not counted as one of the account's claims",
+          !claimRebalanceCycle("acct-lock", cycle: cycleOne, dir: lockDir))
+    check("while a genuinely new drought still gets its move",
+          claimRebalanceCycle("acct-lock", cycle: String(Int(cycleOne)! + 10 * 3600), dir: lockDir))
     try? FileManager.default.removeItem(at: lockDir)
     try? FileManager.default.removeItem(at: recordDir)
 

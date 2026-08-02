@@ -43,7 +43,8 @@ import Foundation
 // equality (`rebalanceCycleTolerance`).
 
 /// Per-account rebalance claims (~/.tally/rebalance/<account>.<cycle>), one file per account per
-/// cycle so concurrent supervisors never corrupt a shared document. Deliberately next door to the
+/// cycle so concurrent supervisors never corrupt a shared document, alongside one permanent
+/// `<account>.lock` per account that the decision below runs under. Deliberately next door to the
 /// cap quarantine (Quarantine.swift): both answer "has something already happened to this account
 /// that every supervisor must respect", and one place to look is one thing to reason about.
 let rebalanceDir = FileManager.default.homeDirectoryForCurrentUser
@@ -100,11 +101,6 @@ func rebalanceCycleKey(_ account: Snapshot.Account, primaryModel: String?,
     return String(Int(resetsAt.timeIntervalSince1970.rounded()))
 }
 
-/// How long an account's decision lock may sit before it is treated as debris. The section it
-/// guards is one directory scan and one create, so a lock older than this belongs to a supervisor
-/// that was killed inside it rather than to one still working.
-private let rebalanceLockTTL: TimeInterval = 60
-
 /// Claim the one rebalance this account gets in `cycle`, across every supervisor on the machine.
 /// True means this process won the claim and may move its session; false means another supervisor
 /// holds it, is deciding right now, or the claim could not be written - and this session stays where
@@ -119,21 +115,27 @@ private let rebalanceLockTTL: TimeInterval = 60
 /// both move, and the drought hands out exactly the second move the tolerance was added to prevent
 /// (32 threads alternating the two keys: two winners in every one of 100 rounds, 2026-08-02).
 ///
-/// `mkdir` is the atomic primitive that puts the check and the write back together: it either
-/// creates the directory or fails because someone else already did, so one supervisor at a time
-/// reads this account's claims and writes its own. Contention simply LOSES rather than waiting, the
-/// same answer this function gives to every other obstacle: a rebalance repairs nothing, and a
-/// supervisor that lost the lock was about to lose the claim to whoever holds it anyway.
+/// `flock` is the atomic primitive that puts the check and the write back together: exactly one
+/// supervisor at a time reads this account's claims and writes its own. Contention simply LOSES
+/// rather than waiting (`LOCK_NB`), the same answer this function gives to every other obstacle: a
+/// rebalance repairs nothing, and a supervisor that lost the lock was about to lose the claim to
+/// whoever holds it anyway.
 ///
-/// A lock left behind by a supervisor killed inside the section is cleared on sight once it is
-/// older than `rebalanceLockTTL`, and the tick that clears it still loses. Clearing and then
-/// retrying immediately would be a second way to double-claim - two supervisors can both find the
-/// same lock stale, and both would then be inside - whereas two that both clear it and both stay put
-/// cost nothing but one 2s tick.
+/// The lock is the KERNEL's to release, which is the property being bought. A lock made of a file
+/// the winner creates and deletes has to answer "what if the winner died holding it", and every
+/// answer to that is another race: a reaper that deletes a lock it judged stale deletes whatever
+/// sits at that path, which by then may be the NEXT holder's lock, and the section is open twice
+/// again. `flock` has no such question - the kernel drops the lock when the fd closes, which a
+/// process death does unconditionally - so there is no debris, no expiry, and no reaper.
 ///
-/// The cycle rides in the FILENAME rather than in the body, because that is what lets the account
-/// re-arm by itself: a refilled window is a new name, so nothing has to expire anything, and the
-/// lock only has to cover the moment of decision rather than the life of the record.
+/// INVARIANT: the lock file is never unlinked. Two `flock` calls only exclude each other when they
+/// hold the same inode, so a path that can be deleted and re-created is a path where two holders
+/// can both succeed. It costs one empty file per account, forever, which is the price of the
+/// property above.
+///
+/// The cycle rides in the FILENAME of the claim rather than in its body, because that is what lets
+/// the account re-arm by itself: a refilled window is a new name, so nothing has to expire anything,
+/// and the lock only has to cover the moment of decision rather than the life of the record.
 ///
 /// Refusing when the claim cannot be written for any other reason is deliberate. A rebalance repairs
 /// nothing, it is only ever early, so not moving costs at worst the cap handoff doing it later;
@@ -141,7 +143,7 @@ private let rebalanceLockTTL: TimeInterval = 60
 func claimRebalanceCycle(_ accountID: String, cycle: String, dir: URL = rebalanceDir) -> Bool {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     guard let lock = acquireRebalanceLock(accountID, dir: dir) else { return false }
-    defer { rmdir(lock.path) }
+    defer { close(lock) }   // the kernel releases the flock with the descriptor
     guard legacyRecordAllows(accountID, cycle: cycle, dir: dir),
           !rebalanceCycleHeld(accountID, cycle: cycle, dir: dir) else { return false }
     let fd = open(dir.appendingPathComponent(rebalanceClaimName(accountID, cycle: cycle)).path,
@@ -151,19 +153,19 @@ func claimRebalanceCycle(_ accountID: String, cycle: String, dir: URL = rebalanc
     return true
 }
 
-/// Take this account's decision lock, or nil when another supervisor is inside it. The lock sits
-/// beside the claims it guards and is named so that the claim scan cannot mistake it for one
-/// (`lock` is not an epoch, so `rebalanceCycleHeld` skips it as it skips any other stray file).
-private func acquireRebalanceLock(_ accountID: String, dir: URL, now: Date = Date()) -> URL? {
-    let lock = dir.appendingPathComponent("\(rebalanceRecordName(accountID)).lock",
-                                          isDirectory: true)
-    if mkdir(lock.path, 0o755) == 0 { return lock }
-    let taken = (try? lock.resourceValues(forKeys: [.contentModificationDateKey]))?
-        .contentModificationDate
-    // Debris, or a holder that has been stopped for a minute inside a scan that takes microseconds.
-    // Clearing it is all this tick does with it (see above: reclaiming and entering are two ticks).
-    if let taken, now.timeIntervalSince(taken) > rebalanceLockTTL { rmdir(lock.path) }
-    return nil
+/// The descriptor holding this account's decision lock, or nil when another supervisor is inside the
+/// section (or the lock file cannot be opened at all, which loses like everything else here). The
+/// caller closes it, and closing it IS the release.
+///
+/// The lock sits beside the claims it guards and is named so the claim scan cannot mistake it for
+/// one: `lock` is not an epoch, so `rebalanceCycleHeld` skips it as it skips any other stray file.
+/// It is opened, never created-and-removed (the invariant above).
+private func acquireRebalanceLock(_ accountID: String, dir: URL) -> Int32? {
+    let path = dir.appendingPathComponent("\(rebalanceRecordName(accountID)).lock").path
+    let fd = open(path, O_CREAT | O_WRONLY, 0o644)
+    guard fd >= 0 else { return nil }
+    guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { close(fd); return nil }
+    return fd
 }
 
 /// Whether a record written by the pre-claim shape (one bare per-account file whose BODY is the

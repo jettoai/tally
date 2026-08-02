@@ -616,4 +616,7 @@ func runReloadChecks() {
           supervisorSource.contains("RecoveryFuse(recovered: recoveries)"))
     check("and hands the live fuse to the exec",
           supervisorSource.contains("recoveries: fuse.carried()"))
+
+    // The account re-pick a reload restart carries for free (reloadrepickchecks.swift).
+    runReloadRepickChecks(account: tickAccount, watcher: &tickWatcher, t0: tickT0)
 }

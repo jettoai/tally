@@ -163,10 +163,19 @@ func reloadDecision(captured: Int, requested: Int?, relaunchPlanned: Bool,
 /// `keyboardIdle` is the keyboard half of the bar, injected rather than read here: the supervisor
 /// holds a `KeyboardActivity` fed on every tick (a burst is only visible across readings), and a
 /// closure keeps this testable without manufacturing atimes on a real terminal.
+///
+/// `repick` offers the account this session should come back on instead, or nil to keep the one it
+/// is on. The supervisor wires it to the idle rebalance, so a restart that is happening anyway also
+/// carries a session off an account that is nearly dry - the same move, at the one moment it is
+/// free. It is a CLOSURE and not a value because asking is not free and not idempotent: it reads the
+/// snapshot and, when it answers, has already taken the account's one claim for this drought. Asking
+/// on a tick that then does not relaunch would spend that claim on nothing, which is why the
+/// rebalance asks it last (Rebalance.swift) and why this asks it only on the branch that restarts.
 func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: inout ReloadWait,
                         account: Snapshot.Account, watcher: inout TranscriptWatcher,
                         childAge: TimeInterval, keyboardIdle: (TimeInterval) -> Bool,
                         request requested: ReloadRequest? = readReloadRequest(),
+                        repick: () -> Snapshot.Account? = { nil },
                         now: Date = Date()) {
     guard let request = requested else {
         // The request file went away (deleted by hand, or a home that got cleaned out) while one was
@@ -199,10 +208,29 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
         notice = ReloadWait()
         epoch = request.epoch
     case .relaunch:
-        warn("reload requested → restarting this session")
         notice = ReloadWait()
-        plan = RelaunchPlan(target: account, reason: "reload", countsFuse: false)
         epoch = request.epoch
+        // Reaching here means the session is idle by the reload's own bar and the child is about
+        // to be terminated regardless, which makes this the cheapest moment in a session's life
+        // to also leave a dying account: the restart the idle rebalance normally has to justify
+        // on its own is already paid for. That holds for `--now`'s short bar too - the 120s bar
+        // the rebalance waits for exists to avoid CAUSING a restart, and there is none to cause
+        // here, only one to aim.
+        //
+        // Branching on whether the account actually CHANGED rather than on whether `repick`
+        // answered, because the reason is not just a log tag: a pending cap recovery is carried
+        // across a relaunch only for "reload" (`capCarriedAcrossRelaunch`), on the grounds that a
+        // reload comes back on the same account and the cap is therefore still this session's
+        // problem. Tag a move as a reload and the next child inherits a cap belonging to an
+        // account it is no longer on.
+        if let moveTo = repick(), moveTo.id != account.id {
+            warn("reload requested → restarting on \(moveTo.label), " +
+                 "leaving \(account.label) before the wall")
+            plan = RelaunchPlan(target: moveTo, reason: "rebalance", countsFuse: true)
+        } else {
+            warn("reload requested → restarting this session")
+            plan = RelaunchPlan(target: account, reason: "reload", countsFuse: false)
+        }
     case .queued:
         switch reloadWaitNote(state: &notice, epoch: request.epoch, now: now) {
         case .silent:

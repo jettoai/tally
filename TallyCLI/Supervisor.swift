@@ -397,10 +397,21 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
 
             // `tally reload`: adopt a pending request, or note that it is waiting for this session
             // to go idle. The whole rule, and why it comes last, lives in Reload.swift.
+            // `repick`: a reload restart is a free ride off a nearly-dry account, so it offers the
+            // same move the block above would make later. Asked lazily, inside the branch that
+            // actually restarts, because answering takes this account's one claim for the drought.
+            // `isQuiet: true` is not a bypass: the only caller of this closure is the branch reload
+            // reaches when its OWN idle gate has already said yes.
             applyReloadRequest(plan: &plan, epoch: &reloadEpoch, notice: &reloadNotice,
                                account: account, watcher: &watcher,
                                childAge: Date().timeIntervalSince(launchedAt),
-                               keyboardIdle: { keyboard.idle($0) })
+                               keyboardIdle: { keyboard.idle($0) },
+                               repick: {
+                                   rebalanceMove(provider: provider.id, account: account,
+                                                 primaryModel: effectivePrimary, mode: policy.mode,
+                                                 isQuiet: true, fuseAllows: fuse.allows(),
+                                                 quarantine: quarantine)
+                               })
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID, reload: reloadNotice.pending,

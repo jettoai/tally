@@ -124,29 +124,37 @@ extension PopoverRootView {
     /// line. Whole row is the fold target, exactly like the rows' leading line.
     private func columnHeader(_ summary: FleetSummary, _ leading: FleetPool) -> some View {
         HStack(spacing: Self.fleetRowSpacing) {
-            HStack(spacing: 5) {
-                ProviderIconView(providerID: summary.providerID, size: 11)
-                (Text(ProviderCatalog.displayName(for: summary.providerID))
-                    .foregroundStyle(Color.secondary)
-                 + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary))
-                    .font(.footnote)
-                    .lineLimit(1)
-            }
+            providerLabel(summary.providerID, count: summary.accountCount)
+                .font(.footnote)
             Spacer(minLength: 6)
             Text(worthValue(leading))
                 .font(.footnote.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.primary)
                 .layoutPriority(1)
-            foldChevron(summary)
+            foldChevron(summary.providerID)
         }
         .contentShape(Rectangle())
         .onTapGesture { settings.toggleCollapsed(summary.providerID) }
     }
 
-    /// The disclosure affordance, shared by both layouts: click folds this provider's cards away
-    /// (the pools stay - they ARE the summary), click again brings them back.
-    private func foldChevron(_ summary: FleetSummary) -> some View {
-        let collapsed = settings.collapsedProviders.contains(summary.providerID)
+    /// Provider identity and fleet size on one line: mark, display name, ×N. The one label form the
+    /// gauges and the grouped cards' section headings both speak, so the two surfaces cannot drift
+    /// into naming the same provider two ways. The caller sets the font (the gauges take footnote,
+    /// a section heading is lighter).
+    func providerLabel(_ providerID: String, count: Int) -> some View {
+        HStack(spacing: 5) {
+            ProviderIconView(providerID: providerID, size: 11)
+            (Text(ProviderCatalog.displayName(for: providerID)).foregroundStyle(Color.secondary)
+             + Text(" ×\(count)").foregroundStyle(.tertiary))
+        }
+        .lineLimit(1)
+    }
+
+    /// The disclosure affordance, shared by both gauge layouts and by the grouped cards' section
+    /// headings: click folds this provider's cards away (the pools stay - they ARE the summary),
+    /// click again brings them back.
+    func foldChevron(_ providerID: String) -> some View {
+        let collapsed = settings.collapsedProviders.contains(providerID)
         return Image(systemName: collapsed ? "chevron.right" : "chevron.down")
             .font(.caption2.weight(.semibold))
             .foregroundStyle(.tertiary)
@@ -163,15 +171,9 @@ extension PopoverRootView {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: Self.fleetRowSpacing) {
                 if leading {
-                    HStack(spacing: 5) {
-                        ProviderIconView(providerID: summary.providerID, size: 11)
-                        (Text(ProviderCatalog.displayName(for: summary.providerID))
-                            .foregroundStyle(Color.secondary)
-                         + Text(" ×\(summary.accountCount)").foregroundStyle(.tertiary))
-                            .font(.footnote)
-                            .lineLimit(1)
-                    }
-                    .frame(width: Self.fleetLabelWidth, alignment: .leading)
+                    providerLabel(summary.providerID, count: summary.accountCount)
+                        .font(.footnote)
+                        .frame(width: Self.fleetLabelWidth, alignment: .leading)
                 } else {
                     Color.clear.frame(width: Self.fleetLabelWidth, height: 1)
                 }
@@ -184,7 +186,7 @@ extension PopoverRootView {
                 // the whole row is the target. Follow-up rows keep an equal-width spacer so every
                 // bar column aligns.
                 if leading {
-                    foldChevron(summary)
+                    foldChevron(summary.providerID)
                 } else {
                     Color.clear.frame(width: Self.fleetChevronWidth, height: 1)
                 }

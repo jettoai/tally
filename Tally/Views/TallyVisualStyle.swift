@@ -44,22 +44,107 @@ extension MetricSeverity {
     }
 }
 
-/// A neutral, adaptive card surface: a subtle raised fill + a hairline border + a continuous radius,
-/// no drop shadow. Works over both the window background and the popover's vibrancy.
+/// How a card's surface is filled. Solid is the baseline and the only readable option over an opaque
+/// host (the dashboard window, Settings): a within-window blur there just samples that window's own
+/// grey. The glass variants belong to the hosts that actually have glass under the card - the
+/// popover's vibrancy and the pinned panel's behind-window blur.
+enum TallyCardStyle {
+    case solid
+    /// Within-window material: the card samples the panel glass beneath it, so the desktop's colour
+    /// reaches the card through a second layer of frost.
+    case material
+    /// The neutral card fill at low opacity: flatter than `material` and steadier over busy
+    /// wallpaper, because the tint stays the same colour no matter what shows through.
+    case tint
+    /// The system's own Liquid Glass (macOS 26+): refraction, specular rim and all, rendered by the
+    /// platform rather than approximated with a blur. Falls back to `material` below macOS 26 - the
+    /// app still ships to macOS 14, so this variant can never be the unconditional path.
+    case liquid
+
+    /// Which glass variant the panels use, from the volatile `-TallyCardStyle material|tint|liquid`
+    /// launch argument (the argument domain, same as `-TallyDemoData`, so a normal launch always
+    /// gets the default). Several variants because glass is judged on screen, not in a diff.
+    /// Resolved once: a launch argument cannot change while the app runs, and this is read on every
+    /// card's layout pass.
+    static let glassVariant: TallyCardStyle = {
+        switch UserDefaults.standard.string(forKey: "TallyCardStyle") {
+        case "tint": return .tint
+        case "liquid": return .liquid
+        default: return .material
+        }
+    }()
+}
+
+private struct TallyCardStyleKey: EnvironmentKey {
+    static let defaultValue: TallyCardStyle = .solid
+}
+
+extension EnvironmentValues {
+    /// The card fill for this subtree. Hosts set it once at their root, so a card never has to know
+    /// which window it landed in.
+    var tallyCardStyle: TallyCardStyle {
+        get { self[TallyCardStyleKey.self] }
+        set { self[TallyCardStyleKey.self] = newValue }
+    }
+}
+
+/// A neutral, adaptive card surface: a fill from the environment's style + a hairline border + a
+/// continuous radius, no drop shadow. Works over the window background, the popover's vibrancy and
+/// the pinned panel's glass.
 private struct TallyCard: ViewModifier {
+    @Environment(\.tallyCardStyle) private var style
+
+    @ViewBuilder
     func body(content: Content) -> some View {
-        content
-            .background(
-                RoundedRectangle(cornerRadius: TallyMetrics.cardRadius, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: TallyMetrics.cardRadius, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: TallyMetrics.hairline)
-            )
+        // Liquid Glass is not a fill: the system renders the surface, including its own specular
+        // rim. So it takes the whole surface over rather than joining the fill switch, and it drops
+        // the hairline - our border would sit ON that rim and read as a second, duller edge.
+        // Reasoned from the material's own lighting, not measured; the two live side by side under
+        // `-TallyCardStyle liquid|material` precisely so the call gets made on screen.
+        if style == .liquid, #available(macOS 26.0, *) {
+            content.glassEffect(.regular, in: shape)
+        } else {
+            content
+                .background(fill)
+                .overlay(
+                    shape.strokeBorder(Color.primary.opacity(0.08), lineWidth: TallyMetrics.hairline)
+                )
+        }
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: TallyMetrics.cardRadius, style: .continuous)
+    }
+
+    @ViewBuilder
+    private var fill: some View {
+        switch style {
+        case .solid: shape.fill(Color(nsColor: .controlBackgroundColor))
+        // `liquid` lands here only below macOS 26, where the system material is the closest thing
+        // the platform can draw.
+        case .material, .liquid: shape.fill(.ultraThinMaterial)
+        // 0.55: a starting point, not a measured value - enough card to keep the meters' track
+        // distinct from the glass behind it, little enough to still read as glass.
+        case .tint: shape.fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+        }
     }
 }
 
 extension View {
     func tallyCard() -> some View { modifier(TallyCard()) }
+
+    /// Wraps a group of sibling `tallyCard()` surfaces so the system renders their Liquid Glass in
+    /// one pass instead of one per card (Apple's guidance for several glass shapes on a layer - a
+    /// panel of eight cards is exactly that case). `spacing: 0` because the container's spacing is
+    /// the distance at which neighbouring shapes fuse into one blob: the cards are a grid of
+    /// separate objects, so only overlap should ever merge them, and the 10pt gutters must not.
+    /// A no-op for every other style, so the flat and grouped layouts stay one code path.
+    @ViewBuilder
+    func tallyCardGroup(_ style: TallyCardStyle) -> some View {
+        if style == .liquid, #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: 0) { self }
+        } else {
+            self
+        }
+    }
 }

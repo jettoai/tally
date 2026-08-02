@@ -13,6 +13,10 @@ struct PopoverRootView: View {
     /// Reports the content's ACTUAL rendered size so the host (popover / panel) can size itself to it.
     /// Measuring the real size beats asking `sizeThatFits`, which returned a greedy screen-tall height.
     var onContentSize: ((CGSize) -> Void)? = nil
+    /// Whether the host window itself draws glass (the popover's vibrancy, the pinned panel's
+    /// behind-window blur). The dashboard window is opaque, so it opts out and keeps solid cards -
+    /// a within-window material there would only sample that window's own grey.
+    var hostDrawsGlass: Bool = true
 
     private static let reorderSpace = "tallyCardReorder"
     @State private var cardFrames: [String: CGRect] = [:]
@@ -51,7 +55,17 @@ struct PopoverRootView: View {
         }
         .coordinateSpace(name: Self.reorderSpace)
         .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }
+        .environment(\.tallyCardStyle, cardStyle)
         .id(settings.languageOverride ?? "system")
+    }
+
+    /// The card fill for this surface: glass only where the host has glass to sample AND the user
+    /// asked for it. Reduce Transparency is a need, not a preference, so it clamps the cards to
+    /// solid regardless of the setting - the same rule the pinned panel's backdrop follows.
+    private var cardStyle: TallyCardStyle {
+        guard hostDrawsGlass, settings.isPanelTranslucent,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency else { return .solid }
+        return .glassVariant
     }
 
     /// Measures the laid-out content size and reports it upward (fires on appear + on change).
@@ -207,10 +221,14 @@ struct PopoverRootView: View {
             EmptyStateView(state: store.contentState)
         } else {
             accountLayout
+                // One glass pass for the whole grid under the Liquid Glass variant; nothing at all
+                // under the others (see `tallyCardGroup`).
+                .tallyCardGroup(cardStyle)
                 .padding(12)
                 // Cards glide (not teleport) whenever the order changes - from a drag here or the
-                // settings window.
-                .animation(CardMotion.spring, value: store.orderedAccounts.map(\.id))
+                // settings window - and equally when the grouping switch re-seats every card
+                // without the order itself moving.
+                .animation(CardMotion.spring, value: cardSeatingSignature)
                 // The reorder gesture lives HERE on the stable cards container, never on a card: a
                 // live reorder changes AccountRow identities, and SwiftUI CANCELS (not ends) a
                 // gesture whose view that diff tears down - onEnded never fires, and lift state
@@ -236,10 +254,31 @@ struct PopoverRootView: View {
     /// panel was showing → index out of range).
     @ViewBuilder
     private var accountLayout: some View {
+        if settings.groupByProvider {
+            VStack(alignment: .leading, spacing: 14) {
+                let groups = accountGroups
+                ForEach(groups) { group in
+                    VStack(alignment: .leading, spacing: 6) {
+                        // One provider needs no heading: a label over the only section names what
+                        // nothing else could be, so it is pure noise.
+                        if groups.count > 1 { groupHeader(group) }
+                        cardGrid(group.items)
+                    }
+                }
+            }
+        } else {
+            cardGrid(visibleAccounts)
+        }
+    }
+
+    /// The cards themselves, in the current column count. Called once for a flat layout and once per
+    /// provider when grouped, so both layouts share one grid and can't drift in spacing or widths.
+    @ViewBuilder
+    private func cardGrid(_ accounts: [AccountUsage]) -> some View {
         let columns = columnCount
         if columns > 1 {
             VStack(spacing: 10) {
-                ForEach(accountRows) { row in
+                ForEach(rows(accounts)) { row in
                     HStack(alignment: .top, spacing: 10) {
                         ForEach(row.items) { usage in
                             card(usage, fillsRowHeight: true).frame(width: cardWidth, alignment: .top)
@@ -256,16 +295,39 @@ struct PopoverRootView: View {
             }
         } else {
             VStack(spacing: 8) {
-                ForEach(visibleAccounts) { usage in
+                ForEach(accounts) { usage in
                     card(usage).frame(width: cardWidth)
                 }
             }
         }
     }
 
+    /// A section's label line: who these cards belong to and how many there are, in the fleet
+    /// column header's vocabulary but lighter - this names a section, it does not meter anything.
+    /// The fold chevron appears only while this provider's pooled gauge is on screen to summarize
+    /// the cards it would hide (the invariant the fleet strip's own chevron keeps).
+    private func groupHeader(_ group: AccountGroup) -> some View {
+        let foldable = pooledProviderIDs.contains(group.providerID)
+        return HStack(spacing: 5) {
+            providerLabel(group.providerID, count: group.items.count)
+                .font(.caption)
+            if foldable { foldChevron(group.providerID) }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if foldable { settings.toggleCollapsed(group.providerID) } }
+    }
+
     private struct AccountRow: Identifiable {
         let items: [AccountUsage]
         var id: String { items.map(\.id).joined(separator: "|") }
+    }
+
+    /// One provider's cards, kept together when grouping is on.
+    private struct AccountGroup: Identifiable {
+        let providerID: String
+        let items: [AccountUsage]
+        var id: String { providerID }
     }
 
     /// An account card that can be dragged to reorder (in-view drag: the source card
@@ -314,6 +376,12 @@ struct PopoverRootView: View {
                                                  excluding: lift.id,
                                                  orderedIDs: store.orderedAccounts.map(\.id))
                 else { return }
+                // Grouped layout: every provider owns its own section, so a card dropped on another
+                // provider's card has no seat there. Ignore that target rather than commit a move
+                // the sections would immediately undo (the card would jump back under its heading).
+                guard !settings.groupByProvider || store.orderedAccounts
+                    .first(where: { $0.id == target })?.providerID == lift.usage.providerID
+                else { return }
                 var moved = false
                 withAnimation(CardMotion.spring) {
                     moved = settings.moveAccount(lift.id, onto: target, allIDs: store.accounts.map(\.id))
@@ -336,16 +404,36 @@ struct PopoverRootView: View {
     }
 
     /// Accounts chunked into rows of the current column count.
-    private var accountRows: [AccountRow] {
-        let ordered = visibleAccounts
+    private func rows(_ accounts: [AccountUsage]) -> [AccountRow] {
         let columns = columnCount
-        return stride(from: 0, to: ordered.count, by: columns).map { start in
-            AccountRow(items: Array(ordered[start ..< min(start + columns, ordered.count)]))
+        return stride(from: 0, to: accounts.count, by: columns).map { start in
+            AccountRow(items: Array(accounts[start ..< min(start + columns, accounts.count)]))
         }
+    }
+
+    /// Visible cards bucketed by provider. Provider order follows first appearance in the user's own
+    /// card order, and each bucket keeps that order inside it - so grouping re-seats the cards
+    /// without inventing a second ordering the user never chose.
+    private var accountGroups: [AccountGroup] {
+        var order: [String] = []
+        var buckets: [String: [AccountUsage]] = [:]
+        for usage in visibleAccounts {
+            if buckets[usage.providerID] == nil { order.append(usage.providerID) }
+            buckets[usage.providerID, default: []].append(usage)
+        }
+        return order.map { AccountGroup(providerID: $0, items: buckets[$0] ?? []) }
+    }
+
+    /// What a card move animates against: the persisted order, plus the grouping switch (flipping it
+    /// moves every card while the order underneath stays byte-identical).
+    private var cardSeatingSignature: String {
+        (settings.groupByProvider ? "grouped:" : "flat:")
+            + store.orderedAccounts.map(\.id).joined(separator: "|")
     }
 
     // Footer state lives here (stored properties can't live in extensions); the footer view
     // itself is in PopoverFooterView.swift.
     @State var showLaunchHelp = false
+    @State var showViewOptions = false
 }
 

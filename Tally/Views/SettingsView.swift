@@ -160,19 +160,20 @@ struct SettingsView: View {
         HStack {
             Text(L("Panel columns")).font(.subheadline)
             Spacer()
-            Picker("", selection: $settings.panelColumns) {
-                Text(L("Auto")).tag(0)
-                Text(verbatim: "1").tag(1)
-                Text(verbatim: "2").tag(2)
-                Text(verbatim: "3").tag(3)
-                Text(verbatim: "4").tag(4)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
+            // The same layout tiles the panel's view options show: one control, so the two places
+            // that set the column count cannot describe it two ways.
+            LayoutColumnPicker(selection: $settings.panelColumns)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+
+        rowDivider
+
+        // Next to the column count: both settings answer "how are the cards laid out", and the
+        // panel's view options carry the same pair behind one footer icon.
+        toggleRow(L("Group by provider"),
+                  subtitle: L("Cards sit in a section per provider instead of one continuous grid."),
+                  isOn: $settings.groupByProvider)
 
         // Only shown when some account actually reports more than one model-scoped window -
         // otherwise the toggle is a visual no-op (Anthropic currently reports a single Fable

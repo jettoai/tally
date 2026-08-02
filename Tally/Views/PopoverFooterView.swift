@@ -45,56 +45,23 @@ extension PopoverRootView {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help(ReloadAction.tooltip())
-            // The view menu: both layout dimensions behind one footer icon. "Gauges only" is the
-            // one-click version of collapsing every pooled provider (clicking a single gauge row
-            // stays the granular tool); below the divider, the same column value the Settings
-            // pane edits. Two dimensions, one door - not a knob per feature.
-            Menu {
-                Toggle(L("Gauges only"), isOn: Binding(
-                    get: {
-                        let pooled = pooledProviderIDs
-                        return !pooled.isEmpty && pooled.isSubset(of: settings.collapsedProviders)
-                    },
-                    set: { on in
-                        let pooled = pooledProviderIDs
-                        if on { settings.collapsedProviders.formUnion(pooled) }
-                        else { settings.collapsedProviders.subtract(pooled) }
-                    }
-                ))
-                .disabled(pooledProviderIDs.isEmpty)
-                Divider()
-                Picker("", selection: $settings.panelColumns) {
-                    Text(L("Auto")).tag(0)
-                    Text(verbatim: "1").tag(1)
-                    Text(verbatim: "2").tag(2)
-                    Text(verbatim: "3").tag(3)
-                    Text(verbatim: "4").tag(4)
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                // What the gauges render: all pooled windows (primary budget + weekly total,
-                // both runways at once - the default), or collapsed to a single pool for people
-                // who only ration one budget. The menu-bar number follows the leading pool.
-                Section(L("Gauges show")) {
-                    Picker("", selection: $settings.gaugeFocus) {
-                        Text(L("All pools")).tag(GaugeFocus.all)
-                        Text(L("Primary model only")).tag(GaugeFocus.primary)
-                        Text(L("Weekly total only")).tag(GaugeFocus.weekly)
-                    }
-                    .pickerStyle(.inline)
-                    .labelsHidden()
-                }
+            // View options: every layout dimension behind one footer icon. A popover card rather
+            // than a native menu, because the column count is now a row of layout tiles - a picture
+            // of each layout beats five numbers, and a menu can only list text. The keyboard and
+            // VoiceOver affordances a menu would have brought for free are carried by the tiles'
+            // own help / accessibility labels instead.
+            Button {
+                showViewOptions.toggle()
             } label: {
                 Image(systemName: "rectangle.split.3x1")
                     .font(.callout)
                     .frame(width: 28, height: 28)
                     .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .foregroundStyle(.secondary)
+            .buttonStyle(.borderless)
+            .foregroundStyle(showViewOptions ? Color.accentColor : Color.secondary)
             .help(L("View options"))
+            .popover(isPresented: $showViewOptions, arrowEdge: .bottom) { viewOptions }
             Button {
                 showLaunchHelp.toggle()
             } label: {
@@ -159,5 +126,50 @@ extension PopoverRootView {
                 .allowsHitTesting(false)
             }
         }
+    }
+
+    /// The view-options card, in the cards' own spacing vocabulary: the layout tiles first (the
+    /// dimension people come here to change), then the two switches that decide what is on the
+    /// panel at all, then what the gauges render. Same order and same words as the Settings pane's
+    /// display rows, so neither surface teaches a vocabulary the other contradicts.
+    var viewOptions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
+                Text(L("Layout")).font(.caption).foregroundStyle(.secondary)
+                LayoutColumnPicker(selection: $settings.panelColumns)
+            }
+            Divider()
+            Toggle(L("Group by provider"), isOn: $settings.groupByProvider)
+            // "Gauges only" is the one-click version of collapsing every pooled provider; clicking
+            // a single gauge row stays the granular tool.
+            Toggle(L("Gauges only"), isOn: Binding(
+                get: {
+                    let pooled = pooledProviderIDs
+                    return !pooled.isEmpty && pooled.isSubset(of: settings.collapsedProviders)
+                },
+                set: { on in
+                    let pooled = pooledProviderIDs
+                    if on { settings.collapsedProviders.formUnion(pooled) }
+                    else { settings.collapsedProviders.subtract(pooled) }
+                }
+            ))
+            .disabled(pooledProviderIDs.isEmpty)
+            Divider()
+            // What the gauges render: all pooled windows (primary budget + weekly total, both
+            // runways at once - the default), or collapsed to a single pool for people who only
+            // ration one budget. The menu-bar number follows the leading pool.
+            VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
+                Text(L("Gauges show")).font(.caption).foregroundStyle(.secondary)
+                Picker("", selection: $settings.gaugeFocus) {
+                    Text(L("All pools")).tag(GaugeFocus.all)
+                    Text(L("Primary model only")).tag(GaugeFocus.primary)
+                    Text(L("Weekly total only")).tag(GaugeFocus.weekly)
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+        }
+        .padding(TallyMetrics.cardPaddingH)
+        .frame(width: 268)
     }
 }

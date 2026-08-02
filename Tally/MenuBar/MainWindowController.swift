@@ -83,8 +83,10 @@ final class MainWindowController {
     func show(restoring: Bool = false) {
         StatusItemController.shared?.closePopover()
         if window == nil {
+            // Opaque window: its cards stay solid. Glass cards belong to the hosts that put glass
+            // behind them (the popover's vibrancy, the pinned panel's behind-window blur).
             let hosting = NSHostingController(
-                rootView: PopoverRootView(store: .shared, settings: .shared))
+                rootView: PopoverRootView(store: .shared, settings: .shared, hostDrawsGlass: false))
             let window = NSWindow(contentViewController: hosting)
             window.title = BuildVariant.isDev ? "Tally Dev" : "Tally"   // Mission Control / Window menu name
             window.titleVisibility = .hidden

@@ -127,6 +127,12 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(isPanelTranslucent, forKey: "isPanelTranslucent") }
     }
 
+    /// Cards in one continuous grid (default) or split into a section per provider. Off by default:
+    /// with a single provider the sections are pure overhead, and the flat grid is the denser read.
+    var groupByProvider: Bool {
+        didSet { UserDefaults.standard.set(groupByProvider, forKey: "groupByProvider") }
+    }
+
     /// Reset instants as countdown vs exact time - toggled by clicking any reset label.
     var resetDisplay: ResetDisplay {
         didSet { UserDefaults.standard.set(resetDisplay.rawValue, forKey: "resetDisplay") }
@@ -170,6 +176,7 @@ final class SettingsStore {
         panelColumns = (1 ... 4).contains(defaults.integer(forKey: "panelColumns"))
             ? defaults.integer(forKey: "panelColumns") : 0
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
+        groupByProvider = defaults.bool(forKey: "groupByProvider")
         resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative
         gaugeFocus = GaugeFocus(rawValue: defaults.string(forKey: "gaugeFocus") ?? "") ?? .all
     }

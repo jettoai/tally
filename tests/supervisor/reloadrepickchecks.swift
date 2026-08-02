@@ -17,6 +17,7 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
     // as a closure; what is asserted here is that reload asks it at the right moment and does the
     // right thing with both answers.
     func reloadTick(repick: @escaping () -> Snapshot.Account?,
+                    watcher: inout TranscriptWatcher,
                     request: ReloadRequest = ReloadRequest(epoch: 101, immediate: false),
                     keyboardIdle: @escaping (TimeInterval) -> Bool = { _ in true })
         -> (plan: RelaunchPlan?, asked: Bool) {
@@ -25,7 +26,7 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
         var notice = ReloadWait()
         var asked = false
         applyReloadRequest(plan: &plan, epoch: &epoch, notice: &notice, account: tickAccount,
-                           watcher: &tickWatcher, childAge: 9999, keyboardIdle: keyboardIdle,
+                           watcher: &watcher, childAge: 9999, keyboardIdle: keyboardIdle,
                            request: request, repick: { asked = true; return repick() },
                            now: tickT0)
         return (plan, asked)
@@ -40,7 +41,7 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
     // Nothing to improve on: the account this session is already on is a healthy one, the rebalance
     // says so by answering nil, and the reload is the same same-account restart it has always been.
     // This is the zero-behaviour-change case, and it is the common one.
-    let stays = reloadTick(repick: { nil })
+    let stays = reloadTick(repick: { nil }, watcher: &tickWatcher)
     check("a reload with nowhere better to go restarts on the same account",
           stays.plan?.target.id == "A")
     check("and is still tagged a reload", stays.plan?.reason == "reload")
@@ -53,7 +54,7 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
               reason: stays.plan!.reason) != nil)
     // A nearly-dry account with a comfortable sibling: the move the rebalance would have made later,
     // made now, on a restart that was happening anyway.
-    let moves = reloadTick(repick: { elsewhere("B") })
+    let moves = reloadTick(repick: { elsewhere("B") }, watcher: &tickWatcher)
     check("a reload off a dying account lands on the target the rebalance names",
           moves.plan?.target.id == "B")
     // Tagged for what it IS. Calling this a reload would hand the next child a cap belonging to the
@@ -72,15 +73,39 @@ func runReloadRepickChecks(account tickAccount: Snapshot.Account,
     // is to ask ONCE, at the moment it restarts, and never on a tick that only queues: answering
     // takes the account's one claim for the drought, and a claim spent on a tick that then does
     // nothing leaves the account unable to move until its window resets.
-    let queued = reloadTick(repick: { elsewhere("B") }, keyboardIdle: { _ in false })
+    let queued = reloadTick(repick: { elsewhere("B") }, watcher: &tickWatcher,
+                            keyboardIdle: { _ in false })
     check("a queued reload plans nothing", queued.plan == nil)
     check("and does not spend the drought's claim while it waits", !queued.asked)
     check("whereas the one that restarts does ask", moves.asked)
     // `--now` shortens reload's own idle bar; it does not change any of the above. The restart is
     // still happening, so aiming it is still free.
-    let immediate = reloadTick(repick: { elsewhere("B") },
+    let immediate = reloadTick(repick: { elsewhere("B") }, watcher: &tickWatcher,
                                request: ReloadRequest(epoch: 101, immediate: true))
     check("a --now reload aims its restart the same way", immediate.plan?.target.id == "B")
+
+    // A session whose transcript is not located yet: a child started with `--continue` that has not
+    // written a turn since it launched, still up long enough for a reload to take it (`reloadQuiet`
+    // accepts the child's AGE in place of a transcript, which is what puts this state in reach).
+    // Crossing accounts from here would come back BLANK - `performHandoff` strips `--continue` on a
+    // move by design, because on the target account it names a different conversation entirely - and
+    // there is no id to resume in its place.
+    let blindDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-reload-unlocated-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: blindDir, withIntermediateDirectories: true)
+    var blindWatcher = TranscriptWatcher(projectDir: blindDir, since: tickT0)
+    check("the fixture really is a session with nowhere to resume from", blindWatcher.file == nil)
+    let unlocated = reloadTick(repick: { elsewhere("B") }, watcher: &blindWatcher)
+    check("a reload with no session to carry restarts where it is",
+          unlocated.plan?.target.id == "A")
+    check("and as a reload, so `--continue` survives the restart",
+          unlocated.plan?.reason == "reload")
+    // The claim is not spent, and not by a refusal after the fact: the rebalance is never ASKED, so
+    // the account is still free to make this same move at its next quiet moment, once there is a
+    // conversation to bring along.
+    check("and the drought's claim is never even asked for", !unlocated.asked)
+    check("nor is it charged to the fuse", unlocated.plan?.countsFuse == false)
+    try? FileManager.default.removeItem(at: blindDir)
 
     // The wiring itself is not reachable in a test (it needs a child and a snapshot), so the source
     // carries it, the technique the fuse carry and the rebalance placement already use.

@@ -217,13 +217,30 @@ func applyReloadRequest(plan: inout RelaunchPlan?, epoch: inout Int, notice: ino
         // the rebalance waits for exists to avoid CAUSING a restart, and there is none to cause
         // here, only one to aim.
         //
+        // Crossing accounts costs a resume id. `performHandoff` strips `--continue` on a move by
+        // design - the flag means "the newest conversation in this project", which on the TARGET
+        // account is somebody else's - so a session whose transcript is not located yet would come
+        // back BLANK. Staying is free: same account, `--continue` intact, and the idle rebalance
+        // makes this very move at its next quiet moment once there is a transcript to carry.
+        //
+        // The cap handoff has no gate to borrow for this, only an accident of what triggers it: its
+        // evidence is a LINE IN the transcript (`sawCapHit` binds the file or reports nothing), so
+        // it cannot run before the session is locatable. A reload is triggered by a file in ~/.tally
+        // that knows nothing about any conversation, which is what put this state in reach. So the
+        // check is written here, over the value this function already computed once `isQuiet` ran
+        // its locate - not a second opinion about what "has a transcript" means.
+        //
+        // Conservative rather than exact: `performHandoff` locates again and may well find the file,
+        // so a refusal here can be one the id would have survived. That costs a delay; being wrong
+        // the other way costs the conversation.
+        //
         // Branching on whether the account actually CHANGED rather than on whether `repick`
         // answered, because the reason is not just a log tag: a pending cap recovery is carried
         // across a relaunch only for "reload" (`capCarriedAcrossRelaunch`), on the grounds that a
         // reload comes back on the same account and the cap is therefore still this session's
         // problem. Tag a move as a reload and the next child inherits a cap belonging to an
         // account it is no longer on.
-        if let moveTo = repick(), moveTo.id != account.id {
+        if hasTranscript, let moveTo = repick(), moveTo.id != account.id {
             warn("reload requested → restarting on \(moveTo.label), " +
                  "leaving \(account.label) before the wall")
             plan = RelaunchPlan(target: moveTo, reason: "rebalance", countsFuse: true)

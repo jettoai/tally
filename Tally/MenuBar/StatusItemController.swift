@@ -172,7 +172,12 @@ final class StatusItemController: NSObject {
 
     /// The screen-space top-left of the popover's content, so the panel can open exactly where the
     /// popover was (its own window frame includes the arrow, so measure the content view instead).
+    /// Returns nil unless the popover is actually on screen: after `performClose` AppKit keeps the
+    /// content view attached to an off-screen window, so a `view.window` check alone stays non-nil
+    /// forever once the popover has been shown, and callers using this as "the pin came from the
+    /// popover" would misread every later pin from the main window.
     private func popoverContentTopLeft() -> CGPoint? {
+        guard popover.isShown else { return nil }
         guard let view = popover.contentViewController?.view, let window = view.window else { return nil }
         let inWindow = view.convert(view.bounds, to: nil)
         let onScreen = window.convertToScreen(inWindow)

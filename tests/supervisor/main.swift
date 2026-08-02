@@ -400,31 +400,10 @@ check("sweep leaves non-pid files alone",
 // newest subagent have both been silent for the window.
 //
 // Ages are seconds BEFORE now, so they read against a real `Date()` comparison; the bar is 60s.
-// Subagent keys are paths relative to `<session>/subagents/`, so a nested workflow agent is just a
-// key with a slash in it.
-func watcherWatchingSubagents(sessionAge: TimeInterval,
-                              subagents: [String: TimeInterval]?) -> TranscriptWatcher {
-    let dir = FileManager.default.temporaryDirectory
-        .appendingPathComponent("tally-subagent-idle-\(UUID().uuidString)")
-    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let file = dir.appendingPathComponent("session.jsonl")
-    try! "{}".write(to: file, atomically: true, encoding: .utf8)
-    try! FileManager.default.setAttributes(
-        [.modificationDate: Date().addingTimeInterval(-sessionAge)], ofItemAtPath: file.path)
-    if let subagents {
-        let subDir = dir.appendingPathComponent("session").appendingPathComponent("subagents")
-        try! FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
-        for (name, age) in subagents {
-            let url = subDir.appendingPathComponent(name)
-            try! FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
-                                                     withIntermediateDirectories: true)
-            try! "{}".write(to: url, atomically: true, encoding: .utf8)
-            try! FileManager.default.setAttributes(
-                [.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: url.path)
-        }
-    }
-    return TranscriptWatcher(projectDir: dir, file: file, since: launch)
-}
+// The fixture itself is `watcherWatchingSubagents`, kept with the other layout fixtures in
+// dispatchlayoutchecks.swift; its subagent keys are paths relative to `<session>/subagents/`, so a
+// nested workflow agent is just a key with a slash in it.
+//
 // The subagent arm answers on `subagentIdleSeconds`, NOT on the caller's bar: a healthy subagent
 // goes silent for the whole of any single long tool call (measured 2026-07-25 across three healthy
 // packages here: 61s, 52s, 109s of silence, all inside an xcodebuild or a run of the eleven
@@ -484,6 +463,7 @@ check("a session mid-turn stays busy even with only finished subagents",
 
 runCapResetChecks()
 runForkChecks()
+runDispatchLayoutChecks()
 runReloadChecks()
 runSelfUpdateFoldChecks()
 runRebalanceChecks()

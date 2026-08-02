@@ -286,10 +286,40 @@ struct TranscriptWatcher {
     /// Rescanned per call rather than bound to one file: a session runs several subagents and which
     /// one is newest changes, and the directory only appears once the first one is dispatched. Most
     /// sessions dispatch none, so that case costs one stat instead of a walk - this runs on every
-    /// 2s supervisor poll. The walk is recursive because a workflow fan-out nests its agents one
-    /// level deeper (`subagents/workflows/wf_*/agent-*.jsonl`), and those are the longest packages
-    /// of all. No extension filter: the directory holds only per-agent transcripts and their
-    /// metadata sidecars, and a write to either is this session waiting on a subagent.
+    /// 2s supervisor poll.
+    ///
+    /// The walk is RECURSIVE because the dispatch paths land at different depths. Censused
+    /// 2026-08-02 over every transcript on this machine (3,245 agent transcripts - 1,589 from the
+    /// Agent tool, 1,656 under workflow directories - across 273 workflow runs): not one agent
+    /// transcript lives outside a `subagents/` directory, and none nests deeper than the second
+    /// shape below.
+    ///
+    ///   - `subagents/agent-a<hex>.jsonl` - the Agent tool, in all of its forms. A plain subagent,
+    ///     an agent team member (whose dispatch name lands in the FILENAME,
+    ///     `agent-a<name>-<hex>.jsonl`), and a subagent dispatched BY a subagent, which stays flat
+    ///     here rather than nesting: spawnDepth reaches 4 in the corpus, the path never does.
+    ///   - `subagents/workflows/wf_<id>/` - a Workflow fan-out, holding its `agent-*.jsonl`, their
+    ///     `.meta.json` sidecars and the run's `journal.jsonl`. Every one of the 273 runs that
+    ///     dispatched an agent has this directory; the one run without it crashed in 6ms having
+    ///     dispatched none. These are the longest packages of all.
+    ///
+    /// Both are written as the work happens rather than flushed at the end, which is what makes an
+    /// mtime mean anything here: one workflow aborted 38s in had already left 122 KB of agent
+    /// transcript behind it.
+    ///
+    /// The sibling `<session>/workflows/` is deliberately NOT walked, and that is a measurement
+    /// rather than an oversight. It holds the run's state json and generated script, and the json is
+    /// written exactly once, when the run ENDS (its mtime minus the run's end time is 0.0s across
+    /// all 273 runs), so it is a stale file for the whole of the run it describes. By the time it
+    /// does move, the `Workflow` tool call has returned and the session's own mtime has already
+    /// answered. Rooting the walk one level higher to reach it would cost a directory on every poll
+    /// and detect nothing - and would read a session whose packages all finished as busy forever.
+    ///
+    /// Cost, since this is a per-poll walk: the largest subagents tree on this machine is 973
+    /// entries and takes 3.8ms, against a 2s poll.
+    ///
+    /// No extension filter: the directory holds only per-agent transcripts, their metadata sidecars
+    /// and the workflow journal, and a write to any of them is this session waiting on a subagent.
     func newestSubagentWrite() -> Date? {
         guard let file else { return nil }
         let dir = file.deletingPathExtension().appendingPathComponent("subagents")

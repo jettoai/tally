@@ -17,7 +17,8 @@ enum DryNotification: String, Codable, Equatable {
 
 /// Per-pool dedup memory, persisted (UserDefaults) so an app restart or auto-update does not
 /// re-fire an alert already delivered this reset cycle. `resetKey` identifies the cycle: when the
-/// pool's reset time changes, the whole thing re-arms.
+/// pool's reset time moves far enough to name a different one (`namesSameCycle`), the whole thing
+/// re-arms.
 struct DryPoolState: Codable, Equatable {
     var resetKey: String?
     var firedLow: Bool
@@ -51,12 +52,16 @@ enum DryPoolLogic {
     /// Fold one evaluation into the dedup state, returning the next state and the notification to
     /// emit (nil when this reading is a duplicate or below threshold). Semantics:
     /// - each of low and dry fires at most once per reset cycle;
-    /// - a reset-time change re-arms everything (a new cycle);
+    /// - a reset time that names a different cycle re-arms everything, while one that has only
+    ///   drifted within the parser's own resolution does not;
     /// - a recovery above `rearmFraction` re-arms both tiers within the same cycle.
     static func advance(state: DryPoolState, remaining: Double, capacity: Double,
                         accountCount: Int, resetAt: Date?) -> (DryPoolState, DryNotification?) {
         let key = resetKey(resetAt)
-        var next = state.resetKey == key ? state : DryPoolState(resetKey: key)
+        // The remembered key wins when the two name the same cycle, so a window whose reported
+        // reset drifts by a minute keeps the identity it was first seen under instead of walking
+        // forward a minute at a time until it has crossed the tolerance from where it started.
+        var next = namesSameCycle(state.resetKey, key) ? state : DryPoolState(resetKey: key)
 
         // A recovery above the re-arm line clears both fired flags for this cycle.
         if accountCount >= 2, capacity > 0, remaining > capacity * rearmFraction {
@@ -76,8 +81,32 @@ enum DryPoolLogic {
         }
     }
 
-    /// Stable per-cycle identity from a reset time (whole seconds, so sub-second jitter in the
-    /// pooled reset does not read as a new cycle).
+    /// How far a reported reset time may move and still name the SAME cycle. Reset times are parsed
+    /// out of what the providers report in human text, whose finest unit is the minute, so one
+    /// unbroken window is reported up to a minute apart between polls as the underlying instant
+    /// rounds one way or the other. Five minutes clears that comfortably while staying far below
+    /// the shortest window a genuine new cycle can arrive on (the 5h session window), so no real
+    /// reset is ever mistaken for jitter.
+    ///
+    /// The CLI's rebalance claim keeps its own copy of this rule (`rebalanceCycleTolerance` and
+    /// `namesSameDrought` in TallyCLI/Rebalance.swift) because the two live in different targets;
+    /// they are the same tolerance for the same reason, and should move together.
+    static let cycleTolerance: TimeInterval = 5 * 60
+
+    /// Whether two cycle keys name the same window: the same reported reset, or one that has moved
+    /// no further than the source's own resolution can move it. Anything that is not an epoch falls
+    /// back to equality, which covers both an absent key (an unknown reset is one unknown cycle
+    /// rather than a new one each round) and a key nothing writes.
+    static func namesSameCycle(_ one: String?, _ other: String?) -> Bool {
+        guard let a = one.flatMap({ Double($0) }), let b = other.flatMap({ Double($0) }) else {
+            return one == other
+        }
+        return abs(a - b) <= cycleTolerance
+    }
+
+    /// Stable per-cycle identity from a reset time, in whole seconds. The key is only half of the
+    /// answer: the jitter this source actually produces is a whole minute, so the tolerance lives
+    /// in the comparison (`namesSameCycle`) rather than in the key.
     static func resetKey(_ resetAt: Date?) -> String? {
         resetAt.map { String(Int($0.timeIntervalSince1970.rounded())) }
     }

@@ -105,15 +105,22 @@ enum ResetHintLogic {
                 if let previous { next.accounts[usage.id] = previous }
                 continue
             }
-            // A cycle key that still matches keeps the flags fired inside it; anything else (a new
-            // cycle, or an account seen for the first time) starts fresh.
+            // A cycle key that still names the same window keeps the flags fired inside it;
+            // anything else (a new cycle, or an account seen for the first time) starts fresh.
+            // Matched by nearness rather than equality, and keeping the remembered key when it
+            // matches, because a reported reset drifts by a minute between polls without the
+            // window having moved at all (`DryPoolLogic.namesSameCycle`).
             var entry = ResetHintAccountState(cycleKey: key)
-            if let previous, previous.cycleKey == key { entry = previous }
+            if let previous, DryPoolLogic.namesSameCycle(previous.cycleKey, key) { entry = previous }
             let remaining = binding.remainingPercent
             // A recovery is a fresh opportunity, so it wipes the entry back to an untouched one
             // inside the same cycle: both fired flags and both retry allowances. Rebuilding it
-            // rather than clearing field by field keeps a later flag from being forgotten here.
-            if remaining > wasteRemainingPercent { entry = ResetHintAccountState(cycleKey: key) }
+            // rather than clearing field by field keeps a later flag from being forgotten here, and
+            // it is rebuilt on the cycle the entry already carries rather than on this reading, so
+            // a refill cannot hand the entry a drifted key the matched one just declined.
+            if remaining > wasteRemainingPercent {
+                entry = ResetHintAccountState(cycleKey: entry.cycleKey)
+            }
             next.accounts[usage.id] = entry
 
             guard let credits = usage.resetCreditsAvailable, credits > 0 else { continue }

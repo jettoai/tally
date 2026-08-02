@@ -102,14 +102,74 @@ do {
     expect(again == .low, "the scaled pool re-fires low after recovery")
 }
 
-// 9. Sub-second jitter in the pooled reset time is not a new cycle (resetKey rounds to whole
-//    seconds), while a genuinely different reset time is.
+// 9. The key rounds to whole seconds, so sub-second jitter in the pooled reset cannot even change
+//    it. That is only half the answer, though: two seconds later is already a different key, and
+//    still the same cycle, so the rest of the answer is in the comparison.
 do {
     let base = Date(timeIntervalSince1970: 1_800_000_000)
     expect(DryPoolLogic.resetKey(base.addingTimeInterval(0.3)) == DryPoolLogic.resetKey(base),
            "sub-second jitter keeps the same reset key")
     expect(DryPoolLogic.resetKey(base.addingTimeInterval(2)) != DryPoolLogic.resetKey(base),
-           "a genuinely different reset time changes the key")
+           "a reset time two seconds later is a different key")
+    expect(DryPoolLogic.namesSameCycle(DryPoolLogic.resetKey(base.addingTimeInterval(2)),
+                                       DryPoolLogic.resetKey(base)),
+           "which still names the same cycle")
+}
+
+// 10. A reported reset that moves is still one cycle. These times are parsed out of what the
+//     providers report in human text, whose finest unit is the minute, so one unbroken window is
+//     reported a minute later or earlier as the underlying instant rounds one way or the other.
+//     Matching cycles by equality read that wobble as a new cycle and re-fired the alert the dedup
+//     exists to suppress, which for a pool sitting at zero is every refresh that happens to land on
+//     the other side of the rounding.
+do {
+    let (fired, first) = DryPoolLogic.advance(state: DryPoolState(), remaining: 0, capacity: 200,
+                                              accountCount: 2, resetAt: t1)
+    expect(first == .dry, "the pool running dry fires once")
+    let (afterWobble, later) = DryPoolLogic.advance(state: fired, remaining: 0, capacity: 200,
+                                                    accountCount: 2,
+                                                    resetAt: t1.addingTimeInterval(60))
+    expect(later == nil, "the same window reported a minute later is not a second alert")
+    expect(afterWobble.resetKey == DryPoolLogic.resetKey(t1),
+           "and the cycle keeps the identity it was first seen under, so a wobble cannot walk")
+    let (_, earlier) = DryPoolLogic.advance(state: fired, remaining: 0, capacity: 200,
+                                            accountCount: 2, resetAt: t1.addingTimeInterval(-60))
+    expect(earlier == nil, "nor is a minute earlier")
+    let (_, edge) = DryPoolLogic.advance(state: fired, remaining: 0, capacity: 200,
+                                         accountCount: 2,
+                                         resetAt: t1.addingTimeInterval(DryPoolLogic.cycleTolerance))
+    expect(edge == nil, "nor anything else inside the tolerance")
+    // The low tier is deduped by the same key, so it wobbles the same way.
+    let (firedLow, low) = DryPoolLogic.advance(state: DryPoolState(), remaining: 10, capacity: 200,
+                                               accountCount: 2, resetAt: t1)
+    let (_, lowAgain) = DryPoolLogic.advance(state: firedLow, remaining: 10, capacity: 200,
+                                             accountCount: 2, resetAt: t1.addingTimeInterval(60))
+    expect(low == .low && lowAgain == nil, "the low tier survives the same wobble")
+}
+
+// 11. The re-arm the tolerance must not swallow: windows are hours long, so a genuinely new cycle
+//     is never a few minutes away. The 5h session window is the shortest one there is.
+do {
+    let (fired, _) = DryPoolLogic.advance(state: DryPoolState(), remaining: 0, capacity: 200,
+                                          accountCount: 2, resetAt: t1)
+    let reset = t1.addingTimeInterval(5 * 3_600)
+    let (state, again) = DryPoolLogic.advance(state: fired, remaining: 0, capacity: 200,
+                                              accountCount: 2, resetAt: reset)
+    expect(again == .dry, "the window actually resetting five hours on fires again")
+    expect(state.resetKey == DryPoolLogic.resetKey(reset), "and the state tracks the new cycle")
+}
+
+// 12. A pool with no known reset time has one unknown cycle rather than a new one each refresh,
+//     which is what equality gave it and what the nearness check has to keep giving it.
+do {
+    let (fired, first) = DryPoolLogic.advance(state: DryPoolState(), remaining: 0, capacity: 200,
+                                              accountCount: 2, resetAt: nil)
+    let (_, second) = DryPoolLogic.advance(state: fired, remaining: 0, capacity: 200,
+                                           accountCount: 2, resetAt: nil)
+    expect(first == .dry && second == nil, "an unknown reset does not re-fire on the next refresh")
+    let (_, known) = DryPoolLogic.advance(state: fired, remaining: 0, capacity: 200,
+                                          accountCount: 2, resetAt: t1)
+    expect(known == .dry, "and learning the reset time is a cycle we have not alerted on")
 }
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

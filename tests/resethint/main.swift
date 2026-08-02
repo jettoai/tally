@@ -307,5 +307,51 @@ do {
            "and its missing retry allowance reads as unspent")
 }
 
+// 26. The binding window's reported reset moves without the window having moved: these times are
+//     parsed out of what the providers report in human text, whose finest unit is the minute, so
+//     one unbroken window is reported a minute later or earlier as the underlying instant rounds
+//     one way or the other. Read as a new cycle, that re-armed a hint the user had already been
+//     told and dismissed, which is the repetition the dedup exists to prevent.
+do {
+    let (told, first) = hint([account("a", remaining: 0)])
+    expect(first?.reason == .drained, "the drained hint fires")
+    let (afterWobble, later) = hint([account("a", remaining: 0,
+                                             resetsAt: cycle1.addingTimeInterval(60))],
+                                    state: told)
+    expect(later == nil, "the same window reported a minute later does not hint again")
+    expect(afterWobble.accounts["a"]?.cycleKey == DryPoolLogic.resetKey(cycle1),
+           "and the entry keeps the cycle it was first seen under, so a wobble cannot walk")
+    let (_, earlier) = hint([account("a", remaining: 0,
+                                     resetsAt: cycle1.addingTimeInterval(-60))], state: told)
+    expect(earlier == nil, "nor does a minute earlier")
+    // The retry allowance is cycle bookkeeping too, so a wobble must not hand out a second one.
+    let (toldAgain, second) = hint([account("a", remaining: 0)], state: refused(told, first))
+    let exhausted = refused(toldAgain, second)
+    let (_, third) = hint([account("a", remaining: 0,
+                                   resetsAt: cycle1.addingTimeInterval(60))], state: exhausted)
+    expect(third == nil, "nor does it renew the retry the hint already spent")
+}
+
+// 27. What the tolerance must not swallow: a window that really did reset. Windows are hours long,
+//     so a genuine new cycle is never a few minutes away, and a recovery inside the wobble is a
+//     redeem rather than a new opportunity.
+do {
+    let (told, _) = hint([account("a", remaining: 0)])
+    let reset = cycle1.addingTimeInterval(5 * 3_600)
+    let (state, again) = hint([account("a", remaining: 0, resetsAt: reset)], state: told)
+    expect(again?.reason == .drained, "the window actually resetting five hours on hints again")
+    expect(state.accounts["a"]?.cycleKey == DryPoolLogic.resetKey(reset),
+           "and the entry tracks the new cycle")
+    // A refill inside the wobbling cycle still re-arms: that path rebuilds the entry, and it has to
+    // rebuild it on the cycle the entry is already keyed to rather than on the drifted reading.
+    let (recovered, quiet) = hint([account("a", remaining: 100,
+                                           resetsAt: cycle1.addingTimeInterval(60))], state: told)
+    expect(quiet == nil, "a refilled account has nothing to hint about")
+    expect(recovered.accounts["a"]?.cycleKey == DryPoolLogic.resetKey(cycle1),
+           "and the refill keeps the cycle rather than adopting the drifted reading")
+    let (_, drainedAgain) = hint([account("a", remaining: 0)], state: recovered)
+    expect(drainedAgain?.reason == .drained, "draining again after the refill hints again")
+}
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all reset-hint tests passed")

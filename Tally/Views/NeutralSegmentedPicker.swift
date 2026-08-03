@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The two sizes the panel uses, holding AppKit's own segmented metrics: 16 / 20pt tall on 9 / 11pt
 /// type, with the side padding read back off the native control's measured widths (a `.mini` pair of
@@ -34,12 +35,59 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
     let label: (Value) -> String
 
     @State private var hovered: Value?
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(options, id: \.self) { segment($0) }
         }
         .background(shape(radius: size.radius).fill(Color.primary.opacity(0.07)))
+        // Held at its ideal width, the one thing the native control did for free. Free to compress,
+        // it hands a squeezed width to the header's width probe, and the fit test then reads "the
+        // clock still fits" off a number the clock itself caused - the labels truncate to "..." and
+        // stay there, because nothing about that state asks the row to give the clock up instead.
+        .fixedSize()
+        // One tab stop for the row and arrows between the segments, which is the keyboard contract
+        // the native control came with: the segments themselves are taken out of the focus chain, so
+        // a row of tabs is one stop rather than one per label.
+        //
+        // Gated on Full Keyboard Access because that is AppKit's own rule for a segmented control
+        // (`acceptsFirstResponder` answers the same flag), and the gate is load-bearing rather than
+        // decorative: a view that is always focusable is one more thing in every window's tab order
+        // and one more thing eating the arrow keys, on a surface whose users mostly never reach for
+        // the keyboard at all.
+        .focusable(NSApplication.shared.isFullKeyboardAccessEnabled)
+        .focused($isFocused)
+        // Arrow keys, read as keys rather than as move commands: `onMoveCommand` never fired for this
+        // control in any of its three hosts (verified on screen, both with and without the flags a
+        // real arrow event carries), and a keyboard affordance that only exists in the source is
+        // worse than none.
+        .onKeyPress(.leftArrow) { step(-1) }
+        .onKeyPress(.rightArrow) { step(1) }
+        .focusEffectDisabled()
+        .overlay(shape(radius: size.radius + 1)
+            .strokeBorder(Color.accentColor, lineWidth: 2)
+            .padding(-2)
+            .opacity(isFocused ? 1 : 0))
+        // Nothing should start focused - the same rule the Settings window enforces with
+        // `makeFirstResponder(nil)`. SwiftUI hands initial focus to the first focusable view when a
+        // window becomes key, so merely clicking the panel lit a blue ring around the tab switch: a
+        // ring is feedback for keyboard navigation, and a mouse user who never pressed Tab has not
+        // asked for any.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            isFocused = false
+        }
+    }
+
+    /// Left and right walk the row and stop at its ends. No wrap-around: the native control does not
+    /// wrap either, and a selection that jumps from one end to the other is a change nobody asked for
+    /// on the way past the edge. An arrow at the end is still handled, so it stays inside the control
+    /// instead of falling through to whatever is behind it.
+    private func step(_ delta: Int) -> KeyPress.Result {
+        guard let index = options.firstIndex(of: selection) else { return .ignored }
+        let next = index + delta
+        if options.indices.contains(next) { selection = options[next] }
+        return .handled
     }
 
     private func segment(_ option: Value) -> some View {
@@ -68,6 +116,7 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusable(false)
         .onHover { hovered = $0 ? option : (hovered == option ? nil : hovered) }
         .accessibilityLabel(text)
         .accessibilityAddTraits(isSelected ? .isSelected : [])

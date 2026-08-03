@@ -223,11 +223,13 @@ func runStatus(json: Bool = false) {
         let accounts = snapshot.accounts.filter { $0.provider == provider.id }
         guard !accounts.isEmpty else { continue }
         let policy = policies[provider.id] ?? LaunchPolicy()
-        let bestID = launchPick(providerID: provider.id, in: snapshot, primaryModel: policy.model,
-                                quarantined: quarantined[provider.id] ?? [])?.id
+        // Both markers from the one resolver the JSON uses (StatusReport.swift), so the two output
+        // shapes cannot disagree about which account a launch would land on.
+        let (bestID, pinnedID) = launchMarkers(providerID: provider.id, in: snapshot, policy: policy,
+                                               quarantined: quarantined[provider.id] ?? [])
         for account in accounts {
-            let pinned = policy.mode == "manual" && account.id == policy.pinnedAccountID
-            let marker = pinned || (policy.mode != "manual" && account.id == bestID) ? "→" : " "
+            let pinned = account.id == pinnedID
+            let marker = account.id == bestID ? "→" : " "
             var state = account.error.map { " !\($0)" } ?? (account.isStale ? " (stale)" : "")
             if pinned { state += " (pinned)" }
             if let resets = account.resetCreditsAvailable, resets > 0 {

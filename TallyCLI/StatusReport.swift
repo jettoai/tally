@@ -59,6 +59,40 @@ struct StatusReport: Encodable {
     }
 }
 
+/// The two markers a status row can carry, for one provider's accounts: `best` is the account a
+/// launch would land on right now (the human output's `→`, the JSON's `best`), `pinned` the manual
+/// pin that is still honoured (the `(pinned)` suffix, the JSON's `pinned`). Either can be nil.
+///
+/// ONE resolver for both output shapes, because they are the same claim in two typefaces and a
+/// disagreement between them is a bug the reader has no way to adjudicate. `tally status` printed
+/// `→ … (pinned)` on a signed-out account long after `runLaunch` had stopped honouring that pin,
+/// because the text path compared `pinnedAccountID` on its own while the JSON asked the shared
+/// resolver (2026-08-03). Mirrors runLaunch's chain exactly: pinned account id (the launch target
+/// even when capped, "launching anyway") → the denormalized home (a pin whose account transiently
+/// vanished from the snapshot still launches by home; when a listed account owns that home it IS
+/// the target, otherwise the launch lands outside this list and nobody gets the marker) → the
+/// headroom pick. A provider this CLI cannot launch gets no pick at all: `best` means "would
+/// launch".
+func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPolicy,
+                   quarantined: Set<String>, now: Date = Date()) -> (best: String?, pinned: String?) {
+    guard providers.contains(where: { $0.id == providerID }) else { return (nil, nil) }
+    func headroomPick() -> String? {
+        launchPick(providerID: providerID, in: snapshot, primaryModel: policy.model,
+                   quarantined: quarantined, now: now)?.id
+    }
+    guard policy.mode == "manual" else { return (headroomPick(), nil) }
+    let mine = snapshot.accounts.filter { $0.provider == providerID }
+    // Asked through the launcher's own resolver, so a pin it has stopped honouring (the account
+    // signed out) falls through to the headroom pick here exactly as it does there.
+    let pinnedHome = pinnedLaunchHome(snapshot, policy: policy)
+    let pinnedID = (mine.first { $0.id == policy.pinnedAccountID && $0.launchHome != nil }
+        ?? pinnedHome.flatMap { home in mine.first { $0.launchHome == home } })?.id
+    if let pinnedID { return (pinnedID, pinnedID) }
+    // A pin that launches a home outside this list: nobody here gets the marker.
+    if pinnedHome != nil { return (nil, nil) }
+    return (headroomPick(), nil)
+}
+
 /// `quarantined` is the live cap quarantine per provider (Quarantine.swift). It is a parameter
 /// rather than a file read so the report stays a pure function, but callers must pass it: `best`
 /// promises "would launch", and a report that named an account the launcher is currently skipping
@@ -85,33 +119,8 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
     for providerID in order {
         let mine = snapshot.accounts.filter { $0.provider == providerID }
         let policy = policies[providerID] ?? LaunchPolicy()
-        // Mirror runLaunch's full manual-pin chain: pinned account id (launch target even when
-        // capped, "launching anyway") → pinnedHome (a pin whose account transiently vanished
-        // from the snapshot still launches by home; when a listed account owns that home it IS
-        // the target, otherwise the launch lands outside this list and nobody gets the marker)
-        // → headroom pick. A provider this CLI cannot launch gets no pick at all - `best`
-        // means "would launch".
-        let known = providers.contains { $0.id == providerID }
-        let manual = known && policy.mode == "manual"
-        // Asked through the launcher's own resolver, so a pin it has stopped honouring (the
-        // account signed out) falls through to the headroom pick here exactly as it does there.
-        let pinnedHome = manual ? pinnedLaunchHome(snapshot, policy: policy) : nil
-        let pinnedAccount = manual
-            ? mine.first { $0.id == policy.pinnedAccountID && $0.launchHome != nil }
-                ?? pinnedHome.flatMap { home in mine.first { $0.launchHome == home } }
-            : nil
-        let pinnedID = pinnedAccount?.id
-        let bestID: String? = if let pinnedID {
-            pinnedID
-        } else if pinnedHome != nil {
-            // A pin that launches a home outside this list: nobody here gets the marker.
-            nil
-        } else if known {
-            launchPick(providerID: providerID, in: snapshot, primaryModel: policy.model,
-                       quarantined: quarantined[providerID] ?? [], now: now)?.id
-        } else {
-            nil
-        }
+        let (bestID, pinnedID) = launchMarkers(providerID: providerID, in: snapshot, policy: policy,
+                                               quarantined: quarantined[providerID] ?? [], now: now)
         for account in mine {
             accounts.append(.init(
                 id: account.id, provider: account.provider, label: account.label,

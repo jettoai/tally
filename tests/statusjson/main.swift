@@ -156,6 +156,39 @@ check("signed-out pin: nothing is flagged pinned",
 check("signed-out pin: the headroom pick takes over rather than nobody",
       account(dormantPin, "claude:.claude")["best"] as? Bool == true)
 
+// MARK: the markers themselves - the text `tally status` prints from this same resolver
+// Both output shapes ask `launchMarkers` (TallyCLI/StatusReport.swift), so the arrow and the
+// `(pinned)` suffix in the human output are asserted here directly. The text path used to compare
+// `pinnedAccountID` on its own, which marked a signed-out pin as the launch target while the
+// launcher was already picking somebody else (2026-08-03).
+func markers(_ snap: Snapshot, _ policy: LaunchPolicy, provider: String = "claude",
+             held: Set<String> = []) -> (best: String?, pinned: String?) {
+    launchMarkers(providerID: provider, in: snap, policy: policy, quarantined: held, now: now)
+}
+let dormantMarkers = markers(decodeSnapshot(dormantFixture),
+                             LaunchPolicy(mode: "manual", pinnedAccountID: "claude:.claude2",
+                                          pinnedHome: "/Users/u/.claude2"))
+check("markers: a signed-out pin hands the arrow to the headroom pick",
+      dormantMarkers.best == "claude:.claude")
+check("markers: …and flags nobody as pinned", dormantMarkers.pinned == nil)
+// The live pin, so the fallback above cannot be satisfied by never honouring a pin at all.
+let livePinMarkers = markers(snapshot, LaunchPolicy(mode: "manual",
+                                                    pinnedAccountID: "claude:.claude2"))
+check("markers: a live pin takes both markers",
+      livePinMarkers.best == "claude:.claude2" && livePinMarkers.pinned == "claude:.claude2")
+let autoMarkers = markers(snapshot, LaunchPolicy())
+check("markers: an auto policy marks the headroom pick and pins nobody",
+      autoMarkers.best == "claude:.claude" && autoMarkers.pinned == nil)
+let orphanMarkers = markers(snapshot, LaunchPolicy(mode: "manual", pinnedAccountID: "claude:.gone",
+                                                   pinnedHome: "/Users/u/.claude9"))
+check("markers: a pin launching a home outside this list marks nobody",
+      orphanMarkers.best == nil && orphanMarkers.pinned == nil)
+let unknownMarkers = markers(snapshot, LaunchPolicy(), provider: "gemini")
+check("markers: a provider this CLI cannot launch gets no arrow",
+      unknownMarkers.best == nil && unknownMarkers.pinned == nil)
+check("markers: the quarantine the launcher applies is applied here too",
+      markers(snapshot, LaunchPolicy(), held: ["claude:.claude"]).best == "claude:.claude2")
+
 // MARK: cap quarantine - `best` means "would launch", so it skips what the launcher skips
 // (2026-07-25: a preview that ignored the quarantine named an account no launch could land on).
 let quarantined = parse(encodeStatusReport(statusReport(

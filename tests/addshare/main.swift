@@ -319,6 +319,28 @@ check("a source with nothing trusted writes no file at all",
 check("and a source with no state file at all is simply a no-op",
       seedFolderTrust(from: seedRoot.appendingPathComponent(".missing"), to: bareTarget) == 0)
 
+// THE PAIR RULE (2026-08-03). The undo only deletes a file Tally RECORDED writing, so a seed whose
+// record never landed can never be taken back: `--no-share` on the retry would refuse to remove it
+// and the new account would quietly keep the main account's answers. Both halves of the pair are
+// therefore asserted, in both directions.
+check("a successful seed leaves its record beside it, which is what makes the seed undoable",
+      fm.fileExists(atPath: trustSeedRecordFile(inConfigDir: seedTarget).path))
+let blockedRoot = tmp.appendingPathComponent("blocked-\(UUID().uuidString)")
+let blockedSource = blockedRoot.appendingPathComponent(".claude")
+let blockedTarget = blockedRoot.appendingPathComponent(".claude2")
+try! fm.createDirectory(at: blockedSource, withIntermediateDirectories: true)
+try! fm.createDirectory(at: blockedTarget, withIntermediateDirectories: true)
+try! stateBody.write(to: blockedRoot.appendingPathComponent(".claude.json"),
+                     atomically: true, encoding: .utf8)
+// A directory standing where the record file goes: the state write still succeeds, the record
+// cannot. That is the case the seed used to survive on its own.
+try! fm.createDirectory(at: trustSeedRecordFile(inConfigDir: blockedTarget),
+                        withIntermediateDirectories: true)
+check("a seed whose record cannot be written reports nothing seeded",
+      seedFolderTrust(from: blockedSource, to: blockedTarget) == 0)
+check("…and rolls back the state file, rather than leaving a seed nothing can undo",
+      !fm.fileExists(atPath: claudeStateFile(forConfigDir: blockedTarget).path))
+
 // MARK: - Preparing a new account's home, end to end
 
 // The whole act as both surfaces perform it (`tally add` and Settings' "Add account"): pick the

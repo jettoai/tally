@@ -402,6 +402,20 @@ expect(pickSource.contains("func pinnedLaunchHome(_ snapshot: Snapshot?, policy:
        "and the launcher refuses a saved home whose account the snapshot lists as signed out")
 expect(!mainSource.contains("?.launchHome ?? policy.pinnedHome"),
        "…with no surface left resolving a pin on its own (that is how one of them missed it)")
+// That pattern bans one SHAPE of a hand-rolled pin, and the surface it missed wore another: the
+// text `tally status` compared the pinned id with no launch home in sight, so it kept printing
+// `→ … (pinned)` on an account the launcher had already given up on (2026-08-03). The rule that
+// covers both shapes, checked line by line: outside the resolver itself (AccountPick.swift), a
+// pinned-id comparison has to carry the "can this be launched" half with it, or not be there at
+// all because the surface asks `launchMarkers` / `pinnedLaunchHome` instead.
+let reportSource = readSource("TallyCLI/StatusReport.swift")
+let looseIDChecks = (mainSource + "\n" + reportSource)
+    .split(separator: "\n", omittingEmptySubsequences: false)
+    .filter { $0.contains("policy.pinnedAccountID") && !$0.contains("launchHome != nil") }
+expect(!reportSource.isEmpty && looseIDChecks.isEmpty,
+       "no launch or status surface reads the pinned id without asking whether it can be launched")
+expect(mainSource.contains("let (bestID, pinnedID) = launchMarkers(providerID: provider.id"),
+       "…so the text status takes both of its markers from the resolver the JSON status uses")
 expect(cardSource.contains(".disabled(redeemBusy || isDormant)"),
        "a signed-out card's banked resets are visible but not spendable - the redeem has no session")
 expect(cardSource.contains("$0.launchableHome != nil ? $0.id : nil"),

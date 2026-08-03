@@ -59,6 +59,9 @@ func trustedProjectSeed(fromState raw: Data) -> [String: [String: Bool]] {
 ///
 /// A record of what was written goes down beside it (`writeTrustSeedRecord`), because the undo
 /// below deletes a file, and deleting is only ever safe against a file we can PROVE we wrote.
+/// The two are written as a PAIR, and rolled back together: a seed whose record failed to land can
+/// never be taken back (the undo would find no proof and refuse), so opting out on the retry would
+/// silently keep the main account's answers. Either both exist or neither does.
 @discardableResult
 func seedFolderTrust(from source: URL, to target: URL) -> Int {
     let targetFile = claudeStateFile(forConfigDir: target)
@@ -70,7 +73,12 @@ func seedFolderTrust(from source: URL, to target: URL) -> Int {
     try? FileManager.default.createDirectory(at: targetFile.deletingLastPathComponent(),
                                              withIntermediateDirectories: true)
     guard (try? body.write(to: targetFile, options: .atomic)) != nil else { return 0 }
-    writeTrustSeedRecord(paths: Set(seed.keys), in: target)
+    guard writeTrustSeedRecord(paths: Set(seed.keys), in: target) else {
+        // Safe to delete unconditionally: the guard above proved this path held no file before
+        // this call, so the only thing being dropped is what these two lines just wrote.
+        try? FileManager.default.removeItem(at: targetFile)
+        return 0
+    }
     return seed.count
 }
 
@@ -116,13 +124,15 @@ private struct TrustSeedRecord: Codable {
     var writtenAt: Date
 }
 
-private func writeTrustSeedRecord(paths: Set<String>, in dir: URL) {
+/// Whether the record actually landed. Reported rather than best-effort because the seed it
+/// describes is only undoable while it exists (see `seedFolderTrust`).
+private func writeTrustSeedRecord(paths: Set<String>, in dir: URL) -> Bool {
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     guard let data = try? encoder.encode(TrustSeedRecord(paths: paths.sorted(),
-                                                         writtenAt: Date())) else { return }
-    try? data.write(to: trustSeedRecordFile(inConfigDir: dir), options: .atomic)
+                                                         writtenAt: Date())) else { return false }
+    return (try? data.write(to: trustSeedRecordFile(inConfigDir: dir), options: .atomic)) != nil
 }
 
 private func readTrustSeedRecord(in dir: URL) -> Set<String>? {

@@ -112,6 +112,13 @@ final class PinnedPanelController {
     /// at. Read-only: `show(atTopLeft:showing:)` stays the only seam that writes this selection.
     var visibleTab: SurfaceTab? { isVisible ? surfaceTab.tab : nil }
 
+    /// Where the panel is on screen, the position half of that same hand-off back out of the panel:
+    /// the dashboard window opens exactly where the panel stood instead of jumping to the pointer's
+    /// screen (see `MainWindowController.show`). Nil while the panel is off screen, so a caller
+    /// cannot inherit a position nobody is looking at. Read-only, like `visibleTab`: the panel's own
+    /// placement stays owned by `show(atTopLeft:showing:)` and the user's drags.
+    var visibleContentTopLeft: CGPoint? { isVisible ? panel?.contentTopLeft : nil }
+
     /// Show the panel. When `topLeft` is given (the pin hand-off from the popover or the window),
     /// open there and on the view that surface was showing; otherwise reuse the autosaved frame and
     /// whatever the panel was last left on (launch restore / re-show). The size is driven by the

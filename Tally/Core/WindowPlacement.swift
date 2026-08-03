@@ -17,4 +17,22 @@ extension NSWindow {
         setFrameOrigin(NSPoint(x: visible.midX - frame.width / 2,
                                y: visible.minY + (visible.height - frame.height) * 2 / 3))
     }
+
+    /// Screen-space top-left of the window's CONTENT, i.e. what the user sees the view start at.
+    /// Titlebars and borders differ between the surfaces that hand this view to each other (the
+    /// popover, the borderless panel, the titled window), so the content rect is the only anchor
+    /// they can all agree on - a frame-to-frame hand-off would slide the view by the chrome.
+    @MainActor var contentTopLeft: CGPoint {
+        let onScreen = convertToScreen(contentLayoutRect)
+        return CGPoint(x: onScreen.minX, y: onScreen.maxY)
+    }
+
+    /// Move the window so its content top-left lands on `topLeft` - the exact inverse of
+    /// `contentTopLeft`, which is what makes a hand-off between two surfaces land in place. Moving
+    /// by the delta rather than computing the chrome keeps it correct for any style mask.
+    @MainActor func setContentTopLeft(_ topLeft: CGPoint) {
+        let current = contentTopLeft
+        setFrameOrigin(NSPoint(x: frame.origin.x + (topLeft.x - current.x),
+                               y: frame.origin.y + (topLeft.y - current.y)))
+    }
 }

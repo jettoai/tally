@@ -41,8 +41,7 @@ final class MainWindowController {
     /// panel opens exactly where the window was, mirroring the popover-to-panel handoff).
     var contentTopLeft: CGPoint? {
         guard let window, window.isVisible else { return nil }
-        let onScreen = window.convertToScreen(window.contentLayoutRect)
-        return CGPoint(x: onScreen.minX, y: onScreen.maxY)
+        return window.contentTopLeft
     }
 
     func close() {
@@ -59,12 +58,17 @@ final class MainWindowController {
     /// window has no .resizable mask, so every resize here is content-driven.
     private var topAnchor: CGFloat?
 
+    /// Both observers read the window on the spot (they already run on the main queue) instead of
+    /// from a hopped-to Task: a deferred read sees the frame WHEN THE TASK RUNS, not when the window
+    /// moved, so a move immediately followed by a content resize - exactly what opening the window
+    /// does - anchored to the post-resize top and the correction then agreed with the wrong
+    /// position. Correcting inside the resize also spares the user a frame painted at the old origin.
     private func keepTopEdgeThroughResizes(_ window: NSWindow) {
         topAnchor = window.frame.maxY
         NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: window, queue: .main
         ) { [weak self, weak window] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self, let window else { return }
                 self.topAnchor = window.frame.maxY
             }
@@ -72,7 +76,7 @@ final class MainWindowController {
         NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: window, queue: .main
         ) { [weak self, weak window] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self, let window, let top = self.topAnchor else { return }
                 let frame = window.frame
                 if abs(frame.maxY - top) > 0.5 {
@@ -98,7 +102,12 @@ final class MainWindowController {
         // so opening the dashboard off a panel reading token history does not drop the user back on
         // the quota cards - the mirror of pinning handing this window's tab to the panel (see
         // StatusItemController.setPinned). Nil while the panel is off screen, which leaves this
-        // window's own last selection alone.
+        // window's own last selection alone. The hand-off carries the panel's POSITION too, read
+        // here while the panel is still up: the window takes over in place rather than reappearing
+        // wherever the pointer happens to be, so the view the user was reading does not teleport
+        // mid-glance. Both halves are read before `unpin`, which puts the panel off screen and with
+        // it the answers to both questions.
+        let fromPanel = PinnedPanelController.shared.visibleContentTopLeft
         if let tab = PinnedPanelController.shared.visibleTab { surfaceTab.tab = tab }
         StatusItemController.unpin()
         if window == nil {
@@ -132,8 +141,23 @@ final class MainWindowController {
             self.window = window
         }
         // Summoned windows follow the user: place on the pointer's screen whenever the window
-        // isn't already up (an open window stays put - yanking it mid-use would be worse).
-        if window?.isVisible != true, !restoring { window?.centerOnPointerScreen() }
+        // isn't already up (an open window stays put - yanking it mid-use would be worse). Taking
+        // over a pinned panel is the exception: that surface was already where the user put it, so
+        // the window inherits its spot - the mirror of pinning handing this window's position to
+        // the panel (see StatusItemController.setPinned).
+        if window?.isVisible != true, !restoring {
+            // Placing reads the window's size, so the layout has to have run first: a window created
+            // in this same call is still empty until the hosting controller's constraints resolve,
+            // and placing it before that anchored an empty frame which then grew AWAY from the
+            // anchor (the window landed a full content-height off). Forcing layout is not a size
+            // write - the hosting controller stays the only size authority.
+            window?.layoutIfNeeded()
+            if let fromPanel {
+                window?.setContentTopLeft(fromPanel)
+            } else {
+                window?.centerOnPointerScreen()
+            }
+        }
         UserDefaults.standard.set(true, forKey: Self.restoreKey)
         ActivationPolicy.promote()   // a visible dashboard earns a Dock / Cmd-Tab presence
         NSApp.activate(ignoringOtherApps: true)

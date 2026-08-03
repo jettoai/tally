@@ -14,25 +14,31 @@ struct CodexProvider: UsageProvider {
         guard let home = account.launchHome else {
             return .failure(account: account, providerID: id, message: L("No usage data"))
         }
+        // Who the account is comes from the home's own login record rather than from the poll
+        // (CodexIdentity.swift), so it is read up front and carried by every outcome below - the
+        // same rule as Claude: a card whose poll failed still names its account.
+        let email = CodexIdentity.email(codexHome: home)
+        func failed(_ message: String) -> AccountUsage {
+            .failure(account: account, providerID: id, message: message, accountEmail: email)
+        }
         guard CLIRunner.resolve("codex") != nil else {
-            return .failure(account: account, providerID: id, message: L("Codex CLI not found"))
+            return failed(L("Codex CLI not found"))
         }
         let reading: CodexAppServerClient.Reading
         switch await CodexAppServerClient.read(codexHome: home) {
         case .ok(let value):
             reading = value
         case .cliBroken:
-            return .failure(account: account, providerID: id,
-                            message: L("Codex CLI outdated, update it"))
+            return failed(L("Codex CLI outdated, update it"))
         case .failed:
-            return .failure(account: account, providerID: id, message: L("Codex CLI read failed"))
+            return failed(L("Codex CLI read failed"))
         }
         guard !reading.metrics.isEmpty else {
-            return .failure(account: account, providerID: id, message: L("No usage data"))
+            return failed(L("No usage data"))
         }
         return AccountUsage(
             id: account.id, providerID: id, accountLabel: account.label,
-            planName: reading.plan, metrics: reading.metrics,
+            planName: reading.plan, accountEmail: email, metrics: reading.metrics,
             refreshedAt: Date(), error: nil,
             resetCreditsAvailable: reading.resetCreditsAvailable,
             resetCreditsNextExpiry: reading.resetCreditsNextExpiry

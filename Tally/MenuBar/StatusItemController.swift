@@ -132,17 +132,24 @@ final class StatusItemController: NSObject {
 
     /// Size the popover to the content's measured size (reported by `PopoverRootView.onContentSize`),
     /// deferred a run-loop turn so it never resizes from inside the SwiftUI update that reported it.
+    ///
+    /// The measured size goes through verbatim, and that is load-bearing. NSPopover re-derives its
+    /// anchor from whatever contentSize it is handed, while the window it draws is sized by SwiftUI's
+    /// own layout: a cap never shrinks the popover, it only anchors it as if it were smaller, and the
+    /// surface jumps a frame after the content changed. Both old caps fired on layouts the user can
+    /// pick (four columns is 1108pt wide by design; one column with a full fleet is taller than the
+    /// screen), which is why the jump appeared only after a column change. Fitting the screen belongs
+    /// to the content that reports the size, never to a size reported back wrong.
     private func applyPopoverSize(_ size: CGSize) {
         DispatchQueue.main.async { [weak self] in
             guard let self, size.width.isFinite, size.height.isFinite, size.width > 1, size.height > 1
             else { return }
-            let maxHeight = (NSScreen.main?.visibleFrame.height ?? 1200) - 40
             // NSPopover animates contentSize changes with a springy bounce; for in-place content
             // changes (collapsing a provider's cards) the bounce reads as the popover "jumping".
             // Suppress the animation just for the resize - show/close keep theirs.
             let animated = self.popover.animates
             self.popover.animates = false
-            self.popover.contentSize = CGSize(width: min(size.width, 900), height: min(size.height, maxHeight))
+            self.popover.contentSize = size
             self.popover.animates = animated
         }
     }

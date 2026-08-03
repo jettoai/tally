@@ -134,18 +134,21 @@ final class PinnedPanelController {
     /// run-loop turn so it never resizes the window from inside the SwiftUI update that reported it, and
     /// keyed on `sizingOptions = []` so this manual sizing is the only authority (two authorities were
     /// the original stack-overflow crash).
+    ///
+    /// The measured size is used as given: capping it here never shrank the panel (the layout hands
+    /// the window its size), it only wrote a frame that disagrees with it. That is the same write-back
+    /// lie that jumped the popover a frame after every column change, where it also moved the surface
+    /// (see `StatusItemController.applyPopoverSize`).
     private func resize(to contentSize: CGSize) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let panel = self.panel else { return }
             guard contentSize.width.isFinite, contentSize.height.isFinite,
                   contentSize.width > 1, contentSize.height > 1 else { return }
-            let maxHeight = ((panel.screen ?? NSScreen.main)?.visibleFrame.height ?? 1200) - 40
-            let size = CGSize(width: min(contentSize.width, 900), height: min(contentSize.height, maxHeight))
-            guard size != panel.frame.size else { return }
+            guard contentSize != panel.frame.size else { return }
             var frame = panel.frame
             let top = frame.maxY
-            frame.size = size
-            frame.origin.y = top - size.height   // keep the top-left fixed so a dragged position doesn't drift
+            frame.size = contentSize
+            frame.origin.y = top - contentSize.height   // keep the top-left fixed so a dragged position doesn't drift
             panel.setFrame(frame, display: false)
         }
     }

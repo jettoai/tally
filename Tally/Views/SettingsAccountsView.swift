@@ -216,6 +216,29 @@ struct SettingsAccountsView: View {
                     }
                 }
 
+                // Which account this actually IS. The panel keeps it in a hover tooltip (a card has
+                // no room for an address), but this list is where somebody comes to ask "which of
+                // my logins is Codex 2?", so here it is on the face of the row.
+                //
+                // Data, not a label: never localized, and absent rather than blank when neither the
+                // probe nor the config home can name the account (an empty caption where a name
+                // should be reads as a rendering bug).
+                //
+                // Its OWN line rather than trailing the account name, which is where it started:
+                // sharing the line left roughly 200pt for both, and in English - where the two
+                // switch labels are widest - every address on this machine truncated to something
+                // unreadable ("albert.…er.com", measured in the window, 2026-08-04). A line of its
+                // own fits the addresses people actually have; middle truncation keeps the domain
+                // for the ones it does not.
+                if let email = usage.flatMap({ LoginStatusStore.shared.identityEmail($0) }) {
+                    Text(email)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(email)
+                }
+
                 HStack(spacing: 8) {
                     if !enabled {
                         Text(L("Disabled")).font(.caption2).foregroundStyle(.tertiary)
@@ -241,7 +264,6 @@ struct SettingsAccountsView: View {
                 // toggling an account never changes the row height and shifts its neighbours.
                 .frame(height: 17, alignment: .leading)
             }
-
             Spacer()
 
             // Reorder arrows (multi-account providers only, column always reserved so the switch

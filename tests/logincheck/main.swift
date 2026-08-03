@@ -371,8 +371,15 @@ if let renewing = cardSource.range(of: "RenewLoginStore.shared.isRenewing(usage.
 }
 expect(cardSource.contains("RenewLoginStore.shared.canRenew(providerID: usage.providerID, home: configHome)"),
        "the chip greys out where the menu entry does, asked of the same place")
-expect(cardSource.contains("LoginStatusStore.shared.email(usage.id) ?? usage.accountEmail"),
-       "the identity tooltip prefers the CLI's live answer over the config file's stale copy")
+// The identity chain (live probe answer first, the provider's config-derived copy as the fallback)
+// lives in the STORE, because two surfaces render it now - the card's tooltip and the Settings row.
+let settingsSource = readSource("Tally/Views/SettingsAccountsView.swift")
+expect(storeSource.contains("email(usage.id) ?? usage.accountEmail") && !settingsSource.isEmpty,
+       "the identity chain prefers the CLI's live answer over the config file's stale copy")
+expect(cardSource.contains("LoginStatusStore.shared.identityEmail(usage)")
+        && settingsSource.contains("LoginStatusStore.shared.identityEmail($0)")
+        && !cardSource.contains("usage.accountEmail"),
+       "and both surfaces ask that one chain instead of each reaching past it to the fallback")
 
 // The surfaces that STEER A LAUNCH have to ask `launchableHome` rather than read the renewal home:
 // a pin is denormalized into the policy file the CLI reads, the smart badge predicts what the CLI

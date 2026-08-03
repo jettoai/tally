@@ -37,14 +37,12 @@ struct AccountCardView: View {
     /// Signed out with its config home still on disk: listed and renewable, never launchable.
     private var isDormant: Bool { discovered?.isDormant == true }
 
-    /// Who is signed in, for the identity tooltip. The login probe's answer FIRST: it is what the
-    /// provider's CLI reports right now, where the config file the fallback comes from names
-    /// whoever was signed in when it was last written - a home signed into as somebody else keeps
-    /// the old address until something rewrites it, and `~/.claude.json` is a file other tools
-    /// leave stale copies of. Falls back rather than blanking, because a probe that has not run
-    /// yet (or could not) knows less than the file does, not more.
+    /// Who is signed in, for the identity tooltip. The ordering (the probe's live answer first, the
+    /// provider's config-derived copy as the fallback) lives in the store, because the Settings row
+    /// asks the same question and the two must not drift apart. Empty string, not nil: this feeds a
+    /// tooltip, and an absent one is what "nothing to say" looks like there.
     private var identityEmail: String {
-        LoginStatusStore.shared.email(usage.id) ?? usage.accountEmail ?? ""
+        LoginStatusStore.shared.identityEmail(usage) ?? ""
     }
 
     /// Non-headline windows. Model-scoped rows are hidden unless "show every model tier" is on, so by

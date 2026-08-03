@@ -57,6 +57,18 @@ final class LoginStatusStore {
     /// to the config-derived one rather than showing nothing.
     func email(_ accountID: String) -> String? { emails[accountID] }
 
+    /// Who an account is signed in as, for a surface that wants to show it: the probe's live answer
+    /// first, then whatever the provider could read out of its own config home (`accountEmail`,
+    /// which for Codex is the only source there is - its CLI names no account). Nil when neither
+    /// knows, and a caller that renders this shows NOTHING there rather than an empty line.
+    ///
+    /// One chain, asked from every surface. The card's tooltip and the Settings row are the same
+    /// question about the same account, and a second copy of the ordering would eventually answer
+    /// it differently on one of them.
+    func identityEmail(_ usage: AccountUsage) -> String? {
+        email(usage.id) ?? usage.accountEmail
+    }
+
     /// Accounts a login was just attempted on, which may force a round past the interval
     /// (LoginProbeGate.swift - it owns the whole rule and the bug it closes).
     private var gate = LoginProbeGate.State()

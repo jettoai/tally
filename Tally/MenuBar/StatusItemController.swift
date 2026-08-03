@@ -45,6 +45,9 @@ final class StatusItemController: NSObject {
         let host = NSHostingController(
             rootView: PopoverRootView(store: UsageStore.shared, settings: SettingsStore.shared,
                                       onContentSize: { [weak self] size in self?.applyPopoverSize(size) },
+                                      // The popover hangs off the status item, so it has to fit the
+                                      // screen the menu bar is on, whichever display that is today.
+                                      hostScreen: { [weak self] in self?.statusItem?.button?.window?.screen },
                                       tabState: popoverTab))
         host.sizingOptions = []
         popoverHost = host
@@ -139,7 +142,8 @@ final class StatusItemController: NSObject {
     /// surface jumps a frame after the content changed. Both old caps fired on layouts the user can
     /// pick (four columns is 1108pt wide by design; one column with a full fleet is taller than the
     /// screen), which is why the jump appeared only after a column change. Fitting the screen belongs
-    /// to the content that reports the size, never to a size reported back wrong.
+    /// to the content that reports the size, never to a size reported back wrong - the content does
+    /// it one layout pass earlier, in `ScreenFitStack`, so what arrives here already fits.
     private func applyPopoverSize(_ size: CGSize) {
         DispatchQueue.main.async { [weak self] in
             guard let self, size.width.isFinite, size.height.isFinite, size.width > 1, size.height > 1

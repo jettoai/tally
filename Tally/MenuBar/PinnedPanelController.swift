@@ -128,7 +128,7 @@ final class PinnedPanelController {
         let panel = panel ?? makePanel()
         self.panel = panel
         if let topLeft { panel.setFrameTopLeftPoint(topLeft) }
-        clampOnScreen(panel)
+        panel.clampOnScreen()
         panel.makeKeyAndOrderFront(nil)
     }
 
@@ -145,7 +145,15 @@ final class PinnedPanelController {
     /// The measured size is used as given: capping it here never shrank the panel (the layout hands
     /// the window its size), it only wrote a frame that disagrees with it. That is the same write-back
     /// lie that jumped the popover a frame after every column change, where it also moved the surface
-    /// (see `StatusItemController.applyPopoverSize`).
+    /// (see `StatusItemController.applyPopoverSize`). Fitting the screen happens in the content, one
+    /// layout pass earlier (see `ScreenFitStack`).
+    ///
+    /// Note what this does NOT do any more: by the time the deferred block runs, the window has
+    /// usually already taken the reported size itself (SwiftUI hands the window its size, keeping
+    /// the top left), so the sizes match and this returns. It stays as the one place that states
+    /// the top-left contract, and covers the states where the window has not followed on its own.
+    /// Putting the panel back on screen therefore cannot live here - it hangs off the resize
+    /// notification instead (see `makePanel`).
     private func resize(to contentSize: CGSize) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let panel = self.panel else { return }
@@ -185,6 +193,9 @@ final class PinnedPanelController {
         let content = AnyView(
             PopoverRootView(store: .shared, settings: .shared,
                             onContentSize: { [weak self] size in self?.resize(to: size) },
+                            // The panel is a fixture the user placed: it fits the display it was
+                            // left on, which is not necessarily the one the menu bar is on.
+                            hostScreen: { [weak self] in self?.panel?.screen },
                             tabState: surfaceTab)
                 .background(PanelBackdrop(settings: .shared))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)))
@@ -194,18 +205,17 @@ final class PinnedPanelController {
         panel.contentView = hostView
         panel.setContentSize(CGSize(width: 500, height: 400))   // placeholder until onContentSize reports the real size
         panel.setFrameAutosaveName("TallyPinnedUsagePanel")
+        // Every growth spurt ends with the panel back on a screen. The panel keeps its TOP left as
+        // it grows (so a position the user chose does not drift), which is exactly what pushes a
+        // taller fleet's footer - the way to unpin, and the way to the dashboard - off the bottom
+        // of the display. Hung off the notification rather than off `resize(to:)` because the
+        // window mostly takes the content's size on its own, which never reaches that method.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification, object: panel, queue: .main
+        ) { [weak panel] _ in
+            MainActor.assumeIsolated { panel?.clampOnScreen() }
+        }
         return panel
     }
 
-    /// Keep the panel on a visible screen (e.g. after an external display is unplugged).
-    private func clampOnScreen(_ panel: NSPanel) {
-        let screen = NSScreen.screens.first { $0.frame.intersects(panel.frame) } ?? NSScreen.main
-        guard let visible = screen?.visibleFrame else { return }
-        var frame = panel.frame
-        if frame.maxX > visible.maxX { frame.origin.x = visible.maxX - frame.width }
-        if frame.minX < visible.minX { frame.origin.x = visible.minX }
-        if frame.maxY > visible.maxY { frame.origin.y = visible.maxY - frame.height }
-        if frame.minY < visible.minY { frame.origin.y = visible.minY }
-        if frame != panel.frame { panel.setFrame(frame, display: false) }
-    }
 }

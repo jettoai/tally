@@ -18,6 +18,29 @@ extension NSWindow {
                                y: visible.minY + (visible.height - frame.height) * 2 / 3))
     }
 
+    /// Nudge the window back onto a visible screen, origin only - the size belongs to the content
+    /// (see the pinned panel's two-size-authorities crash). Runs after every content-driven resize,
+    /// not just when a surface opens: these windows keep their TOP edge as they grow, so a fleet
+    /// that gets taller pushes its own footer past the bottom of the display, and the footer is the
+    /// way back out of it. It also catches the display that went away under a panel left on it.
+    ///
+    /// A surface can only be moved wholly back on when it fits, which is what `ScreenFitStack`
+    /// guarantees; a taller one is pinned to the top of the screen and keeps its overflow below.
+    @MainActor func clampOnScreen() {
+        // The window's OWN screen, the same one the content sized itself for (`hostScreen`), so a
+        // surface straddling two displays is not capped for one and clamped onto the other. Nil
+        // only once it is off screen entirely, which is exactly when the scan is worth its cost.
+        let screen = self.screen ?? NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return }
+        // Clamp order decides which edge a surface too big for the screen keeps: the last clamp
+        // applied wins the standoff, and both keep the edge the content is read FROM (the left, and
+        // the top with the header on it).
+        var origin = frame.origin
+        origin.x = max(min(origin.x, visible.maxX - frame.width), visible.minX)
+        origin.y = min(max(origin.y, visible.minY), visible.maxY - frame.height)
+        if origin != frame.origin { setFrameOrigin(origin) }
+    }
+
     /// Screen-space top-left of the window's CONTENT, i.e. what the user sees the view start at.
     /// Titlebars and borders differ between the surfaces that hand this view to each other (the
     /// popover, the borderless panel, the titled window), so the content rect is the only anchor

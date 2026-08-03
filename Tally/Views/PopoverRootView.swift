@@ -3,10 +3,17 @@ import AppKit
 
 /// The menu-bar popover: header, one card per account, footer with the used/left toggle + settings.
 ///
-/// The popover sizes to its content in a single pass via the hosting controller's
-/// `sizingOptions = .preferredContentSize` (set in `StatusItemController`). There is deliberately no
-/// ScrollView + measured `.frame(height:)` here: that made the popover open at one size then resize to
-/// fit, so AppKit's frame animation fought SwiftUI's layout - the classic "two clocks" stutter. Static content + one-pass sizing avoids the fight entirely.
+/// Every host sizes itself to what this content reports, in a single pass. There is deliberately no
+/// measure-then-resize round trip here: measuring the laid-out height and feeding it back as a
+/// `.frame(height:)` made the popover open at one size then resize to fit, so AppKit's frame
+/// animation fought SwiftUI's layout - the classic "two clocks" stutter.
+///
+/// The screen is the one bound that needs no measuring: how tall the surface may be is known before
+/// it opens, so `ScreenFitStack` applies it in the same pass that lays the content out, and the
+/// cards scroll inside whatever is left. A surface that fits the screen is laid out exactly as it
+/// was before there was a cap; only one that would have run off the display below the footer
+/// changes. Capping it in the hosts instead cannot work - see `ScreenFitStack` and
+/// `StatusItemController.applyPopoverSize`.
 
 /// What a surface is showing. Not a window concept: the popover, the pinned panel and the dashboard
 /// window are all this same view, and all three can be flipped to the token history and back.
@@ -43,6 +50,11 @@ struct PopoverRootView: View {
     /// behind-window blur). The dashboard window is opaque, so it opts out and keeps solid cards -
     /// a within-window material there would only sample that window's own grey.
     var hostDrawsGlass: Bool = true
+    /// Which screen this surface is on, asked of the host rather than assumed: the popover opens on
+    /// the status item's screen, the pinned panel sits wherever the user dragged it, and the window
+    /// on whichever display it was summoned to. Nil before the host has a window, which falls back
+    /// to the main screen.
+    var hostScreen: () -> NSScreen? = { NSScreen.main }
     var tokens: TokenStatsStore = .shared
     /// This surface's own tab selection, held by its host controller (see `SurfaceTabState`).
     @Bindable var tabState: SurfaceTabState
@@ -78,10 +90,12 @@ struct PopoverRootView: View {
         // as unchanged and skips re-localizing them, leaving cards stuck in the old language. Keying
         // `.id` on the language forces a full teardown + rebuild so every L() re-resolves.
         ZStack(alignment: .topLeading) {
-            VStack(spacing: 0) {
+            ScreenFitStack(maxHeight: screenCap ?? ScreenFitStack.maxHeight(on: hostScreen())) {
                 // Header and footer frame both tabs: the countdown and the refresh stay reachable
                 // while reading token history, and the footer button that switched here is the one
                 // that switches back (a surface that swallowed its own way out would be a trap).
+                // They are also what must never scroll away: the footer is the way out of a fleet
+                // too tall for the display, which is the case the cap exists for.
                 header
                 Divider()
                 // A ZStack of two independent conditions, not one if/else: mid-crossfade both views
@@ -97,20 +111,31 @@ struct PopoverRootView: View {
                             // Fully folded (all cards behind their gauges) skips the card container
                             // entirely: its 12pt padding read as a hollow band between two dividers.
                             if store.contentState != .hasAccounts || !visibleAccounts.isEmpty {
-                                content
+                                // The cards are what gives way when the surface hits the screen's
+                                // height, and only then: at any height that fits, a scroll view is
+                                // laid out at its content's ideal size and shows no scroller, so
+                                // this is invisible until a fleet actually outgrows the display.
+                                // The strips above stay put - they summarize what is scrolling.
+                                ScrollView(.vertical) { content }
                             }
                         }
                         .transition(tabTransition)
                     }
                     if tab == .tokens {
-                        TokenStatsView(store: tokens, width: popoverWidth)
-                            // Every visit brings the numbers up to date; the scan itself skips files
-                            // whose identity has not changed, so a repeat visit costs a directory walk.
-                            .onAppear { tokens.refresh() }
-                            .transition(tabTransition)
+                        ScrollView(.vertical) {
+                            TokenStatsView(store: tokens, width: popoverWidth)
+                                // Every visit brings the numbers up to date; the scan itself skips
+                                // files whose identity has not changed, so a repeat visit costs a
+                                // directory walk.
+                                .onAppear { tokens.refresh() }
+                        }
+                        .transition(tabTransition)
                     }
                 }
                 .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: tab)
+                // Whichever tab is up, the region between the two dividers is the one that gives up
+                // height when the surface would outgrow the screen.
+                .screenFitFlexible()
                 Divider()
                 footer
             }
@@ -122,6 +147,14 @@ struct PopoverRootView: View {
             }
         }
         .coordinateSpace(name: Self.reorderSpace)
+        // The two ways a surface ends up on a different screen than it was laid out for: its window
+        // moved (the panel is dragged by hand), or the displays themselves changed (one unplugged,
+        // resolution switched). See `screenCap`.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMoveNotification)) { _ in
+            refreshScreenCap()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NSApplication.didChangeScreenParametersNotification)) { _ in refreshScreenCap() }
         .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }
         .environment(\.tallyCardStyle, cardStyle)
         .id(settings.languageOverride ?? "system")
@@ -171,6 +204,19 @@ struct PopoverRootView: View {
         case 3: return 834    // 24 padding + 3×263 cards + 2×10 gaps
         default: return 1108  // 24 padding + 4×263 cards + 3×10 gaps
         }
+    }
+
+    /// The cap actually in force. A surface can change screens without anything the layout reads
+    /// changing - dragged to another display, or one unplugged out from under it - and then it
+    /// holds a height that screen never had, which is this whole file's bug with extra steps. So
+    /// the two events that can move a window between displays re-read it. Stored rather than read
+    /// every pass because it is only ever re-read on those events, and only a cap that actually
+    /// CHANGED touches the state: dragging a panel around one display re-renders nothing.
+    @State private var screenCap: CGFloat?
+
+    private func refreshScreenCap() {
+        let height = ScreenFitStack.maxHeight(on: hostScreen())
+        if screenCap != height { screenCap = height }
     }
 
     /// Definite card width. `.frame(maxWidth: .infinity)` cards would fight the hosting controller's

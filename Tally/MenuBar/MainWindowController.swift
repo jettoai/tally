@@ -82,6 +82,10 @@ final class MainWindowController {
                 if abs(frame.maxY - top) > 0.5 {
                     window.setFrameOrigin(NSPoint(x: frame.origin.x, y: top - frame.height))
                 }
+                // Holding the top edge is what lets a growing view run off the bottom of the
+                // display, footer first - so the same growth that needs the anchor also needs the
+                // window put back on screen (the panel does the same after its resizes).
+                window.clampOnScreen()
             }
         }
     }
@@ -115,6 +119,9 @@ final class MainWindowController {
             // behind them (the popover's vibrancy, the pinned panel's behind-window blur).
             let hosting = NSHostingController(
                 rootView: PopoverRootView(store: .shared, settings: .shared, hostDrawsGlass: false,
+                                          // Summoned windows follow the user, so the display to fit
+                                          // is the one this window was last put on.
+                                          hostScreen: { [weak self] in self?.window?.screen },
                                           tokens: .shared, tabState: surfaceTab))
             let window = NSWindow(contentViewController: hosting)
             window.title = BuildVariant.isDev ? "Tally Dev" : "Tally"   // Mission Control / Window menu name

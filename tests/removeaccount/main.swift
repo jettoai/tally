@@ -32,6 +32,35 @@ check("a numbered home is",
 check("…including a codex one, whose own default is a different name",
       accountHomeIsRemovable(providerID: "codex",
                              home: home.appendingPathComponent(".codex3").path, userHome: home))
+// THE SECOND PRIMARY HOME (codex review, 2026-08-03). Codex reads `~/.codex` first and falls back
+// to the XDG location when no `~/.codex*` login exists, so on a machine whose only account lives
+// there, `~/.config/codex` IS the primary setup - and a rule that only knew the one name offered to
+// move it, with its history, to the Trash.
+check("codex's XDG fallback home is a primary setup too, never removable",
+      !accountHomeIsRemovable(providerID: "codex",
+                              home: home.appendingPathComponent(".config/codex").path,
+                              userHome: home))
+check("…including spelled the long way round",
+      !accountHomeIsRemovable(providerID: "codex",
+                              home: home.path + "/.config/./codex/", userHome: home))
+check("…and it is codex's alone: claude has no such fallback to protect",
+      accountHomeIsRemovable(providerID: "claude",
+                             home: home.appendingPathComponent(".config/codex").path,
+                             userHome: home))
+check("both of codex's homes are named in one list, and claude's one",
+      mainAccountHomes(providerID: "codex", userHome: home).map(\.lastPathComponent)
+          == [".codex", "codex"]
+          && mainAccountHomes(providerID: "claude", userHome: home).map(\.lastPathComponent)
+          == [".claude"])
+// The list and the discovery fallback have to name the same directory, and discovery lives in a
+// file this suite does not compile (it needs the whole provider stack), so the constant is pinned
+// by source instead.
+let codexSource = (try? String(contentsOfFile: "Tally/Providers/Codex/CodexAccounts.swift",
+                               encoding: .utf8)) ?? ""
+check("discovery falls back to the very constant the protection reads",
+      codexSource.contains("appendingPathComponent(codexXDGConfigHome")
+          && !codexSource.contains("\".config/codex\""))
+
 // The card asks this about `configHome`, which is nil for a demo fixture and for any account
 // discovered without a directory behind it.
 check("an account with no config home behind it is not removable",
@@ -122,6 +151,66 @@ check("…and every one of them only after the folder actually left",
 // (tests/addshare has the rule itself).
 check("a home Tally sees signed in stops being an unfinished add",
       knownSource.contains("clearAddAccountPendingMarker("))
+
+// MARK: - The caches an account id survives in
+
+// A removal that only drops the CARD leaves the store still holding this account's numbers under an
+// id a recreated `~/.claude3` takes again: the new account's first failed fetch would be filled in
+// with the old one's quota, published to the snapshot, and routed on by smart pick (codex review,
+// 2026-08-03).
+let usageSource = (try? String(contentsOfFile: "Tally/Stores/UsageStore.swift",
+                               encoding: .utf8)) ?? ""
+check("the store's own caches are readable from this suite", !usageSource.isEmpty)
+check("removal goes through the store's forget rather than a bare hide",
+      actionSource.contains("UsageStore.shared.forgetAccount(")
+          && !actionSource.contains("UsageStore.shared.hideAccounts("))
+check("…which drops the last-good numbers the next account under this id would inherit",
+      usageSource.contains("func forgetAccount(_ accountID: String)")
+          && usageSource.contains("lastGood[accountID] = nil")
+          && usageSource.contains("failureStreak[accountID] = nil"))
+check("…and the snapshot inputs, so the CLI stops being pointed into the Trash",
+      usageSource.contains("lastPublishedAccounts.removeAll { $0.id == accountID }")
+          && usageSource.contains("lastLaunchHomes[accountID] = nil")
+          && usageSource.contains("republishSnapshot()"))
+
+// MARK: - The refresh that was already out when the removal happened
+
+// A round that began BEFORE the removal captured discovery, launch homes and fetches while the home
+// was still on disk. Committing it unchanged re-remembers the account and republishes a snapshot
+// pointing at a directory now in the Trash.
+var removals = AccountRemovals()
+let inFlight = removals.beginRound()
+removals.remove("claude:.claude3")
+check("an account removed mid-round is filtered out of that round's results",
+      removals.isRemoved("claude:.claude3") && removals.removedIDs == ["claude:.claude3"])
+removals.endRound(inFlight)
+check("…and the tombstone outlives the very round it was filed against",
+      removals.isRemoved("claude:.claude3"))
+let afterwards = removals.beginRound()
+removals.endRound(afterwards)
+// It has to expire, or a config home recreated under the same name would be invisible forever: the
+// id is derived from the directory's name, so `~/.claude3` rebuilt IS `claude:.claude3` again.
+check("a round that started after the removal retires it",
+      !removals.isRemoved("claude:.claude3") && removals.removedIDs.isEmpty)
+var quiet = AccountRemovals()
+quiet.remove("claude:.claude2")
+let next = quiet.beginRound()
+quiet.endRound(next)
+check("a removal with nothing in flight is retired by the very next round",
+      !quiet.isRemoved("claude:.claude2"))
+check("the refresh really does filter what it found through them",
+      usageSource.contains("let removed = removals.removedIDs")
+          && usageSource.contains("allDiscovered.removeAll { removed.contains($0.id) }")
+          && usageSource.contains("results.removeAll { removed.contains($0.id) }")
+          && usageSource.contains("launchHomes = launchHomes.filter { !removed.contains($0.key) }"))
+check("…before the reconcile that would otherwise remember them again",
+      (usageSource.range(of: "let removed = removals.removedIDs")?.upperBound).map { filtered in
+          (usageSource.range(of: "reconcile(discovered: allDiscovered)")?.lowerBound ?? filtered)
+              > filtered
+      } == true)
+check("…and retires the spent tombstones once the round has committed",
+      usageSource.contains("let round = removals.beginRound()")
+          && usageSource.contains("removals.endRound(round)"))
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

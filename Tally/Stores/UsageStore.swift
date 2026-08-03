@@ -181,9 +181,18 @@ final class UsageStore {
     /// while the provider was still off) finished, wiped the provider's rows, and nothing re-fetched
     /// until the next timer tick.
     private var refreshQueued = false
+    /// …and the coalesced refresh inherits the strongest reason any of the merged ones had. A
+    /// renewal that lands while a poll is running asks for a USER-INITIATED refresh, which is what
+    /// makes the login probe skip its five-minute throttle; dropping the flag here left a
+    /// just-renewed account wearing its red "Login expired" chip for the rest of that interval.
+    private var queuedUserInitiated = false
 
     func refresh(userInitiated: Bool = false) async {
-        guard !isRefreshing else { refreshQueued = true; return }
+        guard !isRefreshing else {
+            refreshQueued = true
+            queuedUserInitiated = queuedUserInitiated || userInitiated
+            return
+        }
         // Screenshot fixtures replace the whole poll: no CLI runs, no snapshot write (so a demo
         // instance can't steer the `tally` CLI), no retry ladder.
         if DemoUsage.isActive {
@@ -196,6 +205,9 @@ final class UsageStore {
             return
         }
         isRefreshing = true
+        // Everything below is captured BEFORE the awaits, so a removal landing mid-round has to be
+        // filtered back out at the commit (AccountRemovals.swift).
+        let round = removals.beginRound()
         onChange?()
 
         let enabled = SettingsStore.shared.enabledProviders
@@ -220,6 +232,14 @@ final class UsageStore {
                 }
                 for await usage in group { results.append(usage) }
             }
+        }
+        // An account the user removed while this round was out fetching: its home went to the Trash
+        // after the discovery above read it, so everything this round holds about it is an echo.
+        let removed = removals.removedIDs
+        if !removed.isEmpty {
+            allDiscovered.removeAll { removed.contains($0.id) }
+            results.removeAll { removed.contains($0.id) }
+            launchHomes = launchHomes.filter { !removed.contains($0.key) }
         }
         // An account that signed OUT stops being discoverable at all - Claude's logout deletes the
         // Keychain item, Codex's deletes auth.json - so discovery alone drops it from the app at
@@ -326,117 +346,43 @@ final class UsageStore {
                                                       userInitiated: userInitiated) }
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
         scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })
+        // This round has now published a world without the removed accounts, so the tombstones that
+        // predate it are spent - and a config home recreated under the same name is a new account
+        // again rather than one this store refuses to show.
+        removals.endRound(round)
 
         if refreshQueued {
             refreshQueued = false
-            Task { await refresh(userInitiated: false) }
+            let inherited = queuedUserInitiated
+            queuedUserInitiated = false
+            Task { await refresh(userInitiated: inherited) }
         }
     }
 
     /// Inputs of the last published snapshot, so a settings flip (display mode, status line
-    /// options) can rewrite ~/.tally/snapshot.json immediately WITHOUT refetching usage.
-    private var lastPublishedAccounts: [AccountUsage] = []
-    private var lastLaunchHomes: [String: String] = [:]
+    /// options) can rewrite ~/.tally/snapshot.json immediately WITHOUT refetching usage. Read by
+    /// the publishing half of the store (UsageStorePublishing.swift), written only here.
+    private(set) var lastPublishedAccounts: [AccountUsage] = []
+    private(set) var lastLaunchHomes: [String: String] = [:]
 
-    /// Rewrite the snapshot from the cached accounts + current settings. No-op for the dev
-    /// variant and demo mode (neither may publish), or before the first successful refresh.
-    func republishSnapshot() {
-        guard !BuildVariant.isDev, !DemoUsage.isActive, !lastPublishedAccounts.isEmpty else { return }
-        let (fleet, fleetPools) = fleetForSnapshot()
-        UsageSnapshot.make(accounts: lastPublishedAccounts, launchHomes: lastLaunchHomes,
-                           statuslineFullQuota: SettingsStore.shared.statuslineFullQuota,
-                           displayMode: SettingsStore.shared.displayMode.rawValue,
-                           fleet: fleet, fleetPools: fleetPools).write()
-    }
 
-    /// Feed the claude flagship weekly pool to the dry-pool notifier. The flagship window is chosen
-    /// by tier order (not the gauge's display focus), so the tripwire watches the top model pool
-    /// regardless of what the panel currently shows. No pool (fewer than two accounts share the
-    /// flagship window) means nothing to arm.
-    private func notifyFlagshipDryness(accounts labeled: [AccountUsage]) {
-        let now = Date()
-        let summaries = FleetMath.summaries(accounts: labeled, now: now) { $0.accountLabel }
-        guard let summary = summaries.first(where: { $0.providerID == "claude" }),
-              let flagship = FleetFocus.flagship(summary.modelPoolNames,
-                                                 order: ModelCatalog.claudeAliases),
-              let pool = summary.pools.first(where: {
-                  $0.kind == .weeklyModel && ($0.modelName ?? $0.label) == flagship
-              }),
-              // No known upcoming reset means stale or partial data (e.g. wake-from-sleep with
-              // fetches still failing): a nil reset would read as a new cycle and re-fire a stale
-              // alert. Skip this round; the next successful fetch recovers naturally.
-              pool.nextReset != nil else { return }
-        DryPoolNotifier.shared.evaluate(
-            remaining: pool.totalRemaining,
-            capacity: Double(pool.members.count) * 100,
-            accountCount: pool.members.count,
-            resetAt: pool.nextReset,
-            windowName: pool.modelName ?? pool.label)
-    }
+    /// Accounts the user removed, and the rounds that must not resurrect them (AccountRemovals).
+    private var removals = AccountRemovals()
 
-    /// The model name the display leads with for `providerID`, given the available model window
-    /// names - the glue between the pure resolver and the app's stores. One resolution shared by
-    /// the fleet gauge, the menu-bar strip and the status line's fleet.
-    static func focusedModel(providerID: String, available: [String]) -> String? {
-        FleetFocus.focusedModel(SettingsStore.shared.gaugeFocus,
-                                primaryModel: LaunchPolicyStore.shared.policy(providerID).model,
-                                available: available,
-                                flagshipOrder: ModelCatalog.claudeAliases)
-    }
-
-    /// The status line's fleet piece follows the SAME switch as the panel's gauge: published
-    /// only while the gauge is on, and only for providers with a real pool (2+ accounts with a
-    /// weekly window). Launch mode is deliberately irrelevant - one toggle, one meaning.
-    ///
-    /// Two shapes from one pass: `fleet` keeps the single headline pool (the pre-0.17 contract
-    /// older CLIs render) and `fleetPools` carries the panel's ordered pool list (gauge focus
-    /// applied, session pools excluded) for CLIs that render every pool the gauge shows.
-    private func fleetForSnapshot() -> ([String: UsageSnapshot.Fleet]?,
-                                        [String: [UsageSnapshot.Fleet]]?) {
-        guard SettingsStore.shared.showFleetGauge else { return (nil, nil) }
-        var fleet: [String: UsageSnapshot.Fleet] = [:]
-        var fleetPools: [String: [UsageSnapshot.Fleet]] = [:]
-        let now = Date()
-        for summary in FleetMath.summaries(accounts: lastPublishedAccounts,
-                                           label: { $0.accountLabel }) {
-            let focused = Self.focusedModel(providerID: summary.providerID,
-                                            available: summary.modelPoolNames)
-            func published(_ pool: FleetPool) -> UsageSnapshot.Fleet {
-                var dryAt: Date?
-                var sustainable = false
-                if let rate = fleetRates[FleetForecast.rateKey(
-                    provider: summary.providerID, window: pool.kind.rawValue,
-                    model: pool.modelName)] {
-                    dryAt = FleetForecast.depletion(
-                        remaining: pool.totalRemaining,
-                        refills: pool.refills.map { ($0.at, $0.gain) },
-                        perHour: rate.perHour,
-                        steadyRefillPerHour: pool.steadyRefillPerHour(windowHours: 168),
-                        now: now)
-                    sustainable = dryAt == nil
-                }
-                return UsageSnapshot.Fleet(
-                    remaining: pool.totalRemaining,
-                    capacity: Double(pool.members.count) * 100,
-                    dryAt: dryAt, sustainable: sustainable,
-                    poolName: pool.kind == .weeklyModel ? (pool.modelName ?? pool.label) : nil)
-            }
-            if let pool = summary.headline(focusedModel: focused), pool.kind != .session {
-                fleet[summary.providerID] = published(pool)
-            }
-            // Mirrors FleetStripView.displayedPools, so the status line shows the same pools
-            // as the panel: "all" renders every weekly-cycle pool in display order, the
-            // single-pool modes just the focus-resolved headline.
-            let ordered: [FleetPool]
-            switch SettingsStore.shared.gaugeFocus {
-            case .all: ordered = summary.displayPools(focusedModel: focused)
-            case .primary, .weekly:
-                ordered = summary.headline(focusedModel: focused).map { [$0] } ?? []
-            }
-            let pools = ordered.filter { $0.kind != .session }
-            if !pools.isEmpty { fleetPools[summary.providerID] = pools.map(published) }
-        }
-        return (fleet.isEmpty ? nil : fleet, fleetPools.isEmpty ? nil : fleetPools)
+    /// Forget everything this store remembers about one account, because the user removed it
+    /// (RemoveAccountAction). Every cache below is keyed by an id that a recreated `~/.claude3`
+    /// takes again, so a first fetch failing in the NEW account's home would otherwise show the
+    /// previous account's numbers, publish them, and let smart pick route on them.
+    func forgetAccount(_ accountID: String) {
+        lastGood[accountID] = nil
+        failureStreak[accountID] = nil
+        lastPublishedAccounts.removeAll { $0.id == accountID }
+        lastLaunchHomes[accountID] = nil
+        removals.remove(accountID)
+        hideAccounts { $0.id == accountID }
+        // The snapshot the CLI launches from still names this account until the refresh behind the
+        // removal lands - which is 10-20 seconds of `tally` being able to exec into the Trash.
+        republishSnapshot()
     }
 
     /// Last successful snapshot per account, so a failed refresh can keep showing the numbers.

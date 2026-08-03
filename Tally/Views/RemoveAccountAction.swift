@@ -46,8 +46,12 @@ enum RemoveAccountAction {
         LaunchPolicyStore.shared.forget(accountID: accountID)
         KnownAccountsStore.shared.forget(accountID: accountID)
         SettingsStore.shared.forgetAccount(accountID)
-        // Drop the card in this frame; the refresh behind it converges the snapshot the CLI reads.
-        UsageStore.shared.hideAccounts { $0.id == accountID }
+        // The fourth place, and the only one that is not on disk: the store's own per-account
+        // caches. It drops the card in this frame, forgets the last-good numbers (a recreated
+        // `~/.claude3` is `claude:.claude3` again, and its first failed fetch would otherwise be
+        // filled in with THIS account's quota), and tombstones the id so a refresh that started
+        // before the removal cannot publish it back.
+        UsageStore.shared.forgetAccount(accountID)
         Task { await UsageStore.shared.refresh(userInitiated: true) }
     }
 }

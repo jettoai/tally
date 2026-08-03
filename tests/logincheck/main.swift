@@ -464,8 +464,8 @@ expect(storeSource.contains("UsageStore.shared.discoveredAccountsNow().first")
        "the sample expiry alert discovers an account itself: it fires from launch, before the "
            + "first refresh has filled the store, and an alert naming nothing cannot be renewed")
 
-expect(storeSource.contains("guard !DemoUsage.isActive, !isProbing else { return }"),
-       "demo mode never runs a provider CLI, and two rounds never overlap")
+expect(storeSource.contains("guard !DemoUsage.isActive else { return }"),
+       "demo mode never runs a provider CLI")
 expect(storeSource.contains("accountID == Self.demoExpiredAccountID"),
        "…and the demo chip comes from a fixture instead")
 expect(storeSource.contains("isProbing = true") && storeSource.contains("defer { isProbing = false }"),
@@ -473,9 +473,78 @@ expect(storeSource.contains("isProbing = true") && storeSource.contains("defer {
            + "and announce the same outage twice")
 expect(storeSource.contains("guard !BuildVariant.isDev else { return }"),
        "the dev variant never speaks on the shared surfaces, so it posts no notification")
-expect(storeSource.contains("now.timeIntervalSince(last) < Self.probeInterval { return }")
-        && storeSource.contains("if !userInitiated,"),
-       "the probe throttles itself, but an explicit refresh always asks")
+expect(storeSource.contains("LoginProbeGate.decide(state: gate, isProbing: isProbing,"),
+       "the probe throttles itself through the one gate, rather than a guard of its own")
+
+// MARK: - The chip that outlived the login (codex review + Albert's machine, 2026-08-03)
+
+// A Codex account renewed on the SECOND attempt: the quota came back at the full Team allowance and
+// the red "Login expired" chip stayed on the card. The verdict behind that chip is written by a
+// probe throttled to five minutes, and every way a renewal had of forcing a round could be dropped:
+// the refresh could be coalesced (losing `userInitiated`), the forced round could arrive while
+// another was out (dropped by the overlap guard), or the probe could beat the credential to disk.
+let gateIdle = LoginProbeGate.State()
+let probedAt = Date(timeIntervalSince1970: 1_000_000)
+let soonAfter = probedAt.addingTimeInterval(30)
+func decide(_ state: LoginProbeGate.State, isProbing: Bool = false, userInitiated: Bool = false,
+            at now: Date = soonAfter) -> LoginProbeGate.Decision {
+    LoginProbeGate.decide(state: state, isProbing: isProbing, userInitiated: userInitiated,
+                          lastProbeAt: probedAt, now: now, interval: 300)
+}
+expect(decide(gateIdle) == .skip,
+       "a routine refresh inside the interval asks nothing - a credential is not a quota")
+expect(decide(gateIdle, at: probedAt.addingTimeInterval(301)) == .run,
+       "…and asks again once the interval is up")
+expect(decide(gateIdle, userInitiated: true) == .run,
+       "an explicit refresh always asks")
+var renewed = LoginProbeGate.State()
+renewed.forced["codex:.codex2"] = LoginProbeGate.renewed
+expect(decide(renewed) == .run,
+       "a just-renewed account forces a round even on a refresh that carried no flag at all - "
+           + "which is what a coalesced refresh looks like from here")
+expect(decide(renewed, isProbing: true) == .queue && decide(gateIdle, isProbing: true) == .skip,
+       "…and a round already in flight holds it rather than dropping it on the floor")
+// The three rounds after a renewal, in the order the user's machine produced them.
+let stillOut = LoginProbeGate.afterRound(state: renewed,
+                                         verdicts: ["codex:.codex2": .signedOut])
+expect(stillOut.retrySoon,
+       "the probe beating the credential to disk buys a short re-ask, not a five-minute wait")
+let landed = LoginProbeGate.afterRound(state: renewed,
+                                       verdicts: ["codex:.codex2": .signedIn])
+expect(!landed.next.isForcing && !landed.retrySoon,
+       "…and the moment it reads signed in the account stops forcing anything")
+expect(!stillOut.next.isForcing,
+       "a renewal that really did not take runs out of forcings instead of probing forever")
+expect(LoginProbeGate.afterRound(state: renewed, verdicts: [:]).next == renewed,
+       "an account this round never probed keeps its forcing: it was not asked")
+// The other way a login finishes, and the one Albert's first attempt took: Tally hands the command
+// to a Terminal window and goes blind. The credential landing there triggers a refresh through the
+// directory watcher, and that refresh carries no flag - so the forcing has to outlive a few rounds.
+var handed = LoginProbeGate.State()
+handed.forced["codex:.codex2"] = LoginProbeGate.handedOff
+expect(decide(handed) == .run && !LoginProbeGate.handedOff.retrySoon,
+       "a login handed to a Terminal forces the next round, without assuming a file is landing")
+var patience = handed
+for _ in 0 ..< 3 {
+    patience = LoginProbeGate.afterRound(state: patience,
+                                         verdicts: ["codex:.codex2": .signedOut]).next
+}
+expect(!patience.isForcing,
+       "…and its patience is bounded, or a login abandoned in a Terminal probes on every refresh")
+
+expect(renewSource.contains("LoginStatusStore.shared.loginRenewed(accountID)"),
+       "a renewal that reported success drops the stale verdict itself, so the chip cannot "
+           + "survive on a probe that ran before the login did")
+expect(renewSource.range(of: "LoginStatusStore.shared.loginHandedOff(accountID)") != nil
+        && renewSource.components(separatedBy: "loginHandedOff(accountID)").count == 3,
+       "…and BOTH Terminal handoffs (the refused announcement and the failed attempt) force the "
+           + "rounds that follow - the failed-then-finished-by-hand path is the reported one")
+expect(storeSource.contains("verdicts[accountID] = nil"),
+       "the verdict really is cleared rather than merely re-asked for")
+expect(usageSource.contains("queuedUserInitiated = queuedUserInitiated || userInitiated")
+        && usageSource.contains("Task { await refresh(userInitiated: inherited) }"),
+       "a refresh coalesced into one already running keeps the reason it was asked for, or the "
+           + "renewal's forced probe is lost with it")
 expect(storeSource.contains("(output?.stdout ?? \"\") + \"\\n\" + (output?.stderr ?? \"\")"),
        "both streams are read, because the two CLIs answer on different ones")
 

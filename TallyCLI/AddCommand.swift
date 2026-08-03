@@ -22,6 +22,11 @@ func runAdd(args: [String]) -> Never {
         warn("usage: tally add <claude|codex> [--no-share]")
         exit(2)
     }
+    // The marker's life ends with the login, and THIS process cannot end it: the exec below replaces
+    // tally with the provider's login and never returns. The app clears one as soon as discovery
+    // sees the login, but the app is not always running - so each add first clears the markers whose
+    // logins have since landed, and no run leaves that tidying to a Tally that may never open.
+    clearFinishedPendingMarkers(providerID: provider.id)
     let prepared: AddedAccountHome
     do {
         prepared = try prepareAddedAccountHome(providerID: provider.id, share: share)

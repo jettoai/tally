@@ -11,19 +11,39 @@ import Foundation
 // Foundation-only and probe-injected, so every rule here is testable without a Trash, a home
 // directory or the stores that hold the settings.
 
+/// Codex's XDG-style config home, relative to the user's home directory.
+///
+/// Never a slot the add flow hands out (the walk numbers `~/.codex*`), but discovery falls back to
+/// it when no `~/.codex*` login exists, matching the CLI's own lookup order - see
+/// `CodexAccounts.discover`, which reads this same constant. On such a machine it IS the user's
+/// primary setup, which is why the protection below has to cover it.
+let codexXDGConfigHome = ".config/codex"
+
+/// The homes that ARE the user's primary setup for this provider, and therefore never removable.
+///
+/// One list rather than one path, because a provider can have more than one place its CLI calls
+/// home: codex reads `~/.codex` first and `~/.config/codex` when there is no `~/.codex*` login at
+/// all, and a machine using only the second has its whole setup there.
+func mainAccountHomes(providerID: String,
+                      userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
+    var homes = [userHome.appendingPathComponent(addAccountConfigBase(providerID: providerID))]
+    if providerID == "codex" { homes.append(userHome.appendingPathComponent(codexXDGConfigHome)) }
+    return homes
+}
+
 /// Whether Tally may offer to remove the account living in this config home.
 ///
-/// The provider's DEFAULT home (`~/.claude`, `~/.codex`) never qualifies. It is where the provider's
-/// own CLI lands with no configuration at all, so removing it is not "removing an account Tally
-/// added" but deleting the user's primary setup - and the numbered homes' whole share (harness
-/// links, seeded folder trust) points INTO it. A home Tally has nothing to act on (nil) is not
-/// removable either.
+/// A provider's DEFAULT home never qualifies. It is where the provider's own CLI lands with no
+/// configuration at all, so removing it is not "removing an account Tally added" but deleting the
+/// user's primary setup - and the numbered homes' whole share (harness links, seeded folder trust)
+/// points INTO it. A home Tally has nothing to act on (nil) is not removable either.
 func accountHomeIsRemovable(providerID: String, home: String?,
                             userHome: URL = FileManager.default.homeDirectoryForCurrentUser)
     -> Bool {
     guard let home, !home.isEmpty else { return false }
-    let main = userHome.appendingPathComponent(addAccountConfigBase(providerID: providerID))
-    return normalizedPath(URL(fileURLWithPath: home)) != normalizedPath(main)
+    let candidate = normalizedPath(URL(fileURLWithPath: home))
+    return !mainAccountHomes(providerID: providerID, userHome: userHome)
+        .contains { normalizedPath($0) == candidate }
 }
 
 /// Symlinks resolved and `..`/`.` collapsed on both sides: `/var/…` and `/private/var/…` are the

@@ -33,6 +33,27 @@ func addAccountAuthFile(providerID: String) -> String {
 /// (`clearAddAccountPendingMarker`, called from KnownAccountsStore).
 let addAccountPendingMarker = ".tally-pending-add"
 
+/// What the marker HOLDS: the home exactly as the preparation left it.
+///
+/// The marker's presence alone is not proof that a home is still an unfinished attempt, because
+/// nothing can guarantee the marker is removed on time. `tally add` execs the provider's login over
+/// its own process, so the only surface that can clear it is a Tally that is RUNNING when discovery
+/// next sees the login - and a user who finishes a login with the app closed and later signs out
+/// leaves a marker sitting on a directory full of their conversations. Reuse would then overwrite
+/// it, which is the very bug the slot rule exists to close.
+///
+/// So reuse asks for evidence the marker cannot fake: is this directory still, entry for entry, the
+/// preparation? A login writes into its home (`sessions/`, `history.jsonl`, `projects/`, a rewritten
+/// `.claude.json`), so a home that has ever been signed in to no longer matches, marker or not. The
+/// failure direction is deliberate: an unrecognized, unreadable or absent note means "not reusable",
+/// which costs an abandoned attempt its number and never costs anybody their history.
+struct AddAccountPendingNote: Codable, Equatable, Sendable {
+    /// When the preparation ran. For a human reading the file; nothing decides on it.
+    var createdAt: String
+    /// The home's entries when the preparation finished, this marker excluded, sorted.
+    var entries: [String]
+}
+
 /// What is at one numbered config home right now - existence first, contents second, because
 /// existence is what decides occupancy.
 enum AddAccountHomeContents: Equatable {
@@ -63,9 +84,11 @@ enum AddAccountHomeContents: Equatable {
 /// a credential is a fact about NOW, and a directory full of somebody's history is not free just
 /// because nobody is signed in to it this minute.
 ///
-/// The login question survives as the completion signal INSIDE exception 1: a marker that outlived
-/// its login (the CLI's `tally add` execs the provider and can never come back to tidy up) must not
-/// re-open the very hole above.
+/// The login question survives as the completion signal INSIDE exception 1, and it is not the only
+/// one: a marker that outlived its login (the CLI's `tally add` execs the provider and can never
+/// come back to tidy up) must not re-open the very hole above, so the marker has to still DESCRIBE
+/// the directory it sits in (`AddAccountPendingNote`). A signed-out home whose marker was never
+/// cleared fails that second question even though it passes the first.
 ///
 /// Every probe is injected so the choice is testable without a Keychain, a Trash or a home
 /// directory. The Keychain one is only ever consulted for claude: a codex login is a file
@@ -73,13 +96,15 @@ enum AddAccountHomeContents: Equatable {
 func nextFreeSlot(base: String, authFile: String, home: URL,
                   contents: (URL) -> AddAccountHomeContents = AddAccountProbe.contents,
                   fileExists: (String) -> Bool = AddAccountProbe.fileExists,
-                  keychainLogin: (URL) -> Bool = AddAccountProbe.keychainLogin)
+                  keychainLogin: (URL) -> Bool = AddAccountProbe.keychainLogin,
+                  pendingNote: (URL) -> AddAccountPendingNote? = AddAccountProbe.pendingNote)
     -> (dir: URL, name: String)? {
     for n in 1 ... 99 {
         let name = n == 1 ? base : "\(base)\(n)"
         let dir = home.appendingPathComponent(name)
         if addAccountHomeIsFree(base: base, authFile: authFile, dir: dir, contents: contents,
-                                fileExists: fileExists, keychainLogin: keychainLogin) {
+                                fileExists: fileExists, keychainLogin: keychainLogin,
+                                pendingNote: pendingNote) {
             return (dir, name)
         }
     }
@@ -91,7 +116,8 @@ func nextFreeSlot(base: String, authFile: String, home: URL,
 func addAccountHomeIsFree(base: String, authFile: String, dir: URL,
                           contents: (URL) -> AddAccountHomeContents,
                           fileExists: (String) -> Bool,
-                          keychainLogin: (URL) -> Bool) -> Bool {
+                          keychainLogin: (URL) -> Bool,
+                          pendingNote: (URL) -> AddAccountPendingNote?) -> Bool {
     switch contents(dir) {
     case .absent:
         return true
@@ -99,10 +125,20 @@ func addAccountHomeIsFree(base: String, authFile: String, dir: URL,
         return false
     case .entries(let entries):
         if entries.isEmpty { return true }
-        guard entries.contains(addAccountPendingMarker) else { return false }
-        return !addAccountHomeHasLogin(base: base, authFile: authFile, dir: dir,
-                                       fileExists: fileExists, keychainLogin: keychainLogin)
+        guard entries.contains(addAccountPendingMarker),
+              !addAccountHomeHasLogin(base: base, authFile: authFile, dir: dir,
+                                      fileExists: fileExists, keychainLogin: keychainLogin),
+              let note = pendingNote(dir)
+        else { return false }
+        // The stronger half of the evidence: nothing has happened in here since the preparation.
+        return note.entries == addAccountHomeSnapshot(entries)
     }
+}
+
+/// A home's entries as the marker records them: the marker itself excluded (it is written INTO the
+/// directory it describes), sorted so two listings of one unchanged directory always compare equal.
+func addAccountHomeSnapshot(_ entries: [String]) -> [String] {
+    entries.filter { $0 != addAccountPendingMarker }.sorted()
 }
 
 /// Whether one config home HOLDS a login, asked of both places a credential can live: Claude Code
@@ -155,6 +191,14 @@ enum AddAccountProbe {
     static func keychainLogin(_ dir: URL) -> Bool {
         KeychainReader.exists(service: claudeKeychainService(forConfigDir: dir))
     }
+
+    /// The marker's own contents. Unreadable, or written by something that is not this flow, is
+    /// nil - which reads as "no evidence", and therefore as a home nobody may reuse.
+    static func pendingNote(_ dir: URL) -> AddAccountPendingNote? {
+        guard let data = try? Data(contentsOf: dir.appendingPathComponent(addAccountPendingMarker))
+        else { return nil }
+        return try? JSONDecoder().decode(AddAccountPendingNote.self, from: data)
+    }
 }
 
 /// The config home this provider's next account would get, or nil when all 99 are taken.
@@ -174,12 +218,57 @@ func clearAddAccountPendingMarker(in dir: URL) {
     try? FileManager.default.removeItem(at: dir.appendingPathComponent(addAccountPendingMarker))
 }
 
-/// Mark a home as prepared-but-not-signed-in-yet. Best-effort like the other side errands: a marker
-/// that fails to land costs the next attempt a fresh number, never the login the user asked for.
+/// Clear the marker from every numbered home of this provider that now HOLDS a login.
+///
+/// The app clears one the moment discovery sees the login (KnownAccountsStore), but the app is not
+/// always running, and the surface that needs this most cannot do it at all: `tally add` execs the
+/// provider's login over its own process and never comes back. So each run of `tally add` first
+/// tidies up after the runs before it, and a marker whose login has since arrived stops being a
+/// question the next add has to answer from the directory listing alone.
+///
+/// The marker check comes first on purpose: it is a string test against a listing the walk already
+/// needs, and it keeps the login probe (a Keychain attribute read, for claude) off the 99 homes that
+/// have no marker to clear.
+@discardableResult
+func clearFinishedPendingMarkers(
+    providerID: String, home: URL = FileManager.default.homeDirectoryForCurrentUser,
+    contents: (URL) -> AddAccountHomeContents = AddAccountProbe.contents,
+    fileExists: (String) -> Bool = AddAccountProbe.fileExists,
+    keychainLogin: (URL) -> Bool = AddAccountProbe.keychainLogin
+) -> [String] {
+    let base = addAccountConfigBase(providerID: providerID)
+    let authFile = addAccountAuthFile(providerID: providerID)
+    var cleared: [String] = []
+    for n in 1 ... 99 {
+        let name = n == 1 ? base : "\(base)\(n)"
+        let dir = home.appendingPathComponent(name)
+        guard case .entries(let entries) = contents(dir),
+              entries.contains(addAccountPendingMarker),
+              addAccountHomeHasLogin(base: base, authFile: authFile, dir: dir,
+                                     fileExists: fileExists, keychainLogin: keychainLogin)
+        else { continue }
+        clearAddAccountPendingMarker(in: dir)
+        cleared.append(name)
+    }
+    return cleared
+}
+
+/// Mark a home as prepared-but-not-signed-in-yet, recording what is in it right now so a later add
+/// can tell this preparation from a directory somebody has since lived in.
+///
+/// Best-effort like the other side errands: a marker that fails to land costs the next attempt a
+/// fresh number, never the login the user asked for. The listing is read from the real directory
+/// rather than from an injected probe - this writes a file into that same real directory, and a
+/// note describing a directory other than the one it lands in would be worse than no note.
 private func writeAddAccountPendingMarker(in dir: URL) {
-    let body = "{\"version\":1,\"createdAt\":\"\(ISO8601DateFormatter().string(from: Date()))\"}"
-    try? Data(body.utf8).write(to: dir.appendingPathComponent(addAccountPendingMarker),
-                               options: .atomic)
+    var entries: [String] = []
+    if case .entries(let found) = AddAccountProbe.contents(dir) {
+        entries = addAccountHomeSnapshot(found)
+    }
+    let note = AddAccountPendingNote(createdAt: ISO8601DateFormatter().string(from: Date()),
+                                     entries: entries)
+    guard let data = try? JSONEncoder().encode(note) else { return }
+    try? data.write(to: dir.appendingPathComponent(addAccountPendingMarker), options: .atomic)
 }
 
 /// What preparing a new account's home actually did, so the surface that asked can say so. Every
@@ -235,12 +324,14 @@ func prepareAddedAccountHome(
     home: URL = FileManager.default.homeDirectoryForCurrentUser,
     contents: (URL) -> AddAccountHomeContents = AddAccountProbe.contents,
     fileExists: (String) -> Bool = AddAccountProbe.fileExists,
-    keychainLogin: (URL) -> Bool = AddAccountProbe.keychainLogin
+    keychainLogin: (URL) -> Bool = AddAccountProbe.keychainLogin,
+    pendingNote: (URL) -> AddAccountPendingNote? = AddAccountProbe.pendingNote
 ) throws -> AddedAccountHome {
     let base = addAccountConfigBase(providerID: providerID)
     guard let (dir, name) = nextFreeSlot(
         base: base, authFile: addAccountAuthFile(providerID: providerID), home: home,
-        contents: contents, fileExists: fileExists, keychainLogin: keychainLogin)
+        contents: contents, fileExists: fileExists, keychainLogin: keychainLogin,
+        pendingNote: pendingNote)
     else { throw AddAccountFailure.noFreeSlot(base: base) }
 
     let fm = FileManager.default
@@ -277,6 +368,10 @@ func prepareAddedAccountHome(
     if share, providerID == "claude", !isMainHome {
         trustSeeded = seedFolderTrust(from: mainHome, to: dir)
     }
+    // Written a second time, now that the sharing and the seeding are done: the note has to
+    // describe the home the login is about to run against, or the next add would read this very
+    // preparation's own links as somebody having lived here.
+    writeAddAccountPendingMarker(in: dir)
     return AddedAccountHome(
         dir: dir, name: name, isMainHome: isMainHome,
         linked: linked, kept: kept, failed: failed, unlinked: unlinked, trustCleared: trustCleared,

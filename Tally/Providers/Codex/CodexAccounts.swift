@@ -35,8 +35,12 @@ enum CodexAccounts {
 
         var seen = Set<String>()
         var accounts = dirs.compactMap { account(forHome: $0, seen: &seen) }
+        // The same constant the removal protection reads (RemoveAccount.swift): a machine whose only
+        // account is here has its primary setup here, and the two must not disagree about where
+        // that is.
         if accounts.isEmpty,
-           let fallback = account(forHome: home.appendingPathComponent(".config/codex", isDirectory: true),
+           let fallback = account(forHome: home.appendingPathComponent(codexXDGConfigHome,
+                                                                       isDirectory: true),
                                   seen: &seen) {
             accounts.append(fallback)
         }

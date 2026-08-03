@@ -57,6 +57,27 @@ final class LoginStatusStore {
     /// to the config-derived one rather than showing nothing.
     func email(_ accountID: String) -> String? { emails[accountID] }
 
+    /// Accounts a login was just attempted on, which may force a round past the interval
+    /// (LoginProbeGate.swift - it owns the whole rule and the bug it closes).
+    private var gate = LoginProbeGate.State()
+    /// A forced round that arrived while another was out, kept rather than dropped.
+    private var queuedRound: (accounts: [ProviderAccount], known: Set<String>)?
+
+    /// A renewal reported success for this account. The stale verdict goes NOW - the CLI that just
+    /// signed in is a better witness than a probe from before it ran - and the next round is forced,
+    /// so the card is corrected by data within seconds either way.
+    func loginRenewed(_ accountID: String) {
+        verdicts[accountID] = nil
+        gate.forced[accountID] = LoginProbeGate.renewed
+    }
+
+    /// A login was handed to a Terminal window Tally cannot watch. Nothing is assumed about the
+    /// outcome; the next few rounds simply stop being skipped, so the refresh the finished login
+    /// triggers (AccountDirWatcher sees the credential land) is allowed to ask.
+    func loginHandedOff(_ accountID: String) {
+        gate.forced[accountID] = LoginProbeGate.handedOff
+    }
+
     /// Probe every account that has a config home, unless one ran recently. `userInitiated` (an
     /// explicit refresh, or the refresh a finished renewal triggers) always probes: the point of
     /// that refresh is usually to confirm the login just came back.
@@ -65,10 +86,21 @@ final class LoginStatusStore {
     /// one being probed (that one is filtered by enablement). Only the dedup state reads it - see
     /// `announce`.
     func evaluate(accounts: [ProviderAccount], known: Set<String>, userInitiated: Bool) async {
-        guard !DemoUsage.isActive, !isProbing else { return }
+        guard !DemoUsage.isActive else { return }
         let now = Date()
-        if !userInitiated, let last = lastProbeAt,
-           now.timeIntervalSince(last) < Self.probeInterval { return }
+        switch LoginProbeGate.decide(state: gate, isProbing: isProbing, userInitiated: userInitiated,
+                                     lastProbeAt: lastProbeAt, now: now,
+                                     interval: Self.probeInterval) {
+        case .skip:
+            return
+        case .queue:
+            // Held rather than dropped: this is the round a just-renewed account is waiting on, and
+            // returning here used to leave its chip up for the rest of the interval.
+            queuedRound = (accounts, known)
+            return
+        case .run:
+            break
+        }
         lastProbeAt = now
         isProbing = true
         defer { isProbing = false }
@@ -104,7 +136,28 @@ final class LoginStatusStore {
             verdicts[id] = reading.verdict
             if let email = reading.email { emails[id] = email }
         }
-        announce(verdicts: readings.mapValues(\.verdict), accounts: accounts, known: known)
+        let roundVerdicts = readings.mapValues(\.verdict)
+        announce(verdicts: roundVerdicts, accounts: accounts, known: known)
+
+        let (next, retrySoon) = LoginProbeGate.afterRound(state: gate, verdicts: roundVerdicts)
+        gate = next
+        let queued = queuedRound
+        queuedRound = nil
+        // Both follow-ups start AFTER this call returns (its `defer` has to clear `isProbing` first,
+        // or the round they ask for would be queued behind the one that is finishing).
+        if let queued {
+            Task { @MainActor in
+                await evaluate(accounts: queued.accounts, known: queued.known, userInitiated: true)
+            }
+        } else if retrySoon {
+            // The CLI said the login landed and the probe still says signed out: the credential is
+            // most likely still being written. One short re-ask, rather than five minutes of a red
+            // chip on an account that works.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(LoginProbeGate.retryDelay * 1_000_000_000))
+                await evaluate(accounts: accounts, known: known, userInitiated: true)
+            }
+        }
     }
 
     /// Dev-build stand-in CLI (`-TallyLoginStatusCLI /path/to/stub`), the same shape as

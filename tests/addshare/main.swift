@@ -169,15 +169,23 @@ func allTaken(base: String, entries: [String]) -> [String: [String]] {
 }
 
 /// `dirs` maps a home's NAME to what is in it; a name that is absent from the map is a path with
-/// nothing at it.
+/// nothing at it. `notes` maps a home's NAME to the entries ITS MARKER records - absent means the
+/// marker holds nothing readable, which is what a home carrying somebody else's leftover file looks
+/// like.
 func slot(base: String = ".claude", authFile: String = ".credentials.json",
           dirs: [String: [String]] = [:],
+          notes: [String: [String]] = [:],
           files: @escaping (String) -> Bool = noFiles,
           keychain: @escaping (URL) -> Bool = noKeychain) -> String? {
     nextFreeSlot(base: base, authFile: authFile, home: fakeHome,
                  contents: { dirs[$0.lastPathComponent].map(AddAccountHomeContents.entries)
                      ?? .absent },
-                 fileExists: files, keychainLogin: keychain).map(\.name)
+                 fileExists: files, keychainLogin: keychain,
+                 pendingNote: { dir in
+                     notes[dir.lastPathComponent].map {
+                         AddAccountPendingNote(createdAt: "", entries: $0.sorted())
+                     }
+                 }).map(\.name)
 }
 
 // THE REGRESSION LOCK. Albert's own machine: `.codex2` still holds the account's history, its login
@@ -205,13 +213,29 @@ check("a directory with nothing in it holds nobody",
 // the absence of a credential, so an abandoned attempt never burns a number while an expired
 // account never gets handed out.
 check("our own unfinished attempt is resumed rather than skipped",
-      slot(dirs: [".claude": [addAccountPendingMarker, "settings.json"]]) == ".claude")
+      slot(dirs: [".claude": [addAccountPendingMarker, "settings.json"]],
+           notes: [".claude": ["settings.json"]]) == ".claude")
 // The completion signal INSIDE that exception: `tally add` execs the provider's login over its own
 // process and can never come back to remove the marker, so a marker that outlived its login must
 // not re-open the hole above.
 check("…but not once a login has landed in it",
-      slot(dirs: [".claude": [addAccountPendingMarker]],
+      slot(dirs: [".claude": [addAccountPendingMarker]], notes: [".claude": []],
            keychain: { $0.lastPathComponent == ".claude" }) == ".claude2")
+// THE SECOND LOCK, and the one that survives a marker nobody could clear (codex review, 2026-08-03):
+// a user finishes `tally add` while Tally.app is closed, so nothing ever sees the login and removes
+// the marker, and later signs out. Marker present, no login present - the old rule read that as our
+// own unfinished attempt and handed out a home full of their conversations.
+check("a marker on a home that has been LIVED IN is not evidence of anything",
+      slot(dirs: [".claude": [addAccountPendingMarker, "settings.json", "projects", "history.jsonl"]],
+           notes: [".claude": ["settings.json"]]) == ".claude2")
+check("…and neither is a marker whose note cannot be read",
+      slot(dirs: [".claude": [addAccountPendingMarker, "settings.json"]]) == ".claude2")
+check("evidence is the whole listing, so even one new file is enough to refuse",
+      slot(dirs: [".claude": [addAccountPendingMarker, "settings.json", "sessions"]],
+           notes: [".claude": ["settings.json"]]) == ".claude2")
+check("…while the same listing in another order is the same directory",
+      slot(dirs: [".claude": [addAccountPendingMarker, "CLAUDE.md", "settings.json"]],
+           notes: [".claude": ["settings.json", "CLAUDE.md"]]) == ".claude")
 // Something that is not a usable directory is occupied by whatever it is: move to the next number
 // rather than fail the whole add trying to create a home over it.
 check("a path that is not a readable directory is skipped",
@@ -568,6 +592,49 @@ try! fm.removeItem(at: dormantAdd.dir.appendingPathComponent("auth.json"))
 check("and the home it landed in is nobody's to reuse once that login expires",
       codexSlot(in: dormantRoot) == ".codex4")
 
+// MARK: - The marker nobody could clear (the three scenarios, end to end on a real directory)
+
+// The hole codex found on 2026-08-03: `tally add` execs the provider's login, so the ONLY surface
+// that can remove the marker is a Tally that happens to be running when discovery next sees the
+// login. Finish a login with the app closed, sign out again, and the marker is still sitting on a
+// directory full of conversations. The note it carries is what closes it: a home that has been
+// signed in to no longer looks like the preparation, whatever the marker says.
+let markerRoot = tmp.appendingPathComponent("marker-\(UUID().uuidString)")
+try! fm.createDirectory(at: markerRoot, withIntermediateDirectories: true)
+let markerMain = markerRoot.appendingPathComponent(".codex")
+try! fm.createDirectory(at: markerMain, withIntermediateDirectories: true)
+try! "auth".write(to: markerMain.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
+let pending = try! prepareAddedAccountHome(providerID: "codex", share: false, home: markerRoot,
+                                           fileExists: realFiles, keychainLogin: noKeychain)
+check("scenario 3 - an attempt nobody has signed into yet is resumed on its own number",
+      pending.name == ".codex2" && codexSlot(in: markerRoot) == ".codex2")
+// Scenario 1: the login lands while Tally is running, so the marker goes the moment discovery sees
+// it (KnownAccountsStore calls exactly this). `tally add` cannot, which is scenario 2.
+try! "auth".write(to: pending.dir.appendingPathComponent("auth.json"), atomically: true,
+                  encoding: .utf8)
+check("scenario 1 - a sweep clears the marker of a home whose login has since landed",
+      clearFinishedPendingMarkers(providerID: "codex", home: markerRoot,
+                                  fileExists: realFiles, keychainLogin: noKeychain) == [".codex2"]
+          && !fm.fileExists(atPath: pending.dir.appendingPathComponent(addAccountPendingMarker).path))
+check("…and it leaves alone the homes it has no marker to clear",
+      clearFinishedPendingMarkers(providerID: "codex", home: markerRoot,
+                                  fileExists: realFiles, keychainLogin: noKeychain).isEmpty
+          && fm.fileExists(atPath: markerMain.appendingPathComponent("auth.json").path))
+// Scenario 2: the same login, finished with Tally.app closed, so NOTHING cleared the marker - and
+// then the account signs out. This is the case that used to hand the directory away.
+let stale = try! prepareAddedAccountHome(providerID: "codex", share: false, home: markerRoot,
+                                         fileExists: realFiles, keychainLogin: noKeychain)
+check("the next attempt takes the next number", stale.name == ".codex3")
+try! fm.createDirectory(at: stale.dir.appendingPathComponent("sessions"),
+                        withIntermediateDirectories: true)
+try! "history".write(to: stale.dir.appendingPathComponent("history.jsonl"), atomically: true,
+                     encoding: .utf8)
+check("scenario 2 - a marker that outlived a login (app closed, then signed out) is refused",
+      fm.fileExists(atPath: stale.dir.appendingPathComponent(addAccountPendingMarker).path)
+          && !addedAccountHomeHasLogin(providerID: "codex", dir: stale.dir,
+                                       keychainLogin: noKeychain)
+          && codexSlot(in: markerRoot) == ".codex4")
+
 // codex: its own allowlist, and no trust seeding at all (it has no such prompt).
 let codexMain = addRoot.appendingPathComponent(".codex")
 try! fm.createDirectory(at: codexMain, withIntermediateDirectories: true)
@@ -653,7 +720,7 @@ check("the provider-shaped wrapper agrees with the base-shaped one",
 let takenProbe: (String) -> Bool = { $0.hasSuffix("/.claude/.credentials.json") }
 check("nothing that reads as signed in is ever handed out",
       slot(dirs: [".claude": [addAccountPendingMarker, ".credentials.json"]],
-           files: takenProbe) == ".claude2"
+           notes: [".claude": [".credentials.json"]], files: takenProbe) == ".claude2"
           && addedAccountHomeHasLogin(providerID: "claude",
                                       dir: fakeHome.appendingPathComponent(".claude"),
                                       fileExists: takenProbe, keychainLogin: noKeychain))

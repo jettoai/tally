@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/removeaccount/main.swift \
   Tally/Core/RemoveAccount.swift Tally/Core/AddAccount.swift \
+  Tally/Core/AccountRemovals.swift \
   Tally/Core/SharedHarness.swift Tally/Core/TrustSeed.swift Tally/Core/ClaudeStatePath.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift
 "$out"

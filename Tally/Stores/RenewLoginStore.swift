@@ -68,6 +68,11 @@ final class RenewLoginStore {
             guard announced else {
                 _ = await openTerminal(executable: executable, envKey: envKey, home: home,
                                        providerID: providerID, plan: plan)
+                // Tally is blind from here (LoginTerminalFallback waits for the WINDOW, not for the
+                // login in it), so the login-status probe is told to stop skipping rounds for this
+                // account - otherwise a sign-in finished in that window leaves the "Login expired"
+                // chip up for the rest of the probe interval.
+                LoginStatusStore.shared.loginHandedOff(accountID)
                 inFlight.remove(accountID)
                 return
             }
@@ -76,6 +81,11 @@ final class RenewLoginStore {
             inFlight.remove(accountID)
             switch outcome {
             case .renewed:
+                // Before anything asynchronous: the card's "Login expired" chip is read off the
+                // last probe's verdict, and the CLI that just signed in knows better than a probe
+                // that ran before it. The forced round behind this replaces the assumption with an
+                // answer within seconds (LoginProbeGate.swift).
+                LoginStatusStore.shared.loginRenewed(accountID)
                 // The verdict goes out FIRST. The refresh below re-reads every account through
                 // their CLIs and takes seconds, and a user who just finished a sign-in should not
                 // wait on unrelated network calls to hear whether it worked.
@@ -87,6 +97,10 @@ final class RenewLoginStore {
             case .failed(let failure):
                 let opened = await openTerminal(executable: executable, envKey: envKey, home: home,
                                                 providerID: providerID, plan: plan)
+                // Same reason as the announcement-refused path above, and this is the one the user
+                // actually hit: the first attempt failed, they finished the login in the Terminal
+                // window (or retried), and the chip has to come down on its own.
+                LoginStatusStore.shared.loginHandedOff(accountID)
                 _ = await SystemAlert.post(
                     title: "\(label) · " + L("Login not renewed"),
                     body: Self.reason(failure) + " " + (opened

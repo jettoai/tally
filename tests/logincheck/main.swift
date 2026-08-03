@@ -628,8 +628,8 @@ expect(LoginProbeGate.handoffTick(elapsed: LoginProbeGate.handoffPatience, crede
 // machine where nothing happened - and a plain inequality called that a login (codex review,
 // 2026-08-03).
 let handedOverStamp = LoginProbeGate.CredentialStamp(
-    fileModifiedAt: Date(timeIntervalSince1970: 1_000), fileSize: 42, keychain: true,
-    keychainModifiedAt: Date(timeIntervalSince1970: 1_000))
+    fileExists: true, fileModifiedAt: Date(timeIntervalSince1970: 1_000), fileSize: 42,
+    keychain: true, keychainModifiedAt: Date(timeIntervalSince1970: 1_000))
 var lockedStamp = handedOverStamp
 lockedStamp.keychainModifiedAt = nil
 expect(!lockedStamp.landed(after: handedOverStamp)
@@ -639,12 +639,35 @@ var renewedStamp = handedOverStamp
 renewedStamp.keychainModifiedAt = Date(timeIntervalSince1970: 2_000)
 var rewrittenFile = handedOverStamp
 rewrittenFile.fileModifiedAt = Date(timeIntervalSince1970: 2_000)
-let nothingThere = LoginProbeGate.CredentialStamp(fileModifiedAt: nil, fileSize: nil,
-                                                  keychain: false, keychainModifiedAt: nil)
+let nothingThere = LoginProbeGate.CredentialStamp(fileExists: false, fileModifiedAt: nil,
+                                                  fileSize: nil, keychain: false,
+                                                  keychainModifiedAt: nil)
 expect(renewedStamp.landed(after: handedOverStamp)
         && rewrittenFile.landed(after: handedOverStamp)
         && handedOverStamp.landed(after: nothingThere),
        "a credential that was rewritten, or that appeared where there was none, is one")
+
+// The account the handoff was built for: a dormant Codex one has no `auth.json` and never a
+// Keychain item, so every field is nil before the login and a date after it - which "both sides had
+// to be readable" read as nothing happening, and the ladder waited out its five minutes without
+// asking once (codex review, 2026-08-03). File existence answers where the attributes cannot.
+let dormantCodex = nothingThere
+let signedInCodex = LoginProbeGate.CredentialStamp(
+    fileExists: true, fileModifiedAt: Date(timeIntervalSince1970: 2_000), fileSize: 512,
+    keychain: false, keychainModifiedAt: nil)
+expect(signedInCodex.landed(after: dormantCodex),
+       "an auth.json appearing where there was none is a login landing, Keychain or no Keychain")
+expect(!dormantCodex.landed(after: signedInCodex),
+       "…and the same file going away is not: existence speaks in one direction, like the Keychain's")
+var unreadableCodex = signedInCodex
+unreadableCodex.fileModifiedAt = nil
+unreadableCodex.fileSize = nil
+expect(!unreadableCodex.landed(after: signedInCodex)
+        && !signedInCodex.landed(after: unreadableCodex),
+       "a file that stops describing itself, and one that starts again, still moved nothing: a "
+           + "failed stat is a worse view of the machine, not a new credential")
+expect(renewSource.contains("FileManager.default.fileExists(atPath: file.path)"),
+       "…and the stamp reads existence itself rather than inferring it from a stat that can fail")
 
 // The other half of the same bug, and the one that covers a user who takes their time in that
 // Terminal window: a dormant account becoming discoverable again IS the login landing. The watcher

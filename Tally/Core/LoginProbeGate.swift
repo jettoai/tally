@@ -117,6 +117,10 @@ enum LoginProbeGate {
     /// anything, so the only usable signal is that the one on disk is no longer the one that was
     /// there when Tally handed the login over.
     struct CredentialStamp: Equatable {
+        /// Whether the credential file is there at all. Separate from the attributes below because
+        /// a `stat` failing and a file being absent are different answers: the first is a worse
+        /// view of the machine, the second is the machine.
+        var fileExists: Bool = false
         var fileModifiedAt: Date?
         var fileSize: Int?
         var keychain: Bool
@@ -133,13 +137,22 @@ enum LoginProbeGate {
         /// unchanged: the account falls back to the config-dir watcher and the poll, where it was
         /// before this ladder existed. Never the other way round.
         ///
-        /// Existence is the one field that cannot go unknown (a locked item still answers that it
-        /// is present, KeychainReader.exists), so it speaks in one direction: an item appearing is
-        /// a login landing, an item disappearing is not.
+        /// Existence is the one thing that cannot go unknown - a locked Keychain item still answers
+        /// that it is present (KeychainReader.exists), and a file either has a directory entry or
+        /// does not - so it speaks in one direction: a credential appearing is a login landing, one
+        /// disappearing is not.
+        ///
+        /// Both existences have to be asked, not just the Keychain's. Only Claude Code keeps a
+        /// login there, so a Codex account's `keychain` is false on both sides of every comparison,
+        /// and a dormant one starts with no `auth.json` at all: every attribute is nil before the
+        /// login and a date after it, which the rule above reads as unchanged. That is the exact
+        /// account the Terminal handoff exists for, and its ladder would have waited out its five
+        /// minutes without asking once (codex review, 2026-08-03).
         func landed(after previous: CredentialStamp) -> Bool {
             Self.moved(previous.fileModifiedAt, fileModifiedAt)
                 || Self.moved(previous.fileSize, fileSize)
                 || Self.moved(previous.keychainModifiedAt, keychainModifiedAt)
+                || (fileExists && !previous.fileExists)
                 || (keychain && !previous.keychain)
         }
 

@@ -178,11 +178,16 @@ final class RenewLoginStore {
                                         home: String) -> LoginProbeGate.CredentialStamp {
         let dir = URL(fileURLWithPath: home)
         let file = dir.appendingPathComponent(addAccountAuthFile(providerID: providerID))
+        // Existence is read on its own rather than inferred from the attributes: a `stat` that
+        // fails says nothing about whether the file is there, and a credential appearing where
+        // there was none is the whole signal for a provider that keeps no Keychain item.
+        let exists = FileManager.default.fileExists(atPath: file.path)
         let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
         // Only Claude Code keeps a login in the Keychain; asking about a codex one would be asking
         // a question with no answer.
         let service = providerID == "claude" ? claudeKeychainService(forConfigDir: dir) : nil
         return LoginProbeGate.CredentialStamp(
+            fileExists: exists,
             fileModifiedAt: attributes?[.modificationDate] as? Date,
             fileSize: (attributes?[.size] as? NSNumber)?.intValue,
             keychain: service.map { KeychainReader.exists(service: $0) } ?? false,

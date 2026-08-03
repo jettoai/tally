@@ -38,8 +38,17 @@ func capture(_ executable: String, _ arguments: [String]) -> String? {
 
 let claudePlan = RenewLoginCommand.plan(providerID: "claude")
 let codexPlan = RenewLoginCommand.plan(providerID: "codex")
-expect(claudePlan?.arguments == ["auth", "login", "--strict-mcp-config"],
+expect(claudePlan?.arguments == ["--strict-mcp-config", "auth", "login"],
        "claude re-logs in through its own auth subcommand, with the host's MCP config kept out")
+// The ordering above is the whole bug the previous release shipped: a main-command option written
+// after the subcommand is rejected by Commander ("unknown option"), so the renewal could only ever
+// fail. Held as a rule rather than as one literal, because it is the rule that generalises to the
+// next flag someone adds.
+for plan in [claudePlan, codexPlan].compactMap({ $0 }) {
+    expect(plan.arguments.drop(while: { $0.hasPrefix("-") }).allSatisfy { !$0.hasPrefix("-") },
+           "every option precedes the subcommand, where the main command parses it: "
+               + plan.arguments.joined(separator: " "))
+}
 expect(claudePlan?.needsTerminal == true,
        "claude draws a terminal UI, so it is given a pty")
 expect(claudePlan?.confirmKeystroke == "\r",

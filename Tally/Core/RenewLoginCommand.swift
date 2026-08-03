@@ -53,9 +53,18 @@ enum RenewLoginCommand {
         case "claude":
             // --strict-mcp-config: the same guard the usage probe carries (ClaudeUsageCLI). A login
             // has no session to boot MCP servers for today, but a spawned `claude` never gets to
-            // inherit the host's MCP config, and the subcommand accepts the flag (verified via
-            // `claude auth login --strict-mcp-config --help`, 2026-08-03).
-            return Plan(arguments: ["auth", "login", "--strict-mcp-config"],
+            // inherit the host's MCP config either way.
+            //
+            // It belongs BEFORE the subcommand: it is an option of the main command, and Commander
+            // rejects a parent's option written after a subcommand. Measured on `login`'s sibling
+            // `auth status`, which answers the placement question without spending anyone's
+            // credentials (2.1.220, 2026-08-03): after the subcommand it exits 1 with "error:
+            // unknown option '--strict-mcp-config'", before it the status prints as it does bare.
+            //
+            // The rejected order shipped because it was checked with `--help`, which prints its
+            // screen and exits before any option is validated - appending a nonexistent flag to a
+            // --help line "passes" no matter what. A flag is confirmed by a run that parses it.
+            return Plan(arguments: ["--strict-mcp-config", "auth", "login"],
                         needsTerminal: true,
                         progressMarkers: ["opening browser", "browser didn't open"],
                         successMarkers: ["login successful", "logged in as"],

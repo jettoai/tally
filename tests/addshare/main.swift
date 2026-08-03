@@ -360,6 +360,54 @@ check("the unfinished home is resumed rather than skipped", optedOut.name == ".c
 check("opting out removes the earlier run's share links",
       optedOut.unlinked.contains("CLAUDE.md") && optedOut.linked.isEmpty
           && !fm.fileExists(atPath: prepared.dir.appendingPathComponent("CLAUDE.md").path))
+// The other half of that undo, and the one it shipped without (2026-08-03): the first, shared
+// attempt also SEEDED folder trust into this home, so opting out while that file stayed left the
+// new account skipping the trust prompt for every project the main account vouched for - while the
+// sheet said it starts empty.
+check("opting out removes the folder trust the earlier run seeded", optedOut.trustCleared == 2)
+check("…so the resumed home really is empty of the main account's answers",
+      !fm.fileExists(atPath: optedOut.dir.appendingPathComponent(".claude.json").path))
+// And only ever OUR file. A state file the account (or the user) has written to belongs to them.
+let ownedRoot = tmp.appendingPathComponent("owned-\(UUID().uuidString)")
+let ownedMain = ownedRoot.appendingPathComponent(".claude")
+try! fm.createDirectory(at: ownedMain, withIntermediateDirectories: true)
+try! "secret".write(to: ownedMain.appendingPathComponent(".credentials.json"), atomically: true, encoding: .utf8)
+try! stateBody.write(to: ownedRoot.appendingPathComponent(".claude.json"), atomically: true, encoding: .utf8)
+let ownedTarget = ownedRoot.appendingPathComponent(".claude2")
+try! fm.createDirectory(at: ownedTarget, withIntermediateDirectories: true)
+try! stateBody.write(to: ownedTarget.appendingPathComponent(".claude.json"), atomically: true, encoding: .utf8)
+let keptState = try! prepareAddedAccountHome(providerID: "claude", share: false, home: ownedRoot,
+                                             fileExists: realFiles, keychainLogin: noKeychain)
+check("a state file the account itself wrote is never removed",
+      keptState.trustCleared == 0
+          && fm.fileExists(atPath: ownedTarget.appendingPathComponent(".claude.json").path))
+// The shape that tells the two apart, asserted on its own: the seed is one top-level key whose
+// every entry is the single accepted fact, and anything else has somebody's data in it.
+check("a pure seed is recognised, and counted",
+      untouchedTrustSeedCount(Data("{\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":true}}}".utf8)) == 1)
+check("a seed with any other top-level field is not ours",
+      untouchedTrustSeedCount(Data("{\"userID\":\"x\",\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":true}}}".utf8)) == nil)
+check("nor is one whose entries carry per-project history",
+      untouchedTrustSeedCount(Data("{\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":true,\"lastVersionBase\":\"2.1\"}}}".utf8)) == nil)
+check("nor one holding an answer the seed never writes",
+      untouchedTrustSeedCount(Data("{\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":false}}}".utf8)) == nil)
+check("an empty map is not a seed either, so an unknown file is left alone",
+      untouchedTrustSeedCount(Data("{\"projects\":{}}".utf8)) == nil)
+check("and neither is a body that is not JSON at all",
+      untouchedTrustSeedCount(Data("not json".utf8)) == nil)
+// Sharing again never removes anything: the undo belongs to the opt-out alone.
+let resharedRoot = tmp.appendingPathComponent("reshare-\(UUID().uuidString)")
+let resharedMain = resharedRoot.appendingPathComponent(".claude")
+try! fm.createDirectory(at: resharedMain, withIntermediateDirectories: true)
+try! "secret".write(to: resharedMain.appendingPathComponent(".credentials.json"), atomically: true, encoding: .utf8)
+try! stateBody.write(to: resharedRoot.appendingPathComponent(".claude.json"), atomically: true, encoding: .utf8)
+let reshared = try! prepareAddedAccountHome(providerID: "claude", share: true, home: resharedRoot,
+                                            fileExists: realFiles, keychainLogin: noKeychain)
+let resharedAgain = try! prepareAddedAccountHome(providerID: "claude", share: true, home: resharedRoot,
+                                                 fileExists: realFiles, keychainLogin: noKeychain)
+check("a second shared run clears nothing and keeps the seed it already wrote",
+      reshared.trustCleared == 0 && resharedAgain.trustCleared == 0
+          && fm.fileExists(atPath: reshared.dir.appendingPathComponent(".claude.json").path))
 
 // codex: its own allowlist, and no trust seeding at all (it has no such prompt).
 let codexMain = addRoot.appendingPathComponent(".codex")
@@ -408,6 +456,120 @@ do {
 try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sealedRoot.path)
 check("a home that cannot be created is a reported failure",
       blockedFailure == .couldNotCreateHome(path: sealedRoot.appendingPathComponent(".claude").path))
+
+// MARK: - "Is there a login in this home?", asked by both sides of the flow
+
+// One rule, two callers with opposite intent: the slot walk SKIPS a home that has a login, and the
+// add flow concludes a login FINISHED because one appeared in the home it created. A second copy of
+// the two-generation probe would have Tally hand out a home it also considers signed in.
+let claudeBase = ".claude", claudeAuth = ".credentials.json"
+let occupied = tmp.appendingPathComponent(".claude2")
+check("a credentials file means somebody's login is in there",
+      addAccountHomeHasLogin(base: claudeBase, authFile: claudeAuth, dir: occupied,
+                             fileExists: { $0.hasSuffix("/.claude2/.credentials.json") },
+                             keychainLogin: noKeychain))
+check("and so does a keychain-only login, which is what a new one looks like",
+      addAccountHomeHasLogin(base: claudeBase, authFile: claudeAuth, dir: occupied,
+                             fileExists: noFiles, keychainLogin: { $0.lastPathComponent == ".claude2" }))
+check("an empty home has neither", !addAccountHomeHasLogin(base: claudeBase, authFile: claudeAuth,
+                                                           dir: occupied, fileExists: noFiles,
+                                                           keychainLogin: noKeychain))
+var codexAsks = 0
+check("codex reads its file alone",
+      addAccountHomeHasLogin(base: ".codex", authFile: "auth.json", dir: occupied,
+                             fileExists: { $0.hasSuffix("auth.json") },
+                             keychainLogin: { _ in codexAsks += 1; return false }))
+check("…and the keychain is never asked about it", codexAsks == 0)
+// The same question by provider id, which is what the app's re-check holds.
+check("the provider-shaped wrapper agrees with the base-shaped one",
+      addedAccountHomeHasLogin(providerID: "claude", dir: occupied, fileExists: noFiles,
+                               keychainLogin: { $0.lastPathComponent == ".claude2" })
+          && !addedAccountHomeHasLogin(providerID: "codex", dir: occupied, fileExists: noFiles,
+                                       keychainLogin: { _ in true }))
+// The two callers cannot disagree: a home the slot walk skipped is one this says holds a login.
+let takenProbe: (String) -> Bool = { $0.hasSuffix("/.claude/.credentials.json") }
+check("what the slot walk skips is exactly what reads as signed in",
+      slot(files: takenProbe) == ".claude2"
+          && addedAccountHomeHasLogin(providerID: "claude",
+                                      dir: fakeHome.appendingPathComponent(".claude"),
+                                      fileExists: takenProbe, keychainLogin: noKeychain))
+
+// MARK: - One login at a time (the add-account sheet's state machine)
+
+// Tally can start a provider login two ways against ONE config home: in the background from the
+// sheet, and in a Terminal window the user drives. It only ever sees the end of the first
+// (LoginTerminalFallback waits for the WINDOW to open, not for the login running inside it), and two
+// logins racing on one home fight over the credential they each mean to leave there. So the retry is
+// withheld for as long as a Terminal handoff might still be working, and only the user can end it.
+let handedOff = AddAccountPhase.pending(name: ".claude2", reason: "r", handoff: .terminal)
+let onItsOwn = AddAccountPhase.pending(name: ".claude2", reason: "r", handoff: .none)
+let copied = AddAccountPhase.pending(name: ".claude2", reason: "r", handoff: .clipboard)
+
+// THE LOCK. Everything else on this screen is a consequence of this one line.
+check("a live Terminal handoff withholds the in-app retry", !handedOff.allowsNewRun)
+check("…and offers the only thing that can end it instead",
+      handedOff.allowsRecheck && !handedOff.allowsTerminalHandoff)
+check("an unfinished login nothing else is working on can simply be retried",
+      onItsOwn.allowsNewRun && onItsOwn.allowsTerminalHandoff && !onItsOwn.allowsRecheck)
+check("a Terminal that refused leaves nothing running, so the retry is back",
+      copied.allowsNewRun && copied.allowsTerminalHandoff && !copied.allowsRecheck)
+check("while Tally's own attempt is running, nothing else may start",
+      !AddAccountPhase.preparing.allowsNewRun
+          && !AddAccountPhase.signingIn(name: ".claude2").allowsNewRun
+          && AddAccountPhase.preparing.isRunning
+          && AddAccountPhase.signingIn(name: ".claude2").isRunning)
+check("a finished or never-started flow is neither running nor holding a login",
+      AddAccountPhase.idle.allowsNewRun && AddAccountPhase.failed(reason: "r").allowsNewRun
+          && AddAccountPhase.added(prepared).allowsNewRun
+          && !AddAccountPhase.added(prepared).isRunning
+          && !AddAccountPhase.added(prepared).holdsTerminalLogin)
+// Only a pending phase can hand off or be re-checked - the buttons exist nowhere else.
+check("no other phase offers a Terminal handoff or a re-check",
+      ![AddAccountPhase.idle, .preparing, .signingIn(name: ".claude2"), .added(prepared),
+        .failed(reason: "r")]
+        .contains { $0.allowsTerminalHandoff || $0.allowsRecheck })
+
+// A finished add carries the preparation REPORT, not just a directory name. The share is
+// best-effort by design (a permission can refuse a link, a resumed home can already hold its own
+// file), so a success that kept only the name had nothing left to disclose an incomplete share
+// with, and said "Account added" over one that never fully happened.
+if case .added(let landed) = AddAccountPhase.added(prepared) {
+    check("the finished phase carries what preparing the home actually did",
+          landed == prepared && landed.name == ".claude2")
+} else {
+    check("the finished phase carries what preparing the home actually did", false)
+}
+
+// The rule is only worth having if the surfaces ASK it. Both do, and both are pinned here: the
+// store gates starting and resetting on it, and the sheet gates the button.
+let sheetSource = (try? String(contentsOfFile: "Tally/Views/SettingsAddAccountView.swift",
+                               encoding: .utf8)) ?? ""
+let storeSource = (try? String(contentsOfFile: "Tally/Stores/AddAccountStore.swift",
+                               encoding: .utf8)) ?? ""
+check("both surfaces are readable from this suite", !sheetSource.isEmpty && !storeSource.isEmpty)
+check("the store gates starting AND resetting on the one rule",
+      storeSource.components(separatedBy: "guard phase.allowsNewRun").count == 3)
+if let gate = sheetSource.range(of: "if flow.phase.allowsNewRun"),
+   let retry = sheetSource.range(of: "Button(L(\"Try again\"))") {
+    check("the sheet's retry button is behind that gate", gate.lowerBound < retry.lowerBound)
+} else {
+    check("the sheet's retry button is behind that gate", false)
+}
+// And the fallback is a CHOICE now, not something that starts underneath the retry: a window opened
+// by the failure branch itself is the race, already armed, with "Try again" sitting on top of it.
+let opensTerminal = storeSource.components(separatedBy: "LoginTerminalFallback.openTerminal")
+if let handoff = storeSource.range(of: "func handOffToTerminal()"),
+   let call = storeSource.range(of: "LoginTerminalFallback.openTerminal") {
+    check("the one call that opens a Terminal window lives in the handoff, not in the run",
+          opensTerminal.count == 2 && call.lowerBound > handoff.lowerBound)
+} else {
+    check("the one call that opens a Terminal window lives in the handoff, not in the run", false)
+}
+check("and the re-check asks the home rather than taking the user's word",
+      storeSource.contains("addedAccountHomeHasLogin("))
+check("the sheet discloses each way a share can fall short of what was asked for",
+      sheetSource.contains("prepared.failed") && sheetSource.contains("prepared.kept")
+          && sheetSource.contains("prepared.sharesConversations"))
 
 // MARK: - One implementation, two surfaces
 

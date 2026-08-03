@@ -49,8 +49,11 @@ enum RedeemAction {
     /// leaves nothing to report: no request was ever made. Callers own the refresh behind it, so a
     /// card can show its outcome line before waiting on a 10-20s poll.
     static func redeem(usage: AccountUsage) async -> CodexAppServerClient.RedeemOutcome? {
+        // `launchableHome`, not the renewal home: a signed-out account has no session for the app
+        // server to spend a credit on, and asking anyway would report a failure about a request
+        // that never should have been made.
         guard let home = UsageStore.shared.discoveredAccounts
-            .first(where: { $0.id == usage.id })?.launchHome else { return nil }
+            .first(where: { $0.id == usage.id })?.launchableHome else { return nil }
         return await CodexAppServerClient.consumeSoonestResetCredit(codexHome: home)
     }
 

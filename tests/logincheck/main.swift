@@ -229,6 +229,59 @@ let (_, fileDormant) = KnownAccountLogic.advance(
     discovered: [], homeExists: onDisk)
 expect(fileDormant.isEmpty, "…and neither is a plain file left at that path")
 
+// What a dormant account may DO, which is the other half of remembering it. Its home is a RENEWAL
+// home: the login probe asks about it and "Renew login" acts on it. It is not a LAUNCH home, and
+// nothing until 2026-08-03 said so - the reconstruction was indistinguishable from a live account,
+// so the panel let the user pin a signed-out home into `~/.tally/state.json`, and the `tally` CLI
+// then exec'd claude into a directory with no credential in it.
+let revived = ProviderAccount(dormant: signedIn)
+expect(revived.isDormant, "an account rebuilt from the memory is marked dormant")
+expect(revived.launchHome == liveHome.path,
+       "…keeping the home the probe and the renewal both need")
+expect(revived.launchableHome == nil,
+       "…while having nothing a launch may use, which is what keeps it out of the pin and the pick")
+expect(revived.id == signedIn.id && revived.label == signedIn.label && revived.locator.isEmpty,
+       "…and carrying only what a renewal needs to name it")
+let live = ProviderAccount(id: "claude:.claude", providerID: "claude", label: "Claude",
+                           locator: [:], launchHome: "/Users/x/.claude")
+expect(!live.isDormant && live.launchableHome == live.launchHome,
+       "a discovered account is launchable at the home it was discovered in")
+expect(KnownAccount(live)?.home == live.launchHome,
+       "and it is remembered by that home")
+expect(KnownAccount(ProviderAccount(id: "x", providerID: "claude", label: "x", locator: [:],
+                                    launchHome: nil)) == nil,
+       "while an account with no home at all is not worth remembering")
+
+// MARK: - a card outlives its account by one round, and no longer
+
+// A refresh does not always speak for every account (the enablement set can change while the CLIs
+// run), so unfetched rows are carried over from the previous round. The limit that was missing
+// (2026-08-03): an account this round no longer KNOWS about is gone, not unfetched. Deleting a
+// config home drops it from discovery and from the memory at the same moment, so it is in neither
+// set - and a carry that only asked "was this fetched?" put the card straight back, every round,
+// until the app restarted, on a panel and in a snapshot the Settings list could no longer act on.
+func row(_ id: String, _ providerID: String = "claude") -> AccountUsage {
+    AccountUsage.failure(account: ProviderAccount(id: id, providerID: providerID, label: id,
+                                                  locator: [:], launchHome: "/tmp/\(id)"),
+                         providerID: providerID, message: "cached")
+}
+let previousRound = [row("claude:.claude"), row("claude:.claude2"), row("codex:.codex", "codex")]
+let ghosted = carriedAccountRows(previous: previousRound, fetched: ["claude:.claude"],
+                                 known: ["claude:.claude", "claude:.claude2"],
+                                 enabledProviders: ["claude", "codex"])
+expect(!ghosted.contains { $0.id == "codex:.codex" },
+       "an account whose config home is gone leaves with it, rather than coming back as a ghost")
+expect(ghosted.map(\.id) == ["claude:.claude2"],
+       "…while an account this round simply did not fetch is still carried")
+expect(carriedAccountRows(previous: previousRound, fetched: ["claude:.claude2"],
+                          known: Set(previousRound.map(\.id)),
+                          enabledProviders: ["claude"]).map(\.id) == ["claude:.claude"],
+       "a provider switched off this round takes its rows with it")
+expect(carriedAccountRows(previous: previousRound, fetched: Set(previousRound.map(\.id)),
+                          known: Set(previousRound.map(\.id)),
+                          enabledProviders: ["claude", "codex"]).isEmpty,
+       "and a round that fetched everything carries nothing")
+
 var renamed = signedIn
 renamed.label = "the nickname it was signed back in under"
 let (reconciled, noneDormant) = KnownAccountLogic.advance(remembered: [signedIn],
@@ -319,6 +372,24 @@ expect(cardSource.contains("RenewLoginStore.shared.canRenew(providerID: usage.pr
        "the chip greys out where the menu entry does, asked of the same place")
 expect(cardSource.contains("LoginStatusStore.shared.email(usage.id) ?? usage.accountEmail"),
        "the identity tooltip prefers the CLI's live answer over the config file's stale copy")
+
+// The surfaces that STEER A LAUNCH have to ask `launchableHome` rather than read the renewal home:
+// a pin is denormalized into the policy file the CLI reads, the smart badge predicts what the CLI
+// picks, the snapshot IS what the CLI picks from, and a redeem needs a live session to spend a
+// credit on. Each one is a way a dormant account could be launched with.
+let redeemSource = readSource("Tally/Views/RedeemAction.swift")
+expect(!redeemSource.isEmpty, "the redeem surface is readable from this suite")
+expect(cardSource.contains("policy.pin(usage.providerID, accountID: usage.id, home: discovered?.launchableHome)")
+        && cardSource.contains(".disabled(isDormant)"),
+       "the pin is offered on a launchable home only, and not at all on a signed-out card")
+expect(cardSource.contains("$0.launchableHome != nil ? $0.id : nil"),
+       "the smart-pick badge counts only accounts a launch could actually land on")
+expect(usageSource.contains("if let home = account.launchableHome { launchHomes"),
+       "the snapshot the tally CLI launches from carries launchable homes only")
+expect(redeemSource.contains("?.launchableHome"),
+       "and a redeem is asked of an account that still has a session to spend it on")
+expect(usageSource.contains("carriedAccountRows(previous: accounts"),
+       "the refresh carries rows through the one carry rule rather than a filter of its own")
 
 expect(usageSource.contains("LoginStatusStore.shared.evaluate(accounts: polled,"),
        "the refresh loop drives the probe, so there is no second timer to keep honest")

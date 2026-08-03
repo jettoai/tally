@@ -48,11 +48,33 @@ func nextFreeSlot(base: String, authFile: String, home: URL,
     for n in 1 ... 99 {
         let name = n == 1 ? base : "\(base)\(n)"
         let dir = home.appendingPathComponent(name)
-        if fileExists(dir.appendingPathComponent(authFile).path) { continue }
-        if base == ".claude", keychainLogin(dir) { continue }
+        if addAccountHomeHasLogin(base: base, authFile: authFile, dir: dir,
+                                  fileExists: fileExists, keychainLogin: keychainLogin) { continue }
         return (dir, name)
     }
     return nil
+}
+
+/// Whether one config home already HOLDS a login: the two-generation question above, asked of a
+/// single directory.
+///
+/// Named once because two callers ask it for opposite reasons and must not diverge: the slot walk
+/// skips a home that has one, and the add flow decides a login FINISHED because one appeared. A
+/// second copy of this rule would have Tally hand out a home it also considers signed in.
+func addAccountHomeHasLogin(base: String, authFile: String, dir: URL,
+                            fileExists: (String) -> Bool,
+                            keychainLogin: (URL) -> Bool) -> Bool {
+    if fileExists(dir.appendingPathComponent(authFile).path) { return true }
+    return base == ".claude" && keychainLogin(dir)
+}
+
+/// The same question by provider, for the surfaces that hold a provider id rather than a base name.
+func addedAccountHomeHasLogin(providerID: String, dir: URL,
+                              fileExists: (String) -> Bool = AddAccountProbe.fileExists,
+                              keychainLogin: (URL) -> Bool = AddAccountProbe.keychainLogin) -> Bool {
+    addAccountHomeHasLogin(base: addAccountConfigBase(providerID: providerID),
+                           authFile: addAccountAuthFile(providerID: providerID), dir: dir,
+                           fileExists: fileExists, keychainLogin: keychainLogin)
 }
 
 /// The two questions above, asked of this machine. Named once so the preview a surface shows
@@ -96,6 +118,9 @@ struct AddedAccountHome: Sendable, Equatable {
     let failed: [String]
     /// Share links an EARLIER run left behind, removed because this run opted out.
     let unlinked: [String]
+    /// Folder trust an EARLIER run seeded, removed for the same reason: opting out has to undo the
+    /// shared default, or the "starts empty" this run promises is only true of the symlinks.
+    let trustCleared: Int
     /// Whether the conversation record actually resolves to the main account's - the truth behind
     /// the privacy note, independent of how it got that way.
     let sharesConversations: Bool
@@ -147,8 +172,14 @@ func prepareAddedAccountHome(
     let isMainHome = dir.path == mainHome.path
     let items = harnessItems(for: providerID, in: mainHome)
     var unlinked: [String] = [], linked: [String] = [], kept: [String] = [], failed: [String] = []
+    var trustCleared = 0
     if !share, !isMainHome {
         unlinked = unlinkSharedHarness(from: mainHome, to: dir, items: items)
+        // The other half of the undo. The links are only the visible half of what a shared run put
+        // here: it also seeded folder trust, and a home resumed with --no-share that kept the seed
+        // would silently skip the trust prompt for every project the main account vouched for.
+        // Claude only, because it is the only provider that ever gets a seed.
+        if providerID == "claude" { trustCleared = removeSeededFolderTrust(from: dir) }
     }
     if share, !isMainHome {
         (linked, kept, failed) = linkSharedHarness(from: mainHome, to: dir, items: items)
@@ -162,7 +193,7 @@ func prepareAddedAccountHome(
     }
     return AddedAccountHome(
         dir: dir, name: name, isMainHome: isMainHome,
-        linked: linked, kept: kept, failed: failed, unlinked: unlinked,
+        linked: linked, kept: kept, failed: failed, unlinked: unlinked, trustCleared: trustCleared,
         // The privacy truth follows the ACTUAL state, not this run's work: shared is shared whether
         // it happened now, on an earlier run, or by hand.
         sharesConversations: !isMainHome

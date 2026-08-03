@@ -39,7 +39,7 @@ final class KnownAccountsStore {
                 UserDefaults.standard.set(data, forKey: Self.stateKey)
             }
         }
-        let revived = dormant.map(ProviderAccount.init)
+        let revived = dormant.map(ProviderAccount.init(dormant:))
         return (discovered + revived, revived)
     }
 
@@ -56,23 +56,5 @@ final class KnownAccountsStore {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
             && isDirectory.boolValue
-    }
-}
-
-private extension KnownAccount {
-    /// An account with no launch home is not one a renewal could ever act on, so there is nothing
-    /// worth remembering about it.
-    init?(_ account: ProviderAccount) {
-        guard let home = account.launchHome else { return nil }
-        self.init(id: account.id, providerID: account.providerID, label: account.label, home: home)
-    }
-}
-
-private extension ProviderAccount {
-    /// A dormant account, rebuilt from the memory. `locator` is empty on purpose: what a dormant
-    /// account is FOR is being probed and renewed, and both of those need only the home.
-    init(_ known: KnownAccount) {
-        self.init(id: known.id, providerID: known.providerID, label: known.label,
-                  locator: [:], launchHome: known.home)
     }
 }

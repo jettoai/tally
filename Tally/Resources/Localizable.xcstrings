@@ -8433,6 +8433,325 @@
           }
         }
       }
+    },
+    "The config home is waiting: reopen Add account in Settings to finish the sign-in.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定家目錄已就緒：回到設定的「新增帳號」即可完成登入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置主目录已就绪：回到设置的“添加账号”即可完成登录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定ホームは用意できています。設定の「アカウントを追加」からサインインを完了してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구성 홈은 준비되어 있습니다. 설정의 '계정 추가'에서 로그인을 마치세요."
+          }
+        }
+      }
+    },
+    "Tally could not open Terminal, so the login command is on the clipboard: paste it into a terminal.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 無法開啟終端機，登入指令已複製到剪貼簿：貼到終端機執行即可。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 无法打开终端，登录命令已复制到剪贴板：粘贴到终端执行即可。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はターミナルを開けませんでした。ログインコマンドをクリップボードにコピーしたので、ターミナルに貼り付けてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 터미널을 열지 못해 로그인 명령을 클립보드에 복사했습니다. 터미널에 붙여넣어 실행하세요."
+          }
+        }
+      }
+    },
+    "Tally still sees no signed-in account in this config home. If the Terminal window is still signing in, let it finish before trying again here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 在這個設定家目錄仍看不到已登入的帳號。若終端機視窗還在登入，請等它結束再於此重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 在这个配置主目录仍看不到已登录的账号。若终端窗口还在登录，请等它结束再在此重试。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この設定ホームにサインイン済みのアカウントはまだ見当たりません。ターミナルでサインインの途中なら、終わってからここで再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 구성 홈에서 로그인된 계정을 아직 찾지 못했습니다. 터미널 창이 아직 로그인 중이라면 끝난 뒤에 여기서 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "A Terminal window is open on the same command. Finish the sign-in there, then tell Tally to look.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機視窗已開在同一個指令上。請在那裡完成登入，再讓 Tally 檢查。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端窗口已打开同一个命令。请在那里完成登录，再让 Tally 检查。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じコマンドでターミナルウインドウを開きました。そちらでサインインを終えてから、Tally に確認させてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 명령으로 터미널 창이 열려 있습니다. 거기서 로그인을 마친 뒤 Tally에 확인을 요청하세요."
+          }
+        }
+      }
+    },
+    "Sign in from Terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在終端機登入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在终端登录"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルでサインイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 로그인"
+          }
+        }
+      }
+    },
+    "I finished in Terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我在終端機完成了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我在终端完成了"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルで完了しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 완료했습니다"
+          }
+        }
+      }
+    },
+    "Could not be linked, so the shared setup is incomplete:": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立連結，共享的設定並不完整："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法建立链接，共享的设置并不完整："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクできず、共有設定は不完全です:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결하지 못해 공유 설정이 완전하지 않습니다:"
+          }
+        }
+      }
+    },
+    "Already in the new home, so left as they were rather than shared:": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新家目錄裡已經有了，因此保持原樣、未共享："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新主目录里已经有了，因此保持原样、未共享："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいホームに既にあるため、共有せずそのままにしました:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 홈에 이미 있어 공유하지 않고 그대로 두었습니다:"
+          }
+        }
+      }
+    },
+    "Conversations are shared: every account can read every account's conversations.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話為共享：每個帳號都能讀取所有帳號的對話。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话为共享：每个账号都能读取所有账号的对话。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話は共有されています。どのアカウントからも全アカウントの会話を読めます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화는 공유됩니다. 모든 계정이 모든 계정의 대화를 읽을 수 있습니다."
+          }
+        }
+      }
+    },
+    "Conversations are not shared: this account keeps its own history.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話未共享：這個帳號保有自己的紀錄。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话未共享：这个账号保有自己的记录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話は共有されません。このアカウントは独自の履歴を持ちます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화는 공유되지 않습니다. 이 계정은 자체 기록을 유지합니다."
+          }
+        }
+      }
+    },
+    "Signed out: renew the login before launching with this account.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登出：先更新登入，才能用這個帳號啟動。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登出：先更新登录，才能用这个账号启动。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト済みです。このアカウントで起動するにはログインを更新してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃됨: 이 계정으로 실행하려면 먼저 로그인을 갱신하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

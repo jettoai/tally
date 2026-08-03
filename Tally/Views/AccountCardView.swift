@@ -22,12 +22,20 @@ struct AccountCardView: View {
         settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
     }
 
+    /// This card's account as discovery (plus the dormant memory) knows it: where the homes and the
+    /// dormancy behind the launch affordances come from.
+    private var discovered: ProviderAccount? {
+        UsageStore.shared.discoveredAccounts.first { $0.id == usage.id }
+    }
+
     /// The account's config home, or nil when Tally has none to act on (a demo fixture, or an
     /// account discovered without a launchable directory) - which is what greys the expiry chip
-    /// and both context-menu entries (AccountCardMenu) out.
-    var configHome: String? {
-        UsageStore.shared.discoveredAccounts.first { $0.id == usage.id }?.launchHome
-    }
+    /// and both context-menu entries (AccountCardMenu) out. The RENEWAL home: a signed-out account
+    /// keeps it, which is exactly what "Renew login" acts on.
+    var configHome: String? { discovered?.launchHome }
+
+    /// Signed out with its config home still on disk: listed and renewable, never launchable.
+    private var isDormant: Bool { discovered?.isDormant == true }
 
     /// Who is signed in, for the identity tooltip. The login probe's answer FIRST: it is what the
     /// provider's CLI reports right now, where the config file the fallback comes from names
@@ -73,7 +81,7 @@ struct AccountCardView: View {
         let store = UsageStore.shared
         let launchable = DemoUsage.isActive
             ? Set(store.accounts.map(\.id))   // fixtures are all "launchable" for the demo
-            : Set(store.discoveredAccounts.compactMap { $0.launchHome != nil ? $0.id : nil })
+            : Set(store.discoveredAccounts.compactMap { $0.launchableHome != nil ? $0.id : nil })
         return LaunchPolicyStore.shared.autoPickID(
             providerID: usage.providerID, accounts: store.accounts, launchable: launchable) == usage.id
     }
@@ -272,9 +280,7 @@ struct AccountCardView: View {
             if isPinnedActive {
                 policy.setMode(usage.providerID, .auto)
             } else {
-                let home = UsageStore.shared.discoveredAccounts
-                    .first { $0.id == usage.id }?.launchHome
-                policy.pin(usage.providerID, accountID: usage.id, home: home)
+                policy.pin(usage.providerID, accountID: usage.id, home: discovered?.launchableHome)
             }
         } label: {
             Image(systemName: isPinnedActive ? "checkmark.circle.fill" : "circle")
@@ -282,7 +288,14 @@ struct AccountCardView: View {
                 .foregroundStyle(isPinnedActive ? Color.orange : Color.secondary)
         }
         .buttonStyle(.plain)
-        .help(isPinnedActive
+        // A signed-out account cannot be a launch account: pinning is denormalized into the policy
+        // file the CLI reads, so a pinned dormant home would have `tally` exec a logged-out
+        // directory long after the panel forgot why. The expiry chip beside this is the control
+        // that still works there.
+        .disabled(isDormant)
+        .help(isDormant
+              ? L("Signed out: renew the login before launching with this account.")
+              : isPinnedActive
               ? L("Pinned. Click again to go back to Smart.")
               : L("Set as launch account"))
         .accessibilityLabel(L("Set as launch account"))

@@ -22,10 +22,10 @@ struct SettingsAddAccountView: View {
                 setup
             case .preparing, .signingIn:
                 running
-            case .added(let name):
-                finished(name)
-            case .pending(let name, let reason):
-                unfinished(name, reason)
+            case .added(let prepared):
+                finished(prepared)
+            case .pending(let name, let reason, let handoff):
+                unfinished(name, reason, handoff)
             }
         }
         .padding(20)
@@ -109,12 +109,31 @@ struct SettingsAddAccountView: View {
     // MARK: How it ended
 
     @ViewBuilder
-    private func finished(_ name: String) -> some View {
+    private func finished(_ prepared: AddedAccountHome) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-            Text(L("Account added") + " · ~/\(name)").font(.subheadline)
+            Text(L("Account added") + " · ~/\(prepared.name)").font(.subheadline)
         }
         caption(L("It is signed in and listed above. Rename it, reorder it or switch it off any time."))
+        // What preparing the home actually did, whenever that is not what the setup screen
+        // promised. A share is best-effort by design (a permission can refuse a link, a resumed
+        // home can already hold its own file), so a plain "Account added" over an incomplete one
+        // leaves the user believing in a share that never happened.
+        if !prepared.failed.isEmpty {
+            problem(L("Could not be linked, so the shared setup is incomplete:") + " "
+                + prepared.failed.joined(separator: ", "))
+        }
+        if !prepared.kept.isEmpty {
+            caption(L("Already in the new home, so left as they were rather than shared:") + " "
+                + prepared.kept.joined(separator: ", "))
+        }
+        // The privacy line, stated as the FACT it is rather than as this run's intention: shared is
+        // shared whether it happened now, on an earlier attempt at this home, or by hand.
+        if !prepared.isMainHome {
+            caption(prepared.sharesConversations
+                ? L("Conversations are shared: every account can read every account's conversations.")
+                : L("Conversations are not shared: this account keeps its own history."))
+        }
         HStack {
             Spacer()
             Button(L("Done")) { flow.reset(); dismiss() }
@@ -125,17 +144,38 @@ struct SettingsAddAccountView: View {
     /// The home exists, the login does not. The directory is deliberately KEPT: the next attempt
     /// resumes it (share links and carried-over folder trust included) instead of taking the next
     /// number, and deleting it would be the only irreversible step in this flow.
+    ///
+    /// The two ways forward are offered ONE AT A TIME, which is the whole shape of this screen: the
+    /// in-app retry and a Terminal window both sign in to the same config home, and two logins
+    /// racing there fight over the credential they each mean to leave behind. So handing off to
+    /// Terminal takes the retry away, and only the user can say that window is finished
+    /// (AddAccountFlow.swift).
     @ViewBuilder
-    private func unfinished(_ name: String, _ reason: String) -> some View {
+    private func unfinished(_ name: String, _ reason: String,
+                            _ handoff: AddAccountHandoff) -> some View {
         problem(L("Sign-in not finished") + " · ~/\(name)")
-        caption(reason + " " + L("The config home is ready and waiting - finishing the sign-in later adds the account, and nothing is created twice."))
+        caption(reason + " " + (handoff == .terminal
+            ? L("A Terminal window is open on the same command. Finish the sign-in there, then tell Tally to look.")
+            : L("The config home is ready and waiting - finishing the sign-in later adds the account, and nothing is created twice.")))
         CopyCommandChip(command: fallbackCommand(flow.providerID))
         HStack {
             Spacer()
+            // Closing does not forget this: with a Terminal window still out there the flow keeps
+            // its state, so reopening the sheet lands right back here rather than on a fresh
+            // "Add account" button pointed at the same home.
             Button(L("Close")) { flow.reset(); dismiss() }
                 .keyboardShortcut(.cancelAction)
-            Button(L("Try again")) { flow.start() }
-                .keyboardShortcut(.defaultAction)
+            if flow.phase.allowsTerminalHandoff {
+                Button(L("Sign in from Terminal")) { flow.handOffToTerminal() }
+            }
+            if flow.phase.allowsRecheck {
+                Button(L("I finished in Terminal")) { flow.recheck() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            if flow.phase.allowsNewRun {
+                Button(L("Try again")) { flow.start() }
+                    .keyboardShortcut(.defaultAction)
+            }
         }
     }
 

@@ -38,6 +38,9 @@ func runAdd(args: [String]) -> Never {
     if !prepared.unlinked.isEmpty {
         warn("share opted out - removed earlier share links: \(prepared.unlinked.joined(separator: ", "))")
     }
+    if prepared.trustCleared > 0 {
+        warn("share opted out - removed folder trust an earlier shared attempt seeded here (\(prepared.trustCleared) project\(prepared.trustCleared == 1 ? "" : "s"))")
+    }
     if share {
         if prepared.isMainHome {
             warn("share skipped: ~/\(prepared.name) IS the main account (nothing to link yet)")

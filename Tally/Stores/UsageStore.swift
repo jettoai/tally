@@ -210,7 +210,9 @@ final class UsageStore {
             // reach the snapshot, so the `tally` CLI skips them too.
             let active = found.filter { SettingsStore.shared.isAccountEnabled($0.id) }
             for account in active {
-                if let home = account.launchHome { launchHomes[account.id] = home }
+                // The LAUNCHABLE home: this map is what the `tally` CLI picks and execs from, so a
+                // signed-out account must not reach it even if it kept a home to be renewed at.
+                if let home = account.launchableHome { launchHomes[account.id] = home }
             }
             await withTaskGroup(of: AccountUsage.self) { group in
                 for account in active {
@@ -240,10 +242,8 @@ final class UsageStore {
             .map { AccountUsage.failure(account: $0, providerID: $0.providerID,
                                         message: L("Login expired")) }
         let merged = (results + dormantRows).map(applyLastGood)
-        let fetchedIDs = Set(merged.map(\.id))
-        let carried = accounts.filter {
-            enabledNow.contains($0.providerID) && !fetchedIDs.contains($0.id)
-        }
+        let carried = carriedAccountRows(previous: accounts, fetched: Set(merged.map(\.id)),
+                                         known: Set(known.map(\.id)), enabledProviders: enabledNow)
         accounts = (merged + carried)
             .filter { enabledNow.contains($0.providerID) && SettingsStore.shared.isAccountEnabled($0.id) }
             .sorted { ($0.providerID, $0.accountLabel) < ($1.providerID, $1.accountLabel) }

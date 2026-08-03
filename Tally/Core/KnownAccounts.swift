@@ -28,6 +28,30 @@ struct KnownAccount: Codable, Equatable, Sendable {
     var home: String
 }
 
+extension KnownAccount {
+    /// An account with no launch home is not one a renewal could ever act on, so there is nothing
+    /// worth remembering about it.
+    init?(_ account: ProviderAccount) {
+        guard let home = account.launchHome else { return nil }
+        self.init(id: account.id, providerID: account.providerID, label: account.label, home: home)
+    }
+}
+
+extension ProviderAccount {
+    /// A dormant account, rebuilt from the memory. `locator` is empty on purpose: what a dormant
+    /// account is FOR is being probed and renewed, and both of those need only the home.
+    ///
+    /// `isDormant` is the other half of that sentence, and the reason this init lives beside the
+    /// memory rather than inside the store: the home it carries is a RENEWAL home, and every
+    /// surface that steers a launch has to see it as one (`launchableHome` is nil for it). Without
+    /// the flag the reconstruction is indistinguishable from a live account, and the panel would
+    /// let the user pin a signed-out home that the `tally` CLI would then launch.
+    init(dormant known: KnownAccount) {
+        self.init(id: known.id, providerID: known.providerID, label: known.label,
+                  locator: [:], launchHome: known.home, isDormant: true)
+    }
+}
+
 /// The pure half: what the memory becomes this round, and which remembered accounts are dormant.
 /// Pure so the logged-out / removed distinction can be tested without a home directory, the same
 /// split as `LoginAlertLogic`.

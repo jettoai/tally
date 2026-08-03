@@ -77,6 +77,16 @@ struct ProviderAccount: Identifiable, Hashable, Sendable {
     /// The CLI config home to launch this account with (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) -
     /// exported in the usage snapshot so the `tally` CLI can pick and launch the best account.
     var launchHome: String?
+    /// Signed out, but the home is still on disk (KnownAccounts.swift). It keeps its home because
+    /// that is what the login probe asks about and what "Renew login" acts on - and it must not
+    /// keep the right to be LAUNCHED with, because there is no credential in there to run on.
+    var isDormant: Bool = false
+
+    /// The home a launch may use: the renewal's home, minus the accounts that have nothing to
+    /// launch with. Every surface that steers a launch (the pin, the smart-pick badge, the usage
+    /// snapshot the `tally` CLI reads) asks THIS rather than `launchHome`, so a signed-out account
+    /// cannot be pinned into a launcher that would then exec a logged-out home.
+    var launchableHome: String? { isDormant ? nil : launchHome }
 }
 
 /// The result of fetching one account's usage. Never thrown - failures are carried in `error` so one

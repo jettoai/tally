@@ -69,3 +69,40 @@ func seedFolderTrust(from source: URL, to target: URL) -> Int {
     guard (try? body.write(to: targetFile, options: .atomic)) != nil else { return 0 }
     return seed.count
 }
+
+/// How many paths a state file carries IF it is still exactly what `seedFolderTrust` wrote, and nil
+/// for anything else.
+///
+/// The shape is the signature: the seed is one top-level key (`projects`) whose every entry is the
+/// single fact `hasTrustDialogAccepted: true`. Claude Code writing to that file at all adds its own
+/// top-level fields (`userID`, `oauthAccount`, …) and its own per-project history, and a user who
+/// edited it by hand leaves something else again. So anything that fails this test belongs to
+/// somebody, and the undo below leaves it alone.
+func untouchedTrustSeedCount(_ raw: Data) -> Int? {
+    guard let root = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any],
+          root.count == 1, let projects = root["projects"] as? [String: Any],
+          !projects.isEmpty else { return nil }
+    for (_, entry) in projects {
+        guard let entry = entry as? [String: Any], entry.count == 1,
+              entry["hasTrustDialogAccepted"] as? Bool == true else { return nil }
+    }
+    return projects.count
+}
+
+/// Undo a seed an earlier, shared run wrote into a home this run is preparing UNSHARED.
+///
+/// Returns the number of paths removed, 0 when there was nothing of ours to remove. The counterpart
+/// to `unlinkSharedHarness`, and for the same reason: a first attempt at adding an account defaults
+/// to sharing, an aborted one leaves its home to be resumed, and opting out on the retry has to undo
+/// what that first attempt put there. Without this the new account skips the trust prompt for every
+/// project the main account vouched for, while the sheet says it starts empty.
+///
+/// Only ever removes a file that is still exactly the seed (`untouchedTrustSeedCount`): once the
+/// account or the user has written to it, it is theirs.
+@discardableResult
+func removeSeededFolderTrust(from target: URL) -> Int {
+    let file = claudeStateFile(forConfigDir: target)
+    guard let raw = try? Data(contentsOf: file), let count = untouchedTrustSeedCount(raw),
+          (try? FileManager.default.removeItem(at: file)) != nil else { return 0 }
+    return count
+}

@@ -568,8 +568,9 @@ expect(renewSource.contains("private func handOff(_ accountID: String, providerI
         && renewSource.contains("await UsageStore.shared.refresh()"),
        "a handed-off login asks for rounds of its own rather than only being allowed to have them")
 expect(renewSource.contains("LoginProbeGate.handoffTick(")
-        && renewSource.contains("Self.credentialStamp(providerID: providerID, home: home) != before")
-        && renewSource.contains("guard tick == .ask else { continue }"),
+        && renewSource.contains(".landed(after: before)")
+        && renewSource.contains("guard tick != .wait else { continue }")
+        && renewSource.contains("if tick == .askThenStop { return }"),
        "…and it looks at the credential itself before it spends a probe round on the question")
 expect(renewSource.contains("handoffPolls[accountID]?.cancel()"),
        "a second handoff replaces the first ladder rather than running beside it")
@@ -583,7 +584,7 @@ func firstAsk(landsAt: TimeInterval) -> TimeInterval? {
         switch LoginProbeGate.handoffTick(elapsed: elapsed, credentialLanded: elapsed >= landsAt,
                                           awaitingLogin: true) {
         case .wait: continue
-        case .ask: return elapsed
+        case .ask, .askThenStop: return elapsed
         case .stop: return nil
         }
     }
@@ -611,6 +612,39 @@ expect(LoginProbeGate.handoffTick(elapsed: 20, credentialLanded: false, awaiting
        "waiting costs a file check, not a probe per enabled account")
 expect(LoginProbeGate.handoffTick(elapsed: 20, credentialLanded: true, awaitingLogin: false) == .stop,
        "…and the ladder ends the moment the account is no longer waiting on a login")
+
+// The deadline reads the credential before it closes the ladder (codex review, 2026-08-03): a login
+// finished at 4:55 is news the 5:00 tick is the first to have, and stopping on the clock before
+// reading it put that user back on the ordinary poll.
+expect(LoginProbeGate.handoffTick(elapsed: LoginProbeGate.handoffPatience, credentialLanded: true,
+                                  awaitingLogin: true) == .askThenStop,
+       "a credential that landed just before the deadline still gets its round asked for")
+expect(LoginProbeGate.handoffTick(elapsed: LoginProbeGate.handoffPatience, credentialLanded: false,
+                                  awaitingLogin: true) == .stop,
+       "…and the deadline is still a deadline: nothing landed by then ends the ladder")
+
+// What the ladder reads to decide a credential landed. The Keychain can stop describing an item it
+// still holds (locked: present, no attributes), so the stamp flickers between a date and nil on a
+// machine where nothing happened - and a plain inequality called that a login (codex review,
+// 2026-08-03).
+let handedOverStamp = LoginProbeGate.CredentialStamp(
+    fileModifiedAt: Date(timeIntervalSince1970: 1_000), fileSize: 42, keychain: true,
+    keychainModifiedAt: Date(timeIntervalSince1970: 1_000))
+var lockedStamp = handedOverStamp
+lockedStamp.keychainModifiedAt = nil
+expect(!lockedStamp.landed(after: handedOverStamp)
+        && !handedOverStamp.landed(after: lockedStamp),
+       "a Keychain that stops describing itself, and one that starts again, is not a login landing")
+var renewedStamp = handedOverStamp
+renewedStamp.keychainModifiedAt = Date(timeIntervalSince1970: 2_000)
+var rewrittenFile = handedOverStamp
+rewrittenFile.fileModifiedAt = Date(timeIntervalSince1970: 2_000)
+let nothingThere = LoginProbeGate.CredentialStamp(fileModifiedAt: nil, fileSize: nil,
+                                                  keychain: false, keychainModifiedAt: nil)
+expect(renewedStamp.landed(after: handedOverStamp)
+        && rewrittenFile.landed(after: handedOverStamp)
+        && handedOverStamp.landed(after: nothingThere),
+       "a credential that was rewritten, or that appeared where there was none, is one")
 
 // The other half of the same bug, and the one that covers a user who takes their time in that
 // Terminal window: a dormant account becoming discoverable again IS the login landing. The watcher

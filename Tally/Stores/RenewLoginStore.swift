@@ -152,7 +152,8 @@ final class RenewLoginStore {
             while true {
                 try? await Task.sleep(for: .seconds(LoginProbeGate.handoffPollDelay))
                 guard !Task.isCancelled else { return }
-                if !landed, Self.credentialStamp(providerID: providerID, home: home) != before {
+                if !landed, Self.credentialStamp(providerID: providerID, home: home)
+                    .landed(after: before) {
                     landed = true
                     // The gate's rounds start HERE, not at the handoff: any spent while the user
                     // was still typing were spent on a question nothing on disk could answer yet.
@@ -162,41 +163,26 @@ final class RenewLoginStore {
                     elapsed: Date().timeIntervalSince(started), credentialLanded: landed,
                     awaitingLogin: LoginStatusStore.shared.isAwaitingLogin(accountID))
                 if tick == .stop { return }
-                guard tick == .ask else { continue }
+                guard tick != .wait else { continue }
                 await UsageStore.shared.refresh()
+                if tick == .askThenStop { return }
             }
         }
     }
 
-    /// A cheap fingerprint of the credential in one config home. Every part of it is an attribute
-    /// read: no credential is opened, and the Keychain query returns no secret and raises no consent
-    /// prompt (the same probe discovery uses, AddAccountProbe).
-    ///
-    /// A fingerprint rather than a yes/no, because renewing an EXPIRED login usually starts with a
-    /// credential still sitting there: an `auth.json` holding a refused token, or a Keychain item
-    /// whose refresh token was revoked. "Is there one?" is already true before the user types
-    /// anything, so the only usable signal is that the one on disk is no longer the one that was
-    /// there when Tally handed the login over.
-    ///
-    /// A shape whose change Tally cannot see (a locked Keychain describes nothing) simply reads as
-    /// unchanged, and the account falls back to the config-dir watcher and the poll - where it was
-    /// before this ladder existed. Never the other way round: a stamp that could not be read must
-    /// not look like a login landing, or an abandoned window would refresh every ten seconds.
-    private struct CredentialStamp: Equatable {
-        var fileModifiedAt: Date?
-        var fileSize: Int?
-        var keychain: Bool
-        var keychainModifiedAt: Date?
-    }
-
-    private static func credentialStamp(providerID: String, home: String) -> CredentialStamp {
+    /// Reads the credential fingerprint in one config home. Every part of it is an attribute read:
+    /// no credential is opened, and the Keychain query returns no secret and raises no consent
+    /// prompt (the same probe discovery uses, AddAccountProbe). What a difference between two of
+    /// them means is the gate's (LoginProbeGate.CredentialStamp).
+    private static func credentialStamp(providerID: String,
+                                        home: String) -> LoginProbeGate.CredentialStamp {
         let dir = URL(fileURLWithPath: home)
         let file = dir.appendingPathComponent(addAccountAuthFile(providerID: providerID))
         let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
         // Only Claude Code keeps a login in the Keychain; asking about a codex one would be asking
         // a question with no answer.
         let service = providerID == "claude" ? claudeKeychainService(forConfigDir: dir) : nil
-        return CredentialStamp(
+        return LoginProbeGate.CredentialStamp(
             fileModifiedAt: attributes?[.modificationDate] as? Date,
             fileSize: (attributes?[.size] as? NSNumber)?.intValue,
             keychain: service.map { KeychainReader.exists(service: $0) } ?? false,

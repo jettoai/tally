@@ -83,6 +83,8 @@ enum LoginProbeGate {
         case wait
         /// The credential is on disk: ask for a round.
         case ask
+        /// The credential is on disk and this is the last tick: ask, then close the ladder.
+        case askThenStop
         /// Nothing left to wait for, or nobody left to wait for it.
         case stop
     }
@@ -93,11 +95,58 @@ enum LoginProbeGate {
     /// waiting costs a `stat` rather than a probe per enabled account, and the gate's rounds are
     /// spent where they were meant to be - on the seconds between a credential appearing and the
     /// CLI agreeing that it has - instead of on the minutes a person spends typing.
+    ///
+    /// The deadline is asked SECOND for the same reason. A credential that landed between the last
+    /// tick and this one is news this tick is the first to have, and a ladder that stopped on the
+    /// clock before reading it threw away a login finished at 4:55 - back to waiting on the ordinary
+    /// poll, which is the very outcome the ladder exists to prevent (codex review, 2026-08-03). So
+    /// the last tick still gets its question in; it just does not get another one.
     static func handoffTick(elapsed: TimeInterval, credentialLanded: Bool,
                             awaitingLogin: Bool) -> HandoffTick {
-        guard elapsed < handoffPatience else { return .stop }
-        guard credentialLanded else { return .wait }
-        return awaitingLogin ? .ask : .stop
+        guard credentialLanded else { return elapsed < handoffPatience ? .wait : .stop }
+        guard awaitingLogin else { return .stop }
+        return elapsed < handoffPatience ? .ask : .askThenStop
+    }
+
+    /// A cheap fingerprint of the credential in one config home, and the rule for reading two of
+    /// them (RenewLoginStore takes them; this decides what a difference means).
+    ///
+    /// A fingerprint rather than a yes/no, because renewing an EXPIRED login usually starts with a
+    /// credential still sitting there: an `auth.json` holding a refused token, or a Keychain item
+    /// whose refresh token was revoked. "Is there one?" is already true before the user types
+    /// anything, so the only usable signal is that the one on disk is no longer the one that was
+    /// there when Tally handed the login over.
+    struct CredentialStamp: Equatable {
+        var fileModifiedAt: Date?
+        var fileSize: Int?
+        var keychain: Bool
+        var keychainModifiedAt: Date?
+
+        /// Whether this stamp is a NEW credential rather than the old one seen through a worse
+        /// view of the same machine.
+        ///
+        /// Every field here can fail to be read - a locked Keychain answers with no attributes at
+        /// all - and nil means "not known", never "not there". Comparing a nil against a date makes
+        /// the lock itself look like a login landing, which ends the ladder's waiting on a
+        /// credential that never moved (codex review, 2026-08-03). So a field only speaks when both
+        /// sides of the comparison could be read, and anything unreadable simply reads as
+        /// unchanged: the account falls back to the config-dir watcher and the poll, where it was
+        /// before this ladder existed. Never the other way round.
+        ///
+        /// Existence is the one field that cannot go unknown (a locked item still answers that it
+        /// is present, KeychainReader.exists), so it speaks in one direction: an item appearing is
+        /// a login landing, an item disappearing is not.
+        func landed(after previous: CredentialStamp) -> Bool {
+            Self.moved(previous.fileModifiedAt, fileModifiedAt)
+                || Self.moved(previous.fileSize, fileSize)
+                || Self.moved(previous.keychainModifiedAt, keychainModifiedAt)
+                || (keychain && !previous.keychain)
+        }
+
+        private static func moved<Value: Equatable>(_ before: Value?, _ after: Value?) -> Bool {
+            guard let before, let after else { return false }
+            return before != after
+        }
     }
 
     /// Which of a finished round's readings may still be written.

@@ -82,6 +82,13 @@ subscriptions at once:
   your machine.
 - **Reset times everywhere.** Every window shows its own reset; click any reset label to flip all of
   them between countdown ("resets in 2d 4h") and exact time ("resets at 07/18 20:00").
+- **Logins that look after themselves.** Hover a card for the account's signed-in email; when a
+  login expires, the card says so with a red chip, one notification, and a click that runs the
+  provider's own sign-in quietly in the background, browser consent only (a visible Terminal is
+  the fallback, and Tally never touches a credential either way).
+- **Add an account without leaving the app.** Settings prepares the next account home, offers the
+  shared-harness default (one setup serving every account) with a plain privacy note, and drives
+  the same quiet sign-in; the new card appears when the browser hands back.
 - **Codex reset banking, visible and redeemable.** Banked rate-limit resets show right on the
   card ("3 resets available"), so you know your escape hatches before you hit a wall. Click to
   redeem one, behind a confirmation that names the account, spells out the cost, and warns you

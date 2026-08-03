@@ -147,48 +147,87 @@ check("unlink keeps a symlink pointing anywhere else",
 
 // MARK: - Which slot `tally add` picks
 
-// The bug this locks (2026-07-28): a Claude Code login now lives in the KEYCHAIN and writes no
-// credentials file, so a probe that only looked for `<dir>/.credentials.json` read a fully
-// logged-in `~/.claude3` as an unfinished login to resume. `tally add claude` reused that home,
-// exec'd claude into it, and claude found its Keychain token and opened a session on the existing
-// account. Nothing errored: every step did what it was told.
+// THE BUG THIS LOCKS (2026-08-03): occupancy used to be "is there a login in this home?", so a home
+// whose login had EXPIRED read as a free slot. A Codex Team seat whose `auth.json` was gone made
+// `~/.codex2` look free, the add flow reused it, and the browser round trip signed that account's
+// home in as a DIFFERENT account, on top of its conversations and settings. The 2026-07-28 version
+// of the same hole was narrower (a Keychain-only claude login leaves no credentials file, so a
+// fully signed-in home read as an aborted one), and both are closed the same way: a directory that
+// exists is somebody's, unless it is empty or carries the marker this flow writes into a home it
+// just created.
 //
-// Both probes are injected here, so these assertions read no Keychain and do not care which
-// accounts exist on the machine running them.
+// Every probe is injected here, so these assertions read no Keychain and do not care which accounts
+// exist on the machine running them.
 let noFiles: (String) -> Bool = { _ in false }
 let noKeychain: (URL) -> Bool = { _ in false }
 let fakeHome = URL(fileURLWithPath: "/nowhere")
+/// Every one of the 99 numbered homes, each holding the same thing.
+func allTaken(base: String, entries: [String]) -> [String: [String]] {
+    var dirs: [String: [String]] = [:]
+    for n in 1 ... 99 { dirs[n == 1 ? base : "\(base)\(n)"] = entries }
+    return dirs
+}
+
+/// `dirs` maps a home's NAME to what is in it; a name that is absent from the map is a path with
+/// nothing at it.
 func slot(base: String = ".claude", authFile: String = ".credentials.json",
+          dirs: [String: [String]] = [:],
           files: @escaping (String) -> Bool = noFiles,
           keychain: @escaping (URL) -> Bool = noKeychain) -> String? {
     nextFreeSlot(base: base, authFile: authFile, home: fakeHome,
+                 contents: { dirs[$0.lastPathComponent].map(AddAccountHomeContents.entries)
+                     ?? .absent },
                  fileExists: files, keychainLogin: keychain).map(\.name)
 }
 
+// THE REGRESSION LOCK. Albert's own machine: `.codex2` still holds the account's history, its login
+// simply expired. Nothing in it says "logged in", and it is still not free.
+check("a home with history but no login left is NOT a free slot",
+      slot(base: ".codex", authFile: "auth.json",
+           dirs: [".codex": ["auth.json"], ".codex2": ["sessions", "config.toml"]]) == ".codex3")
 // An old-style account: the credentials file is there, no Keychain item. Still someone's login.
 check("a dir with a credentials file is occupied",
-      slot(files: { $0.hasSuffix("/.claude/.credentials.json") }) == ".claude2")
-// THE REGRESSION LOCK: the reverse, which is what every new login looks like.
+      slot(dirs: [".claude": [".credentials.json"]],
+           files: { $0.hasSuffix("/.claude/.credentials.json") }) == ".claude2")
+// The Keychain-only shape, which is what every new claude login looks like.
 check("a keychain-only login is occupied too, not a free slot",
-      slot(keychain: { $0.lastPathComponent == ".claude" }) == ".claude2")
+      slot(dirs: [".claude": ["projects"]],
+           keychain: { $0.lastPathComponent == ".claude" }) == ".claude2")
 check("and the two mix, as they do on a real machine",
-      slot(files: { $0.hasSuffix("/.claude/.credentials.json") },
+      slot(dirs: [".claude": [".credentials.json"], ".claude2": ["projects"]],
+           files: { $0.hasSuffix("/.claude/.credentials.json") },
            keychain: { $0.lastPathComponent == ".claude2" }) == ".claude3")
-// The resume case the numbering deliberately keeps: a home from an aborted login has neither, so
-// it is handed back rather than skipped, and an abandoned attempt never burns a number.
-check("a home with no login at all is the slot to use", slot() == ".claude")
-check("an aborted login is resumed rather than skipped",
-      slot(keychain: { ["\(fakeHome.path)/.claude"].contains($0.path) }) == ".claude2")
+// The two exceptions, and only these two.
+check("a home nothing has been created at yet is the slot to use", slot() == ".claude")
+check("a directory with nothing in it holds nobody",
+      slot(dirs: [".claude": []]) == ".claude")
+// The resume case the numbering deliberately keeps - now carried by OUR OWN marker rather than by
+// the absence of a credential, so an abandoned attempt never burns a number while an expired
+// account never gets handed out.
+check("our own unfinished attempt is resumed rather than skipped",
+      slot(dirs: [".claude": [addAccountPendingMarker, "settings.json"]]) == ".claude")
+// The completion signal INSIDE that exception: `tally add` execs the provider's login over its own
+// process and can never come back to remove the marker, so a marker that outlived its login must
+// not re-open the hole above.
+check("…but not once a login has landed in it",
+      slot(dirs: [".claude": [addAccountPendingMarker]],
+           keychain: { $0.lastPathComponent == ".claude" }) == ".claude2")
+// Something that is not a usable directory is occupied by whatever it is: move to the next number
+// rather than fail the whole add trying to create a home over it.
+check("a path that is not a readable directory is skipped",
+      nextFreeSlot(base: ".claude", authFile: ".credentials.json", home: fakeHome,
+                   contents: { $0.lastPathComponent == ".claude" ? .blocked : .absent },
+                   fileExists: noFiles, keychainLogin: noKeychain)?.name == ".claude2")
 // Nowhere left to go.
-check("all 99 taken has no answer", slot(keychain: { _ in true }) == nil)
-check("and the file probe alone can exhaust it too", slot(files: { _ in true }) == nil)
+check("all 99 taken has no answer",
+      slot(dirs: allTaken(base: ".claude", entries: ["projects"])) == nil)
 
 // codex keeps its credential in a file, so the Keychain is never asked about it: a question with
 // no answer there would only ever return false, and asking it invites a copy of this bug in
 // reverse (a codex home judged free because the Keychain, correctly, knows nothing about it).
 var codexKeychainAsks = 0
 check("codex finds its own free slot from the file alone",
-      slot(base: ".codex", authFile: "auth.json",
+      slot(base: ".codex", authFile: "auth.json", dirs: [".codex": ["auth.json"]],
            files: { $0.hasSuffix("/.codex/auth.json") },
            keychain: { _ in codexKeychainAsks += 1; return false }) == ".codex2")
 check("and the keychain is never consulted for it", codexKeychainAsks == 0)
@@ -402,9 +441,13 @@ try! "secret".write(to: strangerMain.appendingPathComponent(".credentials.json")
                    atomically: true, encoding: .utf8)
 try! stateBody.write(to: strangerRoot.appendingPathComponent(".claude.json"),
                     atomically: true, encoding: .utf8)
-// The user's own home, holding the user's own file, which happens to be shaped like a seed.
+// The user's own home, holding the user's own file, which happens to be shaped like a seed. It
+// carries the pending marker as well, because that is now the only way an existing directory is
+// resumed at all - and resuming it is what this guard is about.
 let strangerTarget = strangerRoot.appendingPathComponent(".claude2")
 try! fm.createDirectory(at: strangerTarget, withIntermediateDirectories: true)
+try! "{}".write(to: strangerTarget.appendingPathComponent(addAccountPendingMarker),
+                atomically: true, encoding: .utf8)
 let strangerFile = strangerTarget.appendingPathComponent(".claude.json")
 let strangerBody = "{\"projects\":{\"/Users/x/mine\":{\"hasTrustDialogAccepted\":true}}}"
 try! strangerBody.write(to: strangerFile, atomically: true, encoding: .utf8)
@@ -444,6 +487,8 @@ try! stateBody.write(to: ownedRoot.appendingPathComponent(".claude.json"), atomi
 let ownedTarget = ownedRoot.appendingPathComponent(".claude2")
 try! fm.createDirectory(at: ownedTarget, withIntermediateDirectories: true)
 try! stateBody.write(to: ownedTarget.appendingPathComponent(".claude.json"), atomically: true, encoding: .utf8)
+try! "{}".write(to: ownedTarget.appendingPathComponent(addAccountPendingMarker),
+                atomically: true, encoding: .utf8)
 let keptState = try! prepareAddedAccountHome(providerID: "claude", share: false, home: ownedRoot,
                                              fileExists: realFiles, keychainLogin: noKeychain)
 check("a state file the account itself wrote is never removed",
@@ -477,6 +522,52 @@ check("a second shared run clears nothing and keeps the seed it already wrote",
       reshared.trustCleared == 0 && resharedAgain.trustCleared == 0
           && fm.fileExists(atPath: reshared.dir.appendingPathComponent(".claude.json").path))
 
+// THE INCIDENT, on this filesystem and through the REAL probes (2026-08-03). Albert's machine had a
+// Codex Team seat whose login had expired: `~/.codex2` still held every session that account ever
+// ran, and no `auth.json`. Adding an account reused it, and the browser round trip signed that home
+// in as a different account, on top of the first one's conversations and settings.
+let dormantRoot = tmp.appendingPathComponent("dormant-\(UUID().uuidString)")
+let dormantMain = dormantRoot.appendingPathComponent(".codex")
+let dormantSecond = dormantRoot.appendingPathComponent(".codex2")
+try! fm.createDirectory(at: dormantMain, withIntermediateDirectories: true)
+try! "auth".write(to: dormantMain.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
+try! fm.createDirectory(at: dormantSecond.appendingPathComponent("sessions"),
+                        withIntermediateDirectories: true)
+try! "history".write(to: dormantSecond.appendingPathComponent("history.jsonl"),
+                     atomically: true, encoding: .utf8)
+func codexSlot(in root: URL) -> String? {
+    nextFreeSlot(base: ".codex", authFile: "auth.json", home: root,
+                 keychainLogin: noKeychain).map(\.name)
+}
+// The premise, guarded: nothing in that directory says anybody is logged in. The old rule read
+// exactly this and called the home free.
+check("the premise: the dormant home holds no login at all",
+      !addedAccountHomeHasLogin(providerID: "codex", dir: dormantSecond,
+                                keychainLogin: noKeychain))
+check("and it is still not a free slot", codexSlot(in: dormantRoot) == ".codex3")
+let dormantAdd = try! prepareAddedAccountHome(providerID: "codex", share: false, home: dormantRoot,
+                                              keychainLogin: noKeychain)
+check("so adding an account takes the next number", dormantAdd.name == ".codex3")
+check("…leaving the dormant account's own home untouched",
+      fm.fileExists(atPath: dormantSecond.appendingPathComponent("history.jsonl").path)
+          && !fm.fileExists(atPath: dormantSecond.appendingPathComponent(addAccountPendingMarker).path))
+check("…and marking the new one as this flow's unfinished work",
+      fm.fileExists(atPath: dormantAdd.dir.appendingPathComponent(addAccountPendingMarker).path))
+// The other half of the fix, end to end: the marker's life ends with the login, so the home stays
+// occupied FOREVER after - including the day that login expires, which is where the bug lived.
+try! "auth".write(to: dormantAdd.dir.appendingPathComponent("auth.json"), atomically: true,
+                  encoding: .utf8)
+// What the account then accumulates by being used - which is what makes losing this directory to
+// somebody else's login expensive.
+try! fm.createDirectory(at: dormantAdd.dir.appendingPathComponent("sessions"),
+                        withIntermediateDirectories: true)
+clearAddAccountPendingMarker(in: dormantAdd.dir)
+check("a login landing clears the pending mark",
+      !fm.fileExists(atPath: dormantAdd.dir.appendingPathComponent(addAccountPendingMarker).path))
+try! fm.removeItem(at: dormantAdd.dir.appendingPathComponent("auth.json"))
+check("and the home it landed in is nobody's to reuse once that login expires",
+      codexSlot(in: dormantRoot) == ".codex4")
+
 // codex: its own allowlist, and no trust seeding at all (it has no such prompt).
 let codexMain = addRoot.appendingPathComponent(".codex")
 try! fm.createDirectory(at: codexMain, withIntermediateDirectories: true)
@@ -502,6 +593,7 @@ check("and nothing is linked into it", firstEver.linked.isEmpty && firstEver.kep
 var exhausted: AddAccountFailure?
 do {
     _ = try prepareAddedAccountHome(providerID: "claude", share: true, home: addRoot,
+                                    contents: { _ in .entries(["projects"]) },
                                     fileExists: { _ in true }, keychainLogin: noKeychain)
 } catch let failure as AddAccountFailure {
     exhausted = failure
@@ -527,9 +619,10 @@ check("a home that cannot be created is a reported failure",
 
 // MARK: - "Is there a login in this home?", asked by both sides of the flow
 
-// One rule, two callers with opposite intent: the slot walk SKIPS a home that has a login, and the
-// add flow concludes a login FINISHED because one appeared in the home it created. A second copy of
-// the two-generation probe would have Tally hand out a home it also considers signed in.
+// One rule, two callers with opposite intent: the slot walk refuses to RESUME a pending home once a
+// login has landed in it, and the add flow concludes a login FINISHED because one appeared in the
+// home it created. A second copy of the two-generation probe would have Tally hand out a home it
+// also considers signed in.
 let claudeBase = ".claude", claudeAuth = ".credentials.json"
 let occupied = tmp.appendingPathComponent(".claude2")
 check("a credentials file means somebody's login is in there",
@@ -554,10 +647,13 @@ check("the provider-shaped wrapper agrees with the base-shaped one",
                                keychainLogin: { $0.lastPathComponent == ".claude2" })
           && !addedAccountHomeHasLogin(providerID: "codex", dir: occupied, fileExists: noFiles,
                                        keychainLogin: { _ in true }))
-// The two callers cannot disagree: a home the slot walk skipped is one this says holds a login.
+// The two callers cannot disagree, in the one direction that matters: whatever this says holds a
+// login is never handed to a new one - not even a home carrying our own pending marker, which is
+// the only kind the slot walk would otherwise reuse.
 let takenProbe: (String) -> Bool = { $0.hasSuffix("/.claude/.credentials.json") }
-check("what the slot walk skips is exactly what reads as signed in",
-      slot(files: takenProbe) == ".claude2"
+check("nothing that reads as signed in is ever handed out",
+      slot(dirs: [".claude": [addAccountPendingMarker, ".credentials.json"]],
+           files: takenProbe) == ".claude2"
           && addedAccountHomeHasLogin(providerID: "claude",
                                       dir: fakeHome.appendingPathComponent(".claude"),
                                       fileExists: takenProbe, keychainLogin: noKeychain))

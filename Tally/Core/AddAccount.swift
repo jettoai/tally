@@ -22,45 +22,98 @@ func addAccountAuthFile(providerID: String) -> String {
     providerID == "claude" ? ".credentials.json" : "auth.json"
 }
 
-/// The next config home that is not already logged in, or nil when all 99 are taken.
+/// The note `prepareAddedAccountHome` leaves in a home it just created, and the only thing that
+/// makes an EXISTING directory reusable (see `addAccountHomeIsFree`).
 ///
-/// A numbered home that exists but never finished logging in is handed back rather than skipped, so
-/// an aborted login doesn't burn a number. The default home counts too: on a machine with no account
-/// at all, adding one is simply the first login.
+/// Deliberately not any of the other traces a preparation leaves. The share links and the trust
+/// seed (`.tally-trust-seed.json`) outlive the login by design - a fully signed-in account keeps
+/// them - so reading one of those as "unfinished" would hand a working account's home to a new
+/// login the moment it signed out. This marker's life ends WITH the login: it is written before the
+/// provider's CLI is started and removed the first time Tally sees an account signed in there
+/// (`clearAddAccountPendingMarker`, called from KnownAccountsStore).
+let addAccountPendingMarker = ".tally-pending-add"
+
+/// What is at one numbered config home right now - existence first, contents second, because
+/// existence is what decides occupancy.
+enum AddAccountHomeContents: Equatable {
+    /// Nothing at this path: the home is this add's to create.
+    case absent
+    /// A directory, and everything in it. An empty array is a directory with nothing in it.
+    case entries([String])
+    /// Not a usable directory: a file standing in the way, or one that cannot be read. Occupied by
+    /// something, whatever it is.
+    case blocked
+}
+
+/// The next config home a new login may be pointed at, or nil when all 99 are taken.
 ///
-/// "Logged in" is asked of BOTH places a credential can live, because Claude Code has two
-/// generations of credential storage in the field at once: older logins wrote
-/// `<dir>/.credentials.json`, newer ones put the OAuth token in the Keychain and write no file at
-/// all. A dir with either one is somebody's account.
+/// THE RULE: a directory that EXISTS is somebody's, full stop. Two exceptions, and only two:
 ///
-/// Asking only about the file is what broke this (2026-07-28): on a machine whose third account was
-/// a Keychain-only login, `~/.claude3` looked like the aborted-login case above, so `tally add
-/// claude` reused it, exec'd claude there, and claude found the Keychain token and simply opened a
-/// session on that existing account. The report was "add opened an existing account instead of
-/// logging me in", with no error anywhere, because every step did exactly what it was told.
+///   1. a home this very flow prepared and nobody has signed into yet (it carries
+///      `addAccountPendingMarker`, and no login has landed in it since), so an aborted attempt is
+///      resumed rather than burning a number;
+///   2. a directory with nothing at all in it, which holds nobody by definition.
 ///
-/// Both probes are injected so the choice is testable without a Keychain or a home directory. The
-/// Keychain one is only ever consulted for claude: a codex login is a file (`auth.json`), so asking
-/// the Keychain about it would be asking a question with no answer.
+/// "Is there a login in it?" was the whole occupancy test until 2026-08-03, and that is what broke
+/// this: an account whose login had EXPIRED (Codex 2, a Team seat whose `auth.json` was gone) read
+/// as a free slot, so adding an account reused `~/.codex2` - and the browser round trip signed that
+/// existing account's home in as a different account, on top of its conversations and settings.
+/// The earlier version of the same bug (2026-07-28) was narrower: a Keychain-only claude login left
+/// no credentials file, so a fully signed-in home read as an aborted one. Both have the same shape:
+/// a credential is a fact about NOW, and a directory full of somebody's history is not free just
+/// because nobody is signed in to it this minute.
+///
+/// The login question survives as the completion signal INSIDE exception 1: a marker that outlived
+/// its login (the CLI's `tally add` execs the provider and can never come back to tidy up) must not
+/// re-open the very hole above.
+///
+/// Every probe is injected so the choice is testable without a Keychain, a Trash or a home
+/// directory. The Keychain one is only ever consulted for claude: a codex login is a file
+/// (`auth.json`), so asking the Keychain about it would be asking a question with no answer.
 func nextFreeSlot(base: String, authFile: String, home: URL,
-                  fileExists: (String) -> Bool,
-                  keychainLogin: (URL) -> Bool) -> (dir: URL, name: String)? {
+                  contents: (URL) -> AddAccountHomeContents = AddAccountProbe.contents,
+                  fileExists: (String) -> Bool = AddAccountProbe.fileExists,
+                  keychainLogin: (URL) -> Bool = AddAccountProbe.keychainLogin)
+    -> (dir: URL, name: String)? {
     for n in 1 ... 99 {
         let name = n == 1 ? base : "\(base)\(n)"
         let dir = home.appendingPathComponent(name)
-        if addAccountHomeHasLogin(base: base, authFile: authFile, dir: dir,
-                                  fileExists: fileExists, keychainLogin: keychainLogin) { continue }
-        return (dir, name)
+        if addAccountHomeIsFree(base: base, authFile: authFile, dir: dir, contents: contents,
+                                fileExists: fileExists, keychainLogin: keychainLogin) {
+            return (dir, name)
+        }
     }
     return nil
 }
 
-/// Whether one config home already HOLDS a login: the two-generation question above, asked of a
-/// single directory.
+/// Whether one config home may be handed to a new login: the rule above, asked of a single
+/// directory.
+func addAccountHomeIsFree(base: String, authFile: String, dir: URL,
+                          contents: (URL) -> AddAccountHomeContents,
+                          fileExists: (String) -> Bool,
+                          keychainLogin: (URL) -> Bool) -> Bool {
+    switch contents(dir) {
+    case .absent:
+        return true
+    case .blocked:
+        return false
+    case .entries(let entries):
+        if entries.isEmpty { return true }
+        guard entries.contains(addAccountPendingMarker) else { return false }
+        return !addAccountHomeHasLogin(base: base, authFile: authFile, dir: dir,
+                                       fileExists: fileExists, keychainLogin: keychainLogin)
+    }
+}
+
+/// Whether one config home HOLDS a login, asked of both places a credential can live: Claude Code
+/// has two generations of credential storage in the field at once, older logins wrote
+/// `<dir>/.credentials.json` and newer ones put the OAuth token in the Keychain and write no file
+/// at all.
 ///
 /// Named once because two callers ask it for opposite reasons and must not diverge: the slot walk
-/// skips a home that has one, and the add flow decides a login FINISHED because one appeared. A
-/// second copy of this rule would have Tally hand out a home it also considers signed in.
+/// refuses to resume a pending home once one appears, and the add flow decides a login FINISHED
+/// because one appeared. A second copy of this rule would have Tally hand out a home it also
+/// considers signed in.
 func addAccountHomeHasLogin(base: String, authFile: String, dir: URL,
                             fileExists: (String) -> Bool,
                             keychainLogin: (URL) -> Bool) -> Bool {
@@ -84,6 +137,19 @@ enum AddAccountProbe {
         FileManager.default.fileExists(atPath: path)
     }
 
+    /// What is at a numbered home. A path that is not a readable directory is `blocked` rather than
+    /// absent: the add then moves to the next number instead of trying to create a home over
+    /// whatever is standing there and failing the whole flow.
+    static func contents(_ dir: URL) -> AddAccountHomeContents {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDirectory)
+        else { return .absent }
+        guard isDirectory.boolValue,
+              let entries = try? FileManager.default.contentsOfDirectory(atPath: dir.path)
+        else { return .blocked }
+        return .entries(entries)
+    }
+
     /// An attribute check (KeychainReader.exists): it returns no secret and raises no consent
     /// prompt, so adding an account never touches a credential to find out where to put one.
     static func keychainLogin(_ dir: URL) -> Bool {
@@ -96,8 +162,24 @@ func nextFreeAccountHome(providerID: String,
                          home: URL = FileManager.default.homeDirectoryForCurrentUser)
     -> (dir: URL, name: String)? {
     nextFreeSlot(base: addAccountConfigBase(providerID: providerID),
-                 authFile: addAccountAuthFile(providerID: providerID), home: home,
-                 fileExists: AddAccountProbe.fileExists, keychainLogin: AddAccountProbe.keychainLogin)
+                 authFile: addAccountAuthFile(providerID: providerID), home: home)
+}
+
+/// Forget that a home was ever pending, because Tally has now SEEN an account signed in there.
+///
+/// Best-effort, and safe to call about any home: the marker is only ever written by the preparation
+/// below, so a home that never had one has nothing to lose here. Left behind, it would make a home
+/// that later signs out look reusable again, which is the whole bug the slot rule exists to close.
+func clearAddAccountPendingMarker(in dir: URL) {
+    try? FileManager.default.removeItem(at: dir.appendingPathComponent(addAccountPendingMarker))
+}
+
+/// Mark a home as prepared-but-not-signed-in-yet. Best-effort like the other side errands: a marker
+/// that fails to land costs the next attempt a fresh number, never the login the user asked for.
+private func writeAddAccountPendingMarker(in dir: URL) {
+    let body = "{\"version\":1,\"createdAt\":\"\(ISO8601DateFormatter().string(from: Date()))\"}"
+    try? Data(body.utf8).write(to: dir.appendingPathComponent(addAccountPendingMarker),
+                               options: .atomic)
 }
 
 /// What preparing a new account's home actually did, so the surface that asked can say so. Every
@@ -151,13 +233,14 @@ enum AddAccountFailure: Error, Sendable, Equatable {
 func prepareAddedAccountHome(
     providerID: String, share: Bool,
     home: URL = FileManager.default.homeDirectoryForCurrentUser,
+    contents: (URL) -> AddAccountHomeContents = AddAccountProbe.contents,
     fileExists: (String) -> Bool = AddAccountProbe.fileExists,
     keychainLogin: (URL) -> Bool = AddAccountProbe.keychainLogin
 ) throws -> AddedAccountHome {
     let base = addAccountConfigBase(providerID: providerID)
     guard let (dir, name) = nextFreeSlot(
         base: base, authFile: addAccountAuthFile(providerID: providerID), home: home,
-        fileExists: fileExists, keychainLogin: keychainLogin)
+        contents: contents, fileExists: fileExists, keychainLogin: keychainLogin)
     else { throw AddAccountFailure.noFreeSlot(base: base) }
 
     let fm = FileManager.default
@@ -167,6 +250,9 @@ func prepareAddedAccountHome(
     guard fm.fileExists(atPath: dir.path, isDirectory: &isDirectory), isDirectory.boolValue else {
         throw AddAccountFailure.couldNotCreateHome(path: dir.path)
     }
+    // Written before anything else goes in, because from here on the directory EXISTS - and an
+    // existing directory is occupied unless this marker says it is this flow's own unfinished work.
+    writeAddAccountPendingMarker(in: dir)
 
     let mainHome = home.appendingPathComponent(base)
     let isMainHome = dir.path == mainHome.path

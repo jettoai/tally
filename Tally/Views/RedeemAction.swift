@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// The one confirm-and-write behind every "use a reset" control (the account card's button and the
 /// banked-reset notification's action). Redeeming is the only write Tally ever performs, so it has
@@ -28,21 +28,11 @@ enum RedeemAction {
         return parts.joined(separator: "\n\n")
     }
 
-    /// Ask before spending. True means go ahead.
-    ///
-    /// An AppKit alert in its OWN window: presenting SwiftUI's `.alert` inside the borderless
-    /// pinned panel forced the host window opaque for the duration, turning the transparent
-    /// rounded corners square (2026-07-19). NSAlert leaves the panel untouched.
+    /// Ask before spending. True means go ahead. The alert lives in its own window, detached from
+    /// the card (CentredAlert), so it must NAME the account it is about to reset.
     static func confirm(usage: AccountUsage, label: String) -> Bool {
-        let alert = NSAlert()
-        // The alert lives in its own window, detached from the card - it must NAME the account
-        // it is about to reset.
-        alert.messageText = "\(label) · \(L("Use a reset"))"
-        alert.informativeText = confirmMessage(for: usage)
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: L("Redeem")).hasDestructiveAction = true
-        alert.addButton(withTitle: L("Cancel"))
-        return runCentred(alert) == .alertFirstButtonReturn
+        CentredAlert.confirm(title: "\(label) · \(L("Use a reset"))",
+                             body: confirmMessage(for: usage), confirmTitle: L("Redeem"))
     }
 
     /// Spend the soonest-expiring credit. Nil when this account has no CLI home to talk to, which
@@ -110,49 +100,10 @@ enum RedeemAction {
             // must never pass for a quiet success. A success needs no alert: the panel, the menu
             // bar numbers and the status line all move on the refresh right behind it.
             if outcome != .redeemed {
-                presentNotice("\(label) · \(L("Use a reset"))",
-                              outcomeMessage(outcome ?? .failed(nil)))
+                CentredAlert.notice(title: "\(label) · \(L("Use a reset"))",
+                                    body: outcomeMessage(outcome ?? .failed(nil)))
             }
             await followThrough(outcome: outcome, usage: usage)
         }
-    }
-
-    /// One button and a dismissal, in the same centred window the confirmation uses.
-    private static func presentNotice(_ title: String, _ body: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = body
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: L("OK"))
-        _ = runCentred(alert)
-    }
-
-    /// Centred on the window the user actually clicked in (panel or popover), falling back to the
-    /// screen under the pointer, never on some other monitor's main screen. The activation also
-    /// covers the notification path, where the app may have nothing on screen at all.
-    private static func runCentred(_ alert: NSAlert) -> NSApplication.ModalResponse {
-        NSApp.activate(ignoringOtherApps: true)
-        alert.layout()
-        let mouse = NSEvent.mouseLocation
-        let anchor = NSApp.windows.first { $0.isVisible && $0.frame.contains(mouse) }?.frame
-            ?? NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }?.visibleFrame
-        if let anchor {
-            let window = alert.window
-            let size = window.frame.size
-            let origin = NSPoint(x: anchor.midX - size.width / 2,
-                                 y: anchor.midY - size.height / 2)
-            window.setFrameOrigin(origin)
-            // runModal re-centres the alert window as it shows, clobbering the origin above
-            // (live multi-monitor incident 2026-07-20). Re-assert it from inside the modal
-            // run loop, right after the show.
-            RunLoop.main.perform(inModes: [.modalPanel]) {
-                // A RunLoop.main callout always executes on the main thread; the closure just
-                // isn't annotated, so tell the compiler rather than hop actors.
-                MainActor.assumeIsolated {
-                    window.setFrameOrigin(origin)
-                }
-            }
-        }
-        return alert.runModal()
     }
 }

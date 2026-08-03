@@ -8810,6 +8810,209 @@
           }
         }
       }
+    },
+    "Remove account…": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除帳號…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除账号…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 제거…"
+          }
+        }
+      }
+    },
+    "Remove account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 제거"
+          }
+        }
+      }
+    },
+    "Move to Trash": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到垃圾桶"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到废纸篓"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱に入れる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴지통으로 이동"
+          }
+        }
+      }
+    },
+    "Tally will move this account's config folder to the Trash:": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 會把這個帳號的設定資料夾移到垃圾桶："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 会把这个账号的配置文件夹移到废纸篓："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はこのアカウントの設定フォルダをゴミ箱に移動します："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 이 계정의 설정 폴더를 휴지통으로 옮깁니다:"
+          }
+        }
+      }
+    },
+    "The conversations and settings in this folder will be moved to the Trash with it, so you can put them back from there.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾裡的對話與設定會一起移到垃圾桶，之後可以從垃圾桶還原。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹里的对话与设置会一起移到废纸篓，之后可以从废纸篓还原。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ内の会話と設定も一緒にゴミ箱へ移動するので、あとでゴミ箱から戻せます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 안의 대화와 설정도 함께 휴지통으로 이동하므로 나중에 휴지통에서 되돌릴 수 있습니다."
+          }
+        }
+      }
+    },
+    "Tally also forgets this account's name, pin and settings. The account at the provider is not touched.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 也會忘記這個帳號的名稱、釘選與設定。供應商端的帳號不受影響。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 也会忘记这个账号的名称、固定与设置。服务商端的账号不受影响。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally はこのアカウントの名前、ピン、設定も忘れます。プロバイダ側のアカウントには影響しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally는 이 계정의 이름, 고정, 설정도 잊습니다. 제공업체의 계정은 영향을 받지 않습니다."
+          }
+        }
+      }
+    },
+    "Tally could not move the config folder to the Trash.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 無法把設定資料夾移到垃圾桶。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 无法把配置文件夹移到废纸篓。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally は設定フォルダをゴミ箱に移動できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 설정 폴더를 휴지통으로 옮기지 못했습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -270,6 +270,22 @@ final class SettingsStore {
         return true
     }
 
+    /// Forget everything this store remembers about ONE account - the user removed it (its config
+    /// home went to the Trash, see RemoveAccountAction).
+    ///
+    /// All four collections in one pass, through the value that names them together
+    /// (`AccountSettingsTraces`), because an account id is derived from its config home's name: a
+    /// later `~/.claude3` IS `claude:.claude3` again, and would inherit whatever this forgot.
+    func forgetAccount(_ accountID: String) {
+        let next = AccountSettingsTraces(labels: accountLabels, order: accountOrder,
+                                         menuBarHidden: menuBarHiddenAccounts,
+                                         disabled: disabledAccounts).forgetting(accountID)
+        accountLabels = next.labels
+        accountOrder = next.order
+        menuBarHiddenAccounts = next.menuBarHidden
+        disabledAccounts = next.disabled
+    }
+
     /// The effective display label for an account (override or the provider default).
     func displayLabel(accountID: String, fallback: String) -> String {
         let override = accountLabels[accountID]?.trimmingCharacters(in: .whitespaces)

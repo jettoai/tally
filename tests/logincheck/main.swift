@@ -393,7 +393,16 @@ expect(cardSource.contains("policy.pin(usage.providerID, accountID: usage.id, ho
 expect(policySource.contains("func releasePinnedHome(dormant: Set<String>)")
         && policySource.contains("updated.pinnedHome = nil"),
        "a dormant account's pin lets go of the launch home the CLI would have exec'd")
-expect(policySource.contains("updated.pinnedAccountID = nil") == false,
+// Asked of THAT function's body rather than of the whole file: removing an account (2026-08-03)
+// deliberately drops the pinned id, because that account is gone rather than signed out, and a
+// file-wide ban would have read as "the dormant rule broke" when it did no such thing.
+let releaseBody = policySource.range(of: "func releasePinnedHome(").map { start -> String in
+    let rest = policySource[start.lowerBound...]
+    let end = ["\n    func ", "\n    /// "].compactMap { rest.range(of: $0)?.lowerBound }.min()
+        ?? rest.endIndex
+    return String(rest[..<end])
+} ?? ""
+expect(!releaseBody.isEmpty && !releaseBody.contains("updated.pinnedAccountID = nil"),
        "…and keeps the pinned id, so renewing the login restores the choice without a second click")
 expect(usageSource.contains("LaunchPolicyStore.shared.releasePinnedHome(dormant: Set(dormant.map(\\.id)))"),
        "the refresh drives that release from the accounts it just found dormant")

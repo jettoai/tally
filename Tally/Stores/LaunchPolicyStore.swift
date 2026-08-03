@@ -166,6 +166,26 @@ final class LaunchPolicyStore {
         if changed { persist() }
     }
 
+    /// Drop a pin whose account has been REMOVED (its config home is in the Trash).
+    ///
+    /// Both halves go, unlike `releasePinnedHome` above: that one keeps the id because a signed-out
+    /// account can be renewed and should steer launches again with no second click, while this one
+    /// is about an account that no longer exists. Manual mode goes back to Smart with it - manual
+    /// with nothing pinned is a provider whose launches are steered by an id that resolves to
+    /// nothing.
+    func forget(accountID: String) {
+        var changed = false
+        for (providerID, policy) in policies where policy.pinnedAccountID == accountID {
+            var updated = policy
+            updated.pinnedAccountID = nil
+            updated.pinnedHome = nil
+            if updated.mode == .manual { updated.mode = .auto }
+            policies[providerID] = updated
+            changed = true
+        }
+        if changed { persist() }
+    }
+
     func isPinned(_ accountID: String, providerID: String) -> Bool {
         let p = policy(providerID)
         return p.mode == .manual && p.pinnedAccountID == accountID

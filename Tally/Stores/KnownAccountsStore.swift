@@ -29,18 +29,45 @@ final class KnownAccountsStore {
     /// currently discoverable, and a write only when the answer actually changed.
     func reconcile(discovered: [ProviderAccount])
         -> (all: [ProviderAccount], dormant: [ProviderAccount]) {
+        // Discovery is credential-shaped, so every account in here is one Tally can SEE signed in -
+        // which is exactly the moment the home stops being an unfinished "Add account" attempt.
+        // Clearing the marker here rather than in the add flow covers the surface that cannot do it
+        // itself: `tally add` execs the provider's login over its own process and never comes back.
+        // A marker left behind would make this home look reusable again the day its login expires,
+        // which is the bug the slot rule exists to close (Tally/Core/AddAccount.swift).
+        for account in discovered {
+            guard let home = account.launchableHome else { continue }
+            clearAddAccountPendingMarker(in: URL(fileURLWithPath: home))
+        }
         let (next, dormant) = KnownAccountLogic.advance(
             remembered: remembered,
             discovered: discovered.compactMap(KnownAccount.init),
             homeExists: Self.directoryExists)
         if next != remembered {
             remembered = next
-            if let data = try? JSONEncoder().encode(next) {
-                UserDefaults.standard.set(data, forKey: Self.stateKey)
-            }
+            persist(next)
         }
         let revived = dormant.map(ProviderAccount.init(dormant:))
         return (discovered + revived, revived)
+    }
+
+    /// Drop one account from the memory outright - the user REMOVED it (its config home went to the
+    /// Trash, see RemoveAccountAction).
+    ///
+    /// The reconciliation above would forget it on its own the next time it ran, because the home is
+    /// no longer on disk. Doing it here as well is what keeps the card from coming back as a dormant
+    /// account in the moments between the removal and that next pass.
+    func forget(accountID: String) {
+        let next = remembered.filter { $0.id != accountID }
+        guard next != remembered else { return }
+        remembered = next
+        persist(next)
+    }
+
+    private func persist(_ accounts: [KnownAccount]) {
+        if let data = try? JSONEncoder().encode(accounts) {
+            UserDefaults.standard.set(data, forKey: Self.stateKey)
+        }
     }
 
     private static func load() -> [KnownAccount] {

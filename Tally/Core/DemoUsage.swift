@@ -98,8 +98,11 @@ enum DemoUsage {
     private static func claude(_ label: String, plan: String, model: Double, session: Double,
                                weekly: Double, modelResetDays: Double?, sessionResetHours: Double?,
                                weeklyResetDays: Double?, now: Date) -> AccountUsage {
+        // Fixture identity for the header's hover tooltip ("Claude 2" → alex2@example.com), derived
+        // from the label so no screenshot can ever carry this machine's real address.
         AccountUsage(
             id: "claude:demo-\(label)", providerID: "claude", accountLabel: label, planName: plan,
+            accountEmail: "alex\(label.filter(\.isNumber))@example.com",
             metrics: [
                 UsageMetric(id: "weekly_model:Fable", kind: .weeklyModel, label: "Fable",
                             modelName: "Fable", usedPercent: model,

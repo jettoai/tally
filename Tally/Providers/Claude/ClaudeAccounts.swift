@@ -62,35 +62,56 @@ enum ClaudeAccounts {
         }
     }
 
-    /// Plan label from the account's non-secret CLI config (`<dir>/.claude.json` →
-    /// `oauthAccount.organizationRateLimitTier`, e.g. "default_claude_max_20x" → "Max 20x").
-    /// The config file carries no credentials; per-account dirs each have their own copy.
-    static func planLabel(configDir: String) -> String? {
-        struct Config: Decodable {
-            struct Account: Decodable {
-                var organizationRateLimitTier: String?
-                var organizationType: String?
-            }
-            var oauthAccount: Account?
-        }
+    /// What the account's non-secret CLI config (`<dir>/.claude.json` → `oauthAccount`) can say
+    /// about the account itself. The config file carries no credentials - the OAuth token lives in
+    /// the Keychain, which Tally never reads - and per-account dirs each have their own copy.
+    struct Profile {
+        /// e.g. `organizationRateLimitTier` "default_claude_max_20x" → "Max 20x".
+        var plan: String?
+        /// The signed-in email, shown only as the card's hover tooltip. Never logged or published.
+        var email: String?
+    }
+
+    /// Both config-derived account facts in one decode: the file runs to six figures of bytes
+    /// (chat history lives there too), so parsing it once per refresh rather than once per field
+    /// matters.
+    static func profile(configDir: String) -> Profile {
         let url = URL(fileURLWithPath: configDir).appendingPathComponent(".claude.json")
         guard let data = try? Data(contentsOf: url),
               let config = try? JSONDecoder().decode(Config.self, from: data),
-              let account = config.oauthAccount else { return nil }
+              let account = config.oauthAccount else { return Profile() }
+        return Profile(plan: account.planLabel, email: account.email)
+    }
 
-        if let tier = account.organizationRateLimitTier, !tier.isEmpty {
-            let trimmed = tier
-                .replacingOccurrences(of: "default_", with: "")
-                .replacingOccurrences(of: "claude_", with: "")
-            let pretty = trimmed.split(separator: "_")
-                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-                .joined(separator: " ")
-            if !pretty.isEmpty { return pretty }
+    private struct Config: Decodable {
+        var oauthAccount: Account?
+
+        struct Account: Decodable {
+            var organizationRateLimitTier: String?
+            var organizationType: String?
+            var emailAddress: String?
+
+            var email: String? {
+                guard let value = emailAddress, !value.isEmpty else { return nil }
+                return value
+            }
+
+            var planLabel: String? {
+                if let tier = organizationRateLimitTier, !tier.isEmpty {
+                    let trimmed = tier
+                        .replacingOccurrences(of: "default_", with: "")
+                        .replacingOccurrences(of: "claude_", with: "")
+                    let pretty = trimmed.split(separator: "_")
+                        .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                        .joined(separator: " ")
+                    if !pretty.isEmpty { return pretty }
+                }
+                // Fallback: organizationType "claude_max" → "Max".
+                if let type = organizationType?.split(separator: "_").last {
+                    return type.prefix(1).uppercased() + type.dropFirst()
+                }
+                return nil
+            }
         }
-        // Fallback: organizationType "claude_max" → "Max".
-        if let type = account.organizationType?.split(separator: "_").last {
-            return type.prefix(1).uppercased() + type.dropFirst()
-        }
-        return nil
     }
 }

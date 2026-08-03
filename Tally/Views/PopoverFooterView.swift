@@ -2,9 +2,10 @@ import SwiftUI
 import AppKit
 
 /// The footer strip, split out of PopoverRootView for file size: the used/left toggle, the reload,
-/// view options, help, pin, window and settings buttons, with the jetto credit between them whenever
-/// the row has room to spare. What the surface SHOWS is switched in the header, not here: this row
-/// is the view controls, and mixing "which screen" into it made the one action here hard to find.
+/// view options, pin, window and settings buttons, then the help button set apart at the trailing
+/// end, with the jetto credit between the clusters whenever the row has room to spare. What the
+/// surface SHOWS is switched in the header, not here: this row is the view controls, and mixing
+/// "which screen" into it made the one action here hard to find.
 
 /// The measured widths of everything in the footer that does NOT depend on the credit being shown:
 /// the two rigid clusters, plus an unrendered copy of the credit itself. Because no member changes
@@ -20,6 +21,10 @@ extension PopoverRootView {
     /// The clear space between the switch and the credit. Fixed rather than elastic: the credit is
     /// grouped WITH the leading control, and the one gap that may stretch is the one before the icons.
     private static let creditLead: CGFloat = 16
+
+    /// The break before the help button, on top of the stack's own spacing. Small enough that help
+    /// still reads as part of the footer, wide enough that it is plainly not the sixth view control.
+    private static let helpLead: CGFloat = 10
 
     /// The credit rides in the row's layout flow rather than in an overlay. An overlay draws at the
     /// footer's centre whatever else is there, so it could only be kept off the icons by a hand-picked
@@ -135,18 +140,6 @@ extension PopoverRootView {
             .help(L("View options"))
             .popover(isPresented: $showViewOptions, arrowEdge: .bottom) { viewOptions }
             Button {
-                showLaunchHelp.toggle()
-            } label: {
-                Image(systemName: "questionmark.circle")
-                    .font(.callout)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help(L("Help"))
-            .popover(isPresented: $showLaunchHelp, arrowEdge: .bottom) { launchHelp }
-            Button {
                 StatusItemController.togglePin()
             } label: {
                 Image(systemName: settings.isUsagePanelPinned ? "pin.fill" : "pin")
@@ -179,6 +172,24 @@ extension PopoverRootView {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help(L("Settings…"))
+            // Help sits past the trailing end of the group, with a gap wide enough to read as a
+            // break rather than as loose tracking. It is the one control here that acts on nothing
+            // in this window, and macOS parks the help button in the bottom trailing corner away
+            // from the other controls for exactly that reason. Between the view toggles it read as
+            // one of them.
+            Button {
+                showLaunchHelp.toggle()
+            } label: {
+                Image(systemName: "questionmark.circle")
+                    .font(.callout)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help(L("Help"))
+            .popover(isPresented: $showLaunchHelp, arrowEdge: .bottom) { launchHelp }
+            .padding(.leading, Self.helpLead)
         }
         .background { widthProbe { footerWidths.icons = $0 } }
     }

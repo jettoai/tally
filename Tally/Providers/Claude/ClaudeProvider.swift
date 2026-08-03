@@ -35,9 +35,10 @@ struct ClaudeProvider: UsageProvider {
         guard !metrics.isEmpty else {
             return .failure(account: account, providerID: id, message: L("No usage data"))
         }
+        let profile = ClaudeAccounts.profile(configDir: home)
         return AccountUsage(
             id: account.id, providerID: id, accountLabel: account.label,
-            planName: ClaudeAccounts.planLabel(configDir: home), metrics: metrics,
+            planName: profile.plan, accountEmail: profile.email, metrics: metrics,
             refreshedAt: Date(), error: nil
         )
     }

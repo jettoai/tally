@@ -154,14 +154,20 @@ struct AccountCardView: View {
 
     private var header: some View {
         HStack(spacing: 7) {
-            ProviderIconView(providerID: usage.providerID, size: 16)
-            Text(label)
-                .font(.subheadline.weight(.semibold))
-            if let plan = usage.planName {
-                Text(plan)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            // The identity group carries its own tooltip - the signed-in email, so two accounts on
+            // the same plan are distinguishable without putting an address on screen (and without
+            // covering the trailing controls, which have tooltips of their own).
+            HStack(spacing: 7) {
+                ProviderIconView(providerID: usage.providerID, size: 16)
+                Text(label)
+                    .font(.subheadline.weight(.semibold))
+                if let plan = usage.planName {
+                    Text(plan)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .help(usage.accountEmail ?? "")
             if usage.isStale {
                 Label(L("Outdated"), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)

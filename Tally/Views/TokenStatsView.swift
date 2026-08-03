@@ -19,12 +19,10 @@ struct TokenStatsView: View {
     private static let shareColumn: CGFloat = 34
     /// The project name's column. Fixed rather than sized to the text so the bars all start on one
     /// line: a ragged left edge on the bars makes lengths impossible to compare, which is the one
-    /// thing the bars are for.
+    /// thing the bars are for. Fixed at every window width, too - the extra width of a wide window
+    /// goes to the bar, which is the column that reads better long, and not to a name column that
+    /// would only stand empty beside names of a dozen characters.
     private static let nameColumn: CGFloat = 132
-    /// The widest the reading column gets. The window follows the account grid's column choice and
-    /// can reach 1108pt, which no table of a dozen short names has anything to do with; past this
-    /// the rows are just stretched.
-    private static let contentWidth: CGFloat = 800
 
     var body: some View {
         VStack(alignment: .leading, spacing: TallyMetrics.sectionSpacing) {
@@ -38,17 +36,17 @@ struct TokenStatsView: View {
             }
             if store.isScanning { scanningNote }
         }
-        // The reading column is capped inside whatever width the account grid chose, so a
-        // four-column window does not stretch a dozen short project names across 1108pt. The tab
-        // itself still fills the window, so switching tabs never resizes it sideways.
+        // The cards take the whole surface, inset by the same 12pt the account grid uses, so the two
+        // tabs share a left edge AND a right edge. An earlier version capped the reading column at
+        // 800pt to keep a dozen short names from stretching across a four-column window; what that
+        // actually bought was a quarter of that window standing empty on the trailing side. The rows
+        // do not stretch anyway: every column but the bar is fixed (see `nameColumn`), so the width
+        // lands on the one part of the row that reads better long.
         //
-        // Capped at the LEADING edge, not centred: the two tabs crossfade in place, and centring
-        // started this one 142pt right of the account cards at four columns, so the switch read as
-        // the content sliding sideways. The width the cap gives up lands on the trailing side
-        // instead, where the grid's extra columns were.
-        .frame(width: min(width - 24, Self.contentWidth))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
+        // Both edges are the account grid's, which is also what keeps the crossfade anchored: the
+        // tabs swap in place, so a token column that started anywhere else read as the content
+        // sliding sideways.
+        .padding(12)
         .frame(width: width, alignment: .leading)
     }
 

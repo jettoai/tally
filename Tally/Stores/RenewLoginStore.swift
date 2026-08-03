@@ -1,3 +1,4 @@
+import Foundation
 import Observation
 
 /// The account cards' "Renew login": start the provider's own login for ONE account in the
@@ -72,7 +73,7 @@ final class RenewLoginStore {
                 // login in it), so the login-status probe is told to stop skipping rounds for this
                 // account - otherwise a sign-in finished in that window leaves the "Login expired"
                 // chip up for the rest of the probe interval.
-                handOff(accountID)
+                handOff(accountID, providerID: providerID, home: home)
                 inFlight.remove(accountID)
                 return
             }
@@ -100,7 +101,7 @@ final class RenewLoginStore {
                 // Same reason as the announcement-refused path above, and this is the one the user
                 // actually hit: the first attempt failed, they finished the login in the Terminal
                 // window (or retried), and the chip has to come down on its own.
-                handOff(accountID)
+                handOff(accountID, providerID: providerID, home: home)
                 _ = await SystemAlert.post(
                     title: "\(label) · " + L("Login not renewed"),
                     body: Self.reason(failure) + " " + (opened
@@ -125,23 +126,81 @@ final class RenewLoginStore {
     /// neither, the account sits dormant with its red chip until the poll timer comes round, which
     /// is up to fifteen minutes at the interval the user can set (codex review, 2026-08-03).
     ///
-    /// So a short bounded ladder of refreshes runs behind the handoff: a refresh rediscovers the
+    /// So a ladder runs behind the handoff, on two clocks that are deliberately not the same one.
+    /// The person's clock is `LoginProbeGate.handoffPatience` - minutes, because a sign-in is a
+    /// browser round trip with a human in it. The probe's clock is the gate's `roundsLeft` - a
+    /// handful, for the seconds between a credential appearing and the CLI agreeing that it has.
+    ///
+    /// Every tick looks at the credential itself first: a `stat` and a Keychain attribute, no CLI
+    /// and no network. Only a tick that sees it CHANGE asks for a refresh, which rediscovers the
     /// account (a landed credential makes it live again, which is what clears the chip and the
-    /// "Login expired" row together) and carries the forced probe with it. It stops at the first
-    /// round that says the account is no longer waiting on a login, and it is bounded by the same
-    /// patience the gate has, so a login abandoned in that Terminal window costs a fixed handful of
-    /// rounds rather than a permanent poll.
-    private func handOff(_ accountID: String) {
+    /// "Login expired" row together) and carries the forced probe with it. Spending a round per
+    /// tick instead made three of them the deadline for the user as well, so anyone slower than
+    /// thirty seconds finished their login into a ladder that had already stopped (codex review,
+    /// 2026-08-03).
+    ///
+    /// It stops at the first round that says the account is no longer waiting on a login, and at
+    /// the deadline either way, so a login abandoned in that Terminal window costs a file check
+    /// every ten seconds for five minutes and nothing else.
+    private func handOff(_ accountID: String, providerID: String, home: String) {
         LoginStatusStore.shared.loginHandedOff(accountID)
         handoffPolls[accountID]?.cancel()
+        let before = Self.credentialStamp(providerID: providerID, home: home)
         handoffPolls[accountID] = Task {
-            for _ in 0 ..< LoginProbeGate.handedOff.roundsLeft {
+            let started = Date()
+            var landed = false
+            while true {
                 try? await Task.sleep(for: .seconds(LoginProbeGate.handoffPollDelay))
-                guard !Task.isCancelled,
-                      LoginStatusStore.shared.isAwaitingLogin(accountID) else { return }
+                guard !Task.isCancelled else { return }
+                if !landed, Self.credentialStamp(providerID: providerID, home: home) != before {
+                    landed = true
+                    // The gate's rounds start HERE, not at the handoff: any spent while the user
+                    // was still typing were spent on a question nothing on disk could answer yet.
+                    LoginStatusStore.shared.loginHandedOff(accountID)
+                }
+                let tick = LoginProbeGate.handoffTick(
+                    elapsed: Date().timeIntervalSince(started), credentialLanded: landed,
+                    awaitingLogin: LoginStatusStore.shared.isAwaitingLogin(accountID))
+                if tick == .stop { return }
+                guard tick == .ask else { continue }
                 await UsageStore.shared.refresh()
             }
         }
+    }
+
+    /// A cheap fingerprint of the credential in one config home. Every part of it is an attribute
+    /// read: no credential is opened, and the Keychain query returns no secret and raises no consent
+    /// prompt (the same probe discovery uses, AddAccountProbe).
+    ///
+    /// A fingerprint rather than a yes/no, because renewing an EXPIRED login usually starts with a
+    /// credential still sitting there: an `auth.json` holding a refused token, or a Keychain item
+    /// whose refresh token was revoked. "Is there one?" is already true before the user types
+    /// anything, so the only usable signal is that the one on disk is no longer the one that was
+    /// there when Tally handed the login over.
+    ///
+    /// A shape whose change Tally cannot see (a locked Keychain describes nothing) simply reads as
+    /// unchanged, and the account falls back to the config-dir watcher and the poll - where it was
+    /// before this ladder existed. Never the other way round: a stamp that could not be read must
+    /// not look like a login landing, or an abandoned window would refresh every ten seconds.
+    private struct CredentialStamp: Equatable {
+        var fileModifiedAt: Date?
+        var fileSize: Int?
+        var keychain: Bool
+        var keychainModifiedAt: Date?
+    }
+
+    private static func credentialStamp(providerID: String, home: String) -> CredentialStamp {
+        let dir = URL(fileURLWithPath: home)
+        let file = dir.appendingPathComponent(addAccountAuthFile(providerID: providerID))
+        let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
+        // Only Claude Code keeps a login in the Keychain; asking about a codex one would be asking
+        // a question with no answer.
+        let service = providerID == "claude" ? claudeKeychainService(forConfigDir: dir) : nil
+        return CredentialStamp(
+            fileModifiedAt: attributes?[.modificationDate] as? Date,
+            fileSize: (attributes?[.size] as? NSNumber)?.intValue,
+            keychain: service.map { KeychainReader.exists(service: $0) } ?? false,
+            keychainModifiedAt: service.flatMap { KeychainReader.modifiedAt(service: $0) })
     }
 
     private static func reason(_ failure: RenewLoginRunner.Failure) -> String {

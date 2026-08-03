@@ -46,20 +46,90 @@ enum LoginProbeGate {
     /// A login handed to a Terminal window Tally cannot watch. No short re-probe (the user is typing
     /// in another window, not waiting on a file write), but several rounds of patience: the refresh
     /// that the new credential file triggers is the one that has to be allowed through.
+    ///
+    /// These rounds are patience with the CLI, not with the user. The ladder behind a handoff re-arms
+    /// them when it sees the credential land, so a slow sign-in cannot spend them before there is
+    /// anything to ask about (`handoffPatience`).
     static let handedOff = Forcing(roundsLeft: 3, retrySoon: false)
 
     /// How long after a forced round the short re-probe runs.
     static let retryDelay: TimeInterval = 2
 
-    /// How long between the rounds a handed-off login asks for on its own (RenewLoginStore).
+    /// How long between the ticks a handed-off login runs on its own (RenewLoginStore).
     ///
     /// Forcing a round only helps if a round happens, and after a handoff nothing schedules one: the
     /// renewal returned the moment the Terminal window opened, and the only other thing that would
     /// notice the login landing is the config-dir watcher, which is fail-open by design
-    /// (AccountDirWatcher). So the handoff asks for `handedOff.roundsLeft` rounds of its own, this
-    /// far apart, and stops the moment the account is no longer forcing - which is the moment its
-    /// verdict came back as anything other than signed out.
+    /// (AccountDirWatcher). So the handoff runs a ladder of its own, this far apart, and each tick
+    /// asks the question below.
     static let handoffPollDelay: TimeInterval = 10
+
+    /// How long that ladder keeps looking, and the reason it is a clock rather than a round count.
+    ///
+    /// `handedOff.roundsLeft` is the gate's patience with an account that keeps reading signed out.
+    /// Spending one of those per tick made three of them the deadline for the PERSON as well, and
+    /// thirty seconds was never a claim about how long a browser sign-in takes: a user slower than
+    /// that landed their credential into a ladder that had already stopped, and with no watcher
+    /// event to fall back on the red chip stayed up until the poll timer came round, which is as
+    /// much as fifteen minutes (codex review, 2026-08-03).
+    ///
+    /// So the two clocks are separate. This one is the person's, and it is as generous as the watch
+    /// the Terminal window itself gets (LoginTerminalFallback: 300 rounds a second apart).
+    static let handoffPatience: TimeInterval = 5 * 60
+
+    /// What one tick of that ladder does.
+    enum HandoffTick: Equatable {
+        /// Nothing has landed yet. Look again, having spent nothing but a file check.
+        case wait
+        /// The credential is on disk: ask for a round.
+        case ask
+        /// Nothing left to wait for, or nobody left to wait for it.
+        case stop
+    }
+
+    /// One tick, pure, so the ladder's shape can be asserted without a clock or a filesystem.
+    ///
+    /// The order is the point. A round is only asked for once the credential is actually there, so
+    /// waiting costs a `stat` rather than a probe per enabled account, and the gate's rounds are
+    /// spent where they were meant to be - on the seconds between a credential appearing and the
+    /// CLI agreeing that it has - instead of on the minutes a person spends typing.
+    static func handoffTick(elapsed: TimeInterval, credentialLanded: Bool,
+                            awaitingLogin: Bool) -> HandoffTick {
+        guard elapsed < handoffPatience else { return .stop }
+        guard credentialLanded else { return .wait }
+        return awaitingLogin ? .ask : .stop
+    }
+
+    /// Which of a finished round's readings may still be written.
+    ///
+    /// A round is several CLI spawns wide and takes seconds, and a credential can land in the middle
+    /// of one. That round then answers about a machine that no longer exists: it says signed out
+    /// because that was true when it asked, and writing the answer puts the red chip back on an
+    /// account that is signed in, announces an outage that has ended, and spends the forcing that
+    /// was waiting for a real answer (codex review, 2026-08-03). The landing is the better witness -
+    /// it is credential-shaped, and the reading is a memory of the moment before it.
+    ///
+    /// A generation rather than a flag, because rounds overlap: what is stale is a reading asked for
+    /// BEFORE the landing, not everything that arrives after it.
+    struct Landings: Equatable {
+        private var stamp = 0
+        private var landed: [String: Int] = [:]
+
+        /// What a round starting now carries, and what its answers are later judged against.
+        var mark: Int { stamp }
+
+        /// A credential landed for these accounts. An empty set is not news.
+        mutating func land(_ accountIDs: Set<String>) {
+            guard !accountIDs.isEmpty else { return }
+            stamp += 1
+            for id in accountIDs { landed[id] = stamp }
+        }
+
+        /// Whether a round that started at `mark` may still answer for this account.
+        func isStale(_ accountID: String, since mark: Int) -> Bool {
+            (landed[accountID] ?? 0) > mark
+        }
+    }
 
     enum Decision: Equatable {
         /// Run a round now.

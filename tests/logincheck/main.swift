@@ -552,7 +552,8 @@ expect(renewSource.contains("LoginStatusStore.shared.loginRenewed(accountID)"),
        "a renewal that reported success drops the stale verdict itself, so the chip cannot "
            + "survive on a probe that ran before the login did")
 expect(renewSource.contains("LoginStatusStore.shared.loginHandedOff(accountID)")
-        && renewSource.components(separatedBy: "handOff(accountID)").count == 3,
+        && renewSource.components(separatedBy: "handOff(accountID, providerID: providerID, home: home)")
+            .count == 3,
        "…and BOTH Terminal handoffs (the refused announcement and the failed attempt) force the "
            + "rounds that follow - the failed-then-finished-by-hand path is the reported one")
 
@@ -562,20 +563,54 @@ expect(renewSource.contains("LoginStatusStore.shared.loginHandedOff(accountID)")
 // a round, and the one thing that would otherwise notice the credential landing - the config-dir
 // watcher - is fail-open by contract. Without a ladder of its own the chip sat there until the poll
 // timer came round, which is up to fifteen minutes at the interval the user can set.
-expect(renewSource.contains("private func handOff(_ accountID: String) {")
+expect(renewSource.contains("private func handOff(_ accountID: String, providerID: String, home: String) {")
         && renewSource.contains("LoginStatusStore.shared.loginHandedOff(accountID)")
         && renewSource.contains("await UsageStore.shared.refresh()"),
        "a handed-off login asks for rounds of its own rather than only being allowed to have them")
-expect(renewSource.contains("for _ in 0 ..< LoginProbeGate.handedOff.roundsLeft")
-        && renewSource.contains("LoginProbeGate.handoffPollDelay")
-        && renewSource.contains("LoginStatusStore.shared.isAwaitingLogin(accountID) else { return }"),
-       "…bounded by the same patience the gate has, and stopped by the first round that says the "
-           + "account is no longer waiting on a login")
-expect(LoginProbeGate.handoffPollDelay > 0
-        && LoginProbeGate.handoffPollDelay * Double(LoginProbeGate.handedOff.roundsLeft) < 5 * 60,
-       "…and the whole ladder finishes well inside the five-minute probe interval it beats")
+expect(renewSource.contains("LoginProbeGate.handoffTick(")
+        && renewSource.contains("Self.credentialStamp(providerID: providerID, home: home) != before")
+        && renewSource.contains("guard tick == .ask else { continue }"),
+       "…and it looks at the credential itself before it spends a probe round on the question")
 expect(renewSource.contains("handoffPolls[accountID]?.cancel()"),
        "a second handoff replaces the first ladder rather than running beside it")
+
+// The ladder as it actually runs, one tick at a time: when does the first refresh get asked for,
+// given a user who finishes their login `landsAt` seconds into it?
+func firstAsk(landsAt: TimeInterval) -> TimeInterval? {
+    var elapsed: TimeInterval = 0
+    while true {
+        elapsed += LoginProbeGate.handoffPollDelay
+        switch LoginProbeGate.handoffTick(elapsed: elapsed, credentialLanded: elapsed >= landsAt,
+                                          awaitingLogin: true) {
+        case .wait: continue
+        case .ask: return elapsed
+        case .stop: return nil
+        }
+    }
+}
+// The bug, as a number: three probe rounds ten seconds apart is a thirty-second deadline, and a
+// browser sign-in with a human in it routinely takes longer than that.
+let oldDeadline = LoginProbeGate.handoffPollDelay * Double(LoginProbeGate.handedOff.roundsLeft)
+expect(oldDeadline < 60 && LoginProbeGate.handoffPatience >= 5 * 60,
+       "the person's clock and the probe's clock are not the same clock: the gate's rounds were "
+           + "never a statement about how long somebody takes to sign in")
+for slow in [oldDeadline + 10, 90.0, 240.0] {
+    guard let asked = firstAsk(landsAt: slow) else {
+        expect(false, "a login that took \(Int(slow))s in the Terminal window still clears the chip")
+        continue
+    }
+    expect(asked - slow <= LoginProbeGate.handoffPollDelay,
+           "a login that took \(Int(slow))s in the Terminal window is asked about within one tick "
+               + "of landing, not at the fifteen-minute poll")
+}
+expect(firstAsk(landsAt: 45) != nil && oldDeadline < 45,
+       "…which is exactly the case the old ladder had already given up on")
+expect(firstAsk(landsAt: LoginProbeGate.handoffPatience + 10) == nil,
+       "a login abandoned in that window stops at the deadline rather than polling forever")
+expect(LoginProbeGate.handoffTick(elapsed: 20, credentialLanded: false, awaitingLogin: true) == .wait,
+       "waiting costs a file check, not a probe per enabled account")
+expect(LoginProbeGate.handoffTick(elapsed: 20, credentialLanded: true, awaitingLogin: false) == .stop,
+       "…and the ladder ends the moment the account is no longer waiting on a login")
 
 // The other half of the same bug, and the one that covers a user who takes their time in that
 // Terminal window: a dormant account becoming discoverable again IS the login landing. The watcher
@@ -594,6 +629,37 @@ expect(usageSource.contains("LoginStatusStore.shared.loginLanded(")
        "…and a credential back on disk retires the verdict a probe wrote before it landed")
 expect(storeSource.contains("verdicts[accountID] = nil"),
        "the verdict really is cleared rather than merely re-asked for")
+
+// …and clearing it is only half of the answer. A round is several CLI spawns wide: one that started
+// before the credential landed comes home saying "signed out", which was true when it asked, and
+// writing that answer puts the chip straight back for another interval (codex review, 2026-08-03).
+var landings = LoginProbeGate.Landings()
+let roundBefore = landings.mark
+landings.land(["codex:.codex2"])
+let roundAfter = landings.mark
+expect(landings.isStale("codex:.codex2", since: roundBefore),
+       "a round that asked before the login landed does not get to answer for that account")
+expect(!landings.isStale("claude:.claude2", since: roundBefore),
+       "…and only for that account: the same round's other readings are current")
+expect(!landings.isStale("codex:.codex2", since: roundAfter),
+       "a round that started after the landing is the one that knows better")
+landings.land(["claude:.claude2"])
+expect(landings.isStale("codex:.codex2", since: roundBefore)
+        && !landings.isStale("codex:.codex2", since: roundAfter),
+       "a second landing does not re-open the first: what is stale is what was asked too early")
+var untouched = LoginProbeGate.Landings()
+untouched.land([])
+expect(untouched == LoginProbeGate.Landings(),
+       "an empty landing is not news, and does not invalidate a round that is out")
+expect(storeSource.contains("let mark = landings.mark")
+        && storeSource.contains("let fresh = readings.filter { !landings.isStale($0.key, since: mark) }")
+        && storeSource.contains("let roundVerdicts = fresh.mapValues(\\.verdict)"),
+       "the probe takes its mark before it spawns anything and drops the readings a landing "
+           + "overtook - chip, notification and gate together, or they would disagree")
+expect(storeSource.contains("landings.land([accountID])")
+        && storeSource.contains("landings.land(accountIDs)"),
+       "both witnesses of a landing retire the rounds that predate them: the CLI that reported the "
+           + "renewal, and discovery finding the account live again")
 expect(usageSource.contains("queuedUserInitiated = queuedUserInitiated || userInitiated")
         && usageSource.contains("Task { await refresh(userInitiated: inherited) }"),
        "a refresh coalesced into one already running keeps the reason it was asked for, or the "

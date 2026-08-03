@@ -62,12 +62,18 @@ final class LoginStatusStore {
     private var gate = LoginProbeGate.State()
     /// A forced round that arrived while another was out, kept rather than dropped.
     private var queuedRound: (accounts: [ProviderAccount], known: Set<String>)?
+    /// Which rounds a landing has overtaken. A round already out when a login lands asked its
+    /// question before the credential existed, so it does not get to answer it
+    /// (LoginProbeGate.Landings).
+    private var landings = LoginProbeGate.Landings()
 
     /// A renewal reported success for this account. The stale verdict goes NOW - the CLI that just
     /// signed in is a better witness than a probe from before it ran - and the next round is forced,
-    /// so the card is corrected by data within seconds either way.
+    /// so the card is corrected by data within seconds either way. A round already in flight is the
+    /// same probe from before it ran, so it is retired here too.
     func loginRenewed(_ accountID: String) {
         verdicts[accountID] = nil
+        landings.land([accountID])
         gate.forced[accountID] = LoginProbeGate.renewed
     }
 
@@ -87,8 +93,14 @@ final class LoginStatusStore {
     /// login landing. Discovery is credential-shaped, so it knows better than the last probe: the
     /// stale "signed out" verdict goes now (that is the chip), and the forcing stays so the round
     /// behind it can re-read the email the same probe carries.
+    ///
+    /// Clearing the verdict is only half of it: a round that STARTED before the credential landed is
+    /// still out there, and it would write its "signed out" over this the moment it returned, which
+    /// is the chip back for another interval. So the landing is recorded as well, and that round's
+    /// readings are dropped when it comes home (LoginProbeGate.Landings).
     func loginLanded(_ accountIDs: Set<String>) {
         for id in accountIDs { verdicts[id] = nil }
+        landings.land(accountIDs)
     }
 
     /// Probe every account that has a config home, unless one ran recently. `userInitiated` (an
@@ -117,6 +129,9 @@ final class LoginStatusStore {
         lastProbeAt = now
         isProbing = true
         defer { isProbing = false }
+        // Taken before a single CLI is spawned: everything this round says is about the machine as
+        // it is right now, and a login that lands while it runs makes all of it a memory.
+        let mark = landings.mark
 
         var readings: [String: LoginStatusCommand.Reading] = [:]
         await withTaskGroup(of: (String, LoginStatusCommand.Reading)?.self) { group in
@@ -145,11 +160,16 @@ final class LoginStatusStore {
             }
         }
 
-        for (id, reading) in readings {
+        // Whole readings, not just their verdicts: an account that signed in while this round ran
+        // has an email to go with the new credential, and this round read the old one. Dropped here
+        // rather than at the three places below, so the chip, the notification and the gate can
+        // never disagree about which accounts this round spoke for.
+        let fresh = readings.filter { !landings.isStale($0.key, since: mark) }
+        for (id, reading) in fresh {
             verdicts[id] = reading.verdict
             if let email = reading.email { emails[id] = email }
         }
-        let roundVerdicts = readings.mapValues(\.verdict)
+        let roundVerdicts = fresh.mapValues(\.verdict)
         announce(verdicts: roundVerdicts, accounts: accounts, known: known)
 
         let (next, retrySoon) = LoginProbeGate.afterRound(state: gate, verdicts: roundVerdicts,

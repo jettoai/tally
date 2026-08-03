@@ -369,4 +369,49 @@ check("and removes every copy before the marker",
       removingOption(["--new", "-x", "--new"], "--new") == ["-x"])
 try? FileManager.default.removeItem(at: startModeRoot)
 
+// MARK: - Resolving a manual pin (AccountPick.swift)
+
+// A pin carries two things: the account id, and the launch home denormalized beside it so the pin
+// still works while its account is briefly missing from the snapshot. That fallback asks nothing
+// about the account, which is how a pin left behind on an account that later SIGNED OUT kept
+// exec'ing a logged-out config dir (2026-08-03): the app publishes a dormant account without a
+// launch home, and every other surface skipped it - only this one did not look.
+func manualPin(id: String?, home: String?) -> LaunchPolicy {
+    LaunchPolicy(mode: "manual", pinnedAccountID: id, pinnedHome: home)
+}
+func snap(_ accounts: [Snapshot.Account]) -> Snapshot {
+    Snapshot(version: 2, generatedAt: now, accounts: accounts)
+}
+let livePin = account("A", session: (50, inHours(2)), weekly: (60, inHours(48)))
+var dormantPin = livePin
+dormantPin.launchHome = nil   // exactly what the app publishes for a signed-out account
+let pinSibling = account("B", session: (90, inHours(2)), weekly: (95, inHours(48)))
+
+check("a live pin launches its account's own home",
+      pinnedLaunchHome(snap([livePin, pinSibling]), policy: manualPin(id: "A", home: "/stale"))
+          == "/tmp/A")
+// THE FIX. The snapshot listing the account WITHOUT a launch home is Tally saying the login is
+// gone; the saved home must not be exec'd behind that statement.
+check("a pin whose account signed out launches nothing",
+      pinnedLaunchHome(snap([dormantPin, pinSibling]), policy: manualPin(id: "A", home: "/tmp/A"))
+          == nil)
+check("…and that is recognised as signed out rather than as a missing account",
+      pinnedAccountIsSignedOut(snap([dormantPin]), policy: manualPin(id: "A", home: "/tmp/A")))
+// The case the fallback was ADDED for stays: absent from the snapshot says only that Tally has not
+// seen the account this round (a refresh mid-flight, an app that has not run yet).
+check("a pin whose account is simply absent still launches by saved home",
+      pinnedLaunchHome(snap([pinSibling]), policy: manualPin(id: "A", home: "/tmp/A")) == "/tmp/A")
+check("…and absence is not read as a sign-out",
+      !pinnedAccountIsSignedOut(snap([pinSibling]), policy: manualPin(id: "A", home: "/tmp/A")))
+check("no snapshot at all keeps the saved home too",
+      pinnedLaunchHome(nil, policy: manualPin(id: "A", home: "/tmp/A")) == "/tmp/A"
+          && !pinnedAccountIsSignedOut(nil, policy: manualPin(id: "A", home: "/tmp/A")))
+// Only manual mode has a pin to resolve, and a policy with neither half resolves to nothing.
+check("smart mode resolves no pin",
+      pinnedLaunchHome(snap([livePin]), policy: LaunchPolicy(pinnedAccountID: "A",
+                                                             pinnedHome: "/tmp/A")) == nil)
+check("a manual policy with nothing pinned resolves to nothing",
+      pinnedLaunchHome(snap([livePin]), policy: manualPin(id: nil, home: nil)) == nil
+          && !pinnedAccountIsSignedOut(snap([livePin]), policy: manualPin(id: nil, home: nil)))
+
 exit(failures == 0 ? 0 : 1)

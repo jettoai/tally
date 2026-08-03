@@ -30,6 +30,42 @@ func eligible(_ account: Snapshot.Account, primaryModel: String? = nil) -> Bool 
         && headroom(account, primaryModel: primaryModel) > 0
 }
 
+// MARK: The manual pin, resolved
+
+/// Whether Tally KNOWS the pinned account's login is gone: the snapshot LISTS that account and
+/// gives it no launch home, which is the app publishing "this one is dormant" (a signed-out home is
+/// kept out of the launch map on purpose - UsageStore publishes `launchableHome`, not `launchHome`).
+///
+/// Deliberately different from "not in the snapshot at all", which says only that Tally has not seen
+/// the account this round: a refresh mid-flight, a provider switched off, an app that has not run
+/// yet. That case keeps the denormalized fallback below; this one must not.
+func pinnedAccountIsSignedOut(_ snapshot: Snapshot?, policy: LaunchPolicy) -> Bool {
+    guard policy.mode == "manual", let pinnedID = policy.pinnedAccountID,
+          let listed = snapshot?.accounts.first(where: { $0.id == pinnedID }) else { return false }
+    return listed.launchHome == nil
+}
+
+/// The home a manual pin launches, or nil when the pin cannot be launched right now (and the caller
+/// should fall through to the headroom pick).
+///
+/// Two sources in order: the pinned account in the snapshot, then the home the app denormalized into
+/// the policy file - the fallback that exists so a pin still works while its account is briefly
+/// missing from the snapshot. That fallback is the one that needed a rule. It asks nothing about the
+/// account, so a pin left behind on an account that later signed OUT kept exec'ing a logged-out
+/// config dir long after the panel stopped offering it (2026-08-03). The app clears the home too
+/// (`LaunchPolicyStore.releasePinnedHome`); both halves, because either alone still leaves a
+/// version of the pair that launches a dormant home.
+///
+/// One function for every surface that resolves a pin - launch, `best-dir`, `launch-dir` and the
+/// status report - so a prediction cannot disagree with what launching does.
+func pinnedLaunchHome(_ snapshot: Snapshot?, policy: LaunchPolicy) -> String? {
+    guard policy.mode == "manual" else { return nil }
+    if let home = snapshot?.accounts.first(where: { $0.id == policy.pinnedAccountID })?.launchHome {
+        return home
+    }
+    return pinnedAccountIsSignedOut(snapshot, policy: policy) ? nil : policy.pinnedHome
+}
+
 /// One usage window with its sustainable burn rate: how much quota per hour it can spend until
 /// it refreshes. A window about to reset stops being a constraint (its rate soars, and its
 /// leftover quota would evaporate unused) - the "burn the dying quota first" intuition; a window

@@ -58,6 +58,25 @@ final class AddAccountStore {
         run = nil
     }
 
+    /// Opening the sheet from an entry point that names a provider (Settings has one row per
+    /// provider). The provider and the reset move TOGETHER, under the same rule, because they are
+    /// one act: choosing what the next run will be.
+    ///
+    /// Setting `providerID` first and resetting after is what this exists to prevent. `reset()`
+    /// refuses while a Terminal handoff is live, so the provider changed while the run did not, and
+    /// the sheet then showed - and offered to copy - the OTHER provider's login command for a home
+    /// that had been prepared for the first one.
+    func beginEntry(providerID: String) {
+        guard phase.allowsNewRun else { return }
+        self.providerID = providerID
+        reset()
+    }
+
+    /// The provider the run that is still out there belongs to, for the surfaces that talk about
+    /// THAT run rather than the next one. `providerID` is the picker's value, which is a choice
+    /// about the next run and must never be read as a fact about this one.
+    var runProviderID: String { run?.providerID ?? providerID }
+
     func start() {
         guard phase.allowsNewRun, canAdd(providerID: providerID),
               let plan = RenewLoginCommand.plan(providerID: providerID),

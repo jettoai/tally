@@ -168,12 +168,17 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             }
             exec(provider.cli, args: args, env: launchEnv(provider, home: match.launchHome!))
         }
-        if let home = policy.pinnedHome {
+        // The denormalized home, for a pin whose account is missing from this snapshot. NOT for one
+        // the snapshot lists WITHOUT a launch home: that is Tally saying the login is gone, and
+        // exec'ing it anyway drops the session into a signed-out config dir (AccountPick.swift).
+        if let home = pinnedLaunchHome(snapshot, policy: policy) {
             warn("→ pinned account (set in Tally)")
             exec(provider.cli, args: startModeArgs(passthrough, home: home),
                  env: launchEnv(provider, home: home))
         }
-        warn("pinned account not found - picking by headroom instead")
+        warn(pinnedAccountIsSignedOut(snapshot, policy: policy)
+            ? "pinned account is signed out - renew its login in Tally; picking by headroom instead"
+            : "pinned account not found - picking by headroom instead")
     }
 
     guard let snapshot else {
@@ -337,12 +342,11 @@ func runBestDir(_ providerID: String) {
     }
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
-    // A Tally-set manual pin is the answer regardless of headroom - the user chose by hand.
+    // A Tally-set manual pin is the answer regardless of headroom - the user chose by hand. Except
+    // a pin whose account has signed out, which is not launchable by anyone (AccountPick.swift).
     let policy = launchPolicy(provider.id)
-    let pinnedHome: String? = policy.mode == "manual"
-        ? snapshot?.accounts.first { $0.id == policy.pinnedAccountID }?.launchHome ?? policy.pinnedHome
-        : nil
-    let home = pinnedHome ?? snapshot.flatMap { best(providerID: provider.id, in: $0)?.launchHome }
+    let home = pinnedLaunchHome(snapshot, policy: policy)
+        ?? snapshot.flatMap { best(providerID: provider.id, in: $0)?.launchHome }
     guard let home else {
         warn("no eligible \(providerID) account")
         exit(1)
@@ -374,10 +378,8 @@ func runLaunchDir(_ providerID: String) {
     guard policy.mode != "off" else { return }
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
-    let pinnedHome: String? = policy.mode == "manual"
-        ? snapshot?.accounts.first { $0.id == policy.pinnedAccountID }?.launchHome ?? policy.pinnedHome
-        : nil
-    guard let home = pinnedHome ?? snapshot.flatMap({ best(providerID: provider.id, in: $0)?.launchHome })
+    guard let home = pinnedLaunchHome(snapshot, policy: policy)
+        ?? snapshot.flatMap({ best(providerID: provider.id, in: $0)?.launchHome })
     else { return }   // nothing eligible - stay silent, the shim runs the bare CLI
     if launchEnv(provider, home: home) == nil {
         print("unset \(provider.envKey)")

@@ -378,10 +378,32 @@ expect(cardSource.contains("LoginStatusStore.shared.email(usage.id) ?? usage.acc
 // picks, the snapshot IS what the CLI picks from, and a redeem needs a live session to spend a
 // credit on. Each one is a way a dormant account could be launched with.
 let redeemSource = readSource("Tally/Views/RedeemAction.swift")
-expect(!redeemSource.isEmpty, "the redeem surface is readable from this suite")
+let policySource = readSource("Tally/Stores/LaunchPolicyStore.swift")
+let pickSource = readSource("TallyCLI/AccountPick.swift")
+let mainSource = readSource("TallyCLI/main.swift")
+expect(!redeemSource.isEmpty && !policySource.isEmpty && !pickSource.isEmpty && !mainSource.isEmpty,
+       "the launch-steering surfaces are readable from this suite")
 expect(cardSource.contains("policy.pin(usage.providerID, accountID: usage.id, home: discovered?.launchableHome)")
-        && cardSource.contains(".disabled(isDormant)"),
-       "the pin is offered on a launchable home only, and not at all on a signed-out card")
+        && cardSource.contains(".disabled(isDormant && !isPinnedActive)"),
+       "a signed-out card cannot BECOME the pin, while releasing one it already holds still works")
+// The other half of that, one layer down: a pin the user set before the account signed out is
+// denormalized into the policy file, where the CLI can exec it without asking anything. The app
+// drops that home the moment it sees the account go dormant (2026-08-03), and the launcher ignores
+// it too - either half alone still leaves a pair that launches a logged-out config dir.
+expect(policySource.contains("func releasePinnedHome(dormant: Set<String>)")
+        && policySource.contains("updated.pinnedHome = nil"),
+       "a dormant account's pin lets go of the launch home the CLI would have exec'd")
+expect(policySource.contains("updated.pinnedAccountID = nil") == false,
+       "…and keeps the pinned id, so renewing the login restores the choice without a second click")
+expect(usageSource.contains("LaunchPolicyStore.shared.releasePinnedHome(dormant: Set(dormant.map(\\.id)))"),
+       "the refresh drives that release from the accounts it just found dormant")
+expect(pickSource.contains("func pinnedLaunchHome(_ snapshot: Snapshot?, policy: LaunchPolicy)")
+        && pickSource.contains("return pinnedAccountIsSignedOut(snapshot, policy: policy) ? nil : policy.pinnedHome"),
+       "and the launcher refuses a saved home whose account the snapshot lists as signed out")
+expect(!mainSource.contains("?.launchHome ?? policy.pinnedHome"),
+       "…with no surface left resolving a pin on its own (that is how one of them missed it)")
+expect(cardSource.contains(".disabled(redeemBusy || isDormant)"),
+       "a signed-out card's banked resets are visible but not spendable - the redeem has no session")
 expect(cardSource.contains("$0.launchableHome != nil ? $0.id : nil"),
        "the smart-pick badge counts only accounts a launch could actually land on")
 expect(usageSource.contains("if let home = account.launchableHome { launchHomes"),

@@ -155,8 +155,16 @@ struct AccountCardView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .disabled(redeemBusy)
-                    .help(L("Use a reset"))
+                    // Dormant accounts keep this row (the count comes from the last good reading)
+                    // but cannot act on it: redeeming talks to the provider's app server through
+                    // the account's own CLI home, and a signed-out one has no session to spend a
+                    // credit in - `RedeemAction.redeem` returns nil there, so the confirmation used
+                    // to be followed by nothing at all. The count stays visible, greyed like every
+                    // other dormant affordance, because the credits are still banked.
+                    .disabled(redeemBusy || isDormant)
+                    .help(isDormant
+                          ? L("Signed out: renew the login to spend a banked reset.")
+                          : L("Use a reset"))
                 }
                 if let redeemOutcome {
                     Text(RedeemAction.outcomeMessage(redeemOutcome))
@@ -288,17 +296,29 @@ struct AccountCardView: View {
                 .foregroundStyle(isPinnedActive ? Color.orange : Color.secondary)
         }
         .buttonStyle(.plain)
-        // A signed-out account cannot be a launch account: pinning is denormalized into the policy
-        // file the CLI reads, so a pinned dormant home would have `tally` exec a logged-out
+        // A signed-out account cannot BECOME the launch account: pinning is denormalized into the
+        // policy file the CLI reads, so a pinned dormant home would have `tally` exec a logged-out
         // directory long after the panel forgot why. The expiry chip beside this is the control
         // that still works there.
-        .disabled(isDormant)
-        .help(isDormant
-              ? L("Signed out: renew the login before launching with this account.")
-              : isPinnedActive
-              ? L("Pinned. Click again to go back to Smart.")
-              : L("Set as launch account"))
+        //
+        // Releasing an existing pin stays available, though - that is the opposite direction. An
+        // account pinned BEFORE it signed out is exactly the one the user needs to unpin, and
+        // disabling the only control that does it left the choice stuck until the login came back.
+        .disabled(isDormant && !isPinnedActive)
+        .help(pinToggleHelp)
         .accessibilityLabel(L("Set as launch account"))
+    }
+
+    /// What the circle does from where it is now - all four states, because a pinned dormant card
+    /// is a real one and reads wrong under either of the other two sentences.
+    private var pinToggleHelp: String {
+        switch (isPinnedActive, isDormant) {
+        case (true, true):
+            L("Pinned but signed out: launches pick by headroom until the login is renewed. Click to unpin.")
+        case (true, false): L("Pinned. Click again to go back to Smart.")
+        case (false, true): L("Signed out: renew the login before launching with this account.")
+        case (false, false): L("Set as launch account")
+        }
     }
 
     /// Manual mode, pinned card: a label-only badge in the warm colour, same shape as the Smart

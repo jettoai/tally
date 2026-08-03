@@ -124,8 +124,10 @@ struct SettingsAccountsView: View {
             }
             Spacer(minLength: 0)
             Button(L("Add account…")) {
-                flow.providerID = providerID
-                flow.reset()
+                // Provider and reset in one call: a login still out there owns both, and this
+                // button must not repoint the flow at another provider while it does (the sheet
+                // would then offer that provider's command for this one's home).
+                flow.beginEntry(providerID: providerID)
                 addingAccount = true
             }
             // Demo fixtures have no config home behind them, so the flow could only ever leave a

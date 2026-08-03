@@ -367,6 +367,52 @@ check("opting out removes the earlier run's share links",
 check("opting out removes the folder trust the earlier run seeded", optedOut.trustCleared == 2)
 check("…so the resumed home really is empty of the main account's answers",
       !fm.fileExists(atPath: optedOut.dir.appendingPathComponent(".claude.json").path))
+func trustSeedPathCount(_ raw: Data) -> Int? { trustSeedPaths(inState: raw)?.count }
+
+// THE DATA-LOSS GUARD (2026-08-03). A shape cannot say who wrote a file. A user who prepared
+// `~/.claudeN` themselves and answered the trust prompt there owns a `.claude.json` that matches the
+// seed's shape exactly, and preparing that home unshared deleted it. So the undo asks for Tally's
+// own record of having written that seed, into that home, and finds nothing here.
+let strangerRoot = tmp.appendingPathComponent("stranger-\(UUID().uuidString)")
+let strangerMain = strangerRoot.appendingPathComponent(".claude")
+try! fm.createDirectory(at: strangerMain, withIntermediateDirectories: true)
+try! "secret".write(to: strangerMain.appendingPathComponent(".credentials.json"),
+                   atomically: true, encoding: .utf8)
+try! stateBody.write(to: strangerRoot.appendingPathComponent(".claude.json"),
+                    atomically: true, encoding: .utf8)
+// The user's own home, holding the user's own file, which happens to be shaped like a seed.
+let strangerTarget = strangerRoot.appendingPathComponent(".claude2")
+try! fm.createDirectory(at: strangerTarget, withIntermediateDirectories: true)
+let strangerFile = strangerTarget.appendingPathComponent(".claude.json")
+let strangerBody = "{\"projects\":{\"/Users/x/mine\":{\"hasTrustDialogAccepted\":true}}}"
+try! strangerBody.write(to: strangerFile, atomically: true, encoding: .utf8)
+check("a look-alike file Tally has no record of writing is seed-SHAPED (guard the premise)",
+      trustSeedPathCount(Data(strangerBody.utf8)) == 1)
+let stranger = try! prepareAddedAccountHome(providerID: "claude", share: false, home: strangerRoot,
+                                            fileExists: realFiles, keychainLogin: noKeychain)
+check("…and preparing that home unshared removes nothing", stranger.trustCleared == 0)
+check("…leaving the user's own file exactly as it was",
+      (try? String(contentsOf: strangerFile, encoding: .utf8)) == strangerBody)
+// The record alone is not authority either: it only clears the file it actually describes. Written
+// here as the literal on-disk document, so this pins the format the app writes as well as the rule.
+func writeSeedRecord(paths: [String], in dir: URL) {
+    let list = paths.map { "\"\($0)\"" }.joined(separator: ",")
+    try! "{\"version\":1,\"paths\":[\(list)],\"writtenAt\":\"2026-08-03T00:00:00Z\"}"
+        .write(to: trustSeedRecordFile(inConfigDir: dir), atomically: true, encoding: .utf8)
+}
+writeSeedRecord(paths: ["/Users/x/somewhere-else"], in: strangerTarget)
+check("a record naming other paths does not authorise removing this file",
+      removeSeededFolderTrust(from: strangerTarget) == 0
+          && fm.fileExists(atPath: strangerFile.path))
+// And the positive half, so the guard cannot be satisfied by simply never removing anything: the
+// record Tally itself wrote clears the seed Tally itself wrote.
+writeSeedRecord(paths: ["/Users/x/mine"], in: strangerTarget)
+check("the seed Tally recorded writing is still removed",
+      removeSeededFolderTrust(from: strangerTarget) == 1
+          && !fm.fileExists(atPath: strangerFile.path))
+check("…and the record goes with it",
+      !fm.fileExists(atPath: trustSeedRecordFile(inConfigDir: strangerTarget).path))
+
 // And only ever OUR file. A state file the account (or the user) has written to belongs to them.
 let ownedRoot = tmp.appendingPathComponent("owned-\(UUID().uuidString)")
 let ownedMain = ownedRoot.appendingPathComponent(".claude")
@@ -384,17 +430,17 @@ check("a state file the account itself wrote is never removed",
 // The shape that tells the two apart, asserted on its own: the seed is one top-level key whose
 // every entry is the single accepted fact, and anything else has somebody's data in it.
 check("a pure seed is recognised, and counted",
-      untouchedTrustSeedCount(Data("{\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":true}}}".utf8)) == 1)
+      trustSeedPathCount(Data("{\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":true}}}".utf8)) == 1)
 check("a seed with any other top-level field is not ours",
-      untouchedTrustSeedCount(Data("{\"userID\":\"x\",\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":true}}}".utf8)) == nil)
+      trustSeedPathCount(Data("{\"userID\":\"x\",\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":true}}}".utf8)) == nil)
 check("nor is one whose entries carry per-project history",
-      untouchedTrustSeedCount(Data("{\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":true,\"lastVersionBase\":\"2.1\"}}}".utf8)) == nil)
+      trustSeedPathCount(Data("{\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":true,\"lastVersionBase\":\"2.1\"}}}".utf8)) == nil)
 check("nor one holding an answer the seed never writes",
-      untouchedTrustSeedCount(Data("{\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":false}}}".utf8)) == nil)
+      trustSeedPathCount(Data("{\"projects\":{\"/a\":{\"hasTrustDialogAccepted\":false}}}".utf8)) == nil)
 check("an empty map is not a seed either, so an unknown file is left alone",
-      untouchedTrustSeedCount(Data("{\"projects\":{}}".utf8)) == nil)
+      trustSeedPathCount(Data("{\"projects\":{}}".utf8)) == nil)
 check("and neither is a body that is not JSON at all",
-      untouchedTrustSeedCount(Data("not json".utf8)) == nil)
+      trustSeedPathCount(Data("not json".utf8)) == nil)
 // Sharing again never removes anything: the undo belongs to the opt-out alone.
 let resharedRoot = tmp.appendingPathComponent("reshare-\(UUID().uuidString)")
 let resharedMain = resharedRoot.appendingPathComponent(".claude")
@@ -547,8 +593,24 @@ let sheetSource = (try? String(contentsOfFile: "Tally/Views/SettingsAddAccountVi
 let storeSource = (try? String(contentsOfFile: "Tally/Stores/AddAccountStore.swift",
                                encoding: .utf8)) ?? ""
 check("both surfaces are readable from this suite", !sheetSource.isEmpty && !storeSource.isEmpty)
-check("the store gates starting AND resetting on the one rule",
-      storeSource.components(separatedBy: "guard phase.allowsNewRun").count == 3)
+check("the store gates starting, resetting AND switching provider on the one rule",
+      storeSource.components(separatedBy: "guard phase.allowsNewRun").count == 4)
+// Switching provider is part of the reset, not a step before it. Setting it first and resetting
+// after is the bug this pins: `reset()` refuses while a Terminal handoff is live, so the provider
+// moved while the run did not, and the sheet offered the OTHER provider's login command for a home
+// prepared for the first one (2026-08-03).
+check("the store switches provider and resets in ONE gated call",
+      storeSource.contains("func beginEntry(providerID: String)"))
+let settingsSource = (try? String(contentsOfFile: "Tally/Views/SettingsAccountsView.swift",
+                                  encoding: .utf8)) ?? ""
+check("the Settings entry goes through it rather than assigning the provider itself",
+      !settingsSource.isEmpty && settingsSource.contains("flow.beginEntry(providerID: providerID)")
+          && !settingsSource.contains("flow.providerID ="))
+// And the unfinished screen names the run's OWN provider: the picker's value is a choice about the
+// next run, never a fact about this one.
+check("the fallback command follows the run, not the picker",
+      sheetSource.contains("fallbackCommand(flow.runProviderID)")
+          && storeSource.contains("var runProviderID: String { run?.providerID ?? providerID }"))
 if let gate = sheetSource.range(of: "if flow.phase.allowsNewRun"),
    let retry = sheetSource.range(of: "Button(L(\"Try again\"))") {
     check("the sheet's retry button is behind that gate", gate.lowerBound < retry.lowerBound)

@@ -8752,6 +8752,64 @@
           }
         }
       }
+    },
+    "Pinned but signed out: launches pick by headroom until the login is renewed. Click to unpin.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已釘選但已登出：在更新登入前，啟動會改用餘量挑選。點一下可取消釘選。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已钉选但已登出：在更新登录前，启动会改用余量挑选。点一下可取消钉选。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定済みですがサインアウトしています。ログインを更新するまで、起動は残量で選ばれます。クリックすると固定を解除します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고정됨, 로그아웃 상태: 로그인을 갱신할 때까지 실행은 잔여량으로 선택됩니다. 클릭하면 고정이 해제됩니다."
+          }
+        }
+      }
+    },
+    "Signed out: renew the login to spend a banked reset.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登出：先更新登入，才能使用存下來的重置。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登出：先更新登录，才能使用存下来的重置。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト済みです。貯めたリセットを使うにはログインを更新してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃됨: 저장된 리셋을 사용하려면 먼저 로그인을 갱신하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

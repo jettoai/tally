@@ -140,6 +140,32 @@ final class LaunchPolicyStore {
         persist()
     }
 
+    /// Let go of the denormalized launch home of any pin whose account has gone DORMANT (signed out
+    /// with its config home still on disk).
+    ///
+    /// The home is the half the CLI can act on without asking anything: `pinnedHome` is published so
+    /// a pin survives its account briefly dropping out of the snapshot, so a stale one kept `tally`
+    /// exec'ing a signed-out config dir long after the panel stopped offering the pin (2026-08-03).
+    /// The launcher ignores it too (`pinnedLaunchHome`, TallyCLI/AccountPick.swift) - both halves,
+    /// because either alone still leaves a version of the pair that launches a dormant home.
+    ///
+    /// The pinned ID deliberately STAYS: the pin is the user's choice, and renewing the login makes
+    /// it steer launches again with no second click. And this is driven by a POSITIVE fact (this
+    /// account exists and is dormant), never by absence - a discovery hiccup must not silently
+    /// rewrite what the user chose.
+    func releasePinnedHome(dormant: Set<String>) {
+        guard !dormant.isEmpty else { return }
+        var changed = false
+        for (providerID, policy) in policies where policy.pinnedHome != nil {
+            guard let pinnedID = policy.pinnedAccountID, dormant.contains(pinnedID) else { continue }
+            var updated = policy
+            updated.pinnedHome = nil
+            policies[providerID] = updated
+            changed = true
+        }
+        if changed { persist() }
+    }
+
     func isPinned(_ accountID: String, providerID: String) -> Bool {
         let p = policy(providerID)
         return p.mode == .manual && p.pinnedAccountID == accountID

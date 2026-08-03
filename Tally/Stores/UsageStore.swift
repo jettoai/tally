@@ -228,6 +228,11 @@ final class UsageStore {
         // GONE is a removal instead, and is forgotten (KnownAccounts.swift).
         let (known, dormant) = KnownAccountsStore.shared.reconcile(discovered: allDiscovered)
         discoveredAccounts = known
+        // A pin on an account that has signed out must stop steering launches: the launch home is
+        // denormalized into the policy file the `tally` CLI reads, and nothing there asks whether
+        // the login is still good. Every dormant account, not just the enabled ones - a switched-off
+        // account is not a launchable one either.
+        LaunchPolicyStore.shared.releasePinnedHome(dormant: Set(dormant.map(\.id)))
 
         // The enablement set may have changed while the CLIs ran: keep rows of providers enabled
         // NOW that this round didn't fetch (the queued follow-up replaces them with live data),

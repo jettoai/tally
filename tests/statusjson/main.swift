@@ -137,6 +137,25 @@ check("orphan home pin: no claude account claims best",
       accounts(orphanHome).filter { $0["provider"] as? String == "claude" }
           .allSatisfy { $0["best"] as? Bool == false })
 
+// MARK: a pin whose account SIGNED OUT - the launcher stops honouring it, so the JSON must too
+// A dormant account is listed without a launch home (the app publishes `launchableHome`), and the
+// saved `pinnedHome` still points at its directory. `runLaunch` falls through to the headroom pick
+// there rather than exec'ing a logged-out config dir, and `best` means "would launch".
+let dormantFixture = fixture.replacingOccurrences(
+    of: "\"launchHome\": \"/Users/u/.claude2\", \"isStale\": false",
+    with: "\"isStale\": false")
+let dormantPin = parse(encodeStatusReport(statusReport(
+    decodeSnapshot(dormantFixture),
+    policies: ["claude": LaunchPolicy(mode: "manual", pinnedAccountID: "claude:.claude2",
+                                      pinnedHome: "/Users/u/.claude2")],
+    now: now)))
+check("signed-out pin: the fixture really did lose its launch home",
+      account(dormantPin, "claude:.claude2")["launchHome"] == nil)
+check("signed-out pin: nothing is flagged pinned",
+      accounts(dormantPin).allSatisfy { $0["pinned"] as? Bool == false })
+check("signed-out pin: the headroom pick takes over rather than nobody",
+      account(dormantPin, "claude:.claude")["best"] as? Bool == true)
+
 // MARK: cap quarantine - `best` means "would launch", so it skips what the launcher skips
 // (2026-07-25: a preview that ignored the quarantine named an account no launch could land on).
 let quarantined = parse(encodeStatusReport(statusReport(

@@ -93,14 +93,18 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
         // means "would launch".
         let known = providers.contains { $0.id == providerID }
         let manual = known && policy.mode == "manual"
+        // Asked through the launcher's own resolver, so a pin it has stopped honouring (the
+        // account signed out) falls through to the headroom pick here exactly as it does there.
+        let pinnedHome = manual ? pinnedLaunchHome(snapshot, policy: policy) : nil
         let pinnedAccount = manual
             ? mine.first { $0.id == policy.pinnedAccountID && $0.launchHome != nil }
-                ?? policy.pinnedHome.flatMap { home in mine.first { $0.launchHome == home } }
+                ?? pinnedHome.flatMap { home in mine.first { $0.launchHome == home } }
             : nil
         let pinnedID = pinnedAccount?.id
         let bestID: String? = if let pinnedID {
             pinnedID
-        } else if manual, policy.pinnedHome != nil {
+        } else if pinnedHome != nil {
+            // A pin that launches a home outside this list: nobody here gets the marker.
             nil
         } else if known {
             launchPick(providerID: providerID, in: snapshot, primaryModel: policy.model,

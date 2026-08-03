@@ -157,7 +157,10 @@ struct SettingsAddAccountView: View {
         caption(reason + " " + (handoff == .terminal
             ? L("A Terminal window is open on the same command. Finish the sign-in there, then tell Tally to look.")
             : L("The config home is ready and waiting - finishing the sign-in later adds the account, and nothing is created twice.")))
-        CopyCommandChip(command: fallbackCommand(flow.providerID))
+        // The command for the run this screen is about, not for whatever the picker last held: this
+        // home was prepared for one provider, and a command naming another would sign the user in
+        // somewhere else entirely.
+        CopyCommandChip(command: fallbackCommand(flow.runProviderID))
         HStack {
             Spacer()
             // Closing does not forget this: with a Terminal window still out there the flow keeps

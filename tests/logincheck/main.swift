@@ -350,6 +350,7 @@ let usageSource = readSource("Tally/Stores/UsageStore.swift")
 let routerSource = readSource("Tally/App/NotificationRouter.swift")
 let renewSource = readSource("Tally/Stores/RenewLoginStore.swift")
 let memorySource = readSource("Tally/Stores/KnownAccountsStore.swift")
+let watcherSource = readSource("Tally/Core/AccountDirWatcher.swift")
 expect(!cardSource.isEmpty && !storeSource.isEmpty && !usageSource.isEmpty
         && !routerSource.isEmpty && !renewSource.isEmpty && !memorySource.isEmpty,
        "every file the chain runs through was found to read")
@@ -447,7 +448,8 @@ expect(usageSource.contains("SettingsStore.shared.isAccountEnabled($0.id)")
 // for the chip to sit on.
 expect(usageSource.contains("let (known, dormant) = KnownAccountsStore.shared.reconcile(discovered: allDiscovered)"),
        "the refresh remembers what it discovered, so a logout leaves a dormant account behind")
-expect(usageSource.contains("discoveredAccounts = known"),
+expect(usageSource.contains("adoptDiscovered(known)")
+        && usageSource.contains("discoveredAccounts = accounts"),
        "…which stays in the list `RenewLoginStore.renew(accountID:)` resolves a home from")
 expect(memorySource.contains("return (discovered + revived, revived)"),
        "…because `all` really is discovery WITH the dormant accounts merged back into it, which "
@@ -504,19 +506,34 @@ expect(decide(renewed) == .run,
            + "which is what a coalesced refresh looks like from here")
 expect(decide(renewed, isProbing: true) == .queue && decide(gateIdle, isProbing: true) == .skip,
        "…and a round already in flight holds it rather than dropping it on the floor")
-// The three rounds after a renewal, in the order the user's machine produced them.
-let stillOut = LoginProbeGate.afterRound(state: renewed,
-                                         verdicts: ["codex:.codex2": .signedOut])
+// The three rounds after a renewal, in the order the user's machine produced them. `known` is every
+// account that still exists on the machine, which for these rounds is the one being renewed.
+let stillHere: Set<String> = ["codex:.codex2"]
+func afterRound(_ state: LoginProbeGate.State,
+                _ verdicts: [String: LoginStatusCommand.Verdict],
+                known: Set<String> = stillHere) -> (next: LoginProbeGate.State, retrySoon: Bool) {
+    LoginProbeGate.afterRound(state: state, verdicts: verdicts, known: known)
+}
+let stillOut = afterRound(renewed, ["codex:.codex2": .signedOut])
 expect(stillOut.retrySoon,
        "the probe beating the credential to disk buys a short re-ask, not a five-minute wait")
-let landed = LoginProbeGate.afterRound(state: renewed,
-                                       verdicts: ["codex:.codex2": .signedIn])
+let landed = afterRound(renewed, ["codex:.codex2": .signedIn])
 expect(!landed.next.isForcing && !landed.retrySoon,
        "…and the moment it reads signed in the account stops forcing anything")
 expect(!stillOut.next.isForcing,
        "a renewal that really did not take runs out of forcings instead of probing forever")
-expect(LoginProbeGate.afterRound(state: renewed, verdicts: [:]).next == renewed,
+expect(afterRound(renewed, [:]).next == renewed,
        "an account this round never probed keeps its forcing: it was not asked")
+// …unless there is nobody left to ask. An account removed after its login was handed to a Terminal
+// window produces no verdict ever again, and a forcing left behind is not idle: `isForcing` puts
+// EVERY later refresh past the five-minute throttle, spawning a probe per enabled account each
+// time (codex review, 2026-08-03).
+expect(!afterRound(renewed, [:], known: []).next.isForcing,
+       "an account that no longer exists stops forcing rounds nobody can answer")
+expect(!afterRound(renewed, [:], known: ["claude:.claude2"]).next.isForcing,
+       "…and it is THIS account's absence that ends it, not the round being empty")
+expect(afterRound(renewed, ["codex:.codex2": .signedOut], known: []).next.forced.isEmpty,
+       "…even when the round did answer: a removed account's verdict is about a home in the Trash")
 // The other way a login finishes, and the one Albert's first attempt took: Tally hands the command
 // to a Terminal window and goes blind. The credential landing there triggers a refresh through the
 // directory watcher, and that refresh carries no flag - so the forcing has to outlive a few rounds.
@@ -526,8 +543,7 @@ expect(decide(handed) == .run && !LoginProbeGate.handedOff.retrySoon,
        "a login handed to a Terminal forces the next round, without assuming a file is landing")
 var patience = handed
 for _ in 0 ..< 3 {
-    patience = LoginProbeGate.afterRound(state: patience,
-                                         verdicts: ["codex:.codex2": .signedOut]).next
+    patience = afterRound(patience, ["codex:.codex2": .signedOut]).next
 }
 expect(!patience.isForcing,
        "…and its patience is bounded, or a login abandoned in a Terminal probes on every refresh")
@@ -535,10 +551,47 @@ expect(!patience.isForcing,
 expect(renewSource.contains("LoginStatusStore.shared.loginRenewed(accountID)"),
        "a renewal that reported success drops the stale verdict itself, so the chip cannot "
            + "survive on a probe that ran before the login did")
-expect(renewSource.range(of: "LoginStatusStore.shared.loginHandedOff(accountID)") != nil
-        && renewSource.components(separatedBy: "loginHandedOff(accountID)").count == 3,
+expect(renewSource.contains("LoginStatusStore.shared.loginHandedOff(accountID)")
+        && renewSource.components(separatedBy: "handOff(accountID)").count == 3,
        "…and BOTH Terminal handoffs (the refused announcement and the failed attempt) force the "
            + "rounds that follow - the failed-then-finished-by-hand path is the reported one")
+
+// MARK: - Forcing a round is not having one (codex review, 2026-08-03)
+
+// The handoff's own rounds. `loginHandedOff` only lifts the throttle; nothing in that path SCHEDULES
+// a round, and the one thing that would otherwise notice the credential landing - the config-dir
+// watcher - is fail-open by contract. Without a ladder of its own the chip sat there until the poll
+// timer came round, which is up to fifteen minutes at the interval the user can set.
+expect(renewSource.contains("private func handOff(_ accountID: String) {")
+        && renewSource.contains("LoginStatusStore.shared.loginHandedOff(accountID)")
+        && renewSource.contains("await UsageStore.shared.refresh()"),
+       "a handed-off login asks for rounds of its own rather than only being allowed to have them")
+expect(renewSource.contains("for _ in 0 ..< LoginProbeGate.handedOff.roundsLeft")
+        && renewSource.contains("LoginProbeGate.handoffPollDelay")
+        && renewSource.contains("LoginStatusStore.shared.isAwaitingLogin(accountID) else { return }"),
+       "…bounded by the same patience the gate has, and stopped by the first round that says the "
+           + "account is no longer waiting on a login")
+expect(LoginProbeGate.handoffPollDelay > 0
+        && LoginProbeGate.handoffPollDelay * Double(LoginProbeGate.handedOff.roundsLeft) < 5 * 60,
+       "…and the whole ladder finishes well inside the five-minute probe interval it beats")
+expect(renewSource.contains("handoffPolls[accountID]?.cancel()"),
+       "a second handoff replaces the first ladder rather than running beside it")
+
+// The other half of the same bug, and the one that covers a user who takes their time in that
+// Terminal window: a dormant account becoming discoverable again IS the login landing. The watcher
+// only reacts to a CHANGED account set, and a dormant account carries the same id and home as the
+// live one it becomes - so the transition has to be part of that identity, and the stale verdict
+// the chip is read off has to go when it happens.
+expect(watcherSource.contains("$0.isDormant ? \" (dormant)\" : \"\""),
+       "signing back in changes the discovered set, or the watcher would call the login a non-event")
+expect(usageSource.contains("private func adoptDiscovered(_ accounts: [ProviderAccount]) {")
+        && usageSource.contains("self.adoptDiscovered(all)")
+        && usageSource.contains("adoptDiscovered(known)"),
+       "both passes that discover accounts (the watcher's and the refresh's) adopt them the same "
+           + "way, or the one that ran first would swallow the transition")
+expect(usageSource.contains("LoginStatusStore.shared.loginLanded(")
+        && storeSource.contains("func loginLanded(_ accountIDs: Set<String>)"),
+       "…and a credential back on disk retires the verdict a probe wrote before it landed")
 expect(storeSource.contains("verdicts[accountID] = nil"),
        "the verdict really is cleared rather than merely re-asked for")
 expect(usageSource.contains("queuedUserInitiated = queuedUserInitiated || userInitiated")

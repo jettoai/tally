@@ -150,6 +150,41 @@ for value in [awkward, readBack, #"quote " and \ backslash"#] {
 let script = RenewLoginCommand.terminalScript(command: readBack)
 expect(script.contains("do script ") && script.contains("activate") && !script.contains(" in window"),
        "the fallback command runs in a NEW Terminal window, brought forward")
+// The window is identified by the tab `do script` returned, never by a title: a user's own window
+// can be called anything, including whatever a match on a name would pick.
+expect(script.contains("first window whose tabs contains t") && script.contains("on error"),
+       "the window closed later is the one this script opened, and failing to name it is survivable")
+expect(RenewLoginCommand.terminalCloseScript(windowID: 42)
+        .contains("close (every window whose id is 42) saving no"),
+       "closing names one window by id, tolerates it being gone, and asks nothing")
+
+// MARK: the success receipt
+
+// The receipt is what turns an unwatchable window into two distinguishable endings. Both are run
+// through a real shell, because `&&` is the whole of the rule and only the shell can say so.
+let receiptDir = URL(fileURLWithPath: NSTemporaryDirectory())
+    .appendingPathComponent("tally-receipt-\(UUID().uuidString)")
+try? FileManager.default.createDirectory(at: receiptDir, withIntermediateDirectories: true)
+defer { try? FileManager.default.removeItem(at: receiptDir) }
+
+func receiptLands(after command: String, marker: String) -> Bool {
+    _ = capture("/bin/sh", ["-c", RenewLoginCommand.commandWithReceipt(command, marker: marker)])
+    return FileManager.default.fileExists(atPath: marker)
+}
+let signedIn = receiptDir.appendingPathComponent("ok").path
+let refused = receiptDir.appendingPathComponent("no").path
+expect(receiptLands(after: "true", marker: signedIn),
+       "a login that succeeded leaves the receipt its window is closed on")
+expect(!receiptLands(after: "false", marker: refused),
+       "a login that failed leaves none, so the window keeps its error on screen")
+// The path lands in the shell exactly as written, spaces, quotes and all - a receipt written
+// somewhere else is a window that never closes.
+let awkwardMarker = receiptDir.appendingPathComponent("o'brien's receipt 2").path
+expect(receiptLands(after: "true", marker: awkwardMarker),
+       "the receipt path survives the shell whatever it is made of")
+expect(RenewLoginCommand.commandWithReceipt("cmd", marker: "/tmp/m").hasSuffix("&& exit")
+        && !RenewLoginCommand.commandWithReceipt("cmd", marker: "/tmp/m").contains(";"),
+       "the shell is asked to leave only after the receipt, and only ever with `&&`")
 
 // MARK: the runner, against stub CLIs
 

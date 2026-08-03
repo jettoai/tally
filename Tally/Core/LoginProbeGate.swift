@@ -51,6 +51,16 @@ enum LoginProbeGate {
     /// How long after a forced round the short re-probe runs.
     static let retryDelay: TimeInterval = 2
 
+    /// How long between the rounds a handed-off login asks for on its own (RenewLoginStore).
+    ///
+    /// Forcing a round only helps if a round happens, and after a handoff nothing schedules one: the
+    /// renewal returned the moment the Terminal window opened, and the only other thing that would
+    /// notice the login landing is the config-dir watcher, which is fail-open by design
+    /// (AccountDirWatcher). So the handoff asks for `handedOff.roundsLeft` rounds of its own, this
+    /// far apart, and stops the moment the account is no longer forcing - which is the moment its
+    /// verdict came back as anything other than signed out.
+    static let handoffPollDelay: TimeInterval = 10
+
     enum Decision: Equatable {
         /// Run a round now.
         case run
@@ -76,12 +86,19 @@ enum LoginProbeGate {
     /// One that came back anything other than signed out is settled: the chip is gone and the
     /// interval can have it back. One still reading signed out spends a round, and is dropped when
     /// it runs out rather than forcing every refresh forever.
-    static func afterRound(state: State,
-                           verdicts: [String: LoginStatusCommand.Verdict]) -> (next: State,
-                                                                               retrySoon: Bool) {
+    ///
+    /// `known` is every account that still EXISTS on this machine, and it is what stops "was never
+    /// asked" from meaning "forever". An account removed after its login was handed to a Terminal
+    /// window can never produce a verdict again, so its forcing would never be spent - and one
+    /// forcing left behind makes `isForcing` true, which puts EVERY later refresh past the
+    /// five-minute throttle and spawns a probe per enabled account each time (codex review,
+    /// 2026-08-03). Nothing left to ask means nothing left to wait for.
+    static func afterRound(state: State, verdicts: [String: LoginStatusCommand.Verdict],
+                           known: Set<String>) -> (next: State, retrySoon: Bool) {
         var next = state
         var retrySoon = false
         for (id, forcing) in state.forced {
+            guard known.contains(id) else { next.forced[id] = nil; continue }
             guard let verdict = verdicts[id] else { continue }
             guard verdict == .signedOut else { next.forced[id] = nil; continue }
             retrySoon = retrySoon || forcing.retrySoon

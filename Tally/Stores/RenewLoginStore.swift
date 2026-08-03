@@ -72,7 +72,7 @@ final class RenewLoginStore {
                 // login in it), so the login-status probe is told to stop skipping rounds for this
                 // account - otherwise a sign-in finished in that window leaves the "Login expired"
                 // chip up for the rest of the probe interval.
-                LoginStatusStore.shared.loginHandedOff(accountID)
+                handOff(accountID)
                 inFlight.remove(accountID)
                 return
             }
@@ -100,12 +100,46 @@ final class RenewLoginStore {
                 // Same reason as the announcement-refused path above, and this is the one the user
                 // actually hit: the first attempt failed, they finished the login in the Terminal
                 // window (or retried), and the chip has to come down on its own.
-                LoginStatusStore.shared.loginHandedOff(accountID)
+                handOff(accountID)
                 _ = await SystemAlert.post(
                     title: "\(label) · " + L("Login not renewed"),
                     body: Self.reason(failure) + " " + (opened
                         ? L("A Terminal window is open on the same command, so you can finish it there.")
                         : L("The login command is on the clipboard: paste it into a terminal.")))
+            }
+        }
+    }
+
+    /// Rounds a handed-off login has asked for on its own, one task per account, so a second
+    /// handoff replaces the first ladder rather than running beside it.
+    private var handoffPolls: [String: Task<Void, Never>] = [:]
+
+    /// A login Tally handed to a Terminal window and cannot watch. Two things follow, and the
+    /// second is why the first is not enough on its own:
+    ///
+    /// The probe gate stops skipping rounds for this account, so whichever round happens next is
+    /// allowed to ask rather than being held by the five-minute throttle. But FORCING a round is
+    /// not the same as having one: this call returns while the user is still typing in a window
+    /// Tally cannot see, and the only thing that would otherwise notice the login landing is the
+    /// config-dir watcher, whose whole contract is to be fail-open (AccountDirWatcher). With
+    /// neither, the account sits dormant with its red chip until the poll timer comes round, which
+    /// is up to fifteen minutes at the interval the user can set (codex review, 2026-08-03).
+    ///
+    /// So a short bounded ladder of refreshes runs behind the handoff: a refresh rediscovers the
+    /// account (a landed credential makes it live again, which is what clears the chip and the
+    /// "Login expired" row together) and carries the forced probe with it. It stops at the first
+    /// round that says the account is no longer waiting on a login, and it is bounded by the same
+    /// patience the gate has, so a login abandoned in that Terminal window costs a fixed handful of
+    /// rounds rather than a permanent poll.
+    private func handOff(_ accountID: String) {
+        LoginStatusStore.shared.loginHandedOff(accountID)
+        handoffPolls[accountID]?.cancel()
+        handoffPolls[accountID] = Task {
+            for _ in 0 ..< LoginProbeGate.handedOff.roundsLeft {
+                try? await Task.sleep(for: .seconds(LoginProbeGate.handoffPollDelay))
+                guard !Task.isCancelled,
+                      LoginStatusStore.shared.isAwaitingLogin(accountID) else { return }
+                await UsageStore.shared.refresh()
             }
         }
     }

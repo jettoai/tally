@@ -78,6 +78,19 @@ final class LoginStatusStore {
         gate.forced[accountID] = LoginProbeGate.handedOff
     }
 
+    /// Whether this account is still owed an answer about a login attempt. Read by the handoff's
+    /// own poll (RenewLoginStore), which is asking "is there still anything to wait for" - the
+    /// forcing is cleared by the round that reads a verdict other than signed out.
+    func isAwaitingLogin(_ accountID: String) -> Bool { gate.forced[accountID] != nil }
+
+    /// Discovery found these accounts signed in again after they had gone dormant, which is the
+    /// login landing. Discovery is credential-shaped, so it knows better than the last probe: the
+    /// stale "signed out" verdict goes now (that is the chip), and the forcing stays so the round
+    /// behind it can re-read the email the same probe carries.
+    func loginLanded(_ accountIDs: Set<String>) {
+        for id in accountIDs { verdicts[id] = nil }
+    }
+
     /// Probe every account that has a config home, unless one ran recently. `userInitiated` (an
     /// explicit refresh, or the refresh a finished renewal triggers) always probes: the point of
     /// that refresh is usually to confirm the login just came back.
@@ -139,7 +152,8 @@ final class LoginStatusStore {
         let roundVerdicts = readings.mapValues(\.verdict)
         announce(verdicts: roundVerdicts, accounts: accounts, known: known)
 
-        let (next, retrySoon) = LoginProbeGate.afterRound(state: gate, verdicts: roundVerdicts)
+        let (next, retrySoon) = LoginProbeGate.afterRound(state: gate, verdicts: roundVerdicts,
+                                                          known: known)
         gate = next
         let queued = queuedRound
         queuedRound = nil

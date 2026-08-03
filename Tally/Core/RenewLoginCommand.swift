@@ -149,13 +149,49 @@ enum RenewLoginCommand {
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
+    /// The fallback command, plus the one thing that comes back out of a window Tally does not
+    /// own: a file the shell drops when the command SUCCEEDED, right before it exits.
+    ///
+    /// The receipt is chained with `&&` and nothing else, so a failure keeps the shell alive with
+    /// its error still on screen - that message is the user's only clue about what went wrong, and
+    /// no window carrying one may be closed. Written as three plain words joined by `&&` rather
+    /// than a `{ ...; }` group because `do script` runs in the user's OWN login shell, and `&&`,
+    /// `touch` and `exit` are the parts of it that sh, zsh, csh and fish all agree on.
+    static func commandWithReceipt(_ command: String, marker: String) -> String {
+        "\(command) && /usr/bin/touch \(shellQuoted(marker)) && exit"
+    }
+
     /// Run `command` in a NEW Terminal window and bring it forward. `do script` without a target
     /// always opens its own window, so an existing Terminal session is never typed into.
+    ///
+    /// Answers with that window's id, which is what lets a finished login close its own window
+    /// and only its own - identity, not a title match that would land on whatever the user happens
+    /// to have named a window of their own. The lookup is inside a `try` because the window is the
+    /// deliverable here: if Terminal will not say which one it just made, the caller has still
+    /// opened the window it promised, and only the closing is lost.
     static func terminalScript(command: String) -> String {
         """
         tell application "Terminal"
-            do script \(appleScriptString(command))
+            set t to do script \(appleScriptString(command))
             activate
+            try
+                return (id of (first window whose tabs contains t)) as text
+            on error
+                return ""
+            end try
+        end tell
+        """
+    }
+
+    /// Close the one window `terminalScript` opened. `every window whose id is` rather than
+    /// `window id`, so a window the user already closed themselves is an empty match instead of an
+    /// error, and `saving no` so nothing can stop on a question no one is there to answer.
+    static func terminalCloseScript(windowID: Int) -> String {
+        """
+        tell application "Terminal"
+            try
+                close (every window whose id is \(windowID)) saving no
+            end try
         end tell
         """
     }

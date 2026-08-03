@@ -182,32 +182,46 @@ var removals = AccountRemovals()
 let inFlight = removals.beginRound()
 removals.remove("claude:.claude3")
 check("an account removed mid-round is filtered out of that round's results",
-      removals.isRemoved("claude:.claude3") && removals.removedIDs == ["claude:.claude3"])
+      removals.isRemoved("claude:.claude3")
+          && removals.removedIDs(inRound: inFlight) == ["claude:.claude3"])
 removals.endRound(inFlight)
 check("…and the tombstone outlives the very round it was filed against",
       removals.isRemoved("claude:.claude3"))
 let afterwards = removals.beginRound()
+// …but it does not BIND that next round. Its discovery ran against a filesystem the home was
+// already gone from, so an account under this id is news: the user restored the folder from the
+// Trash, or rebuilt the slot straight away. Filtering it here hid the new account for a whole
+// refresh interval, because the tombstone was only retired at the end of this very round (codex
+// review, 2026-08-03).
+check("a round that started after the removal shows a home that came back, in that same round",
+      removals.removedIDs(inRound: afterwards).isEmpty)
 removals.endRound(afterwards)
 // It has to expire, or a config home recreated under the same name would be invisible forever: the
 // id is derived from the directory's name, so `~/.claude3` rebuilt IS `claude:.claude3` again.
 check("a round that started after the removal retires it",
-      !removals.isRemoved("claude:.claude3") && removals.removedIDs.isEmpty)
+      !removals.isRemoved("claude:.claude3") && removals.removedIDs(inRound: afterwards).isEmpty)
 var quiet = AccountRemovals()
 quiet.remove("claude:.claude2")
 let next = quiet.beginRound()
 quiet.endRound(next)
 check("a removal with nothing in flight is retired by the very next round",
       !quiet.isRemoved("claude:.claude2"))
+var restored = AccountRemovals()
+restored.remove("claude:.claude2")
+let rebuilt = restored.beginRound()
+check("…and a removal filed while nothing was running never filters the round that follows it",
+      restored.removedIDs(inRound: rebuilt).isEmpty)
 check("the refresh really does filter what it found through them",
-      usageSource.contains("let removed = removals.removedIDs")
+      usageSource.contains("let removed = removals.removedIDs(inRound: round)")
           && usageSource.contains("allDiscovered.removeAll { removed.contains($0.id) }")
           && usageSource.contains("results.removeAll { removed.contains($0.id) }")
           && usageSource.contains("launchHomes = launchHomes.filter { !removed.contains($0.key) }"))
 check("…before the reconcile that would otherwise remember them again",
-      (usageSource.range(of: "let removed = removals.removedIDs")?.upperBound).map { filtered in
-          (usageSource.range(of: "reconcile(discovered: allDiscovered)")?.lowerBound ?? filtered)
-              > filtered
-      } == true)
+      (usageSource.range(of: "let removed = removals.removedIDs(inRound: round)")?.upperBound)
+          .map { filtered in
+              (usageSource.range(of: "reconcile(discovered: allDiscovered)")?.lowerBound ?? filtered)
+                  > filtered
+          } == true)
 check("…and retires the spent tombstones once the round has committed",
       usageSource.contains("let round = removals.beginRound()")
           && usageSource.contains("removals.endRound(round)"))

@@ -9,11 +9,12 @@ import Foundation
 /// So a removal leaves a tombstone behind, and every round filters what it found through the
 /// tombstones before committing anything.
 ///
-/// The tombstone is deliberately not permanent. An account id is derived from the config home's
-/// name, so a recreated `~/.claude3` IS `claude:.claude3` again, and a tombstone that never expired
-/// would make that new account invisible forever. It lasts exactly until a round that STARTED after
-/// the removal commits: that round's discovery ran against a filesystem without the home, so
-/// whatever it found is news rather than an echo.
+/// The tombstone is deliberately not permanent, and it does not even apply to every round it
+/// outlives. An account id is derived from the config home's name, so a recreated `~/.claude3` IS
+/// `claude:.claude3` again, and a tombstone that never expired would make that new account
+/// invisible forever. It binds exactly the rounds that were already in flight when the removal
+/// happened, and is retired by the first round that started after it: that round's discovery ran
+/// against a filesystem without the home, so whatever it found is news rather than an echo.
 ///
 /// Pure and Foundation-only, so the ordering rules are assertable without a store, a refresh or a
 /// filesystem.
@@ -23,8 +24,18 @@ struct AccountRemovals: Equatable {
     private(set) var epoch = 0
     private var tombstones: [String: Int] = [:]
 
-    /// Every account currently tombstoned, for the one filtering pass a round makes.
-    var removedIDs: Set<String> { Set(tombstones.keys) }
+    /// The tombstones THIS round must filter its findings through: the ones filed while it was in
+    /// flight (or before it began, when the app was idle at the time).
+    ///
+    /// Scoped to the round rather than "every tombstone there is", because a round that STARTED
+    /// after the removal ran its discovery against a filesystem the home was already gone from, so
+    /// whatever it found under that id is news. A user who restores the folder from the Trash, or
+    /// recreates the slot straight away, is discovered by that very round - and filtering it here
+    /// would hide the account for a whole refresh interval before the tombstone retired below
+    /// (codex review, 2026-08-03).
+    func removedIDs(inRound round: Int) -> Set<String> {
+        Set(tombstones.filter { $0.value >= round }.keys)
+    }
 
     func isRemoved(_ accountID: String) -> Bool { tombstones[accountID] != nil }
 

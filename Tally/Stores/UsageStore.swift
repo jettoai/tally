@@ -76,13 +76,30 @@ final class UsageStore {
                 guard accountSetChanged(from: self.discoveredAccounts, to: all) else { return false }
                 // Adopt it here so the Settings list is right even if the refresh below is queued
                 // behind one already running, and so a second event does not report the same news.
-                self.discoveredAccounts = all
+                self.adoptDiscovered(all)
                 self.onChange?()
                 return true
             },
             onChange: { [weak self] in Task { await self?.refresh(userInitiated: false) } })
         watcher.start()
         accountWatcher = watcher
+    }
+
+    /// Adopt a freshly discovered account set as what this store knows, from either of the two
+    /// passes that produce one (the watcher above and the refresh below).
+    ///
+    /// An account that was dormant and is discoverable again has a credential on disk once more,
+    /// and discovery is credential-shaped: that is stronger evidence than the verdict the card's
+    /// "Login expired" chip is read off, which was written by a probe that ran BEFORE the login
+    /// landed. Saying so here is what takes the chip down the moment the credential appears, rather
+    /// than at the probe's own five-minute interval - the tail of the Terminal-handoff path, where
+    /// Tally cannot see the login finish at all (codex review, 2026-08-03).
+    private func adoptDiscovered(_ accounts: [ProviderAccount]) {
+        let dormantBefore = Set(discoveredAccounts.filter(\.isDormant).map(\.id))
+        discoveredAccounts = accounts
+        guard !dormantBefore.isEmpty else { return }
+        LoginStatusStore.shared.loginLanded(
+            dormantBefore.intersection(accounts.lazy.filter { !$0.isDormant }.map(\.id)))
     }
 
     /// Every account on this machine, discovered on the spot while the first refresh has not
@@ -235,7 +252,7 @@ final class UsageStore {
         }
         // An account the user removed while this round was out fetching: its home went to the Trash
         // after the discovery above read it, so everything this round holds about it is an echo.
-        let removed = removals.removedIDs
+        let removed = removals.removedIDs(inRound: round)
         if !removed.isEmpty {
             allDiscovered.removeAll { removed.contains($0.id) }
             results.removeAll { removed.contains($0.id) }
@@ -247,7 +264,7 @@ final class UsageStore {
         // still on disk come back here as dormant ones: listed, probed, renewable. A home that is
         // GONE is a removal instead, and is forgotten (KnownAccounts.swift).
         let (known, dormant) = KnownAccountsStore.shared.reconcile(discovered: allDiscovered)
-        discoveredAccounts = known
+        adoptDiscovered(known)
         // A pin on an account that has signed out must stop steering launches: the launch home is
         // denormalized into the policy file the `tally` CLI reads, and nothing there asks whether
         // the login is still good. Every dormant account, not just the enabled ones - a switched-off

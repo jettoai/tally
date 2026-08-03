@@ -54,9 +54,17 @@ func accountDirEventIsInteresting(path: String, home: String) -> Bool {
 ///
 /// The launch home rides along with the id because that is what makes an account launchable; an
 /// account whose home moved is, to every surface downstream, a different account.
+///
+/// So does whether it is DORMANT, and that is the login landing. A signed-out account is not
+/// discoverable, but it is not gone either: it comes back from the memory as a dormant account with
+/// the very same id and the very same home (KnownAccounts.swift). Comparing only those two made
+/// signing back IN a non-event - the set read identical either side of the credential appearing -
+/// which is the state the "Login expired" chip is read off, and it would have stayed up until the
+/// next poll tick (codex review, 2026-08-03). This is still identity rather than freshness: it
+/// changes only when a credential appears or disappears, which is the one thing a login does.
 func accountSetChanged(from before: [ProviderAccount], to after: [ProviderAccount]) -> Bool {
     func identity(_ accounts: [ProviderAccount]) -> Set<String> {
-        Set(accounts.map { "\($0.id)@\($0.launchHome ?? "")" })
+        Set(accounts.map { "\($0.id)@\($0.launchHome ?? "")\($0.isDormant ? " (dormant)" : "")" })
     }
     return identity(before) != identity(after)
 }

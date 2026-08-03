@@ -294,6 +294,18 @@ check("an account whose launch home moved IS a change",
 var renamed = watched(["a"])
 renamed[0].label = "a nickname the user just typed"
 check("a renamed account is the same account", !accountSetChanged(from: watched(["a"]), to: renamed))
+// Dormancy is the exception, because it is not a field that drifts: it flips when a credential
+// appears or disappears, which is the one event this watcher exists to catch. A signed-out account
+// comes back from the memory with the SAME id and the same home (KnownAccounts.swift), so without
+// this the login landing read as no change at all and the "Login expired" chip stayed up until the
+// next poll tick (codex review, 2026-08-03).
+var dormant = watched(["a"])
+dormant[0].isDormant = true
+check("an account signing back in is a change, though its id and home never moved",
+      accountSetChanged(from: dormant, to: watched(["a"])))
+check("…and so is it signing out", accountSetChanged(from: watched(["a"]), to: dormant))
+check("…while a dormant account that stays dormant is not",
+      !accountSetChanged(from: dormant, to: dormant))
 check("nothing to nothing is nothing", !accountSetChanged(from: [], to: []))
 check("the first account ever found is a change", accountSetChanged(from: [], to: watched(["a"])))
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")

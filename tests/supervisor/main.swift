@@ -471,6 +471,7 @@ runSafeguardChecks()
 runOpenTurnChecks()
 runKeyboardChecks()
 runPendingNoticeChecks()
+runResumePromptChecks()
 runShimChecks()
 runFollowChecks()
 

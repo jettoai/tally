@@ -16,8 +16,12 @@ import Foundation
 ///
 /// `recoveries`: the recovery fuse this session had already spent, handed over by the supervisor
 /// this process replaced in a self-update. Empty for every normal launch.
+///
+/// `resumed`: this process took over a session that was ALREADY running (the self-update exec), so
+/// even its first spawn is a relaunch. It decides one thing only, the resume-prompt suppression in
+/// ResumePrompt.swift: nobody is at the keyboard for a restart Tally performed on its own.
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String],
-                   follow: Bool = false, recoveries: [Date] = []) -> Never {
+                   follow: Bool = false, recoveries: [Date] = [], resumed: Bool = false) -> Never {
     let slug = projectSlug(forCwd: FileManager.default.currentDirectoryPath)
 
     // The parent must survive Ctrl+C - claude uses SIGINT to interrupt a turn, and the whole
@@ -54,6 +58,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var reloadNotice = ReloadWait()
     /// The status line's view of what this supervisor is waiting to do (PendingNotice.swift).
     var pendingNotice = PendingNoticeWriter()   // cleared when it exits, swept if it is killed
+    /// Whether the next child is a RELAUNCH rather than the launch the user typed: every spawn
+    /// after the first, and all of them when this process is a self-update taking a running session
+    /// over. Read only by the resume-prompt suppression (ResumePrompt.swift).
+    var relaunching = resumed
     /// A pending cap recovery handed from one child to the next (see `capCarriedAcrossRelaunch`).
     var carriedCap: PendingCapRecovery?
     /// Stamped into the child env so the status line can tell whether the supervisor watching this
@@ -78,6 +86,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         environment["TALLY_LAUNCHED"] = "1"
         if let supervisorVersion { environment["TALLY_SUPERVISOR_VERSION"] = supervisorVersion }
         environment["TALLY_SUPERVISOR_PID"] = supervisorPID
+        // A relaunch resumes by id with nobody at the keyboard, so it must not stop at Claude Code's
+        // "resume the whole conversation?" prompt; the user's own first launch keeps it
+        // (ResumePrompt.swift).
+        for (key, value) in resumePromptSuppression(environment, relaunch: relaunching) {
+            environment[key] = value
+        }
         if let env = launchEnv(provider, home: account.launchHome!) {
             environment[env.key] = env.value
         }
@@ -85,6 +99,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             warn("cannot launch `\(provider.cli)`")
             exit(127)
         }
+        // Every child from here on is one this supervisor decided to start.
+        relaunching = true
 
         // One-shot reaper around waitpid: WNOHANG polls, blocking waits, and the status is
         // remembered because a reaped pid cannot be waited on twice.

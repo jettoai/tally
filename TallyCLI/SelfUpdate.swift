@@ -307,6 +307,8 @@ func runResupervise(args: [String]) -> Never {
         launchHome: home, sessionRemaining: nil, weeklyRemaining: nil, modelRemaining: nil,
         sessionResetsAt: nil, weeklyResetsAt: nil, modelResetsAt: nil, modelWindowName: nil,
         resetCreditsAvailable: nil, isStale: false, error: nil)
+    // `resumed`: this process replaced a supervisor whose child was already terminated, so the very
+    // first spawn below continues a running conversation rather than starting the user's session.
     runSupervised(provider, account: account, args: childArgs, follow: follow,
-                  recoveries: recoveries)
+                  recoveries: recoveries, resumed: true)
 }

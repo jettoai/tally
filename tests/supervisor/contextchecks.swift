@@ -25,31 +25,59 @@ func runSessionContextChecks() {
             + #","ephemeral_5m_input_tokens":0}\#(iterationsField)}}}"#
     }
 
-    check("the three input figures add up",
+    // The three input figures plus this turn's own answer: 2 + 9762 + 467306 + 568.
+    check("the input figures and the turn's own answer add up",
           contextTokens(inLine: Substring(assistantLine(input: 2, creation: 9762, read: 467_306)))
-              == 477_070)
+              == 477_638)
     // The nested `iterations` array repeats every one of these keys per API call. Reading those
     // instead would report one call's slice as the whole conversation.
     check("the nested iterations are not counted",
           contextTokens(inLine: Substring(assistantLine(input: 2, creation: 753, read: 477_068)))
-              == 477_823)
+              == 478_391)
     check("and the answer is the same without an iterations array",
           contextTokens(inLine: Substring(
-              assistantLine(input: 2, creation: 753, read: 477_068, iterations: false))) == 477_823)
-    // Today the totals come first, so taking the first match of each key would be enough on its
-    // own. The window cut is what decides the OTHER order: a writer that emitted `iterations`
-    // first would have one call's slice read as the whole conversation, and a number that is
-    // quietly wrong is worse than none - the reading simply stops moving instead.
+              assistantLine(input: 2, creation: 753, read: 477_068, iterations: false))) == 478_391)
+    // Every earlier turn's output is already inside the next line's input figures. The NEWEST one's
+    // is not - no later line exists to have absorbed it - and a resume reloads it all the same, so
+    // leaving it out understates the reading by exactly one answer.
+    check("the newest turn's own answer is in the sum",
+          contextTokens(inLine: Substring(assistantLine(input: 1, creation: 0, read: 0))) == 569)
+
+    // MARK: - 28a. A partial sum is never published
+
+    // The window cut decides what happens when the totals are not all in front of `iterations`, and
+    // the answer has to be nil rather than whatever part of them survived: a number that is quietly
+    // wrong is worse than none, because the surfaces cannot tell the two apart. The reading simply
+    // stops moving instead.
     let iterationsFirst = #"{"isSidechain":false,"type":"assistant","message":{"usage":{"#
         + #""iterations":[{"input_tokens":7,"cache_read_input_tokens":9,"#
         + #""cache_creation_input_tokens":11}],"input_tokens":2,"#
         + #""cache_creation_input_tokens":753,"cache_read_input_tokens":477068}}}"#
-    check("a reordered usage object answers nothing rather than one call's slice",
+    check("iterations in front: nothing rather than one call's slice",
           contextTokens(inLine: Substring(iterationsFirst)) == nil)
-    // `output_tokens` is what the model wrote; it is already inside the next call's input figures,
-    // so counting it here would inflate every reading by one turn's output.
-    check("output tokens are not in the sum",
-          contextTokens(inLine: Substring(assistantLine(input: 1, creation: 0, read: 0))) == 1)
+    // The half-and-half order, which the first-match search alone does NOT cover: `input_tokens`
+    // lands inside the window and both cache figures fall outside it, so a sum over whatever
+    // happened to hit would publish 2 for a conversation of half a million (caught in review,
+    // 2026-08-04).
+    let iterationsBetween = #"{"isSidechain":false,"type":"assistant","message":{"usage":{"#
+        + #""input_tokens":2,"iterations":[{"input_tokens":7,"cache_read_input_tokens":9,"#
+        + #""cache_creation_input_tokens":11}],"cache_creation_input_tokens":753,"#
+        + #""cache_read_input_tokens":477068,"output_tokens":568}}}"#
+    check("iterations in the middle: nothing rather than a two-digit conversation",
+          contextTokens(inLine: Substring(iterationsBetween)) == nil)
+    // A missing `output_tokens` is the one absence that still answers: it costs one turn's answer,
+    // where a missing cache figure costs nearly the whole conversation.
+    let noOutput = #"{"isSidechain":false,"type":"assistant","message":{"usage":{"#
+        + #""input_tokens":2,"cache_creation_input_tokens":753,"#
+        + #""cache_read_input_tokens":477068}}}"#
+    check("a usage with no output figure still answers",
+          contextTokens(inLine: Substring(noOutput)) == 477_823)
+    // A field that is present but not a number is a disagreement about the shape, not a zero.
+    let nullField = #"{"isSidechain":false,"type":"assistant","message":{"usage":{"#
+        + #""input_tokens":2,"cache_creation_input_tokens":null,"#
+        + #""cache_read_input_tokens":477068,"output_tokens":568}}}"#
+    check("a non-numeric input figure answers nothing",
+          contextTokens(inLine: Substring(nullField)) == nil)
     // A synthetic turn (an interrupted call, an API error) is written with an all-zero usage. It
     // must read as no answer rather than as a conversation of size zero, or one API error would
     // wipe a real reading - the same trap replayed history once sprang on `lastModel`.
@@ -66,13 +94,13 @@ func runSessionContextChecks() {
         assistantLine(input: 2, creation: 100, read: 10_000),
         assistantLine(input: 2, creation: 200, read: 50_000),
     ])
-    check("the newest turn is the reading", scanned.lastContextTokens == 50_202)
+    check("the newest turn is the reading", scanned.lastContextTokens == 50_770)
     // A subagent's context is its own, and it is not what a resume of THIS conversation reloads.
     let withSubagent = watcherAfterScanning([
         assistantLine(input: 2, creation: 200, read: 50_000),
         assistantLine(input: 2, creation: 0, read: 900_000, sidechain: true),
     ])
-    check("a sidechain turn does not become the reading", withSubagent.lastContextTokens == 50_202)
+    check("a sidechain turn does not become the reading", withSubagent.lastContextTokens == 50_770)
     // Deliberately unlike `lastModel`: a resumed session replays its history, and that history IS
     // the conversation whose size is being asked about. Every line here predates the launch.
     let replayed = watcherAfterScanning([

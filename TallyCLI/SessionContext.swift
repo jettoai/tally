@@ -5,7 +5,7 @@ import Foundation
 // The number the user actually wants before deciding anything about a session (restart it, hand it
 // to another account, start a fresh one) is how much context a resume would have to reload. It is
 // in the transcript already: every assistant event carries the usage of the call that produced it,
-// and the three input figures of the newest one add up to what the next call re-sends.
+// and the figures of the newest one add up to how big the conversation is once that turn is in it.
 //
 // It rides the track the drift badge and the pending notice already use: one file per supervisor
 // pid in `supervisorStateDir`, read only while that pid is alive, swept when it is not, best-effort
@@ -17,20 +17,29 @@ import Foundation
 
 /// The context a resume would reload, from one transcript line, or nil when the line carries none.
 ///
-/// `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` of the same event: the
-/// three halves of one call's input, whether they were sent fresh, written into the cache, or read
-/// back out of it. `output_tokens` is deliberately not in the sum; it is what the model wrote, and
-/// it is already inside the next call's input figures.
+/// `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` of the event: the three
+/// halves of that call's input, whether they were sent fresh, written into the cache, or read back
+/// out of it. Plus its own `output_tokens`, which is what the model then wrote INTO the
+/// conversation. Every earlier turn's output is already inside these input figures, but the newest
+/// one's is not: there is no later line to have absorbed it yet, and a resume reloads it all the
+/// same, so leaving it out understates the newest reading by exactly one answer.
 ///
 /// Substring extraction rather than a JSON parse, because this runs over every assistant line the
 /// poll reads, including the whole replayed history the first scan of a resumed session walks.
 ///
-/// Two shapes in the real data decide the details (sampled from this machine's transcripts,
+/// Three shapes in the real data decide the details (sampled from this machine's transcripts,
 /// 2026-08-04). `usage` holds an `iterations` array repeating every one of these keys per API call,
-/// so the window stops before it and the totals read are the top-level ones. And a zero total is
-/// never a real context: synthetic assistant turns (an interrupted call, an API error) are written
-/// with an all-zero usage, and reporting one would wipe a genuine reading with a 0 the way replayed
-/// history once poisoned `lastModel` (TranscriptWatcher.swift).
+/// so the window stops before it: the totals read are the top-level ones. All THREE input figures
+/// must be inside that window or the answer is nil, because a partial sum is the failure worth
+/// avoiding above all others here - a writer that emitted `iterations` between them would otherwise
+/// publish `input_tokens` alone, a two-digit number where the conversation is half a million
+/// (caught in review, 2026-08-04). The reading simply stops moving instead. `output_tokens` is the
+/// one field taken when present and skipped when not: missing it costs one turn's answer, which is
+/// bounded and small, where missing a cache figure costs nearly everything.
+///
+/// And a zero total is never a real context: synthetic assistant turns (an interrupted call, an API
+/// error) are written with an all-zero usage, and reporting one would wipe a genuine reading with a
+/// 0 the way replayed history once poisoned `lastModel` (TranscriptWatcher.swift).
 func contextTokens(inLine line: Substring) -> Int? {
     guard let usage = line.range(of: "\"usage\":{") else { return nil }
     var window = line[usage.upperBound...]
@@ -39,14 +48,24 @@ func contextTokens(inLine line: Substring) -> Int? {
     }
     var total = 0
     for key in contextTokenFields {
-        guard let field = window.range(of: key) else { continue }
-        total += Int(window[field.upperBound...].prefix { $0.isNumber }) ?? 0
+        guard let value = tokenField(key, in: window) else { return nil }
+        total += value
     }
+    // The newest turn's own answer, when it is in the window (see above).
+    total += tokenField("\"output_tokens\":", in: window) ?? 0
     return total > 0 ? total : nil
 }
 
-/// The three keys `contextTokens` adds up, hoisted out of it because it runs on every assistant
-/// line the poll reads. The leading quote is what keeps `"input_tokens":` off
+/// One `"<key>":<digits>` reading out of a usage window, or nil when the key is not in it (or
+/// carries something that is not a number, e.g. `null`, which is a disagreement about the shape and
+/// not a zero).
+func tokenField(_ key: String, in window: Substring) -> Int? {
+    guard let field = window.range(of: key) else { return nil }
+    return Int(window[field.upperBound...].prefix { $0.isNumber })
+}
+
+/// The three input figures `contextTokens` requires, hoisted out of it because it runs on every
+/// assistant line the poll reads. The leading quote is what keeps `"input_tokens":` off
 /// `cache_creation_input_tokens`, whose own key carries an underscore in that position, so the
 /// three stay independent whatever order a future writer emits them in.
 let contextTokenFields = ["\"input_tokens\":", "\"cache_creation_input_tokens\":",
@@ -62,8 +81,8 @@ struct SupervisedSession: Equatable, Codable {
     /// The account this session is running on right now, so a reader can attribute the number
     /// without knowing anything about supervisor pids. Rewritten by a handoff, like the reading.
     let accountID: String
-    /// Total input tokens of the newest assistant event: what a resume of this conversation costs
-    /// before it does anything at all.
+    /// How big the conversation is as of its newest assistant turn, that turn's own answer
+    /// included: what a resume of it costs before it does anything at all.
     let contextTokens: Int
     /// When this reading was taken. An idle session keeps a true number with an old stamp, so this
     /// is the age of the last turn rather than a freshness warning.

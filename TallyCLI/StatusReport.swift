@@ -29,9 +29,10 @@ struct StatusReport: Encodable {
         var modelRemaining: Double?
         var modelResetsAt: Date?
         var resetCreditsAvailable: Int?
-        /// Input tokens of the newest turn in the largest conversation a supervisor is running on
-        /// this account right now: what a resume there would reload before doing anything
-        /// (SessionContext.swift). Absent when no supervised session is on the account, which is
+        /// The size of the largest conversation a supervisor is running on this account right now,
+        /// measured at its newest turn and including that turn's own answer: what a resume there
+        /// would reload before doing anything at all (SessionContext.swift). Absent when no
+        /// supervised session is on the account, which is
         /// the ordinary case for an idle machine - so a script tests for the key rather than
         /// reading a 0 as an empty conversation.
         var sessionContextTokens: Int?

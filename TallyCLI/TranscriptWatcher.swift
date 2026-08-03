@@ -59,8 +59,9 @@ struct TranscriptWatcher {
     /// is cleared when this passes the cap time (a genuine turn happened after the cap, so the
     /// account came back on its own). Same three guards as `lastModel`.
     var lastMainChainEventAt: Date?
-    /// The input tokens of the newest main-chain assistant event: how much context a resume of this
-    /// conversation would reload (SessionContext.swift).
+    /// The size of the conversation as of its newest main-chain assistant event, that turn's own
+    /// answer included: how much context a resume of this conversation would reload
+    /// (SessionContext.swift).
     ///
     /// Deliberately WITHOUT the post-launch guard the two signals above carry. Those answer "what is
     /// this session doing now", so a replayed history is noise. This one answers "how big is this

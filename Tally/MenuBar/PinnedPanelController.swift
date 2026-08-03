@@ -130,6 +130,12 @@ final class PinnedPanelController {
         if let topLeft { panel.setFrameTopLeftPoint(topLeft) }
         panel.clampOnScreen()
         panel.makeKeyAndOrderFront(nil)
+        // Nothing should start focused, the same rule `SettingsWindowController.bringToFrontIfVisible`
+        // enforces: SwiftUI seeds focus into the first focusable view as the window becomes key, so a
+        // panel the user merely pinned came up wearing a focus ring nobody asked for (and Tab, starting
+        // from there, could only walk away from the tab switch). Only on the way in, not in
+        // `bringToFront()`: raising a panel already on screen must keep focus a keyboard user placed.
+        panel.makeFirstResponder(nil)
     }
 
     func bringToFront() { panel?.makeKeyAndOrderFront(nil) }

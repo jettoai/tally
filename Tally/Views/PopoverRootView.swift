@@ -116,19 +116,26 @@ struct PopoverRootView: View {
                                 // laid out at its content's ideal size and shows no scroller, so
                                 // this is invisible until a fleet actually outgrows the display.
                                 // The strips above stay put - they summarize what is scrolling.
+                                // Pinned to the surface's width, leading edge first: what a scroll
+                                // view reports is its content plus whatever scroller is in the
+                                // layout, so left to itself the region sits centred and the cards
+                                // step sideways the moment a fleet outgrows the display. A no-op
+                                // under overlay scrollers (see `scrollContentWidth`).
                                 ScrollView(.vertical) { content }
+                                    .frame(width: popoverWidth, alignment: .leading)
                             }
                         }
                         .transition(tabTransition)
                     }
                     if tab == .tokens {
                         ScrollView(.vertical) {
-                            TokenStatsView(store: tokens, width: popoverWidth)
+                            TokenStatsView(store: tokens, width: scrollContentWidth)
                                 // Every visit brings the numbers up to date; the scan itself skips
                                 // files whose identity has not changed, so a repeat visit costs a
                                 // directory walk.
                                 .onAppear { tokens.refresh() }
                         }
+                        .frame(width: popoverWidth, alignment: .leading)   // as above
                         .transition(tabTransition)
                     }
                 }
@@ -155,6 +162,12 @@ struct PopoverRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didChangeScreenParametersNotification)) { _ in refreshScreenCap() }
+        // And the moment neither notification covers: the surface is laid out, and appears, while
+        // its host is still assembling itself - a window has no `screen` until it is ordered onto
+        // one - so it opens capped for the main display wherever it actually is. Deferred a
+        // run-loop turn, not just to appear: measured, the host has its window on a screen by the
+        // next turn and not one moment sooner (`onAppear` itself still reads nil).
+        .onAppear { DispatchQueue.main.async { refreshScreenCap() } }
         .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }
         .environment(\.tallyCardStyle, cardStyle)
         .id(settings.languageOverride ?? "system")
@@ -206,6 +219,10 @@ struct PopoverRootView: View {
         }
     }
 
+    /// What the scrolling regions lay their content out at: the surface, less what a permanently
+    /// visible scroller takes out of it (`ScreenFitStack.scrollerGutter`, zero by default).
+    private var scrollContentWidth: CGFloat { popoverWidth - ScreenFitStack.scrollerGutter }
+
     /// The cap actually in force. A surface can change screens without anything the layout reads
     /// changing - dragged to another display, or one unplugged out from under it - and then it
     /// holds a height that screen never had, which is this whole file's bug with extra steps. So
@@ -222,9 +239,10 @@ struct PopoverRootView: View {
     /// Definite card width. `.frame(maxWidth: .infinity)` cards would fight the hosting controller's
     /// `.preferredContentSize` sizing (content wants to shrink to fit, cards want infinite width) and
     /// recurse the layout engine to a stack overflow - so derive an exact width from the fixed popover
-    /// width (12pt content padding each side, 10pt gap between columns).
+    /// width (12pt content padding each side, 10pt gap between columns). The cards scroll, so it is
+    /// the scrolling region's width they divide up, not the surface's.
     private var cardWidth: CGFloat {
-        let inner = popoverWidth - 24
+        let inner = scrollContentWidth - 24
         let columns = CGFloat(columnCount)
         return (inner - 10 * (columns - 1)) / columns
     }

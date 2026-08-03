@@ -84,6 +84,21 @@ extension ScreenFitStack {
         let usable = (screen ?? NSScreen.main)?.visibleFrame.height ?? 900
         return max(minSurfaceHeight, usable - screenMargin)
     }
+
+    /// What a scrolling region has to leave beside its content for the scroller itself. Zero under
+    /// the default overlay scrollers, which float over the content and cost no width; 17pt (asked of
+    /// AppKit, not assumed) once "Show scroll bars: Always" puts them back in the layout, where a
+    /// scroll view reports its content's width PLUS the scroller and the surface is a fixed width,
+    /// so the excess hangs off the sides and half the scroller lands outside the window.
+    ///
+    /// Deliberately not conditional on whether the region currently scrolls: the width would then
+    /// depend on the height, which is measured at that width, and a fleet sitting on the cap would
+    /// oscillate between the two answers. The gutter costs a scroller's width whenever the user has
+    /// asked for permanent scrollers, which is what asking for them means.
+    @MainActor static var scrollerGutter: CGFloat {
+        NSScroller.preferredScrollerStyle == .legacy
+            ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+    }
 }
 
 /// Marks the child of a `ScreenFitStack` that absorbs the overflow. Exactly one child should carry

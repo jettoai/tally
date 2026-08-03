@@ -242,6 +242,14 @@ check("every other config dir keeps its own",
       claudeStateFile(forConfigDir: URL(fileURLWithPath: "/Users/x/.claude2")).path
           == "/Users/x/.claude2/.claude.json")
 
+// The app reads that same file for the card's plan and email, so it must ask the same function.
+// Its own copy of the rule was wrong (2026-08-03): it read `~/.claude/.claude.json`, a leftover
+// that agreed with the real file until the default account was signed in as somebody else.
+check("the app's profile reader delegates the state path",
+      accountsSource.contains("= claudeStateFile(forConfigDir:"))
+check("and keeps no second copy of the path rule",
+      !accountsSource.contains("appendingPathComponent(\".claude.json\")"))
+
 // The seed carries accepted paths and nothing else. The source below is shaped like the real file:
 // identity at the top level, per-project history inside each entry, and one project the user
 // declined.

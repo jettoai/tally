@@ -53,6 +53,10 @@ targets:
       # a drifted second copy of the hash rule would find nothing and read as "not logged in".
       - path: Tally/Core/Keychain/KeychainReader.swift
       - path: Tally/Core/Keychain/ClaudeKeychainService.swift
+      # Same reason for the other asymmetric Claude Code path: `tally add` seeds folder trust into
+      # a config dir's state file while the app reads that file for the account's plan and email,
+      # so both targets compile the one rule for where the default home keeps it (one level up).
+      - path: Tally/Core/ClaudeStatePath.swift
     settings:
       base:
         PRODUCT_NAME: tally
@@ -121,3 +125,8 @@ targets:
         CFBundleName: Tally
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"
+        # A background "Renew login" that does not complete falls back to a real Terminal window,
+        # opened through osascript. Apple events are a user-granted permission and macOS reads the
+        # reason from the RESPONSIBLE app (this one, not the osascript it spawns), so without this
+        # key it has nothing to ask with.
+        NSAppleEventsUsageDescription: "Tally opens a Terminal window to run a provider's own login command when you renew an account's login."

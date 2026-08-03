@@ -22,17 +22,9 @@ import Foundation
 //     dialog appeared. So the skip above is caused by the seeded value rather than by anything
 //     else about the run.
 
-/// Where Claude Code keeps a config dir's state, which is not simply "inside the config dir".
-///
-/// The default home is the exception: `~/.claude` keeps its state one level UP, at `~/.claude.json`,
-/// while `~/.claude2` keeps it at `~/.claude2/.claude.json`. Getting this wrong reads the wrong
-/// file, finds no trusted projects, and seeds nothing, which looks exactly like "the user had not
-/// trusted anything yet".
-func claudeStateFile(forConfigDir dir: URL) -> URL {
-    dir.lastPathComponent == ".claude"
-        ? dir.deletingLastPathComponent().appendingPathComponent(".claude.json")
-        : dir.appendingPathComponent(".claude.json")
-}
+// The state file is addressed through the shared `claudeStateFile(forConfigDir:)`
+// (Tally/Core/ClaudeStatePath.swift), because the app reads the same file for the same dirs. Get
+// that path wrong and this seeds nothing, which looks exactly like "nothing was trusted yet".
 
 /// The trust seed to write into a new account's state: every path the source account has ACCEPTED,
 /// each reduced to that single fact.

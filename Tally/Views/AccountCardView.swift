@@ -140,12 +140,28 @@ struct AccountCardView: View {
                         .help(RedeemAction.outcomeDetail(redeemOutcome) ?? "")
                 }
             }
+            // A login is renewing in the background, where the user has nothing else to look at:
+            // the browser has the sign-in, and this line is the only thing on screen tying it to
+            // THIS account. Outside the error branch on purpose - an account that stopped loading
+            // is exactly the one whose login gets renewed.
+            if RenewLoginStore.shared.isRenewing(usage.id) {
+                HStack(spacing: 3) {
+                    ProgressView().controlSize(.mini)
+                    Text(L("renewing login…"))
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(TallyMetrics.cardPaddingH)
         // maxHeight applies BEFORE the card background so the rounded surface itself stretches; the
         // row bounds the proposal via `.fixedSize(vertical:)`, so infinity here is never unbounded.
         .frame(maxHeight: fillsRowHeight ? .infinity : nil, alignment: .top)
         .tallyCard()
+        // Right-click is where per-account maintenance lives (see AccountCardMenu): renewing this
+        // account's login, and its config folder. Deliberately not chrome on the card - both are
+        // occasional, and the card's face is already carrying the numbers and the launch controls.
+        .contextMenu { cardContextMenu }
         .onHover { if showsDragHandle { isHovering = $0 } }
         // Deliberately NO card-wide tap: it made every stray click a launch-policy change (a
         // redeem-button near-miss re-pinned an account, 2026-07-19). Switching happens only on
@@ -156,7 +172,10 @@ struct AccountCardView: View {
         HStack(spacing: 7) {
             // The identity group carries its own tooltip - the signed-in email, so two accounts on
             // the same plan are distinguishable without putting an address on screen (and without
-            // covering the trailing controls, which have tooltips of their own).
+            // covering the trailing controls, which have tooltips of their own). Tally's own callout
+            // rather than `.help()`: this is the one the user goes looking for, so it has to arrive
+            // fast and look like the app. Combined into one accessibility element first, so the
+            // hint the callout carries lands on the identity as a whole rather than on each label.
             HStack(spacing: 7) {
                 ProviderIconView(providerID: usage.providerID, size: 16)
                 Text(label)
@@ -167,7 +186,8 @@ struct AccountCardView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .help(usage.accountEmail ?? "")
+            .accessibilityElement(children: .combine)
+            .tallyTooltip(usage.accountEmail ?? "")
             if usage.isStale {
                 Label(L("Outdated"), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)

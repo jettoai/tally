@@ -412,6 +412,13 @@ final class UsageStore {
         let streak = (failureStreak[usage.id] ?? 0) + 1
         failureStreak[usage.id] = streak
         guard var previous = lastGood[usage.id] else { return usage }
+        // The numbers are stale; the identity need not be. Whatever this round established without
+        // the poll (Claude reads plan and email from a local config file) replaces the last-good
+        // copy, so a config dir signed in as somebody else stops showing the previous account's
+        // email. Nil means this round could not tell, not that there is no identity, so it leaves
+        // the known value alone.
+        if let plan = usage.planName { previous.planName = plan }
+        if let email = usage.accountEmail { previous.accountEmail = email }
         if streak >= Self.staleAfterFailures {
             previous.isStale = true
             previous.error = usage.error  // reason, shown as an "Outdated" tooltip

@@ -112,9 +112,14 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
         return metrics.first
     }
 
-    static func failure(account: ProviderAccount, providerID: String, message: String) -> AccountUsage {
+    /// A failed poll still carries whatever the provider could establish WITHOUT the poll (Claude
+    /// reads plan and email from a local config file), so a card that never fetched still names its
+    /// account and a re-signed-in dir corrects itself while showing last-good numbers.
+    static func failure(account: ProviderAccount, providerID: String, message: String,
+                        planName: String? = nil, accountEmail: String? = nil) -> AccountUsage {
         AccountUsage(id: account.id, providerID: providerID, accountLabel: account.label,
-                     planName: nil, metrics: [], refreshedAt: Date(), error: message)
+                     planName: planName, accountEmail: accountEmail,
+                     metrics: [], refreshedAt: Date(), error: message)
     }
 }
 

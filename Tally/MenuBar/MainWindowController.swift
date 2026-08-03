@@ -169,5 +169,10 @@ final class MainWindowController {
         ActivationPolicy.promote()   // a visible dashboard earns a Dock / Cmd-Tab presence
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        // Nothing should start focused, the same clear `PinnedPanelController.show` makes on its way
+        // in. This window outlives its closes, so focus left on the tab switch is still there when it
+        // is summoned again. A close reads from inside the view as this surface going quiet, the one
+        // thing the row keeps focus through, so without this a reopen wears a ring nobody asked for.
+        window?.makeFirstResponder(nil)
     }
 }

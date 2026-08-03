@@ -62,9 +62,9 @@ enum ClaudeAccounts {
         }
     }
 
-    /// What the account's non-secret CLI config (`<dir>/.claude.json` → `oauthAccount`) can say
-    /// about the account itself. The config file carries no credentials - the OAuth token lives in
-    /// the Keychain, which Tally never reads - and per-account dirs each have their own copy.
+    /// What the account's non-secret CLI config (`.claude.json` → `oauthAccount`) can say about the
+    /// account itself. The config file carries no credentials - the OAuth token lives in the
+    /// Keychain, which Tally never reads - and per-account dirs each have their own copy.
     struct Profile {
         /// e.g. `organizationRateLimitTier` "default_claude_max_20x" → "Max 20x".
         var plan: String?
@@ -75,8 +75,11 @@ enum ClaudeAccounts {
     /// Both config-derived account facts in one decode: the file runs to six figures of bytes
     /// (chat history lives there too), so parsing it once per refresh rather than once per field
     /// matters.
+    /// Addressed through the shared `claudeStateFile(forConfigDir:)`: the default home keeps its
+    /// state one level up, at `~/.claude.json`, and a `~/.claude/.claude.json` that happens to sit
+    /// there is a stale copy that names whoever was signed in when it was left behind.
     static func profile(configDir: String) -> Profile {
-        let url = URL(fileURLWithPath: configDir).appendingPathComponent(".claude.json")
+        let url = claudeStateFile(forConfigDir: URL(fileURLWithPath: configDir, isDirectory: true))
         guard let data = try? Data(contentsOf: url),
               let config = try? JSONDecoder().decode(Config.self, from: data),
               let account = config.oauthAccount else { return Profile() }

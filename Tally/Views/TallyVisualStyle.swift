@@ -5,6 +5,7 @@ import SwiftUI
 /// reference these constants rather than sprinkling ad-hoc numbers.
 enum TallyMetrics {
     static let cardRadius: CGFloat = 12          // continuous corner radius for every surface
+    static let calloutRadius: CGFloat = 7        // the same family, one size down: chips and tooltips
     static let cardPaddingH: CGFloat = 14
     static let cardPaddingV: CGFloat = 12
     static let sectionSpacing: CGFloat = 16      // gap between setting sections / cards

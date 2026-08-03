@@ -16,6 +16,6 @@ swiftc -o "$out" tests/integrations/main.swift \
   Tally/Core/TokenStats/TokenTotals.swift Tally/Core/TokenStats/JSONScan.swift \
   TallyCLI/UsageAdvisor.swift \
   Tally/Providers/Claude/ClaudeAccounts.swift Tally/Core/Keychain/KeychainReader.swift \
-  Tally/Core/Keychain/ClaudeKeychainService.swift \
+  Tally/Core/Keychain/ClaudeKeychainService.swift Tally/Core/ClaudeStatePath.swift \
   Tally/Core/AccountDirWatcher.swift
 "$out"

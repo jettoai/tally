@@ -122,7 +122,13 @@ final class StatusItemController: NSObject {
         } else {
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            let window = popover.contentViewController?.view.window
+            window?.makeKey()
+            // Nothing should start focused, the same clear `PinnedPanelController.show` makes on its
+            // way in. The tab switch keeps focus through a surface going quiet so a keyboard user
+            // comes back to it, and from inside a reused view a close looks exactly like that:
+            // without this, the ring and the arrow keys come back with a popover merely reopened.
+            window?.makeFirstResponder(nil)
         }
     }
 

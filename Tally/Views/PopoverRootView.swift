@@ -162,6 +162,7 @@ struct PopoverRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didChangeScreenParametersNotification)) { _ in refreshScreenCap() }
+        .trackingScrollerGutter($scrollerGutter)
         // And the moment neither notification covers: the surface is laid out, and appears, while
         // its host is still assembling itself - a window has no `screen` until it is ordered onto
         // one - so it opens capped for the main display wherever it actually is. Deferred a
@@ -220,8 +221,10 @@ struct PopoverRootView: View {
     }
 
     /// What the scrolling regions lay their content out at: the surface, less what a permanently
-    /// visible scroller takes out of it (`ScreenFitStack.scrollerGutter`, zero by default).
-    private var scrollContentWidth: CGFloat { popoverWidth - ScreenFitStack.scrollerGutter }
+    /// visible scroller takes out of it (zero by default). Held, not read per pass, because the
+    /// style can change under a surface that is already open (see `trackingScrollerGutter`).
+    private var scrollContentWidth: CGFloat { popoverWidth - scrollerGutter }
+    @State private var scrollerGutter = ScreenFitStack.scrollerGutter
 
     /// The cap actually in force. A surface can change screens without anything the layout reads
     /// changing - dragged to another display, or one unplugged out from under it - and then it

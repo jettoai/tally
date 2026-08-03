@@ -113,4 +113,21 @@ extension View {
     func screenFitFlexible() -> some View {
         layoutValue(key: ScreenFitFlexibleKey.self, value: true)
     }
+
+    /// Keeps a surface's own copy of `ScreenFitStack.scrollerGutter` current. AppKit reconfigures
+    /// every scroller the moment the preferred style changes - the user flips "Show scroll bars", or
+    /// plugs a mouse into a machine set to Automatic - but nothing about that reaches SwiftUI, so a
+    /// width computed from the gutter keeps the answer the old style gave until something unrelated
+    /// happens to redraw it: content clipped by a scroller that has just appeared, or a scroller's
+    /// width of nothing where one has just left. Read on the notification, so what is laid out is
+    /// what AppKit has already switched to.
+    ///
+    /// Per surface rather than shared: the popover, the pinned panel and the dashboard window can
+    /// all be up at once, and each one hears this for itself.
+    func trackingScrollerGutter(_ gutter: Binding<CGFloat>) -> some View {
+        onReceive(NotificationCenter.default.publisher(
+            for: NSScroller.preferredScrollerStyleDidChangeNotification)) { _ in
+            gutter.wrappedValue = ScreenFitStack.scrollerGutter
+        }
+    }
 }

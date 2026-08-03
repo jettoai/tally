@@ -180,6 +180,62 @@ expect(await probe(unsetStub, environment: RenewLoginCommand.environment(
        "the DEFAULT home runs with the variable removed, beating one the app itself inherited")
 unsetenv("CLAUDE_CONFIG_DIR")
 
+// MARK: an account that signed OUT is still an account
+
+// The trap the whole memory exists for: discovery is credential-shaped (a Claude home is an account
+// because its Keychain login exists, a Codex home because its auth.json does), so the very event
+// the alert reports - the credential going away - is also the event that removes the account from
+// discovery. Nothing would be probed, no chip could light, and the renewal would have no home to
+// point at, which is to say the feature could never fire for a real logout at all.
+
+let liveHome = stubs.appendingPathComponent("home-still-here")
+try? FileManager.default.createDirectory(at: liveHome, withIntermediateDirectories: true)
+let removedHome = stubs.appendingPathComponent("home-the-user-deleted").path
+/// The same question `KnownAccountsStore` asks the filesystem, run against real paths here so the
+/// "directory, specifically" part is not just a claim in a comment.
+let onDisk: (String) -> Bool = { path in
+    var isDirectory: ObjCBool = false
+    return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+        && isDirectory.boolValue
+}
+let signedIn = KnownAccount(id: "claude:.claude2", providerID: "claude", label: "Claude 2",
+                            home: liveHome.path)
+
+var (memory, dormant) = KnownAccountLogic.advance(remembered: [], discovered: [signedIn],
+                                                  homeExists: onDisk)
+expect(memory == [signedIn] && dormant.isEmpty,
+       "an account that is signed in is simply written down, and is not dormant")
+
+(memory, dormant) = KnownAccountLogic.advance(remembered: memory, discovered: [],
+                                              homeExists: onDisk)
+expect(dormant == [signedIn] && memory == [signedIn],
+       "a home whose credential is gone stays on as a dormant account - which is what a logout IS")
+expect(dormant.first?.home == liveHome.path,
+       "…carrying the config home, because that is what the probe and the renewal both need")
+
+let deleted = KnownAccount(id: "codex:.codex2", providerID: "codex", label: "Codex 2",
+                           home: removedHome)
+let (afterRemoval, removedDormant) = KnownAccountLogic.advance(remembered: [deleted],
+                                                               discovered: [], homeExists: onDisk)
+expect(removedDormant.isEmpty && afterRemoval.isEmpty,
+       "a home the user actually deleted is forgotten, never reported as an expired login")
+
+// A file where a config home used to be is not an account waiting to be signed back into.
+let fileHome = stubs.appendingPathComponent("home-that-is-a-file").path
+try? "not a directory".write(toFile: fileHome, atomically: true, encoding: .utf8)
+let (_, fileDormant) = KnownAccountLogic.advance(
+    remembered: [KnownAccount(id: "claude:.claude3", providerID: "claude", label: "Claude 3",
+                              home: fileHome)],
+    discovered: [], homeExists: onDisk)
+expect(fileDormant.isEmpty, "…and neither is a plain file left at that path")
+
+var renamed = signedIn
+renamed.label = "the nickname it was signed back in under"
+let (reconciled, noneDormant) = KnownAccountLogic.advance(remembered: [signedIn],
+                                                          discovered: [renamed], homeExists: onDisk)
+expect(reconciled == [renamed] && noneDormant.isEmpty,
+       "signing back in wins over the memory, rather than the memory shadowing the live account")
+
 // MARK: one notification per outage
 
 let claudeID = "claude:.claude"
@@ -217,6 +273,22 @@ let (pruned, _) = LoginAlertLogic.advance(state: state, verdicts: [:], known: [c
 expect(pruned.announced.isEmpty,
        "an account that no longer exists is forgotten rather than remembered forever")
 
+// …which is exactly why `known` cannot be the list that was PROBED. A switched-off account is not
+// probed (nobody wants processes spawned for one), so for as long as it is off it appears in
+// neither the verdicts nor a probe-derived `known` - and the pruning above would then read its
+// outage as over. Switching it back on without signing in would announce the same outage twice.
+var offRound = LoginAlertState()
+(offRound, fresh) = LoginAlertLogic.advance(state: offRound, verdicts: [claudeID: .signedOut],
+                                            known: known)
+expect(fresh == [claudeID], "the outage is announced once, while the account is switched on")
+(offRound, fresh) = LoginAlertLogic.advance(state: offRound, verdicts: [:], known: known)
+expect(offRound.announced.contains(claudeID) && fresh.isEmpty,
+       "a round that could not probe it - switched off - does not end its outage")
+(offRound, fresh) = LoginAlertLogic.advance(state: offRound, verdicts: [claudeID: .signedOut],
+                                            known: known)
+expect(fresh.isEmpty,
+       "…so switching it back on, still signed out, is not a second announcement")
+
 // MARK: the visible chain - a verdict must reach a chip, and a click must reach a renewal
 
 let cardSource = readSource("Tally/Views/AccountCardView.swift")
@@ -224,8 +296,9 @@ let storeSource = readSource("Tally/Stores/LoginStatusStore.swift")
 let usageSource = readSource("Tally/Stores/UsageStore.swift")
 let routerSource = readSource("Tally/App/NotificationRouter.swift")
 let renewSource = readSource("Tally/Stores/RenewLoginStore.swift")
+let memorySource = readSource("Tally/Stores/KnownAccountsStore.swift")
 expect(!cardSource.isEmpty && !storeSource.isEmpty && !usageSource.isEmpty
-        && !routerSource.isEmpty && !renewSource.isEmpty,
+        && !routerSource.isEmpty && !renewSource.isEmpty && !memorySource.isEmpty,
        "every file the chain runs through was found to read")
 
 expect(cardSource.contains("LoginStatusStore.shared.isExpired(usage.id)"),
@@ -250,8 +323,30 @@ expect(cardSource.contains("LoginStatusStore.shared.email(usage.id) ?? usage.acc
 expect(usageSource.contains("LoginStatusStore.shared.evaluate(accounts: polled,"),
        "the refresh loop drives the probe, so there is no second timer to keep honest")
 expect(usageSource.contains("SettingsStore.shared.isAccountEnabled($0.id)")
-        && usageSource.range(of: "let polled = allDiscovered.filter {") != nil,
+        && usageSource.range(of: "let polled = known.filter {") != nil,
        "…and only for accounts the user actually has switched on")
+
+// The signed-out account has to survive discovery to reach any of this, and there are three places
+// it has to survive to: the list a renewal resolves a config home from, the probe list, and a card
+// for the chip to sit on.
+expect(usageSource.contains("let (known, dormant) = KnownAccountsStore.shared.reconcile(discovered: allDiscovered)"),
+       "the refresh remembers what it discovered, so a logout leaves a dormant account behind")
+expect(usageSource.contains("discoveredAccounts = known"),
+       "…which stays in the list `RenewLoginStore.renew(accountID:)` resolves a home from")
+expect(memorySource.contains("return (discovered + revived, revived)"),
+       "…because `all` really is discovery WITH the dormant accounts merged back into it, which "
+           + "is the only reason the probe (and every list built from it) can see one")
+expect(usageSource.contains("message: L(\"Login expired\")"),
+       "…and gets a row of its own, because the chip lives on a card")
+expect(usageSource.contains("known: Set(known.map(\\.id))"),
+       "the dedup is pruned against every account that exists, not the ones probed this round")
+expect(storeSource.contains("accounts: [ProviderAccount], known: Set<String>)")
+        && !storeSource.contains("known: Set(accounts.map(\\.id))"),
+       "…which the store takes as its own argument rather than deriving from the probe list")
+expect(storeSource.contains("UsageStore.shared.discoveredAccountsNow().first")
+        && usageSource.contains("func discoveredAccountsNow()"),
+       "the sample expiry alert discovers an account itself: it fires from launch, before the "
+           + "first refresh has filled the store, and an alert naming nothing cannot be renewed")
 
 expect(storeSource.contains("guard !DemoUsage.isActive, !isProbing else { return }"),
        "demo mode never runs a provider CLI, and two rounds never overlap")

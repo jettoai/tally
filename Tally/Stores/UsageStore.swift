@@ -67,16 +67,33 @@ final class UsageStore {
             discoverChanged: { [weak self] in
                 guard let self else { return false }
                 let found = providers.flatMap { $0.discoverAccounts() }
-                guard accountSetChanged(from: self.discoveredAccounts, to: found) else { return false }
+                // A signed-out account is not discoverable - that is what being signed out means
+                // here - so the dormant ones are merged back in BEFORE anything compares sets.
+                // Without this every event on a machine with one would read as "an account
+                // disappeared" and buy a refresh, which is the exact traffic this filter exists
+                // to keep away.
+                let all = KnownAccountsStore.shared.reconcile(discovered: found).all
+                guard accountSetChanged(from: self.discoveredAccounts, to: all) else { return false }
                 // Adopt it here so the Settings list is right even if the refresh below is queued
                 // behind one already running, and so a second event does not report the same news.
-                self.discoveredAccounts = found
+                self.discoveredAccounts = all
                 self.onChange?()
                 return true
             },
             onChange: { [weak self] in Task { await self?.refresh(userInitiated: false) } })
         watcher.start()
         accountWatcher = watcher
+    }
+
+    /// Every account on this machine, discovered on the spot while the first refresh has not
+    /// filled the list yet. For the launch flags, which fire from `applicationDidFinishLaunching`
+    /// with that refresh only just queued: reading the empty list there is how the expiry flag's
+    /// sample alert ended up naming no account at all. Discovery is local and cheap - the same
+    /// pass the config-dir watcher runs on every event.
+    func discoveredAccountsNow() -> [ProviderAccount] {
+        guard discoveredAccounts.isEmpty else { return discoveredAccounts }
+        return KnownAccountsStore.shared
+            .reconcile(discovered: providers.flatMap { $0.discoverAccounts() }).all
     }
 
     /// Rebuild the background timer from the current interval setting.
@@ -202,13 +219,27 @@ final class UsageStore {
                 for await usage in group { results.append(usage) }
             }
         }
-        discoveredAccounts = allDiscovered
+        // An account that signed OUT stops being discoverable at all - Claude's logout deletes the
+        // Keychain item, Codex's deletes auth.json - so discovery alone drops it from the app at
+        // the exact moment the expiry alert is about it. The remembered accounts whose home is
+        // still on disk come back here as dormant ones: listed, probed, renewable. A home that is
+        // GONE is a removal instead, and is forgotten (KnownAccounts.swift).
+        let (known, dormant) = KnownAccountsStore.shared.reconcile(discovered: allDiscovered)
+        discoveredAccounts = known
 
-        let merged = results.map(applyLastGood)
         // The enablement set may have changed while the CLIs ran: keep rows of providers enabled
         // NOW that this round didn't fetch (the queued follow-up replaces them with live data),
         // and drop rows of providers disabled mid-flight.
         let enabledNow = SettingsStore.shared.enabledProviders
+        // A dormant account gets a row rather than a fetch: there is no credential left to fetch
+        // with, and a card is where its "Login expired" chip lives. Kept out of `results` so an
+        // account that stays signed out cannot hold the failure-retry ladder open for as long as
+        // it does.
+        let dormantRows = dormant
+            .filter { enabledNow.contains($0.providerID) && SettingsStore.shared.isAccountEnabled($0.id) }
+            .map { AccountUsage.failure(account: $0, providerID: $0.providerID,
+                                        message: L("Login expired")) }
+        let merged = (results + dormantRows).map(applyLastGood)
         let fetchedIDs = Set(merged.map(\.id))
         let carried = accounts.filter {
             enabledNow.contains($0.providerID) && !fetchedIDs.contains($0.id)
@@ -279,10 +310,14 @@ final class UsageStore {
         // awaited: it throttles itself to its own (much longer) interval, and a refresh must not
         // hold the snapshot behind a question about credentials. Only the accounts actually being
         // polled are asked - a switched-off account is not one the user wants processes spawned for.
-        let polled = allDiscovered.filter {
+        // `known` (every account that EXISTS, dormant ones included) goes along separately because
+        // the dedup state is pruned against it and must not shrink when an account is switched off
+        // - see `LoginStatusStore.announce`.
+        let polled = known.filter {
             enabledNow.contains($0.providerID) && SettingsStore.shared.isAccountEnabled($0.id)
         }
         Task { await LoginStatusStore.shared.evaluate(accounts: polled,
+                                                      known: Set(known.map(\.id)),
                                                       userInitiated: userInitiated) }
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
         scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })

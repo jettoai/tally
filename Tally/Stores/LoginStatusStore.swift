@@ -60,7 +60,11 @@ final class LoginStatusStore {
     /// Probe every account that has a config home, unless one ran recently. `userInitiated` (an
     /// explicit refresh, or the refresh a finished renewal triggers) always probes: the point of
     /// that refresh is usually to confirm the login just came back.
-    func evaluate(accounts: [ProviderAccount], userInitiated: Bool) async {
+    ///
+    /// `known` is every account that still exists on this machine, which is a WIDER set than the
+    /// one being probed (that one is filtered by enablement). Only the dedup state reads it - see
+    /// `announce`.
+    func evaluate(accounts: [ProviderAccount], known: Set<String>, userInitiated: Bool) async {
         guard !DemoUsage.isActive, !isProbing else { return }
         let now = Date()
         if !userInitiated, let last = lastProbeAt,
@@ -100,7 +104,7 @@ final class LoginStatusStore {
             verdicts[id] = reading.verdict
             if let email = reading.email { emails[id] = email }
         }
-        announce(verdicts: readings.mapValues(\.verdict), accounts: accounts)
+        announce(verdicts: readings.mapValues(\.verdict), accounts: accounts, known: known)
     }
 
     /// Dev-build stand-in CLI (`-TallyLoginStatusCLI /path/to/stub`), the same shape as
@@ -111,12 +115,16 @@ final class LoginStatusStore {
     // MARK: The one notification per outage
 
     private func announce(verdicts: [String: LoginStatusCommand.Verdict],
-                          accounts: [ProviderAccount]) {
+                          accounts: [ProviderAccount], known: Set<String>) {
         // The dev variant never owns the shared surfaces, and two apps watching the same accounts
         // would say everything twice. The chip is per-window and stays.
         guard !BuildVariant.isDev else { return }
+        // Pruned against every account that still EXISTS, not against the ones probed this round.
+        // The probe list is filtered by enablement, so an account switched off for longer than a
+        // probe interval would be dropped from the state as though its outage had ended - and
+        // switching it back on without signing in would announce the same outage a second time.
         let (next, fresh) = LoginAlertLogic.advance(state: loadState(), verdicts: verdicts,
-                                                    known: Set(accounts.map(\.id)))
+                                                    known: known)
         saveState(next)
         for id in fresh {
             let fallback = accounts.first { $0.id == id }?.label ?? id
@@ -135,7 +143,11 @@ final class LoginStatusStore {
     /// real account when the machine has one, so the button opens the real renewal. No state is
     /// persisted, so a normal launch is unaffected.
     func postSampleNotification() {
-        let account = UsageStore.shared.discoveredAccounts.first
+        // Discovered on the spot rather than read off the store: this runs from
+        // `applicationDidFinishLaunching`, where the launch refresh has only just been queued, so
+        // the store's list is still empty and the alert would carry no account id at all - leaving
+        // its "Renew login" button, the one thing this flag exists to check, nothing to route to.
+        let account = UsageStore.shared.discoveredAccountsNow().first
         Task { @MainActor in
             _ = await post(accountID: account?.id ?? "", label: account?.label ?? "Claude")
         }

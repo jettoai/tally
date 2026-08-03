@@ -38,8 +38,8 @@ func capture(_ executable: String, _ arguments: [String]) -> String? {
 
 let claudePlan = RenewLoginCommand.plan(providerID: "claude")
 let codexPlan = RenewLoginCommand.plan(providerID: "codex")
-expect(claudePlan?.arguments == ["auth", "login"],
-       "claude re-logs in through its own auth subcommand, not a prompt typed into a session")
+expect(claudePlan?.arguments == ["auth", "login", "--strict-mcp-config"],
+       "claude re-logs in through its own auth subcommand, with the host's MCP config kept out")
 expect(claudePlan?.needsTerminal == true,
        "claude draws a terminal UI, so it is given a pty")
 expect(claudePlan?.confirmKeystroke == "\r",

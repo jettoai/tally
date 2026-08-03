@@ -51,7 +51,11 @@ enum RenewLoginCommand {
     static func plan(providerID: String) -> Plan? {
         switch providerID {
         case "claude":
-            return Plan(arguments: ["auth", "login"],
+            // --strict-mcp-config: the same guard the usage probe carries (ClaudeUsageCLI). A login
+            // has no session to boot MCP servers for today, but a spawned `claude` never gets to
+            // inherit the host's MCP config, and the subcommand accepts the flag (verified via
+            // `claude auth login --strict-mcp-config --help`, 2026-08-03).
+            return Plan(arguments: ["auth", "login", "--strict-mcp-config"],
                         needsTerminal: true,
                         progressMarkers: ["opening browser", "browser didn't open"],
                         successMarkers: ["login successful", "logged in as"],

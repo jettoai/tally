@@ -40,14 +40,22 @@ let claudePlan = RenewLoginCommand.plan(providerID: "claude")
 let codexPlan = RenewLoginCommand.plan(providerID: "codex")
 expect(claudePlan?.arguments == ["--strict-mcp-config", "auth", "login"],
        "claude re-logs in through its own auth subcommand, with the host's MCP config kept out")
-// The ordering above is the whole bug the previous release shipped: a main-command option written
-// after the subcommand is rejected by Commander ("unknown option"), so the renewal could only ever
-// fail. Held as a rule rather than as one literal, because it is the rule that generalises to the
-// next flag someone adds.
-for plan in [claudePlan, codexPlan].compactMap({ $0 }) {
-    expect(plan.arguments.drop(while: { $0.hasPrefix("-") }).allSatisfy { !$0.hasPrefix("-") },
-           "every option precedes the subcommand, where the main command parses it: "
-               + plan.arguments.joined(separator: " "))
+// The ordering above is the whole bug the previous release shipped (13ade3a): --strict-mcp-config
+// is a GLOBAL option, and Commander rejects a global option written after the subcommand ("unknown
+// option"), so the renewal could only ever fail. What is pinned is that one option's position, not
+// a rule about every dash-word: a SUBCOMMAND option (`auth login --console`, which the claude CLI
+// already takes) legitimately follows its subcommand, and a blanket "options first" rule would
+// both reject it and push the next author into moving it ahead of `auth`, where the main command
+// reports it as unknown for the same reason the release failed. Codex's plan carries no global
+// option at all, so its shape is pinned as a literal below.
+if let arguments = claudePlan?.arguments,
+   let mcpGuard = arguments.firstIndex(of: "--strict-mcp-config"),
+   let subcommand = arguments.firstIndex(of: "auth") {
+    expect(mcpGuard < subcommand,
+           "the global --strict-mcp-config precedes `auth`, where the main command parses it: "
+               + arguments.joined(separator: " "))
+} else {
+    expect(false, "claude's plan carries both the MCP guard and the auth subcommand")
 }
 expect(claudePlan?.needsTerminal == true,
        "claude draws a terminal UI, so it is given a pty")

@@ -275,6 +275,15 @@ final class UsageStore {
                 UsageStore.shared.advisorReadings = readings
             }
         }
+        // Ask the provider CLIs whether each account is still signed in. Detached rather than
+        // awaited: it throttles itself to its own (much longer) interval, and a refresh must not
+        // hold the snapshot behind a question about credentials. Only the accounts actually being
+        // polled are asked - a switched-off account is not one the user wants processes spawned for.
+        let polled = allDiscovered.filter {
+            enabledNow.contains($0.providerID) && SettingsStore.shared.isAccountEnabled($0.id)
+        }
+        Task { await LoginStatusStore.shared.evaluate(accounts: polled,
+                                                      userInitiated: userInitiated) }
         // Any failed account → probe again soon (backoff) instead of waiting the full interval.
         scheduleRetryIfNeeded(anyFailure: results.contains { $0.error != nil })
 

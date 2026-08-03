@@ -10,12 +10,6 @@ import SwiftUI
 /// the browser and completes the round trip itself, and the app only ever learns whether it worked
 /// (see RenewLoginStore).
 extension AccountCardView {
-    /// The account's config home, or nil when Tally has none to act on (a demo fixture, or an
-    /// account discovered without a launchable directory) - which is what greys both entries out.
-    private var configHome: String? {
-        UsageStore.shared.discoveredAccounts.first { $0.id == usage.id }?.launchHome
-    }
-
     @ViewBuilder
     var cardContextMenu: some View {
         Button(L("Renew login…")) {

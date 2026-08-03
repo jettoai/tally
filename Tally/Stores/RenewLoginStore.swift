@@ -31,6 +31,19 @@ final class RenewLoginStore {
             && IntegrationsStore.Shim(rawValue: providerID) != nil
     }
 
+    /// Renew from an account id alone, resolving the provider, the display name and the config home
+    /// from the stores. What the surfaces that only ever HAVE an id need: the expiry notification's
+    /// button and the card's "Login expired" chip. An account that has since gone (a config home
+    /// deleted while the alert sat on screen) simply does nothing.
+    func renew(accountID: String) {
+        guard let account = UsageStore.shared.discoveredAccounts.first(where: { $0.id == accountID }),
+              let home = account.launchHome else { return }
+        renew(accountID: accountID, providerID: account.providerID,
+              label: SettingsStore.shared.displayLabel(accountID: accountID,
+                                                       fallback: account.label),
+              home: home)
+    }
+
     func renew(accountID: String, providerID: String, label: String, home: String) {
         guard !inFlight.contains(accountID),
               let plan = RenewLoginCommand.plan(providerID: providerID),
@@ -118,24 +131,14 @@ final class RenewLoginStore {
     }
 
     /// The provider CLI (named after the provider), resolved to a REAL binary and never to Tally's
-    /// own PATH shim. The shim re-picks an account for any invocation with an empty config-home
-    /// variable, and the default home's login is exactly that - so a shimmed `claude` would renew
-    /// whichever account the launch policy currently favours (the failure ProviderExecutable.swift
-    /// documents on the CLI side). Falling back to the bare name leaves the lookup to the system,
-    /// which is all there is when nothing was found.
+    /// own PATH shim - the shared rule, because the login-status probe has to spawn the very same
+    /// binary against the very same account (see ProviderCLI).
+    ///
+    /// `-TallyRenewLoginCLI` is the dev-build hook, the same shape as -TallyDryNotifyTest and
+    /// -TallyResetHintTest: point the renewal at a stand-in CLI so the whole chain (menu →
+    /// notification → card → runner → verdict → fallback) can be exercised without spending a real
+    /// credential on a real login.
     private static func providerExecutable(_ cli: String) -> String {
-        // Dev-build hook, the same shape as -TallyDryNotifyTest and -TallyResetHintTest: point the
-        // renewal at a stand-in CLI so the whole chain (menu → notification → card → runner →
-        // verdict → fallback) can be exercised without spending a real credential on a real login.
-        // Dev only, and volatile (argument domain): the release app cannot be talked into running
-        // something else as its provider CLI.
-        if BuildVariant.isDev,
-           let standIn = UserDefaults.standard.string(forKey: "TallyRenewLoginCLI"),
-           !standIn.isEmpty {
-            return standIn
-        }
-        guard let path = CLIRunner.resolve(cli),
-              !path.hasPrefix(IntegrationsStore.binDirURL.path + "/") else { return cli }
-        return path
+        ProviderCLI.executable(cli, devOverrideKey: "TallyRenewLoginCLI")
     }
 }

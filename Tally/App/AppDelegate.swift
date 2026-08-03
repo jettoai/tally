@@ -54,6 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if UserDefaults.standard.bool(forKey: "TallyResetHintTest") {
             ResetHintNotifier.shared.postSampleNotification()
         }
+        // And for the login-expiry alert (-TallyLoginExpiryTest), whose "Renew login" button is the
+        // one path into a renewal that no card is involved in.
+        if UserDefaults.standard.bool(forKey: "TallyLoginExpiryTest") {
+            LoginStatusStore.shared.postSampleNotification()
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

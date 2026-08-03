@@ -38,6 +38,19 @@ enum CLIRunner {
     struct Output: Sendable {
         var exitCode: Int32
         var stdout: String
+        /// Captured too, because a CLI's answer is not always on stdout: `codex login status`
+        /// reports the whole of it here. Drained on its own queue rather than after stdout - a
+        /// child that fills the stderr pipe (64 KB) while the parent blocks on stdout deadlocks,
+        /// and the previous version, which never read this pipe at all, could do exactly that.
+        var stderr: String = ""
+    }
+
+    /// One background read's result. A reference so the reading queue and the caller share it.
+    /// Unchecked because the `DispatchGroup` below IS the synchronisation the compiler cannot see:
+    /// exactly one queue writes `value`, and nothing reads it until `wait()` has returned, which
+    /// orders the write before every later read.
+    private final class Captured: @unchecked Sendable {
+        var value = Data()
     }
 
     /// Run a CLI to completion off the main actor. `environment` entries overlay the app's env;
@@ -64,8 +77,9 @@ enum CLIRunner {
                 if let currentDirectory { process.currentDirectoryURL = currentDirectory }
 
                 let stdout = Pipe()
+                let stderr = Pipe()
                 process.standardOutput = stdout
-                process.standardError = Pipe()
+                process.standardError = stderr
                 let stdin = Pipe()
                 process.standardInput = stdin
 
@@ -84,12 +98,21 @@ enum CLIRunner {
                 let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: watchdog)
 
+                // Both pipes are drained concurrently, then joined: reading one to EOF while the
+                // child is still filling the other is a deadlock waiting for a chatty CLI.
+                let errorData = Captured()
+                let draining = DispatchGroup()
+                DispatchQueue.global(qos: .utility).async(group: draining) {
+                    errorData.value = stderr.fileHandleForReading.readDataToEndOfFile()
+                }
                 let data = stdout.fileHandleForReading.readDataToEndOfFile()
+                draining.wait()
                 process.waitUntilExit()
                 watchdog.cancel()
                 continuation.resume(returning: Output(
                     exitCode: process.terminationStatus,
-                    stdout: String(data: data, encoding: .utf8) ?? ""
+                    stdout: String(data: data, encoding: .utf8) ?? "",
+                    stderr: String(data: errorData.value, encoding: .utf8) ?? ""
                 ))
             }
         }

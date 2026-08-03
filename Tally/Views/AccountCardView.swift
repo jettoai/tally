@@ -22,6 +22,23 @@ struct AccountCardView: View {
         settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
     }
 
+    /// The account's config home, or nil when Tally has none to act on (a demo fixture, or an
+    /// account discovered without a launchable directory) - which is what greys the expiry chip
+    /// and both context-menu entries (AccountCardMenu) out.
+    var configHome: String? {
+        UsageStore.shared.discoveredAccounts.first { $0.id == usage.id }?.launchHome
+    }
+
+    /// Who is signed in, for the identity tooltip. The login probe's answer FIRST: it is what the
+    /// provider's CLI reports right now, where the config file the fallback comes from names
+    /// whoever was signed in when it was last written - a home signed into as somebody else keeps
+    /// the old address until something rewrites it, and `~/.claude.json` is a file other tools
+    /// leave stale copies of. Falls back rather than blanking, because a probe that has not run
+    /// yet (or could not) knows less than the file does, not more.
+    private var identityEmail: String {
+        LoginStatusStore.shared.email(usage.id) ?? usage.accountEmail ?? ""
+    }
+
     /// Non-headline windows. Model-scoped rows are hidden unless "show every model tier" is on, so by
     /// default only the highest-tier model (the headline) is featured.
     private var secondaryMetrics: [UsageMetric] {
@@ -151,6 +168,8 @@ struct AccountCardView: View {
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+            } else if LoginStatusStore.shared.isExpired(usage.id) {
+                loginExpiredChip
             }
         }
         .padding(TallyMetrics.cardPaddingH)
@@ -166,6 +185,32 @@ struct AccountCardView: View {
         // Deliberately NO card-wide tap: it made every stray click a launch-policy change (a
         // redeem-button near-miss re-pinned an account, 2026-07-19). Switching happens only on
         // the explicit header controls: the ◯ pins, the pin badge releases back to Smart.
+    }
+
+    /// The provider's own CLI says this account is no longer signed in. In the severity red the
+    /// card already speaks in ("Near limit", "Limit reached"), and in the badge shape the header
+    /// uses, because unlike those it is a BUTTON: pressing it starts the very renewal the right-
+    /// click menu offers, which is the whole point of noticing. It replaces the "renewing login…"
+    /// line rather than sitting beside it, so the card shows one login state at a time, and the
+    /// next probe after a successful sign-in clears it with nothing left to dismiss.
+    private var loginExpiredChip: some View {
+        Button { RenewLoginStore.shared.renew(accountID: usage.id) } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 8))
+                Text(L("Login expired")).lineLimit(1)
+            }
+            .fixedSize()
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(TallyColor.critical)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(Capsule().fill(TallyColor.critical.opacity(0.15)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        // Greyed on a demo fixture, which has no config home behind it - the same rule that greys
+        // the menu entry, asked of the same place, so a chip can never look more able than it is.
+        .disabled(!RenewLoginStore.shared.canRenew(providerID: usage.providerID, home: configHome))
+        .help(L("Sign in again to bring this account's usage back."))
     }
 
     private var header: some View {
@@ -187,7 +232,7 @@ struct AccountCardView: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            .tallyTooltip(usage.accountEmail ?? "")
+            .tallyTooltip(identityEmail)
             if usage.isStale {
                 Label(L("Outdated"), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)

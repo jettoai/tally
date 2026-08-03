@@ -150,16 +150,10 @@ extension PopoverRootView {
     /// and placed before the flexible part of the header, so the clock beside it keeps the width it
     /// reserves for its widest string even in the narrowest single-column panel.
     private var surfaceTabPicker: some View {
-        Picker("", selection: $tabState.tab) {
-            ForEach(SurfaceTab.allCases) { tab in
-                Text(tab.label).tag(tab)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.mini)
-        .fixedSize()
-        .background { widthProbe { headerWidths.picker = $0 } }
+        NeutralSegmentedPicker(selection: $tabState.tab,
+                               options: SurfaceTab.allCases,
+                               size: .mini) { $0.label }
+            .background { widthProbe { headerWidths.picker = $0 } }
     }
 
     /// What fits beside the switch. A 380pt single column, an update badge and a language whose two

@@ -31,7 +31,11 @@ which account is burning.
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel: per-provider fleet gauges pool nine accounts (five Claude Max, four Codex), Claude showing both its runways at once, a Fable pool bar and a weekly pool bar, each with a pace forecast (lasts about 4d 12h) and the next staggered refill, Codex a weekly pool that is sustainable at this pace; an advisor row of account pips shows each provider's running weekly demand (5.8 acct/wk) and marks when the pace calls for one more account; below, every account's own card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel: per-provider fleet gauges pool nine accounts (five Claude Max, four Codex), Claude showing both its runways at once, a Fable pool bar and a weekly pool bar, each with a pace forecast (lasts about 4d 12h) and the next staggered refill, Codex a weekly pool that is sustainable at this pace; an advisor row of account pips shows each provider's running weekly demand (5.8 acct/wk) and marks when the pace calls for one more account; below, every account's frosted-glass card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks; the header carries a Usage / Tokens switch" width="834">
+</p>
+
+<p align="center">
+  <img src="assets/screenshot-tokens.png" alt="Tally's Tokens tab: total tokens over the selected range (today / 7 days / 30 days / all time) with the input, cache write, cache read and output breakdown, a per-provider split between Claude and Codex, and a per-project table with share bars showing where the tokens went" width="834">
 </p>
 
 ## Why Tally
@@ -63,7 +67,19 @@ subscriptions at once:
 - **Menu bar strip.** Per-account brand marks with stacked session/weekly percentages; same-provider
   accounts get a tiny index badge; hover for every account's full numbers.
 - **Pinnable glass panel.** Pin the dashboard as an always-on-top frosted-glass panel; drag the
-  header to place it anywhere, and spread many accounts across 2, 3 or 4 columns.
+  header to place it anywhere. The account cards themselves render as glass over the panel's
+  backdrop (solid whenever you turn the translucency off, or the system asks for reduced
+  transparency).
+- **Your layout, one card at a time.** A view-options card in the footer sets the column count
+  with layout tiles (each tile drawing the layout it produces), folds providers behind their
+  gauges, and can seat the cards in a section per provider; drag cards to reorder within it. A
+  fleet too tall for the screen scrolls instead of falling off it.
+- **Token usage, by project.** A Tokens view behind a header switch on every surface: total
+  tokens over today / 7 days / 30 days / all time with the input, cache and output breakdown, a
+  per-provider split, and a per-project table that traces even agent and workflow sessions back
+  to the project they served. Read from the CLIs' own local transcripts, aggregated behind an
+  incremental cache (a refresh with nothing new costs well under a second), and it never leaves
+  your machine.
 - **Reset times everywhere.** Every window shows its own reset; click any reset label to flip all of
   them between countdown ("resets in 2d 4h") and exact time ("resets at 07/18 20:00").
 - **Codex reset banking, visible and redeemable.** Banked rate-limit resets show right on the
@@ -217,8 +233,9 @@ Keep each PR to one intent, and put the why in the description.
 Tools like [ccusage](https://github.com/ryoppippi/ccusage) are terminal CLIs that estimate token
 spend from local logs, and most menu bar meters watch a single account. Tally is a native GUI
 that shows the quota windows the vendors actually enforce (5-hour, weekly, top-model), across
-multiple Claude and Codex accounts at once, and adds a launcher that acts on those numbers.
-Read-only, on your own paid subscriptions.
+multiple Claude and Codex accounts at once, and adds a launcher that acts on those numbers. The
+Tokens view covers the "how much did I burn, and on what" question too, per project, straight
+from the local transcripts, with no dollar guessing. Read-only, on your own paid subscriptions.
 
 **Why does macOS never ask me for keychain permission?**
 Because Tally never reads a credential: usage comes through the providers' own CLIs, and account

@@ -60,16 +60,10 @@ struct TokenStatsView: View {
     /// chooses what the window is about; this one only narrows what is already there, so it is the
     /// compact size and hugs its content at the trailing edge instead of spanning the width.
     private var rangePicker: some View {
-        Picker("", selection: $store.range) {
-            ForEach(TokenStatsRange.allCases) { range in
-                Text(range.label).tag(range)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.small)
-        .fixedSize()
-        .frame(maxWidth: .infinity, alignment: .trailing)
+        NeutralSegmentedPicker(selection: $store.range,
+                               options: TokenStatsRange.allCases,
+                               size: .small) { $0.label }
+            .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     // MARK: Headline

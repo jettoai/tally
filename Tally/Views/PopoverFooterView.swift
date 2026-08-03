@@ -17,18 +17,28 @@ struct FooterWidths: Equatable {
 }
 
 extension PopoverRootView {
+    /// The clear space between the switch and the credit. Fixed rather than elastic: the credit is
+    /// grouped WITH the leading control, and the one gap that may stretch is the one before the icons.
+    private static let creditLead: CGFloat = 16
+
     /// The credit rides in the row's layout flow rather than in an overlay. An overlay draws at the
     /// footer's centre whatever else is there, so it could only be kept off the icons by a hand-picked
     /// width threshold - which went stale the moment the trailing group grew by a button, and that is
     /// how it came to draw underneath them. In flow it is kept only while the row has room for it plus
-    /// 12pt of clear space on either side, and dropped whole otherwise: overlap stops being expressible.
+    /// its lead and 12pt of clear space before the icons, and dropped whole otherwise: overlap stops
+    /// being expressible.
+    ///
+    /// It sits with the switch at the leading end rather than in the row's middle. Centred between two
+    /// clusters of unequal width, it never looked centred on anything: it drifted with every change to
+    /// the trailing group and read as a mark that had missed its mark. Parked after the switch it is
+    /// where a byline belongs, and the empty space stays where the row can afford it - in the middle.
     ///
     /// One row, never two. Deciding this with `ViewThatFits` would hand each side of the threshold its
     /// own subtree, so crossing it tears down and rebuilds the icons - and the View options button owns
     /// a `.popover`, which closes when its presenter is rebuilt. Changing the column count from inside
     /// that card is exactly what crosses the threshold, so the card closed under the user's cursor
     /// mid-adjustment. Here the row (and every control's identity in it) is the same view throughout;
-    /// only the credit between the spacers comes and goes.
+    /// only the credit before the spacer comes and goes.
     var footer: some View {
         HStack(spacing: 0) {
             // A segmented control, not a switch: both states are valid views (nothing is "off"), and
@@ -36,21 +46,15 @@ extension PopoverRootView {
             // Used before Left, mirroring the meters' geometry: the used portion fills from the
             // track's left edge and the remainder hugs the right, so the toggle order matches
             // where each quantity lives in the bar.
-            Picker("", selection: $settings.displayMode) {
-                Text(L("Used")).tag(DisplayMode.used)
-                Text(L("Left")).tag(DisplayMode.remaining)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.mini)
-            .fixedSize()
-            .help(L("Meters show"))
-            .background { widthProbe { footerWidths.picker = $0 } }
-            Spacer(minLength: 12)
+            NeutralSegmentedPicker(selection: $settings.displayMode,
+                                   options: [.used, .remaining],
+                                   size: .mini) { $0 == .used ? L("Used") : L("Left") }
+                .help(L("Meters show"))
+                .background { widthProbe { footerWidths.picker = $0 } }
             if showsCredit {
-                jettoCredit
-                Spacer(minLength: 12)
+                jettoCredit.padding(.leading, Self.creditLead)
             }
+            Spacer(minLength: 12)
             footerIcons
         }
         // The credit is measured off a copy that is never drawn and never laid out (a background is
@@ -64,12 +68,13 @@ extension PopoverRootView {
         .padding(.vertical, 4)
     }
 
-    /// Room for the credit and 12pt of clear space on both sides of it, measured rather than assumed.
-    /// Unmeasured parts read 0, which stays false: better a late credit than one drawn over the icons.
+    /// Room for the credit, its lead, and 12pt of clear space before the icons, measured rather than
+    /// assumed. Unmeasured parts read 0, which stays false: better a late credit than one drawn over
+    /// the icons.
     private var showsCredit: Bool {
         let parts = footerWidths
         guard parts.picker > 0, parts.icons > 0, parts.credit > 0 else { return false }
-        return parts.picker + parts.credit + parts.icons + 24 <= popoverWidth - 24
+        return parts.picker + Self.creditLead + parts.credit + 12 + parts.icons <= popoverWidth - 24
     }
 
     /// Quiet, on every surface, and off the header so the product wordmark stands alone.

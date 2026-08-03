@@ -57,6 +57,14 @@ targets:
       # a config dir's state file while the app reads that file for the account's plan and email,
       # so both targets compile the one rule for where the default home keeps it (one level up).
       - path: Tally/Core/ClaudeStatePath.swift
+      # Adding an account is one act with two surfaces: `tally add` in a terminal and the Settings
+      # "Add account" flow in the app. These three files are the act itself - which numbered home
+      # is next, what gets symlinked into it from the main account, and the folder trust carried
+      # over - so both targets compile the one implementation. A drifted second copy would put the
+      # CLI and the app on different account numbers, or share a set one of them does not.
+      - path: Tally/Core/AddAccount.swift
+      - path: Tally/Core/SharedHarness.swift
+      - path: Tally/Core/TrustSeed.swift
     settings:
       base:
         PRODUCT_NAME: tally

@@ -1,4 +1,3 @@
-import AppKit
 import Observation
 
 /// The account cards' "Renew login": start the provider's own login for ONE account in the
@@ -106,28 +105,12 @@ final class RenewLoginStore {
     }
 
     /// The visible fallback: the same command, in a Terminal window the user drives themselves.
-    /// Returns whether the window opened - driving Terminal is a permission the user grants once,
-    /// and a refusal is silent from here, so the caller says something different when it fails.
+    /// Shared with the add-account flow (LoginTerminalFallback), which needs the identical escape
+    /// hatch for the identical reason.
     private func openTerminal(executable: String, envKey: String, home: String, providerID: String,
                               plan: RenewLoginCommand.Plan) async -> Bool {
-        let command = RenewLoginCommand.shellCommand(
-            executable: executable, envKey: envKey,
-            home: RenewLoginCommand.isDefaultHome(home, providerID: providerID) ? nil : home,
-            arguments: plan.arguments)
-        let result = await CLIRunner.run(
-            "/usr/bin/osascript",
-            arguments: ["-e", RenewLoginCommand.terminalScript(command: command)],
-            // Generous: the first run of this stops inside osascript while macOS asks whether Tally
-            // may control Terminal, and a watchdog firing mid-question would report a refusal that
-            // never happened.
-            timeout: 120)
-        guard result?.exitCode == 0 else {
-            // One paste away from doing the job, which beats a dead end.
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(command, forType: .string)
-            return false
-        }
-        return true
+        await LoginTerminalFallback.openTerminal(executable: executable, envKey: envKey, home: home,
+                                                 providerID: providerID, plan: plan)
     }
 
     /// The provider CLI (named after the provider), resolved to a REAL binary and never to Tally's

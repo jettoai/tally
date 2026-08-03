@@ -319,12 +319,114 @@ check("a source with nothing trusted writes no file at all",
 check("and a source with no state file at all is simply a no-op",
       seedFolderTrust(from: seedRoot.appendingPathComponent(".missing"), to: bareTarget) == 0)
 
-// The wiring: claude only (codex has no such prompt), and only when sharing.
+// MARK: - Preparing a new account's home, end to end
+
+// The whole act as both surfaces perform it (`tally add` and Settings' "Add account"): pick the
+// slot, create the home, link the share, seed the trust. Behavioural rather than textual, and run
+// against a throwaway home directory - the Keychain probe is injected as "nothing is logged in", so
+// this reads no Keychain and does not care what accounts the machine running it has.
+let realFiles: (String) -> Bool = { fm.fileExists(atPath: $0) }
+let addRoot = tmp.appendingPathComponent("add-\(UUID().uuidString)")
+let addMain = addRoot.appendingPathComponent(".claude")
+try! fm.createDirectory(at: addMain.appendingPathComponent("skills"), withIntermediateDirectories: true)
+try! "instructions".write(to: addMain.appendingPathComponent("CLAUDE.md"), atomically: true, encoding: .utf8)
+try! fm.createDirectory(at: addMain.appendingPathComponent("projects"), withIntermediateDirectories: true)
+// The main account is LOGGED IN (that is what makes it occupied), and its state file - the trust
+// source - sits one level up because it is the default home.
+try! "secret".write(to: addMain.appendingPathComponent(".credentials.json"), atomically: true, encoding: .utf8)
+try! stateBody.write(to: addRoot.appendingPathComponent(".claude.json"), atomically: true, encoding: .utf8)
+
+let prepared = try! prepareAddedAccountHome(providerID: "claude", share: true, home: addRoot,
+                                            fileExists: realFiles, keychainLogin: noKeychain)
+check("the new home is the next number, not the occupied main one", prepared.name == ".claude2")
+check("and it exists on disk before any login is started",
+      fm.fileExists(atPath: prepared.dir.path))
+check("the main account's harness is linked into it",
+      prepared.linked.contains("CLAUDE.md") && prepared.linked.contains("skills"))
+check("identity never rides along",
+      !fm.fileExists(atPath: prepared.dir.appendingPathComponent(".credentials.json").path))
+check("the conversation record is shared, and reported as shared", prepared.sharesConversations)
+check("folder trust is carried over", prepared.trustSeeded == 2)
+check("as a state file holding the trust map and nothing else",
+      ((try? Data(contentsOf: prepared.dir.appendingPathComponent(".claude.json")))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?.count == 1)
+check("and this is not the main home", !prepared.isMainHome && prepared.unlinked.isEmpty)
+
+// Opting out on the SAME home: an unfinished login hands the number back, so this is the directory
+// the previous run left, links and all - and they have to go.
+let optedOut = try! prepareAddedAccountHome(providerID: "claude", share: false, home: addRoot,
+                                            fileExists: realFiles, keychainLogin: noKeychain)
+check("the unfinished home is resumed rather than skipped", optedOut.name == ".claude2")
+check("opting out removes the earlier run's share links",
+      optedOut.unlinked.contains("CLAUDE.md") && optedOut.linked.isEmpty
+          && !fm.fileExists(atPath: prepared.dir.appendingPathComponent("CLAUDE.md").path))
+
+// codex: its own allowlist, and no trust seeding at all (it has no such prompt).
+let codexMain = addRoot.appendingPathComponent(".codex")
+try! fm.createDirectory(at: codexMain, withIntermediateDirectories: true)
+try! "auth".write(to: codexMain.appendingPathComponent("auth.json"), atomically: true, encoding: .utf8)
+try! "codex instructions".write(to: codexMain.appendingPathComponent("AGENTS.md"), atomically: true, encoding: .utf8)
+let codexPrepared = try! prepareAddedAccountHome(providerID: "codex", share: true, home: addRoot,
+                                                 fileExists: realFiles, keychainLogin: noKeychain)
+check("codex gets its own numbered home", codexPrepared.name == ".codex2")
+check("with its own allowlist linked", codexPrepared.linked.contains("AGENTS.md"))
+check("no trust is seeded for a provider that never asks", codexPrepared.trustSeeded == 0
+      && !fm.fileExists(atPath: codexPrepared.dir.appendingPathComponent(".claude.json").path))
+
+// The first-ever account: there is nothing to share FROM, and nothing is invented.
+let bareRoot = tmp.appendingPathComponent("bare-\(UUID().uuidString)")
+try! fm.createDirectory(at: bareRoot, withIntermediateDirectories: true)
+let firstEver = try! prepareAddedAccountHome(providerID: "claude", share: true, home: bareRoot,
+                                             fileExists: realFiles, keychainLogin: noKeychain)
+check("the first account IS the main home", firstEver.isMainHome && firstEver.name == ".claude")
+check("and nothing is linked into it", firstEver.linked.isEmpty && firstEver.kept.isEmpty
+      && !firstEver.sharesConversations && firstEver.trustSeeded == 0)
+
+// Nowhere left to go is an error the surface can show, not a home pointed at nothing.
+var exhausted: AddAccountFailure?
+do {
+    _ = try prepareAddedAccountHome(providerID: "claude", share: true, home: addRoot,
+                                    fileExists: { _ in true }, keychainLogin: noKeychain)
+} catch let failure as AddAccountFailure {
+    exhausted = failure
+} catch {}
+check("all 99 taken is reported as a failure, not a directory",
+      exhausted == .noFreeSlot(base: ".claude"))
+
+// A home that cannot be created is reported too, rather than handed to a login that would fail
+// later, further from the cause, and with a message about the provider instead.
+let sealedRoot = tmp.appendingPathComponent("sealed-\(UUID().uuidString)")
+try! fm.createDirectory(at: sealedRoot, withIntermediateDirectories: true)
+try! fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: sealedRoot.path)
+var blockedFailure: AddAccountFailure?
+do {
+    _ = try prepareAddedAccountHome(providerID: "claude", share: true, home: sealedRoot,
+                                    fileExists: realFiles, keychainLogin: noKeychain)
+} catch let failure as AddAccountFailure {
+    blockedFailure = failure
+} catch {}
+try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: sealedRoot.path)
+check("a home that cannot be created is a reported failure",
+      blockedFailure == .couldNotCreateHome(path: sealedRoot.appendingPathComponent(".claude").path))
+
+// MARK: - One implementation, two surfaces
+
+// The CLI and the app both go THROUGH the shared preparation above. A second copy on either side is
+// what would put them on different account numbers, or have one share a set the other does not -
+// and neither drift shows up in a type check.
 let addSource = (try? String(contentsOfFile: "TallyCLI/AddCommand.swift", encoding: .utf8)) ?? ""
-check("the add command source is readable", !addSource.isEmpty)
-check("trust is seeded only when sharing, and only for claude",
-      addSource.contains("if share, provider.id == \"claude\", dir.path != mainHome.path"))
-check("and the login message no longer promises a wait",
+let appFlowSource = (try? String(contentsOfFile: "Tally/Stores/AddAccountStore.swift",
+                                 encoding: .utf8)) ?? ""
+check("both call sites are readable from this suite", !addSource.isEmpty && !appFlowSource.isEmpty)
+check("the CLI delegates the preparation", addSource.contains("prepareAddedAccountHome("))
+check("and keeps no second copy of the slot or the share",
+      !addSource.contains("nextFreeSlot(") && !addSource.contains("linkSharedHarness(")
+          && !addSource.contains("seedFolderTrust("))
+check("the app delegates the same preparation", appFlowSource.contains("prepareAddedAccountHome("))
+check("and keeps no second copy either",
+      !appFlowSource.contains("nextFreeSlot(") && !appFlowSource.contains("linkSharedHarness(")
+          && !appFlowSource.contains("seedFolderTrust("))
+check("the CLI's login message still promises no wait",
       addSource.contains("as soon as the login completes") && !addSource.contains("within a minute"))
 
 try? fm.removeItem(at: tmp)

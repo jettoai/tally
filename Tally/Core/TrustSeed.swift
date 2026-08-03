@@ -9,8 +9,11 @@ import Foundation
 // braid two accounts together. The cost of that correct decision is that account number three is
 // asked about every folder the user already vouched for on account number one.
 //
-// So `tally add` seeds it instead of sharing it: at login time, the trusted PATHS are copied across
-// and nothing else. A copy, once, of a list of directories the user has already approved.
+// So adding an account seeds it instead of sharing it: at login time, the trusted PATHS are copied
+// across and nothing else. A copy, once, of a list of directories the user has already approved.
+//
+// Compiled into both targets (it moved out of TallyCLI/ on 2026-08-03): `tally add` and Settings'
+// own "Add account" flow prepare a new home the same way, from one implementation.
 //
 // MEASURED 2026-07-28, because seeding a file another program owns is only safe if that program
 // merges rather than overwrites. Against claude 2.1.220, in a throwaway config dir:

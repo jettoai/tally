@@ -9,12 +9,22 @@ struct SettingsAccountsView: View {
     @Bindable var settings: SettingsStore
 
     @State private var renamingAccountID: String?
+    @State private var addingAccount = false
+    private let flow = AddAccountStore.shared
 
     var body: some View {
         let descriptors = ProviderCatalog.descriptors
         ForEach(Array(descriptors.enumerated()), id: \.element.id) { index, descriptor in
             if index > 0 { rowDivider }
             providerGroup(id: descriptor.id, name: descriptor.name)
+        }
+        // One sheet for both provider groups: which one opened it is a preselection, not a
+        // different flow, and the sheet lets the user change their mind about it anyway.
+        .sheet(isPresented: $addingAccount) {
+            SettingsAddAccountView(
+                flow: flow,
+                fallbackCommand: { Self.addAccountCommand($0, homes: launchHomes($0)) },
+                dismiss: { addingAccount = false })
         }
     }
 
@@ -82,7 +92,7 @@ struct SettingsAccountsView: View {
                 .padding(.leading, 18)
             }
             rowDivider
-            addAccountRow(id, homes: items.compactMap(\.launchHome))
+            addAccountRow(id)
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 rowDivider
                 // Same numbering the menu-bar strip uses for same-provider accounts, so the
@@ -100,23 +110,34 @@ struct SettingsAccountsView: View {
 
     /// Which account new `tally` sessions launch on: Off (observe only), Manual (pin a card in
     /// the panel), Smart (burn-rate pick - time and remaining both count - re-run every launch).
-    /// A copyable login command for the NEXT account (the first free ~/.claudeN / ~/.codexN):
-    /// run it in a terminal, finish the login, and the per-refresh scan picks the account up
-    /// within a minute - guidance without owning the login flow.
-    private func addAccountRow(_ providerID: String, homes: [String]) -> some View {
-        // Stacked, not side-by-side: the command needs the full row width to stay on ONE line -
-        // a wrapped command chip reads like two commands.
-        VStack(alignment: .leading, spacing: 6) {
+    /// The entry to the add-account flow (SettingsAddAccountView): Tally creates the next free
+    /// `~/.claudeN` / `~/.codexN`, optionally shares the main account's setup into it, and starts
+    /// the provider's own sign-in in the browser. The copyable terminal command it replaced is
+    /// still one click away - the sheet offers it whenever a run does not finish.
+    private func addAccountRow(_ providerID: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L("Add another account")).font(.subheadline)
-                Text(L("Run this in a terminal and finish the login; the account appears here within a minute."))
+                Text(L("Tally creates the next config home and opens the provider's sign-in in your browser."))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            CopyCommandChip(command: Self.addAccountCommand(providerID, homes: homes))
+            Spacer(minLength: 0)
+            Button(L("Add account…")) {
+                flow.providerID = providerID
+                flow.reset()
+                addingAccount = true
+            }
+            // Demo fixtures have no config home behind them, so the flow could only ever leave a
+            // stray directory: a button that cannot work must not look like one that can.
+            .disabled(!flow.canAdd(providerID: providerID) || flow.isRunning)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .settingsRowPadding()
+    }
+
+    private func launchHomes(_ providerID: String) -> [String] {
+        discovered(for: providerID).compactMap(\.launchHome)
     }
 
     /// With the tally CLI on PATH the whole dance (pick the next free number, create the

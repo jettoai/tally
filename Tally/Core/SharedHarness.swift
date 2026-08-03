@@ -1,12 +1,16 @@
 import Foundation
 
-// `tally add`'s harness sharing: what a new account links from the main one, and how that link
-// set is created, undone, and reported on.
+// Harness sharing when an account is added: what a new account links from the main one, and how
+// that link set is created, undone, and reported on.
 //
 // Split out of Snapshot.swift (2026-07-26) when that file reached its 500-line cap. The seam is
-// the concern: everything here is filesystem work for ONE subcommand and touches neither the
-// snapshot, the account scoring, nor the launch plumbing that the rest of Snapshot.swift is
-// about, so it is the part a reader of either file never needs to have in front of them.
+// the concern: everything here is filesystem work for ONE act and touches neither the snapshot,
+// the account scoring, nor the launch plumbing that the rest of Snapshot.swift is about, so it is
+// the part a reader of either file never needs to have in front of them.
+//
+// It moved from TallyCLI/ into Core (2026-08-03) when Settings grew its own "Add account" flow:
+// both targets compile this file, because `tally add` and the in-app flow must link the same set
+// (a second copy would leave one surface sharing what the other does not).
 
 /// What a shared add links from the main account into a new one: the HARNESS (instructions,
 /// skills, hooks, agents, settings) plus the conversation record - one setup maintained

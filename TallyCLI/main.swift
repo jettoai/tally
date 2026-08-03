@@ -215,8 +215,11 @@ func runStatus(json: Bool = false) {
     let policies = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, launchPolicy($0.id)) })
     let quarantined = policies.mapValues { quarantinedAccounts(forPrimary: $0.model) }
     if json {
+        // Only the JSON shape carries the live sessions: the human output is a fleet summary, and
+        // this is a per-conversation number a script asks for by name (SessionContext.swift).
         print(encodeStatusReport(statusReport(snapshot, policies: policies, advisor: advisor,
-                                              quarantined: quarantined)))
+                                              quarantined: quarantined,
+                                              sessions: supervisedContextTokens())))
         return
     }
     for provider in providers {

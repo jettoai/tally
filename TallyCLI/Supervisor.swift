@@ -58,6 +58,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var reloadNotice = ReloadWait()
     /// The status line's view of what this supervisor is waiting to do (PendingNotice.swift).
     var pendingNotice = PendingNoticeWriter()   // cleared when it exits, swept if it is killed
+    /// How big this session's conversation has grown, published on the same track for `tally status`
+    /// (SessionContext.swift). Outside the loop, like the notice: the session survives its children.
+    var sessionContext = SessionContextWriter()
     /// Whether the next child is a RELAUNCH rather than the launch the user typed: every spawn
     /// after the first, and all of them when this process is a self-update taking a running session
     /// over. Read only by the resume-prompt suppression (ResumePrompt.swift).
@@ -446,6 +449,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                  fuseAllows: fuse.allows(),
                                                  quarantine: quarantine)
                                })
+            // How much context a resume of this conversation would reload, for the surfaces outside
+            // this terminal (SessionContext.swift). Read off the scan the tick already ran.
+            sessionContext.sync(tokens: watcher.lastContextTokens, accountID: account.id,
+                                pid: supervisorPID)
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID, reload: reloadNotice.pending,
@@ -479,6 +486,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         let status = awaitChild()   // no relaunch pending: the child exited on its own, so do we
         removeSupervisorState(pid: supervisorPID)
         clearPendingNotice(pid: supervisorPID)
+        clearSessionContext(pid: supervisorPID)
         let exited = (status & 0x7f) == 0
         exit(exited ? (status >> 8) & 0xff : 128 + (status & 0x7f))
     }

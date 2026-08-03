@@ -219,6 +219,19 @@ let pinnedHeld = parse(encodeStatusReport(statusReport(
 check("quarantine: a manual pin still launches, so it keeps the marker",
       account(pinnedHeld, "claude:.claude2")["best"] as? Bool == true)
 
+// MARK: live sessions - the context a resume would reload, per account (SessionContext.swift)
+let sessions = parse(encodeStatusReport(statusReport(
+    snapshot, policies: ["claude": LaunchPolicy()],
+    sessions: ["claude:.claude": 477_070], now: now)))
+check("a supervised account carries its context reading",
+      account(sessions, "claude:.claude")["sessionContextTokens"] as? Int == 477_070)
+// Absent rather than zero: an account with no session running has no answer, and a 0 would read
+// as an empty conversation.
+check("an account with no session has no key at all",
+      account(sessions, "claude:.claude2")["sessionContextTokens"] == nil)
+check("and neither does anything when no session is running",
+      accounts(auto).allSatisfy { $0["sessionContextTokens"] == nil })
+
 // MARK: fleet pass-through - the pooled view rides along untouched, and only when present
 let fleetTop = auto["fleet"] as? [String: [String: Any]] ?? [:]
 let claudePools = (auto["fleetPools"] as? [String: [[String: Any]]])?["claude"] ?? []

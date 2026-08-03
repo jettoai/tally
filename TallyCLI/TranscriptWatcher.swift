@@ -59,6 +59,14 @@ struct TranscriptWatcher {
     /// is cleared when this passes the cap time (a genuine turn happened after the cap, so the
     /// account came back on its own). Same three guards as `lastModel`.
     var lastMainChainEventAt: Date?
+    /// The input tokens of the newest main-chain assistant event: how much context a resume of this
+    /// conversation would reload (SessionContext.swift).
+    ///
+    /// Deliberately WITHOUT the post-launch guard the two signals above carry. Those answer "what is
+    /// this session doing now", so a replayed history is noise. This one answers "how big is this
+    /// conversation", and a resumed session's replayed history is the conversation: the guard would
+    /// blank the number for exactly the sessions whose size is worth knowing, until the next turn.
+    var lastContextTokens: Int?
     /// The timestamp the cap event `sawCapHit` last reported carries, or nil when that event had
     /// none. The cap's OWN instant, which is up to one poll interval earlier than the moment this
     /// process notices it: the recovery boundary is measured against the cap once and never
@@ -341,6 +349,13 @@ struct TranscriptWatcher {
                     lastModel = String(rest[..<quote])
                     lastMainChainEventAt = ts
                 }
+            }
+            // How big the conversation is now, off the same line the model came from. Main-chain
+            // only: a subagent's context is its own, and it is not what a resume of THIS
+            // conversation reloads.
+            if line.contains("\"type\":\"assistant\""), !line.contains("\"isSidechain\":true"),
+               let tokens = contextTokens(inLine: line) {
+                lastContextTokens = tokens
             }
             // Remember recent user prompts so a later fallback's refused-uuid resolves to a
             // readable excerpt. Substring extraction (this runs on every user line), main-chain

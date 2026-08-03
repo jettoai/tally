@@ -29,6 +29,12 @@ struct StatusReport: Encodable {
         var modelRemaining: Double?
         var modelResetsAt: Date?
         var resetCreditsAvailable: Int?
+        /// Input tokens of the newest turn in the largest conversation a supervisor is running on
+        /// this account right now: what a resume there would reload before doing anything
+        /// (SessionContext.swift). Absent when no supervised session is on the account, which is
+        /// the ordinary case for an idle machine - so a script tests for the key rather than
+        /// reading a 0 as an empty conversation.
+        var sessionContextTokens: Int?
     }
 
     /// Version of THIS output contract, independent of the snapshot file's internal version.
@@ -97,9 +103,11 @@ func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPoli
 /// rather than a file read so the report stays a pure function, but callers must pass it: `best`
 /// promises "would launch", and a report that named an account the launcher is currently skipping
 /// would be a lie scripts act on.
+/// `sessions` is the live context reading per account id (SessionContext.swift), a parameter for
+/// the same reason `quarantined` is one: the report stays a pure function of what it is handed.
 func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                   advisor: [UsageAdvisor.Reading] = [], quarantined: [String: Set<String>] = [:],
-                  now: Date = Date()) -> StatusReport {
+                  sessions: [String: Int] = [:], now: Date = Date()) -> StatusReport {
     let advisorByProvider = Dictionary(uniqueKeysWithValues: advisor.map { reading in
         (reading.provider, StatusReport.Advisor(
             headline: UsageAdvisor.englishHeadline(reading),
@@ -134,7 +142,8 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                 modelWindowName: account.modelWindowName,
                 modelRemaining: account.modelRemaining,
                 modelResetsAt: account.modelResetsAt,
-                resetCreditsAvailable: account.resetCreditsAvailable))
+                resetCreditsAvailable: account.resetCreditsAvailable,
+                sessionContextTokens: sessions[account.id]))
         }
     }
     return StatusReport(

@@ -43,13 +43,18 @@ func pendingNoticeFile(pid: String, dir: URL = supervisorStateDir) -> URL {
     dir.appendingPathComponent(pid + pendingNoticeSuffix)
 }
 
-/// The supervisor pid a file in the state directory belongs to, whether it is the presence/drift
-/// file (`<pid>`) or a pending notice (`<pid>.notice`). nil for anything else in there, which is
-/// what keeps the sweep off files that are not ours.
+/// The supervisor pid a file in the state directory belongs to: the presence/drift file (`<pid>`),
+/// or any of the documents written beside it under a suffix. nil for anything else in there, which
+/// is what keeps the sweep off files that are not ours - so a new document on this track is added
+/// to the list below, or a dead session's copy of it is never swept.
+let supervisorStateSuffixes = [pendingNoticeSuffix, sessionContextSuffix]
+
 func supervisorStatePid(ofFile name: String) -> pid_t? {
     if let pid = pid_t(name) { return pid }
-    guard name.hasSuffix(pendingNoticeSuffix) else { return nil }
-    return pid_t(String(name.dropLast(pendingNoticeSuffix.count)))
+    guard let suffix = supervisorStateSuffixes.first(where: { name.hasSuffix($0) }) else {
+        return nil
+    }
+    return pid_t(String(name.dropLast(suffix.count)))
 }
 
 /// Write the notice. Best-effort and atomic, like every other file on this track.

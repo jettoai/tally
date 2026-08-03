@@ -33,5 +33,6 @@ swiftc -o "$out" \
   TallyCLI/ProviderExecutable.swift \
   TallyCLI/AccountComfort.swift \
   TallyCLI/ReloadRequest.swift \
-  TallyCLI/PendingNotice.swift
+  TallyCLI/PendingNotice.swift \
+  TallyCLI/SessionContext.swift
 "$out"

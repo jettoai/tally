@@ -71,5 +71,66 @@ let again = ResizeAnchor.origin(for: corrected, edges: ResizeAnchor.Edges(frame:
 check("correcting an already-corrected frame moves nothing",
       !ResizeAnchor.needsMove(from: corrected.origin, to: again))
 
+// 6. Every resize moves at least one of the three remembered edges, so edges read before one are
+//    stale after it. Under the top-leading rule the top is restored and the left never moves, which
+//    leaves the bottom and the right somewhere new - and those two are exactly what a later
+//    bottom-trailing pass anchors on.
+let afterTopLeft = CGRect(origin: topLeft, size: grown.size)
+let refreshed = ResizeAnchor.Edges(frame: afterTopLeft)
+check("a top-leading resize leaves the bottom and the right edges somewhere new",
+      near(refreshed.top, edges.top) && !near(refreshed.bottom, edges.bottom)
+          && !near(refreshed.right, edges.right))
+// Anchoring the next resize on the refreshed edges holds the shape that is actually on screen…
+let next = CGRect(origin: afterTopLeft.origin, size: CGSize(width: 700, height: 700))
+let freshAnchor = ResizeAnchor.origin(for: next, edges: refreshed, corner: .bottomTrailing)
+check("bottom-trailing off refreshed edges holds the frame that is on screen",
+      near(freshAnchor.y, afterTopLeft.minY) && near(freshAnchor.x + next.width, afterTopLeft.maxX))
+// …where the pre-resize edges would have thrown it back to a shape two layouts old. That gap is
+// the whole bug: the size change posts no move notification, so nothing else re-reads the edges.
+let staleAnchor = ResizeAnchor.origin(for: next, edges: edges, corner: .bottomTrailing)
+check("stale edges would have moved it somewhere else entirely",
+      ResizeAnchor.needsMove(from: freshAnchor, to: staleAnchor))
+
+// 7. The case a move notification can never cover: growing only in width under the top-leading
+//    rule corrects to the origin the surface is already at, so no move is written and no move
+//    notification fires - while the right edge, the one this resize did move, is now stale.
+let wider = CGRect(x: 300, y: 200, width: 620, height: 500)
+let widerTopLeft = ResizeAnchor.origin(for: wider, edges: edges, corner: .topLeading)
+check("a width-only top-leading resize corrects to no move at all",
+      !ResizeAnchor.needsMove(from: wider.origin, to: widerTopLeft))
+check("…yet its right edge is no longer the one the anchor remembers",
+      !near(ResizeAnchor.Edges(frame: wider).right, edges.right))
+
+// 8. Which is a rule about the controllers, not about this arithmetic: both surfaces have to
+//    re-read their edges when a RESIZE finishes, not only when a move does. Read off the source,
+//    the way the login suite pins its chain, because AppKit windows cannot be driven from here.
+for (name, path, host) in [("dashboard window", "Tally/MenuBar/MainWindowController.swift", ".window"),
+                           ("pinned panel", "Tally/MenuBar/PinnedPanelController.swift", ".panel")] {
+    let source = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+    // The observer's closure, bounded by its own closing brace at the enclosing member's indent.
+    guard let start = source.range(of: "forName: NSWindow.didResizeNotification"),
+          let end = source.range(of: "\n        }\n", range: start.upperBound ..< source.endIndex)
+    else {
+        check("the \(name)'s resize observer was found to read", false)
+        continue
+    }
+    let observer = String(source[start.upperBound ..< end.lowerBound])
+    check("the \(name) re-reads its anchor edges when a resize finishes",
+          observer.contains("anchorEdges = ") && observer.contains("resizeEdges"))
+    // 9. And it takes the bottom-right corner only for ITS OWN card. The menu-bar popover does not
+    //    close the dashboard, so both surfaces can be up at once reading the same settings, and a
+    //    flag that only said "a card is open somewhere" swapped the corner on the window the user
+    //    was not even pointing at.
+    check("the \(name) anchors on the card it is presenting itself",
+          source.contains("SettingsStore.shared.viewOptionsHost == \(host) ? .bottomTrailing"))
+}
+let settingsSource = (try? String(contentsOfFile: "Tally/Stores/SettingsStore.swift",
+                                  encoding: .utf8)) ?? ""
+// Closing is not symmetric with opening: one surface's card going away must not cancel an anchor
+// another surface is still relying on, so a close only clears the slot it owns.
+check("a close clears the open flag only for the host that owns it",
+      settingsSource.contains("if open { viewOptionsHost = host }")
+          && settingsSource.contains("else if viewOptionsHost == host { viewOptionsHost = nil }"))
+
 print(failures == 0 ? "\nAll window anchor tests passed." : "\n\(failures) anchor test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

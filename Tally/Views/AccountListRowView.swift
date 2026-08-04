@@ -58,7 +58,15 @@ struct AccountListRowView: View {
             // triangle or a reset count would push its own percentages left and break the column
             // the eye reads down (seen on screen, 2026-08-04): in a list the figures lining up IS
             // the feature.
-            if !facts.isHardError { statusMarks }
+            //
+            // Only the marks ABOUT USAGE answer to the error branch, because those are the ones a
+            // row with no reading has nothing to say about. The login marks stay outside it, the
+            // same way the card keeps its login state outside its own error branch: `lastGood`
+            // lives in memory, so after every launch a signed-out account IS the hard-error row
+            // until the first good poll, which is precisely when the renewal button is worth
+            // having on screen.
+            if !facts.isHardError { usageMarks }
+            loginMarks
             Spacer(minLength: 6)
             if facts.isHardError {
                 errorTail
@@ -105,11 +113,12 @@ struct AccountListRowView: View {
                       forced: facts.forcesIdentityTooltip)
     }
 
-    /// The states a card spells out in words, as glyphs: outdated numbers, a login that needs
-    /// renewing (or is renewing right now), and banked resets waiting to be spent. Each keeps its
-    /// card sentence as a tooltip, so nothing is lost, only folded.
+    /// The states a card spells out in words about this account's READING, as glyphs: numbers that
+    /// have gone stale, and banked resets waiting to be spent. Each keeps its card sentence as a
+    /// tooltip, so nothing is lost, only folded. A row that never loaded shows none of them, which
+    /// is what the error branch in the body decides.
     @ViewBuilder
-    private var statusMarks: some View {
+    private var usageMarks: some View {
         if usage.isStale {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 9))
@@ -117,6 +126,20 @@ struct AccountListRowView: View {
                 .tallyTooltip(usage.error ?? L("Outdated"))
                 .accessibilityLabel(L("Outdated"))
         }
+        if let outcome = redeemOutcome {
+            Text(RedeemAction.outcomeMessage(outcome))
+                .foregroundStyle(outcome == .redeemed ? TallyColor.normal : .secondary)
+                .tallyTooltip(RedeemAction.outcomeDetail(outcome) ?? "")
+        } else if let resets = usage.resetCreditsAvailable, resets > 0 {
+            redeemButton(resets)
+        }
+    }
+
+    /// The login's own two states, at row scale: renewing right now, or expired and offering the
+    /// renewal. One either/or, exactly like the card's, so the row shows one login state at a time.
+    /// Shown whatever the reading says, for the reason spelled out where the body places it.
+    @ViewBuilder
+    private var loginMarks: some View {
         if facts.isRenewingLogin {
             ProgressView()
                 .controlSize(.mini)
@@ -134,13 +157,6 @@ struct AccountListRowView: View {
             .disabled(!facts.canRenewLogin)
             .tallyTooltipAroundControl(L("Sign in again to bring this account's usage back."))
             .accessibilityLabel(L("Login expired"))
-        }
-        if let outcome = redeemOutcome {
-            Text(RedeemAction.outcomeMessage(outcome))
-                .foregroundStyle(outcome == .redeemed ? TallyColor.normal : .secondary)
-                .tallyTooltip(RedeemAction.outcomeDetail(outcome) ?? "")
-        } else if let resets = usage.resetCreditsAvailable, resets > 0 {
-            redeemButton(resets)
         }
     }
 

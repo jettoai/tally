@@ -142,6 +142,17 @@ final class PinnedPanelController {
 
     func hide() { panel?.orderOut(nil) }
 
+    /// The edges a content-driven resize puts back, refreshed after every resize AND every move (see
+    /// `ResizeAnchor`, and the observers in `makePanel` that keep this current).
+    private var anchorEdges: ResizeAnchor.Edges?
+
+    /// Which corner stays still: the top left normally, the bottom right while THIS panel is the
+    /// surface showing the view-options card. Same rule, same reason and same "whose card" question
+    /// as the dashboard window's.
+    private var anchorCorner: ResizeAnchor.Corner {
+        SettingsStore.shared.viewOptionsHost == .panel ? .bottomTrailing : .topLeading
+    }
+
     /// Resize the panel to the content's MEASURED size (reported by `PopoverRootView.onContentSize`).
     /// Measuring the real rendered size avoids `sizeThatFits`'s greedy screen-tall result. Deferred a
     /// run-loop turn so it never resizes the window from inside the SwiftUI update that reported it, and
@@ -160,15 +171,6 @@ final class PinnedPanelController {
     /// the top-left contract, and covers the states where the window has not followed on its own.
     /// Putting the panel back on screen therefore cannot live here - it hangs off the resize
     /// notification instead (see `makePanel`).
-    /// The edges a content-driven resize puts back, remembered at the last move (see `ResizeAnchor`).
-    private var anchorEdges: ResizeAnchor.Edges?
-
-    /// Which corner stays still: the top left normally, the bottom right while the view-options card
-    /// is open. Same rule and same reason as the dashboard window's.
-    private var anchorCorner: ResizeAnchor.Corner {
-        SettingsStore.shared.isViewOptionsOpen ? .bottomTrailing : .topLeading
-    }
-
     private func resize(to contentSize: CGSize) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let panel = self.panel else { return }
@@ -214,7 +216,7 @@ final class PinnedPanelController {
                             // The panel is a fixture the user placed: it fits the display it was
                             // left on, which is not necessarily the one the menu bar is on.
                             hostScreen: { [weak self] in self?.panel?.screen },
-                            tabState: surfaceTab)
+                            tabState: surfaceTab, host: .panel)
                 .background(PanelBackdrop(settings: .shared))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)))
         let hostView = FirstMouseHostingView(rootView: content)
@@ -243,15 +245,22 @@ final class PinnedPanelController {
             forName: NSWindow.didResizeNotification, object: panel, queue: .main
         ) { [weak self, weak panel] _ in
             MainActor.assumeIsolated {
-                guard let panel else { return }
+                guard let self, let panel else { return }
                 // Most resizes never reach `resize(to:)`: the panel usually takes the reported size
                 // itself, keeping its top left, which is right for reading and wrong while the
                 // view-options card is open. Only the bottom-right case corrects here, so the
                 // standing behaviour stays exactly what it was.
-                if let self, self.anchorCorner == .bottomTrailing, let edges = self.anchorEdges {
+                if self.anchorCorner == .bottomTrailing, let edges = self.anchorEdges {
                     panel.restoreAnchor(edges, corner: .bottomTrailing)
                 }
                 panel.clampOnScreen()
+                // Whatever shape the panel ends this resize in IS what the next one has to put back,
+                // corrected or not. A size change through `setFrame` posts no MOVE notification, so
+                // the observer above never sees the ordinary top-left resizes (a provider folded, a
+                // tab switched, fresh data arriving) and the remembered bottom and right stayed at
+                // the last drag. The first bottom-trailing correction after that then anchored to a
+                // frame from several shapes ago and yanked the panel back to it.
+                self.anchorEdges = panel.resizeEdges
             }
         }
         return panel

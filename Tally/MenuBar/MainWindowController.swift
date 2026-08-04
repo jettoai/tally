@@ -64,8 +64,12 @@ final class MainWindowController {
     /// down the screen. While the view-options card is open, the bottom right instead - every control
     /// in that card is a resize, the card sits at the bottom right, and with the top left held it
     /// walks out from under the pointer after every click (see `ResizeAnchor`).
+    ///
+    /// The card has to be open in THIS window. The popover shares these settings and does not close
+    /// this window, so a card opened there resizes both surfaces, and answering yes to "is a card
+    /// open anywhere" moved the dashboard the user was not even pointing at.
     private var anchorCorner: ResizeAnchor.Corner {
-        SettingsStore.shared.isViewOptionsOpen ? .bottomTrailing : .topLeading
+        SettingsStore.shared.viewOptionsHost == .window ? .bottomTrailing : .topLeading
     }
 
     /// Both observers read the window on the spot (they already run on the main queue) instead of
@@ -94,6 +98,13 @@ final class MainWindowController {
                 // growth that needs the anchor also needs the window put back on screen (the panel
                 // does the same after its resizes).
                 window.clampOnScreen()
+                // The shape this resize ended in is what the next one anchors against. The move
+                // observer above cannot be the only refresher: the top-leading correction of a
+                // width-only growth computes the origin the window is already at, so no move is
+                // written, no move notification fires, and the RIGHT edge - the one that resize
+                // just moved - would stay remembered from the last drag and misplace the next
+                // bottom-trailing pass.
+                self.anchorEdges = window.resizeEdges
             }
         }
     }
@@ -130,7 +141,7 @@ final class MainWindowController {
                                           // Summoned windows follow the user, so the display to fit
                                           // is the one this window was last put on.
                                           hostScreen: { [weak self] in self?.window?.screen },
-                                          tokens: .shared, tabState: surfaceTab))
+                                          tokens: .shared, tabState: surfaceTab, host: .window))
             let window = NSWindow(contentViewController: hosting)
             window.title = BuildVariant.isDev ? "Tally Dev" : "Tally"   // Mission Control / Window menu name
             window.titleVisibility = .hidden

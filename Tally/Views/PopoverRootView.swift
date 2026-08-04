@@ -23,6 +23,15 @@ enum SurfaceTab: String, CaseIterable, Identifiable {
     var label: String { self == .usage ? L("Usage") : L("Tokens") }
 }
 
+/// Which host is presenting this copy of the surface. The view itself is the same in all three, so
+/// this exists only for the answers that depend on WHICH window is asking: the view-options anchor
+/// has to know whose card is open, because the dashboard and the menu-bar popover can be on screen
+/// at once and only the one actually presenting the card may swap its resize corner (see
+/// `SettingsStore.viewOptionsHost`).
+enum SurfaceHost: Sendable {
+    case popover, panel, window
+}
+
 /// One surface's tab selection, one instance per host - deliberately not shared: flipping the pinned
 /// panel to token history should not also flip the menu-bar popover, which is opened for one glance
 /// at the quota and closed again.
@@ -58,6 +67,10 @@ struct PopoverRootView: View {
     var tokens: TokenStatsStore = .shared
     /// This surface's own tab selection, held by its host controller (see `SurfaceTabState`).
     @Bindable var tabState: SurfaceTabState
+    /// Which window this copy is in (see `SurfaceHost`). Only the view-options card reads it, and
+    /// only to say whose card is open. Deliberately without a default: a fourth host that forgot to
+    /// answer would silently claim to be the popover, and claim its anchor with it.
+    var host: SurfaceHost
 
     var tab: SurfaceTab { tabState.tab }
 
@@ -178,7 +191,7 @@ struct PopoverRootView: View {
         // panel is unpinned), and `onChange` never fires for a view that was torn down: without
         // this the flag would keep claiming a card is open and every later resize would anchor to
         // the wrong corner.
-        .onDisappear { settings.isViewOptionsOpen = false }
+        .onDisappear { settings.setViewOptionsOpen(false, host: host) }
         .environment(\.tallyCardStyle, cardStyle)
         .id(settings.languageOverride ?? "system")
     }
@@ -208,9 +221,14 @@ struct PopoverRootView: View {
     /// one card, a single narrow column otherwise - including the fully folded gauges-only view.
     var columnCount: Int {
         if (1 ... 4).contains(settings.panelColumns) { return settings.panelColumns }
-        let multi = Dictionary(grouping: visibleAccounts, by: \.providerID).values
-            .contains { $0.count > 1 }
-        return multi ? 2 : 1
+        return visibleByProvider.contains { $0.count > 1 } ? 2 : 1
+    }
+
+    /// The visible accounts bucketed by provider. Both densities' auto rules ask about these
+    /// buckets, in different words: the cards ask whether ANY provider has siblings, the list how
+    /// many accounts the biggest section has to seat.
+    private var visibleByProvider: [[AccountUsage]] {
+        Array(Dictionary(grouping: visibleAccounts, by: \.providerID).values)
     }
 
     /// How many columns of compact rows. Its own setting (`listColumns`), because a row is nearly
@@ -232,7 +250,17 @@ struct PopoverRootView: View {
         // who only asked the app to choose; three is available, it just has to be chosen. Also
         // never more columns than there are accounts to seat, because an empty column is panel
         // width spent on nothing.
-        return min(2, max(1, min(Int(usable / step), visibleAccounts.count)))
+        return min(2, max(1, min(Int(usable / step), seatsPerRun)))
+    }
+
+    /// How many accounts the widest single RUN of rows has to seat. Grouping is why this is not
+    /// simply the fleet's size: each section lays its own provider's accounts out on its own (see
+    /// `accountBlock`), so two providers with one account each fill two sections of one row, and a
+    /// second column would be a full row-width of nothing in every one of them - while the panel
+    /// itself got twice as wide to hold it.
+    private var seatsPerRun: Int {
+        guard settings.groupByProvider else { return visibleAccounts.count }
+        return visibleByProvider.map(\.count).max() ?? 0
     }
 
     /// The two-column panel width, named because two other surfaces gate on reaching it (the fleet

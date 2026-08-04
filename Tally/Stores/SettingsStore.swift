@@ -155,16 +155,28 @@ final class SettingsStore {
         }
     }
 
-    /// A surface's "View options" card is open right now. Deliberately NOT persisted (no `didSet`,
-    /// no key): it describes what is on screen this second, and a remembered copy would outlive the
-    /// card it describes.
+    /// WHICH surface has its "View options" card open right now, nil when none has. Deliberately
+    /// NOT persisted (no `didSet`, no key): it describes what is on screen this second, and a
+    /// remembered copy would outlive the card it describes.
     ///
     /// It lives here rather than in the view because the thing that reads it is a window controller:
-    /// every control in that card resizes the surface, and while it is open the surfaces hold their
+    /// every control in that card resizes the surface, and while it is open the surface holds its
     /// BOTTOM-RIGHT corner still so the control stays under the pointer between clicks (see
-    /// `ResizeAnchor`). One flag for all three surfaces is enough: only one card can be open, and
-    /// only the surface being resized ever reads it.
-    var isViewOptionsOpen = false
+    /// `ResizeAnchor`).
+    ///
+    /// It names the host rather than answering yes/no, because two surfaces can be up at once: the
+    /// menu-bar popover does not close the dashboard, so a card opened in the popover had the
+    /// dashboard swapping corners too and jumping away under a layout change nobody made there.
+    /// Only one card can be open, so one slot is still enough - it just has to say whose.
+    private(set) var viewOptionsHost: SurfaceHost?
+
+    /// Open or close the card for one surface. A close only clears the flag when THIS surface is the
+    /// one holding it: a host going away (the popover closing behind the card) must not cancel the
+    /// anchor another surface is still relying on.
+    func setViewOptionsOpen(_ open: Bool, host: SurfaceHost) {
+        if open { viewOptionsHost = host }
+        else if viewOptionsHost == host { viewOptionsHost = nil }
+    }
 
     var isPanelTranslucent: Bool {
         didSet { UserDefaults.standard.set(isPanelTranslucent, forKey: "isPanelTranslucent") }

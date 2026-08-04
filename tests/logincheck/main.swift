@@ -394,6 +394,23 @@ expect(factsSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id
         && cardSource.contains(".disabled(!facts.canRenewLogin)")
         && rowSource.contains(".disabled(!facts.canRenewLogin)"),
        "the chip greys out where the menu entry does, asked of the same place")
+// An account that never loaded is EXACTLY the one whose login expired: `lastGood` is a memory-only
+// cache, so after every launch a signed-out account is a hard-error row until the first good poll.
+// The card has always drawn its login state outside its own error branch for that reason; the
+// compact row's error gate has to cover the marks about the READING and nothing else, or the row
+// hides the renewal button and the "renewing…" spinner at the one moment they are worth showing.
+expect(rowSource.contains("if !facts.isHardError { usageMarks }"),
+       "the compact row's error branch gates the usage marks alone")
+let rowUsageMarks = functionBody(rowSource, from: "private var usageMarks: some View {") ?? ""
+let rowLoginMarks = functionBody(rowSource, from: "private var loginMarks: some View {") ?? ""
+expect(rowLoginMarks.contains("facts.isRenewingLogin")
+        && rowLoginMarks.contains("facts.isLoginExpired")
+        && rowLoginMarks.contains("RenewLoginStore.shared.renew(accountID: usage.id)"),
+       "so the two login states, and the renewal the expired one starts, live outside that gate")
+expect(!rowUsageMarks.isEmpty
+        && !rowUsageMarks.contains("facts.isRenewingLogin")
+        && !rowUsageMarks.contains("facts.isLoginExpired"),
+       "and the gated marks are about the reading only: stale numbers and banked resets")
 // The identity chain (live probe answer first, this round's poll next, the remembered address
 // last) lives in the STORE, because two surfaces render it now - the card's tooltip and the
 // Settings row. The ordering itself is `AccountIdentity.email`, asserted behaviourally in the

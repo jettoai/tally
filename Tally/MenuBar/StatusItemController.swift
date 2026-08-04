@@ -48,7 +48,7 @@ final class StatusItemController: NSObject {
                                       // The popover hangs off the status item, so it has to fit the
                                       // screen the menu bar is on, whichever display that is today.
                                       hostScreen: { [weak self] in self?.statusItem?.button?.window?.screen },
-                                      tabState: popoverTab))
+                                      tabState: popoverTab, host: .popover))
         host.sizingOptions = []
         popoverHost = host
         popover.contentViewController = host

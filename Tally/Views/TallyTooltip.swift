@@ -8,7 +8,8 @@ import SwiftUI
 ///  - `.tallyTooltip(text)` on any element: tracks hover, waits out the dwell, then publishes its own
 ///    frame plus the text upward.
 ///  - `.tallyTooltipLayer()` once per surface root: renders whatever arrives, above everything and
-///    outside every clip.
+///    outside every clip. Once per PRESENTATION, in fact: a popover the surface puts up is its own
+///    view tree, and a preference published in there never reaches the layer out here.
 ///
 /// The layer has to sit at the surface root because targets live inside a `ScrollView` and inside
 /// cards: a plain `.overlay` on the element itself is clipped by both, and the callout must be able
@@ -147,6 +148,11 @@ private struct TallyTooltipKey: PreferenceKey {
 /// Whether a `tallyTooltipLayer()` is hosting callouts above this subtree. Read by every target so
 /// a view shared between a surface that has a layer and one that does not (the layout tiles sit in
 /// the panel's view-options card AND in the Settings pane) still answers a hover on both.
+///
+/// It is inherited across a `.popover`, while the preference the targets publish is NOT: the
+/// presentation is its own view tree and only the environment is carried into it. So a popover
+/// whose content holds hover targets has to carry its own layer, or those targets read "hosted",
+/// skip the system fallback, and answer with silence (`PopoverFooterView`'s two cards).
 private struct TallyTooltipHostedKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -159,7 +165,8 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Hosts the callout for this surface. Apply once at the surface root, outside every clip.
+    /// Hosts the callout for this surface. Apply once at the surface root, outside every clip, and
+    /// again at the root of any popover that surface presents (see `TallyTooltipHostedKey`).
     /// - Parameter suppressed: hide any callout while something else owns the pointer (a card
     ///   reorder drag): the anchors move under the pointer during it, so a callout fading in
     ///   mid-drag would both mislead and read as a glitch.
@@ -325,9 +332,13 @@ private struct TallyTooltipCallout: View {
 
     @Environment(\.colorScheme) private var scheme
 
+    /// The chip's own horizontal inset, named because the plain-text width cap has to subtract it:
+    /// the cap bounds the CONTENT, and what has to fit inside the surface is the padded chip.
+    private static let insetH: CGFloat = 8
+
     var body: some View {
         content
-            .padding(.horizontal, 8)
+            .padding(.horizontal, Self.insetH)
             .padding(.vertical, 4)
             .background(shape.fill(surface))
             .overlay(shape.strokeBorder(rim, lineWidth: TallyMetrics.hairline))
@@ -350,8 +361,16 @@ private struct TallyTooltipCallout: View {
                         .font(.caption)
                         .foregroundStyle(index == 0 ? primaryInk : secondaryInk)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
+            // A ceiling, not a width: a line that fits keeps hugging its own text (measured: a
+            // "Copy" chip stays 41pt under a 200pt cap), and only one too wide for the surface is
+            // held back. Without it the chip is merely MOVED to fit and never shrunk, so on the
+            // 380pt single-column panel a deep project path ran under the window's edge and lost
+            // exactly the tail it was hovered to reveal. Truncating in the middle keeps both ends,
+            // which for a path is the root and the leaf.
+            .frame(maxWidth: linesMaxWidth, alignment: .leading)
         case .blocks(let blocks):
             // A fixed width rather than a fitted one, because the callout has to stay INSIDE the
             // surface (see the type's header) and the narrowest host is the 380pt single-column
@@ -385,6 +404,13 @@ private struct TallyTooltipCallout: View {
             }
             .frame(width: TallyTooltip.blocksWidth, alignment: .leading)
         }
+    }
+
+    /// What is left of the surface for a plain-text chip: the whole width, less the margin it is
+    /// held off both edges by, less its own padding. Floored above zero because a surface is
+    /// measured at zero for the frame before it is laid out, and a zero cap would collapse the text.
+    private var linesMaxWidth: CGFloat {
+        max(40, bounds.width - 2 * TallyTooltip.margin - 2 * Self.insetH)
     }
 
     /// The chip's own two ink levels. Its surface is dark in BOTH schemes (see `surface`), so these

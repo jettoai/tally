@@ -138,12 +138,22 @@ extension PopoverRootView {
             .buttonStyle(.borderless)
             .foregroundStyle(showViewOptions ? Color.accentColor : Color.secondary)
             .tallyTooltip(L("View options"))
-            .popover(isPresented: $showViewOptions, arrowEdge: .bottom) { viewOptions }
+            // The card carries its own callout layer. A popover is a separate presentation: the
+            // environment travels INTO it, so the layout tiles inside read "hosted" and skip the
+            // system-tooltip fallback, but their preference never travels back OUT to the panel's
+            // layer, so the hover was answered with nothing at all. One layer per presentation is
+            // what closes that (see `TallyTooltip`).
+            .popover(isPresented: $showViewOptions, arrowEdge: .bottom) {
+                viewOptions.tallyTooltipLayer()
+            }
             // Published upward because the window controllers need it: every control in that card
-            // resizes the surface, and while it is open they hold the bottom-right corner still so
-            // the control stays under the pointer (see `ResizeAnchor`). Written from the one place
-            // that owns the presentation, so it cannot say "open" while nothing is.
-            .onChange(of: showViewOptions) { _, open in settings.isViewOptionsOpen = open }
+            // resizes the surface, and while it is open THAT surface holds the bottom-right corner
+            // still so the control stays under the pointer (see `ResizeAnchor`). Written from the
+            // one place that owns the presentation, so it cannot say "open" while nothing is, and
+            // it names this host so the other surface on screen keeps its own rule.
+            .onChange(of: showViewOptions) { _, open in
+                settings.setViewOptionsOpen(open, host: host)
+            }
             Button {
                 StatusItemController.togglePin()
             } label: {
@@ -193,7 +203,11 @@ extension PopoverRootView {
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .tallyTooltip(L("Help"))
-            .popover(isPresented: $showLaunchHelp, arrowEdge: .bottom) { launchHelp }
+            // Its own layer too, for the same reason as the view-options card above: the copy chips
+            // inside it are hover targets, and a presentation cannot publish into the layer outside it.
+            .popover(isPresented: $showLaunchHelp, arrowEdge: .bottom) {
+                launchHelp.tallyTooltipLayer()
+            }
             .padding(.leading, Self.helpLead)
         }
         .background { widthProbe { footerWidths.icons = $0 } }

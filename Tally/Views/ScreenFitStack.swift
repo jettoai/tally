@@ -79,10 +79,23 @@ extension ScreenFitStack {
     /// produce an absurd cap.
     static let minSurfaceHeight: CGFloat = 320
 
+    /// Same floor, the other axis: nothing narrower than a single comfortable column.
+    static let minSurfaceWidth: CGFloat = 480
+
     /// The cap for a surface hosted on `screen`, which is the only thing any host has to know.
     @MainActor static func maxHeight(on screen: NSScreen?) -> CGFloat {
         let usable = (screen ?? NSScreen.main)?.visibleFrame.height ?? 900
         return max(minSurfaceHeight, usable - screenMargin)
+    }
+
+    /// The width twin, for the one layout whose column count depends on the display rather than on
+    /// the content: the compact list, whose rows are wide enough that how many fit side by side is a
+    /// question about the screen (see `PopoverRootView.listColumnCount`). Nothing CAPS a surface's
+    /// width - an explicitly chosen column count is honoured whatever the display - so this only
+    /// ever answers "how many would fit".
+    @MainActor static func maxWidth(on screen: NSScreen?) -> CGFloat {
+        let usable = (screen ?? NSScreen.main)?.visibleFrame.width ?? 1_440
+        return max(minSurfaceWidth, usable - screenMargin)
     }
 
     /// What a scrolling region has to leave beside its content for the scroller itself. Zero under

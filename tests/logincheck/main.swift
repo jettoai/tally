@@ -355,31 +355,44 @@ expect(fresh.isEmpty,
 // MARK: the visible chain - a verdict must reach a chip, and a click must reach a renewal
 
 let cardSource = readSource("Tally/Views/AccountCardView.swift")
+let rowSource = readSource("Tally/Views/AccountListRowView.swift")
+// The derivations both account surfaces run on - which home an action touches, whether the login is
+// still good, which launch affordances apply - live in AccountFacts now, because the compact list
+// row asks the very same questions and a second copy would be free to answer differently. So the
+// chain this suite pins runs through three files rather than through the card's own body, and what
+// it pins is that the chain exists and that no surface reaches past it, not which file a line is in.
+let factsSource = readSource("Tally/Views/AccountFacts.swift")
+let surfaceSource = cardSource + "\n" + rowSource + "\n" + factsSource
 let storeSource = readSource("Tally/Stores/LoginStatusStore.swift")
 let usageSource = readSource("Tally/Stores/UsageStore.swift")
 let routerSource = readSource("Tally/App/NotificationRouter.swift")
 let renewSource = readSource("Tally/Stores/RenewLoginStore.swift")
 let memorySource = readSource("Tally/Stores/KnownAccountsStore.swift")
 let watcherSource = readSource("Tally/Core/AccountDirWatcher.swift")
-expect(!cardSource.isEmpty && !storeSource.isEmpty && !usageSource.isEmpty
-        && !routerSource.isEmpty && !renewSource.isEmpty && !memorySource.isEmpty,
+expect(!cardSource.isEmpty && !rowSource.isEmpty && !factsSource.isEmpty && !storeSource.isEmpty
+        && !usageSource.isEmpty && !routerSource.isEmpty && !renewSource.isEmpty
+        && !memorySource.isEmpty,
        "every file the chain runs through was found to read")
 
-expect(cardSource.contains("LoginStatusStore.shared.isExpired(usage.id)"),
-       "the card reads the verdict for ITS account, not a global flag")
+expect(factsSource.contains("LoginStatusStore.shared.isExpired(usage.id)"),
+       "the surfaces read the verdict for ITS account, not a global flag")
 expect(cardSource.contains("RenewLoginStore.shared.renew(accountID: usage.id)"),
        "pressing the chip starts the renewal for that same account")
 expect(cardSource.contains("TallyColor.critical")
         && cardSource.range(of: "loginExpiredChip") != nil,
        "the chip is drawn in the severity red the card already speaks in")
-if let renewing = cardSource.range(of: "RenewLoginStore.shared.isRenewing(usage.id) {"),
-   let expired = cardSource.range(of: "} else if LoginStatusStore.shared.isExpired(usage.id) {") {
-    expect(renewing.upperBound <= expired.lowerBound,
-           "a renewal in flight replaces the chip, so the card shows one login state at a time")
-} else {
-    expect(false, "the card's two login states are one either/or, not two independent lines")
+for (name, source) in [("card", cardSource), ("list row", rowSource)] {
+    if let renewing = source.range(of: "facts.isRenewingLogin {"),
+       let expired = source.range(of: "} else if facts.isLoginExpired {") {
+        expect(renewing.upperBound <= expired.lowerBound,
+               "a renewal in flight replaces the chip, so the \(name) shows one login state at a time")
+    } else {
+        expect(false, "the \(name)'s two login states are one either/or, not two independent lines")
+    }
 }
-expect(cardSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id,"),
+expect(factsSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id,")
+        && cardSource.contains(".disabled(!facts.canRenewLogin)")
+        && rowSource.contains(".disabled(!facts.canRenewLogin)"),
        "the chip greys out where the menu entry does, asked of the same place")
 // The identity chain (live probe answer first, this round's poll next, the remembered address
 // last) lives in the STORE, because two surfaces render it now - the card's tooltip and the
@@ -388,9 +401,9 @@ expect(cardSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id,
 let settingsSource = readSource("Tally/Views/SettingsAccountsView.swift")
 expect(storeSource.contains("AccountIdentity.email(probe:") && !settingsSource.isEmpty,
        "the identity chain is the one shared ordering rather than a second copy in the store")
-expect(cardSource.contains("LoginStatusStore.shared.identityEmail(usage)")
+expect(factsSource.contains("LoginStatusStore.shared.identityEmail(usage)")
         && settingsSource.contains("LoginStatusStore.shared.identityEmail(accountID: item.id,")
-        && !cardSource.contains("usage.accountEmail"),
+        && !surfaceSource.contains("usage.accountEmail"),
        "and both surfaces ask that one chain instead of each reaching past it to the fallback")
 // The Settings row asks by account id rather than off a usage row, because the row that most needs
 // an address is the one with no usage row at all: a disabled account is never polled.
@@ -424,9 +437,11 @@ let pickSource = readSource("TallyCLI/AccountPick.swift")
 let mainSource = readSource("TallyCLI/main.swift")
 expect(!redeemSource.isEmpty && !policySource.isEmpty && !pickSource.isEmpty && !mainSource.isEmpty,
        "the launch-steering surfaces are readable from this suite")
-expect(cardSource.contains("policy.pin(usage.providerID, accountID: usage.id, home: discovered?.launchableHome)")
-        && cardSource.contains(".disabled(isDormant && !isPinnedActive)"),
-       "a signed-out card cannot BECOME the pin, while releasing one it already holds still works")
+expect(factsSource.contains("policy.pin(usage.providerID, accountID: usage.id, home: discovered?.launchableHome)")
+        && factsSource.contains("!(isDormant && !isPinnedActive)")
+        && cardSource.contains(".disabled(!facts.canTogglePin)")
+        && rowSource.contains(".disabled(!facts.canTogglePin)"),
+       "a signed-out account cannot BECOME the pin on either surface, while releasing one it already holds still works")
 // The other half of that, one layer down: a pin the user set before the account signed out is
 // denormalized into the policy file, where the CLI can exec it without asking anything. The app
 // drops that home the moment it sees the account go dormant (2026-08-03), and the launcher ignores
@@ -467,9 +482,10 @@ expect(!reportSource.isEmpty && looseIDChecks.isEmpty,
        "no launch or status surface reads the pinned id without asking whether it can be launched")
 expect(mainSource.contains("let (bestID, pinnedID) = launchMarkers(providerID: provider.id"),
        "…so the text status takes both of its markers from the resolver the JSON status uses")
-expect(cardSource.contains(".disabled(redeemBusy || isDormant)"),
-       "a signed-out card's banked resets are visible but not spendable - the redeem has no session")
-expect(cardSource.contains("$0.launchableHome != nil ? $0.id : nil"),
+expect(cardSource.contains(".disabled(redeemBusy || facts.isDormant)")
+        && rowSource.contains(".disabled(redeemBusy || facts.isDormant)"),
+       "a signed-out account's banked resets are visible but not spendable - the redeem has no session")
+expect(factsSource.contains("$0.launchableHome != nil ? $0.id : nil"),
        "the smart-pick badge counts only accounts a launch could actually land on")
 expect(usageSource.contains("if let home = account.launchableHome { launchHomes"),
        "the snapshot the tally CLI launches from carries launchable homes only")

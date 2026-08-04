@@ -317,9 +317,14 @@ func readSource(_ path: String) -> String {
 
 let storeSource = readSource("Tally/Stores/RenewLoginStore.swift")
 let cardSource = readSource("Tally/Views/AccountCardView.swift")
+let rowSource = readSource("Tally/Views/AccountListRowView.swift")
+// The card's derived answers live in AccountFacts, shared with the compact list row so both
+// surfaces offer the renewal on exactly the same terms (see the logincheck suite's note).
+let factsSource = readSource("Tally/Views/AccountFacts.swift")
 let menuSource = readSource("Tally/Views/AccountCardMenu.swift")
 let settingsSource = readSource("Tally/Views/SettingsAccountsView.swift")
-expect(!storeSource.isEmpty && !cardSource.isEmpty && !menuSource.isEmpty,
+expect(!storeSource.isEmpty && !cardSource.isEmpty && !rowSource.isEmpty && !factsSource.isEmpty
+        && !menuSource.isEmpty,
        "the renewal's call sites are readable from the suite")
 
 if let body = functionBody(storeSource, from: "func renew(accountID: String,"),
@@ -343,8 +348,9 @@ if let body = functionBody(storeSource, from: "func renew(accountID: String,"),
 
 expect(functionBody(storeSource, from: "func canRenew(")?.contains("DemoUsage.isActive") == true,
        "demo fixtures have no config home, so the entry is dead on those cards by construction")
-expect(cardSource.contains("RenewLoginStore.shared.isRenewing(usage.id)"),
-       "the card itself reads the in-flight state, which is the signal that needs no permission")
+expect(factsSource.contains("RenewLoginStore.shared.isRenewing(usage.id)")
+        && cardSource.contains("facts.isRenewingLogin") && rowSource.contains("facts.isRenewingLogin"),
+       "the surfaces themselves read the in-flight state, which is the signal that needs no permission")
 
 // MARK: - One busy answer, asked by every entry point
 
@@ -358,8 +364,10 @@ expect(functionBody(storeSource, from: "func isRenewing(")
 expect(functionBody(storeSource, from: "func canRenew(")?.contains("!isRenewing(accountID)") == true,
        "and every offer that greys itself out asks that answer, not just the in-flight set")
 // Entry 1, the card's expiry chip.
-expect(cardSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id,"),
-       "the card's chip is dead while this account is being signed in")
+expect(factsSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id,")
+        && cardSource.contains(".disabled(!facts.canRenewLogin)")
+        && rowSource.contains(".disabled(!facts.canRenewLogin)"),
+       "both surfaces' chips are dead while this account is being signed in")
 // Entry 2, the Settings row's button.
 expect(settingsSource.contains("renew.canRenew(accountID: item.id,"),
        "so is the Settings row's button")
@@ -376,7 +384,8 @@ expect(functionBody(storeSource, from: "func renew(accountID: String, providerID
         .map { $0.contains("guard !isRenewing(accountID)") } == true,
        "and the entry with nothing to grey out is stopped inside renew itself")
 // No surface may keep its own copy of the rule: that is the shape the first fix had.
-expect(!settingsSource.contains("renewalSucceededAt") && !cardSource.contains("renewalSucceededAt")
+expect(!settingsSource.contains("renewalSucceededAt")
+        && !(cardSource + rowSource + factsSource).contains("renewalSucceededAt")
         && !menuSource.contains("renewalSucceededAt"),
        "no view works the settling out for itself from a timestamp and a clock")
 

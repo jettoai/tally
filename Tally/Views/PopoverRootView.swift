@@ -150,7 +150,8 @@ struct PopoverRootView: View {
             .background(sizeReporter)
             // The floating copy of the dragged card, above everything, tracking the pointer.
             if let cardLift {
-                CardLiftPreview(lift: cardLift, settings: settings)
+                CardLiftPreview(lift: cardLift, settings: settings,
+                                density: settings.panelDensity)
             }
         }
         .coordinateSpace(name: Self.reorderSpace)
@@ -173,6 +174,11 @@ struct PopoverRootView: View {
         // next turn and not one moment sooner (`onAppear` itself still reads nil).
         .onAppear { DispatchQueue.main.async { refreshScreenCap() } }
         .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }
+        // A host can go away with its card still up (the popover closes on a click outside, the
+        // panel is unpinned), and `onChange` never fires for a view that was torn down: without
+        // this the flag would keep claiming a card is open and every later resize would anchor to
+        // the wrong corner.
+        .onDisappear { settings.isViewOptionsOpen = false }
         .environment(\.tallyCardStyle, cardStyle)
         .id(settings.languageOverride ?? "system")
     }
@@ -207,6 +213,28 @@ struct PopoverRootView: View {
         return multi ? 2 : 1
     }
 
+    /// How many columns of compact rows. Its own setting (`listColumns`), because a row is nearly
+    /// twice a card's width and the two densities are comfortable at different counts.
+    ///
+    /// Auto resolves differently here than it does for the cards, and deliberately: a card is narrow
+    /// enough that the screen is never the binding constraint, so the cards' auto asks the CONTENT
+    /// (one column until a provider has siblings). A row is wide enough that the screen IS the
+    /// constraint, so the list's auto asks how many rows the display can take side by side. Capped
+    /// at the same four an explicit choice tops out at.
+    var listColumnCount: Int {
+        if (1 ... SettingsStore.maxListColumns).contains(settings.listColumns) {
+            return settings.listColumns
+        }
+        let step = AccountListRowView.minComfortableWidth + AccountListRowView.columnGap
+        let usable = usableScreenWidth - 24 + AccountListRowView.columnGap
+        // Auto stops at TWO, one below what an explicit choice can ask for. A wide display would
+        // otherwise seat three or four rows across and hand a nearly full-screen panel to someone
+        // who only asked the app to choose; three is available, it just has to be chosen. Also
+        // never more columns than there are accounts to seat, because an empty column is panel
+        // width spent on nothing.
+        return min(2, max(1, min(Int(usable / step), visibleAccounts.count)))
+    }
+
     /// The two-column panel width, named because two other surfaces gate on reaching it (the fleet
     /// strip's and the advisor strip's side-by-side pairs). Adjusting the case-2 width below without
     /// this constant would silently strand those gates.
@@ -215,6 +243,14 @@ struct PopoverRootView: View {
     /// Constant card width (263pt) across the 2/3/4-column layouts; only the window grows.
     /// Internal: the strip and footer extensions lay themselves out against it.
     var popoverWidth: CGFloat {
+        // The list builds its width from its own column count the same way, only out of row-widths
+        // instead of card-widths: 12pt of content padding each side, a comfortable row per column,
+        // and the grid's gutter between them.
+        if settings.panelDensity == .list {
+            let columns = CGFloat(listColumnCount)
+            return 24 + columns * AccountListRowView.minComfortableWidth
+                + (columns - 1) * AccountListRowView.columnGap
+        }
         switch columnCount {
         case 1: return 380
         case 2: return Self.twoColumnPanelWidth
@@ -236,10 +272,20 @@ struct PopoverRootView: View {
     /// every pass because it is only ever re-read on those events, and only a cap that actually
     /// CHANGED touches the state: dragging a panel around one display re-renders nothing.
     @State private var screenCap: CGFloat?
+    /// The same reading on the other axis, for the compact list's auto column count. Held for the
+    /// same reason and refreshed by the same two events: `popoverWidth` is read on every layout
+    /// pass, and asking AppKit for the display each time would both cost and go stale silently.
+    @State private var screenWidth: CGFloat?
+
+    private var usableScreenWidth: CGFloat {
+        screenWidth ?? ScreenFitStack.maxWidth(on: hostScreen())
+    }
 
     private func refreshScreenCap() {
         let height = ScreenFitStack.maxHeight(on: hostScreen())
         if screenCap != height { screenCap = height }
+        let width = ScreenFitStack.maxWidth(on: hostScreen())
+        if screenWidth != width { screenWidth = width }
     }
 
     @ViewBuilder

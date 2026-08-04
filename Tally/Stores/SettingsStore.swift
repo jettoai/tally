@@ -123,6 +123,49 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(panelColumns, forKey: "panelColumns") }
     }
 
+    /// Cards or the compact one-row-per-account list (see `PanelDensity`). Cards by default: the
+    /// list only pays for itself once a fleet outgrows the screen, and it is the denser read that
+    /// hides detail, not the one to meet the app with.
+    var panelDensity: PanelDensity {
+        didSet { UserDefaults.standard.set(panelDensity.rawValue, forKey: "panelDensity") }
+    }
+
+    /// The compact list's own column count, same vocabulary as `panelColumns` (0 = auto, 1...4 an
+    /// explicit width). Its OWN setting rather than a shared one, because a comfortable number of
+    /// 263pt cards is not a comfortable number of rows nearly twice that wide: sharing it would have
+    /// each density silently rewrite the other's layout every time the user switched.
+    var listColumns: Int {
+        didSet { UserDefaults.standard.set(listColumns, forKey: "listColumns") }
+    }
+
+    /// The highest explicit column count the compact list offers. Three, where the cards offer four:
+    /// a row is nearly twice a card's width (Albert's call, 2026-08-04).
+    static let maxListColumns = 3
+
+    /// The highest count the picker offers for the density on screen, so the two surfaces that show
+    /// that picker cannot disagree about where the tiles stop.
+    var densityMaxColumns: Int { panelDensity == .list ? Self.maxListColumns : 4 }
+
+    /// The column count the panel's picker edits: whichever density is on screen owns it. One
+    /// control on both surfaces, two remembered numbers behind it.
+    var densityColumns: Int {
+        get { panelDensity == .list ? listColumns : panelColumns }
+        set {
+            if panelDensity == .list { listColumns = newValue } else { panelColumns = newValue }
+        }
+    }
+
+    /// A surface's "View options" card is open right now. Deliberately NOT persisted (no `didSet`,
+    /// no key): it describes what is on screen this second, and a remembered copy would outlive the
+    /// card it describes.
+    ///
+    /// It lives here rather than in the view because the thing that reads it is a window controller:
+    /// every control in that card resizes the surface, and while it is open the surfaces hold their
+    /// BOTTOM-RIGHT corner still so the control stays under the pointer between clicks (see
+    /// `ResizeAnchor`). One flag for all three surfaces is enough: only one card can be open, and
+    /// only the surface being resized ever reads it.
+    var isViewOptionsOpen = false
+
     var isPanelTranslucent: Bool {
         didSet { UserDefaults.standard.set(isPanelTranslucent, forKey: "isPanelTranslucent") }
     }
@@ -175,6 +218,13 @@ final class SettingsStore {
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
         panelColumns = (1 ... 4).contains(defaults.integer(forKey: "panelColumns"))
             ? defaults.integer(forKey: "panelColumns") : 0
+        panelDensity = PanelDensity(rawValue: defaults.string(forKey: "panelDensity") ?? "") ?? .cards
+        // Clamped into the range the picker still offers: the list used to go up to four, and a
+        // machine that stored one has to come back to the highest count that still exists rather
+        // than to a number no tile can select. Anything else reads as auto.
+        let storedListColumns = defaults.integer(forKey: "listColumns")
+        listColumns = storedListColumns > 0
+            ? min(storedListColumns, SettingsStore.maxListColumns) : 0
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         groupByProvider = defaults.bool(forKey: "groupByProvider")
         resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative

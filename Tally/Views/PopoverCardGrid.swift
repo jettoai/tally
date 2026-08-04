@@ -37,13 +37,79 @@ extension PopoverRootView {
                         // One provider needs no heading: a label over the only section names what
                         // nothing else could be, so it is pure noise.
                         if groups.count > 1 { groupHeader(group) }
-                        cardGrid(group.items)
+                        accountBlock(group.items)
                     }
                 }
             }
         } else {
-            cardGrid(visibleAccounts)
+            accountBlock(visibleAccounts)
         }
+    }
+
+    /// One run of accounts, at whichever density the panel is set to. Both layouts hang off this one
+    /// place so the grouping switch, the empty cases and the reorder wiring stay written once.
+    @ViewBuilder
+    private func accountBlock(_ accounts: [AccountUsage]) -> some View {
+        if settings.panelDensity == .list {
+            rowStack(accounts)
+        } else {
+            cardGrid(accounts)
+        }
+    }
+
+    /// The compact density: one row per account, all of them inside ONE card surface with hairlines
+    /// between. A card each would put fourteen points of padding and a border around a 26pt row and
+    /// hand back most of the height the density exists to save; a list is one object with rules in
+    /// it, which is also how every system list draws.
+    ///
+    /// Several columns share that one surface rather than taking one each, so the section still
+    /// reads as a single object: the columns are runs INSIDE it, split by the same 10pt gutter the
+    /// card grid uses and ruled only within themselves.
+    private func rowStack(_ accounts: [AccountUsage]) -> some View {
+        let columns = listColumnCount
+        let width = listColumnWidth
+        // Row-major, the same chunking the card grid uses, so the reading order is the one the eye
+        // already learned here: across, then down.
+        return VStack(spacing: 0) {
+            ForEach(Array(rows(accounts, columns: columns).enumerated()), id: \.element.id) { band, row in
+                HStack(alignment: .top, spacing: AccountListRowView.columnGap) {
+                    ForEach(row.items) { usage in
+                        VStack(spacing: 0) {
+                            // A rule between two rows OF ONE COLUMN, never drawn across the gutter:
+                            // the columns are separate runs of accounts, and one line through both
+                            // would read as a single row cut in half.
+                            if band > 0 { Divider() }
+                            listRow(usage)
+                        }
+                        .frame(width: width)
+                    }
+                    // Keep a short trailing band at full column widths so the columns stay aligned.
+                    ForEach(0 ..< columns - row.items.count, id: \.self) { _ in
+                        Color.clear.frame(width: width, height: 0)
+                    }
+                }
+            }
+        }
+        .frame(width: listWidth)
+        .tallyCard()
+    }
+
+    private func listRow(_ usage: AccountUsage) -> some View {
+        AccountListRowView(usage: usage, settings: settings, showsDragHandle: true)
+            .opacity(cardLift?.id == usage.id ? 0 : 1)
+            .contentShape(Rectangle())
+            // Same frame registration the cards use, so the one drag gesture reorders both
+            // densities (see `reorderGesture`).
+            .cardFrame(id: usage.id, in: Self.reorderSpace)
+    }
+
+    /// The list surface's width: the scrolling region less the container's own 12pt padding each
+    /// side. Its columns then divide that up, exactly as the cards' do.
+    var listWidth: CGFloat { scrollContentWidth - 24 }
+
+    private var listColumnWidth: CGFloat {
+        let columns = CGFloat(listColumnCount)
+        return (listWidth - AccountListRowView.columnGap * (columns - 1)) / columns
     }
 
     /// The cards themselves, in the current column count. Called once for a flat layout and once per
@@ -53,7 +119,7 @@ extension PopoverRootView {
         let columns = columnCount
         if columns > 1 {
             VStack(spacing: 10) {
-                ForEach(rows(accounts)) { row in
+                ForEach(rows(accounts, columns: columns)) { row in
                     HStack(alignment: .top, spacing: 10) {
                         ForEach(row.items) { usage in
                             card(usage, fillsRowHeight: true).frame(width: cardWidth, alignment: .top)
@@ -172,10 +238,10 @@ extension PopoverRootView {
             .onEnded { _ in cardLift = nil }
     }
 
-    /// Accounts chunked into rows of the current column count.
-    private func rows(_ accounts: [AccountUsage]) -> [AccountRow] {
-        let columns = columnCount
-        return stride(from: 0, to: accounts.count, by: columns).map { start in
+    /// Accounts chunked into rows of `columns` items - one implementation for both densities, so
+    /// the card grid and the list can never disagree about reading order.
+    private func rows(_ accounts: [AccountUsage], columns: Int) -> [AccountRow] {
+        stride(from: 0, to: accounts.count, by: columns).map { start in
             AccountRow(items: Array(accounts[start ..< min(start + columns, accounts.count)]))
         }
     }
@@ -198,7 +264,8 @@ extension PopoverRootView {
     /// re-seats every card without touching either. The resolved count, not the raw setting: Auto is
     /// the mode whose number moves on its own, and it is the number the cards are laid out by.
     var cardSeatingSignature: String {
-        "cols:\(columnCount)|" + (settings.groupByProvider ? "grouped:" : "flat:")
+        "density:\(settings.panelDensity.rawValue)|cols:\(columnCount)/\(listColumnCount)|"
+            + (settings.groupByProvider ? "grouped:" : "flat:")
             + store.orderedAccounts.map(\.id).joined(separator: "|")
     }
 }

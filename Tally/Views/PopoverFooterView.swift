@@ -54,7 +54,7 @@ extension PopoverRootView {
             NeutralSegmentedPicker(selection: $settings.displayMode,
                                    options: [.used, .remaining],
                                    size: .mini) { $0 == .used ? L("Used") : L("Left") }
-                .help(L("Meters show"))
+                .tallyTooltip(L("Meters show"))
                 .background { widthProbe { footerWidths.picker = $0 } }
             if showsCredit {
                 jettoCredit.padding(.leading, Self.creditLead)
@@ -121,7 +121,7 @@ extension PopoverRootView {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help(ReloadAction.tooltip())
+            .tallyTooltip(ReloadAction.tooltip())
             // View options: every layout dimension behind one footer icon. A popover card rather
             // than a native menu, because the column count is now a row of layout tiles - a picture
             // of each layout beats five numbers, and a menu can only list text. The keyboard and
@@ -137,8 +137,13 @@ extension PopoverRootView {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(showViewOptions ? Color.accentColor : Color.secondary)
-            .help(L("View options"))
+            .tallyTooltip(L("View options"))
             .popover(isPresented: $showViewOptions, arrowEdge: .bottom) { viewOptions }
+            // Published upward because the window controllers need it: every control in that card
+            // resizes the surface, and while it is open they hold the bottom-right corner still so
+            // the control stays under the pointer (see `ResizeAnchor`). Written from the one place
+            // that owns the presentation, so it cannot say "open" while nothing is.
+            .onChange(of: showViewOptions) { _, open in settings.isViewOptionsOpen = open }
             Button {
                 StatusItemController.togglePin()
             } label: {
@@ -149,7 +154,7 @@ extension PopoverRootView {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(settings.isUsagePanelPinned ? Color.accentColor : Color.secondary)
-            .help(settings.isUsagePanelPinned ? L("Unpin window") : L("Pin on top"))
+            .tallyTooltip(settings.isUsagePanelPinned ? L("Unpin window") : L("Pin on top"))
             Button {
                 MainWindowController.shared.show()
             } label: {
@@ -160,7 +165,7 @@ extension PopoverRootView {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help(L("Open Tally"))
+            .tallyTooltip(L("Open Tally"))
             Button {
                 StatusItemController.openSettingsWindow()
             } label: {
@@ -171,7 +176,7 @@ extension PopoverRootView {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help(L("Settings…"))
+            .tallyTooltip(L("Settings…"))
             // Help sits past the trailing end of the group, with a gap wide enough to read as a
             // break rather than as loose tracking. It is the one control here that acts on nothing
             // in this window, and macOS parks the help button in the bottom trailing corner away
@@ -187,7 +192,7 @@ extension PopoverRootView {
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
-            .help(L("Help"))
+            .tallyTooltip(L("Help"))
             .popover(isPresented: $showLaunchHelp, arrowEdge: .bottom) { launchHelp }
             .padding(.leading, Self.helpLead)
         }
@@ -202,9 +207,25 @@ extension PopoverRootView {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
                 Text(L("Layout")).font(.caption).foregroundStyle(.secondary)
-                LayoutColumnPicker(selection: $settings.panelColumns)
+                // Density first, then the count: what each element IS comes before how many of them
+                // fit. The footer's own used/left switch is this control, so the card offers one
+                // vocabulary for "pick one of two views" rather than a second hand-rolled one.
+                NeutralSegmentedPicker(selection: $settings.panelDensity,
+                                       options: PanelDensity.allCases,
+                                       size: .small) { $0 == .cards ? L("Cards") : L("List") }
+                // One picker, two remembered numbers: it edits the count of whichever density is on
+                // screen (`densityColumns`), so switching density restores that density's own layout
+                // instead of carrying a number chosen for the other one.
+                LayoutColumnPicker(selection: $settings.densityColumns,
+                                   maxColumns: settings.densityMaxColumns)
             }
             Divider()
+            // The two strips' own switches, the same ones the Settings pane carries: they decide
+            // whether the gauge and the advisor are on the panel at all, which is the question that
+            // comes before how the gauges are drawn. Reaching Settings to turn a strip off was the
+            // one layout decision this card could not make.
+            Toggle(L("Fleet gauge"), isOn: $settings.showFleetGauge)
+            Toggle(L("Usage advisor"), isOn: $settings.showAdvisor)
             Toggle(L("Group by provider"), isOn: $settings.groupByProvider)
             // "Gauges only" is the one-click version of collapsing every pooled provider; clicking
             // a single gauge row stays the granular tool.
@@ -219,7 +240,9 @@ extension PopoverRootView {
                     else { settings.collapsedProviders.subtract(pooled) }
                 }
             ))
-            .disabled(pooledProviderIDs.isEmpty)
+            // Folding cards behind a gauge that is switched off would hide them behind nothing at
+            // all, which is the one state the panel must never reach (see `visibleAccounts`).
+            .disabled(pooledProviderIDs.isEmpty || !settings.showFleetGauge)
             Divider()
             // What the gauges render: all pooled windows (primary budget + weekly total, both
             // runways at once - the default), or collapsed to a single pool for people who only
@@ -234,6 +257,10 @@ extension PopoverRootView {
                 .pickerStyle(.inline)
                 .labelsHidden()
             }
+            // Nothing to configure while there is no gauge to configure. Greyed rather than hidden,
+            // so the card does not change height under the pointer when the switch above is flipped.
+            .disabled(!settings.showFleetGauge)
+            .opacity(settings.showFleetGauge ? 1 : 0.5)
         }
         .padding(TallyMetrics.cardPaddingH)
         .frame(width: 268)

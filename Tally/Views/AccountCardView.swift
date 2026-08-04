@@ -18,126 +18,37 @@ struct AccountCardView: View {
     @State private var redeemBusy = false
     @State private var redeemOutcome: CodexAppServerClient.RedeemOutcome?
 
-    private var label: String {
-        settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
-    }
+    /// Every derived answer about this account - the homes, the login state, which windows to show,
+    /// which launch affordances apply - shared with the compact list row so the two surfaces can
+    /// never disagree about any of them (see `AccountFacts`).
+    private var facts: AccountFacts { AccountFacts(usage: usage, settings: settings) }
 
-    /// This card's account as discovery (plus the dormant memory) knows it: where the homes and the
-    /// dormancy behind the launch affordances come from.
-    private var discovered: ProviderAccount? {
-        UsageStore.shared.discoveredAccounts.first { $0.id == usage.id }
-    }
+    private var label: String { facts.label }
 
-    /// The account's config home, or nil when Tally has none to act on (a demo fixture, or an
-    /// account discovered without a launchable directory) - which is what greys the expiry chip
-    /// and both context-menu entries (AccountCardMenu) out. The RENEWAL home: a signed-out account
-    /// keeps it, which is exactly what "Renew login" acts on.
-    var configHome: String? { discovered?.launchHome }
-
-    /// Signed out with its config home still on disk: listed and renewable, never launchable.
-    private var isDormant: Bool { discovered?.isDormant == true }
-
-    /// Who is signed in, for the identity tooltip. The ordering (the probe's live answer first, the
-    /// provider's config-derived copy as the fallback) lives in the store, because the Settings row
-    /// asks the same question and the two must not drift apart. Empty string, not nil: this feeds a
-    /// tooltip, and an absent one is what "nothing to say" looks like there.
-    private var identityEmail: String {
-        LoginStatusStore.shared.identityEmail(usage) ?? ""
-    }
-
-    /// The second line of that tooltip: the plan and the config home, which is what tells two cards
-    /// apart when the address cannot (one ChatGPT address in two workspaces answers with the same
-    /// email on both - see `AccountIdentity.detail`, which owns the rule and the reason).
-    private var identityDetail: String? {
-        AccountIdentity.detail(plan: usage.planName, home: identityHome)
-    }
-
-    /// The home that line NAMES, which is not the same question as `configHome` above: that one is
-    /// the home an action would touch, and it is deliberately nil for a demo fixture so every
-    /// affordance that would move a real folder stays greyed. Naming one is not touching one, and a
-    /// marketing shot of this feature has to show the very thing it is about.
-    private var identityHome: String? {
-        DemoUsage.launchHome(accountID: usage.id) ?? configHome
-    }
-
-    /// Non-headline windows. Model-scoped rows are hidden unless "show every model tier" is on, so by
-    /// default only the highest-tier model (the headline) is featured.
-    private var secondaryMetrics: [UsageMetric] {
-        let headlineID = usage.headline?.id
-        return usage.metrics.filter { metric in
-            guard metric.id != headlineID else { return false }
-            if metric.isModelScoped && !settings.showAllModels { return false }
-            return true
-        }
-    }
-
-    // MARK: Launch policy affordances (multi-account providers only)
-
-    /// Sibling count decides whether launch affordances appear at all - with one account there is
-    /// nothing to choose.
-    private var hasSiblings: Bool {
-        UsageStore.shared.accounts.filter { $0.providerID == usage.providerID }.count > 1
-    }
-
-    private var launchMode: LaunchPolicyStore.Mode {
-        // Demo fixtures always demonstrate Smart mode (the real policy's pinned ids can never
-        // match demo accounts, which would leave every marketing card badge-less).
-        DemoUsage.isActive ? .auto : LaunchPolicyStore.shared.mode(usage.providerID)
-    }
-
-    private var isPinnedActive: Bool {
-        LaunchPolicyStore.shared.isPinned(usage.id, providerID: usage.providerID)
-    }
-
-    /// Whether auto mode would launch THIS account right now (the panel predicts the CLI).
-    private var isAutoPick: Bool {
-        let store = UsageStore.shared
-        let launchable = DemoUsage.isActive
-            ? Set(store.accounts.map(\.id))   // fixtures are all "launchable" for the demo
-            : Set(store.discoveredAccounts.compactMap { $0.launchableHome != nil ? $0.id : nil })
-        return LaunchPolicyStore.shared.autoPickID(
-            providerID: usage.providerID, accounts: store.accounts, launchable: launchable) == usage.id
-    }
-
-    /// A hard error (this account has never loaded) collapses to a compact error + Retry. A stale
-    /// account (a failed refresh over previously-good numbers) keeps its metrics readable - the
-    /// "Outdated" badge in the header carries the state, so the numbers aren't dimmed away.
-    private var isHardError: Bool { usage.error != nil && !usage.isStale }
-
-    /// The plan exposes only a single weekly window (e.g. Codex on ChatGPT Plus) - worth noting so a
-    /// missing session/model row doesn't read as a bug.
-    private var weeklyOnly: Bool {
-        usage.metrics.count == 1 && usage.metrics.first?.kind == .weeklyAll
-    }
-
-    /// A reset was just redeemed here and the provider is still serving the spent numbers. The
-    /// rows then say the reset is landing instead of "Limit reached", which alongside the green
-    /// "Reset redeemed" line read as a redeem that did nothing. It covers every capped window on
-    /// the card because a redeem clears the whole account's counters, not one of them.
-    private var isSettlingReset: Bool {
-        RedeemPropagationStore.shared.isSettling(usage)
-    }
+    /// The account's config home, or nil when Tally has none to act on. Named at card level because
+    /// the context-menu extension reads it (AccountCardMenu).
+    var configHome: String? { facts.configHome }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
 
-            if isHardError {
+            if facts.isHardError {
                 errorRow
             } else {
                 if let headline = usage.headline {
                     MetricRowView(metric: headline, mode: settings.displayMode, prominent: true,
-                                  settlingReset: isSettlingReset)
+                                  settlingReset: facts.isSettlingReset)
                 }
-                if !secondaryMetrics.isEmpty {
+                if !facts.secondaryMetrics.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        ForEach(secondaryMetrics) { metric in
+                        ForEach(facts.secondaryMetrics) { metric in
                             MetricRowView(metric: metric, mode: settings.displayMode,
-                                          settlingReset: isSettlingReset)
+                                          settlingReset: facts.isSettlingReset)
                         }
                     }
                 }
-                if weeklyOnly {
+                if facts.isWeeklyOnly {
                     Text(L("Weekly quota only"))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -174,8 +85,8 @@ struct AccountCardView: View {
                     // credit in - `RedeemAction.redeem` returns nil there, so the confirmation used
                     // to be followed by nothing at all. The count stays visible, greyed like every
                     // other dormant affordance, because the credits are still banked.
-                    .disabled(redeemBusy || isDormant)
-                    .help(isDormant
+                    .disabled(redeemBusy || facts.isDormant)
+                    .tallyTooltipAroundControl(facts.isDormant
                           ? L("Signed out: renew the login to spend a banked reset.")
                           : L("Use a reset"))
                 }
@@ -183,21 +94,21 @@ struct AccountCardView: View {
                     Text(RedeemAction.outcomeMessage(redeemOutcome))
                         .font(.caption2)
                         .foregroundStyle(redeemOutcome == .redeemed ? TallyColor.normal : .secondary)
-                        .help(RedeemAction.outcomeDetail(redeemOutcome) ?? "")
+                        .tallyTooltip(RedeemAction.outcomeDetail(redeemOutcome) ?? "")
                 }
             }
             // A login is renewing in the background, where the user has nothing else to look at:
             // the browser has the sign-in, and this line is the only thing on screen tying it to
             // THIS account. Outside the error branch on purpose - an account that stopped loading
             // is exactly the one whose login gets renewed.
-            if RenewLoginStore.shared.isRenewing(usage.id) {
+            if facts.isRenewingLogin {
                 HStack(spacing: 3) {
                     ProgressView().controlSize(.mini)
                     Text(L("renewing login…"))
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            } else if LoginStatusStore.shared.isExpired(usage.id) {
+            } else if facts.isLoginExpired {
                 loginExpiredChip
             }
         }
@@ -238,9 +149,8 @@ struct AccountCardView: View {
         .buttonStyle(.plain)
         // Greyed on a demo fixture, which has no config home behind it - the same rule that greys
         // the menu entry, asked of the same place, so a chip can never look more able than it is.
-        .disabled(!RenewLoginStore.shared.canRenew(accountID: usage.id,
-                                                   providerID: usage.providerID, home: configHome))
-        .help(L("Sign in again to bring this account's usage back."))
+        .disabled(!facts.canRenewLogin)
+        .tallyTooltipAroundControl(L("Sign in again to bring this account's usage back."))
     }
 
     private var header: some View {
@@ -268,23 +178,22 @@ struct AccountCardView: View {
             // Forced open on ONE fixture for a design capture, never on a real account: every card
             // carries this target, and forcing them all would leave the capture showing whichever
             // the layout traversal reached last (TallyTooltip.previewForced).
-            .tallyTooltip(identityEmail, detail: identityDetail,
-                          forced: TallyTooltip.previewForced(.identity)
-                              && usage.id == DemoUsage.tooltipPreviewAccountID)
+            .tallyTooltip(facts.identityEmail, detail: facts.identityDetail,
+                          forced: facts.forcesIdentityTooltip)
             if usage.isStale {
                 Label(L("Outdated"), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)
                     .foregroundStyle(TallyColor.warning)
-                    .help(usage.error ?? "")
+                    .tallyTooltip(usage.error ?? "")
             }
             Spacer()
             // Launch affordances live at the TRAILING edge so the identity (name · plan) never
             // gets pushed around: a mode badge (Smart purple / Pinned orange) as the label, and
             // ONE circle as the only switch - hollow = pin me, checked = pinned, click again to
             // release back to Smart (Albert's UX spec, 2026-07-19).
-            if hasSiblings, launchMode != .off {
-                if launchMode == .manual, isPinnedActive { pinnedBadge }
-                if launchMode == .auto, isAutoPick { autoBadge }
+            if facts.hasSiblings, facts.launchMode != .off {
+                if facts.launchMode == .manual, facts.isPinnedActive { pinnedBadge }
+                if facts.launchMode == .auto, facts.isAutoPick { autoBadge }
                 pinToggle
             }
             if showsDragHandle {
@@ -296,7 +205,7 @@ struct AccountCardView: View {
                     // read as imbalance (2026-07-19). Dim at rest, full on hover.
                     .opacity(isHovering || handleProminent ? 1 : 0.35)
                     .accessibilityLabel(L("Drag to reorder"))
-                    .help(L("Drag to reorder"))
+                    .tallyTooltip(L("Drag to reorder"))
             }
         }
     }
@@ -305,42 +214,15 @@ struct AccountCardView: View {
     /// again to release back to Smart. The same control toggles both ways - no second gesture
     /// to learn, no card-wide tap to mis-hit.
     private var pinToggle: some View {
-        Button {
-            let policy = LaunchPolicyStore.shared
-            if isPinnedActive {
-                policy.setMode(usage.providerID, .auto)
-            } else {
-                policy.pin(usage.providerID, accountID: usage.id, home: discovered?.launchableHome)
-            }
-        } label: {
-            Image(systemName: isPinnedActive ? "checkmark.circle.fill" : "circle")
+        Button { facts.togglePin() } label: {
+            Image(systemName: facts.isPinnedActive ? "checkmark.circle.fill" : "circle")
                 .font(.caption)
-                .foregroundStyle(isPinnedActive ? Color.orange : Color.secondary)
+                .foregroundStyle(facts.isPinnedActive ? Color.orange : Color.secondary)
         }
         .buttonStyle(.plain)
-        // A signed-out account cannot BECOME the launch account: pinning is denormalized into the
-        // policy file the CLI reads, so a pinned dormant home would have `tally` exec a logged-out
-        // directory long after the panel forgot why. The expiry chip beside this is the control
-        // that still works there.
-        //
-        // Releasing an existing pin stays available, though - that is the opposite direction. An
-        // account pinned BEFORE it signed out is exactly the one the user needs to unpin, and
-        // disabling the only control that does it left the choice stuck until the login came back.
-        .disabled(isDormant && !isPinnedActive)
-        .help(pinToggleHelp)
+        .disabled(!facts.canTogglePin)
+        .tallyTooltipAroundControl(facts.pinToggleHelp)
         .accessibilityLabel(L("Set as launch account"))
-    }
-
-    /// What the circle does from where it is now - all four states, because a pinned dormant card
-    /// is a real one and reads wrong under either of the other two sentences.
-    private var pinToggleHelp: String {
-        switch (isPinnedActive, isDormant) {
-        case (true, true):
-            L("Pinned but signed out: launches pick by headroom until the login is renewed. Click to unpin.")
-        case (true, false): L("Pinned. Click again to go back to Smart.")
-        case (false, true): L("Signed out: renew the login before launching with this account.")
-        case (false, false): L("Set as launch account")
-        }
     }
 
     /// Manual mode, pinned card: a label-only badge in the warm colour, same shape as the Smart
@@ -355,7 +237,7 @@ struct AccountCardView: View {
         .foregroundStyle(Color.orange)
         .padding(.horizontal, 5).padding(.vertical, 1)
         .background(Capsule().fill(Color.orange.opacity(0.15)))
-        .help(L("Manual: every new session uses this account."))
+        .tallyTooltip(L("Manual: every new session uses this account."))
     }
 
     /// Smart mode: marks the card the next launch would pick. Copy lesson, twice over: "Auto"
@@ -375,16 +257,7 @@ struct AccountCardView: View {
         .foregroundStyle(TallyColor.ai)
         .padding(.horizontal, 5).padding(.vertical, 1)
         .background(Capsule().fill(TallyColor.ai.opacity(0.15)))
-        .help(smartPickTooltip)
-    }
-
-    private var smartPickTooltip: String {
-        let base = L("Smart: new sessions start on the account whose quota goes furthest right now.")
-        let primary = LaunchPolicyStore.shared.policy(usage.providerID).model
-        guard let reason = LaunchPolicyStore.smartReason(usage, primaryModel: primary) else {
-            return base
-        }
-        return base + "\n" + reason
+        .tallyTooltip(facts.smartPickTooltip)
     }
 
     // MARK: Reset banking - manual redeem (the only write Tally ever performs, user-confirmed)

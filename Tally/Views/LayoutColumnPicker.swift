@@ -8,20 +8,24 @@ import SwiftUI
 /// Shared by the Settings pane and the panel's view options, which means the two surfaces cannot
 /// drift into offering the same setting in two different vocabularies.
 struct LayoutColumnPicker: View {
-    /// `SettingsStore.panelColumns`: 0 = auto, 1...4 = an explicit width.
+    /// `SettingsStore.panelColumns` / `listColumns`: 0 = auto, 1...`maxColumns` an explicit width.
     @Binding var selection: Int
+    /// The highest count on offer. Cards go to four; the compact list stops at three, because a row
+    /// is nearly twice a card's width and a fourth column of them needs a panel wider than the
+    /// screen it would be read on (Albert's call, 2026-08-04).
+    var maxColumns: Int = 4
 
     @State private var hovered: Int?
 
     private static let auto = 0
-    private static let options = [auto, 1, 2, 3, 4]
+    private var options: [Int] { [Self.auto] + Array(1 ... maxColumns) }
     private static let glyphWidth: CGFloat = 26
     private static let glyphHeight: CGFloat = 14
     private static let tileRadius: CGFloat = 6
 
     var body: some View {
         HStack(spacing: 6) {
-            ForEach(Self.options, id: \.self) { option in
+            ForEach(options, id: \.self) { option in
                 tile(option)
             }
         }
@@ -51,7 +55,7 @@ struct LayoutColumnPicker: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 ? option : (hovered == option ? nil : hovered) }
-        .help(description)
+        .tallyTooltip(description)
         .accessibilityLabel(description)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }

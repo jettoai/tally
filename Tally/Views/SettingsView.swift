@@ -158,11 +158,32 @@ struct SettingsView: View {
         rowDivider
 
         HStack {
+            Text(L("Panel density")).font(.subheadline)
+            Spacer()
+            // The pane's own segmented control, matching the "Meters show" row above it rather than
+            // the panel's neutral one: this window has no glass for that variant to be quiet
+            // against, and two segmented shapes in one column would read as two kinds of control.
+            Picker("", selection: $settings.panelDensity) {
+                Text(L("Cards")).tag(PanelDensity.cards)
+                Text(L("List")).tag(PanelDensity.list)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+
+        rowDivider
+
+        HStack {
             Text(L("Panel columns")).font(.subheadline)
             Spacer()
-            // The same layout tiles the panel's view options show: one control, so the two places
-            // that set the column count cannot describe it two ways.
-            LayoutColumnPicker(selection: $settings.panelColumns)
+            // The same layout tiles the panel's view options show, editing the same per-density
+            // count (`densityColumns`): one control, so the two places that set the column count
+            // cannot describe it two ways, and each density keeps its own number.
+            LayoutColumnPicker(selection: $settings.densityColumns,
+                               maxColumns: settings.densityMaxColumns)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

@@ -23,6 +23,16 @@ enum GaugeFocus: String, Sendable, CaseIterable {
     case weekly
 }
 
+/// How much room each account gets on the panel. `cards` (default) is the full card: identity,
+/// the headline meter prominent, every other window under it, the reset context lines. `list`
+/// collapses the same account to a single row, meters inline, for a fleet whose card grid has
+/// grown taller than the screen. It is a density, not a different set of facts: every control a
+/// card carries is on the row too, shrunk to an icon. Persisted in `SettingsStore`.
+enum PanelDensity: String, Sendable, CaseIterable {
+    case cards
+    case list
+}
+
 /// Whether reset instants read as a countdown ("resets in 2d 4h") or an exact time ("resets at
 /// 7/18, 21:36"). Global, toggled by clicking any reset label (the exact time
 /// is one click away, no settings entry needed). Persisted in `SettingsStore`.

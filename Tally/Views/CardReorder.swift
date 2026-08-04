@@ -66,21 +66,34 @@ struct CardLift {
     }
 }
 
-/// The floating copy of the dragged card - the same `AccountCardView` the grid renders, slightly
-/// scaled with a shadow, following the pointer. Non-interactive so it never swallows the drag.
+/// The floating copy of the dragged account - the very view the layout renders at the current
+/// density, slightly scaled with a shadow, following the pointer. Non-interactive so it never
+/// swallows the drag. It has to follow the density: a card-shaped preview over a list of rows would
+/// cover the targets it is being dropped between.
 struct CardLiftPreview: View {
     let lift: CardLift
     let settings: SettingsStore
+    var density: PanelDensity = .cards
 
     var body: some View {
-        AccountCardView(usage: lift.usage, settings: settings,
-                        showsDragHandle: true, handleProminent: true)
-            .frame(width: lift.sourceFrame.width)
-            .scaleEffect(1.025)
-            .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
-            .position(lift.previewCentre)
-            .animation(.none, value: lift.location)
-            .allowsHitTesting(false)
+        Group {
+            if density == .list {
+                // A row draws no surface of its own (the list's single card does), so the preview
+                // lends it one - a floating row with nothing behind it would show the panel through.
+                AccountListRowView(usage: lift.usage, settings: settings,
+                                   showsDragHandle: true, handleProminent: true)
+                    .tallyCard()
+            } else {
+                AccountCardView(usage: lift.usage, settings: settings,
+                                showsDragHandle: true, handleProminent: true)
+            }
+        }
+        .frame(width: lift.sourceFrame.width)
+        .scaleEffect(1.025)
+        .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
+        .position(lift.previewCentre)
+        .animation(.none, value: lift.location)
+        .allowsHitTesting(false)
     }
 }
 

@@ -39,6 +39,36 @@ import Foundation
 // So the join key is `launchID`, fixed for the life of the watcher, while `resumeID` keeps moving
 // with each adoption because it is what the next relaunch has to resume.
 //
+// MARK: - The third state: a candidate nothing can be said about yet
+//
+// A file is a fork or a sibling only ONCE IT HAS WRITTEN A TURN. `/clear` creates the new transcript
+// immediately, but claude stamps `session_id` on the first real API turn and not before, so a
+// conversation cleared and not yet typed into leaves a file holding `mode`,
+// `file-history-snapshot`, `attachment`, the `/clear` user record, `system subtype=local_command`,
+// `last-prompt` and `queue-operation` - no assistant event and no `session_id` anywhere (10 lines,
+// 17 KB, read off the 2026-08-04 incident). There is nothing to adopt it on and nothing to rule it
+// out on either, so the watcher stayed on the file the conversation had already left, every idle
+// gate read that dead file as quiet, and the queued non-urgent relaunch resumed the id from before
+// the clear: the conversation snapped back and the new file was orphaned along with the prompt just
+// typed into it.
+//
+// So an unclassifiable candidate written MORE RECENTLY than the bound file holds: `isQuiet` answers
+// false while one exists, which defers every non-urgent relaunch (follow, self-update, reload,
+// rebalance, pin, degradation rescue, fallback profile all go through that one gate) and touches
+// nothing else. The cap handoff deliberately does not consult it and must not: a session with no
+// turn in it cannot have hit a cap, and the bound file is the right thing to resume there.
+//
+// "Carries no marker" is NOT the test, and this is the part that had to be measured: of the 367
+// recent transcripts on this machine (2026-08-04), 49 hold real assistant turns and no `session_id`
+// at all, so a missing marker alone would hold on every one of them forever. The test is that the
+// file shows NEITHER an assistant event NOR any `session_id` - only true of a session before its
+// first turn. That makes the ambiguity self-resolving: the first turn either stamps our launch id
+// (adopted, `.fork`) or it does not (`.sibling`), and either way the hold ends.
+//
+// The cost, accepted knowingly: a brand-new session opened in this cwd and then left untouched
+// defers non-urgent relaunches until somebody uses it. Deferral is already their default posture -
+// each one waits for a quiet transcript, a quiet keyboard and a finished tool call as it is.
+//
 // A constant key opens one failure mode the chained key could not have: once the newest fork is
 // bound, the earlier and now dead fork still carries the same marker and would be adopted straight
 // back, bouncing the watcher onto a file that stopped growing. Hence a candidate is adopted only
@@ -60,6 +90,19 @@ let forkScanInterval: TimeInterval = 10
 /// 77 KB in (measured across six real forks here), so a megabyte is generous; transcripts are
 /// append-only, so a scan that stops short resumes exactly where it stopped.
 let forkScanBytes = 1 << 20
+
+/// What one candidate transcript in this directory can be proven to be, so far.
+enum ForkEvidence {
+    /// Carries this child's launch id as its `session_id` while writing its own file: the
+    /// conversation moved here.
+    case fork
+    /// Another conversation entirely. Proven by an assistant event (a turn this child never took)
+    /// or by a `session_id` that is not ours, and never by the absence of a marker.
+    case sibling
+    /// Neither yet: no assistant event and no `session_id` anywhere in it. What a `/clear` leaves
+    /// behind until its first real turn lands.
+    case unresolved
+}
 
 extension TranscriptWatcher {
     /// Re-point at the transcript the conversation moved to, when it moved (see the fork notes at
@@ -84,8 +127,12 @@ extension TranscriptWatcher {
         // the process writes to exactly one transcript, so everything it left behind stopped
         // growing. Without this the constant join key would adopt an already dead fork of this same
         // child straight back, because it carries the very same marker as the live one.
-        let forks = markedForks(marker: launchKey(boundTo: boundID), excluding: boundID)
-            .filter { $0.modified > boundModified ?? .distantPast }
+        let live = boundModified ?? .distantPast
+        let scan = scanCandidates(marker: launchKey(boundTo: boundID), excluding: boundID)
+        // Recomputed on every scan rather than latched, so a candidate that resolves (either way)
+        // releases the hold on the next pass without any bookkeeping of its own.
+        hasUnresolvedFork = scan.unresolved.contains { $0 > live }
+        let forks = scan.forks.filter { $0.modified > live }
         guard let newest = forks.first else { return }
         // Two candidates written since the bound file mean the child moved twice, and the newest is
         // the live one - the process writes to one transcript, so the other stopped growing. Only a
@@ -121,17 +168,21 @@ extension TranscriptWatcher {
         return key
     }
 
-    /// Files in this directory that carry `marker` as their `session_id`, newest first: born after
-    /// this child launched (a transcript that predates the launch cannot be where it moved to) and
-    /// carrying the marker, which no sibling session ever does. `boundID` is excluded because the
-    /// file already bound is not somewhere to move to, and under a constant marker it can be one of
-    /// the matches itself.
-    mutating func markedForks(marker: String,
-                              excluding boundID: String) -> [(url: URL, modified: Date)] {
+    /// The candidates in this directory, split by what they can be proven to be: the files carrying
+    /// `marker` (newest first - what adoption chooses between) and the mtimes of the files nothing
+    /// can be said about yet, which is all the hold needs from them.
+    ///
+    /// One enumeration feeds both: born after this child launched (a transcript that predates the
+    /// launch cannot be where it moved to, and cannot be a session this one has to wait for), and
+    /// not the bound file, which is not somewhere to move to and, under a constant marker, can be
+    /// one of the matches itself.
+    mutating func scanCandidates(marker: String, excluding boundID: String)
+        -> (forks: [(url: URL, modified: Date)], unresolved: [Date]) {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .creationDateKey]
         let files = (try? FileManager.default.contentsOfDirectory(
             at: projectDir, includingPropertiesForKeys: keys)) ?? []
         var found: [(url: URL, modified: Date)] = []
+        var unresolved: [Date] = []
         for url in files where url.pathExtension == "jsonl" {
             let id = url.deletingPathExtension().lastPathComponent
             guard id != boundID,
@@ -139,24 +190,35 @@ extension TranscriptWatcher {
                   let created = values.creationDate,
                   let modified = values.contentModificationDate,
                   created >= since.addingTimeInterval(-5) else { continue }
-            if carriesForkMarker(url, id: id, launchedWith: marker) {
-                found.append((url, modified))
+            switch forkEvidence(url, id: id, launchedWith: marker) {
+            case .fork: found.append((url, modified))
+            case .unresolved: unresolved.append(modified)
+            case .sibling: continue
             }
         }
-        return found.sorted { $0.modified > $1.modified }
+        return (found.sorted { $0.modified > $1.modified }, unresolved)
     }
 
-    /// Whether `url` holds a line written by a process launched as `launchedWith` but into `id` -
-    /// the fork marker. The substring is only a prefilter; the decision is a top-level parse, so an
-    /// id merely QUOTED inside a tool result (this repo's own transcripts are full of them) proves
-    /// nothing.
-    mutating func carriesForkMarker(_ url: URL, id: String, launchedWith parent: String) -> Bool {
-        if forkMarked.contains(id) { return true }
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+    /// What `url` can be proven to be, reading only the bytes no earlier scan has read.
+    ///
+    /// The substrings are prefilters only; every decision is made on a top-level parse, so an id or
+    /// an event type merely QUOTED inside a tool result or an attachment (this repo's own
+    /// transcripts are full of both) proves nothing in either direction - it neither adopts a
+    /// sibling nor releases a hold that a real turn has not yet released.
+    mutating func forkEvidence(_ url: URL, id: String, launchedWith parent: String) -> ForkEvidence {
+        if forkMarked.contains(id) { return .fork }
+        if forkSibling.contains(id) { return .sibling }
+        // A file that cannot be opened is called a sibling, not unresolved: unresolved holds every
+        // non-urgent relaunch, and a permanently unreadable file would hold them forever.
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return .sibling }
         defer { try? handle.close() }
         let start = forkScanOffsets[id] ?? 0
         handle.seek(toFileOffset: start)
-        guard let raw = try? handle.read(upToCount: forkScanBytes), !raw.isEmpty else { return false }
+        // Nothing new since the last scan: whatever this file was, it still is, and a file that has
+        // been read to its end with no turn in it is exactly the case the hold exists for.
+        guard let raw = try? handle.read(upToCount: forkScanBytes), !raw.isEmpty else {
+            return .unresolved
+        }
         // Stop at the last complete line: decoding may not split a multi-byte character (these
         // transcripts are full of CJK), and the next scan then resumes on a line boundary.
         let complete: Data
@@ -164,21 +226,29 @@ extension TranscriptWatcher {
             complete = raw[raw.startIndex...newline]
         } else if raw.count == forkScanBytes {
             forkScanOffsets[id] = start + UInt64(raw.count)   // one line past a whole block: step over it
-            return false
+            return .unresolved
         } else {
-            return false   // the last line is still being written; read it whole next time
+            return .unresolved   // the last line is still being written; read it whole next time
         }
         forkScanOffsets[id] = start + UInt64(complete.count)
-        guard let text = String(data: complete, encoding: .utf8) else { return false }
+        guard let text = String(data: complete, encoding: .utf8) else { return .unresolved }
         for line in text.split(separator: "\n") {
-            guard line.contains("\"session_id\":\"\(parent)\""),
+            guard line.contains("\"session_id\"") || line.contains("\"type\":\"assistant\""),
                   let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))
-                      as? [String: Any],
-                  object["session_id"] as? String == parent,
-                  object["sessionId"] as? String == id else { continue }
-            forkMarked.insert(id)
-            return true
+                      as? [String: Any] else { continue }
+            let launchedWith = object["session_id"] as? String
+            if launchedWith == parent, object["sessionId"] as? String == id {
+                forkMarked.insert(id)
+                return .fork
+            }
+            // Anything else this line can carry was written by another conversation: a launch id
+            // (somebody else's, or ours stamped into a file that is not this one) or a turn, which
+            // cannot be ours before the conversation has moved here. Either ends the ambiguity.
+            if launchedWith != nil || object["type"] as? String == "assistant" {
+                forkSibling.insert(id)
+                return .sibling
+            }
         }
-        return false
+        return .unresolved
     }
 }

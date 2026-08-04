@@ -91,6 +91,17 @@ struct TranscriptWatcher {
     /// Candidates already proven to carry the marker, so proving it costs one read, not one per
     /// scan (and so a proof can never be scanned past and lost).
     var forkMarked: Set<String> = []
+    /// Candidates already proven to be another conversation, for the same reason. Deliberately NOT
+    /// cleared on an adoption the way `forkMarked` is: being a sibling is a fact about the file and
+    /// this child's CONSTANT launch id, not about which file the watcher is bound to, and the
+    /// offsets are cleared there - so re-proving it would re-read every sibling in the directory
+    /// from byte zero on every move.
+    var forkSibling: Set<String> = []
+    /// True while a transcript written more recently than the bound one cannot yet be told apart
+    /// from the file this conversation moved to - a `/clear` with no turn typed into it yet
+    /// (TranscriptFork.swift). Holds `isQuiet` false, so every non-urgent relaunch waits instead of
+    /// resuming an id the conversation may have just left.
+    var hasUnresolvedFork = false
     /// True once the ambiguity warning has been said, so it is said once rather than every scan.
     var forkAmbiguityWarned = false
     /// The last open-turn scan, keyed by the file it read and the mtime it read it at.
@@ -183,8 +194,15 @@ struct TranscriptWatcher {
     ///
     /// Quiet therefore means all three: the file silent for `seconds`, no tool call still waiting,
     /// and the newest subagent silent for `subagentIdleSeconds`.
+    ///
+    /// A fourth condition comes from the other direction and is not about the bound file at all:
+    /// while a NEWER transcript in this directory cannot yet be told apart from the file the
+    /// conversation just moved to (a `/clear` that has not been typed into), the bound file's
+    /// silence proves nothing, because it may be silent for having been abandoned. The answer is no
+    /// until that resolves - see the hold note in TranscriptFork.swift.
     mutating func isQuiet(_ seconds: TimeInterval = 5) -> Bool {
         locateFile()
+        if hasUnresolvedFork { return false }
         return isBoundFileQuiet(seconds)
     }
 

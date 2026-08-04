@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 2
+    nonisolated static let skillVersion = 3
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -69,7 +69,9 @@ extension IntegrationsStore {
           `demandPerWeek`, `accountCount`), largest first, and always adds back up to it.
           Read it whenever it holds more than one plan: accounts are interchangeable only
           within a tier, so "0.9 on Pro and 1.0 on Team" is the answer and their 1.9 is
-          not a plan anyone can buy. An empty list means no plan was published.
+          not a plan anyone can buy. A snapshot that names no plan yields ONE tier with a
+          null `plan` carrying the whole figure, not an empty list, so the array can always
+          be summed; the list is empty only when there are no weekly samples at all.
 
         Guidance:
 

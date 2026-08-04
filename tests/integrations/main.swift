@@ -150,9 +150,9 @@ try MainActor.assumeIsolated {
     check("an undecodable skills/tally is refused, not clobbered",
           refusedJunk && junkAfter == junk)
 
-    // MARK: skill content - the v2 advisor guidance, and the repo-wide no-em-dash rule.
+    // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 2", IntegrationsStore.skillVersion == 2)
+    check("skill is at version 3", IntegrationsStore.skillVersion == 3)
     check("skill teaches the advisor field", currentSkill.contains("advisor.<provider>"))
     check("skill spells out every verdict",
           currentSkill.contains("`collecting`") && currentSkill.contains("`addAccount`")
@@ -163,6 +163,19 @@ try MainActor.assumeIsolated {
               && currentSkill.contains("daysOfData"))
     check("skill answers the capacity question from the advisor",
           currentSkill.contains("should I add an account"))
+    // The prompt is a contract with a reader that cannot check the source. What the CLI actually
+    // emits for a snapshot naming no plan is ONE tier with a null `plan` (asserted behaviourally in
+    // the advisor suite, documented on `StatusReport.Advisor.tierDemands`), so a skill that promised
+    // an empty list there taught a sum and an emptiness check that never fire.
+    // Read as prose rather than as lines: the markdown is hard-wrapped, so any sentence in it can
+    // be re-flowed by an edit that changes nothing a reader would notice.
+    let skillProse = currentSkill.split(separator: "\n")
+        .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+    check("skill states the no-plan case the CLI actually emits",
+          skillProse.contains(
+            "yields ONE tier with a null `plan` carrying the whole figure, not an empty list"))
+    check("…and reserves the empty list for having no weekly samples",
+          skillProse.contains("the list is empty only when there are no weekly samples at all"))
     check("skill carries no em dash", !currentSkill.contains("\u{2014}"))
 
     // MARK: auto-update - old installs follow the app, absent and foreign files never do.

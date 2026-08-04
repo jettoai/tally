@@ -45,7 +45,12 @@ extension PopoverRootView {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            if !visibleAccounts.isEmpty {
+            // The same question the fleet strip's own divider asks (FleetStripView): not "are there
+            // visible cards" but "is the account region drawn at all". A grouped layout with every
+            // provider folded still draws its headings, and this strip has to be separated from them
+            // exactly as it is from the cards; only when nothing follows would this divider land
+            // against the footer's and draw as a doubled line.
+            if showsAccountRegion {
                 Divider()
             }
         }

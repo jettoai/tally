@@ -314,66 +314,18 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                 quarantine: quarantine, watcher: &watcher,
                                 keyboardIdle: { keyboard.idle($0) })
 
-            // The session's ACTUAL model degraded away from the declared primary (claude fell
-            // back server-side - e.g. the flagship weekly ran dry). Flagship-first response:
-            // a sibling whose flagship window still has real room takes the conversation and
-            // KEEPS the primary model. Not for pinned sessions (a pin means "this account"),
-            // and under the same fuse as every automatic handoff.
-            // The expectation is what THIS session was launched with (a hand-typed --model
-            // outranks the configured default - a deliberate haiku session must not be
-            // "rescued" back to fable). Skipped during a safeguard drift: that switch is the
-            // API's deliberate fallback, not a quota drain a sibling account would cure.
-            if plan == nil, !drift.isActive, let primary = effectivePrimary?.lowercased(),
-               let actual = watcher.lastModel?.lowercased(),
-               !actual.contains(primary), policy.mode != "manual", fuse.allows(),
-               watcher.isQuiet() {
-                let (snapshot, _) = loadSnapshot()
-                // Account-switching only cures QUOTA degradation. If THIS account's flagship
-                // window still has real room, the cause is something a sibling shares too
-                // (live case 2026-07-20: the session's context outgrew the flagship's
-                // subscription tier - every account hits that same wall), so switching would
-                // just churn the fuse. Skip; if quota IS the cause, the next poll's snapshot
-                // shows this account dry and the rescue proceeds. Score the target against the
-                // EFFECTIVE primary (a hand-typed --model outranks the configured default).
-                let currentDry = (snapshot?.accounts
-                    .first { $0.id == account.id }?.modelRemaining).map { $0 <= 5 } ?? true
-                let excluded = quarantinedAccounts(forPrimary: effectivePrimary,
-                                                   sessionLocal: quarantine)
-                let rescue = !currentDry ? nil : snapshot?.accounts
-                    .filter { $0.provider == provider.id
-                        && eligible($0, primaryModel: effectivePrimary)
-                        && $0.id != account.id && ($0.modelRemaining ?? 0) > 5
-                        && !excluded.contains($0.id) }
-                    .max {
-                        smartScore($0, primaryModel: effectivePrimary)
-                            < smartScore($1, primaryModel: effectivePrimary)
-                    }
-                if let rescue {
-                    warn("\(actual) took over from \(primary) → moving to \(rescue.label) " +
-                         "to stay on \(primary) (\(pickReason(rescue, primaryModel: effectivePrimary)))")
-                    plan = RelaunchPlan(target: rescue, reason: "degraded", countsFuse: true)
-                }
-            }
-
-            // Fallback profile: no sibling can serve the primary model, so accept the
-            // configured fallback - a weaker model can deserve a different depth and extra
-            // flags, so relaunch ONCE with the fallback pairing - same account, same
-            // conversation. Deliberate configuration, no fuse.
-            if plan == nil, !drift.isActive, !fallbackApplied,
-               let fallbackList = policy.fallbackModel,
-               policy.fallbackEffort != nil || policy.fallbackArgs != nil,
-               let actual = watcher.lastModel?.lowercased(),
-               effectivePrimary.map({ !actual.contains($0.lowercased()) }) ?? true,
-               let matched = fallbackList.split(separator: ",")
-                   .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() })
-                   .first(where: { !$0.isEmpty && actual.contains($0) }),
-               watcher.isQuiet() {
-                warn("model fell back to \(actual) → applying fallback profile")
-                let extra = policy.fallbackArgs?.split(separator: " ").map(String.init) ?? []
-                plan = RelaunchPlan(target: account, reason: "fallback", countsFuse: false,
-                                    model: matched, effort: policy.fallbackEffort, extraArgs: extra)
-                fallbackApplied = true
-            }
+            // The session's ACTUAL model is no longer the one it was launched for (claude fell back
+            // server-side - e.g. the flagship weekly ran dry). Two ordered answers, at most one per
+            // tick: move to a sibling that can still serve the model, else accept the configured
+            // fallback pairing here. Both rules, and why they skip a safeguard drift, live in
+            // ModelDegradation.swift.
+            applyDegradationRescue(plan: &plan, watcher: &watcher, driftActive: drift.isActive,
+                                   policy: policy, account: account, providerID: provider.id,
+                                   primaryModel: effectivePrimary, quarantine: quarantine,
+                                   fuseAllows: fuse.allows())
+            applyFallbackProfile(plan: &plan, applied: &fallbackApplied, watcher: &watcher,
+                                 driftActive: drift.isActive, policy: policy, account: account,
+                                 primaryModel: effectivePrimary)
 
             // Safeguard-fallback restore: the API fell this session onto a fallback model and left
             // it at its own default depth, so put the declared depth back at an idle moment - on

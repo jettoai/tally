@@ -185,8 +185,14 @@ func runPendingNoticeChecks() {
     let reloadSource = (try? String(contentsOfFile: "TallyCLI/Reload.swift", encoding: .utf8)) ?? ""
     let driftSource = (try? String(contentsOfFile: "TallyCLI/DriftMonitor.swift",
                                    encoding: .utf8)) ?? ""
+    // The two quota-degradation responses moved to ModelDegradation.swift; the announcement one of
+    // them makes moved with them, so the assertion follows the code rather than the file it used
+    // to live in (same treatment the follow branches got below).
+    let degradationSource = (try? String(contentsOfFile: "TallyCLI/ModelDegradation.swift",
+                                         encoding: .utf8)) ?? ""
     check("the sources are readable from the pending-notice checks",
-          !loop.isEmpty && !reloadSource.isEmpty && !driftSource.isEmpty)
+          !loop.isEmpty && !reloadSource.isEmpty && !driftSource.isEmpty
+              && !degradationSource.isEmpty)
     func section(_ source: String, from opening: String, to closing: String) -> String? {
         guard let start = source.range(of: opening),
               let end = source.range(of: closing, range: start.upperBound ..< source.endIndex)
@@ -244,7 +250,8 @@ func runPendingNoticeChecks() {
                          "model fell back to",
                          "pinned in Tally → switching to"] {
         let source = announcement.hasPrefix("reload") ? reloadSource
-            : announcement.hasPrefix("launch default") ? followSource : loop
+            : announcement.hasPrefix("launch default") ? followSource
+            : announcement.hasPrefix("model fell back") ? degradationSource : loop
         check("\"\(announcement)\" still speaks, because the child is about to go",
               source.contains("warn(\"\(announcement)") || source.contains("\(announcement)"))
     }

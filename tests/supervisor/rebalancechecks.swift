@@ -419,7 +419,10 @@ func runRebalanceChecks() {
           loop.contains("nearly dry, moving to") && loop.contains("before the wall"))
     // Placement: last of the account moves (every other one is repairing something), and it goes
     // through the shared plan, which is what makes a pending self-update fold into its restart.
-    if let rebalance = at("// Idle rebalance:"), let fallback = at("// Fallback profile:"),
+    // The fallback marker is the CALL to the fallback profile: the rule itself moved to
+    // ModelDegradation.swift, and what this asserts is where it sits in the tick, which is the
+    // call site. Same question, same answer, one file further out.
+    if let rebalance = at("// Idle rebalance:"), let fallback = at("applyFallbackProfile("),
        let selfUpdate = at("// The app updated under this supervisor"),
        let execution = at("// Execute the tick's one relaunch") {
         check("the rebalance is considered after every repair path", fallback < rebalance)

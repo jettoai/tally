@@ -352,6 +352,30 @@ expect(menuSource.contains("RenewLoginStore.shared.canRenew(")
        "the menu entry greys out for an account Tally cannot renew, and while one is running")
 expect(settingsSource.contains("AccountActionsMenu(accountID: item.id"),
        "and the Settings list offers those same entries instead of carrying a second copy")
+// The destructive entry is gated on the same fact, and for a sharper reason: the CLI is writing a
+// credential into the very folder "Remove account…" moves to the Trash.
+if let removeEntry = menuSource.range(of: "RemoveAccountAction.present(") {
+    expect(menuSource.range(of: "RenewLoginStore.shared.isRenewing(accountID)",
+                            range: removeEntry.upperBound ..< menuSource.endIndex) != nil,
+           "removing an account is off while a login is running against its config home")
+} else {
+    expect(false, "the removal entry was found in the shared menu")
+}
+// The row bridges the gap between a renewal reporting success and discovery agreeing: the store
+// stamps the success before it drops the in-flight flag, and the row reads that stamp.
+expect(functionBody(storeSource, from: "func renew(accountID: String, providerID:")
+        .map { body in
+            guard let ran = body.range(of: "await RenewLoginRunner.run"),
+                  let stamp = body.range(of: "succeededAt[accountID] = Date()",
+                                         range: ran.upperBound ..< body.endIndex),
+                  let drop = body.range(of: "inFlight.remove(accountID)",
+                                        range: ran.upperBound ..< body.endIndex)
+            else { return false }
+            return stamp.upperBound <= drop.lowerBound
+        } == true,
+       "a success is written down BEFORE the flag that was hiding the offer comes off")
+expect(settingsSource.contains("renewalSucceededAt: RenewLoginStore.shared.renewalSucceededAt(item.id)"),
+       "and the row asks for it, so a just-renewed account cannot be signed in twice")
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

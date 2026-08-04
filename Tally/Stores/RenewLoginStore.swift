@@ -20,6 +20,13 @@ final class RenewLoginStore {
 
     func isRenewing(_ accountID: String) -> Bool { inFlight.contains(accountID) }
 
+    /// When a renewal last reported success, per account. Read by the row to bridge the moments
+    /// between the CLI signing in and discovery agreeing that it did (AccountSignIn.swift owns the
+    /// rule and the bug it closes).
+    private(set) var succeededAt: [String: Date] = [:]
+
+    func renewalSucceededAt(_ accountID: String) -> Date? { succeededAt[accountID] }
+
     /// Whether Tally knows how to renew this account at all: a config home to point at, a login
     /// command for the provider, and the name of the variable that selects the home.
     ///
@@ -57,6 +64,9 @@ final class RenewLoginStore {
         // Before anything asynchronous can happen, so the card is already marked by the time the
         // menu closes: a click that produces no visible change reads as a broken button.
         inFlight.insert(accountID)
+        // A previous success is over: this attempt's own outcome is the only one the row should be
+        // bridging, or an old stamp would still be settling a renewal that has since been retried.
+        succeededAt[accountID] = nil
         Task {
             let announced = await SystemAlert.post(
                 title: "\(label) · " + L("Renewing login"),
@@ -79,6 +89,10 @@ final class RenewLoginStore {
             }
             let outcome = await RenewLoginRunner.run(executable: executable, plan: plan,
                                                     environment: environment)
+            // Stamped BEFORE the in-flight flag drops, in the same synchronous step: the instant
+            // that flag goes the row re-renders and asks again, while discovery still has this
+            // account down as signed out (AccountSignIn.swift).
+            if case .renewed = outcome { succeededAt[accountID] = Date() }
             inFlight.remove(accountID)
             switch outcome {
             case .renewed:

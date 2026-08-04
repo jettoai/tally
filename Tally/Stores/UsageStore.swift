@@ -289,6 +289,10 @@ final class UsageStore {
         accounts = (merged + carried)
             .filter { enabledNow.contains($0.providerID) && SettingsStore.shared.isAccountEnabled($0.id) }
             .sorted { ($0.providerID, $0.accountLabel) < ($1.providerID, $1.accountLabel) }
+        // Who each polled account turned out to be, written down before the filter above can make
+        // it unaskable: only enabled accounts are polled, so this round is the only chance to learn
+        // an address that a switched-off row will still want to show (AccountIdentity.swift).
+        LoginStatusStore.shared.rememberIdentities(merged)
         isRefreshing = false
         lastRefreshedAt = Date()
         if results.contains(where: { $0.error == nil }) {
@@ -396,6 +400,7 @@ final class UsageStore {
         lastPublishedAccounts.removeAll { $0.id == accountID }
         lastLaunchHomes[accountID] = nil
         removals.remove(accountID)
+        LoginStatusStore.shared.forgetIdentity(accountID: accountID)
         hideAccounts { $0.id == accountID }
         // The snapshot the CLI launches from still names this account until the refresh behind the
         // removal lands - which is 10-20 seconds of `tally` being able to exec into the Trash.

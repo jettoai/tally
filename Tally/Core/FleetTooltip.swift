@@ -69,6 +69,26 @@ enum FleetTooltip {
             nextRefill: leading.refills.first)
     }
 
+    /// Which reading the refill line gives: a countdown to the instant, or the instant itself.
+    /// The view formats whichever this picks, so the CHOICE can be tested without a window.
+    enum RefillValue: Equatable {
+        /// Seconds from now, already floored (a refill inside the next minute still reads "1m"
+        /// rather than counting seconds down to zero).
+        case countdown(TimeInterval)
+        case clock(Date)
+    }
+
+    /// Countdown or clock, from the user's global reset-display preference (`DisplaySettings.swift`)
+    /// - the same preference every reset label on the panel follows, toggled by clicking any of
+    /// them. The hover used to answer with a countdown unconditionally, so a user who had switched
+    /// the whole app to exact times got one line still counting down (codex review, 2026-08-04).
+    static func refillValue(_ refill: FleetPool.Refill, style: ResetDisplay,
+                            now: Date) -> RefillValue {
+        style == .absolute
+            ? .clock(refill.at)
+            : .countdown(max(60, refill.at.timeIntervalSince(now)))
+    }
+
     /// The worst member across the fleet's weekly-cycle pools. Ties break toward the pool listed
     /// first, which is `FleetMath`'s own order rather than anything this decides.
     ///

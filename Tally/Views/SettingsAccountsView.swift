@@ -179,7 +179,8 @@ struct SettingsAccountsView: View {
         let signIn = AccountSignIn.state(
             isRenewing: RenewLoginStore.shared.isRenewing(item.id),
             isExpired: LoginStatusStore.shared.isExpired(item.id),
-            isDormant: item.isDormant)
+            isDormant: item.isDormant,
+            renewalSucceededAt: RenewLoginStore.shared.renewalSucceededAt(item.id))
         return HStack(spacing: 10) {
             // No reserved column for single-account providers: their name starts where the
             // number badges start, so every row's HEAD lines up on one vertical line.
@@ -213,7 +214,12 @@ struct SettingsAccountsView: View {
                 // unreadable ("albert.…er.com", measured in the window, 2026-08-04). A line of its
                 // own fits the addresses people actually have; middle truncation keeps the domain
                 // for the ones it does not.
-                if let email = usage.flatMap({ LoginStatusStore.shared.identityEmail($0) }) {
+                //
+                // Asked by ACCOUNT ID, not off the usage row: a disabled account has no usage row
+                // at all (it is never polled), and this list is exactly where its address is worth
+                // reading. The store answers from what it last knew (AccountIdentity.swift).
+                if let email = LoginStatusStore.shared.identityEmail(accountID: item.id,
+                                                                     polled: usage?.accountEmail) {
                     Text(email)
                         .font(.caption)
                         .foregroundStyle(.secondary)

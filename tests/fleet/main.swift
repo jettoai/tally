@@ -319,6 +319,29 @@ do {
            "a session-only fleet still gets an answer")
 }
 
+// 18c. The refill line follows the panel's global reset-display preference, like every other reset
+// label. A hover still counting down while the whole app shows exact times is one surface speaking
+// a format the user switched away from.
+do {
+    let now = Date(timeIntervalSince1970: 1_000_000)
+    let at = now.addingTimeInterval(2 * 86_400 + 3_600)
+    let refill = FleetPool.Refill(at: at, accountLabel: "c1", gain: 40)
+    expect(FleetTooltip.refillValue(refill, style: .relative, now: now)
+            == .countdown(2 * 86_400 + 3_600),
+           "the countdown preference reads as time remaining")
+    expect(FleetTooltip.refillValue(refill, style: .absolute, now: now) == .clock(at),
+           "the absolute preference reads as the instant itself, in the hover too")
+    // A refill already due (or seconds away) still reads as a minute rather than counting to zero,
+    // which is the floor the strip's own label uses.
+    expect(FleetTooltip.refillValue(FleetPool.Refill(at: now, accountLabel: "c1", gain: 40),
+                                    style: .relative, now: now) == .countdown(60),
+           "a refill inside the next minute floors at one minute")
+    // The floor is about the countdown only: an exact time is a fact, not a duration.
+    expect(FleetTooltip.refillValue(FleetPool.Refill(at: now, accountLabel: "c1", gain: 40),
+                                    style: .absolute, now: now) == .clock(now),
+           "and it does not move the clock reading")
+}
+
 // 18b. Degenerate inputs answer nothing rather than trapping.
 do {
     let s = summarize([

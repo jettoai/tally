@@ -366,6 +366,15 @@ extension PopoverRootView {
     /// below, and repeating them made the hover a wall of text whose useful half was the part that
     /// was NOT already on screen. What the selection means and why these three lines lives in
     /// FleetTooltip.swift; this turns its answer into words and colours.
+    /// The value column of the hover's refill line. Digits only: which account it belongs to is
+    /// already the label beside it, so the strip's whole sentence would say the name twice.
+    private func refillBody(_ value: FleetTooltip.RefillValue) -> String {
+        switch value {
+        case .countdown(let seconds): return UsageFormat.durationBody(seconds)
+        case .clock(let at): return UsageFormat.absoluteBody(at)
+        }
+    }
+
     private func fleetTooltipBlocks(_ summaries: [FleetSummary]) -> [TallyTooltipBlock] {
         summaries.compactMap { summary in
             guard let model = FleetTooltip.model(summary, displayed: displayedPools(summary))
@@ -399,9 +408,13 @@ extension PopoverRootView {
                     severity: tightest.severity))
             }
             if let refill = model.nextRefill {
+                // Countdown or clock, whichever the panel is currently speaking in: this is the
+                // same global preference the strip's own refill label and every reset label on the
+                // cards follow, so one hover cannot answer in the other format.
                 rows.append(TallyTooltipRow(
                     L("Next refill") + " · " + refill.accountLabel,
-                    UsageFormat.durationBody(max(60, refill.at.timeIntervalSince(Date())))))
+                    refillBody(FleetTooltip.refillValue(refill, style: settings.resetDisplay,
+                                                        now: Date()))))
             }
             return TallyTooltipBlock(
                 title: "\(ProviderCatalog.displayName(for: summary.providerID)) ×\(model.accountCount)",

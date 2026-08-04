@@ -86,7 +86,13 @@ struct AccountActionsMenu: View {
             }
             // Demo fixtures stand for accounts that do not exist on this machine (a marketing
             // capture must not be able to move a real folder anywhere).
-            .disabled(DemoUsage.isActive)
+            //
+            // Nor while a login is running against this very home: the provider's CLI is writing a
+            // credential into the folder this entry moves to the Trash, and the two racing leave
+            // either a half-written login in the Trash or a recreated home nobody asked for. The
+            // renewal entry above is greyed for the same reason, and a destructive one has more
+            // reason to be, not less (codex review, 2026-08-04).
+            .disabled(DemoUsage.isActive || RenewLoginStore.shared.isRenewing(accountID))
         }
     }
 }

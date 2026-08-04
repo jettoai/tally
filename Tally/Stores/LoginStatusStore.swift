@@ -3,8 +3,10 @@ import Observation
 import UserNotifications
 
 /// Whether each account is still signed in on this machine, asked of the providers' own CLIs after
-/// a refresh. Owns three things and nothing else: the per-account verdict the cards read, the
-/// email the probe named along the way, and the once-per-outage notification.
+/// a refresh. Owns four things and nothing else: the per-account verdict the cards read, the email
+/// the probe named along the way, the remembered answer to "who is this account?" that outlives a
+/// switched-off account and a relaunch (AccountIdentity.swift), and the once-per-outage
+/// notification.
 ///
 /// It keeps no timer: the existing refresh loop drives it, throttled to its own interval because a
 /// credential does not change as often as a quota does.
@@ -30,6 +32,11 @@ final class LoginStatusStore {
     /// because a round that could not name the account knows less than the previous one did.
     private var emails: [String: String] = [:]
 
+    /// The last address known for each account, across launches (AccountIdentity.swift). Separate
+    /// from `emails` above on purpose: that one is THIS run's probe answer and outranks the copy a
+    /// provider derived, while this is a memory of last resort that must never outrank a live one.
+    private var identities: AccountIdentityMemory
+
     /// How often the probe may run. Far longer than the usage interval can be set to, because a
     /// login is not a quota: it changes when the user changes it, and the state that matters
     /// (expired) is not one an extra minute of freshness improves.
@@ -41,7 +48,9 @@ final class LoginStatusStore {
 
     private let stateKey = "ai.jetto.tally.loginStatus.state"
 
-    private init() {}
+    private init() {
+        identities = Self.loadIdentities()
+    }
 
     /// Whether this account's card should say its login expired. Demo mode answers from the fixture
     /// instead: those cards have no config home, so nothing was ever probed for them.
@@ -57,16 +66,44 @@ final class LoginStatusStore {
     /// to the config-derived one rather than showing nothing.
     func email(_ accountID: String) -> String? { emails[accountID] }
 
-    /// Who an account is signed in as, for a surface that wants to show it: the probe's live answer
-    /// first, then whatever the provider could read out of its own config home (`accountEmail`,
-    /// which for Codex is the only source there is - its CLI names no account). Nil when neither
-    /// knows, and a caller that renders this shows NOTHING there rather than an empty line.
-    ///
-    /// One chain, asked from every surface. The card's tooltip and the Settings row are the same
-    /// question about the same account, and a second copy of the ordering would eventually answer
-    /// it differently on one of them.
+    /// Who an account is signed in as, for a surface that wants to show it. One chain, asked from
+    /// every surface: the card's tooltip and the Settings row are the same question about the same
+    /// account, and a second copy of the ordering would eventually answer it differently on one of
+    /// them. The ordering itself lives in `AccountIdentity.email`.
     func identityEmail(_ usage: AccountUsage) -> String? {
-        email(usage.id) ?? usage.accountEmail
+        identityEmail(accountID: usage.id, polled: usage.accountEmail)
+    }
+
+    /// The same question about an account that has no usage row at all - a disabled one, which is
+    /// never polled and so has nothing live to ask. That is the case the memory exists for.
+    func identityEmail(accountID: String, polled: String?) -> String? {
+        AccountIdentity.email(probe: emails[accountID], polled: polled,
+                              remembered: identities.email(accountID))
+    }
+
+    /// Write down who this round's poll named, so the answer survives the account being switched
+    /// off (or the app being relaunched).
+    func rememberIdentities(_ accounts: [AccountUsage]) {
+        remember(accounts.map { ($0.id, emails[$0.id] ?? $0.accountEmail) })
+    }
+
+    /// One round's worth of "who is this account", and at most one write for the lot: the
+    /// overwhelmingly common round says exactly what the last one said (AccountIdentityMemory
+    /// answers whether anything actually moved).
+    private func remember(_ named: [(accountID: String, email: String?)]) {
+        var changed = false
+        for entry in named {
+            changed = identities.remember(accountID: entry.accountID, email: entry.email) || changed
+        }
+        if changed { persistIdentities() }
+    }
+
+    /// The account was removed outright, so its remembered address goes with it - a recreated home
+    /// takes the same id (see `AccountIdentityMemory.forget`).
+    func forgetIdentity(accountID: String) {
+        emails[accountID] = nil
+        guard identities.forget(accountID: accountID) else { return }
+        persistIdentities()
     }
 
     /// Accounts a login was just attempted on, which may force a round past the interval
@@ -181,6 +218,7 @@ final class LoginStatusStore {
             verdicts[id] = reading.verdict
             if let email = reading.email { emails[id] = email }
         }
+        remember(fresh.map { ($0.key, $0.value.email) })
         let roundVerdicts = fresh.mapValues(\.verdict)
         announce(verdicts: roundVerdicts, accounts: accounts, known: known)
 
@@ -294,5 +332,23 @@ final class LoginStatusStore {
     private func saveState(_ state: LoginAlertState) {
         guard let data = try? JSONEncoder().encode(state) else { return }
         UserDefaults.standard.set(data, forKey: stateKey)
+    }
+
+    /// The remembered addresses, in defaults beside the rest of the app's non-secret state (the
+    /// same place `KnownAccountsStore` keeps the accounts themselves). Persisted rather than held
+    /// in memory for the same reason that one is: every update relaunches the app, and an account
+    /// switched off before the last quit would otherwise be exactly as nameless as before.
+    private static let identitiesKey = "ai.jetto.tally.accountIdentities"
+
+    private static func loadIdentities() -> AccountIdentityMemory {
+        guard let data = UserDefaults.standard.data(forKey: identitiesKey),
+              let memory = try? JSONDecoder().decode(AccountIdentityMemory.self, from: data)
+        else { return AccountIdentityMemory() }
+        return memory
+    }
+
+    private func persistIdentities() {
+        guard let data = try? JSONEncoder().encode(identities) else { return }
+        UserDefaults.standard.set(data, forKey: Self.identitiesKey)
     }
 }

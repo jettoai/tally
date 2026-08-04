@@ -371,15 +371,38 @@ if let renewing = cardSource.range(of: "RenewLoginStore.shared.isRenewing(usage.
 }
 expect(cardSource.contains("RenewLoginStore.shared.canRenew(providerID: usage.providerID, home: configHome)"),
        "the chip greys out where the menu entry does, asked of the same place")
-// The identity chain (live probe answer first, the provider's config-derived copy as the fallback)
-// lives in the STORE, because two surfaces render it now - the card's tooltip and the Settings row.
+// The identity chain (live probe answer first, this round's poll next, the remembered address
+// last) lives in the STORE, because two surfaces render it now - the card's tooltip and the
+// Settings row. The ordering itself is `AccountIdentity.email`, asserted behaviourally in the
+// accountrow suite; what this suite pins is that nobody re-derives it.
 let settingsSource = readSource("Tally/Views/SettingsAccountsView.swift")
-expect(storeSource.contains("email(usage.id) ?? usage.accountEmail") && !settingsSource.isEmpty,
-       "the identity chain prefers the CLI's live answer over the config file's stale copy")
+expect(storeSource.contains("AccountIdentity.email(probe:") && !settingsSource.isEmpty,
+       "the identity chain is the one shared ordering rather than a second copy in the store")
 expect(cardSource.contains("LoginStatusStore.shared.identityEmail(usage)")
-        && settingsSource.contains("LoginStatusStore.shared.identityEmail($0)")
+        && settingsSource.contains("LoginStatusStore.shared.identityEmail(accountID: item.id,")
         && !cardSource.contains("usage.accountEmail"),
        "and both surfaces ask that one chain instead of each reaching past it to the fallback")
+// The Settings row asks by account id rather than off a usage row, because the row that most needs
+// an address is the one with no usage row at all: a disabled account is never polled.
+expect(!settingsSource.contains("usage.flatMap({ LoginStatusStore.shared.identityEmail"),
+       "a switched-off row asks who it is instead of going silent with its usage")
+expect(storeSource.contains("func rememberIdentities(") && storeSource.contains("func forgetIdentity("),
+       "the store both writes down what a round learned and drops it when the account is removed")
+// Both live sources feed the memory, not just the poll: the probe asks the provider's own CLI, and
+// its answer is the freshest one there is - losing it would leave a switched-off account naming
+// itself from a staler round than the app actually had.
+if let probeRound = storeSource.range(of: "for (id, reading) in fresh {"),
+   let announced = storeSource.range(of: "announce(verdicts: roundVerdicts") {
+    expect(storeSource.range(of: "remember(",
+                             range: probeRound.upperBound ..< announced.lowerBound) != nil,
+           "a probe round writes its answer into the memory as well as into this run's cache")
+} else {
+    expect(false, "the probe round's own bookkeeping was found to read")
+}
+let usageStoreSource = readSource("Tally/Stores/UsageStore.swift")
+expect(usageStoreSource.contains("LoginStatusStore.shared.rememberIdentities(merged)")
+        && usageStoreSource.contains("LoginStatusStore.shared.forgetIdentity(accountID: accountID)"),
+       "and the refresh is what feeds it, while a removal is what clears it")
 
 // The surfaces that STEER A LAUNCH have to ask `launchableHome` rather than read the renewal home:
 // a pin is denormalized into the policy file the CLI reads, the smart badge predicts what the CLI

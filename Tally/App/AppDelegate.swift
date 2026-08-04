@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusItemController = StatusItemController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        applyPreviewAppearance()
         // Notification delegate first: a response can arrive the instant the app is up (the user
         // clicked a banked-reset hint that launched it), and the action button only exists if its
         // category was registered before the alert landed.
@@ -58,6 +59,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // one path into a renewal that no card is involved in.
         if UserDefaults.standard.bool(forKey: "TallyLoginExpiryTest") {
             LoginStatusStore.shared.postSampleNotification()
+        }
+    }
+
+    /// Design-capture hook (demo/dev builds only, argument domain so nothing persists):
+    /// `-TallyAppearance light` / `dark` pins THIS instance to one scheme, leaving every other app
+    /// - and the user's own Tally - exactly as they were.
+    ///
+    /// It exists because both of the alternatives are worse. A scheme cannot be forced from
+    /// outside: AppKit resolves `AppleInterfaceStyle` through CFPreferences, which never consults
+    /// NSUserDefaults' argument domain, and writing it into the app's own domain does not move an
+    /// app that follows the system either (both measured, 2026-08-04). What is left is flipping the
+    /// SYSTEM setting, which repaints every window the user is looking at - the same "do not take
+    /// the desktop away from them" rule that put the other capture flags here
+    /// (~/.claude/docs/patterns/macos-app-verification.md). Same family as `-TallyDemoData`,
+    /// `-TallyUpdateChip` and `-TallyTooltipPreview`.
+    private func applyPreviewAppearance() {
+        guard DemoUsage.isActive || BuildVariant.isDev,
+              let raw = UserDefaults.standard.string(forKey: "TallyAppearance")?.lowercased()
+        else { return }
+        switch raw {
+        case "light", "aqua": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: break   // anything else leaves the app following the system, as it always does
         }
     }
 

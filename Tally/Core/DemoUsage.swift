@@ -14,14 +14,23 @@ enum DemoUsage {
     /// second line exists to make.
     static let tooltipPreviewAccountID = "codex:demo-Codex 4"
 
+    /// The one fixture whose home is NOT under the user's own directory: a `CODEX_HOME` pointed
+    /// somewhere else, which the env var allows today. It is the fixture the callout preview holds
+    /// open, so the capture that checks this feature checks the shortened form the rule produces
+    /// for such a path (`…/codex-team`, AccountIdentity.homeName) rather than only `~/.codexN`.
+    private static let customHomes = [tooltipPreviewAccountID: "/Volumes/work/codex-team"]
+
     /// The config home a fixture stands for (`~/.codex4`), for that second line.
     ///
     /// Derived from the label the same way `tally add` numbers real homes, rather than stored: the
-    /// fixtures ARE their labels, and a parallel table would be one more thing to keep in step.
-    /// Asked only by the identity line - a fixture still has no `launchHome` anywhere discovery can
-    /// see, so every action that would touch a folder stays greyed out on a demo card.
+    /// fixtures ARE their labels, and a parallel table would be one more thing to keep in step -
+    /// bar the one above, which is deliberately not derivable. Asked only by the identity line - a
+    /// fixture still has no `launchHome` anywhere discovery can see, so every action that would
+    /// touch a folder stays greyed out on a demo card.
     static func launchHome(accountID: String) -> String? {
-        guard isActive, let separator = accountID.range(of: ":demo-") else { return nil }
+        guard isActive else { return nil }
+        if let custom = customHomes[accountID] { return custom }
+        guard let separator = accountID.range(of: ":demo-") else { return nil }
         let base = accountID.hasPrefix("claude:") ? ".claude" : ".codex"
         let number = accountID[separator.upperBound...].filter(\.isNumber)
         return NSHomeDirectory() + "/\(base)\(number)"

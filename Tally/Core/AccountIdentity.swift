@@ -50,8 +50,40 @@ enum AccountIdentity {
     /// the account owner's short name into a screenshot.
     ///
     /// The home directory is a parameter so the rule can be tested against a fixture rather than
-    /// against whichever machine runs the test. A path outside it is left exactly as it is.
+    /// against whichever machine runs the test.
+    ///
+    /// A home that is not under it at all - a `CODEX_HOME` pointed at another volume, which the env
+    /// var already allows today - keeps only its last segment (`/Volumes/work/codex-team` →
+    /// `…/codex-team`). Returning those in full was the bug this rule is shaped around: the card's
+    /// callout sizes itself to its text and would run past the 380pt panel it lives in, and the
+    /// Settings row would truncate from the END, cutting off the directory name that is the entire
+    /// reason the home is on screen. Two accounts would stop being distinguishable again, in exactly
+    /// the case the feature exists for (codex review of e2f3325, 2026-08-04).
+    ///
+    /// The last segment is never itself shortened: whatever the user called that directory IS the
+    /// discriminator, and a `…/codex-te…` names neither account.
     static func homeName(_ path: String, userHome: String = NSHomeDirectory()) -> String {
+        let short = underHome(path, userHome: userHome)
+        guard short.count > homeNameLimit else { return short }
+        // A path with no parent to drop (`/opt`, or a bare name) has nothing this can shorten, and
+        // an ellipsis longer than what it replaces would be a longer answer, not a shorter one.
+        let tail = (short as NSString).lastPathComponent
+        guard tail.count + 2 < short.count else { return short }
+        return "…/" + tail
+    }
+
+    /// How long a home may be before it is worth shortening. Sized from the surface with the least
+    /// room: the card's callout shares the 380pt panel, where the structured callout beside it is
+    /// laid out at 240pt (TallyTooltip.blocksWidth) - about 43 characters at the caption size both
+    /// are drawn in. A plan and its separator take ten of those, and the rest is deliberately not
+    /// spent to the last character: the Settings row shows this beside a name it would otherwise
+    /// truncate, and that row is the tighter of the two. Not a view constant, because this file
+    /// compiles on its own for the tests - which is also why the number is written down here with
+    /// its reason rather than derived.
+    private static let homeNameLimit = 20
+
+    /// The `~` form, or the path unchanged when it is somewhere else entirely.
+    private static func underHome(_ path: String, userHome: String) -> String {
         guard !userHome.isEmpty else { return path }
         if path == userHome { return "~" }
         guard path.hasPrefix(userHome + "/") else { return path }

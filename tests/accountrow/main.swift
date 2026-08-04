@@ -201,12 +201,52 @@ check("the home directory itself is just the tilde",
 // A path that merely STARTS with the home directory's characters is a different directory, and
 // abbreviating it would produce a path that does not exist.
 check("a sibling directory with a longer name is left alone",
+      AccountIdentity.homeName("/Users/fix2/.codex", userHome: "/Users/fix") == "/Users/fix2/.codex")
+// Said the other way for the longer one, which the length rule below shortens: whatever it comes
+// back as, it must not be the tilde form, because that would name a directory nobody has.
+check("and a long one is still not read as being inside the home",
       AccountIdentity.homeName("/Users/fixture2/.codex", userHome: "/Users/fixture")
-          == "/Users/fixture2/.codex")
+          .hasPrefix("~") == false)
 check("a path outside the home is left as it is",
       AccountIdentity.homeName("/opt/codex", userHome: "/Users/fixture") == "/opt/codex")
-check("and nothing is abbreviated against no home at all",
-      AccountIdentity.homeName("/Users/fixture/.codex", userHome: "") == "/Users/fixture/.codex")
+check("and no tilde is invented when there is no home to speak of",
+      AccountIdentity.homeName("/opt/codex", userHome: "") == "/opt/codex")
+
+// MARK: - …and a home that is somewhere else entirely (a custom CODEX_HOME)
+
+// Returning one of these in full is what the rule is shaped around: the card's callout sizes itself
+// to its text and would run past the 380pt panel, and the Settings row truncates from the END -
+// which cuts off the directory name that is the whole reason the home is on screen.
+check("a long home outside the user's own keeps its last segment",
+      AccountIdentity.homeName("/Volumes/work/codex-team", userHome: "/Users/fixture")
+          == "…/codex-team")
+// The segment itself is never shortened: whatever the user called that directory IS the answer.
+check("and that segment is never itself cut",
+      AccountIdentity.homeName("/Volumes/shared/clients/acme/codex-home-for-acme",
+                               userHome: "/Users/fixture") == "…/codex-home-for-acme")
+// Short enough to read as it is: an ellipsis would cost information and buy nothing.
+check("a short outside home is left whole",
+      AccountIdentity.homeName("/opt/codex", userHome: "/Users/fixture") == "/opt/codex")
+check("and so is one directly under the root",
+      AccountIdentity.homeName("/opt", userHome: "/Users/fixture") == "/opt")
+// Nothing to drop, so nothing is dropped - an ellipsis longer than what it replaces is not shorter.
+check("a long single-segment path has no parent to give up",
+      AccountIdentity.homeName("/codex-home-on-this-machine-for-work", userHome: "/Users/fixture")
+          == "/codex-home-on-this-machine-for-work")
+check("a trailing slash is not mistaken for the last segment",
+      AccountIdentity.homeName("/Volumes/work/codex-team/", userHome: "/Users/fixture")
+          == "…/codex-team")
+// The same cap applies under the home too: a deep custom home there overflows the same callout.
+check("a long home under the user's own is shortened the same way",
+      AccountIdentity.homeName("/Users/fixture/Documents/work/codex-team", userHome: "/Users/fixture")
+          == "…/codex-team")
+
+// The point of all of it: an outside home and a numbered one still read as two different accounts.
+check("an outside home and a numbered one stay apart",
+      AccountIdentity.detail(plan: "Team", home: "/Volumes/work/codex-team")
+          != AccountIdentity.detail(plan: "Team", home: NSHomeDirectory() + "/.codex2"))
+check("and the outside one reads as a plan and a place",
+      AccountIdentity.detail(plan: "Team", home: "/Volumes/work/codex-team") == "Team · …/codex-team")
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

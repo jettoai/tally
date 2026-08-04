@@ -85,6 +85,18 @@ struct ForkFixture {
         #"{"type":"attachment","sessionId":"\#(own)","attachment":{"type":"hook","payload":{"session_id":"\#(id)"}}}"#
     }
 
+    /// A candidate that OPENS with a single line bigger than one scan block, with a multi-byte
+    /// character straddling the block boundary exactly, and its real turn behind that line. The
+    /// first scan steps over the oversized line and leaves the offset inside the character, so the
+    /// next block begins on a truncated scalar: decoding that block whole fails, and the turn behind
+    /// it is never read again. `head + filler` is one byte short of the boundary, so the three bytes
+    /// of the CJK character sit at `forkScanBytes - 1`, `forkScanBytes` and `forkScanBytes + 1`.
+    func straddlingLines(own: String) -> [String] {
+        let head = #"{"type":"attachment","sessionId":"\#(own)","note":""#
+        let filler = String(repeating: "x", count: forkScanBytes - 1 - head.utf8.count)
+        return [head + filler + #"中x"}"#, plainTurn(own: own)]
+    }
+
     /// A real turn carrying NO `session_id` at all - the shape of 49 of this machine's 367 recent
     /// transcripts, so "no marker" can never be the test for an unresolved candidate.
     func plainTurn(own: String, at offset: TimeInterval = 60) -> String {
@@ -397,4 +409,67 @@ func runForkChecks() {
     check("an empty candidate written before the bound file does not hold",
           older2Watcher.isQuiet(60))
     check("and the hold flag says so too", !older2Watcher.hasUnresolvedFork)
+
+    // MARK: - 8b. The scan that sets the hold is throttled; the plan execution point is not
+
+    // The flag only moves when the fork scan runs, and the scan behind `isQuiet` stands down for
+    // `forkScanInterval` after each pass. A `/clear` landing inside that window is invisible to it,
+    // while the 5s bar (pin switch, degradation rescue, fallback profile) is long satisfied - so
+    // the restart goes ahead on the id from before the clear and the conversation snaps back, which
+    // is the whole defect, entering through a different door. The plan execution point re-asks with
+    // the FORCED scan, which has no throttle, before anything is terminated.
+    let blind = ForkFixture("throttle-blind")
+    blind.write("parent.jsonl", ["{}"], born: -3600, wrote: -580)
+    var blindWatcher = blind.watcher(pinnedTo: "parent")
+    check("a first scan finds nothing and arms the throttle", blindWatcher.isQuiet(5))
+    blind.write("cleared.jsonl", blind.clearedLines(own: "cleared"), born: 30, wrote: 120)
+    check("inside the interval the throttled scan is still blind to the new transcript",
+          blindWatcher.isQuiet(5))
+    check("so the quiet gate alone would have let the restart through",
+          !blindWatcher.hasUnresolvedFork)
+    blindWatcher.locateFile(forceForkCheck: true)
+    check("the forced pre-flight sees it", blindWatcher.hasUnresolvedFork)
+    check("and a non-urgent plan stands down on it",
+          relaunchHeldByUnresolvedFork(reason: "pin", unresolvedFork: blindWatcher.hasUnresolvedFork))
+    check("a cap handoff is never held: an empty session cannot have capped, and the capped "
+          + "conversation is the bound file",
+          !relaunchHeldByUnresolvedFork(reason: "cap", unresolvedFork: blindWatcher.hasUnresolvedFork))
+    check("and nothing is held once the scan is clear",
+          !relaunchHeldByUnresolvedFork(reason: "pin", unresolvedFork: false))
+    // The rule is only worth anything where the restart happens, and the order there is the point:
+    // forced scan, then the question, then the kill. `performHandoff` forces a scan of its own, but
+    // it runs AFTER the SIGTERM, which is too late to change its mind.
+    let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("the supervisor source is readable from the suite", !loop.isEmpty)
+    if let start = loop.range(of: "if let plan {"),
+       let kill = loop.range(of: "performHandoff(to: plan.target",
+                             range: start.upperBound ..< loop.endIndex) {
+        let preflight = String(loop[start.upperBound ..< kill.lowerBound])
+        check("the plan execution point forces its own fork scan",
+              preflight.contains("locateFile(forceForkCheck: true)"))
+        check("and asks the hold before it terminates anything",
+              preflight.contains("relaunchHeldByUnresolvedFork"))
+        check("a held plan stands the tick down rather than falling through to the kill",
+              preflight.contains("continue"))
+    } else {
+        check("the plan execution point was found", false)
+    }
+
+    // MARK: - 8c. A line bigger than one scan block must not swallow the evidence behind it
+
+    // Stepping over an oversized opening line leaves the offset inside a multi-byte character, so
+    // the next block starts on a truncated scalar. Decoding that block as one string fails, and the
+    // offset has already moved: the turn sitting behind the big line would never be read again and
+    // the hold would never lift, freezing self-update and reload for the life of the session.
+    let straddle = ForkFixture("oversized-line")
+    straddle.write("parent.jsonl", ["{}"], born: -3600, wrote: -580)
+    straddle.write("huge.jsonl", straddle.straddlingLines(own: "huge"), born: 30, wrote: 120)
+    var straddleWatcher = straddle.watcher(pinnedTo: "parent")
+    check("a candidate whose first line fills a whole block holds while it is stepped over",
+          !straddleWatcher.isQuiet(60))
+    straddleWatcher.nextForkScan = .distantPast
+    check("the next scan reads the turn behind the straddling character and releases the hold",
+          straddleWatcher.isQuiet(60))
+    check("and the candidate is settled as a sibling, not left unresolved",
+          !straddleWatcher.hasUnresolvedFork)
 }

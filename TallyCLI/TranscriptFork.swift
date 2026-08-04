@@ -69,6 +69,16 @@ import Foundation
 // defers non-urgent relaunches until somebody uses it. Deferral is already their default posture -
 // each one waits for a quiet transcript, a quiet keyboard and a finished tool call as it is.
 //
+// `isQuiet` alone is NOT enough to carry that hold, which is the second half of the rule. The flag
+// behind it is set by the fork scan, and the scan the quiet gate runs is the cheap one: it stands
+// down while the bound file is still being written and then again for `forkScanInterval`. A `/clear`
+// landing inside that window leaves the flag false while the 5s bar (the pin switch, the degradation
+// rescue, the fallback profile) is already satisfied - so the tick restarts on the id from before
+// the clear, and the conversation snaps back exactly as it did before this hold existed, just
+// through a different door. The plan execution point therefore re-asks with the FORCED scan, which
+// has no throttle, immediately before anything is terminated (`performHandoff` forces one too, but
+// only after the SIGTERM, which is too late to change its mind).
+//
 // A constant key opens one failure mode the chained key could not have: once the newest fork is
 // bound, the earlier and now dead fork still carries the same marker and would be adopted straight
 // back, bouncing the watcher onto a file that stopped growing. Hence a candidate is adopted only
@@ -102,6 +112,22 @@ enum ForkEvidence {
     /// Neither yet: no assistant event and no `session_id` anywhere in it. What a `/clear` leaves
     /// behind until its first real turn lands.
     case unresolved
+}
+
+/// Whether a relaunch this tick has already planned must stand down, asked at the execution point
+/// against a FORCED fork scan (see the hold note above - the throttled scan behind `isQuiet` can
+/// still be blind to a `/clear` from seconds ago).
+///
+/// Standing down costs a poll interval and nothing else: every path that plans a relaunch keeps its
+/// own pending state and re-plans on the next tick, so the deferral resolves itself the moment the
+/// new transcript writes its first turn.
+///
+/// A cap handoff is exempt, for the same reason it never waits for quiet: a session with no turn in
+/// it cannot have hit a cap, so the conversation the cap belongs to is the bound file, and that is
+/// what the handoff has to resume. Holding it back would strand a capped session on a dry account
+/// for as long as somebody leaves a fresh tab open.
+func relaunchHeldByUnresolvedFork(reason: String, unresolvedFork: Bool) -> Bool {
+    unresolvedFork && reason != "cap"
 }
 
 extension TranscriptWatcher {
@@ -231,10 +257,18 @@ extension TranscriptWatcher {
             return .unresolved   // the last line is still being written; read it whole next time
         }
         forkScanOffsets[id] = start + UInt64(complete.count)
-        guard let text = String(data: complete, encoding: .utf8) else { return .unresolved }
-        for line in text.split(separator: "\n") {
+        // Decoded line by line, never as one block. A candidate can OPEN with a single line larger
+        // than a whole block (a big attachment, a tool result), and the step-over above then leaves
+        // the offset inside a multi-byte character; the next block starts on a truncated scalar, and
+        // decoding it whole fails - taking every complete line behind it down with it, permanently,
+        // because the offset has already moved past them. That is a hold nothing can ever release:
+        // the file's real turn sits in bytes the scan will not read again. A transcript is valid
+        // UTF-8, so only the straddling fragment fails to decode; skip it and read the rest.
+        for chunk in complete.split(separator: 0x0A) {
+            let bytes = Data(chunk)
+            guard let line = String(data: bytes, encoding: .utf8) else { continue }
             guard line.contains("\"session_id\"") || line.contains("\"type\":\"assistant\""),
-                  let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))
+                  let object = try? JSONSerialization.jsonObject(with: bytes)
                       as? [String: Any] else { continue }
             let launchedWith = object["session_id"] as? String
             if launchedWith == parent, object["sessionId"] as? String == id {

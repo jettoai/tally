@@ -178,6 +178,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // need is whether stamps arrive in RUNS (typing) or alone (terminal chatter), and that is
         // only visible across successive readings (KeyboardIdle.swift).
         var keyboard = KeyboardActivity()
+        /// Said once per child rather than on every 2s tick a plan is stood down: the planners keep
+        /// re-planning while they wait, and the child is drawing on this terminal. Never reset -
+        /// the only way out of the hold is a relaunch, and that child gets a fresh one of these.
+        var unresolvedHoldWarned = false
 
         pollChild()
         while childStatus == nil {
@@ -467,6 +471,23 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // terminated, and against the account the plan moves TO, so the new build resumes the
             // conversation where this handoff is about to put it rather than on the old account.
             if let plan {
+                // Last look before anything is terminated, and a FORCED one: the scan behind the
+                // quiet gate is throttled, so a `/clear` from the last few seconds can still be
+                // invisible to it while the 5s bar this plan cleared is long satisfied. Restarting
+                // there resumes the id from before the clear and snaps the conversation back
+                // (TranscriptFork.swift). This may also adopt a fork that has just stamped its
+                // marker, which is the same insurance seen from the other side: the relaunch then
+                // resumes the file the conversation is actually in.
+                watcher.locateFile(forceForkCheck: true)
+                if relaunchHeldByUnresolvedFork(reason: plan.reason,
+                                                unresolvedFork: watcher.hasUnresolvedFork) {
+                    if !unresolvedHoldWarned {
+                        warn("a new session file here has no turn in it yet - holding the restart " +
+                             "until it is clear where this conversation went")
+                        unresolvedHoldWarned = true
+                    }
+                    continue   // the child keeps running; every planner re-plans on the next tick
+                }
                 carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)
                 let upgrade = selfUpdateFold(captured: supervisorVersion,
                                              attempted: selfUpdateAttempted,

@@ -11,7 +11,9 @@ import Foundation
 ///
 /// A renewal in flight outranks both, and that is the rule rather than an ordering accident: the
 /// card learned it first (a chip offering to start a sign-in that is already running, 2026-08-03),
-/// and a second surface must not answer it differently.
+/// and a second surface must not answer it differently. "In flight" is the STORE's answer, not a
+/// window's: it covers the running login and the settling one alike (`RenewalSettling` below), so
+/// no surface has to know that a renewal has an afterglow.
 ///
 /// Pure, so the rule is testable without a store, a CLI, or a window.
 enum AccountSignIn {
@@ -25,29 +27,72 @@ enum AccountSignIn {
         case renewing
     }
 
-    /// How long a renewal that already reported success keeps the row from offering another one
-    /// while discovery catches up. Long enough for a refresh that was queued behind another to
-    /// finish (the poll takes 10-20s and a user-initiated one can be coalesced into the round
-    /// already running), short enough that a login which silently did not land is offered again
-    /// rather than leaving the row saying "renewing" forever.
-    static let settleWindow: TimeInterval = 90
-
-    /// `renewalSucceededAt` is when a renewal last reported success for this account, and it is
-    /// here because of a gap the other three inputs cannot see. On success the store drops the
-    /// in-flight flag and clears the expired verdict at once, but DISCOVERY - the other source of
-    /// "signed out" - only catches up when the refresh behind it finishes. In between, the row had
-    /// all three inputs saying "offer a sign-in" about an account that had just been signed in, and
-    /// a second click fired a second login against the same config home (codex review, 2026-08-04).
-    ///
-    /// Only dormancy is bridged: an expired verdict is cleared synchronously by the same success,
-    /// so a row still reading "expired" after one is reporting something this does not know about.
-    static func state(isRenewing: Bool, isExpired: Bool, isDormant: Bool,
-                      renewalSucceededAt: Date? = nil, now: Date = Date()) -> State {
+    static func state(isRenewing: Bool, isExpired: Bool, isDormant: Bool) -> State {
         if isRenewing { return .renewing }
-        if isDormant, let succeeded = renewalSucceededAt,
-           now.timeIntervalSince(succeeded) < settleWindow {
-            return .renewing
-        }
         return isExpired || isDormant ? .needsSignIn : .signedIn
+    }
+
+}
+
+/// The accounts whose renewal reported success while discovery still had them signed out.
+///
+/// The gap is real and it is not small: on success the store drops the in-flight flag and clears the
+/// expired verdict at once, but discovery only catches up when the refresh behind it finishes, and a
+/// refresh coalesced into one already running returns immediately without having re-discovered
+/// anything. In that window every input said "offer a sign-in" about an account that had just been
+/// signed in, and a second click fired a second login against the same config home.
+///
+/// It lives beside the store's in-flight set rather than in any view, because the offer has four
+/// entry points (the card's chip, the Settings row's button, both context menus, and the expiry
+/// notification's action) and the first version of this fix guarded exactly one of them (codex
+/// review, 2026-08-04). One set, one predicate, asked by all of them.
+///
+/// Pure for the same reason the state rule above is: the lifecycle - who joins, who leaves, and on
+/// what evidence - is testable without a login, a timer, or a window.
+struct RenewalSettling: Equatable {
+    /// How long an account stays settling before the offer comes back. Long enough for a refresh
+    /// that was queued behind another to finish (the poll takes 10-20s and a user-initiated one can
+    /// be coalesced into the round already running), short enough that a login which silently did
+    /// not land is offered again rather than leaving every surface saying "renewing" forever. The
+    /// deadline is the safety net; discovery agreeing is the normal way out.
+    static let window: TimeInterval = 90
+
+    private var accounts: Set<String> = []
+
+    init(_ accounts: Set<String> = []) {
+        self.accounts = accounts
+    }
+
+    func contains(_ accountID: String) -> Bool { accounts.contains(accountID) }
+
+    /// A renewal reported success. Only an account discovery STILL calls signed out joins: for any
+    /// other one the expired verdict was cleared by the same success, synchronously, so there is no
+    /// gap to cover and "renewing" would be an invented state rather than a closed race.
+    ///
+    /// Answers whether anything changed, so the caller can skip scheduling a deadline it either
+    /// already has running or does not need at all.
+    @discardableResult
+    mutating func begin(_ accountID: String, isDormant: Bool) -> Bool {
+        guard isDormant else { return false }
+        return accounts.insert(accountID).inserted
+    }
+
+    /// Stop settling this one: the deadline ran out (the login reported success but nothing landed,
+    /// so the offer has to come back) or the account is gone.
+    @discardableResult
+    mutating func end(_ accountID: String) -> Bool {
+        accounts.remove(accountID) != nil
+    }
+
+    /// Discovery spoke. Every settling account it no longer calls dormant has landed, so it stops
+    /// settling NOW rather than sitting out the rest of its deadline: the common case is that the
+    /// login worked, and a row that keeps saying "renewing" for another minute after the account is
+    /// demonstrably back is its own kind of wrong.
+    @discardableResult
+    mutating func discovered(dormant: Set<String>) -> Bool {
+        let next = accounts.intersection(dormant)
+        guard next != accounts else { return false }
+        accounts = next
+        return true
     }
 }

@@ -179,8 +179,7 @@ struct SettingsAccountsView: View {
         let signIn = AccountSignIn.state(
             isRenewing: RenewLoginStore.shared.isRenewing(item.id),
             isExpired: LoginStatusStore.shared.isExpired(item.id),
-            isDormant: item.isDormant,
-            renewalSucceededAt: RenewLoginStore.shared.renewalSucceededAt(item.id))
+            isDormant: item.isDormant)
         return HStack(spacing: 10) {
             // No reserved column for single-account providers: their name starts where the
             // number badges start, so every row's HEAD lines up on one vertical line.
@@ -369,7 +368,8 @@ struct SettingsAccountsView: View {
             .buttonStyle(.plain)
             // Greyed where the menu entry is: a demo fixture has no config home behind it, so a
             // chip must never look more able than the action it starts.
-            .disabled(!renew.canRenew(providerID: item.providerID, home: item.launchHome))
+            .disabled(!renew.canRenew(accountID: item.id, providerID: item.providerID,
+                                      home: item.launchHome))
             .help(L("Sign in again to bring this account's usage back."))
         }
     }

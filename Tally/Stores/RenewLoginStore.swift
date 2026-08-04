@@ -14,26 +14,42 @@ import Observation
 final class RenewLoginStore {
     static let shared = RenewLoginStore()
 
-    /// Accounts with a login running right now: what greys the menu entry (one login per account -
-    /// two racing each other would write the same credential twice) and marks the card.
+    /// Accounts with a login running right now: two racing each other would write the same
+    /// credential twice.
     private(set) var inFlight: Set<String> = []
 
-    func isRenewing(_ accountID: String) -> Bool { inFlight.contains(accountID) }
+    /// …and the ones whose login has succeeded but whose discovery has not caught up yet
+    /// (AccountSignIn.swift owns that rule and the bug it closes). Observable state, so the moment
+    /// an account leaves this set every surface showing it re-renders on its own - the first
+    /// version compared a deadline against `Date()` inside a view body, which nothing schedules a
+    /// redraw for, so an expired settle could sit on screen until the next poll (codex review,
+    /// 2026-08-04).
+    private var settling = RenewalSettling()
 
-    /// When a renewal last reported success, per account. Read by the row to bridge the moments
-    /// between the CLI signing in and discovery agreeing that it did (AccountSignIn.swift owns the
-    /// rule and the bug it closes).
-    private(set) var succeededAt: [String: Date] = [:]
+    /// One deadline task per settling account, so a second renewal replaces the first's rather than
+    /// racing it.
+    private var settleTasks: [String: Task<Void, Never>] = [:]
 
-    func renewalSucceededAt(_ accountID: String) -> Date? { succeededAt[accountID] }
+    /// Whether a login is happening for this account: running, or succeeded and still settling.
+    /// THE question every surface asks - the card's chip, the Settings row, both context menus and
+    /// the notification's action all read this one answer rather than each assembling their own.
+    func isRenewing(_ accountID: String) -> Bool {
+        inFlight.contains(accountID) || settling.contains(accountID)
+    }
 
-    /// Whether Tally knows how to renew this account at all: a config home to point at, a login
-    /// command for the provider, and the name of the variable that selects the home.
+    /// Whether Tally can renew this account RIGHT NOW: it knows how (a config home to point at, a
+    /// login command for the provider, and the name of the variable that selects the home) and
+    /// nothing is already doing it.
     ///
     /// Never in demo mode. Those cards are fixtures with no config home behind them, so the entry
     /// could only ever fail, and a menu item that cannot work must not look like one that can.
-    func canRenew(providerID: String, home: String?) -> Bool {
-        !DemoUsage.isActive && home != nil
+    ///
+    /// The account id is part of the question rather than something each caller checks afterwards:
+    /// every entry point that offers a renewal disables itself on this one answer, and the entry
+    /// that has no UI to disable (the expiry notification's button) is caught by the same rule
+    /// inside `renew` below.
+    func canRenew(accountID: String, providerID: String, home: String?) -> Bool {
+        !DemoUsage.isActive && home != nil && !isRenewing(accountID)
             && RenewLoginCommand.plan(providerID: providerID) != nil
             && IntegrationsStore.Shim(rawValue: providerID) != nil
     }
@@ -52,7 +68,10 @@ final class RenewLoginStore {
     }
 
     func renew(accountID: String, providerID: String, label: String, home: String) {
-        guard !inFlight.contains(accountID),
+        // `isRenewing`, not the in-flight set: an account whose renewal just succeeded is still
+        // being resolved, and the surface that gets here without a button to disable (the expiry
+        // notification's action) has nothing else standing between it and a second login.
+        guard !isRenewing(accountID),
               let plan = RenewLoginCommand.plan(providerID: providerID),
               // The config-home variable, read from the same place the PATH shims read it, so a
               // third spelling of CLAUDE_CONFIG_DIR / CODEX_HOME can never drift in.
@@ -64,9 +83,9 @@ final class RenewLoginStore {
         // Before anything asynchronous can happen, so the card is already marked by the time the
         // menu closes: a click that produces no visible change reads as a broken button.
         inFlight.insert(accountID)
-        // A previous success is over: this attempt's own outcome is the only one the row should be
-        // bridging, or an old stamp would still be settling a renewal that has since been retried.
-        succeededAt[accountID] = nil
+        // A previous success is over: this attempt's own outcome is the only one worth settling,
+        // or an old deadline would still be running against a renewal that has since been retried.
+        endSettling(accountID)
         Task {
             let announced = await SystemAlert.post(
                 title: "\(label) · " + L("Renewing login"),
@@ -89,10 +108,10 @@ final class RenewLoginStore {
             }
             let outcome = await RenewLoginRunner.run(executable: executable, plan: plan,
                                                     environment: environment)
-            // Stamped BEFORE the in-flight flag drops, in the same synchronous step: the instant
-            // that flag goes the row re-renders and asks again, while discovery still has this
-            // account down as signed out (AccountSignIn.swift).
-            if case .renewed = outcome { succeededAt[accountID] = Date() }
+            // Entered BEFORE the in-flight flag drops, in the same synchronous step: the instant
+            // that flag goes every surface re-renders and offers the sign-in again, while discovery
+            // still has this account down as signed out (AccountSignIn.swift).
+            if case .renewed = outcome { beginSettling(accountID) }
             inFlight.remove(accountID)
             switch outcome {
             case .renewed:
@@ -122,6 +141,41 @@ final class RenewLoginStore {
                         ? L("A Terminal window is open on the same command, so you can finish it there.")
                         : L("The login command is on the clipboard: paste it into a terminal.")))
             }
+        }
+    }
+
+    // MARK: The settling window
+
+    /// A renewal reported success. Which accounts that is worth bridging for is the set's own rule
+    /// (`RenewalSettling.begin`); all this contributes is what discovery currently says.
+    private func beginSettling(_ accountID: String) {
+        let isDormant = UsageStore.shared.discoveredAccounts
+            .first { $0.id == accountID }?.isDormant == true
+        guard settling.begin(accountID, isDormant: isDormant) else { return }
+        settleTasks[accountID]?.cancel()
+        // The deadline is a scheduled change of state, not a timestamp for a view to compare
+        // against: when it fires it MUTATES the set, which is what makes every surface redraw. A
+        // view reading a clock would have gone on saying "renewing" until something else happened
+        // to redraw it, which at the poll interval the user can set is up to fifteen minutes.
+        settleTasks[accountID] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(RenewalSettling.window))
+            guard !Task.isCancelled else { return }
+            self?.endSettling(accountID)
+        }
+    }
+
+    private func endSettling(_ accountID: String) {
+        settleTasks.removeValue(forKey: accountID)?.cancel()
+        settling.end(accountID)
+    }
+
+    /// Discovery spoke, and it is the better witness: an account it no longer calls dormant is
+    /// signed in again, so its settling ends now instead of running out the deadline. Called with
+    /// the whole round (`UsageStore.refresh`), so no account can be forgotten by a caller.
+    func discoveryReported(dormant: Set<String>) {
+        guard settling.discovered(dormant: dormant) else { return }
+        for id in settleTasks.keys.filter({ !settling.contains($0) }) {
+            settleTasks.removeValue(forKey: id)?.cancel()
         }
     }
 

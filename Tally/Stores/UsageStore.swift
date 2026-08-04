@@ -269,7 +269,12 @@ final class UsageStore {
         // denormalized into the policy file the `tally` CLI reads, and nothing there asks whether
         // the login is still good. Every dormant account, not just the enabled ones - a switched-off
         // account is not a launchable one either.
-        LaunchPolicyStore.shared.releasePinnedHome(dormant: Set(dormant.map(\.id)))
+        let dormantIDs = Set(dormant.map(\.id))
+        LaunchPolicyStore.shared.releasePinnedHome(dormant: dormantIDs)
+        // Discovery is the witness a settling renewal is waiting for: an account that is no longer
+        // dormant is signed in again, so the "renewing" it is still showing everywhere ends here
+        // rather than running out its deadline (RenewLoginStore.discoveryReported).
+        RenewLoginStore.shared.discoveryReported(dormant: dormantIDs)
 
         // The enablement set may have changed while the CLIs ran: keep rows of providers enabled
         // NOW that this round didn't fetch (the queued follow-up replaces them with live data),

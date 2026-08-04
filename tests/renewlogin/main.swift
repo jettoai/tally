@@ -345,13 +345,41 @@ expect(functionBody(storeSource, from: "func canRenew(")?.contains("DemoUsage.is
        "demo fixtures have no config home, so the entry is dead on those cards by construction")
 expect(cardSource.contains("RenewLoginStore.shared.isRenewing(usage.id)"),
        "the card itself reads the in-flight state, which is the signal that needs no permission")
-// The entries are a standalone view now (the Settings account list offers the same three), so they
-// read the account they were handed rather than a card's `usage` - the gating itself is unchanged.
-expect(menuSource.contains("RenewLoginStore.shared.canRenew(")
-        && menuSource.contains("RenewLoginStore.shared.isRenewing(accountID)"),
-       "the menu entry greys out for an account Tally cannot renew, and while one is running")
+
+// MARK: - One busy answer, asked by every entry point
+
+// A renewal can be started from four places, and a fix that guarded one of them left the other
+// three racing (codex review, 2026-08-04). So the store owns the whole question - running OR still
+// settling - and every surface disables itself on that one answer rather than assembling its own.
+expect(functionBody(storeSource, from: "func isRenewing(")
+        .map { $0.contains("inFlight.contains(accountID)") && $0.contains("settling.contains(accountID)") }
+        == true,
+       "the store's one busy answer covers the running login AND the settling one")
+expect(functionBody(storeSource, from: "func canRenew(")?.contains("!isRenewing(accountID)") == true,
+       "and every offer that greys itself out asks that answer, not just the in-flight set")
+// Entry 1, the card's expiry chip.
+expect(cardSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id,"),
+       "the card's chip is dead while this account is being signed in")
+// Entry 2, the Settings row's button.
+expect(settingsSource.contains("renew.canRenew(accountID: item.id,"),
+       "so is the Settings row's button")
+// Entry 3, the shared context menu (card right-click and the row's ellipsis both render it).
+expect(menuSource.contains("RenewLoginStore.shared.canRenew(accountID: accountID,")
+        && !menuSource.contains("canRenew(providerID:"),
+       "and the menu entry, through the same call rather than a second condition beside it")
 expect(settingsSource.contains("AccountActionsMenu(accountID: item.id"),
        "and the Settings list offers those same entries instead of carrying a second copy")
+// Entry 4 has no control to disable: the expiry notification's button calls straight in. It is
+// caught by the guard at the top of `renew` itself, which is why that guard must not read the
+// in-flight set directly either.
+expect(functionBody(storeSource, from: "func renew(accountID: String, providerID:")
+        .map { $0.contains("guard !isRenewing(accountID)") } == true,
+       "and the entry with nothing to grey out is stopped inside renew itself")
+// No surface may keep its own copy of the rule: that is the shape the first fix had.
+expect(!settingsSource.contains("renewalSucceededAt") && !cardSource.contains("renewalSucceededAt")
+        && !menuSource.contains("renewalSucceededAt"),
+       "no view works the settling out for itself from a timestamp and a clock")
+
 // The destructive entry is gated on the same fact, and for a sharper reason: the CLI is writing a
 // credential into the very folder "Remove account…" moves to the Trash.
 if let removeEntry = menuSource.range(of: "RemoveAccountAction.present(") {
@@ -361,21 +389,35 @@ if let removeEntry = menuSource.range(of: "RemoveAccountAction.present(") {
 } else {
     expect(false, "the removal entry was found in the shared menu")
 }
-// The row bridges the gap between a renewal reporting success and discovery agreeing: the store
-// stamps the success before it drops the in-flight flag, and the row reads that stamp.
+
+// MARK: - When the settling starts, and what ends it
+
 expect(functionBody(storeSource, from: "func renew(accountID: String, providerID:")
         .map { body in
             guard let ran = body.range(of: "await RenewLoginRunner.run"),
-                  let stamp = body.range(of: "succeededAt[accountID] = Date()",
+                  let begin = body.range(of: "beginSettling(accountID)",
                                          range: ran.upperBound ..< body.endIndex),
                   let drop = body.range(of: "inFlight.remove(accountID)",
                                         range: ran.upperBound ..< body.endIndex)
             else { return false }
-            return stamp.upperBound <= drop.lowerBound
+            return begin.upperBound <= drop.lowerBound
         } == true,
-       "a success is written down BEFORE the flag that was hiding the offer comes off")
-expect(settingsSource.contains("renewalSucceededAt: RenewLoginStore.shared.renewalSucceededAt(item.id)"),
-       "and the row asks for it, so a just-renewed account cannot be signed in twice")
+       "a success starts settling BEFORE the flag that was hiding the offer comes off")
+// Only an account discovery still calls signed out: for any other one the verdict was cleared by
+// the same success, so there is no gap and "renewing" would be an invented state.
+expect(functionBody(storeSource, from: "private func beginSettling(")
+        .map { $0.contains("settling.begin(accountID, isDormant: isDormant)") } == true,
+       "and it hands the set what discovery says rather than deciding for itself who settles")
+// The deadline is a scheduled STATE CHANGE, not a timestamp a view compares against: nothing
+// schedules a redraw for a clock, so an expired settle used to sit on screen until the next poll.
+expect(functionBody(storeSource, from: "private func beginSettling(")
+        .map { $0.contains("Task.sleep") && $0.contains("RenewalSettling.window")
+                && $0.contains("endSettling(accountID)") } == true,
+       "the deadline fires a change of state rather than leaving a view to notice the time")
+// …and discovery agreeing ends it sooner, which is the normal way out.
+let usageStoreSource = readSource("Tally/Stores/UsageStore.swift")
+expect(usageStoreSource.contains("RenewLoginStore.shared.discoveryReported(dormant: dormantIDs)"),
+       "every refresh tells the store what discovery found, so a landed login stops settling at once")
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

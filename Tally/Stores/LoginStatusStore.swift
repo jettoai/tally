@@ -100,8 +100,18 @@ final class LoginStatusStore {
 
     /// The account was removed outright, so its remembered address goes with it - a recreated home
     /// takes the same id (see `AccountIdentityMemory.forget`).
+    ///
+    /// Forgetting is not enough on its own. A probe round that started BEFORE the removal is still
+    /// out, and it holds a reading naming the account that used to be here; when it comes home it
+    /// would write that address straight back over this and persist it, so a `~/.codex3` recreated
+    /// tomorrow would carry the previous person's email across restarts (codex review, 2026-08-04).
+    /// So the removal is recorded the same way a landed login is - a generation bump the returning
+    /// round is judged against (`LoginProbeGate.Landings`) - and every one of that round's answers
+    /// about this account is dropped, the verdict and the probe cache along with the memory.
     func forgetIdentity(accountID: String) {
         emails[accountID] = nil
+        verdicts[accountID] = nil
+        landings.land([accountID])
         guard identities.forget(accountID: accountID) else { return }
         persistIdentities()
     }

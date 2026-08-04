@@ -223,7 +223,8 @@ struct AccountCardView: View {
         .buttonStyle(.plain)
         // Greyed on a demo fixture, which has no config home behind it - the same rule that greys
         // the menu entry, asked of the same place, so a chip can never look more able than it is.
-        .disabled(!RenewLoginStore.shared.canRenew(providerID: usage.providerID, home: configHome))
+        .disabled(!RenewLoginStore.shared.canRenew(accountID: usage.id,
+                                                   providerID: usage.providerID, home: configHome))
         .help(L("Sign in again to bring this account's usage back."))
     }
 

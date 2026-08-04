@@ -65,8 +65,8 @@ struct AccountActionsMenu: View {
             RenewLoginStore.shared.renew(accountID: accountID, providerID: providerID,
                                          label: label, home: home)
         }
-        .disabled(!RenewLoginStore.shared.canRenew(providerID: providerID, home: home)
-                  || RenewLoginStore.shared.isRenewing(accountID))
+        .disabled(!RenewLoginStore.shared.canRenew(accountID: accountID, providerID: providerID,
+                                                   home: home))
         Button(L("Open config folder")) {
             guard let home else { return }
             // Open the folder itself rather than revealing it inside its parent: every config home

@@ -23,6 +23,16 @@ func readSource(_ path: String) -> String {
     (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
 }
 
+/// One member's body, dug out by its own closing brace at type-member indentation - the way the
+/// redeem and renewal suites do it, rather than scanning a whole file where an unrelated call
+/// elsewhere in the type would read as a match.
+func functionBody(_ source: String, from declaration: String) -> String? {
+    guard let start = source.range(of: declaration),
+          let end = source.range(of: "\n    }", range: start.upperBound ..< source.endIndex)
+    else { return nil }
+    return String(source[start.upperBound ..< end.lowerBound])
+}
+
 // MARK: the probe commands
 
 expect(LoginStatusCommand.arguments(providerID: "claude") == ["--strict-mcp-config", "auth", "status"],
@@ -369,7 +379,7 @@ if let renewing = cardSource.range(of: "RenewLoginStore.shared.isRenewing(usage.
 } else {
     expect(false, "the card's two login states are one either/or, not two independent lines")
 }
-expect(cardSource.contains("RenewLoginStore.shared.canRenew(providerID: usage.providerID, home: configHome)"),
+expect(cardSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id,"),
        "the chip greys out where the menu entry does, asked of the same place")
 // The identity chain (live probe answer first, this round's poll next, the remembered address
 // last) lives in the STORE, because two surfaces render it now - the card's tooltip and the
@@ -435,7 +445,8 @@ let releaseBody = policySource.range(of: "func releasePinnedHome(").map { start 
 } ?? ""
 expect(!releaseBody.isEmpty && !releaseBody.contains("updated.pinnedAccountID = nil"),
        "…and keeps the pinned id, so renewing the login restores the choice without a second click")
-expect(usageSource.contains("LaunchPolicyStore.shared.releasePinnedHome(dormant: Set(dormant.map(\\.id)))"),
+expect(usageSource.contains("let dormantIDs = Set(dormant.map(\\.id))")
+        && usageSource.contains("LaunchPolicyStore.shared.releasePinnedHome(dormant: dormantIDs)"),
        "the refresh drives that release from the accounts it just found dormant")
 expect(pickSource.contains("func pinnedLaunchHome(_ snapshot: Snapshot?, policy: LaunchPolicy)")
         && pickSource.contains("return pinnedAccountIsSignedOut(snapshot, policy: policy) ? nil : policy.pinnedHome"),
@@ -738,6 +749,20 @@ var untouched = LoginProbeGate.Landings()
 untouched.land([])
 expect(untouched == LoginProbeGate.Landings(),
        "an empty landing is not news, and does not invalidate a round that is out")
+// The same generation machinery answers a second question, and it had to: an account REMOVED
+// while a round is out leaves that round holding a reading which names the person who used to be
+// here. Without voiding it, the reading comes home after `forgetIdentity` has run, writes the old
+// address back and PERSISTS it, so a `~/.codex3` recreated tomorrow wears the previous owner's
+// email across restarts (codex review, 2026-08-04).
+if let forget = functionBody(storeSource, from: "func forgetIdentity(accountID: String)") {
+    expect(forget.contains("landings.land([accountID])"),
+           "a removal voids the answers of every probe round already out for that account")
+    expect(forget.contains("identities.forget(accountID: accountID)")
+            && forget.contains("emails[accountID] = nil") && forget.contains("verdicts[accountID] = nil"),
+           "…and drops what this run already knew: the memory, the probe cache and the verdict")
+} else {
+    expect(false, "the removal path was found to read")
+}
 expect(storeSource.contains("let mark = landings.mark")
         && storeSource.contains("let fresh = readings.filter { !landings.isStale($0.key, since: mark) }")
         && storeSource.contains("let roundVerdicts = fresh.mapValues(\\.verdict)"),

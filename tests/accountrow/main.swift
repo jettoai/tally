@@ -42,40 +42,63 @@ check("a running renewal replaces the offer",
 check("even before either source has noticed",
       AccountSignIn.state(isRenewing: true, isExpired: false, isDormant: false) == .renewing)
 
-// MARK: - …and so does a renewal that just SUCCEEDED, until discovery agrees
+// MARK: - …and so does a renewal that just SUCCEEDED, until discovery agrees (RenewalSettling)
 
 // The race: on success the store drops the in-flight flag and clears the expired verdict in the
 // same breath, but discovery only catches up when the refresh behind it finishes - and a refresh
 // coalesced into one already running returns immediately without having re-discovered anything. In
-// that window all three original inputs said "offer a sign-in" about an account that had just been
-// signed in, and a second click fired a second login into the same config home.
-let renewedAt = Date(timeIntervalSince1970: 1_000_000)
-let justAfter = renewedAt.addingTimeInterval(2)
-check("a success still settling does not offer another sign-in",
-      AccountSignIn.state(isRenewing: false, isExpired: false, isDormant: true,
-                          renewalSucceededAt: renewedAt, now: justAfter) == .renewing)
-// The moment discovery agrees the row is done waiting - it does not sit out the rest of the window.
-check("and the row is finished the moment discovery agrees",
-      AccountSignIn.state(isRenewing: false, isExpired: false, isDormant: false,
-                          renewalSucceededAt: renewedAt, now: justAfter) == .signedIn)
-// Bounded, so a login that reported success but silently did not land is offered again rather than
-// leaving the row saying "renewing" for the rest of the session.
-check("a settle that never lands gives the offer back",
-      AccountSignIn.state(isRenewing: false, isExpired: false, isDormant: true,
-                          renewalSucceededAt: renewedAt,
-                          now: renewedAt.addingTimeInterval(AccountSignIn.settleWindow + 1))
-          == .needsSignIn)
-check("the window is long enough for a coalesced refresh to finish",
-      AccountSignIn.settleWindow >= 60)
-// An account that was never renewed is unaffected: the fourth input is absent, not false.
-check("an account with no renewal behind it is unchanged",
-      AccountSignIn.state(isRenewing: false, isExpired: false, isDormant: true,
-                          renewalSucceededAt: nil, now: justAfter) == .needsSignIn)
-// Only dormancy is bridged. An expired verdict is cleared synchronously by the same success, so a
-// row still reading "expired" after one is reporting something the settle does not know about.
-check("a fresh expiry after a successful renewal is still an expiry",
-      AccountSignIn.state(isRenewing: false, isExpired: true, isDormant: false,
-                          renewalSucceededAt: renewedAt, now: justAfter) == .needsSignIn)
+// that window every input said "offer a sign-in" about an account that had just been signed in,
+// and a second click fired a second login into the same config home.
+//
+// The set lives in the store and feeds the SAME `isRenewing` above, which is the point: the offer
+// has four entry points, and the first version of this fix guarded one of them.
+var settling = RenewalSettling()
+let renewed = "codex:.codex2"
+let other = "claude:.claude"
+
+check("an account nothing renewed is not settling", settling.contains(renewed) == false)
+check("a success starts one", settling.begin(renewed, isDormant: true))
+check("and the account counts as renewing from then on", settling.contains(renewed))
+// Only an account discovery still calls signed out: for any other one the expired verdict was
+// cleared by the same success, so there is no gap and "renewing" would be an invented state.
+check("a success on an account discovery already calls fine starts nothing",
+      settling.begin("claude:.claude3", isDormant: false) == false
+          && settling.contains("claude:.claude3") == false)
+check("the row therefore offers nothing while it settles",
+      AccountSignIn.state(isRenewing: settling.contains(renewed), isExpired: false,
+                          isDormant: true) == .renewing)
+check("starting the same one twice is not a second deadline",
+      settling.begin(renewed, isDormant: true) == false)
+check("and it says nothing about any other account", settling.contains(other) == false)
+
+// Discovery is the better witness: an account it no longer calls dormant is signed in again, so
+// the settling ends NOW rather than running out the deadline.
+settling.begin(other, isDormant: true)
+check("discovery keeps the accounts it still calls signed out",
+      settling.discovered(dormant: [renewed]) && settling.contains(renewed)
+          && settling.contains(other) == false)
+check("a round that changes nothing reports no change",
+      settling.discovered(dormant: [renewed]) == false)
+check("and the account it agreed about offers the sign-in again",
+      AccountSignIn.state(isRenewing: settling.contains(other), isExpired: false,
+                          isDormant: true) == .needsSignIn)
+
+// Bounded the other way too: a login that reported success but silently did not land has its
+// deadline run out, and the offer comes back.
+check("the deadline ends it", settling.end(renewed))
+check("ending it twice changes nothing", settling.end(renewed) == false)
+check("so the offer is back",
+      AccountSignIn.state(isRenewing: settling.contains(renewed), isExpired: false,
+                          isDormant: true) == .needsSignIn)
+check("the window is long enough for a coalesced refresh to finish", RenewalSettling.window >= 60)
+// …and short enough that it is a safety net rather than the normal path (discovery ends it first).
+check("and short enough not to be the normal way out", RenewalSettling.window <= 300)
+
+// A settling account that discovery has NOTHING to say about (it vanished entirely, which is what
+// a removal looks like) stops settling too: there is no row left to protect.
+var vanished = RenewalSettling(["codex:.codex9"])
+check("an account discovery no longer lists at all stops settling",
+      vanished.discovered(dormant: []) && vanished.contains("codex:.codex9") == false)
 
 // MARK: - Which address the row shows
 

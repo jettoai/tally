@@ -160,6 +160,15 @@ final class PinnedPanelController {
     /// the top-left contract, and covers the states where the window has not followed on its own.
     /// Putting the panel back on screen therefore cannot live here - it hangs off the resize
     /// notification instead (see `makePanel`).
+    /// The edges a content-driven resize puts back, remembered at the last move (see `ResizeAnchor`).
+    private var anchorEdges: ResizeAnchor.Edges?
+
+    /// Which corner stays still: the top left normally, the bottom right while the view-options card
+    /// is open. Same rule and same reason as the dashboard window's.
+    private var anchorCorner: ResizeAnchor.Corner {
+        SettingsStore.shared.isViewOptionsOpen ? .bottomTrailing : .topLeading
+    }
+
     private func resize(to contentSize: CGSize) {
         DispatchQueue.main.async { [weak self] in
             guard let self, let panel = self.panel else { return }
@@ -167,9 +176,12 @@ final class PinnedPanelController {
                   contentSize.width > 1, contentSize.height > 1 else { return }
             guard contentSize != panel.frame.size else { return }
             var frame = panel.frame
-            let top = frame.maxY
+            let edges = panel.resizeEdges
             frame.size = contentSize
-            frame.origin.y = top - contentSize.height   // keep the top-left fixed so a dragged position doesn't drift
+            // Origin only, from the same rule the dashboard window follows: normally the top left
+            // stays put so a dragged position doesn't drift, and while the view-options card is open
+            // the bottom right does instead so its controls stay under the pointer (`ResizeAnchor`).
+            frame.origin = ResizeAnchor.origin(for: frame, edges: edges, corner: self.anchorCorner)
             panel.setFrame(frame, display: false)
         }
     }
@@ -216,10 +228,31 @@ final class PinnedPanelController {
         // taller fleet's footer - the way to unpin, and the way to the dashboard - off the bottom
         // of the display. Hung off the notification rather than off `resize(to:)` because the
         // window mostly takes the content's size on its own, which never reaches that method.
+        // The edges to put a resize back to, refreshed at every move - which for this surface is
+        // mostly the user dragging it by the header.
+        anchorEdges = panel.resizeEdges
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: panel, queue: .main
+        ) { [weak self, weak panel] _ in
+            MainActor.assumeIsolated {
+                guard let self, let panel else { return }
+                self.anchorEdges = panel.resizeEdges
+            }
+        }
         NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: panel, queue: .main
-        ) { [weak panel] _ in
-            MainActor.assumeIsolated { panel?.clampOnScreen() }
+        ) { [weak self, weak panel] _ in
+            MainActor.assumeIsolated {
+                guard let panel else { return }
+                // Most resizes never reach `resize(to:)`: the panel usually takes the reported size
+                // itself, keeping its top left, which is right for reading and wrong while the
+                // view-options card is open. Only the bottom-right case corrects here, so the
+                // standing behaviour stays exactly what it was.
+                if let self, self.anchorCorner == .bottomTrailing, let edges = self.anchorEdges {
+                    panel.restoreAnchor(edges, corner: .bottomTrailing)
+                }
+                panel.clampOnScreen()
+            }
         }
         return panel
     }

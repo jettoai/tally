@@ -52,39 +52,47 @@ final class MainWindowController {
 
     /// Content-driven resizes (the hosting controller is the size authority here) keep the
     /// window's BOTTOM edge by AppKit default, so collapsing cards made the whole view, and the
-    /// row just clicked, drop by the height difference. Re-anchor the TOP edge instead: position
+    /// row just clicked, drop by the height difference. Re-anchor a chosen corner instead: position
     /// is corrected after each resize (origin-only, never a size write, so the layout engine's
     /// single size authority stays untouched; see the pinned panel's recursion lesson). The
     /// window has no .resizable mask, so every resize here is content-driven.
-    private var topAnchor: CGFloat?
+    ///
+    /// The edges are remembered at the last MOVE, which is the last position the user chose.
+    private var anchorEdges: ResizeAnchor.Edges?
+
+    /// Which corner to hold: normally the top left, so the header stays put and a growing fleet runs
+    /// down the screen. While the view-options card is open, the bottom right instead - every control
+    /// in that card is a resize, the card sits at the bottom right, and with the top left held it
+    /// walks out from under the pointer after every click (see `ResizeAnchor`).
+    private var anchorCorner: ResizeAnchor.Corner {
+        SettingsStore.shared.isViewOptionsOpen ? .bottomTrailing : .topLeading
+    }
 
     /// Both observers read the window on the spot (they already run on the main queue) instead of
     /// from a hopped-to Task: a deferred read sees the frame WHEN THE TASK RUNS, not when the window
     /// moved, so a move immediately followed by a content resize - exactly what opening the window
     /// does - anchored to the post-resize top and the correction then agreed with the wrong
     /// position. Correcting inside the resize also spares the user a frame painted at the old origin.
-    private func keepTopEdgeThroughResizes(_ window: NSWindow) {
-        topAnchor = window.frame.maxY
+    private func keepAnchorThroughResizes(_ window: NSWindow) {
+        anchorEdges = window.resizeEdges
         NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: window, queue: .main
         ) { [weak self, weak window] _ in
             MainActor.assumeIsolated {
                 guard let self, let window else { return }
-                self.topAnchor = window.frame.maxY
+                self.anchorEdges = window.resizeEdges
             }
         }
         NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: window, queue: .main
         ) { [weak self, weak window] _ in
             MainActor.assumeIsolated {
-                guard let self, let window, let top = self.topAnchor else { return }
-                let frame = window.frame
-                if abs(frame.maxY - top) > 0.5 {
-                    window.setFrameOrigin(NSPoint(x: frame.origin.x, y: top - frame.height))
-                }
-                // Holding the top edge is what lets a growing view run off the bottom of the
-                // display, footer first - so the same growth that needs the anchor also needs the
-                // window put back on screen (the panel does the same after its resizes).
+                guard let self, let window, let edges = self.anchorEdges else { return }
+                window.restoreAnchor(edges, corner: self.anchorCorner)
+                // Holding an edge is what lets a growing view run off the display - the footer first
+                // under the top anchor, the leading edge under the bottom-right one - so the same
+                // growth that needs the anchor also needs the window put back on screen (the panel
+                // does the same after its resizes).
                 window.clampOnScreen()
             }
         }
@@ -144,7 +152,7 @@ final class MainWindowController {
                     }
                 }
             }
-            keepTopEdgeThroughResizes(window)
+            keepAnchorThroughResizes(window)
             self.window = window
         }
         // Summoned windows follow the user: place on the pointer's screen whenever the window

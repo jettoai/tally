@@ -77,7 +77,7 @@ extension PopoverRootView {
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .help(fleetTooltip(summaries))
+            .tallyTooltip(blocks: fleetTooltipBlocks(summaries))
             // The strip's own divider separates it from the cards; with every card folded away
             // the footer's divider is next, and two adjacent dividers drew as a doubled line.
             if !visibleAccounts.isEmpty {
@@ -200,9 +200,16 @@ extension PopoverRootView {
     }
 
     private func poolDisplayName(_ pool: FleetPool) -> String {
-        switch pool.kind {
+        poolDisplayName(kind: pool.kind, modelName: pool.modelName, label: pool.label)
+    }
+
+    /// The same name from the parts alone, for a caller holding a pool's identity rather than the
+    /// pool (the hover's model). ONE implementation, so the gauge's context line and its hover can
+    /// never name the same pool two ways.
+    private func poolDisplayName(kind: MetricKind, modelName: String?, label: String) -> String {
+        switch kind {
         case .weeklyModel:
-            let model = pool.modelName ?? pool.label
+            let model = modelName ?? label
             return String(localized: "\(model) pool", bundle: AppLocale.bundle)
         case .session:
             return L("Session pool")
@@ -352,40 +359,54 @@ extension PopoverRootView {
         .frame(height: 6)
     }
 
-    /// Full breakdown: every pooled window class with its weakest account, the refill schedule,
-    /// then every account's own remaining numbers - the "how did the pool get here" detail that
-    /// would crowd the gauge.
-    private func fleetTooltip(_ summaries: [FleetSummary]) -> String {
-        summaries.map { summary in
-            var lines = ["\(ProviderCatalog.displayName(for: summary.providerID)) × \(summary.accountCount)"]
-            // The capacity-planning unit ("how many accounts' worth is left") for the leading
-            // pool - demoted from the value column, where percent is the one shared language.
-            if let pool = displayedPools(summary).first {
-                let count = "\(pool.members.count)"
-                lines.append(String(localized: "\(worth(pool.totalRemaining))/\(count) accounts' worth left",
-                                    bundle: AppLocale.bundle))
+    /// The gauge's hover, one block per provider: the capacity unit the value column gives up, the
+    /// tightest window in the fleet with the account that owns it, and the next refill.
+    ///
+    /// WHAT IS NOT HERE, deliberately: a line per account. Those numbers are on the cards directly
+    /// below, and repeating them made the hover a wall of text whose useful half was the part that
+    /// was NOT already on screen. What the selection means and why these three lines lives in
+    /// FleetTooltip.swift; this turns its answer into words and colours.
+    private func fleetTooltipBlocks(_ summaries: [FleetSummary]) -> [TallyTooltipBlock] {
+        summaries.compactMap { summary in
+            guard let model = FleetTooltip.model(summary, displayed: displayedPools(summary))
+            else { return nil }
+            var rows: [TallyTooltipRow] = [
+                TallyTooltipRow(
+                    poolDisplayName(kind: model.poolKind, modelName: model.poolModelName,
+                                    label: model.poolLabel),
+                    // The string the old wall already used, word for word, so this carries no new
+                    // translation: the capacity unit is unchanged, only where it is shown. BOTH
+                    // interpolations are Strings on purpose - the count as an Int makes the key
+                    // "%@/%lld …", which matches no entry in the catalog and silently renders the
+                    // English source in every other language (caught in the zh capture, 2026-08-04).
+                    String(localized: "\(worth(model.unitsRemaining))/\(String(model.poolAccountCount)) accounts' worth left",
+                           bundle: AppLocale.bundle))
+            ]
+            // The one thing a pooled average structurally hides: four healthy accounts and one at
+            // 3% average out fine. Named with its account, because "which of them" is the next
+            // question and the answer is two words long.
+            if let tightest = model.tightest {
+                rows.append(TallyTooltipRow(
+                    L("Tightest") + " · " + tightest.accountLabel + " "
+                        + poolDisplayName(kind: tightest.poolKind, modelName: tightest.modelName,
+                                          label: tightest.poolLabel),
+                    // Follows the Used/Left toggle like every meter in the panel: in Used mode the
+                    // card beside it reads 88%, and a hover answering 12% for the same window reads
+                    // as a different number about a different thing. The TINT still keys off
+                    // remaining, so severity never flips with the toggle - the meters' own rule.
+                    percent(settings.displayMode == .used ? 100 - tightest.remaining
+                                                          : tightest.remaining),
+                    severity: tightest.severity))
             }
-            for pool in summary.pools {
-                lines.append("\(L(pool.label)): \(percent(pool.averageRemaining)) \(L("left"))"
-                    + " · \(L("lowest")) \(pool.minAccountLabel) \(percent(pool.minRemaining))")
+            if let refill = model.nextRefill {
+                rows.append(TallyTooltipRow(
+                    L("Next refill") + " · " + refill.accountLabel,
+                    UsageFormat.durationBody(max(60, refill.at.timeIntervalSince(Date())))))
             }
-            if let refills = summary.headline?.refills, !refills.isEmpty {
-                let schedule = refills.prefix(3).compactMap { refill in
-                    UsageFormat.resetText(refill.at, style: settings.resetDisplay).map {
-                        "\(refill.accountLabel) +\(percent(refill.gain)) \($0)"
-                    }
-                }
-                lines.append(schedule.joined(separator: " · "))
-            }
-            for usage in store.orderedAccounts where usage.providerID == summary.providerID {
-                guard !usage.metrics.isEmpty else { continue }
-                let label = settings.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
-                let parts = usage.metrics.map {
-                    "\(L($0.label)) \(percent($0.remainingPercent))"
-                }
-                lines.append("\(label): \(parts.joined(separator: " · ")) \(L("left"))")
-            }
-            return lines.joined(separator: "\n")
-        }.joined(separator: "\n\n")
+            return TallyTooltipBlock(
+                title: "\(ProviderCatalog.displayName(for: summary.providerID)) ×\(model.accountCount)",
+                rows: rows)
+        }
     }
+
 }

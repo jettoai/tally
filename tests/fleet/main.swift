@@ -268,5 +268,68 @@ do {
            "model series keyed separately (lowercased)")
 }
 
+// 18. The gauge's hover (FleetTooltip): what the pooled average structurally hides.
+do {
+    let s = summarize([
+        account("c1", metrics: [metric(.weeklyAll, used: 40, resetIn: 3 * 86_400),
+                                metric(.weeklyModel, used: 97, model: "Fable")]),
+        account("c2", metrics: [metric(.weeklyAll, used: 20, resetIn: 5 * 86_400),
+                                metric(.weeklyModel, used: 30, model: "Fable")]),
+    ])
+    let summary = s[0]
+    let weekly = summary.pools.first { $0.kind == .weeklyAll }!
+    let model = FleetTooltip.model(summary, displayed: [weekly])
+    // The capacity line is about the pool the gauge is LEADING with, not some other one: hovering a
+    // weekly bar and being told about the Fable pool would explain the wrong number.
+    expect(model?.poolKind == .weeklyAll && model?.poolAccountCount == 2,
+           "the hover is about the pool the gauge is showing")
+    expect(model.map { abs($0.unitsRemaining - 140) < 0.001 } == true,
+           "capacity is the pool's units left (60 + 80)")
+    expect(model?.accountCount == 2, "the title counts the fleet")
+    // The weekly pool averages a healthy 70%, and the fleet's real weak spot is in another window
+    // entirely. Naming only the displayed pool's own worst member would hide exactly that.
+    expect(model?.tightest?.accountLabel == "c1" && model?.tightest?.remaining == 3,
+           "the tightest member is found across every pool, not just the displayed one")
+    expect(model?.tightest?.poolKind == .weeklyModel && model?.tightest?.modelName == "Fable",
+           "and it names the window that owns it")
+    expect(model?.tightest?.severity == .critical, "3% left is critical")
+    // The refill shown belongs to the same pool as the capacity figure above it.
+    expect(model?.nextRefill?.accountLabel == "c1"
+            && model?.nextRefill?.at == weekly.refills.first?.at,
+           "the refill is the displayed pool's own next one")
+}
+
+// 18a. A session window is never the "tightest": it is nearly always the lowest and it always
+// comes back on its own, so reading it would crowd out everything the line exists to say.
+do {
+    let s = summarize([
+        account("c1", metrics: [metric(.session, used: 95), metric(.weeklyAll, used: 60)]),
+        account("c2", metrics: [metric(.session, used: 10), metric(.weeklyAll, used: 20)]),
+    ])
+    let tightest = FleetTooltip.tightest(s[0].pools)
+    expect(tightest?.poolKind == .weeklyAll && tightest?.remaining == 40,
+           "a 5% session loses to a 40% weekly")
+    // Unless the session pool is the only budget the fleet has, which is the same fallback the
+    // gauge itself makes.
+    let sessionOnly = summarize([
+        account("c1", metrics: [metric(.session, used: 95)]),
+        account("c2", metrics: [metric(.session, used: 10)]),
+    ])
+    expect(FleetTooltip.tightest(sessionOnly[0].pools)?.poolKind == .session,
+           "a session-only fleet still gets an answer")
+}
+
+// 18b. Degenerate inputs answer nothing rather than trapping.
+do {
+    let s = summarize([
+        account("c1", metrics: [metric(.weeklyAll, used: 10)]),
+        account("c2", metrics: [metric(.weeklyAll, used: 10)]),
+    ])
+    expect(FleetTooltip.model(s[0], displayed: []) == nil, "no displayed pool, no hover")
+    expect(FleetTooltip.tightest([]) == nil, "no pools, no tightest")
+    // Every member equal: still an answer, and it is one of them rather than nil.
+    expect(FleetTooltip.tightest(s[0].pools)?.remaining == 90, "a flat fleet still has a tightest")
+}
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all fleet tests passed")

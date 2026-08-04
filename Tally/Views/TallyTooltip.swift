@@ -38,11 +38,85 @@ enum TallyTooltip {
     static let gap: CGFloat = 6
     /// How close to the surface's own edges the callout may sit.
     static let margin: CGFloat = 6
+    /// Content width of a structured callout (`TallyTooltipBlock`). Fits the narrowest host with
+    /// room to spare: the single-column panel is 380pt wide, and this plus the chip's padding and
+    /// both margins comes to 268pt there.
+    static let blocksWidth: CGFloat = 240
+
+    /// Design-preview hook (`-TallyTooltipPreview YES`, demo or dev builds only, argument domain so
+    /// nothing persists): hold the structured callout open with no pointer involved.
+    ///
+    /// It exists because the alternative is worse. A callout only appears under a real hover, so
+    /// capturing one otherwise means synthesizing mouse events into the app, which takes the
+    /// user's desktop away from them for as long as the verification runs (the rule, and the
+    /// incident behind it, are in ~/.claude/docs/patterns/macos-app-verification.md: a dev-only
+    /// flag that puts the state on screen IS the sanctioned answer). Same family as
+    /// `-TallyUpdateChip`, `-TallyEmptyStatePreview` and `-TallyDryNotifyTest`.
+    ///
+    /// Only the structured callouts honour it, which today means exactly one target: two forced at
+    /// once would race for the single preference slot.
+    static var previewForced: Bool {
+        (DemoUsage.isActive || BuildVariant.isDev)
+            && UserDefaults.standard.bool(forKey: "TallyTooltipPreview")
+    }
+}
+
+/// One line of a structured callout: a label on the left, its value on the right, and the severity
+/// the value is tinted by (nil = no verdict, rendered in the callout's own quiet colour).
+///
+/// A row rather than a sentence because the values are numbers that want a column: three lines of
+/// "Weekly pool 42% left" read as prose that has to be parsed one line at a time, where a column of
+/// right-aligned figures is read at a glance. That is the whole reason this type exists.
+struct TallyTooltipRow: Equatable {
+    let label: String
+    let value: String
+    let severity: MetricSeverity?
+
+    init(_ label: String, _ value: String, severity: MetricSeverity? = nil) {
+        self.label = label
+        self.value = value
+        self.severity = severity
+    }
+}
+
+/// A titled group of rows: one subject per block, so a two-provider fleet reads as two small tables
+/// rather than one list the reader has to re-sort in their head.
+struct TallyTooltipBlock: Equatable {
+    let title: String
+    let rows: [TallyTooltipRow]
+}
+
+/// What a callout carries. Plain text stays the default and the common case (every existing call
+/// site is one short sentence); blocks are for the few hovers that answer with figures.
+enum TallyTooltipContent: Equatable {
+    case text(String)
+    case blocks([TallyTooltipBlock])
+
+    var isEmpty: Bool {
+        switch self {
+        case .text(let text): return text.isEmpty
+        case .blocks(let blocks): return blocks.allSatisfy { $0.rows.isEmpty && $0.title.isEmpty }
+        }
+    }
+
+    /// The same content as one string, for the accessibility hint: VoiceOver reads what the pointer
+    /// would have been shown, and there is one source for both so they cannot drift.
+    var spoken: String {
+        switch self {
+        case .text(let text):
+            return text
+        case .blocks(let blocks):
+            return blocks.map { block in
+                ([block.title] + block.rows.map { "\($0.label) \($0.value)" })
+                    .filter { !$0.isEmpty }.joined(separator: ", ")
+            }.joined(separator: ". ")
+        }
+    }
 }
 
 /// A live tooltip request: what to say and where its target is, in the surface's coordinate space.
 private struct TallyTooltipItem: Equatable {
-    let text: String
+    let content: TallyTooltipContent
     let anchor: CGRect
 }
 
@@ -70,14 +144,24 @@ extension View {
     /// The text is also the element's accessibility hint, so VoiceOver reads what the pointer would
     /// have been shown - the two can never drift, because there is one argument.
     func tallyTooltip(_ text: String) -> some View {
-        modifier(TallyTooltipTarget(text: text))
+        modifier(TallyTooltipTarget(payload: .text(text)))
+    }
+
+    /// The same callout, answering with labelled figures instead of a sentence (see
+    /// `TallyTooltipRow`). Empty blocks show nothing, exactly like empty text.
+    func tallyTooltip(blocks: [TallyTooltipBlock]) -> some View {
+        modifier(TallyTooltipTarget(payload: .blocks(blocks), forced: TallyTooltip.previewForced))
     }
 }
 
 // MARK: - Target
 
 private struct TallyTooltipTarget: ViewModifier {
-    let text: String
+    /// Named `payload` rather than `content`: `ViewModifier.body(content:)` binds that word to the
+    /// view being wrapped, and a stored property of the same name is silently shadowed inside it.
+    let payload: TallyTooltipContent
+    /// Held open with no pointer, for a design capture (`TallyTooltip.previewForced`).
+    var forced = false
 
     @State private var isHovering = false
     @State private var isShown = false
@@ -96,24 +180,24 @@ private struct TallyTooltipTarget: ViewModifier {
             // Cancelled and restarted by every hover change, including the view going away, so a
             // pointer that passes through never leaves a callout behind it.
             .task(id: isHovering) {
-                guard isHovering, !text.isEmpty else { return }
+                guard isHovering, !payload.isEmpty else { return }
                 try? await Task.sleep(for: TallyTooltip.delay)
                 guard !Task.isCancelled else { return }
                 isShown = true
             }
             .background(probe)
-            .accessibilityHint(Text(text))
+            .accessibilityHint(Text(payload.spoken))
     }
 
     /// Publishes this target's frame while it is showing, and nothing at all otherwise - so the layer
     /// follows whichever target is hovered without the surface having to arbitrate between them.
     @ViewBuilder
     private var probe: some View {
-        if isShown {
+        if isShown || (forced && !payload.isEmpty) {
             GeometryReader { proxy in
                 Color.clear.preference(
                     key: TallyTooltipKey.self,
-                    value: TallyTooltipItem(text: text,
+                    value: TallyTooltipItem(content: payload,
                                             anchor: proxy.frame(in: .named(TallyTooltip.space))))
             }
         }
@@ -174,10 +258,7 @@ private struct TallyTooltipCallout: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        Text(item.text)
-            .font(.caption)
-            .foregroundStyle(Color.white.opacity(0.95))
-            .lineLimit(1)
+        content
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(shape.fill(surface))
@@ -188,6 +269,55 @@ private struct TallyTooltipCallout: View {
             .alignmentGuide(.top) { dimensions in -originY(height: dimensions.height) }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+
+    @ViewBuilder
+    private var content: some View {
+        switch item.content {
+        case .text(let text):
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(primaryInk)
+                .lineLimit(1)
+        case .blocks(let blocks):
+            // A fixed width rather than a fitted one, because the callout has to stay INSIDE the
+            // surface (see the type's header) and the narrowest host is the 380pt single-column
+            // panel: a width that grew with the longest account name would eventually reach the
+            // margins with no way to give anything back. Rows truncate instead, and every block
+            // then shares one column, which is what makes the values line up.
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(block.title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(primaryInk)
+                            .lineLimit(1)
+                        ForEach(Array(block.rows.enumerated()), id: \.offset) { _, row in
+                            HStack(spacing: 10) {
+                                Text(row.label)
+                                    .foregroundStyle(secondaryInk)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer(minLength: 0)
+                                Text(row.value)
+                                    .foregroundStyle(row.severity.map { $0.color } ?? primaryInk)
+                                    .monospacedDigit()
+                                    .lineLimit(1)
+                                    .layoutPriority(1)
+                            }
+                            .font(.caption)
+                        }
+                    }
+                }
+            }
+            .frame(width: TallyTooltip.blocksWidth, alignment: .leading)
+        }
+    }
+
+    /// The chip's own two ink levels. Its surface is dark in BOTH schemes (see `surface`), so these
+    /// are fixed rather than semantic colours - `.secondary` over a dark chip on a light window
+    /// resolves against the window and comes out unreadable.
+    private var primaryInk: Color { Color.white.opacity(0.95) }
+    private var secondaryInk: Color { Color.white.opacity(0.62) }
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: TallyMetrics.calloutRadius, style: .continuous)

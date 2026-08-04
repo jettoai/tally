@@ -66,7 +66,7 @@ extension PopoverRootView {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(launchSummaryTooltip(items))
+            .tallyTooltip(launchSummaryTooltip(items))
             Divider()
         }
     }

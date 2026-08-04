@@ -151,7 +151,7 @@ struct TokenStatsView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .frame(width: Self.nameColumn, alignment: .leading)
-                            .help(project.isOther ? L("Scratch directories and sessions with no project")
+                            .tallyTooltip(project.isOther ? L("Scratch directories and sessions with no project")
                                                   : project.key)
                         shareBar(project.share)
                         share(project.share)

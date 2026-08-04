@@ -110,7 +110,7 @@ struct MetricRowView: View {
                     .lineLimit(1)
             }
             .buttonStyle(.plain)
-            .help(UsageFormat.resetText(resetsAt, style: style.toggled, now: context.date) ?? "")
+            .tallyTooltip(UsageFormat.resetText(resetsAt, style: style.toggled, now: context.date) ?? "")
         }
     }
 }

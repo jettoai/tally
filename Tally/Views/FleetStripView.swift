@@ -159,7 +159,7 @@ extension PopoverRootView {
             .font(.caption2.weight(.semibold))
             .foregroundStyle(.tertiary)
             .frame(width: Self.fleetChevronWidth)
-            .help(L("Show or hide this provider's account cards"))
+            .tallyTooltip(L("Show or hide this provider's account cards"))
     }
 
     /// One pool's two lines: the meter row and its context line. The FIRST pool's label column
@@ -245,7 +245,7 @@ extension PopoverRootView {
              + forecastText(summary, pool))
                 .font(.caption2)
                 .lineLimit(1)
-                .help("\(poolDisplayName(pool)) · \(phrase.text)")
+                .tallyTooltip("\(poolDisplayName(pool)) · \(phrase.text)")
             Spacer(minLength: 6)
             if let refill = pool.refills.first {
                 refillLabel(refill, compact: compactRefill).layoutPriority(1)
@@ -316,7 +316,7 @@ extension PopoverRootView {
             // a reader reaches for the tooltip, so it has to answer with the whole thing (which
             // account, the date and time, and how long that is from now) rather than the same
             // sentence in the other format.
-            .help(refillText(refill, style: .absolute, now: context.date)
+            .tallyTooltip(refillText(refill, style: .absolute, now: context.date)
                 + " · " + refillText(refill, style: .relative, now: context.date))
         }
     }

@@ -144,6 +144,20 @@ private struct TallyTooltipKey: PreferenceKey {
     }
 }
 
+/// Whether a `tallyTooltipLayer()` is hosting callouts above this subtree. Read by every target so
+/// a view shared between a surface that has a layer and one that does not (the layout tiles sit in
+/// the panel's view-options card AND in the Settings pane) still answers a hover on both.
+private struct TallyTooltipHostedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var hasTallyTooltipLayer: Bool {
+        get { self[TallyTooltipHostedKey.self] }
+        set { self[TallyTooltipHostedKey.self] = newValue }
+    }
+}
+
 extension View {
     /// Hosts the callout for this surface. Apply once at the surface root, outside every clip.
     /// - Parameter suppressed: hide any callout while something else owns the pointer (a card
@@ -151,13 +165,19 @@ extension View {
     ///   mid-drag would both mislead and read as a glitch.
     func tallyTooltipLayer(suppressed: Bool = false) -> some View {
         modifier(TallyTooltipLayer(suppressed: suppressed))
+            .environment(\.hasTallyTooltipLayer, true)
     }
 
-    /// Show Tally's own callout over this element after a short hover. Needs a `tallyTooltipLayer()`
-    /// somewhere above it; without one, nothing shows and nothing breaks.
+    /// Show Tally's own callout over this element after a short hover. Under a `tallyTooltipLayer()`
+    /// that is Tally's own chip; anywhere else it falls back to the system tooltip, so a view that
+    /// appears on both kinds of surface still answers a hover on both.
     ///
     /// The text is also the element's accessibility hint, so VoiceOver reads what the pointer would
     /// have been shown - the two can never drift, because there is one argument.
+    ///
+    /// Embedded newlines become separate lines: several call sites already build a multi-line answer
+    /// as one string, and splitting here is what lets them keep doing that (the first line is the
+    /// subject, the rest qualify it).
     ///
     /// - Parameters:
     ///   - detail: a quieter second line qualifying the first. Absent (or empty) shows the one line,
@@ -166,8 +186,19 @@ extension View {
     ///     than the flag alone, because a text callout can have many targets on one surface and
     ///     they would all publish at once (`TallyTooltip.previewForced`).
     func tallyTooltip(_ text: String, detail: String? = nil, forced: Bool = false) -> some View {
-        modifier(TallyTooltipTarget(payload: .lines([text, detail ?? ""].filter { !$0.isEmpty }),
-                                    forced: forced))
+        let lines = [text, detail ?? ""]
+            .flatMap { $0.components(separatedBy: "\n") }
+            .filter { !$0.isEmpty }
+        return modifier(TallyTooltipTarget(payload: .lines(lines), forced: forced))
+    }
+
+    /// The same callout for a control that can be DISABLED. SwiftUI stops routing interaction into a
+    /// disabled control, hover included, and a greyed-out button is precisely the one that has to
+    /// explain itself ("signed out: renew the login first"). So the hover target is a wrapper AROUND
+    /// the control rather than the control, which is never itself disabled and therefore always
+    /// answers. Enabled controls do not need it and pay nothing for it either way.
+    func tallyTooltipAroundControl(_ text: String) -> some View {
+        ZStack { self }.tallyTooltip(text)
     }
 
     /// The same callout, answering with labelled figures instead of a sentence (see
@@ -187,10 +218,23 @@ private struct TallyTooltipTarget: ViewModifier {
     /// Held open with no pointer, for a design capture (`TallyTooltip.previewForced`).
     var forced = false
 
+    @Environment(\.hasTallyTooltipLayer) private var hosted
     @State private var isHovering = false
     @State private var isShown = false
 
+    @ViewBuilder
     func body(content: Content) -> some View {
+        if hosted {
+            hoverTracked(content)
+        } else {
+            // No layer above this one, so there is nowhere to render a chip: the system tooltip is
+            // the honest answer rather than silence (the Settings window is the surface this
+            // covers). Same text, same accessibility hint, only the presentation differs.
+            content.help(payload.spoken).accessibilityHint(Text(payload.spoken))
+        }
+    }
+
+    private func hoverTracked(_ content: Content) -> some View {
         content
             // A row of glyphs and labels is only hit-testable ON the glyphs, so without a shape the
             // pointer would leave and re-enter the target crossing every gap between them.

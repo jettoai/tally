@@ -28,6 +28,6 @@ struct CopyCommandChip: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(L("Copy"))
+        .tallyTooltip(L("Copy"))
     }
 }

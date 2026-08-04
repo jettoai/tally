@@ -65,7 +65,7 @@ extension PopoverRootView {
                             .background(Capsule().fill(ready ? TallyColor.normal : TallyColor.ai))
                     }
                     .buttonStyle(.plain)
-                    .help(ready ? L("Update downloaded - click to restart")
+                    .tallyTooltip(ready ? L("Update downloaded - click to restart")
                                 : L("Update available - click to install"))
                 }
             }
@@ -132,7 +132,7 @@ extension PopoverRootView {
             .buttonStyle(.borderless)
             .disabled(isRefreshing)
             .accessibilityLabel(L("Refresh"))
-            .help(L("Refresh"))
+            .tallyTooltipAroundControl(L("Refresh"))
             .padding(.trailing, 12)
             .background { widthProbe { headerWidths.refresh = $0 } }
         }

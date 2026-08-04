@@ -57,7 +57,9 @@ final class MainWindowController {
     /// single size authority stays untouched; see the pinned panel's recursion lesson). The
     /// window has no .resizable mask, so every resize here is content-driven.
     ///
-    /// The edges are remembered at the last MOVE, which is the last position the user chose.
+    /// The edges are refreshed after every move AND after every resize: a move is the last position
+    /// the user chose, and a resize is the shape they now have to be put back to. Only the pair
+    /// covers it, because a size change posts no move notification of its own.
     private var anchorEdges: ResizeAnchor.Edges?
 
     /// Which corner to hold: normally the top left, so the header stays put and a growing fleet runs

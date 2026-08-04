@@ -231,7 +231,8 @@ final class PinnedPanelController {
         // of the display. Hung off the notification rather than off `resize(to:)` because the
         // window mostly takes the content's size on its own, which never reaches that method.
         // The edges to put a resize back to, refreshed at every move - which for this surface is
-        // mostly the user dragging it by the header.
+        // mostly the user dragging it by the header - and again at the end of every resize, since a
+        // size change posts no move notification and would otherwise leave them a shape behind.
         anchorEdges = panel.resizeEdges
         NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: panel, queue: .main

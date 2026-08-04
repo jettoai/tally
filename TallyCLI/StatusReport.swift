@@ -61,17 +61,19 @@ struct StatusReport: Encodable {
         var verdict: String
         var demandPerWeek: Double
         /// `demandPerWeek` split by the plan each account is on, largest first, and always summing
-        /// back to it. A snapshot that names no plan (an older app) yields ONE tier with a null
-        /// `plan` carrying the whole figure rather than an empty list, so a reader can always sum
-        /// this array; a single null-plan tier is the signal that there is nothing to split by.
-        /// Empty only when there are no weekly samples at all.
+        /// back to it. A snapshot that names no plan (an older app) yields ONE tier carrying the
+        /// whole figure with its `plan` key absent rather than an empty list, so a reader can
+        /// always sum this array; a single tier naming no plan is the signal that there is nothing
+        /// to split by. Empty only when there are no weekly samples at all.
         var tierDemands: [Tier]
         var activeBurnPerHour: Double
         var starvedHoursPerWeek: Double
         var daysOfData: Double
 
         struct Tier: Encodable {
-            /// nil for the accounts whose plan the snapshot does not name.
+            /// nil for the accounts whose plan the snapshot does not name, which the synthesized
+            /// encoding writes as no key at all rather than as a null (the house rule the whole
+            /// report follows, pinned by "nil fields are omitted, not null" in tests/statusjson).
             var plan: String?
             var demandPerWeek: Double
             var accountCount: Int

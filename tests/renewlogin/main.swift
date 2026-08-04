@@ -318,6 +318,7 @@ func readSource(_ path: String) -> String {
 let storeSource = readSource("Tally/Stores/RenewLoginStore.swift")
 let cardSource = readSource("Tally/Views/AccountCardView.swift")
 let menuSource = readSource("Tally/Views/AccountCardMenu.swift")
+let settingsSource = readSource("Tally/Views/SettingsAccountsView.swift")
 expect(!storeSource.isEmpty && !cardSource.isEmpty && !menuSource.isEmpty,
        "the renewal's call sites are readable from the suite")
 
@@ -344,9 +345,13 @@ expect(functionBody(storeSource, from: "func canRenew(")?.contains("DemoUsage.is
        "demo fixtures have no config home, so the entry is dead on those cards by construction")
 expect(cardSource.contains("RenewLoginStore.shared.isRenewing(usage.id)"),
        "the card itself reads the in-flight state, which is the signal that needs no permission")
+// The entries are a standalone view now (the Settings account list offers the same three), so they
+// read the account they were handed rather than a card's `usage` - the gating itself is unchanged.
 expect(menuSource.contains("RenewLoginStore.shared.canRenew(")
-        && menuSource.contains("RenewLoginStore.shared.isRenewing(usage.id)"),
+        && menuSource.contains("RenewLoginStore.shared.isRenewing(accountID)"),
        "the menu entry greys out for an account Tally cannot renew, and while one is running")
+expect(settingsSource.contains("AccountActionsMenu(accountID: item.id"),
+       "and the Settings list offers those same entries instead of carrying a second copy")
 
 print(failures == 0 ? "ALL PASS" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

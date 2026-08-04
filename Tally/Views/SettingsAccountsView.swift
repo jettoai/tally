@@ -174,6 +174,12 @@ struct SettingsAccountsView: View {
     private func accountRow(_ item: ProviderAccount, usage: AccountUsage?, badge: Int?,
                             moveUp: (() -> Void)?, moveDown: (() -> Void)?) -> some View {
         let enabled = settings.isAccountEnabled(item.id)
+        // Read once for the row: the status line renders it, and both sources of "signed out" plus
+        // a renewal already in flight are folded into one answer there (AccountSignIn.swift).
+        let signIn = AccountSignIn.state(
+            isRenewing: RenewLoginStore.shared.isRenewing(item.id),
+            isExpired: LoginStatusStore.shared.isExpired(item.id),
+            isDormant: item.isDormant)
         return HStack(spacing: 10) {
             // No reserved column for single-account providers: their name starts where the
             // number badges start, so every row's HEAD lines up on one vertical line.
@@ -190,31 +196,8 @@ struct SettingsAccountsView: View {
             VStack(alignment: .leading, spacing: 3) {
                 // Plain Text + a pencil-popover for renaming: an inline TextField can't live in
                 // this layout sanely (see RenamePopover) and the popover field behaves normally.
-                HStack(spacing: 5) {
-                    Text(settings.displayLabel(accountID: item.id, fallback: item.label))
-                        .font(.subheadline.weight(.semibold))
-                    Button {
-                        renamingAccountID = item.id
-                    } label: {
-                        Image(systemName: "pencil")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(L("Rename"))
-                    .popover(isPresented: Binding(
-                        get: { renamingAccountID == item.id },
-                        set: { if !$0 { renamingAccountID = nil } }
-                    )) {
-                        RenamePopover(
-                            defaultLabel: item.label,
-                            override: Binding(
-                                get: { settings.accountLabels[item.id] },
-                                set: { settings.accountLabels[item.id] = $0 }
-                            ),
-                            dismiss: { renamingAccountID = nil })
-                    }
-                }
+                Text(settings.displayLabel(accountID: item.id, fallback: item.label))
+                    .font(.subheadline.weight(.semibold))
 
                 // Which account this actually IS. The panel keeps it in a hover tooltip (a card has
                 // no room for an address), but this list is where somebody comes to ask "which of
@@ -240,7 +223,13 @@ struct SettingsAccountsView: View {
                 }
 
                 HStack(spacing: 8) {
-                    if !enabled {
+                    // A login problem REPLACES the plan and the numbers rather than crowding in
+                    // beside them: those numbers are whatever was true before the credential went,
+                    // the chip is the one actionable thing on the row, and all three together
+                    // truncated each other in a 500pt window (measured 2026-08-04).
+                    if signIn != .signedIn {
+                        signInState(signIn, item)
+                    } else if !enabled {
                         Text(L("Disabled")).font(.caption2).foregroundStyle(.tertiary)
                     } else if let usage {
                         if let plan = usage.planName {
@@ -266,14 +255,44 @@ struct SettingsAccountsView: View {
             }
             Spacer()
 
-            // Reorder arrows (multi-account providers only, column always reserved so the switch
-            // columns line up across every card).
-            VStack(spacing: 2) {
-                reorderArrow("chevron.up", action: moveUp)
-                reorderArrow("chevron.down", action: moveDown)
+            // Every occasional action this row has, behind one button: rename (which the pencil
+            // used to own), reorder (the arrows), and the three the card's right-click offers
+            // (AccountActionsMenu). One control replacing two is not a tidiness preference - the row
+            // carries a number, a name, an address, a plan, two percentages and two labelled
+            // switches inside a 500pt window, and measured here on 2026-08-04 the pencil, the arrows
+            // and this button together truncated both the address AND the percentages.
+            Menu {
+                AccountActionsMenu(accountID: item.id, providerID: item.providerID,
+                                   label: settings.displayLabel(accountID: item.id,
+                                                                fallback: item.label),
+                                   home: item.launchHome,
+                                   rename: { renamingAccountID = item.id },
+                                   moveUp: moveUp, moveDown: moveDown)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
             }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .frame(width: 16)
-            .opacity(moveUp == nil && moveDown == nil ? 0 : 1)
+            .help(L("Account actions"))
+            // The rename field lives outside the row layout entirely (see RenamePopover), anchored
+            // on the button that opens it.
+            .popover(isPresented: Binding(
+                get: { renamingAccountID == item.id },
+                set: { if !$0 { renamingAccountID = nil } }
+            )) {
+                RenamePopover(
+                    defaultLabel: item.label,
+                    override: Binding(
+                        get: { settings.accountLabels[item.id] },
+                        set: { settings.accountLabels[item.id] = $0 }
+                    ),
+                    dismiss: { renamingAccountID = nil })
+            }
 
             // Always laid out (dimmed + inert when the account is off) so toggling never shifts
             // the controls around - disappearing chrome made the row jump.
@@ -286,7 +305,7 @@ struct SettingsAccountsView: View {
             // not polled, no card, no menu-bar segment, and the CLI skips it. Labeled like the
             // menu-bar switch next to it - two adjacent switches with one label were a coin flip.
             HStack(spacing: 6) {
-                Text(L("Enabled")).font(.caption).foregroundStyle(.secondary)
+                Text(L("Enabled")).font(.caption).foregroundStyle(.secondary).fixedSize()
                 Toggle(isOn: Binding(
                     get: { settings.isAccountEnabled(item.id) },
                     set: { on in
@@ -308,16 +327,45 @@ struct SettingsAccountsView: View {
         .padding(.leading, 18)   // nested under the provider row
     }
 
-    private func reorderArrow(_ symbol: String, action: (() -> Void)?) -> some View {
-        Button { action?() } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(action == nil ? Color(nsColor: .quaternaryLabelColor) : .secondary)
-                .frame(width: 16, height: 11)
-                .contentShape(Rectangle())
+    /// The row's login state: an inline "Sign in again" in the severity colour when the account is
+    /// signed out, the running renewal while one is in flight, nothing at all otherwise.
+    ///
+    /// The same button the card's expiry chip is, in the same colour, starting the same renewal
+    /// through the same store - this list is simply the other place people look for it. Which state
+    /// wins is decided in AccountSignIn.swift, so the two surfaces cannot disagree about whether an
+    /// account needs signing in.
+    @ViewBuilder
+    private func signInState(_ state: AccountSignIn.State, _ item: ProviderAccount) -> some View {
+        let renew = RenewLoginStore.shared
+        switch state {
+        case .signedIn:
+            EmptyView()
+        case .renewing:
+            HStack(spacing: 3) {
+                ProgressView().controlSize(.mini)
+                Text(L("renewing login…"))
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        case .needsSignIn:
+            Button { renew.renew(accountID: item.id) } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 8))
+                    Text(L("Sign in again")).lineLimit(1)
+                }
+                .fixedSize()
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(TallyColor.critical)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(TallyColor.critical.opacity(0.15)))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            // Greyed where the menu entry is: a demo fixture has no config home behind it, so a
+            // chip must never look more able than the action it starts.
+            .disabled(!renew.canRenew(providerID: item.providerID, home: item.launchHome))
+            .help(L("Sign in again to bring this account's usage back."))
         }
-        .buttonStyle(.plain)
-        .disabled(action == nil)
     }
 
     /// "● 98% · ● 71%" - session then weekly, dot coloured by the window's severity. Compact
@@ -340,7 +388,7 @@ struct SettingsAccountsView: View {
     // A labeled mini switch: an icon-only toggle here read as "no idea what this does".
     private func menuBarToggle(_ accountID: String) -> some View {
         HStack(spacing: 6) {
-            Text(L("Menu bar")).font(.caption).foregroundStyle(.secondary)
+            Text(L("Menu bar")).font(.caption).foregroundStyle(.secondary).fixedSize()
             Toggle(isOn: Binding(
                 get: { settings.isShownInMenuBar(accountID) },
                 set: { settings.setShownInMenuBar(accountID, $0); UsageStore.shared.onChange?() }

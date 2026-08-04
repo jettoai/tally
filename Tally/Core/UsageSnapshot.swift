@@ -11,6 +11,11 @@ struct UsageSnapshot: Codable {
         var id: String
         var provider: String
         var label: String
+        /// The plan this account is subscribed to ("Max 20x", "Pro", "Team"), as the provider names
+        /// it; nil when it does not say. Not a secret, and the CLI needs it: the usage advisor
+        /// counts demand per plan tier, because one account-week of a $200 seat and of a $20 seat
+        /// are not the same quantity.
+        var plan: String?
         /// Config home to launch with (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`); nil = not launchable.
         var launchHome: String?
         var sessionRemaining: Double?
@@ -78,6 +83,7 @@ struct UsageSnapshot: Codable {
                     id: usage.id,
                     provider: usage.providerID,
                     label: usage.accountLabel,
+                    plan: usage.planName,
                     launchHome: launchHomes[usage.id],
                     sessionRemaining: usage.metrics.first { $0.kind == .session }?.remainingPercent,
                     weeklyRemaining: usage.metrics.first { $0.kind == .weeklyAll }?.remainingPercent,

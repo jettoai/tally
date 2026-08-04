@@ -93,12 +93,22 @@ enum DemoUsage {
         // starved hours cross their 2h/wk trigger too, so both paths to "add an account" agree.
         // The active burn is the same working week seen from each provider: ~580 percent-points a
         // week at 11%/h and ~260 at 5%/h are both about 53 hours of hands-on time.
+        //
+        // The tier splits mirror the fixture accounts above: five Claude seats on one plan (so the
+        // strip shows the pooled figure, the uniform-fleet case), and Codex spread over Pro and
+        // Team, which is what puts the per-tier reading on screen. Each split sums to its own
+        // pooled demand, the same invariant a real reading keeps.
         [UsageAdvisor.Reading(provider: "claude", verdict: .addAccount, demandPerWeek: 5.8,
                               activeBurnPerHour: 11, starvedHoursPerWeek: 3.4,
-                              daysOfData: 14, accountCount: 5),
+                              daysOfData: 14, accountCount: 5,
+                              tierDemands: [.init(plan: "Max 20x", demandPerWeek: 5.8,
+                                                  accountCount: 5)]),
          UsageAdvisor.Reading(provider: "codex", verdict: .sufficient, demandPerWeek: 2.6,
                               activeBurnPerHour: 5, starvedHoursPerWeek: 0,
-                              daysOfData: 14, accountCount: 4)]
+                              daysOfData: 14, accountCount: 4,
+                              tierDemands: [.init(plan: "Pro", demandPerWeek: 1.7, accountCount: 3),
+                                            .init(plan: "Team", demandPerWeek: 0.9,
+                                                  accountCount: 1)])]
     }
 
     /// Fixture token history for the Tokens tab, so the screenshot shows a plausible month of work

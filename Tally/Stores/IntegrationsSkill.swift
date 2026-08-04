@@ -65,6 +65,11 @@ extension IntegrationsStore {
           accounts), `starvedHoursPerWeek` is how many hours a week every account in a pool
           sat at zero quota at once, `activeBurnPerHour` is percent of a window spent per
           hour of actual work, and `daysOfData` is how much history the reading rests on.
+        - `tierDemands[]` splits `demandPerWeek` by the plan each account is on (`plan`,
+          `demandPerWeek`, `accountCount`), largest first, and always adds back up to it.
+          Read it whenever it holds more than one plan: accounts are interchangeable only
+          within a tier, so "0.9 on Pro and 1.0 on Team" is the answer and their 1.9 is
+          not a plan anyone can buy. An empty list means no plan was published.
 
         Guidance:
 
@@ -76,7 +81,9 @@ extension IntegrationsStore {
         - For "is my quota enough", "should I add an account", or "how is my usage
           trending", answer from `advisor` and quote its `headline`: the account
           percentages describe only this moment, the advisor is the trend. When the verdict
-          is `collecting`, say the app is still gathering history instead of guessing.
+          is `collecting`, say the app is still gathering history instead of guessing. With
+          more than one plan in `tierDemands`, name the tier the demand is on rather than
+          answering "add an account" in the abstract.
         - Before heavy multi-agent or long autonomous work, check the binding window (the
           smallest remaining among session, weekly, and model) and warn when it is nearly
           drained.

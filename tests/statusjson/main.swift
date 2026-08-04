@@ -254,5 +254,42 @@ let old = parse(encodeStatusReport(statusReport(
     snapshot, policies: [:], now: parseISO("2026-07-23T13:00:00Z")!)))
 check("snapshot older than the trust window reports stale", old["stale"] as? Bool == true)
 
+// MARK: the advisor's plan tiers - the join that names them, and the JSON they land in
+
+// The snapshot is where the CLI learns each account's plan (the burn-rate history carries none), so
+// the join is only as good as what the app published.
+let planned = decodeSnapshot("""
+{ "version": 2, "generatedAt": "2026-07-23T11:55:00Z", "accounts": [
+  { "id": "codex:.codex", "provider": "codex", "label": "Codex", "plan": "Pro", "isStale": false },
+  { "id": "codex:.codex2", "provider": "codex", "label": "Codex 2", "plan": "Team", "isStale": false },
+  { "id": "codex:.codex3", "provider": "codex", "label": "Codex 3", "isStale": false } ] }
+""")
+let plans = accountPlans(planned)
+check("the snapshot's plans become the advisor's account lookup",
+      plans == ["codex:.codex": "Pro", "codex:.codex2": "Team"])
+// An older app publishes no plan at all: every account is simply absent from the lookup, which the
+// advisor reads as one unnamed tier rather than as a reason to fail.
+check("an account with no published plan is absent rather than empty-stringed",
+      plans["codex:.codex3"] == nil)
+check("a snapshot from an app that never knew about plans still decodes",
+      accountPlans(snapshot).isEmpty && snapshot.accounts.count == 4)
+
+let tiered = UsageAdvisor.Reading(
+    provider: "codex", verdict: .sufficient, demandPerWeek: 2.6, activeBurnPerHour: 5,
+    starvedHoursPerWeek: 0, daysOfData: 14, accountCount: 4,
+    tierDemands: [.init(plan: "Pro", demandPerWeek: 1.7, accountCount: 3),
+                  .init(plan: "Team", demandPerWeek: 0.9, accountCount: 1)])
+let withTiers = parse(encodeStatusReport(
+    statusReport(snapshot, policies: [:], advisor: [tiered], now: now)))
+let codexAdvisor = (withTiers["advisor"] as? [String: [String: Any]])?["codex"] ?? [:]
+let tiers = codexAdvisor["tierDemands"] as? [[String: Any]] ?? []
+check("the tier split reaches the JSON, largest first",
+      tiers.map { $0["plan"] as? String } == ["Pro", "Team"])
+check("each tier carries its own demand and account count",
+      tiers.first?["demandPerWeek"] as? Double == 1.7
+          && tiers.first?["accountCount"] as? Int == 3)
+check("and the pooled figure it splits is still published",
+      codexAdvisor["demandPerWeek"] as? Double == 2.6)
+
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

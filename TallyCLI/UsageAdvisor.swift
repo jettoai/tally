@@ -46,6 +46,17 @@ enum UsageAdvisor {
         case sufficient   // current accounts cover the demand
     }
 
+    /// One plan tier's slice of the weekly demand. Accounts are interchangeable only INSIDE a tier:
+    /// a Codex Pro seat and a Codex Team seat both read "1.0 account-week" at full spend while
+    /// buying very different amounts of work, so a pooled total across them is a number no
+    /// subscription can be bought against. `plan` is nil for the accounts whose plan this machine
+    /// cannot name (the history carries no plan; it is joined from the live accounts).
+    struct TierDemand: Sendable, Equatable {
+        var plan: String?
+        var demandPerWeek: Double
+        var accountCount: Int
+    }
+
     /// One provider's verdict plus the numbers behind it. Language-free on purpose: the panel
     /// builds a localized headline from `verdict`, the CLI/JSON layer an English one.
     struct Reading: Sendable, Equatable {
@@ -58,6 +69,12 @@ enum UsageAdvisor {
         var starvedHoursPerWeek: Double
         var daysOfData: Double
         var accountCount: Int
+        /// The same weekly demand split by plan tier, largest first. The parts always sum to
+        /// `demandPerWeek` (the split partitions the very same samples), so a surface can show
+        /// either without the two disagreeing. With no plan supplied for any account this is ONE
+        /// tier whose `plan` is nil and whose demand IS the pooled figure, not an empty list: the
+        /// split is always complete, it just has nothing to name its single tier.
+        var tierDemands: [TierDemand] = []
     }
 
     private static let decoder: JSONDecoder = {
@@ -79,13 +96,21 @@ enum UsageAdvisor {
     }
 
     /// One reading per provider present in the samples, providers in stable alphabetical order.
-    static func readings(samples: [Sample], now: Date = Date()) -> [Reading] {
+    ///
+    /// `planOf` names the plan an account is on today (nil = unknown), which is what splits the
+    /// demand into tiers. It is a lookup rather than a field on `Sample` because the history has no
+    /// plan in it and never will retroactively: a plan change is rare, and the 28-day window heals
+    /// one within a month, whereas a stored-per-sample plan would have to be back-filled.
+    static func readings(samples: [Sample], now: Date = Date(),
+                         planOf: (String) -> String? = { _ in nil }) -> [Reading] {
         Dictionary(grouping: samples, by: \.provider).keys.sorted().compactMap { provider in
-            reading(provider: provider, samples: samples.filter { $0.provider == provider }, now: now)
+            reading(provider: provider, samples: samples.filter { $0.provider == provider },
+                    now: now, planOf: planOf)
         }
     }
 
-    static func reading(provider: String, samples: [Sample], now: Date = Date()) -> Reading? {
+    static func reading(provider: String, samples: [Sample], now: Date = Date(),
+                        planOf: (String) -> String? = { _ in nil }) -> Reading? {
         guard let earliest = samples.map(\.ts).min() else { return nil }
         let days = now.timeIntervalSince(earliest) / 86_400
         let weeks = max(days / 7, 1e-6)   // div-safety only; the collecting gate handles young data
@@ -128,7 +153,29 @@ enum UsageAdvisor {
         }
         return Reading(provider: provider, verdict: verdict, demandPerWeek: demandPerWeek,
                        activeBurnPerHour: activeBurnPerHour, starvedHoursPerWeek: starvedHoursPerWeek,
-                       daysOfData: days, accountCount: accounts.count)
+                       daysOfData: days, accountCount: accounts.count,
+                       tierDemands: tierDemands(weeklyAll, weeks: weeks, planOf: planOf))
+    }
+
+    /// The weekly demand split by plan, largest first. Splitting by account keeps every series
+    /// (account | window | model) whole, which is why the tiers add back up to the pooled figure.
+    private static func tierDemands(_ samples: [Sample], weeks: Double,
+                                    planOf: (String) -> String?) -> [TierDemand] {
+        Dictionary(grouping: samples) { planOf($0.account) }
+            .map { plan, rows in
+                TierDemand(plan: plan, demandPerWeek: burnSum(rows) / weeks / 100,
+                           accountCount: Set(rows.map(\.account)).count)
+            }
+            .sorted { a, b in
+                if a.demandPerWeek != b.demandPerWeek { return a.demandPerWeek > b.demandPerWeek }
+                // Ties break by name so a refresh cannot reshuffle the row under the reader; the
+                // unnamed tier goes last, which is where an unknown belongs.
+                switch (a.plan, b.plan) {
+                case let (left?, right?): return left < right
+                case (_?, nil): return true
+                default: return false
+                }
+            }
     }
 
     /// A pool's weekly demand as a fraction of its own account capacity (accounts contributing the

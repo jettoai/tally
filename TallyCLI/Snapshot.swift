@@ -16,6 +16,9 @@ struct Snapshot: Decodable {
         var id: String
         var provider: String
         var label: String
+        /// The subscribed plan ("Max 20x", "Pro", "Team"); absent in snapshots from older apps,
+        /// which just leaves the advisor's tier split unnamed.
+        var plan: String?
         var launchHome: String?
         var sessionRemaining: Double?
         var weeklyRemaining: Double?

@@ -96,7 +96,7 @@ extension PopoverRootView {
         .font(.caption2)
         .lineLimit(1)
         .contentShape(Rectangle())
-        .help(advisorTooltip(reading))
+        .tallyTooltip(advisorTooltip(reading))
         // The verdict is a shape now, and shapes are not read aloud: state it for VoiceOver so the
         // row still says what it means, not just its two numbers.
         .accessibilityElement(children: .combine)
@@ -179,9 +179,33 @@ extension PopoverRootView {
 
     /// The running weekly demand as "1.8 acct/wk". Live from day one (only the recommendation waits
     /// for a week of history), so it shows in every state as the strip's headline number.
+    ///
+    /// A fleet spread over more than one plan reads per tier instead ("Pro 0.9 · Team 1.0"). The
+    /// unit here is an ACCOUNT, and a $200 seat and a $20 seat are not the same account: pooled,
+    /// their sum is a figure no subscription can be bought against, and "add one" would not say
+    /// which one. The unit word drops to the tooltip there rather than repeating per tier; the row
+    /// is one line, so an unusually wide split truncates like any other long label instead of
+    /// wrapping, and the tooltip holds the full breakdown.
     private func demandFigure(_ reading: UsageAdvisor.Reading) -> String {
-        let demand = String(format: "%.1f", reading.demandPerWeek)
-        return String(localized: "\(demand) acct/wk", bundle: AppLocale.bundle)
+        let tiers = splitTiers(reading)
+        guard !tiers.isEmpty else {
+            let demand = String(format: "%.1f", reading.demandPerWeek)
+            return String(localized: "\(demand) acct/wk", bundle: AppLocale.bundle)
+        }
+        return tiers.map { "\(tierName($0)) \(String(format: "%.1f", $0.demandPerWeek))" }
+            .joined(separator: " · ")
+    }
+
+    /// The tiers worth splitting the figure into: none unless the provider's accounts actually sit
+    /// on two or more NAMED plans. One plan (or none the app can name) means the accounts really
+    /// are interchangeable, and the pooled figure is then both exact and the shorter read.
+    private func splitTiers(_ reading: UsageAdvisor.Reading) -> [UsageAdvisor.TierDemand] {
+        guard Set(reading.tierDemands.compactMap(\.plan)).count >= 2 else { return [] }
+        return reading.tierDemands
+    }
+
+    private func tierName(_ tier: UsageAdvisor.TierDemand) -> String {
+        tier.plan ?? L("Unknown plan")
     }
 
     /// The verdict in words. The row says it in pips; the tooltip is where it stays sayable, for
@@ -195,7 +219,11 @@ extension PopoverRootView {
             // vaguely singular while the row shows a multiplier.
             let missing = missingAccounts(reading)
             guard missing > 1 else { return L("consider adding an account") }
-            return String(localized: "at this pace, add \(missing) accounts", bundle: AppLocale.bundle)
+            // The count goes in as a STRING, like every other figure this app catalogues: an
+            // interpolated Int keys the entry on `%lld`, the catalogued key is `%@`, and the lookup
+            // then missed in all four languages and fell back to the English key (2026-08-04).
+            let count = "\(missing)"
+            return String(localized: "at this pace, add \(count) accounts", bundle: AppLocale.bundle)
         }
     }
 
@@ -207,9 +235,29 @@ extension PopoverRootView {
         let demand = String(format: "%.1f", reading.demandPerWeek)
         let burn = "\(Int(reading.activeBurnPerHour.rounded()))%"
         let starved = String(format: "%.1fh", reading.starvedHoursPerWeek)
-        var lines = [verdictSentence(reading),
-                     String(localized: "weekly need \(demand) accounts · active burn \(burn)/h · starved \(starved)/wk",
-                            bundle: AppLocale.bundle)]
+        var lines = [verdictSentence(reading)]
+        // A split row shows tier figures with no unit on them, so the tooltip is where each one is
+        // spelled out in full, with the reason they are not added up. The pooled line below stays:
+        // it is still the honest total percent-points, and dropping it would make the tooltip
+        // disagree with `demandPerWeek` everywhere else this app publishes it.
+        let tiers = splitTiers(reading)
+        for tier in tiers {
+            let figure = String(format: "%.1f", tier.demandPerWeek)
+            // The count goes in as a STRING: an interpolated Int would key the entry on `%lld`,
+            // and every catalogued figure in this app is keyed on `%@`.
+            let count = "\(tier.accountCount)"
+            lines.append(tier.accountCount == 1
+                ? String(localized: "\(tierName(tier)): \(figure) acct/wk (1 account)",
+                         bundle: AppLocale.bundle)
+                : String(localized: "\(tierName(tier)): \(figure) acct/wk (\(count) accounts)",
+                         bundle: AppLocale.bundle))
+        }
+        if !tiers.isEmpty {
+            lines.append(L("Plan quotas differ, so tiers are counted separately."))
+        }
+        lines.append(
+            String(localized: "weekly need \(demand) accounts · active burn \(burn)/h · starved \(starved)/wk",
+                   bundle: AppLocale.bundle))
         let now = Date()
         for refill in upcomingRefills(reading.provider, now: now) {
             lines.append(refillText(refill, style: settings.resetDisplay, now: now)

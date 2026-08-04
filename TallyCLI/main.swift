@@ -209,7 +209,7 @@ func runStatus(json: Bool = false) {
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
     guard let snapshot else { exit(1) }
-    let advisor = loadAdvisorReadings()
+    let advisor = loadAdvisorReadings(plans: accountPlans(snapshot))
     // The arrow marks the account a launch WOULD land on, so it has to skip what the launcher
     // skips: a quarantined account (see Quarantine.swift). Read once for both output shapes.
     let policies = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, launchPolicy($0.id)) })

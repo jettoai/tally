@@ -168,5 +168,62 @@ if let r = reading(heavy) {
     check("add-account headline", UsageAdvisor.englishHeadline(r).contains("adding an account"))
 }
 
+// 11. Plan tiers: the same weekly demand split by the plan each account is on. Three accounts,
+//     two plans - p1 burns 100% over two weeks (0.5 account-weeks), t1 and t2 burn 50% each
+//     (0.25 + 0.25 = 0.5). The pooled figure stays 1.0 either way.
+let mixedTiers = [
+    s("p1", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("p1", "weeklyAll", used: 100, at: daysAgo(1)),
+    s("t1", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("t1", "weeklyAll", used: 50, at: daysAgo(1)),
+    s("t2", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("t2", "weeklyAll", used: 50, at: daysAgo(1)),
+]
+let plans = ["p1": "Pro", "t1": "Team", "t2": "Team"]
+if let r = UsageAdvisor.reading(provider: "claude", samples: mixedTiers, now: now,
+                                planOf: { plans[$0] }) {
+    check("pooled demand unchanged by the split", near(r.demandPerWeek, 1.0))
+    check("one entry per plan", r.tierDemands.count == 2)
+    check("Pro tier is its own accounts' burn only",
+          r.tierDemands.first { $0.plan == "Pro" }.map { near($0.demandPerWeek, 0.5) } == true)
+    check("Team tier sums its two accounts",
+          r.tierDemands.first { $0.plan == "Team" }.map { near($0.demandPerWeek, 0.5) } == true)
+    check("each tier counts its own accounts",
+          r.tierDemands.first { $0.plan == "Pro" }?.accountCount == 1
+              && r.tierDemands.first { $0.plan == "Team" }?.accountCount == 2)
+    check("the tiers add back up to the pooled demand",
+          near(r.tierDemands.reduce(0) { $0 + $1.demandPerWeek }, r.demandPerWeek))
+} else { check("mixed-tier reading exists", false) }
+
+// 11b. Tiers are ordered by demand, largest first, and the unnamed tier goes last.
+let ordered = [
+    s("p1", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("p1", "weeklyAll", used: 20, at: daysAgo(1)),
+    s("t1", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("t1", "weeklyAll", used: 80, at: daysAgo(1)),
+    s("u1", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("u1", "weeklyAll", used: 40, at: daysAgo(1)),
+]
+if let r = UsageAdvisor.reading(provider: "claude", samples: ordered, now: now,
+                                planOf: { ["p1": "Pro", "t1": "Team"][$0] }) {
+    check("tiers sorted by demand, unnamed last",
+          r.tierDemands.map(\.plan) == ["Team", nil, "Pro"])
+}
+
+// 11c. No plan supplied (the default, and an older snapshot): one unnamed tier carrying the whole
+//      demand, never a split the panel would then have to explain.
+if let r = reading(mixedTiers) {
+    check("no planOf collapses to a single unnamed tier",
+          r.tierDemands.count == 1 && r.tierDemands[0].plan == nil)
+    check("that tier IS the pooled demand", near(r.tierDemands[0].demandPerWeek, r.demandPerWeek))
+    check("and counts every account", r.tierDemands[0].accountCount == 3)
+}
+
+// 11d. The provider-wide entry point carries the same lookup through.
+let perProvider = UsageAdvisor.readings(samples: multi, now: now,
+                                        planOf: { $0 == "a1" ? "Max 20x" : "Pro" })
+check("readings() passes the plan lookup down",
+      perProvider.first?.tierDemands.first?.plan == "Max 20x")
+
 print(failures == 0 ? "\nAll advisor tests passed." : "\n\(failures) advisor test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

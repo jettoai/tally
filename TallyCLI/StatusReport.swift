@@ -60,9 +60,22 @@ struct StatusReport: Encodable {
         var headline: String
         var verdict: String
         var demandPerWeek: Double
+        /// `demandPerWeek` split by the plan each account is on, largest first, and always summing
+        /// back to it. A snapshot that names no plan (an older app) yields ONE tier with a null
+        /// `plan` carrying the whole figure rather than an empty list, so a reader can always sum
+        /// this array; a single null-plan tier is the signal that there is nothing to split by.
+        /// Empty only when there are no weekly samples at all.
+        var tierDemands: [Tier]
         var activeBurnPerHour: Double
         var starvedHoursPerWeek: Double
         var daysOfData: Double
+
+        struct Tier: Encodable {
+            /// nil for the accounts whose plan the snapshot does not name.
+            var plan: String?
+            var demandPerWeek: Double
+            var accountCount: Int
+        }
     }
 }
 
@@ -114,6 +127,10 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
             headline: UsageAdvisor.englishHeadline(reading),
             verdict: reading.verdict.rawValue,
             demandPerWeek: reading.demandPerWeek,
+            tierDemands: reading.tierDemands.map {
+                StatusReport.Advisor.Tier(plan: $0.plan, demandPerWeek: $0.demandPerWeek,
+                                          accountCount: $0.accountCount)
+            },
             activeBurnPerHour: reading.activeBurnPerHour,
             starvedHoursPerWeek: reading.starvedHoursPerWeek,
             daysOfData: reading.daysOfData))
@@ -159,12 +176,23 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
 /// The usage advisor's per-provider readings, computed straight from the burn-rate history the app
 /// records (`~/.tally/history.jsonl`) - NOT from the snapshot, which carries no advisor data.
 /// Fail-open: a missing or unreadable file just yields no advisor, so `status` still renders.
-func loadAdvisorReadings(now: Date = Date()) -> [UsageAdvisor.Reading] {
+///
+/// `plans` maps account id to plan name, joined from the snapshot because the history holds no
+/// plan of its own (see `UsageAdvisor.readings`). Empty just leaves the tier split unnamed.
+func loadAdvisorReadings(plans: [String: String] = [:], now: Date = Date()) -> [UsageAdvisor.Reading] {
     let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally/history.jsonl")
     guard let data = try? Data(contentsOf: url) else { return [] }
     let since = now.addingTimeInterval(-UsageAdvisor.lookbackDays * 86_400)
-    return UsageAdvisor.readings(samples: UsageAdvisor.decodeSamples(data, since: since), now: now)
+    return UsageAdvisor.readings(samples: UsageAdvisor.decodeSamples(data, since: since),
+                                 now: now) { plans[$0] }
+}
+
+/// Account id to plan name, for the join above. Accounts the snapshot leaves plan-less are simply
+/// absent, which is what the advisor reads as an unnamed tier.
+func accountPlans(_ snapshot: Snapshot) -> [String: String] {
+    Dictionary(snapshot.accounts.compactMap { account in account.plan.map { (account.id, $0) } },
+               uniquingKeysWith: { first, _ in first })
 }
 
 func encodeStatusReport(_ report: StatusReport) -> String {

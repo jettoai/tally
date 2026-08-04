@@ -344,6 +344,11 @@ final class UsageStore {
         // advisor's own sample type. Demo mode never reaches this read (its refresh returned
         // above); the guard below keeps the fixture readings the only ones a demo panel can show
         // even if that early return ever moves.
+        // Which plan each account is on, for the advisor's tier split. Taken from the live rows
+        // here on the main actor rather than inside the read below, which runs on the history
+        // queue; a plain [String: String] is what can cross to it.
+        let plans = Dictionary(accounts.compactMap { usage in usage.planName.map { (usage.id, $0) } },
+                               uniquingKeysWith: { first, _ in first })
         UsageHistory.shared.samples(
             since: now.addingTimeInterval(-UsageAdvisor.lookbackDays * 86_400)) { samples in
             let advisorSamples = samples.map {
@@ -351,7 +356,7 @@ final class UsageStore {
                                     window: $0.window, model: $0.model, used: $0.used,
                                     resetAt: $0.resetAt)
             }
-            let readings = UsageAdvisor.readings(samples: advisorSamples, now: now)
+            let readings = UsageAdvisor.readings(samples: advisorSamples, now: now) { plans[$0] }
             Task { @MainActor in
                 guard !DemoUsage.isActive else { return }
                 UsageStore.shared.advisorReadings = readings

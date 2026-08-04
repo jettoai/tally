@@ -31,7 +31,7 @@ which account is burning.
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally's pinned panel: per-provider fleet gauges pool nine accounts (five Claude Max, four Codex), Claude showing both its runways at once, a Fable pool bar and a weekly pool bar, each with a pace forecast (lasts about 4d 12h) and the next staggered refill, Codex a weekly pool that is sustainable at this pace; an advisor row of account pips shows each provider's running weekly demand (5.8 acct/wk) and marks when the pace calls for one more account; below, every account's frosted-glass card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks; the header carries a Usage / Tokens switch" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally's panel: per-provider fleet gauges pool nine accounts (five Claude Max, four Codex), Claude showing both its runways at once, a Fable pool bar and a weekly pool bar, each with a pace forecast (lasts about 4d 12h) and the next staggered refill, Codex a weekly pool that is sustainable at this pace; an advisor row of account pips shows each provider's running weekly demand, pooled for Claude's single plan (5.8 acct/wk) and split per plan for Codex (Pro 1.7 · Team 0.9), marking when the pace calls for one more account; below, every account's frosted-glass card shows its 5-hour session, weekly, and top-model windows with reset times, near-limit warnings, and purple Smart badges on the launcher's current picks; the header carries a Usage / Tokens switch" width="834">
 </p>
 
 <p align="center">
@@ -64,16 +64,31 @@ subscriptions at once:
   refill. A forecast estimates how long the pool lasts at your recently measured pace, counting
   the quota each reset brings back: "lasts about 4d 10h" when you are outspending the refill
   cycle, "sustainable at this pace" when you are not. No other usage meter pools accounts at all.
+- **The usage advisor.** Do you need another account? One line per provider under the gauges: a
+  filled pip per account you own, a hollow one when your measured pace asks for another, and the
+  running weekly demand as the figure to read ("5.8 acct/wk"). A fleet on two plans reads per tier
+  ("Pro 1.7 · Team 0.9"), because one account-week of a $200 seat and of a $20 seat are not the same
+  quantity, and pooling them produces a number no subscription can be bought against. The hover
+  carries the breakdown per tier, the active burn rate, the starved hours, and the next refills;
+  `tally status --json` publishes the same split as `tierDemands`.
 - **Menu bar strip.** Per-account brand marks with stacked session/weekly percentages; same-provider
   accounts get a tiny index badge; hover for every account's full numbers.
 - **Pinnable glass panel.** Pin the dashboard as an always-on-top frosted-glass panel; drag the
   header to place it anywhere. The account cards themselves render as glass over the panel's
   backdrop (solid whenever you turn the translucency off, or the system asks for reduced
   transparency).
-- **Your layout, one card at a time.** A view-options card in the footer sets the column count
-  with layout tiles (each tile drawing the layout it produces), folds providers behind their
-  gauges, and can seat the cards in a section per provider; drag cards to reorder within it. A
-  fleet too tall for the screen scrolls instead of falling off it.
+- **Cards, or one row per account.** Past half a dozen accounts a card grid outgrows the display,
+  so the panel carries a second density: every account on a single line, identity on the left, each
+  window as a small bar plus its figure, the launch controls shrunk to icons. It hides words, never
+  facts, so the window names, the resets and what each control does move into hover callouts (Tally
+  draws its own, on the panel's own glass, rather than waiting on the system tooltip). Each density
+  remembers its own column count behind the one picker, and the list's Auto asks the screen how many
+  rows fit side by side instead of counting the cards.
+- **Your layout, one card at a time.** A view-options card in the footer sets the density and the
+  column count with layout tiles (each tile drawing the layout it produces), switches the fleet
+  gauge and the advisor on or off, folds providers behind their gauges, and can seat the cards in a
+  section per provider; drag cards to reorder within it. A folded provider keeps its heading, which
+  is how it comes back. A fleet too tall for the screen scrolls instead of falling off it.
 - **Token usage, by project.** A Tokens view behind a header switch on every surface: total
   tokens over today / 7 days / 30 days / all time with the input, cache and output breakdown, a
   per-provider split, and a per-project table that traces even agent and workflow sessions back
@@ -94,6 +109,10 @@ subscriptions at once:
   redeem one, behind a confirmation that names the account, spells out the cost, and warns you
   off when redeeming would mostly be wasted; the soonest-expiring credit goes first, and Tally
   never spends one automatically.
+
+<p align="center">
+  <img src="assets/screenshot-list.png" alt="The same nine accounts in Tally's compact list density, two columns wide: one row per account carrying the provider mark, the account name and its plan, then every quota window as a small bar with its percentage, a warning triangle on the account whose login expired, a banked-reset count on the Codex rows that have one, the purple Smart mark on the launcher's current pick, and the pin and drag controls at the end of each row; above them the same fleet gauges and advisor line the card density shows, with Codex reading Pro 1.7 · Team 0.9" width="900">
+</p>
 
 ### The launch control plane
 
@@ -156,6 +175,15 @@ subscriptions at once:
   `codex app-server`), which talk to their vendors with their own first-party identity and manage
   their own credentials. Account discovery only checks that a login *exists* (an attribute probe);
   nothing is ever read out.
+- **Read-only, with one named exception.** `claude auth login` finishes the OAuth round trip and
+  stops there, so a config home Tally created and signed in for you would still meet its first
+  session with the first-run wizard: a theme picker, and a request to sign in to the account that
+  just signed in. So after a login Tally itself drove (adding an account, or renewing one from a
+  card), it merges Claude Code's own note that the wizard is done, `hasCompletedOnboarding`, into
+  that one home's state file, and a home Tally creates is seeded with the folder-trust answers you
+  already gave on an existing account. A merge, never a replacement; a file it cannot parse is
+  refused rather than rewritten; a home that has been through the wizard is left byte for byte.
+  Never a credential, and never a scan for other homes to repair.
 - **One poller, ever.** Only the menu-bar app runs the CLIs (every minute by default,
   relaxable to 2/5/15). The `tally` launcher reads a local snapshot
   (`~/.tally/snapshot.json`: percentages and paths, never tokens), so opening ten terminals

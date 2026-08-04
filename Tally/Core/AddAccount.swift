@@ -214,8 +214,15 @@ func nextFreeAccountHome(providerID: String,
 /// Best-effort, and safe to call about any home: the marker is only ever written by the preparation
 /// below, so a home that never had one has nothing to lose here. Left behind, it would make a home
 /// that later signs out look reusable again, which is the whole bug the slot rule exists to close.
-func clearAddAccountPendingMarker(in dir: URL) {
-    try? FileManager.default.removeItem(at: dir.appendingPathComponent(addAccountPendingMarker))
+///
+/// Answers whether a marker was actually taken away, which is a fact no later question can recover:
+/// it means THIS call is the moment a home Tally created was first seen signed in, and the caller
+/// may have an errand for exactly that moment (KnownAccountsStore). A failure to remove one reads
+/// as false, so the errand is skipped rather than repeated on every round.
+@discardableResult
+func clearAddAccountPendingMarker(in dir: URL) -> Bool {
+    (try? FileManager.default
+        .removeItem(at: dir.appendingPathComponent(addAccountPendingMarker))) != nil
 }
 
 /// Clear the marker from every numbered home of this provider that now HOLDS a login.

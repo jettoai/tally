@@ -111,7 +111,7 @@ final class AddAccountStore {
                                                      environment: environment)
             switch outcome {
             case .renewed:
-                await land(prepared)
+                await land(prepared, providerID: providerID)
             case .failed(let failure):
                 // The home STAYS. It holds the share links and the trust seed this run created, the
                 // next attempt resumes it rather than burning the next number, and deleting a
@@ -175,11 +175,20 @@ final class AddAccountStore {
                 handoff: .none)
             return
         }
-        Task { await land(run.prepared) }
+        Task { await land(run.prepared, providerID: run.providerID) }
     }
 
     /// The account exists: say so, then tell the rest of the app.
-    private func land(_ prepared: AddedAccountHome) async {
+    ///
+    /// The provider comes from the RUN, never from the picker: `providerID` is a choice about the
+    /// next add, and this is the one that just finished.
+    private func land(_ prepared: AddedAccountHome, providerID: String) async {
+        // The login wrote a credential and nothing else, so this home would meet its first
+        // `tally claude` with Claude Code's first-run wizard - theme picker, sign-in prompt, for an
+        // account that is signed in (ClaudeOnboarding.swift). Done here rather than only where the
+        // background run succeeds, because a login handed to a Terminal window lands through
+        // `recheck()` instead, and it needs the same note.
+        markClaudeOnboardingComplete(providerID: providerID, home: prepared.dir.path)
         phase = .added(prepared)
         // The verdict first, the network second: a user who just finished a sign-in should not
         // wait on every other account's usage call to hear whether it worked.

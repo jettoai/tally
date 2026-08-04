@@ -164,9 +164,10 @@ try MainActor.assumeIsolated {
     check("skill answers the capacity question from the advisor",
           currentSkill.contains("should I add an account"))
     // The prompt is a contract with a reader that cannot check the source. What the CLI actually
-    // emits for a snapshot naming no plan is ONE tier with a null `plan` (asserted behaviourally in
-    // the advisor suite, documented on `StatusReport.Advisor.tierDemands`), so a skill that promised
-    // an empty list there taught a sum and an emptiness check that never fire.
+    // emits for a snapshot naming no plan is ONE tier with its `plan` key omitted entirely
+    // (asserted behaviourally in the advisor suite, documented on
+    // `StatusReport.Advisor.tierDemands`), so a skill that promised an empty list there taught a sum
+    // and an emptiness check that never fire.
     // Read as prose rather than as lines: the markdown is hard-wrapped, so any sentence in it can
     // be re-flowed by an edit that changes nothing a reader would notice.
     let skillProse = currentSkill.split(separator: "\n")

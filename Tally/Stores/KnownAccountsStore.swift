@@ -37,7 +37,17 @@ final class KnownAccountsStore {
         // which is the bug the slot rule exists to close (Tally/Core/AddAccount.swift).
         for account in discovered {
             guard let home = account.launchableHome else { continue }
-            clearAddAccountPendingMarker(in: URL(fileURLWithPath: home))
+            // A marker that was still there is Tally's own note that it CREATED this home, and
+            // clearing it now is this round saying the login has landed. That pair of facts is the
+            // one moment the first-run wizard's note has to be put in (ClaudeOnboarding.swift):
+            // the add flow writes it too, but not every login comes back through the add flow -
+            // one handed to a Terminal window finishes where Tally cannot watch, and unless the
+            // user then says so in the sheet, this is the only surface that ever hears about it.
+            // Asking the clear rather than the directory is also what keeps the write off every
+            // home that was not pending, and off this one on every subsequent round.
+            if clearAddAccountPendingMarker(in: URL(fileURLWithPath: home)) {
+                markClaudeOnboardingComplete(providerID: account.providerID, home: home)
+            }
         }
         let (next, dormant) = KnownAccountLogic.advance(
             remembered: remembered,

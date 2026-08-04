@@ -115,6 +115,13 @@ final class RenewLoginStore {
             inFlight.remove(accountID)
             switch outcome {
             case .renewed:
+                // The login is in, and that is all the login wrote. Claude Code's first-run wizard
+                // is what records having BEEN through it, so a home signed in this way still opens
+                // on the theme picker and asks for a sign-in that already happened - which is the
+                // first thing the user sees when they launch the account they just added
+                // (ClaudeOnboarding.swift). Claude only, this home only, and a no-op for every
+                // account that has ever been launched.
+                markClaudeOnboardingComplete(providerID: providerID, home: home)
                 // Before anything asynchronous: the card's "Login expired" chip is read off the
                 // last probe's verdict, and the CLI that just signed in knows better than a probe
                 // that ran before it. The forced round behind this replaces the assumption with an

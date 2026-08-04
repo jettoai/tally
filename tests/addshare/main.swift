@@ -585,9 +585,15 @@ try! "auth".write(to: dormantAdd.dir.appendingPathComponent("auth.json"), atomic
 // somebody else's login expensive.
 try! fm.createDirectory(at: dormantAdd.dir.appendingPathComponent("sessions"),
                         withIntermediateDirectories: true)
-clearAddAccountPendingMarker(in: dormantAdd.dir)
-check("a login landing clears the pending mark",
-      !fm.fileExists(atPath: dormantAdd.dir.appendingPathComponent(addAccountPendingMarker).path))
+// The answer matters as much as the act: it is what tells the caller that THIS round is the first
+// one to see a home Tally created signed in, which is when the first-run wizard's note has to go in
+// (KnownAccountsStore → ClaudeOnboarding.swift). A second call must not say so again.
+check("a login landing clears the pending mark, and says it did",
+      clearAddAccountPendingMarker(in: dormantAdd.dir)
+          && !fm.fileExists(
+              atPath: dormantAdd.dir.appendingPathComponent(addAccountPendingMarker).path))
+check("clearing a home that had no mark reports nothing cleared",
+      !clearAddAccountPendingMarker(in: dormantAdd.dir))
 try! fm.removeItem(at: dormantAdd.dir.appendingPathComponent("auth.json"))
 check("and the home it landed in is nobody's to reuse once that login expires",
       codexSlot(in: dormantRoot) == ".codex4")

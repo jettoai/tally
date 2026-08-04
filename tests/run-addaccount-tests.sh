@@ -5,11 +5,14 @@
 # target needed. Exits non-zero on failure.
 #
 # The login is driven against stub CLIs the harness writes itself, never a real provider login.
+# ClaudeOnboarding.swift comes along because AddAccount.swift's marker sweep leaves the first-run
+# wizard's note as it clears (it is claude-only and writes to nothing this suite builds).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/addaccount/main.swift \
   Tally/Core/AddAccount.swift Tally/Core/SharedHarness.swift Tally/Core/TrustSeed.swift \
+  Tally/Core/ClaudeOnboarding.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/ClaudeStatePath.swift \
   Tally/Core/RenewLoginCommand.swift Tally/Core/RenewLoginRunner.swift \

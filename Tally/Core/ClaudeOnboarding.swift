@@ -119,8 +119,21 @@ func markClaudeOnboardingComplete(providerID: String, home: String,
     // (`~/.claude.json`, ClaudeStatePath.swift). Get that wrong and this writes a file claude never
     // reads, which looks exactly like the bug it is fixing.
     let file = claudeStateFile(forConfigDir: dir)
+    // No file and an unreadable file are not the same answer, which is what `try?` would make them.
+    // A file that EXISTS and cannot be read would look like a home with no state file, so the seed
+    // would produce a document holding one key and the atomic write would put it where the
+    // account's `oauthAccount` and every project's history used to be. Permission on the FILE is
+    // not what stops that write either: an atomic write renames a temp file into the parent
+    // DIRECTORY, so a `.claude.json` left root-owned by a single historical `sudo claude` is
+    // unreadable and replaceable at the same moment. A read failure is therefore a refusal, on the
+    // same reasoning as the unparseable file above - contents this cannot read are contents this
+    // cannot merge, and this errand is worth one wizard screen, never somebody's state file.
+    let existing: Data?
+    do { existing = try Data(contentsOf: file) }
+    catch CocoaError.fileReadNoSuchFile { existing = nil }
+    catch { return false }
     guard let body = claudeOnboardingSeed(
-        intoState: try? Data(contentsOf: file),
+        intoState: existing,
         donorVersion: { claudeOnboardingDonorVersion(excluding: dir, userHome: userHome) })
     else { return false }
     try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(),

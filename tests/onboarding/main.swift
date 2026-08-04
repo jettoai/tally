@@ -146,6 +146,60 @@ check("…at ~/.claude.json, not inside the directory",
 check("a machine with only one home records no version",
       read(bareHome.appendingPathComponent(".claude.json"))["lastOnboardingVersion"] == nil)
 
+// MARK: A state file that IS there and cannot be read
+
+// The case a bare `try?` answered nil to, exactly as it answers nil to "no file at all": a home
+// full of somebody's state, whose file is unreadable and replaceable at the same time. An atomic
+// write needs no permission on the target, only on the parent directory, so one historical `sudo
+// claude` (root-owned 0600 state file) is enough to reach this. Mode 000 is how the suite gets
+// there without a root-owned file; running the suite AS root would read it anyway, and the
+// assertion is deliberately left to fail loudly in that case rather than quietly skip.
+let locked = userHome.appendingPathComponent(".claude6")
+try! fm.createDirectory(at: locked, withIntermediateDirectories: true)
+let lockedState = locked.appendingPathComponent(".claude.json")
+let lockedBefore = json(["oauthAccount": ["emailAddress": "locked@example.com"],
+                         "projects": ["/tmp/y": ["hasTrustDialogAccepted": true]]])
+try! lockedBefore.write(to: lockedState)
+try! fm.setAttributes([.posixPermissions: 0], ofItemAtPath: lockedState.path)
+check("a state file that cannot be READ is refused, not replaced",
+      !markClaudeOnboardingComplete(providerID: "claude", home: locked.path, userHome: userHome))
+// Restored before reading it back, and so the harness can clean up after itself either way.
+try! fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: lockedState.path)
+check("…and is left byte for byte", (try! Data(contentsOf: lockedState)) == lockedBefore)
+
+// MARK: The sweep `tally add` runs (Tally/Core/AddAccount.swift)
+
+// The app is not always running, so the CLI's marker sweep is the other place a home Tally created
+// is first seen signed in - and the marker is gone for whoever gets there second. A sweep that
+// cleared without seeding put the wizard back for that home.
+let sweepHome = fm.temporaryDirectory.appendingPathComponent("tally-onboarding-sweep-\(UUID())")
+let swept = sweepHome.appendingPathComponent(".claude2")
+let unfinished = sweepHome.appendingPathComponent(".claude3")
+for dir in [swept, unfinished] {
+    try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    try! Data("{}".utf8).write(to: dir.appendingPathComponent(addAccountPendingMarker))
+}
+let sweptState = swept.appendingPathComponent(".claude.json")
+try! json(["oauthAccount": ["emailAddress": "swept@example.com"]]).write(to: sweptState)
+// A login that landed: the older credentials-file shape, so the assertion needs no Keychain.
+try! "token".write(to: swept.appendingPathComponent(".credentials.json"), atomically: true,
+                   encoding: .utf8)
+let realFiles = { (path: String) in fm.fileExists(atPath: path) }
+let noKeychain = { (_: URL) in false }
+check("the sweep clears the marker of a home whose login has landed",
+      clearFinishedPendingMarkers(providerID: "claude", home: sweepHome, fileExists: realFiles,
+                                  keychainLogin: noKeychain) == [".claude2"])
+check("…and leaves the wizard's note as it clears",
+      read(sweptState)["hasCompletedOnboarding"] as? Bool == true)
+check("…without disturbing the login's identity",
+      ((read(sweptState)["oauthAccount"] as? [String: Any])?["emailAddress"] as? String)
+          == "swept@example.com")
+check("a pending home with no login yet is neither swept nor seeded",
+      clearFinishedPendingMarkers(providerID: "claude", home: sweepHome, fileExists: realFiles,
+                                  keychainLogin: noKeychain).isEmpty
+          && fm.fileExists(atPath: unfinished.appendingPathComponent(addAccountPendingMarker).path)
+          && !fm.fileExists(atPath: unfinished.appendingPathComponent(".claude.json").path))
+
 // The donor walk reads neighbours and excludes the home being seeded: with ~/.claude excluded the
 // answer has to come from ~/.claude4, which recorded a different version.
 check("the walk answers with the first home that has a version",
@@ -157,6 +211,7 @@ check("a machine with no other home has no donor",
 
 try? fm.removeItem(at: userHome)
 try? fm.removeItem(at: bareHome)
+try? fm.removeItem(at: sweepHome)
 
 print("\(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)

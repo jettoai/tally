@@ -5,12 +5,14 @@
 #
 # The Keychain files are compiled, never called: every assertion injects its own probe, so the
 # suite reads no Keychain and depends on no login existing on the machine running it.
+# ClaudeOnboarding.swift comes along because AddAccount.swift's marker sweep leaves the first-run
+# wizard's note as it clears; the sweep assertions here are codex ones, which it declines.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/addshare/main.swift \
   Tally/Core/AddAccount.swift Tally/Core/SharedHarness.swift Tally/Core/TrustSeed.swift \
-  Tally/Core/AddAccountFlow.swift \
+  Tally/Core/AddAccountFlow.swift Tally/Core/ClaudeOnboarding.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/ClaudeStatePath.swift
 "$out"

@@ -58,13 +58,17 @@ targets:
       # so both targets compile the one rule for where the default home keeps it (one level up).
       - path: Tally/Core/ClaudeStatePath.swift
       # Adding an account is one act with two surfaces: `tally add` in a terminal and the Settings
-      # "Add account" flow in the app. These three files are the act itself - which numbered home
-      # is next, what gets symlinked into it from the main account, and the folder trust carried
-      # over - so both targets compile the one implementation. A drifted second copy would put the
-      # CLI and the app on different account numbers, or share a set one of them does not.
+      # "Add account" flow in the app. These four files are the act itself - which numbered home
+      # is next, what gets symlinked into it from the main account, the folder trust carried over,
+      # and the note saying Claude Code's first-run wizard is done - so both targets compile the
+      # one implementation. A drifted second copy would put the CLI and the app on different
+      # account numbers, or share a set one of them does not. The last one is why the CLI needs it
+      # at all: `tally add` sweeps the markers of logins that landed while Tally.app was closed,
+      # and the sweep that takes a marker away is the only surface left to leave that note.
       - path: Tally/Core/AddAccount.swift
       - path: Tally/Core/SharedHarness.swift
       - path: Tally/Core/TrustSeed.swift
+      - path: Tally/Core/ClaudeOnboarding.swift
     settings:
       base:
         PRODUCT_NAME: tally

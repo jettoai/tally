@@ -236,6 +236,12 @@ func clearAddAccountPendingMarker(in dir: URL) -> Bool {
 /// The marker check comes first on purpose: it is a string test against a listing the walk already
 /// needs, and it keeps the login probe (a Keychain attribute read, for claude) off the 99 homes that
 /// have no marker to clear.
+///
+/// Taking a marker away carries the same errand it carries in the app (KnownAccountsStore): the
+/// clear IS the moment a home Tally created is first seen signed in, and the one moment the
+/// first-run wizard's note can be left (ClaudeOnboarding.swift). Whichever surface gets there first
+/// has to do it, because the marker is gone for the other one - one `tally add` with the app closed
+/// would otherwise take the previous add's marker and leave that home to meet the wizard anyway.
 @discardableResult
 func clearFinishedPendingMarkers(
     providerID: String, home: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -254,7 +260,9 @@ func clearFinishedPendingMarkers(
               addAccountHomeHasLogin(base: base, authFile: authFile, dir: dir,
                                      fileExists: fileExists, keychainLogin: keychainLogin)
         else { continue }
-        clearAddAccountPendingMarker(in: dir)
+        if clearAddAccountPendingMarker(in: dir) {
+            markClaudeOnboardingComplete(providerID: providerID, home: dir.path, userHome: home)
+        }
         cleared.append(name)
     }
     return cleared

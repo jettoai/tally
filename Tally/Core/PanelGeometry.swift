@@ -1,0 +1,68 @@
+import CoreGraphics
+
+/// The usage surface's width arithmetic: how wide the panel is at a given column count, how many
+/// columns a display can actually seat, and what one card ends up being. Pure numbers, kept out of
+/// the view so all three surfaces share one answer and so it can be checked without AppKit
+/// (tests/panelwidth).
+///
+/// It is the width twin of `ScreenFitStack`: that one keeps the surface from growing past the
+/// display it opens on by handing the excess height to a scroll region. Width cannot be scrolled
+/// away without hiding a whole column, so here the COUNT is what gives - a chosen column count is
+/// honoured as far as the display can seat it and no further. A panel wider than its display is not
+/// a wide panel, it is a panel with a piece missing: the popover hangs off the status item, so what
+/// falls off is the right-hand column and everything in it.
+enum PanelGeometry {
+    /// 12pt of content padding each side of the grid, and the gutter between columns. The list uses
+    /// the same pair (see `AccountListRowView.columnGap`), so both densities divide space alike.
+    static let contentPadding: CGFloat = 12
+    static let columnGap: CGFloat = 10
+
+    /// The card width the multi-column panel widths below were laid out from. Nominal: the widths
+    /// are rounded to whole points, so a card lands within half a point of this (see `cardWidth`).
+    static let cardColumnWidth: CGFloat = 263
+
+    /// The panel width for a card layout. One column is a reading width rather than a card width -
+    /// a lone 263pt card in a 287pt panel reads as a fragment - so it does not come from the same
+    /// arithmetic as the rest.
+    static func cardPanelWidth(columns: Int) -> CGFloat {
+        switch columns {
+        case ..<2: return 380
+        case 2: return 560
+        case 3: return 834    // 24 padding + 3x263 cards + 2x10 gaps
+        default: return 1108  // 24 padding + 4x263 cards + 3x10 gaps
+        }
+    }
+
+    /// The panel width for a list of comfortable rows: content padding each side, a row per column,
+    /// and the gutter between them.
+    static func listPanelWidth(columns: Int, rowWidth: CGFloat) -> CGFloat {
+        let count = CGFloat(max(1, columns))
+        return 2 * contentPadding + count * rowWidth + (count - 1) * columnGap
+    }
+
+    /// How many columns of `columnWidth` a display of `usableWidth` can seat. Never fewer than one:
+    /// on a display too narrow even for a single column the panel overflows a little rather than
+    /// showing nothing at all, the same floor `ScreenFitStack.minFlexibleHeight` keeps on the other
+    /// axis. Nothing on sale is that narrow; the floor is here so the arithmetic cannot return zero.
+    static func seats(columnWidth: CGFloat, in usableWidth: CGFloat) -> Int {
+        let step = columnWidth + columnGap
+        guard step > 0, usableWidth.isFinite else { return 1 }
+        return max(1, Int((usableWidth - 2 * contentPadding + columnGap) / step))
+    }
+
+    /// A column count, honoured as far as the display can seat it. Both densities pass their number
+    /// through this one place - the chosen one and the automatic one alike, because a count the
+    /// display cannot seat is off the screen whoever picked it.
+    static func seated(_ columns: Int, columnWidth: CGFloat, in usableWidth: CGFloat) -> Int {
+        min(max(1, columns), seats(columnWidth: columnWidth, in: usableWidth))
+    }
+
+    /// What one card comes out at inside a grid of `width`: the columns divide up what is left of it
+    /// after the content padding and the gutters. The panel widths above are chosen so this lands on
+    /// `cardColumnWidth`, which is why a card stays the same size as columns are added and only the
+    /// panel grows.
+    static func cardWidth(inGridOf width: CGFloat, columns: Int) -> CGFloat {
+        let count = CGFloat(max(1, columns))
+        return (width - 2 * contentPadding - columnGap * (count - 1)) / count
+    }
+}

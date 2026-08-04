@@ -214,14 +214,18 @@ struct PopoverRootView: View {
         }
     }
 
-    /// How many card columns. An explicit 1/2/3/4 is a width the user chose and is never
-    /// second-guessed: folding cards shrinks the panel's height only (want it narrow? that's
-    /// what the view menu is for). Auto is the mode that delegates layout to the system, so
-    /// there it follows what's actually visible: two columns once any provider shows more than
-    /// one card, a single narrow column otherwise - including the fully folded gauges-only view.
+    /// How many card columns. An explicit 1/2/3/4 is a width the user chose and is second-guessed
+    /// on one count only: what the display can seat (see `PanelGeometry.seated`). Folding cards
+    /// shrinks the panel's height only (want it narrow? that's what the view menu is for). Auto is
+    /// the mode that delegates layout to the system, so there it follows what's actually visible:
+    /// two columns once any provider shows more than one card, a single narrow column otherwise -
+    /// including the fully folded gauges-only view.
     var columnCount: Int {
-        if (1 ... 4).contains(settings.panelColumns) { return settings.panelColumns }
-        return visibleByProvider.contains { $0.count > 1 } ? 2 : 1
+        let chosen = (1 ... 4).contains(settings.panelColumns)
+            ? settings.panelColumns
+            : (visibleByProvider.contains { $0.count > 1 } ? 2 : 1)
+        return PanelGeometry.seated(chosen, columnWidth: PanelGeometry.cardColumnWidth,
+                                    in: usableScreenWidth)
     }
 
     /// The visible accounts bucketed by provider. Both densities' auto rules ask about these
@@ -240,17 +244,19 @@ struct PopoverRootView: View {
     /// constraint, so the list's auto asks how many rows the display can take side by side. Capped
     /// at the same four an explicit choice tops out at.
     var listColumnCount: Int {
+        let seats = PanelGeometry.seats(columnWidth: AccountListRowView.minComfortableWidth,
+                                        in: usableScreenWidth)
         if (1 ... SettingsStore.maxListColumns).contains(settings.listColumns) {
-            return settings.listColumns
+            // Chosen, and still bounded by the display: three 480pt rows need 1484pt of panel,
+            // which a laptop screen does not have (see `PanelGeometry`).
+            return min(settings.listColumns, seats)
         }
-        let step = AccountListRowView.minComfortableWidth + AccountListRowView.columnGap
-        let usable = usableScreenWidth - 24 + AccountListRowView.columnGap
         // Auto stops at TWO, one below what an explicit choice can ask for. A wide display would
         // otherwise seat three or four rows across and hand a nearly full-screen panel to someone
         // who only asked the app to choose; three is available, it just has to be chosen. Also
         // never more columns than there are accounts to seat, because an empty column is panel
         // width spent on nothing.
-        return min(2, max(1, min(Int(usable / step), seatsPerRun)))
+        return min(2, max(1, min(seats, seatsPerRun)))
     }
 
     /// How many accounts the widest single RUN of rows has to seat. Grouping is why this is not
@@ -266,25 +272,20 @@ struct PopoverRootView: View {
     /// The two-column panel width, named because two other surfaces gate on reaching it (the fleet
     /// strip's and the advisor strip's side-by-side pairs). Adjusting the case-2 width below without
     /// this constant would silently strand those gates.
-    static let twoColumnPanelWidth: CGFloat = 560
+    static let twoColumnPanelWidth: CGFloat = PanelGeometry.cardPanelWidth(columns: 2)
 
     /// Constant card width (263pt) across the 2/3/4-column layouts; only the window grows.
-    /// Internal: the strip and footer extensions lay themselves out against it.
+    /// Internal: the strip and footer extensions lay themselves out against it. The arithmetic
+    /// itself is in `PanelGeometry`, which the column counts above are bounded by.
     var popoverWidth: CGFloat {
         // The list builds its width from its own column count the same way, only out of row-widths
         // instead of card-widths: 12pt of content padding each side, a comfortable row per column,
         // and the grid's gutter between them.
         if settings.panelDensity == .list {
-            let columns = CGFloat(listColumnCount)
-            return 24 + columns * AccountListRowView.minComfortableWidth
-                + (columns - 1) * AccountListRowView.columnGap
+            return PanelGeometry.listPanelWidth(columns: listColumnCount,
+                                                rowWidth: AccountListRowView.minComfortableWidth)
         }
-        switch columnCount {
-        case 1: return 380
-        case 2: return Self.twoColumnPanelWidth
-        case 3: return 834    // 24 padding + 3×263 cards + 2×10 gaps
-        default: return 1108  // 24 padding + 4×263 cards + 3×10 gaps
-        }
+        return PanelGeometry.cardPanelWidth(columns: columnCount)
     }
 
     /// What the scrolling regions lay their content out at: the surface, less what a permanently

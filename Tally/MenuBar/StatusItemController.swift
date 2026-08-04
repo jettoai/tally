@@ -47,7 +47,7 @@ final class StatusItemController: NSObject {
                                       onContentSize: { [weak self] size in self?.applyPopoverSize(size) },
                                       // The popover hangs off the status item, so it has to fit the
                                       // screen the menu bar is on, whichever display that is today.
-                                      hostScreen: { [weak self] in self?.statusItem?.button?.window?.screen },
+                                      hostScreen: { [weak self] in self?.menuBarScreen() },
                                       tabState: popoverTab, host: .popover))
         host.sizingOptions = []
         popoverHost = host
@@ -160,8 +160,42 @@ final class StatusItemController: NSObject {
             let animated = self.popover.animates
             self.popover.animates = false
             self.popover.contentSize = size
+            self.fitShownPopoverToScreen()
             self.popover.animates = animated
         }
+    }
+
+    /// Ask AppKit to place the popover again, now that it knows how big it is.
+    ///
+    /// Fitting the popover to its display is a ONE-SHOT: NSPopover works out where it goes when it
+    /// is shown, from the size it has at that moment, and every later size change resizes the window
+    /// in place from the origin that fit the OLD size. This surface changes width while it is open -
+    /// the card that changes the column count and the density is inside the popover itself - so a
+    /// panel widened from two columns to four kept the left edge it had and walked off the right of
+    /// the display, taking the last column with it, and stayed there until it was closed (measured:
+    /// a status item near the right of a 2048pt display, 406pt panel at x=1471, still x=1471 once it
+    /// was 1134pt wide, i.e. 557pt past the edge).
+    ///
+    /// Handing the positioning rect back is what makes it place itself again; it is the same rect
+    /// `show(relativeTo:)` was given, so nothing about where it points changes - only whether the
+    /// screen it points on can hold it. The content's own fit (`ScreenFitStack`, `PanelGeometry`)
+    /// keeps it small enough for that to succeed; this is what makes the two meet.
+    private func fitShownPopoverToScreen() {
+        guard popover.isShown, let button = statusItem?.button else { return }
+        popover.positioningRect = button.bounds
+    }
+
+    /// The display the popover opens on, which is the one the menu bar is on.
+    ///
+    /// Deliberately not `button.window?.screen`: with "Automatically hide and show the menu bar"
+    /// on, the status item's window sits in the strip just ABOVE its display while the bar is
+    /// hidden, and AppKit then answers either nil (nothing there) or - when another display is
+    /// stacked above this one - THAT display, whose size the surface has no business fitting. The
+    /// popover still hangs off the bar's own screen, so read it off the point it hangs from.
+    private func menuBarScreen() -> NSScreen? {
+        guard let window = statusItem?.button?.window else { return NSScreen.main }
+        let anchor = CGPoint(x: window.frame.midX, y: window.frame.minY - 1)
+        return NSScreen.screens.first { $0.frame.contains(anchor) } ?? window.screen ?? NSScreen.main
     }
 
     /// Toggle the pinned floating panel (called from the popover/panel footer's pin button).

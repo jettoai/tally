@@ -36,8 +36,8 @@ struct AccountListRowView: View {
     /// travels with the identity) truncated its plan to "Max…", so the slack has to cover a mark
     /// too (2026-08-04).
     static let minComfortableWidth: CGFloat = 480
-    /// The gutter between list columns, matching the card grid's.
-    static let columnGap: CGFloat = 10
+    /// The gutter between list columns, which is the card grid's own (see `PanelGeometry`).
+    static let columnGap: CGFloat = PanelGeometry.columnGap
 
     /// The meter track. Narrow enough that three windows plus the identity fit one row at the
     /// panel's list width, wide enough that a fill still reads as a proportion rather than a dot.

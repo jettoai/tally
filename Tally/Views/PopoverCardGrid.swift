@@ -14,9 +14,7 @@ extension PopoverRootView {
     /// width (12pt content padding each side, 10pt gap between columns). The cards scroll, so it is
     /// the scrolling region's width they divide up, not the surface's.
     private var cardWidth: CGFloat {
-        let inner = scrollContentWidth - 24
-        let columns = CGFloat(columnCount)
-        return (inner - 10 * (columns - 1)) / columns
+        PanelGeometry.cardWidth(inGridOf: scrollContentWidth, columns: columnCount)
     }
 
     /// Accounts in rows of two when multi-account, one column otherwise. A hand-built grid (not
@@ -105,7 +103,7 @@ extension PopoverRootView {
 
     /// The list surface's width: the scrolling region less the container's own 12pt padding each
     /// side. Its columns then divide that up, exactly as the cards' do.
-    var listWidth: CGFloat { scrollContentWidth - 24 }
+    var listWidth: CGFloat { scrollContentWidth - 2 * PanelGeometry.contentPadding }
 
     private var listColumnWidth: CGFloat {
         let columns = CGFloat(listColumnCount)

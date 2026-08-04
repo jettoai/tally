@@ -26,10 +26,32 @@ struct SettingsAccountsView: View {
                 fallbackCommand: { Self.addAccountCommand($0, homes: launchHomes($0)) },
                 dismiss: { addingAccount = false })
         }
+        // This pane is the one surface that draws from discovery alone, and discovery only lands
+        // when a whole refresh round has finished polling every provider CLI. Asking for the pass
+        // here is what fills the list on a cold start (the relaunch an update performs) instead of
+        // leaving it empty for those seconds. Idempotent in the store, which is what lets it hang
+        // off a ForEach that runs it once per provider group.
+        .onAppear { store.ensureDiscovered() }
     }
 
     private var rowDivider: some View {
         Divider().padding(.leading, 14)
+    }
+
+    /// The line standing in for a provider's account rows while there are none, saying which of the
+    /// two reasons applies (AccountListState.swift). Before discovery has answered it borrows the
+    /// account row's own waiting vocabulary - mini spinner, "Loading…" - rather than the sentence
+    /// below it, which is a claim about this machine that nothing has checked yet.
+    private func placeholderRow(_ state: AccountListState) -> some View {
+        HStack(spacing: 10) {
+            Color.clear.frame(width: 22, height: 22)
+            if state == .discovering { ProgressView().controlSize(.mini) }
+            Text(state == .discovering ? L("Loading…") : L("No signed-in accounts found"))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .padding(.leading, 18)
     }
 
     /// This provider's accounts by EXISTENCE (discovery), not by fetched usage - a switched-off
@@ -81,15 +103,11 @@ struct SettingsAccountsView: View {
         .padding(.vertical, 10)
 
         if settings.isEnabled(id) {
-            if items.isEmpty {
+            let state = AccountListState.resolve(hasDiscovered: store.hasDiscovered,
+                                                 accountCount: items.count)
+            if state != .populated {
                 rowDivider
-                HStack(spacing: 10) {
-                    Color.clear.frame(width: 22, height: 22)
-                    Text(L("No signed-in accounts found")).font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .padding(.leading, 18)
+                placeholderRow(state)
             }
             rowDivider
             addAccountRow(id)

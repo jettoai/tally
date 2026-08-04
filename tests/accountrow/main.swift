@@ -266,5 +266,63 @@ check("a caller that names no home gets this machine's",
       AccountIdentity.detail(plan: "Team", home: NSHomeDirectory() + "/.codex2")
           == "Team · ~/.codex2")
 
+// MARK: - What the LIST says when it has no rows at all (AccountListState.swift)
+
+// The bug: an empty list was read as an answer. On a cold start - which every self-update performs,
+// and which is when somebody opens Settings to see what survived - discovery has not run yet, and
+// the pane told a user with five accounts that it found none.
+check("nothing found and nothing asked is not an answer",
+      AccountListState.resolve(hasDiscovered: false, accountCount: 0) == .discovering)
+check("nothing found AFTER a pass is",
+      AccountListState.resolve(hasDiscovered: true, accountCount: 0) == .empty)
+check("accounts are drawn once there are any",
+      AccountListState.resolve(hasDiscovered: true, accountCount: 3) == .populated)
+// A set can arrive from the config-dir watcher rather than a refresh, and rows already in hand are
+// never withheld waiting for the flag to catch up.
+check("rows in hand outrank the flag",
+      AccountListState.resolve(hasDiscovered: false, accountCount: 1) == .populated)
+
+// MARK: - …and that the two halves of it are actually wired up
+
+// The rule is only worth having if the store really reports the fact and the pane really asks for
+// it; neither end compiles into this harness (one is @Observable and @MainActor, the other is a
+// SwiftUI view), so the wiring is checked as text - the same way the login suite does it.
+func readSource(_ path: String) -> String {
+    (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+}
+let storeSource = readSource("Tally/Stores/UsageStore.swift")
+let paneSource = readSource("Tally/Views/SettingsAccountsView.swift")
+
+/// One member's body, cut at its own closing brace at type-member indentation - so a match
+/// elsewhere in the file (the demo branch also sets this flag) cannot stand in for this one.
+func memberBody(_ source: String, from declaration: String) -> String {
+    guard let start = source.range(of: declaration),
+          let end = source.range(of: "\n    }", range: start.upperBound ..< source.endIndex)
+    else { return "" }
+    return String(source[start.upperBound ..< end.lowerBound])
+}
+
+check("the one route every discovered set is adopted through reports the pass",
+      memberBody(storeSource, from: "private func adoptDiscovered")
+          .contains("discoveredAccounts = accounts")
+          && memberBody(storeSource, from: "private func adoptDiscovered")
+          .contains("hasDiscovered = true"))
+check("a demo run, whose refresh replaces the pass entirely, still gets a final answer",
+      storeSource.range(of: "if DemoUsage.isActive \\{[^}]*hasDiscovered = true",
+                        options: .regularExpression) != nil)
+check("the pane asks the rule rather than reading emptiness as an answer",
+      paneSource.contains("AccountListState.resolve(hasDiscovered: store.hasDiscovered")
+          && paneSource.contains("if state != .populated"))
+check("and the sentence is only ever reachable through that rule",
+      paneSource.components(separatedBy: "No signed-in accounts found").count == 2
+          && paneSource.contains("state == .discovering ? L(\"Loading…\")"))
+// The pane opens before the first round finishes, so it asks for the pass itself instead of
+// waiting out every provider CLI that round polls.
+check("the pane starts the discovery it needs",
+      paneSource.contains(".onAppear { store.ensureDiscovered() }")
+          && storeSource.contains("func ensureDiscovered()"))
+check("…once, and never on a demo instance",
+      storeSource.contains("guard !hasDiscovered, !DemoUsage.isActive else { return }"))
+
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

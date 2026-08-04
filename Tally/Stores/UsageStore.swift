@@ -17,6 +17,12 @@ final class UsageStore {
     /// Settings list renders from this, so a switched-off account stays visible and can be
     /// switched back on. Refreshed on every poll; discovery is local and cheap.
     private(set) var discoveredAccounts: [ProviderAccount] = []
+    /// Whether a discovery pass has finished at least once this launch - a different question from
+    /// whether it found anything, and the one a surface has to ask before it renders "no accounts"
+    /// (AccountListState.swift). The pass lands at the END of a refresh round, behind every provider
+    /// CLI that round polls, so on the cold start every self-update performs, an empty
+    /// `discoveredAccounts` means "not asked yet" for as long as that takes.
+    private(set) var hasDiscovered = false
     private(set) var isRefreshing = false
     private(set) var lastRefreshedAt: Date?
     /// Set only when a refresh produced at least one non-error account - drives the "updated …" header
@@ -97,6 +103,9 @@ final class UsageStore {
     private func adoptDiscovered(_ accounts: [ProviderAccount]) {
         let dormantBefore = Set(discoveredAccounts.filter(\.isDormant).map(\.id))
         discoveredAccounts = accounts
+        // Every route that produces a set passes through here, so this is the one place that can
+        // say the question has been asked - including when the answer is "none".
+        hasDiscovered = true
         guard !dormantBefore.isEmpty else { return }
         LoginStatusStore.shared.loginLanded(
             dormantBefore.intersection(accounts.lazy.filter { !$0.isDormant }.map(\.id)))
@@ -111,6 +120,19 @@ final class UsageStore {
         guard discoveredAccounts.isEmpty else { return discoveredAccounts }
         return KnownAccountsStore.shared
             .reconcile(discovered: providers.flatMap { $0.discoverAccounts() }).all
+    }
+
+    /// …and the same pass ADOPTED, for a surface that opens before the first refresh has produced
+    /// one: the Settings account list, which draws from nothing else. Without it that list waits
+    /// out every provider CLI the first round polls (10-20s on the relaunch an update performs)
+    /// before it can show a single account.
+    ///
+    /// Once per launch (the flag it sets is what stops the second caller), and never on a demo
+    /// instance: a screenshot run does not discover at all - its refresh returns before the pass -
+    /// and must not start reading this machine's real config homes because a pane opened.
+    func ensureDiscovered() {
+        guard !hasDiscovered, !DemoUsage.isActive else { return }
+        adoptDiscovered(discoveredAccountsNow())
     }
 
     /// Rebuild the background timer from the current interval setting.
@@ -216,6 +238,10 @@ final class UsageStore {
             accounts = DemoUsage.accounts()
             fleetRates = DemoUsage.fleetRates
             advisorReadings = DemoUsage.advisorReadings
+            // This branch REPLACES the discovery pass, so a demo run's answer about which accounts
+            // exist is as final as it will ever get. Saying so keeps the Settings list from sitting
+            // on a "still looking" placeholder that nothing is ever going to resolve.
+            hasDiscovered = true
             lastRefreshedAt = Date()
             lastSuccessfulRefreshAt = lastRefreshedAt
             onChange?()

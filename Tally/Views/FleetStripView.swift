@@ -50,6 +50,9 @@ extension PopoverRootView {
         let summaries = fleetSummaries
         if !summaries.isEmpty {
             let gauged = summaries.filter { !displayedPools($0).isEmpty }
+            // A design capture forces ONE callout (they all publish into a single preference slot),
+            // so it forces the leading provider's - see `tallyTooltip(blocks:forced:)`.
+            let forcedID = TallyTooltip.previewForced(.fleet) ? gauged.first?.providerID : nil
             Group {
                 // Exactly two gauges stand side by side: the panel is wide enough for both, and
                 // one glance then covers the whole fleet instead of two stacked bands. Any other
@@ -61,14 +64,14 @@ extension PopoverRootView {
                 if gauged.count == 2, popoverWidth >= Self.twoColumnPanelWidth {
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(gauged, id: \.providerID) { summary in
-                            fleetColumn(summary)
+                            fleetColumn(summary, forcedTooltip: summary.providerID == forcedID)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(summaries, id: \.providerID) { summary in
-                            fleetGauge(summary)
+                            fleetGauge(summary, forcedTooltip: summary.providerID == forcedID)
                         }
                     }
                 }
@@ -76,18 +79,22 @@ extension PopoverRootView {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .tallyTooltip(blocks: fleetTooltipBlocks(summaries))
             // The strip's own divider separates it from the cards; with every card folded away
-            // the footer's divider is next, and two adjacent dividers drew as a doubled line.
-            if !visibleAccounts.isEmpty {
+            // AND nothing left to head them, the footer's divider is next and two adjacent
+            // dividers drew as a doubled line.
+            if showsAccountRegion {
                 Divider()
             }
         }
     }
 
+    /// One provider's rows, and the hover that explains THEM. The hover belongs to the provider's
+    /// own block rather than to the whole strip: a callout is placed against the rect its target
+    /// reports (`TooltipPlacement`), so a strip-wide target put the chip a whole band's height below
+    /// the row the pointer was on, over the cards - and answered a hover on Claude's bar with
+    /// Codex's figures stacked under it. One target, one subject, one gap.
     @ViewBuilder
-    private func fleetGauge(_ summary: FleetSummary) -> some View {
+    private func fleetGauge(_ summary: FleetSummary, forcedTooltip: Bool = false) -> some View {
         let pools = displayedPools(summary)
         if !pools.isEmpty {
             VStack(alignment: .leading, spacing: 5) {
@@ -95,6 +102,7 @@ extension PopoverRootView {
                     poolBlock(summary, pool, leading: index == 0)
                 }
             }
+            .tallyTooltip(blocks: fleetTooltipBlocks([summary]), forced: forcedTooltip)
         }
     }
 
@@ -103,7 +111,7 @@ extension PopoverRootView {
     /// 88pt label column, so the identity moves above the bars instead of beside them - which is
     /// what buys the bar the column's whole width and makes the split worth taking.
     @ViewBuilder
-    private func fleetColumn(_ summary: FleetSummary) -> some View {
+    private func fleetColumn(_ summary: FleetSummary, forcedTooltip: Bool = false) -> some View {
         let pools = displayedPools(summary)
         if let leading = pools.first {
             VStack(alignment: .leading, spacing: 5) {
@@ -115,6 +123,10 @@ extension PopoverRootView {
                     }
                 }
             }
+            // This column's own hover, for the same reason the rows have theirs (see `fleetGauge`):
+            // the two columns stand side by side, so a strip-wide target also answered the wrong
+            // half of the strip.
+            .tallyTooltip(blocks: fleetTooltipBlocks([summary]), forced: forcedTooltip)
         }
     }
 
@@ -359,8 +371,10 @@ extension PopoverRootView {
         .frame(height: 6)
     }
 
-    /// The gauge's hover, one block per provider: the capacity unit the value column gives up, the
-    /// tightest window in the fleet with the account that owns it, and the next refill.
+    /// The gauge's hover, one block per summary asked about - which is ONE, the provider whose rows
+    /// are being hovered: the capacity unit the value column gives up, the tightest window in that
+    /// fleet with the account that owns it, and the next refill. It stayed plural because the shape
+    /// is the block list's, and a caller holding several summaries would build several blocks.
     ///
     /// WHAT IS NOT HERE, deliberately: a line per account. Those numbers are on the cards directly
     /// below, and repeating them made the hover a wall of text whose useful half was the part that

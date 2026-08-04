@@ -210,9 +210,13 @@ extension View {
 
     /// The same callout, answering with labelled figures instead of a sentence (see
     /// `TallyTooltipRow`). Empty blocks show nothing, exactly like empty text.
-    func tallyTooltip(blocks: [TallyTooltipBlock]) -> some View {
-        modifier(TallyTooltipTarget(payload: .blocks(blocks),
-                                    forced: TallyTooltip.previewForced(.fleet)))
+    ///
+    /// - Parameter forced: hold it open with no pointer, for a design capture. The caller decides,
+    ///   exactly as it does for the text callout: the fleet gauge now gives each provider its own
+    ///   hover, so a flag that forced "the blocks callout" would force one per provider and they
+    ///   would race for the single preference slot (`TallyTooltip.previewForced`).
+    func tallyTooltip(blocks: [TallyTooltipBlock], forced: Bool = false) -> some View {
+        modifier(TallyTooltipTarget(payload: .blocks(blocks), forced: forced))
     }
 }
 
@@ -435,23 +439,20 @@ private struct TallyTooltipCallout: View {
         Color.white.opacity(scheme == .dark ? 0.16 : 0.10)
     }
 
-    /// Centred on the target, then held inside the surface's margins.
+    /// Both origins are `TooltipPlacement`'s arithmetic, which is where the hug-the-target rule is
+    /// stated and tested (`tests/run-tooltip-tests.sh`) - a placement is exactly the kind of thing
+    /// that is wrong on screen while everything still builds and draws.
     ///
     /// `nonisolated` because an alignment guide is resolved by the layout engine outside the view's
-    /// own actor: both stored properties this reads are immutable and `Sendable`, so the geometry is
+    /// own actor: both stored properties these read are immutable and `Sendable`, so the geometry is
     /// pure arithmetic on values, not a hop back to the view.
     private nonisolated func originX(width: CGFloat) -> CGFloat {
-        let centred = item.anchor.midX - width / 2
-        let rightmost = max(TallyTooltip.margin, bounds.width - width - TallyTooltip.margin)
-        return min(max(centred, TallyTooltip.margin), rightmost)
+        TooltipPlacement.originX(width: width, anchor: item.anchor, bounds: bounds,
+                                 margin: TallyTooltip.margin)
     }
 
-    /// Above the target, or below it when there is no room above (the top card in a panel). Below is
-    /// itself held off the bottom edge, so a target near either edge still shows the whole chip.
     private nonisolated func originY(height: CGFloat) -> CGFloat {
-        let above = item.anchor.minY - TallyTooltip.gap - height
-        if above >= TallyTooltip.margin { return above }
-        let lowest = max(TallyTooltip.margin, bounds.height - height - TallyTooltip.margin)
-        return min(item.anchor.maxY + TallyTooltip.gap, lowest)
+        TooltipPlacement.originY(height: height, anchor: item.anchor, bounds: bounds,
+                                 gap: TallyTooltip.gap, margin: TallyTooltip.margin)
     }
 }

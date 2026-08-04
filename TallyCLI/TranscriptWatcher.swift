@@ -83,8 +83,6 @@ struct TranscriptWatcher {
     var recentUserExcerpts: [String: String] = [:]
     /// Insertion order backing `recentUserExcerpts`' FIFO eviction.
     var excerptOrder: [String] = []
-    /// Earliest time the next fork scan may read the directory (see `forkScanInterval`).
-    var nextForkScan: Date = .distantPast
     /// How far each candidate has been read while looking for the fork marker, so a rescan resumes
     /// instead of starting over. Keyed by session id.
     var forkScanOffsets: [String: UInt64] = [:]

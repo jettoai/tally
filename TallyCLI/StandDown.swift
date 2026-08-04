@@ -1,0 +1,65 @@
+import Foundation
+
+// Standing a planned relaunch down at the execution point, and giving back what planning it cost.
+//
+// The hold itself is in TranscriptFork.swift: while a transcript newer than the bound one cannot yet
+// be told apart from the file the conversation moved to, restarting would resume the id from before
+// the move. A planner that decides on its own asks that question through its own quiet gate, and the
+// fork scan behind it is unthrottled, so under a live hold it never gets as far as planning. Two
+// things still reach here: the `/clear` that lands in the microseconds BETWEEN a planner's gate and
+// the moment the tick executes, and the follow adoption, which folds its pair onto a plan somebody
+// else made and so asks no gate of its own. The forced scan in front of the execution catches both.
+//
+// Catching it is not free, and the first version of this check made it worse rather than better.
+// Planning is not a pure decision: by the time a plan exists its owner has already written the
+// bookkeeping that says "this is handled", so dropping the plan without dropping the bookkeeping
+// loses the work outright. A `tally reload` was the case that proved it - `applyReloadRequest`
+// records the served epoch as it plans, so a stood-down tick left the epoch consumed and the request
+// was never planned again, for the life of the session. Silently: nothing is queued any more, so
+// nothing says it is waiting either.
+//
+// Hence the shape below: capture what the planners may commit BEFORE any of them runs, put it back
+// if the tick stands down. Only value state belongs here, and only state a planner writes while
+// planning. Deliberately NOT captured:
+//
+//   - the transcript scan (`watcher.offset`, the cap it consumed): reading is not a commitment and
+//     it cannot be un-read. A cap event is drained from the byte stream exactly once, so rolling
+//     `pendingCap` back would DELETE a cap hit rather than defer it. Cap plans are exempt from the
+//     hold for the same reason and never reach this path.
+//   - the idle rebalance's cross-supervisor cycle claim (Rebalance.swift): it is a file another
+//     process reads, so handing it back means deleting a claim under other supervisors mid-decision.
+//     Left as it is, knowingly: reaching it needs the sub-tick race AND a drought AND a target, and
+//     the cost when it happens is one preventive move deferred to the next cycle. Every other entry
+//     here is the loss of something a user asked for; this one is a delay in something nobody did.
+/// Built at the top of a tick, before the first planner runs.
+struct TickCommitments {
+    let reloadEpoch: Int
+    let reloadNotice: ReloadWait
+    let followState: FollowState
+    let fallbackApplied: Bool
+
+    /// Put every one of them back, so the next tick plans from where this one started.
+    ///
+    /// Whole-value restores rather than per-field ones: `FollowState` and `ReloadWait` also carry
+    /// what has been SAID about a wait (the queued badge, the five-minute reminder), and a tick that
+    /// did not happen should not have spoken either. The debounce clocks inside them restart, which
+    /// costs one more debounce window and never loses a request.
+    func restore(reloadEpoch: inout Int, reloadNotice: inout ReloadWait,
+                 followState: inout FollowState, fallbackApplied: inout Bool) {
+        reloadEpoch = self.reloadEpoch
+        reloadNotice = self.reloadNotice
+        followState = self.followState
+        fallbackApplied = self.fallbackApplied
+    }
+}
+
+/// Whether a relaunch this tick has already planned must stand down, asked at the execution point
+/// against a FORCED fork scan - the sub-tick residue described above.
+///
+/// A cap handoff is exempt, for the same reason it never waits for quiet: a session with no turn in
+/// it cannot have hit a cap, so the conversation the cap belongs to is the bound file, and that is
+/// what the handoff has to resume. Holding it back would strand a capped session on a dry account
+/// for as long as somebody leaves a fresh tab open.
+func relaunchHeldByUnresolvedFork(reason: String, unresolvedFork: Bool) -> Bool {
+    unresolvedFork && reason != "cap"
+}

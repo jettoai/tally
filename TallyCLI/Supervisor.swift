@@ -201,6 +201,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // adoption only folds its model/effort onto that target. Executed once at the tick's
             // end, so a cap and a Settings Apply landing together kill the child exactly once.
             var plan: RelaunchPlan?
+            // What the planners below may commit while they plan, read before the first of them
+            // runs. A tick that ends up standing its relaunch down (the unresolved-fork hold at the
+            // bottom) has to hand all of it back, or the work is not deferred but lost: the reload's
+            // served epoch is the case that proved it (StandDown.swift).
+            let committed = TickCommitments(reloadEpoch: reloadEpoch, reloadNotice: reloadNotice,
+                                            followState: followState,
+                                            fallbackApplied: fallbackApplied)
 
             // Cap recovery has top priority: scan for the cap BEFORE any relaunch path (pin,
             // follow, rescue, fallback), because a relaunch resets the watcher's `since` and would
@@ -423,22 +430,24 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // terminated, and against the account the plan moves TO, so the new build resumes the
             // conversation where this handoff is about to put it rather than on the old account.
             if let plan {
-                // Last look before anything is terminated, and a FORCED one: the scan behind the
-                // quiet gate is throttled, so a `/clear` from the last few seconds can still be
-                // invisible to it while the 5s bar this plan cleared is long satisfied. Restarting
-                // there resumes the id from before the clear and snaps the conversation back
-                // (TranscriptFork.swift). This may also adopt a fork that has just stamped its
-                // marker, which is the same insurance seen from the other side: the relaunch then
-                // resumes the file the conversation is actually in.
+                // Last look before anything is terminated, and a FORCED one: the planners each
+                // asked their own gate, but a `/clear` can land in the microseconds since, and
+                // restarting then resumes the id from before it (TranscriptFork.swift). This may
+                // also adopt a fork that has just stamped its marker, the same insurance seen from
+                // the other side: the relaunch then resumes the file the conversation is in.
                 watcher.locateFile(forceForkCheck: true)
                 if relaunchHeldByUnresolvedFork(reason: plan.reason,
                                                 unresolvedFork: watcher.hasUnresolvedFork) {
+                    // Hand back what planning committed, so the next tick plans it again rather
+                    // than believing it is already done (StandDown.swift).
+                    committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,
+                                      followState: &followState, fallbackApplied: &fallbackApplied)
                     if !unresolvedHoldWarned {
                         warn("a new session file here has no turn in it yet - holding the restart " +
                              "until it is clear where this conversation went")
                         unresolvedHoldWarned = true
                     }
-                    continue   // the child keeps running; every planner re-plans on the next tick
+                    continue   // the child keeps running; the next tick decides again from scratch
                 }
                 carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)
                 let upgrade = selfUpdateFold(captured: supervisorVersion,

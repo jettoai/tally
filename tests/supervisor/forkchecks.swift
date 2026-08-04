@@ -298,19 +298,20 @@ func runForkChecks() {
           liveWatcher.file?.lastPathComponent == "parent.jsonl")
     liveWatcher.locateFile(forceForkCheck: true)
     check("the relaunch path checks anyway", liveWatcher.file?.lastPathComponent == "fork.jsonl")
-    let throttled = ForkFixture("throttled")
-    throttled.write("parent.jsonl", ["{}"], born: -3600, wrote: -30)
-    var throttledWatcher = throttled.watcher(pinnedTo: "parent")
-    throttledWatcher.locateFile()                 // one scan, nothing to find yet
-    throttled.write("fork.jsonl", [throttled.marker(own: "fork", launched: "parent")],
-                    born: 30, wrote: 120)
-    throttledWatcher.locateFile()
-    check("a scan does not repeat before its interval",
-          throttledWatcher.file?.lastPathComponent == "parent.jsonl")
-    throttledWatcher.nextForkScan = .distantPast
-    throttledWatcher.locateFile()
-    check("and the next scan after the interval finds the fork",
-          throttledWatcher.file?.lastPathComponent == "fork.jsonl")
+    // A scan that found nothing does NOT buy quiet for the next one. There used to be a 10s rate
+    // limit here, and it was a hole through the hold in section 8: a move landing inside the window
+    // was invisible to every gate that asked, while the 5s bar they use was already satisfied. The
+    // pass costs 0.83 ms on the largest project directory on this machine (240 transcripts,
+    // measured 2026-08-04), so the answer is current instead.
+    let repeated = ForkFixture("repeat-scan")
+    repeated.write("parent.jsonl", ["{}"], born: -3600, wrote: -30)
+    var repeatedWatcher = repeated.watcher(pinnedTo: "parent")
+    repeatedWatcher.locateFile()                  // one scan, nothing to find yet
+    repeated.write("fork.jsonl", [repeated.marker(own: "fork", launched: "parent")],
+                   born: 30, wrote: 120)
+    repeatedWatcher.locateFile()
+    check("a move made right after an empty scan is seen by the very next one",
+          repeatedWatcher.file?.lastPathComponent == "fork.jsonl")
 
     // 7. A marker aimed at a THIRD session (a sibling that itself forked from someone else) is not
     //    ours, and a line whose `sessionId` is not the file it lives in is not a marker at all.
@@ -359,7 +360,6 @@ func runForkChecks() {
     // The ambiguity resolves itself, in whichever direction the first turn goes. Appended AFTER
     // the scans above, because a fixture written whole up front never enters the held state.
     cleared.append("cleared.jsonl", [cleared.marker(own: "cleared", launched: "parent")], wrote: 200)
-    clearedWatcher.nextForkScan = .distantPast
     check("the first turn stamps our launch id, so the hold ends in an adoption",
           clearedWatcher.isQuiet(60))
     check("and the watcher is now on the file the conversation moved to",
@@ -377,7 +377,6 @@ func runForkChecks() {
     var strangerWatcher = stranger.watcher(pinnedTo: "parent")
     check("the same empty candidate holds to begin with", !strangerWatcher.isQuiet(60))
     stranger.append("stranger.jsonl", [stranger.plainTurn(own: "stranger")], wrote: 200)
-    strangerWatcher.nextForkScan = .distantPast
     check("a turn that is not ours ends the hold with no adoption", strangerWatcher.isQuiet(60))
     check("and the watcher stays where it was",
           strangerWatcher.file?.lastPathComponent == "parent.jsonl")
@@ -410,25 +409,28 @@ func runForkChecks() {
           older2Watcher.isQuiet(60))
     check("and the hold flag says so too", !older2Watcher.hasUnresolvedFork)
 
-    // MARK: - 8b. The scan that sets the hold is throttled; the plan execution point is not
+    // MARK: - 8b. Every ask gets a current answer, and the execution point asks once more
 
-    // The flag only moves when the fork scan runs, and the scan behind `isQuiet` stands down for
-    // `forkScanInterval` after each pass. A `/clear` landing inside that window is invisible to it,
-    // while the 5s bar (pin switch, degradation rescue, fallback profile) is long satisfied - so
-    // the restart goes ahead on the id from before the clear and the conversation snaps back, which
-    // is the whole defect, entering through a different door. The plan execution point re-asks with
-    // the FORCED scan, which has no throttle, before anything is terminated.
-    let blind = ForkFixture("throttle-blind")
+    // The flag only moves when the fork scan runs, so the scan is not rate-limited: a `/clear` made
+    // one poll after a scan that found nothing is seen by the NEXT gate that asks, not up to ten
+    // seconds later. That window used to exist, and it was a hole straight through this hold - the
+    // 5s bar (pin switch, degradation rescue, fallback profile) is satisfied long before it closes,
+    // so the restart went ahead on the id from before the clear.
+    //
+    // It matters where the answer arrives, not just that it does: every planner commits its
+    // bookkeeping AFTER its own quiet gate, so a current answer stops them before there is anything
+    // to undo (standdownchecks.swift holds the case that proved it).
+    let blind = ForkFixture("current-answer")
     blind.write("parent.jsonl", ["{}"], born: -3600, wrote: -580)
     var blindWatcher = blind.watcher(pinnedTo: "parent")
-    check("a first scan finds nothing and arms the throttle", blindWatcher.isQuiet(5))
+    check("a first scan finds nothing to hold on", blindWatcher.isQuiet(5))
     blind.write("cleared.jsonl", blind.clearedLines(own: "cleared"), born: 30, wrote: 120)
-    check("inside the interval the throttled scan is still blind to the new transcript",
-          blindWatcher.isQuiet(5))
-    check("so the quiet gate alone would have let the restart through",
-          !blindWatcher.hasUnresolvedFork)
+    check("a /clear right after that scan is held by the very next ask", !blindWatcher.isQuiet(5))
+    check("and the flag is what says so", blindWatcher.hasUnresolvedFork)
+    // The execution point asks once more, forced, for the `/clear` that lands in the microseconds
+    // between a planner's gate and the kill.
     blindWatcher.locateFile(forceForkCheck: true)
-    check("the forced pre-flight sees it", blindWatcher.hasUnresolvedFork)
+    check("the forced pre-flight sees it too", blindWatcher.hasUnresolvedFork)
     check("and a non-urgent plan stands down on it",
           relaunchHeldByUnresolvedFork(reason: "pin", unresolvedFork: blindWatcher.hasUnresolvedFork))
     check("a cap handoff is never held: an empty session cannot have capped, and the capped "
@@ -467,7 +469,6 @@ func runForkChecks() {
     var straddleWatcher = straddle.watcher(pinnedTo: "parent")
     check("a candidate whose first line fills a whole block holds while it is stepped over",
           !straddleWatcher.isQuiet(60))
-    straddleWatcher.nextForkScan = .distantPast
     check("the next scan reads the turn behind the straddling character and releases the hold",
           straddleWatcher.isQuiet(60))
     check("and the candidate is settled as a sibling, not left unresolved",

@@ -69,15 +69,29 @@ import Foundation
 // defers non-urgent relaunches until somebody uses it. Deferral is already their default posture -
 // each one waits for a quiet transcript, a quiet keyboard and a finished tool call as it is.
 //
-// `isQuiet` alone is NOT enough to carry that hold, which is the second half of the rule. The flag
-// behind it is set by the fork scan, and the scan the quiet gate runs is the cheap one: it stands
-// down while the bound file is still being written and then again for `forkScanInterval`. A `/clear`
-// landing inside that window leaves the flag false while the 5s bar (the pin switch, the degradation
-// rescue, the fallback profile) is already satisfied - so the tick restarts on the id from before
-// the clear, and the conversation snaps back exactly as it did before this hold existed, just
-// through a different door. The plan execution point therefore re-asks with the FORCED scan, which
-// has no throttle, immediately before anything is terminated (`performHandoff` forces one too, but
-// only after the SIGTERM, which is too late to change its mind).
+// The flag behind that hold is set by the fork scan, which is why the scan is NOT rate-limited. It
+// used to skip a directory pass for 10s after each one, and that window was a hole straight through
+// the hold: a `/clear` landing inside it left the flag false while the 5s bar (the pin switch, the
+// degradation rescue, the fallback profile) was already satisfied, so the tick restarted on the id
+// from before the clear and the conversation snapped back exactly as it had before the hold existed.
+//
+// Unthrottled, the answer every planner reads is current, and THAT is what makes their bookkeeping
+// safe: a planner that decides on its own writes its state (the reload's served epoch, the
+// fallback's one-shot flag, the rebalance's cross-supervisor cycle claim) only AFTER its own
+// `isQuiet` said yes, so a live hold stops it before there is anything to undo. Held back at the
+// execution point instead, it would have committed already and a stood-down tick would lose the
+// work - a `tally reload` swallowed for the life of the session (2026-08-04). The follow adoption
+// is the one that still needs catching, because folding onto a plan somebody else made asks no gate
+// of its own; StandDown.swift gives that baseline back.
+//
+// The cost is one directory pass per ask, and the ask is per planner rather than per tick: up to
+// eight on a tick where every gate runs. Measured here 2026-08-04 on the largest project directory
+// on this machine (240 transcripts): 0.83 ms mean, 1.03 ms worst, so a fully-gated tick spends
+// under 7 ms of its 2s. The pass itself never reads file CONTENTS (the `created >= since` filter
+// runs first and leaves 0 to 2 candidates on a normal session), a candidate already proven is O(1)
+// through `forkMarked` / `forkSibling`, and one still unresolved reads only bytes no scan has read
+// before - usually none. The one gate kept is the 5s silence of the bound file, which is a semantic
+// gate rather than a budget: a conversation still being written to has not moved anywhere.
 //
 // A constant key opens one failure mode the chained key could not have: once the newest fork is
 // bound, the earlier and now dead fork still carries the same marker and would be adopted straight
@@ -90,10 +104,6 @@ import Foundation
 /// How long the bound transcript must have been silent before the fork check does more than one
 /// stat. A live conversation appends every few seconds, so an active session never pays more.
 let forkScanQuietSeconds: TimeInterval = 5
-
-/// The shortest gap between two directory scans while the bound file stays quiet, so an idle session
-/// does not re-read candidates on every 2s poll.
-let forkScanInterval: TimeInterval = 10
 
 /// How much of one candidate a single scan reads before leaving the rest to the next one. The marker
 /// sits on the candidate's first assistant event, which the SessionStart hook context pushes 56 to
@@ -114,21 +124,8 @@ enum ForkEvidence {
     case unresolved
 }
 
-/// Whether a relaunch this tick has already planned must stand down, asked at the execution point
-/// against a FORCED fork scan (see the hold note above - the throttled scan behind `isQuiet` can
-/// still be blind to a `/clear` from seconds ago).
-///
-/// Standing down costs a poll interval and nothing else: every path that plans a relaunch keeps its
-/// own pending state and re-plans on the next tick, so the deferral resolves itself the moment the
-/// new transcript writes its first turn.
-///
-/// A cap handoff is exempt, for the same reason it never waits for quiet: a session with no turn in
-/// it cannot have hit a cap, so the conversation the cap belongs to is the bound file, and that is
-/// what the handoff has to resume. Holding it back would strand a capped session on a dry account
-/// for as long as somebody leaves a fresh tab open.
-func relaunchHeldByUnresolvedFork(reason: String, unresolvedFork: Bool) -> Bool {
-    unresolvedFork && reason != "cap"
-}
+// What the execution point does with this flag, and what a tick that stands down has to give back
+// to the planners it is cancelling: StandDown.swift.
 
 extension TranscriptWatcher {
     /// Re-point at the transcript the conversation moved to, when it moved (see the fork notes at
@@ -143,11 +140,12 @@ extension TranscriptWatcher {
             .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         if !force {
             // The common case costs one stat: a conversation still appending to the bound file has
-            // not moved anywhere, so nothing below needs to run.
+            // not moved anywhere, so nothing below needs to run. The ONLY gate, deliberately: a
+            // rate limit here used to skip the directory for 10s at a time, and every planner that
+            // asked inside that window got a stale answer to the one question the hold above rests
+            // on (see the note at the top of this file, and the 0.83 ms it costs instead).
             guard let modified = boundModified,
-                  now.timeIntervalSince(modified) > forkScanQuietSeconds,
-                  now >= nextForkScan else { return }
-            nextForkScan = now.addingTimeInterval(forkScanInterval)
+                  now.timeIntervalSince(modified) > forkScanQuietSeconds else { return }
         }
         // Only a file written more recently than the bound one can be where the conversation went:
         // the process writes to exactly one transcript, so everything it left behind stopped
@@ -179,7 +177,6 @@ extension TranscriptWatcher {
         offset = 0
         forkScanOffsets.removeAll()
         forkMarked.removeAll()
-        nextForkScan = .distantPast
     }
 
     /// The join key, resolved once and then held: the id this child was launched with, or, on a

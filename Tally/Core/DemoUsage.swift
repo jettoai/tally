@@ -9,6 +9,24 @@ import Foundation
 enum DemoUsage {
     static var isActive: Bool { UserDefaults.standard.bool(forKey: "TallyDemoData") }
 
+    /// The fixture whose identity callout `-TallyTooltipPreview identity` holds open: the Team
+    /// account that shares its address with the Pro one, which is the whole point that callout's
+    /// second line exists to make.
+    static let tooltipPreviewAccountID = "codex:demo-Codex 4"
+
+    /// The config home a fixture stands for (`~/.codex4`), for that second line.
+    ///
+    /// Derived from the label the same way `tally add` numbers real homes, rather than stored: the
+    /// fixtures ARE their labels, and a parallel table would be one more thing to keep in step.
+    /// Asked only by the identity line - a fixture still has no `launchHome` anywhere discovery can
+    /// see, so every action that would touch a folder stays greyed out on a demo card.
+    static func launchHome(accountID: String) -> String? {
+        guard isActive, let separator = accountID.range(of: ":demo-") else { return nil }
+        let base = accountID.hasPrefix("claude:") ? ".claude" : ".codex"
+        let number = accountID[separator.upperBound...].filter(\.isNumber)
+        return NSHomeDirectory() + "/\(base)\(number)"
+    }
+
     static func accounts(now: Date = Date()) -> [AccountUsage] {
         [
             // Every remaining percentage stays double-digit (10-99): a mixed column of "8%" and
@@ -27,15 +45,20 @@ enum DemoUsage {
             // screenshot about an error rather than about the chip.
             claude("Claude 5", plan: "Max 20x", model: 45, session: 89, weekly: 59,
                    modelResetDays: 2.6, sessionResetHours: 0.6, weeklyResetDays: 2.6, now: now),
-            codex("Codex", plan: "Pro", session: 42, weekly: 69,
+            codex("Codex", plan: "Pro", email: "sam@example.com", session: 42, weekly: 69,
                   sessionResetHours: 2.4, weeklyResetDays: 5.9, resets: 3, now: now),
-            codex("Codex 2", plan: "Pro", session: 71, weekly: 14,
+            codex("Codex 2", plan: "Pro", email: "sam2@example.com", session: 71, weekly: 14,
                   sessionResetHours: 0.9, weeklyResetDays: 3.3, resets: 1, now: now),
-            codex("Codex 3", plan: "Pro", session: 18, weekly: 83,
+            codex("Codex 3", plan: "Pro", email: "sam3@example.com", session: 18, weekly: 83,
                   sessionResetHours: 3.8, weeklyResetDays: 1.7, resets: 0, now: now),
             // Nine accounts total (a 3-column demo screenshot lands as a full 3x3 grid); the
             // one non-premium plan sits last, not mid-pack.
-            codex("Codex 4", plan: "Team", session: 47, weekly: 62,
+            //
+            // Deliberately the SAME address as "Codex" above, on a different plan: one ChatGPT
+            // login in a personal workspace and in a team's is two accounts that answer with one
+            // email, and the identity callout's second line is what tells them apart. A fixture
+            // set where every address is unique could never show that.
+            codex("Codex 4", plan: "Team", email: "sam@example.com", session: 47, weekly: 62,
                   sessionResetHours: 1.6, weeklyResetDays: 4.8, resets: 2, now: now),
         ]
     }
@@ -128,11 +151,14 @@ enum DemoUsage {
     /// A Codex account shaped like CodexAppServerClient's mapping: the 5h primary window plus
     /// the weekly secondary, both with resets (some real plans report only the weekly; the demo
     /// shows the full shape).
-    private static func codex(_ label: String, plan: String, session: Double, weekly: Double,
-                              sessionResetHours: Double, weeklyResetDays: Double, resets: Int,
-                              now: Date) -> AccountUsage {
+    private static func codex(_ label: String, plan: String, email: String, session: Double,
+                              weekly: Double, sessionResetHours: Double, weeklyResetDays: Double,
+                              resets: Int, now: Date) -> AccountUsage {
         AccountUsage(
             id: "codex:demo-\(label)", providerID: "codex", accountLabel: label, planName: plan,
+            // Spelled out per fixture rather than derived from the label (which is what the Claude
+            // ones do): two of these deliberately share one address, and a derivation cannot say so.
+            accountEmail: email,
             metrics: [
                 UsageMetric(id: "session", kind: .session, label: "Session", modelName: nil,
                             usedPercent: session, severity: .fromUsedPercent(session),

@@ -164,5 +164,49 @@ let restored = try! JSONDecoder().decode(AccountIdentityMemory.self,
 check("the memory round-trips through storage", restored == memory)
 check("and still names the account afterwards", restored.email("claude:.claude") == "work@example.com")
 
+// MARK: - The line UNDER the address, for when the address is not the answer
+
+// The case it exists for: one ChatGPT login in a personal workspace and in a team's is two accounts
+// answering with ONE email, and the provider names no organization Tally could add. Plan and config
+// home are what is left, and they do separate them.
+let personal = AccountIdentity.detail(plan: "Pro", home: "/Users/fixture/.codex")
+let team = AccountIdentity.detail(plan: "Team", home: "/Users/fixture/.codex2")
+check("two logins on one address still read as two accounts", personal != team)
+// Even on the same plan, which is the harder half: the plan is often identical, the home never is.
+check("and they do when the plan matches too",
+      AccountIdentity.detail(plan: "Pro", home: "/Users/fixture/.codex")
+          != AccountIdentity.detail(plan: "Pro", home: "/Users/fixture/.codex2"))
+
+// Composition, against this machine's own home so the abbreviation is exercised end to end.
+check("both parts, one separator",
+      AccountIdentity.detail(plan: "Team", home: NSHomeDirectory() + "/.codex2")
+          == "Team · ~/.codex2")
+check("a plan nobody reported leaves the home alone",
+      AccountIdentity.detail(plan: nil, home: NSHomeDirectory() + "/.codex") == "~/.codex")
+check("and an account with no home reads as its plan",
+      AccountIdentity.detail(plan: "Max 20x", home: nil) == "Max 20x")
+// Nil rather than an empty string: the surfaces render NOTHING for nil, and an empty second line
+// under an address reads as a rendering fault.
+check("an account neither could describe has no second line",
+      AccountIdentity.detail(plan: nil, home: nil) == nil)
+check("an empty answer is the same as no answer",
+      AccountIdentity.detail(plan: "", home: nil) == nil)
+
+// MARK: - …and how a home is written there
+
+check("a home inside the user's own is abbreviated",
+      AccountIdentity.homeName("/Users/fixture/.codex2", userHome: "/Users/fixture") == "~/.codex2")
+check("the home directory itself is just the tilde",
+      AccountIdentity.homeName("/Users/fixture", userHome: "/Users/fixture") == "~")
+// A path that merely STARTS with the home directory's characters is a different directory, and
+// abbreviating it would produce a path that does not exist.
+check("a sibling directory with a longer name is left alone",
+      AccountIdentity.homeName("/Users/fixture2/.codex", userHome: "/Users/fixture")
+          == "/Users/fixture2/.codex")
+check("a path outside the home is left as it is",
+      AccountIdentity.homeName("/opt/codex", userHome: "/Users/fixture") == "/opt/codex")
+check("and nothing is abbreviated against no home at all",
+      AccountIdentity.homeName("/Users/fixture/.codex", userHome: "") == "/Users/fixture/.codex")
+
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

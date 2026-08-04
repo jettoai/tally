@@ -45,6 +45,21 @@ struct AccountCardView: View {
         LoginStatusStore.shared.identityEmail(usage) ?? ""
     }
 
+    /// The second line of that tooltip: the plan and the config home, which is what tells two cards
+    /// apart when the address cannot (one ChatGPT address in two workspaces answers with the same
+    /// email on both - see `AccountIdentity.detail`, which owns the rule and the reason).
+    private var identityDetail: String? {
+        AccountIdentity.detail(plan: usage.planName, home: identityHome)
+    }
+
+    /// The home that line NAMES, which is not the same question as `configHome` above: that one is
+    /// the home an action would touch, and it is deliberately nil for a demo fixture so every
+    /// affordance that would move a real folder stays greyed. Naming one is not touching one, and a
+    /// marketing shot of this feature has to show the very thing it is about.
+    private var identityHome: String? {
+        DemoUsage.launchHome(accountID: usage.id) ?? configHome
+    }
+
     /// Non-headline windows. Model-scoped rows are hidden unless "show every model tier" is on, so by
     /// default only the highest-tier model (the headline) is featured.
     private var secondaryMetrics: [UsageMetric] {
@@ -230,9 +245,12 @@ struct AccountCardView: View {
 
     private var header: some View {
         HStack(spacing: 7) {
-            // The identity group carries its own tooltip - the signed-in email, so two accounts on
-            // the same plan are distinguishable without putting an address on screen (and without
-            // covering the trailing controls, which have tooltips of their own). Tally's own callout
+            // The identity group carries its own tooltip - the signed-in email over the plan and
+            // config home, so two accounts are distinguishable without putting an address on screen
+            // (and without covering the trailing controls, which have tooltips of their own). The
+            // second line is not decoration: one ChatGPT address signed in twice, in a personal
+            // workspace and a team's, is the SAME email on both cards, and the home is then the only
+            // thing on this machine that separates them. Tally's own callout
             // rather than `.help()`: this is the one the user goes looking for, so it has to arrive
             // fast and look like the app. Combined into one accessibility element first, so the
             // hint the callout carries lands on the identity as a whole rather than on each label.
@@ -247,7 +265,12 @@ struct AccountCardView: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            .tallyTooltip(identityEmail)
+            // Forced open on ONE fixture for a design capture, never on a real account: every card
+            // carries this target, and forcing them all would leave the capture showing whichever
+            // the layout traversal reached last (TallyTooltip.previewForced).
+            .tallyTooltip(identityEmail, detail: identityDetail,
+                          forced: TallyTooltip.previewForced(.identity)
+                              && usage.id == DemoUsage.tooltipPreviewAccountID)
             if usage.isStale {
                 Label(L("Outdated"), systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)

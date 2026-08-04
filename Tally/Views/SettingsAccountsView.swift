@@ -194,38 +194,9 @@ struct SettingsAccountsView: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                // Plain Text + a pencil-popover for renaming: an inline TextField can't live in
-                // this layout sanely (see RenamePopover) and the popover field behaves normally.
-                Text(settings.displayLabel(accountID: item.id, fallback: item.label))
-                    .font(.subheadline.weight(.semibold))
+                nameLine(item, showsHome: badge != nil)
 
-                // Which account this actually IS. The panel keeps it in a hover tooltip (a card has
-                // no room for an address), but this list is where somebody comes to ask "which of
-                // my logins is Codex 2?", so here it is on the face of the row.
-                //
-                // Data, not a label: never localized, and absent rather than blank when neither the
-                // probe nor the config home can name the account (an empty caption where a name
-                // should be reads as a rendering bug).
-                //
-                // Its OWN line rather than trailing the account name, which is where it started:
-                // sharing the line left roughly 200pt for both, and in English - where the two
-                // switch labels are widest - every address on this machine truncated to something
-                // unreadable ("albert.…er.com", measured in the window, 2026-08-04). A line of its
-                // own fits the addresses people actually have; middle truncation keeps the domain
-                // for the ones it does not.
-                //
-                // Asked by ACCOUNT ID, not off the usage row: a disabled account has no usage row
-                // at all (it is never polled), and this list is exactly where its address is worth
-                // reading. The store answers from what it last knew (AccountIdentity.swift).
-                if let email = LoginStatusStore.shared.identityEmail(accountID: item.id,
-                                                                     polled: usage?.accountEmail) {
-                    Text(email)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(email)
-                }
+                identityLine(item, usage: usage)
 
                 HStack(spacing: 8) {
                     // A login problem REPLACES the plan and the numbers rather than crowding in
@@ -258,7 +229,16 @@ struct SettingsAccountsView: View {
                 // toggling an account never changes the row height and shifts its neighbours.
                 .frame(height: 17, alignment: .leading)
             }
-            Spacer()
+            // Sized before the gap is, so the identity line spends the room the row actually has
+            // rather than half of it. Without this the two flexible children - this column and the
+            // spacer below - split what the fixed controls leave, and the address began truncating
+            // the moment the config home joined it while a strip of empty row sat to its right
+            // (measured in the window, 2026-08-04). The controls are all fixed-size, so they are
+            // reserved either way; what this yields is only the gap.
+            .layoutPriority(1)
+            // …and the gap never closes completely: text running into the "⋯" would read as one
+            // control touching another.
+            Spacer(minLength: 12)
 
             // Every occasional action this row has, behind one button: rename (which the pencil
             // used to own), reorder (the arrows), and the three the card's right-click offers
@@ -330,6 +310,71 @@ struct SettingsAccountsView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .padding(.leading, 18)   // nested under the provider row
+    }
+
+    /// The row's name, and beside it the config home this account launches from.
+    ///
+    /// Plain Text + a pencil-popover for renaming: an inline TextField can't live in this layout
+    /// sanely (see RenamePopover) and the popover field behaves normally.
+    ///
+    /// The home shares the NAME's line rather than the address's below it, which is where it started.
+    /// The address is what tells two logins apart when both are readable, and it is long enough that
+    /// anything sharing its line truncates it - measured in the window on 2026-08-04, adding the home
+    /// there cut "dreamerhyde@gmail.com" to "dreame…ail.com", and two addresses that differ in the
+    /// middle would then read as the same string. That is a worse failure than the one this feature
+    /// fixes. The name line has the room: a name is short, and the home is shorter.
+    ///
+    /// It appears only where the provider has more than one account, on the same rule the count badge
+    /// one level up follows: with a single account it can only ever say `~/.codex`, which the
+    /// provider's own name already said. With siblings it is the discriminator that never fails - two
+    /// accounts cannot share a directory - and it is what a nickname takes away, since the default
+    /// name is derived from that very directory ("Codex 2" ← `~/.codex2`, ClaudeAccounts.swift).
+    private func nameLine(_ item: ProviderAccount, showsHome: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(settings.displayLabel(accountID: item.id, fallback: item.label))
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+            if showsHome, let home = item.launchHome {
+                // Never the part that gives way: it is short, it is fixed, and a half-written path
+                // ("~/.clau…") could name either of the two accounts it is here to separate. A long
+                // nickname truncates instead - the user chose that one and knows what it says.
+                Text(AccountIdentity.homeName(home))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+            }
+        }
+    }
+
+    /// Which account this row actually IS. The panel keeps it in a hover callout (a card has no room
+    /// for an address), but this list is where somebody comes to ask "which of my logins is Codex
+    /// 2?", so here it is on the face of the row.
+    ///
+    /// Data, not a label: never localized, and absent rather than blank when neither the probe nor
+    /// the config home can name the account (an empty caption where a name should be reads as a
+    /// rendering bug).
+    ///
+    /// Its OWN line rather than trailing the account name, which is where it started: sharing the
+    /// line left roughly 200pt for both, and in English - where the two switch labels are widest -
+    /// every address on this machine truncated to something unreadable ("albert.…er.com", measured
+    /// in the window, 2026-08-04). A line of its own fits the addresses people actually have; middle
+    /// truncation keeps the domain for the ones it does not.
+    ///
+    /// Asked by ACCOUNT ID, not off the usage row: a disabled account has no usage row at all (it is
+    /// never polled), and this list is exactly where its address is worth reading. The store answers
+    /// from what it last knew (AccountIdentity.swift).
+    @ViewBuilder
+    private func identityLine(_ item: ProviderAccount, usage: AccountUsage?) -> some View {
+        if let email = LoginStatusStore.shared.identityEmail(accountID: item.id,
+                                                             polled: usage?.accountEmail) {
+            Text(email)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(email)
+        }
     }
 
     /// The row's login state: an inline "Sign in again" in the severity colour when the account is

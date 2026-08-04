@@ -43,8 +43,9 @@ enum TallyTooltip {
     /// both margins comes to 268pt there.
     static let blocksWidth: CGFloat = 240
 
-    /// Design-preview hook (`-TallyTooltipPreview YES`, demo or dev builds only, argument domain so
-    /// nothing persists): hold the structured callout open with no pointer involved.
+    /// Which callout a design capture is holding open (`-TallyTooltipPreview fleet` /
+    /// `-TallyTooltipPreview identity`, demo or dev builds only, argument domain so nothing
+    /// persists): the named one shows with no pointer involved.
     ///
     /// It exists because the alternative is worse. A callout only appears under a real hover, so
     /// capturing one otherwise means synthesizing mouse events into the app, which takes the
@@ -53,11 +54,21 @@ enum TallyTooltip {
     /// flag that puts the state on screen IS the sanctioned answer). Same family as
     /// `-TallyUpdateChip`, `-TallyEmptyStatePreview` and `-TallyDryNotifyTest`.
     ///
-    /// Only the structured callouts honour it, which today means exactly one target: two forced at
-    /// once would race for the single preference slot.
-    static var previewForced: Bool {
-        (DemoUsage.isActive || BuildVariant.isDev)
-            && UserDefaults.standard.bool(forKey: "TallyTooltipPreview")
+    /// It names ONE target rather than switching every forcible callout on, because all of them
+    /// publish into a single preference slot: two forced at once would race for it, and the capture
+    /// would show whichever the layout traversal reached last.
+    enum PreviewTarget: String {
+        case fleet
+        case identity
+    }
+
+    static func previewForced(_ target: PreviewTarget) -> Bool {
+        guard DemoUsage.isActive || BuildVariant.isDev else { return false }
+        let raw = (UserDefaults.standard.string(forKey: "TallyTooltipPreview") ?? "").lowercased()
+        // `YES` predates the flag naming a target, and meant the fleet gauge - the only forcible
+        // callout there was then. Kept working so an older capture command still captures.
+        if target == .fleet, ["yes", "true", "1"].contains(raw) { return true }
+        return raw == target.rawValue
     }
 }
 
@@ -86,15 +97,19 @@ struct TallyTooltipBlock: Equatable {
     let rows: [TallyTooltipRow]
 }
 
-/// What a callout carries. Plain text stays the default and the common case (every existing call
-/// site is one short sentence); blocks are for the few hovers that answer with figures.
+/// What a callout carries. Plain text stays the default and the common case (most call sites are
+/// one short sentence); a second line is for the hovers that answer with a subject and something
+/// qualifying it, and blocks are for the few that answer with figures.
 enum TallyTooltipContent: Equatable {
-    case text(String)
+    /// The first line is the subject, in the callout's primary ink; any after it are quieter. Empty
+    /// lines are dropped by the modifier that builds this, so a missing qualifier never renders as
+    /// a blank row under the subject.
+    case lines([String])
     case blocks([TallyTooltipBlock])
 
     var isEmpty: Bool {
         switch self {
-        case .text(let text): return text.isEmpty
+        case .lines(let lines): return lines.allSatisfy(\.isEmpty)
         case .blocks(let blocks): return blocks.allSatisfy { $0.rows.isEmpty && $0.title.isEmpty }
         }
     }
@@ -103,8 +118,8 @@ enum TallyTooltipContent: Equatable {
     /// would have been shown, and there is one source for both so they cannot drift.
     var spoken: String {
         switch self {
-        case .text(let text):
-            return text
+        case .lines(let lines):
+            return lines.filter { !$0.isEmpty }.joined(separator: ", ")
         case .blocks(let blocks):
             return blocks.map { block in
                 ([block.title] + block.rows.map { "\($0.label) \($0.value)" })
@@ -143,14 +158,23 @@ extension View {
     ///
     /// The text is also the element's accessibility hint, so VoiceOver reads what the pointer would
     /// have been shown - the two can never drift, because there is one argument.
-    func tallyTooltip(_ text: String) -> some View {
-        modifier(TallyTooltipTarget(payload: .text(text)))
+    ///
+    /// - Parameters:
+    ///   - detail: a quieter second line qualifying the first. Absent (or empty) shows the one line,
+    ///     which is what every caller that has nothing to qualify passes.
+    ///   - forced: hold it open with no pointer, for a design capture. The caller decides rather
+    ///     than the flag alone, because a text callout can have many targets on one surface and
+    ///     they would all publish at once (`TallyTooltip.previewForced`).
+    func tallyTooltip(_ text: String, detail: String? = nil, forced: Bool = false) -> some View {
+        modifier(TallyTooltipTarget(payload: .lines([text, detail ?? ""].filter { !$0.isEmpty }),
+                                    forced: forced))
     }
 
     /// The same callout, answering with labelled figures instead of a sentence (see
     /// `TallyTooltipRow`). Empty blocks show nothing, exactly like empty text.
     func tallyTooltip(blocks: [TallyTooltipBlock]) -> some View {
-        modifier(TallyTooltipTarget(payload: .blocks(blocks), forced: TallyTooltip.previewForced))
+        modifier(TallyTooltipTarget(payload: .blocks(blocks),
+                                    forced: TallyTooltip.previewForced(.fleet)))
     }
 }
 
@@ -273,11 +297,17 @@ private struct TallyTooltipCallout: View {
     @ViewBuilder
     private var content: some View {
         switch item.content {
-        case .text(let text):
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(primaryInk)
-                .lineLimit(1)
+        case .lines(let lines):
+            // Tight leading between them: the second line qualifies the first rather than following
+            // it, and a paragraph's worth of gap would read as two separate answers.
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                    Text(line)
+                        .font(.caption)
+                        .foregroundStyle(index == 0 ? primaryInk : secondaryInk)
+                        .lineLimit(1)
+                }
+            }
         case .blocks(let blocks):
             // A fixed width rather than a fitted one, because the callout has to stay INSIDE the
             // surface (see the type's header) and the narrowest host is the 380pt single-column

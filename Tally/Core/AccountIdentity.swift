@@ -23,6 +23,40 @@ enum AccountIdentity {
     static func email(probe: String?, polled: String?, remembered: String?) -> String? {
         probe ?? polled ?? remembered
     }
+
+    /// The line UNDER the address: what tells two accounts apart when the address cannot.
+    ///
+    /// One person can hold two logins on ONE address - a Codex account in a personal workspace and
+    /// the same address in a team's - and then every surface that identifies an account by its email
+    /// says the same thing on both cards. There is nothing to add from the provider: Codex's own
+    /// app-server answers `type`, `email` and `planType` and names no organization (measured against
+    /// two homes, 2026-08-04), and the file that does is the one Tally promises never to read.
+    ///
+    /// So the line is built from what Tally already holds and already trusts: the plan the account is
+    /// on, and the config home it launches from. The home is the part that always separates them -
+    /// two accounts cannot share one directory - and it is also the answer to the question the user
+    /// is really asking, which is which of these two a new session would run in.
+    ///
+    /// Nil when neither is known, and the surfaces then render nothing rather than an empty line.
+    static func detail(plan: String?, home: String?) -> String? {
+        let parts = [plan, home.map { homeName($0) }]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// A config home the way its owner refers to it: `~/.codex2`, not `/Users/…/.codex2`. The full
+    /// path is both longer than any surface here has room for and the one form of it that carries
+    /// the account owner's short name into a screenshot.
+    ///
+    /// The home directory is a parameter so the rule can be tested against a fixture rather than
+    /// against whichever machine runs the test. A path outside it is left exactly as it is.
+    static func homeName(_ path: String, userHome: String = NSHomeDirectory()) -> String {
+        guard !userHome.isEmpty else { return path }
+        if path == userHome { return "~" }
+        guard path.hasPrefix(userHome + "/") else { return path }
+        return "~" + path.dropFirst(userHome.count)
+    }
 }
 
 /// The remembered half, kept pure so the rules below can be tested without a defaults store.

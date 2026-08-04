@@ -3,8 +3,8 @@
 # assertion harness and runs it. The file is Foundation-only, so nothing else comes along; no Xcode
 # test target needed. Exits non-zero on failure.
 #
-# Every token the harness reads it wrote itself: no real credential is in the repo, and no test
-# here touches this machine's ~/.codex*/auth.json.
+# Every fixture the harness reads it wrote itself: no real credential is in the repo, no app-server
+# is spawned, and no test here touches this machine's ~/.codex*/auth.json.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run

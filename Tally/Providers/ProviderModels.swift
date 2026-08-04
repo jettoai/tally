@@ -96,10 +96,10 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     var providerID: String
     var accountLabel: String
     var planName: String?
-    /// The signed-in email, when the provider can name it from a plain local file (Claude reads its
-    /// config, Codex decodes the id_token in its own login record). Shown as the account card's
-    /// hover tooltip and on the face of the Settings account row, both through
-    /// `LoginStatusStore.identityEmail` - never logged, never published to the snapshot.
+    /// The signed-in email, when the provider can name it without touching a credential (Claude
+    /// reads its plain config file, Codex asks its own app-server - `CodexIdentity.swift`). Shown
+    /// as the account card's hover tooltip and on the face of the Settings account row, both
+    /// through `LoginStatusStore.identityEmail` - never logged, never published to the snapshot.
     var accountEmail: String?
     var metrics: [UsageMetric]
     var refreshedAt: Date

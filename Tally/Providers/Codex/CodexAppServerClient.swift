@@ -1,12 +1,17 @@
 import Foundation
 
 /// Reads Codex usage through the official CLI's app-server (JSON-RPC over stdio):
-/// `initialize` → `initialized` → `account/rateLimits/read`. The CLI talks to its vendor with its
-/// own first-party identity and credentials - Tally never reads `auth.json` tokens.
+/// `initialize` → `initialized` → `account/rateLimits/read` → `account/read`. The CLI talks to its
+/// vendor with its own first-party identity and credentials - Tally never reads `auth.json` tokens.
 ///
 /// Response shape verified live (2026-07-17): `result.rateLimits.{primary,secondary}` carry
 /// `usedPercent` / `windowDurationMins` / `resetsAt` (epoch s), plus `planType` - camelCase,
 /// unlike the old HTTP endpoint's snake_case.
+///
+/// The second request is who the account is (2026-08-04). It rides in the SAME session rather than
+/// in a process of its own: an extra `codex app-server` per account per poll would double the spawn
+/// cost of every refresh for one string, and the answer belongs to the login this session already
+/// opened.
 enum CodexAppServerClient {
     struct Reading: Sendable {
         var metrics: [UsageMetric]
@@ -56,17 +61,32 @@ enum CodexAppServerClient {
         case failed
     }
 
-    static func read(codexHome: String, timeout: TimeInterval = 20) async -> Outcome {
-        guard let binary = CLIRunner.resolve("codex") else { return .failed }
-        let attempt: (line: Data?, processDied: Bool) = await withCheckedContinuation { continuation in
+    /// What one read came home with. Identity sits BESIDE the outcome rather than inside `Reading`
+    /// because the two questions fail apart: a session that could not produce numbers may still
+    /// have named its account, and a card whose poll failed still gets to say whose it is - the
+    /// same rule Claude's provider already follows.
+    struct Answer {
+        var outcome: Outcome
+        var accountEmail: String?
+    }
+
+    static func read(codexHome: String, timeout: TimeInterval = 20) async -> Answer {
+        guard let binary = CLIRunner.resolve("codex") else { return Answer(outcome: .failed) }
+        let attempt: Exchange = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
-                continuation.resume(returning: rateLimitsLine(binary: binary, codexHome: codexHome,
-                                                              timeout: timeout))
+                continuation.resume(returning: readExchange(binary: binary, codexHome: codexHome,
+                                                            timeout: timeout))
             }
         }
-        guard let raw = attempt.line else { return attempt.processDied ? .cliBroken : .failed }
+        let email = attempt.account.flatMap(CodexIdentity.email(inAccountRead:))
+        func answer(_ outcome: Outcome) -> Answer {
+            Answer(outcome: outcome, accountEmail: email)
+        }
+        guard let raw = attempt.limits else {
+            return answer(attempt.processDied ? .cliBroken : .failed)
+        }
         guard let line = try? JSONDecoder().decode(RPCLine.self, from: raw),
-              let limits = line.result?.rateLimits else { return .failed }
+              let limits = line.result?.rateLimits else { return answer(.failed) }
 
         var metrics: [UsageMetric] = []
         for window in [limits.primary, limits.secondary].compactMap({ $0 }) {
@@ -87,9 +107,10 @@ enum CodexAppServerClient {
             .compactMap(\.expiresAt)
             .min()
             .map { Date(timeIntervalSince1970: $0) }
-        return .ok(Reading(metrics: metrics.uniquingIDs(), plan: (plan?.isEmpty == false) ? plan : nil,
-                           resetCreditsAvailable: line.result?.rateLimitResetCredits?.availableCount,
-                           resetCreditsNextExpiry: nextExpiry))
+        return answer(.ok(Reading(
+            metrics: metrics.uniquingIDs(), plan: (plan?.isEmpty == false) ? plan : nil,
+            resetCreditsAvailable: line.result?.rateLimitResetCredits?.availableCount,
+            resetCreditsNextExpiry: nextExpiry)))
     }
 
     /// Redeems the SOONEST-EXPIRING available banked reset for this account (waste-minimizing
@@ -169,19 +190,40 @@ enum CodexAppServerClient {
         return "redeemed"
     }
 
-    /// Blocking JSON-RPC exchange (runs on a utility queue): the raw response line for request 2.
-    private static func rateLimitsLine(binary: String, codexHome: String,
-                                       timeout: TimeInterval) -> (line: Data?, processDied: Bool) {
-        guard let session = RPCSession(binary: binary, codexHome: codexHome) else { return (nil, true) }
+    /// How long the identity answer may lag behind the numbers before the session gives up on it.
+    private static let identityGrace: TimeInterval = 3
+
+    /// The raw response lines one session came home with.
+    private struct Exchange {
+        var limits: Data?
+        var account: Data?
+        var processDied: Bool
+    }
+
+    /// Blocking JSON-RPC exchange (runs on a utility queue): the raw response lines for requests 2
+    /// and 3. Both are written before either is awaited, so the second question costs a round trip
+    /// the server is already answering rather than a second wait.
+    private static func readExchange(binary: String, codexHome: String,
+                                     timeout: TimeInterval) -> Exchange {
+        guard let session = RPCSession(binary: binary, codexHome: codexHome) else {
+            return Exchange(limits: nil, account: nil, processDied: true)
+        }
         defer { session.close() }
         let deadline = Date().addingTimeInterval(timeout)
         session.send(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"Tally","version":"1.0"}}}"#)
         guard session.awaitLine(id: 1, until: deadline) != nil else {
-            return (nil, session.processDied)
+            return Exchange(limits: nil, account: nil, processDied: session.processDied)
         }
         session.send(#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#)
         session.send(#"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{}}"#)
-        return (session.awaitLine(id: 2, until: deadline), session.processDied)
+        session.send(#"{"jsonrpc":"2.0","id":3,"method":"account/read","params":{}}"#)
+        let limits = session.awaitLine(id: 2, until: deadline)
+        // Identity is the optional half, and it was asked one line after the numbers: by the time
+        // they land its answer is already on the way. So it gets a short grace rather than the
+        // whole deadline - a codex that simply never answers it must not hold a refresh open.
+        let account = session.awaitLine(id: 3, until: min(deadline,
+                                                          Date().addingTimeInterval(identityGrace)))
+        return Exchange(limits: limits, account: account, processDied: session.processDied)
     }
 }
 

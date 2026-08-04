@@ -1,8 +1,9 @@
 import Foundation
 
 /// Discovers Codex (ChatGPT) accounts on this machine. Discovery only checks that each home's
-/// `auth.json` EXISTS (a logged-in signal); its contents are never read; usage comes through the
-/// official CLI's app-server (`CodexAppServerClient`), so Tally never touches the token inside.
+/// `auth.json` EXISTS (a logged-in signal); its contents are never read, here or anywhere else in
+/// the app - usage AND identity both come through the official CLI's app-server
+/// (`CodexAppServerClient`, `CodexIdentity`), so Tally never touches the tokens inside.
 ///
 /// Codex namespaces everything by its home directory (`CODEX_HOME`, default `~/.codex`), so every
 /// `~/.codex*` directory holding an `auth.json` is its own account; one ChatGPT login can hold a

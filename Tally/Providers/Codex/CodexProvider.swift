@@ -14,18 +14,20 @@ struct CodexProvider: UsageProvider {
         guard let home = account.launchHome else {
             return .failure(account: account, providerID: id, message: L("No usage data"))
         }
-        // Who the account is comes from the home's own login record rather than from the poll
-        // (CodexIdentity.swift), so it is read up front and carried by every outcome below - the
-        // same rule as Claude: a card whose poll failed still names its account.
-        let email = CodexIdentity.email(codexHome: home)
+        guard CLIRunner.resolve("codex") != nil else {
+            return .failure(account: account, providerID: id, message: L("Codex CLI not found"))
+        }
+        // Who the account is comes out of the same session as the numbers (CodexIdentity.swift) and
+        // is carried by every outcome below - the same rule as Claude: a card whose poll failed
+        // still names its account. Nil here is "this round could not tell", and the surfaces fall
+        // back to the last address Tally knew (AccountIdentity.swift).
+        let answer = await CodexAppServerClient.read(codexHome: home)
+        let email = answer.accountEmail
         func failed(_ message: String) -> AccountUsage {
             .failure(account: account, providerID: id, message: message, accountEmail: email)
         }
-        guard CLIRunner.resolve("codex") != nil else {
-            return failed(L("Codex CLI not found"))
-        }
         let reading: CodexAppServerClient.Reading
-        switch await CodexAppServerClient.read(codexHome: home) {
+        switch answer.outcome {
         case .ok(let value):
             reading = value
         case .cliBroken:

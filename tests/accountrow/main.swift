@@ -166,23 +166,32 @@ check("and still names the account afterwards", restored.email("claude:.claude")
 
 // MARK: - The line UNDER the address, for when the address is not the answer
 
+// Every rule below is stated against THIS home, never the one the machine running the test happens
+// to have: an assertion that "/Volumes/work/codex-team" reads as an outside path is only true until
+// somebody's home IS /Volumes/work, and an open-source contributor's machine is not ours to assume.
+let fixtureHome = "/Users/fixture"
+
 // The case it exists for: one ChatGPT login in a personal workspace and in a team's is two accounts
 // answering with ONE email, and the provider names no organization Tally could add. Plan and config
 // home are what is left, and they do separate them.
-let personal = AccountIdentity.detail(plan: "Pro", home: "/Users/fixture/.codex")
-let team = AccountIdentity.detail(plan: "Team", home: "/Users/fixture/.codex2")
+let personal = AccountIdentity.detail(plan: "Pro", home: fixtureHome + "/.codex",
+                                      userHome: fixtureHome)
+let team = AccountIdentity.detail(plan: "Team", home: fixtureHome + "/.codex2",
+                                  userHome: fixtureHome)
 check("two logins on one address still read as two accounts", personal != team)
 // Even on the same plan, which is the harder half: the plan is often identical, the home never is.
 check("and they do when the plan matches too",
-      AccountIdentity.detail(plan: "Pro", home: "/Users/fixture/.codex")
-          != AccountIdentity.detail(plan: "Pro", home: "/Users/fixture/.codex2"))
+      AccountIdentity.detail(plan: "Pro", home: fixtureHome + "/.codex", userHome: fixtureHome)
+          != AccountIdentity.detail(plan: "Pro", home: fixtureHome + "/.codex2",
+                                    userHome: fixtureHome))
 
-// Composition, against this machine's own home so the abbreviation is exercised end to end.
+// Composition, against the fixture home so the abbreviation is exercised end to end.
 check("both parts, one separator",
-      AccountIdentity.detail(plan: "Team", home: NSHomeDirectory() + "/.codex2")
+      AccountIdentity.detail(plan: "Team", home: fixtureHome + "/.codex2", userHome: fixtureHome)
           == "Team · ~/.codex2")
 check("a plan nobody reported leaves the home alone",
-      AccountIdentity.detail(plan: nil, home: NSHomeDirectory() + "/.codex") == "~/.codex")
+      AccountIdentity.detail(plan: nil, home: fixtureHome + "/.codex", userHome: fixtureHome)
+          == "~/.codex")
 check("and an account with no home reads as its plan",
       AccountIdentity.detail(plan: "Max 20x", home: nil) == "Max 20x")
 // Nil rather than an empty string: the surfaces render NOTHING for nil, and an empty second line
@@ -243,10 +252,19 @@ check("a long home under the user's own is shortened the same way",
 
 // The point of all of it: an outside home and a numbered one still read as two different accounts.
 check("an outside home and a numbered one stay apart",
-      AccountIdentity.detail(plan: "Team", home: "/Volumes/work/codex-team")
-          != AccountIdentity.detail(plan: "Team", home: NSHomeDirectory() + "/.codex2"))
+      AccountIdentity.detail(plan: "Team", home: "/Volumes/work/codex-team", userHome: fixtureHome)
+          != AccountIdentity.detail(plan: "Team", home: fixtureHome + "/.codex2",
+                                    userHome: fixtureHome))
 check("and the outside one reads as a plan and a place",
-      AccountIdentity.detail(plan: "Team", home: "/Volumes/work/codex-team") == "Team · …/codex-team")
+      AccountIdentity.detail(plan: "Team", home: "/Volumes/work/codex-team", userHome: fixtureHome)
+          == "Team · …/codex-team")
+
+// The default is the machine's own home, which is what every caller on screen relies on. Said with
+// a path built FROM that home, so the assertion holds wherever the test is run - the point here is
+// that the parameter defaults to a home at all, not which one this machine has.
+check("a caller that names no home gets this machine's",
+      AccountIdentity.detail(plan: "Team", home: NSHomeDirectory() + "/.codex2")
+          == "Team · ~/.codex2")
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

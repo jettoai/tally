@@ -38,8 +38,12 @@ enum AccountIdentity {
     /// is really asking, which is which of these two a new session would run in.
     ///
     /// Nil when neither is known, and the surfaces then render nothing rather than an empty line.
-    static func detail(plan: String?, home: String?) -> String? {
-        let parts = [plan, home.map { homeName($0) }]
+    ///
+    /// The home directory is a parameter for the same reason `homeName` takes one: so a test can
+    /// state which paths are inside the user's own directory instead of inheriting the answer from
+    /// whichever machine runs it. Callers on screen pass nothing and get this machine's.
+    static func detail(plan: String?, home: String?, userHome: String = NSHomeDirectory()) -> String? {
+        let parts = [plan, home.map { homeName($0, userHome: userHome) }]
             .compactMap { $0 }
             .filter { !$0.isEmpty }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")

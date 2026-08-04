@@ -98,12 +98,11 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(collapsedProviders.sorted(), forKey: "collapsedProviders") }
     }
 
+    /// Both entry points call this one - the chevron on the provider's gauge row and the section
+    /// heading down in the cards - and the rule itself is pure (`PanelSections.toggling`), so the
+    /// two surfaces read one state rather than keeping two.
     func toggleCollapsed(_ providerID: String) {
-        if collapsedProviders.contains(providerID) {
-            collapsedProviders.remove(providerID)
-        } else {
-            collapsedProviders.insert(providerID)
-        }
+        collapsedProviders = PanelSections.toggling(providerID, in: collapsedProviders)
     }
 
     /// Status line renders the full quota line (bars + resets) even when wrapping a custom

@@ -28,20 +28,34 @@ extension PopoverRootView {
     @ViewBuilder
     var accountLayout: some View {
         if settings.groupByProvider {
+            let groups = accountGroups
+            let headed = PanelSections.showsHeadings(sectionCount: groups.count)
             VStack(alignment: .leading, spacing: 14) {
-                let groups = accountGroups
                 ForEach(groups) { group in
                     VStack(alignment: .leading, spacing: 6) {
                         // One provider needs no heading: a label over the only section names what
                         // nothing else could be, so it is pure noise.
-                        if groups.count > 1 { groupHeader(group) }
-                        accountBlock(group.items)
+                        if headed { groupHeader(group) }
+                        // A folded section keeps its heading exactly where it was and drops only
+                        // its cards - that heading IS the way back. Taking it away with the cards
+                        // left the fleet strip's chevron as the only way to unfold: a control at
+                        // the top of the panel for something that vanished from the middle of it.
+                        if !group.isFolded { accountBlock(group.items) }
                     }
                 }
             }
         } else {
             accountBlock(visibleAccounts)
         }
+    }
+
+    /// Whether the card region is drawn at all. Not simply "are there visible cards": a grouped
+    /// layout with every provider folded still shows its headings, and those are what the region
+    /// exists for then. When there is nothing at all it is skipped entirely - its 12pt padding read
+    /// as a hollow band between two dividers.
+    var showsAccountRegion: Bool {
+        !visibleAccounts.isEmpty || (settings.groupByProvider
+            && PanelSections.showsHeadings(sectionCount: accountGroups.count))
     }
 
     /// One run of accounts, at whichever density the panel is set to. Both layouts hang off this one
@@ -145,6 +159,11 @@ extension PopoverRootView {
     /// column header's vocabulary but lighter - this names a section, it does not meter anything.
     /// The fold chevron appears only while this provider's pooled gauge is on screen to summarize
     /// the cards it would hide (the invariant the fleet strip's own chevron keeps).
+    ///
+    /// It is drawn for a folded section too, and then it is that section's only line: the chevron
+    /// turns, the count says how many cards are behind it, and a click on the line brings them
+    /// back. Both this and the gauge row's chevron toggle one set and read their state back out of
+    /// it (`PanelSections`), so the two entry points cannot drift.
     private func groupHeader(_ group: AccountGroup) -> some View {
         let foldable = pooledProviderIDs.contains(group.providerID)
         return HStack(spacing: 5) {
@@ -162,12 +181,9 @@ extension PopoverRootView {
         var id: String { items.map(\.id).joined(separator: "|") }
     }
 
-    /// One provider's cards, kept together when grouping is on.
-    private struct AccountGroup: Identifiable {
-        let providerID: String
-        let items: [AccountUsage]
-        var id: String { providerID }
-    }
+    /// One provider's cards, kept together when grouping is on, plus whether they are folded away
+    /// behind the provider's gauge (`PanelSections`, which both fold entry points read).
+    typealias AccountGroup = PanelSections.Section<AccountUsage>
 
     /// An account card that can be dragged to reorder (in-view drag: the source card
     /// hides, a floating copy tracks the pointer, and neighbors spring out of the way live). The order
@@ -244,17 +260,13 @@ extension PopoverRootView {
         }
     }
 
-    /// Visible cards bucketed by provider. Provider order follows first appearance in the user's own
-    /// card order, and each bucket keeps that order inside it - so grouping re-seats the cards
-    /// without inventing a second ordering the user never chose.
+    /// EVERY provider's cards bucketed, folded sections included - a folded one is drawn as its
+    /// heading alone, so it has to still be in the list. Provider order follows first appearance in
+    /// the user's own card order, and each bucket keeps that order inside it, so grouping re-seats
+    /// the cards without inventing a second ordering the user never chose.
     private var accountGroups: [AccountGroup] {
-        var order: [String] = []
-        var buckets: [String: [AccountUsage]] = [:]
-        for usage in visibleAccounts {
-            if buckets[usage.providerID] == nil { order.append(usage.providerID) }
-            buckets[usage.providerID, default: []].append(usage)
-        }
-        return order.map { AccountGroup(providerID: $0, items: buckets[$0] ?? []) }
+        PanelSections.sections(store.orderedAccounts, providerID: \.providerID,
+                               pooled: pooledProviderIDs, collapsed: settings.collapsedProviders)
     }
 
     /// What a card move animates against: the persisted order, the grouping switch (flipping it moves

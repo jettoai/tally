@@ -121,9 +121,11 @@ struct PopoverRootView: View {
                             launchSummaryStrip
                             fleetStrip
                             advisorStrip
-                            // Fully folded (all cards behind their gauges) skips the card container
-                            // entirely: its 12pt padding read as a hollow band between two dividers.
-                            if store.contentState != .hasAccounts || !visibleAccounts.isEmpty {
+                            // Fully folded WITH nothing left to head the sections skips the card
+                            // container entirely: its 12pt padding read as a hollow band between
+                            // two dividers (see `showsAccountRegion` - folded sections keep their
+                            // headings, and those headings are the way back).
+                            if store.contentState != .hasAccounts || showsAccountRegion {
                                 // The cards are what gives way when the surface hits the screen's
                                 // height, and only then: at any height that fits, a scroll view is
                                 // laid out at its content's ideal size and shows no scroller, so
@@ -354,13 +356,15 @@ struct PopoverRootView: View {
 
     /// Cards on screen: a provider collapsed behind its fleet gauge hides its cards, but ONLY
     /// while that gauge is actually rendered - no pool (single account) or gauge off, and the
-    /// cards come straight back. Cards can never be hidden with nothing summarizing them.
+    /// cards come straight back. Cards can never be hidden with nothing summarizing them. The rule
+    /// itself lives in `PanelSections`, which the grouped sections read too - one fact, so a folded
+    /// section and a hidden card can never disagree about what is folded.
     var visibleAccounts: [AccountUsage] {
         let pooled = pooledProviderIDs
         let collapsed = settings.collapsedProviders
         guard !pooled.isEmpty, !collapsed.isEmpty else { return store.orderedAccounts }
         return store.orderedAccounts.filter {
-            !(collapsed.contains($0.providerID) && pooled.contains($0.providerID))
+            !PanelSections.isFolded($0.providerID, pooled: pooled, collapsed: collapsed)
         }
     }
 

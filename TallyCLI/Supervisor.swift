@@ -208,6 +208,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let committed = TickCommitments(reloadEpoch: reloadEpoch, reloadNotice: reloadNotice,
                                             followState: followState,
                                             fallbackApplied: fallbackApplied)
+            // The safeguard restore's handled-record is a FILE, so no value snapshot can give it
+            // back. It is carried from the decision to the execution point instead and written only
+            // if the relaunch happens (SafeguardDrift.swift). Tick-local like the plan it belongs
+            // to: a stand-down drops it by going out of scope, with nothing to undo.
+            var safeguardRecord: PendingSafeguardRecord?
 
             // Cap recovery has top priority: scan for the cap BEFORE any relaunch path (pin,
             // follow, rescue, fallback), because a relaunch resets the watcher's `since` and would
@@ -337,7 +342,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // Safeguard-fallback restore: the API fell this session onto a fallback model and left
             // it at its own default depth, so put the declared depth back at an idle moment - on
             // the fallback model, never back on the one that tripped it (SafeguardDrift.swift).
-            applySafeguardRestore(plan: &plan, drift: &drift, watcher: &watcher, account: account,
+            applySafeguardRestore(plan: &plan, drift: &drift, record: &safeguardRecord,
+                                  watcher: &watcher, account: account,
                                   policy: policy, launchArgs: launchArgs,
                                   fuseAllows: fuse.allows(), pid: supervisorPID,
                                   keyboardIdle: { keyboard.idle($0) })
@@ -449,6 +455,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                     }
                     continue   // the child keeps running; the next tick decides again from scratch
                 }
+                // Past the hold, so this relaunch is happening: the safeguard restore's record can
+                // be written now, before the child goes, which is what the supervisor behind the
+                // relaunch reads to know the event was corrected (SafeguardDrift.swift).
+                safeguardRecord?.commit()
                 carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)
                 let upgrade = selfUpdateFold(captured: supervisorVersion,
                                              attempted: selfUpdateAttempted,

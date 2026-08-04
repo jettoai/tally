@@ -114,6 +114,76 @@ func runStandDownChecks() {
     check("so the next tick applies the profile instead of living without it",
           laterPlan?.reason == "fallback")
 
+    // MARK: - 31b. The safeguard restore's record is a FILE, so it is not written until it is true
+
+    // The fifth planner that committed as it planned, and the one no value snapshot could have
+    // rescued: `applySafeguardRestore` wrote the handled-record (~/.tally/safeguard-restore/<session>)
+    // beside the plan, so a stood-down tick left a file saying the event had been corrected and the
+    // next tick read it as handled. The restore was then never planned again, for the life of the
+    // conversation. The record now travels to the execution point and is written only if the
+    // relaunch happens, which is why there is nothing to roll back here at all.
+    let recordDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-safeguard-record-\(UUID().uuidString)")
+    let stateDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-safeguard-state-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+    var safeguardWatcher = standDownWatcher("safeguard")
+    safeguardWatcher.lastModel = "claude-opus-4-8"
+    let flag = SafeguardFlag(at: Date().addingTimeInterval(-300), from: "claude-fable-5",
+                             to: "claude-opus-4-8", category: "cyber", refusedUUID: nil,
+                             uuid: "flag-1")
+    safeguardWatcher.lastFlag = flag
+    let session = safeguardWatcher.file!.deletingPathExtension().lastPathComponent
+    let safeguardPolicy = LaunchPolicy(model: "claude-fable-5", fallbackModel: "claude-opus-4-8",
+                                       fallbackEffort: "high")
+    var drift = DriftMonitor()
+    _ = drift.tick(flag: flag, actualModel: "claude-opus-4-8", primary: "claude-fable-5")
+    check("the drift episode is open", drift.isActive)
+
+    func safeguardTick(drift: inout DriftMonitor) -> (RelaunchPlan?, PendingSafeguardRecord?) {
+        var plan: RelaunchPlan?
+        var record: PendingSafeguardRecord?
+        applySafeguardRestore(plan: &plan, drift: &drift, record: &record,
+                              watcher: &safeguardWatcher, account: standDownAccount,
+                              policy: safeguardPolicy, launchArgs: ["--model", "claude-fable-5"],
+                              fuseAllows: true, pid: "1", keyboardIdle: { _ in true },
+                              dir: recordDir, stateDir: stateDir)
+        return (plan, record)
+    }
+    let (plannedRestore, pendingRecord) = safeguardTick(drift: &drift)
+    check("an idle drifting session plans the restore", plannedRestore?.reason == "safeguard")
+    check("and carries the record it would write with it", pendingRecord != nil)
+    check("but planning writes nothing: the relaunch has not happened yet",
+          !safeguardRestoreHandled(session: session, event: safeguardEventKey(flag), dir: recordDir))
+
+    // The stand-down: the plan is dropped, and because the record was never written there is
+    // nothing to undo. This is where the restore used to disappear.
+    check("a safeguard restore is held by an unresolved fork",
+          relaunchHeldByUnresolvedFork(reason: plannedRestore!.reason, unresolvedFork: true))
+    let (replanned, replannedRecord) = safeguardTick(drift: &drift)
+    check("so the next tick plans the restore again rather than reading it as handled",
+          replanned?.reason == "safeguard")
+    check("with its record still pending", replannedRecord != nil)
+
+    // The dedup the record exists for, unchanged by the delay: it is written as the relaunch goes
+    // ahead, and from then on the same event is not corrected a second time.
+    replannedRecord?.commit()
+    check("committing at the execution point records the event",
+          safeguardRestoreHandled(session: session, event: safeguardEventKey(flag), dir: recordDir))
+    let (afterRestore, _) = safeguardTick(drift: &drift)
+    check("a restored event is not corrected twice", afterRestore == nil)
+    // A LATER safeguard switch in the same conversation is a different event and stands on its own.
+    let second = SafeguardFlag(at: Date().addingTimeInterval(-60), from: "claude-fable-5",
+                               to: "claude-opus-4-8", category: "cyber", refusedUUID: nil,
+                               uuid: "flag-2")
+    safeguardWatcher.lastFlag = second
+    _ = drift.tick(flag: second, actualModel: "claude-opus-4-8", primary: "claude-fable-5")
+    let (secondPlan, _) = safeguardTick(drift: &drift)
+    check("a later safeguard switch is still corrected on its own merits",
+          secondPlan?.reason == "safeguard")
+    try? FileManager.default.removeItem(at: recordDir)
+    try? FileManager.default.removeItem(at: stateDir)
+
     // MARK: - 32. The follow adoption's baseline, and what is deliberately NOT rolled back
 
     // The follow fold commits its baseline while folding onto a plan somebody else made, which it
@@ -162,5 +232,14 @@ func runStandDownChecks() {
         check("and hands them back at the execution point", execution < restore)
     } else {
         check("the capture and the restore were both found in the tick", false)
+    }
+    // The safeguard record is the mirror image: written only past the hold, and still before the
+    // child is terminated, so the supervisor behind the relaunch reads it.
+    if let commit = at("safeguardRecord?.commit()"), let handBack = at("committed.restore("),
+       let kill = at("performHandoff(to: plan.target") {
+        check("the safeguard record is written only past the stand-down", handBack < commit)
+        check("and before the child is terminated", commit < kill)
+    } else {
+        check("the safeguard record's commit was found in the tick", false)
     }
 }

@@ -31,6 +31,15 @@ import Foundation
 //     Left as it is, knowingly: reaching it needs the sub-tick race AND a drought AND a target, and
 //     the cost when it happens is one preventive move deferred to the next cycle. Every other entry
 //     here is the loss of something a user asked for; this one is a delay in something nobody did.
+//
+// The safeguard restore's handled-record used to belong on that list and no longer does, which is
+// the better answer wherever it is available: it is a FILE, so no value snapshot here could have
+// given it back, and a stood-down tick that left it behind burned that flag event for good - the
+// session stayed at the wrong depth until the API happened to flag it again, if it ever did. It is
+// now carried from the decision to the execution point and written only
+// once the relaunch is certain (`PendingSafeguardRecord`, SafeguardDrift.swift). Anything new that
+// commits while planning should go the same way: not writing until the act is certain leaves the
+// cancel path with nothing to undo, and the next way to cancel a relaunch is safe by construction.
 /// Built at the top of a tick, before the first planner runs.
 struct TickCommitments {
     let reloadEpoch: Int

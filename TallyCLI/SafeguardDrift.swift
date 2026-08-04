@@ -143,6 +143,35 @@ func safeguardRestoreHandled(session: String?, event: String,
     return raw.trimmingCharacters(in: .whitespacesAndNewlines) == event
 }
 
+/// The record a planned restore will write IF its relaunch actually happens, carried from the
+/// decision to the execution point rather than written where it is decided.
+///
+/// Planning is not doing. A tick can plan a restore and then stand the relaunch down (the
+/// unresolved-fork hold, StandDown.swift), and a record written at decision time would outlive the
+/// relaunch it describes: the next tick reads the event as handled and the session is never restored
+/// at all. Writing on the execution path instead means the cancel path has nothing to undo - the
+/// shape any future way of cancelling a planned relaunch is safe under by construction.
+///
+/// The dedup it exists for is untouched by the delay: the write lands before the child is
+/// terminated, so the supervisor that adopts the conversation next (this one after a self-update
+/// exec, or the one behind the relaunch) still reads it. Nothing between the decision and the
+/// execution reads the directory, and the tick that planned it is the one that executes it.
+struct PendingSafeguardRecord {
+    let session: String?
+    let event: String
+    let dir: URL
+
+    /// Called once the relaunch is certain, immediately before the child is terminated.
+    ///
+    /// `session` is the conversation the decision was made about. A fork adopted by the execution
+    /// point's own scan moves the conversation to a new id after this, so the record then names the
+    /// file the flag was seen in rather than the one it continues in; the cost of that miss is the
+    /// documented one below, one extra restart, and never a stuck session.
+    func commit() {
+        recordSafeguardRestore(session: session, event: event, dir: dir)
+    }
+}
+
 /// Record that this conversation has been restored for `event`, so no later supervisor - this one
 /// after a self-update exec, or the one that adopts the conversation next - corrects it twice.
 /// Best-effort: a record that cannot be written costs at worst one extra restart, never a stuck
@@ -314,7 +343,12 @@ func logSafeguardRestore(sessionID: String?, flag: SafeguardFlag, restore: Safeg
 /// `keyboardIdle` is the keyboard half of the quiet bar, injected the way the reload gate takes it:
 /// the supervisor holds one `KeyboardActivity` per child and every non-urgent gate asks that same
 /// tracker, because a lone atime cannot tell typing from terminal chatter (KeyboardIdle.swift).
+///
+/// `record` comes back holding what to write if the relaunch happens, and is written by the caller
+/// at the execution point rather than here (`PendingSafeguardRecord`): a restore that is planned and
+/// then stood down must leave no trace saying it was performed.
 func applySafeguardRestore(plan: inout RelaunchPlan?, drift: inout DriftMonitor,
+                           record: inout PendingSafeguardRecord?,
                            watcher: inout TranscriptWatcher, account: Snapshot.Account,
                            policy: LaunchPolicy, launchArgs: [String], fuseAllows: Bool,
                            pid: String, keyboardIdle: (TimeInterval) -> Bool,
@@ -355,7 +389,7 @@ func applySafeguardRestore(plan: inout RelaunchPlan?, drift: inout DriftMonitor,
 
     guard let restore, fuseAllows, watcher.isQuiet(followIdleSeconds),
           keyboardIdle(followIdleSeconds) else { return }
-    recordSafeguardRestore(session: session, event: event, dir: dir)
+    record = PendingSafeguardRecord(session: session, event: event, dir: dir)
     plan = RelaunchPlan(target: account, reason: "safeguard", countsFuse: true,
                         model: restore.model, effort: restore.effort,
                         extraArgs: restore.extraArgs)

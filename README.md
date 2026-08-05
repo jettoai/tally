@@ -35,7 +35,7 @@ which account is burning.
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-tokens.png" alt="Tally's Tokens tab: total tokens over the selected range (today / 7 days / 30 days / all time) with the input, cache write, cache read and output breakdown, a per-provider split between Claude and Codex, and a per-project table with share bars showing where the tokens went" width="834">
+  <img src="assets/screenshot-tokens.png" alt="Tally's Tokens tab: total tokens over the selected range (today / 7 days / 30 days / all time) with the input, cache write, cache read and output breakdown, a per-provider split between Claude and Codex, and a per-project table with share bars showing where the tokens went; one project row is expanded into a year of daily activity as a contribution-style heatmap with its past-year total" width="834">
 </p>
 
 ## Why Tally

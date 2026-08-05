@@ -33,7 +33,7 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-tokens.png" alt="Tally 的 Token 分頁：所選區間（今天／7 天／30 天／全部）的 Token 總計，附輸入、快取寫入、快取讀取、輸出的分項，Claude 與 Codex 的服務別拆分，以及帶佔比長條的專案表，顯示 Token 花到哪裡去了" width="834">
+  <img src="assets/screenshot-tokens.png" alt="Tally 的 Token 分頁：所選區間（今天／7 天／30 天／全部）的 Token 總計，附輸入、快取寫入、快取讀取、輸出的分項，Claude 與 Codex 的服務別拆分，以及帶佔比長條的專案表，顯示 Token 花到哪裡去了；點一列專案會展開成一整年的每日活動，呈現為貢獻紀錄風格的熱力圖，並附上過去一年的總計" width="834">
 </p>
 
 ## 為什麼是 Tally

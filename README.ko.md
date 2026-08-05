@@ -35,7 +35,7 @@ Tally는 **Claude와 Codex의 AI 사용량(사용 한도)을 모니터링하는 
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-tokens.png" alt="Tally의 토큰 탭: 선택한 기간(오늘 / 7일 / 30일 / 전체)의 전체 토큰과 입력, 캐시 쓰기, 캐시 읽기, 출력 내역, Claude와 Codex의 프로바이더별 분할, 그리고 토큰이 어디로 갔는지 보여 주는 비율 막대가 있는 프로젝트별 표" width="834">
+  <img src="assets/screenshot-tokens.png" alt="Tally의 토큰 탭: 선택한 기간(오늘 / 7일 / 30일 / 전체)의 전체 토큰과 입력, 캐시 쓰기, 캐시 읽기, 출력 내역, Claude와 Codex의 프로바이더별 분할, 그리고 토큰이 어디로 갔는지 보여 주는 비율 막대가 있는 프로젝트별 표. 프로젝트 행 하나를 펼치면 지난 1년간의 일별 활동이 컨트리뷰션 스타일의 히트맵으로 열리며, 지난 1년 합계도 함께 표시됩니다" width="834">
 </p>
 
 ## 왜 Tally인가

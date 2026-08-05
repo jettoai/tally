@@ -33,7 +33,7 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-tokens.png" alt="Tally 的 Token 分页：所选区间（今天／7 天／30 天／全部）的 Token 总计，附输入、缓存写入、缓存读取、输出的分项，Claude 与 Codex 的服务拆分，以及带占比长条的项目表，显示 Token 花到哪里去了" width="834">
+  <img src="assets/screenshot-tokens.png" alt="Tally 的 Token 分页：所选区间（今天／7 天／30 天／全部）的 Token 总计，附输入、缓存写入、缓存读取、输出的分项，Claude 与 Codex 的服务拆分，以及带占比长条的项目表，显示 Token 花到哪里去了；点一行项目会展开成一整年的每日活动，呈现为贡献记录风格的热力图，并附上过去一年的总计" width="834">
 </p>
 
 ## 为什么是 Tally

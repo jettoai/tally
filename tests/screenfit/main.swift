@@ -116,5 +116,27 @@ check(ResizeAnchor.needsResize(from: CGSize(width: 504, height: 480),
                                to: CGSize(width: 520, height: 480)),
       "and so is a width change on its own")
 
+section("who may be top-anchored in its host")
+
+// `TopAnchored` reports whatever size it is proposed, which is what stops `NSHostingView` centring
+// the page while the window catches up - and which is also a fixpoint at ANY size. A host that
+// takes its size from this view's own layout constraints therefore keeps whatever degenerate size
+// it started with: the dashboard window opened 1x32 instead of 504x548 (measured 2026-08-05).
+//
+// The hosts that are safe are exactly the ones that size themselves from what the surface REPORTS,
+// which they say by passing an `onContentSize`. Pinned here because nothing about the collapse is
+// visible in a build, a type-check or any other test: the window simply comes up empty.
+let rootSource = (try? String(contentsOfFile: "Tally/Views/PopoverRootView.swift",
+                              encoding: .utf8)) ?? ""
+check(rootSource.contains(".topAnchoredInHost(enabled: onContentSize != nil)"),
+      "the surface is top-anchored only where the host sizes itself from what it reports")
+
+for (name, path) in [("pinned panel", "Tally/MenuBar/PinnedPanelController.swift"),
+                     ("menu-bar popover", "Tally/MenuBar/StatusItemController.swift")] {
+    let source = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+    check(source.contains("onContentSize:") && source.contains("sizingOptions = []"),
+          "the \(name) is one of those hosts: it reports-and-sizes, with no second authority")
+}
+
 print(failures == 0 ? "\nAll screen-fit cap tests passed." : "\n\(failures) screen-fit cap test(s) failed.")
 exit(failures == 0 ? 0 : 1)

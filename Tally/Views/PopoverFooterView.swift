@@ -278,5 +278,10 @@ extension PopoverRootView {
         }
         .padding(TallyMetrics.cardPaddingH)
         .frame(width: 268)
+        // The card claiming the resize anchor, and the ONLY thing that ever claims it: every
+        // control below is reached by pointing at this card, so being pointed at is the same fact
+        // as "a control here is about to be clicked" (see `SettingsStore.resizeAnchor(for:)`).
+        // On the card as a whole rather than on each control, so a control added here inherits it.
+        .onHover { settings.viewOptionsPointer(inside: $0, host: host) }
     }
 }

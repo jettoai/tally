@@ -168,6 +168,63 @@ extension ScreenFitStack {
     }
 }
 
+/// Takes exactly the size it is offered and puts its content in the top left of it.
+///
+/// This is what keeps the top edge of the surface still. A surface reports the height it WANTS and
+/// its host window follows a beat later - there is no way to make a window resize and a SwiftUI
+/// layout pass the same event - so for a handful of frames after anything opens or closes, the
+/// content is a different height than the window it is inside. `NSHostingView` CENTRES a root view
+/// whose size differs from its bounds, and centring content that is taller lifts the top of the
+/// page (the header, the wordmark, the whole reading column) by half the difference, then drops it
+/// back when the window catches up.
+///
+/// Measured on the pinned panel (2026-08-05): opening a project's activity graph moved the header
+/// up 45pt and held it there for the length of the 0.2s animation, on every single toggle, while
+/// the window's own frame never moved by so much as a point - which is why every measurement taken
+/// outside the process said the panel was standing perfectly still. That is the "the whole page
+/// including the header jumps up" report.
+///
+/// Sizing to the proposal is what removes it: the root view is then exactly the window's size, so
+/// there is nothing to centre, and the difference goes where it cannot be seen - off the bottom,
+/// into the space the window is a frame away from growing into. Leading rather than centred for the
+/// same reason on the other axis, and the same reason the scroll regions are pinned leading.
+///
+/// Nothing about what the surface REPORTS changes: the size the hosts follow is measured inside
+/// this, on the content itself (`PopoverRootView.sizeReporter`), so the host still resizes to the
+/// content's ideal height and this only decides where that content sits until it does.
+struct TopAnchored: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let ideal = subviews.first?.sizeThatFits(proposal) ?? .zero
+        // An unspecified proposal is answered with the content's own size: a host that asks how big
+        // this wants to be must not be told "as big as you like".
+        return CGSize(width: proposal.width ?? ideal.width, height: proposal.height ?? ideal.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+                       cache: inout ()) {
+        for subview in subviews {
+            subview.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
+                          proposal: proposal)
+        }
+    }
+}
+
+extension View {
+    /// Puts this view's top left corner on its host's top left corner and leaves it there while the
+    /// host resizes itself to fit (see `TopAnchored`).
+    ///
+    /// - Parameter enabled: whether the host sizes itself from what this view REPORTS (it passes an
+    ///   `onContentSize` and sets `sizingOptions = []`). A host that instead takes its size from
+    ///   this view's own layout constraints must not have this: reporting whatever size is proposed
+    ///   makes every size a fixpoint, so such a window keeps the degenerate one it starts with and
+    ///   never grows into its content (measured: the dashboard window opened 1x32 instead of
+    ///   504x548). The condition is the `onContentSize` itself rather than a list of hosts, so a
+    ///   host that does not size from the report cannot accidentally opt in.
+    @ViewBuilder func topAnchoredInHost(enabled: Bool) -> some View {
+        if enabled { TopAnchored { self } } else { self }
+    }
+}
+
 /// Marks the child of a `ScreenFitStack` that absorbs the overflow. Exactly one child should carry
 /// it: the first one marked wins, and with none the stack simply reports its full height.
 private struct ScreenFitFlexibleKey: LayoutValueKey {

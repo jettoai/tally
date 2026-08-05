@@ -158,10 +158,10 @@ final class SettingsStore {
     /// NOT persisted (no `didSet`, no key): it describes what is on screen this second, and a
     /// remembered copy would outlive the card it describes.
     ///
-    /// It lives here rather than in the view because the thing that reads it is a window controller:
-    /// every control in that card resizes the surface, and while it is open the surface holds its
-    /// BOTTOM-RIGHT corner still so the control stays under the pointer between clicks (see
-    /// `ResizeAnchor`).
+    /// It lives here rather than in the view because the thing that reads it is a window controller.
+    /// On its own it decides nothing: being open is not a claim on the resize anchor, only being
+    /// POINTED AT is (see `resizeAnchor(for:)`). What this answers is the other half of that
+    /// question: whose card.
     ///
     /// It names the host rather than answering yes/no, because two surfaces can be up at once: the
     /// menu-bar popover does not close the dashboard, so a card opened in the popover had the
@@ -171,10 +171,47 @@ final class SettingsStore {
 
     /// Open or close the card for one surface. A close only clears the flag when THIS surface is the
     /// one holding it: a host going away (the popover closing behind the card) must not cancel the
-    /// anchor another surface is still relying on.
+    /// anchor another surface is still relying on. A close also drops the anchor claim below, which
+    /// is the state that actually decides the corner.
     func setViewOptionsOpen(_ open: Bool, host: SurfaceHost) {
         if open { viewOptionsHost = host }
-        else if viewOptionsHost == host { viewOptionsHost = nil }
+        else if viewOptionsHost == host { viewOptionsHost = nil; isPointerOnViewOptions = false }
+    }
+
+    /// Whether the pointer is on the view-options card right now. Not persisted, and not a
+    /// preference: it is the live answer to "is the thing the bottom-right anchor exists to protect
+    /// actually under the pointer".
+    private(set) var isPointerOnViewOptions = false
+
+    /// The card reporting that the pointer has entered or left it (`PopoverFooterView.viewOptions`).
+    /// Only the surface actually showing the card may speak, for the same reason `viewOptionsHost`
+    /// names a host: two surfaces can be up at once.
+    func viewOptionsPointer(inside: Bool, host: SurfaceHost) {
+        guard viewOptionsHost == host else { return }
+        isPointerOnViewOptions = inside
+    }
+
+    /// Which corner a resize of `host` has to hold still.
+    ///
+    /// Default `topLeading`, and everything that is not the card gets the default WITHOUT having to
+    /// say so. That is the whole design: the reading region is an open set (a project row, the
+    /// Usage/Tokens switch, the range picker, a provider heading, the next control someone adds),
+    /// and a rule those have to opt out of is a rule that is wrong for whichever one was written
+    /// last. Measured on 2026-08-05: the version that enumerated them had three missing, and with
+    /// the card open the tab switch moved the whole surface 32pt.
+    ///
+    /// `bottomTrailing` is claimed by exactly one thing, and it claims it by the same fact it
+    /// exists for: the card's controls each resize the surface, so with the top left held the
+    /// control walks out from under the pointer between clicks - which can only matter while the
+    /// pointer is ON the card. Asking that question directly needs no list of controls (the card is
+    /// one view, and hovering it is how any of them get clicked), and it answers itself the moment
+    /// the pointer leaves for anything else.
+    ///
+    /// Fails closed in both directions: a hover event that never arrives leaves the card anchored
+    /// top-left, which costs a re-aim; there is no arrangement in which a reading-region resize
+    /// takes the card's corner and moves the page (see `ResizeAnchor`).
+    func resizeAnchor(for host: SurfaceHost) -> ResizeAnchor.Corner {
+        viewOptionsHost == host && isPointerOnViewOptions ? .bottomTrailing : .topLeading
     }
 
     var isPanelTranslucent: Bool {

@@ -71,7 +71,7 @@ final class MainWindowController {
     /// this window, so a card opened there resizes both surfaces, and answering yes to "is a card
     /// open anywhere" moved the dashboard the user was not even pointing at.
     private var anchorCorner: ResizeAnchor.Corner {
-        SettingsStore.shared.viewOptionsHost == .window ? .bottomTrailing : .topLeading
+        SettingsStore.shared.resizeAnchor(for: .window)
     }
 
     /// Both observers read the window on the spot (they already run on the main queue) instead of

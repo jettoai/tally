@@ -204,6 +204,10 @@ struct PopoverRootView: View {
         .onDisappear { settings.setViewOptionsOpen(false, host: host) }
         .environment(\.tallyCardStyle, cardStyle)
         .id(settings.languageOverride ?? "system")
+        // Outermost, because it is about this view's relationship with the window it is in and
+        // nothing inside it: the surface's top edge stays put while the host catches up with the
+        // height the surface just reported (see `TopAnchored`).
+        .topAnchoredInHost(enabled: onContentSize != nil)
     }
 
     /// The card fill for this surface: glass only where the host has glass to sample AND the user

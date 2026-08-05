@@ -150,7 +150,7 @@ final class PinnedPanelController {
     /// surface showing the view-options card. Same rule, same reason and same "whose card" question
     /// as the dashboard window's.
     private var anchorCorner: ResizeAnchor.Corner {
-        SettingsStore.shared.viewOptionsHost == .panel ? .bottomTrailing : .topLeading
+        SettingsStore.shared.resizeAnchor(for: .panel)
     }
 
     /// Resize the panel to the content's MEASURED size (reported by `PopoverRootView.onContentSize`).

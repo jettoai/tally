@@ -117,20 +117,57 @@ for (name, path, host) in [("dashboard window", "Tally/MenuBar/MainWindowControl
     let observer = String(source[start.upperBound ..< end.lowerBound])
     check("the \(name) re-reads its anchor edges when a resize finishes",
           observer.contains("anchorEdges = ") && observer.contains("resizeEdges"))
-    // 9. And it takes the bottom-right corner only for ITS OWN card. The menu-bar popover does not
-    //    close the dashboard, so both surfaces can be up at once reading the same settings, and a
-    //    flag that only said "a card is open somewhere" swapped the corner on the window the user
-    //    was not even pointing at.
-    check("the \(name) anchors on the card it is presenting itself",
-          source.contains("SettingsStore.shared.viewOptionsHost == \(host) ? .bottomTrailing"))
+    // 9. And it asks about ITS OWN host. The menu-bar popover does not close the dashboard, so both
+    //    surfaces can be up at once reading the same settings, and a question that only asked "is a
+    //    card open somewhere" swapped the corner on the window the user was not even pointing at.
+    //    The answer itself belongs to the store, so that the rule has one statement (see below).
+    check("the \(name) asks the store for its own host's anchor",
+          source.contains("SettingsStore.shared.resizeAnchor(for: \(host))"))
+    check("…and does not decide the corner for itself",
+          !source.contains("? .bottomTrailing"))
 }
 let settingsSource = (try? String(contentsOfFile: "Tally/Stores/SettingsStore.swift",
                                   encoding: .utf8)) ?? ""
 // Closing is not symmetric with opening: one surface's card going away must not cancel an anchor
-// another surface is still relying on, so a close only clears the slot it owns.
+// another surface is still relying on, so a close only clears the slot it owns - and it drops the
+// pointer claim with it, so a card that goes away cannot leave its corner behind.
 check("a close clears the open flag only for the host that owns it",
       settingsSource.contains("if open { viewOptionsHost = host }")
-          && settingsSource.contains("else if viewOptionsHost == host { viewOptionsHost = nil }"))
+          && settingsSource.contains(
+              "else if viewOptionsHost == host { viewOptionsHost = nil; isPointerOnViewOptions = false }"))
+
+// 10. The rule itself, and the reason this file exists at all: the bottom-right corner is claimed,
+//     never inherited. Holding it needs BOTH the card being this host's AND the pointer being on
+//     it; everything else in the surface - a project row, the tab switch, the range picker, a
+//     provider heading, whatever is added next - gets the top left without having to ask for it.
+//
+//     The previous shape was the other way round (the card being open was enough, and each reading
+//     control had to opt out) and it was wrong for three of them at once: with the card open, the
+//     tab switch moved the whole surface 32pt (measured 2026-08-05). A rule the open set has to opt
+//     out of is a rule that is wrong for whichever member was written last.
+guard let ruleStart = settingsSource.range(of: "func resizeAnchor(for host: SurfaceHost)"),
+      let ruleEnd = settingsSource.range(of: "\n    }\n", range: ruleStart.upperBound ..< settingsSource.endIndex)
+else {
+    check("the anchor rule was found to read", false)
+    exit(1)
+}
+let rule = String(settingsSource[ruleStart.upperBound ..< ruleEnd.lowerBound])
+check("the anchor rule needs the card to be this host's AND the pointer to be on it",
+      rule.contains("viewOptionsHost == host && isPointerOnViewOptions ? .bottomTrailing"))
+check("…and everything else gets the top left",
+      rule.contains(": .topLeading"))
+
+// 11. And the claim has exactly one claimant. If any view other than the card could report the
+//     pointer, the open set would be back: something in the reading region could hold the card's
+//     corner without anyone noticing until a surface jumped.
+let viewFiles = (try? FileManager.default.contentsOfDirectory(atPath: "Tally/Views")) ?? []
+let claimants = viewFiles.filter { file in
+    guard file.hasSuffix(".swift") else { return false }
+    let text = (try? String(contentsOfFile: "Tally/Views/\(file)", encoding: .utf8)) ?? ""
+    return text.contains("viewOptionsPointer(inside:")
+}
+check("only the view-options card itself claims the anchor (found: \(claimants))",
+      claimants == ["PopoverFooterView.swift"])
 
 print(failures == 0 ? "\nAll window anchor tests passed." : "\n\(failures) anchor test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

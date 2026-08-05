@@ -216,6 +216,12 @@ final class PinnedPanelController {
                             // The panel is a fixture the user placed: it fits the display it was
                             // left on, which is not necessarily the one the menu bar is on.
                             hostScreen: { [weak self] in self?.panel?.screen },
+                            // This panel grows downward from wherever it was dragged, so what it
+                            // may become depends on its own top edge and not just on the display:
+                            // without this the content grows past the bottom of the screen and
+                            // `clampOnScreen` shoves the whole panel up, taking the row the user
+                            // just clicked out from under the pointer.
+                            hostTopEdge: { [weak self] in self?.panel?.contentTopLeft.y },
                             tabState: surfaceTab, host: .panel)
                 .background(PanelBackdrop(settings: .shared))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)))

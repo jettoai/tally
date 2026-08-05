@@ -82,10 +82,38 @@ extension ScreenFitStack {
     /// Same floor, the other axis: nothing narrower than a single comfortable column.
     static let minSurfaceWidth: CGFloat = 480
 
-    /// The cap for a surface hosted on `screen`, which is the only thing any host has to know.
-    @MainActor static func maxHeight(on screen: NSScreen?) -> CGFloat {
-        let usable = (screen ?? NSScreen.main)?.visibleFrame.height ?? 900
-        return max(minSurfaceHeight, usable - screenMargin)
+    /// The cap for a surface hosted on `screen`, and - for the hosts that grow downward from a
+    /// position the user placed - on where that surface's content starts.
+    ///
+    /// - Parameter topEdge: the screen-space y of the content's TOP edge (AppKit coordinates, so
+    ///   `window.contentTopLeft.y`). The pinned panel and the dashboard window keep their top left
+    ///   as they grow, so the room a surface actually has is the room BELOW its own top edge, not
+    ///   the height of the display. Pass nil for a host that does not grow this way (the popover
+    ///   moves itself to stay attached to the status item), which leaves the screen rule alone.
+    @MainActor static func maxHeight(on screen: NSScreen?, topEdge: CGFloat? = nil) -> CGFloat {
+        guard let visible = (screen ?? NSScreen.main)?.visibleFrame else {
+            return max(minSurfaceHeight, 900 - screenMargin)
+        }
+        return cap(visible: visible, topEdge: topEdge)
+    }
+
+    /// The arithmetic behind `maxHeight(on:topEdge:)`, on a plain rect so it can be asserted
+    /// (`tests/run-screenfit-tests.sh`) rather than only observed on a display.
+    ///
+    /// Both rules apply and the smaller wins: a surface is never taller than the display's rule of
+    /// thumb, and never taller than the gap between its own top edge and the bottom of the visible
+    /// area. Without the second one a surface that grows keeps its top left, runs past the bottom
+    /// of the screen, and gets pushed back up bodily by `clampOnScreen()` - which is a row moving
+    /// out from under the pointer that just clicked it (pinned panel, 2026-08-05).
+    ///
+    /// Known and accepted: a surface dragged very low is capped hard, so opening something inside
+    /// it scrolls rather than grows, and below `minSurfaceHeight` the floor wins and the overflow
+    /// (with the clamp that follows it) comes back. Keeping the footer reachable is the same call
+    /// `makePanel` states for the panel: the footer is the way to unpin.
+    static func cap(visible: CGRect, topEdge: CGFloat?) -> CGFloat {
+        var cap = visible.height - screenMargin
+        if let topEdge { cap = min(cap, topEdge - visible.minY) }
+        return max(minSurfaceHeight, cap)
     }
 
     /// The width twin, for the one layout whose column count depends on the display rather than on

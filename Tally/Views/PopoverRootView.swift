@@ -67,6 +67,10 @@ struct PopoverRootView: View {
     /// on whichever display it was summoned to. Nil before the host has a window, which falls back
     /// to the main screen.
     var hostScreen: () -> NSScreen? = { NSScreen.main }
+    /// Where this surface's content starts on screen, for the hosts that grow downward from a
+    /// position the user placed (`ScreenFitStack.maxHeight(on:topEdge:)`). Nil for the popover,
+    /// which is not one of them: it hangs off the status item and NSPopover repositions it.
+    var hostTopEdge: () -> CGFloat? = { nil }
     var tokens: TokenStatsStore = .shared
     /// This surface's own tab selection, held by its host controller (see `SurfaceTabState`).
     @Bindable var tabState: SurfaceTabState
@@ -106,7 +110,8 @@ struct PopoverRootView: View {
         // as unchanged and skips re-localizing them, leaving cards stuck in the old language. Keying
         // `.id` on the language forces a full teardown + rebuild so every L() re-resolves.
         ZStack(alignment: .topLeading) {
-            ScreenFitStack(maxHeight: screenCap ?? ScreenFitStack.maxHeight(on: hostScreen())) {
+            ScreenFitStack(maxHeight: screenCap
+                            ?? ScreenFitStack.maxHeight(on: hostScreen(), topEdge: hostTopEdge())) {
                 // Header and footer frame both tabs: the countdown and the refresh stay reachable
                 // while reading token history, and the footer button that switched here is the one
                 // that switches back (a surface that swallowed its own way out would be a trap).
@@ -304,7 +309,12 @@ struct PopoverRootView: View {
     /// holds a height that screen never had, which is this whole file's bug with extra steps. So
     /// the two events that can move a window between displays re-read it. Stored rather than read
     /// every pass because it is only ever re-read on those events, and only a cap that actually
-    /// CHANGED touches the state: dragging a panel around one display re-renders nothing.
+    /// CHANGED touches the state.
+    ///
+    /// The move notification carries a second duty now: for a host that grows downward from where
+    /// the user put it, the cap depends on the surface's own top edge (`hostTopEdge`), so dragging
+    /// a panel DOWN its own display shortens it. That is the one event that changes the answer
+    /// without any display changing, and it is the same notification, so nothing else was needed.
     @State private var screenCap: CGFloat?
     /// The same reading on the other axis, for the compact list's auto column count. Held for the
     /// same reason and refreshed by the same two events: `popoverWidth` is read on every layout
@@ -316,7 +326,7 @@ struct PopoverRootView: View {
     }
 
     private func refreshScreenCap() {
-        let height = ScreenFitStack.maxHeight(on: hostScreen())
+        let height = ScreenFitStack.maxHeight(on: hostScreen(), topEdge: hostTopEdge())
         if screenCap != height { screenCap = height }
         let width = ScreenFitStack.maxWidth(on: hostScreen())
         if screenWidth != width { screenWidth = width }

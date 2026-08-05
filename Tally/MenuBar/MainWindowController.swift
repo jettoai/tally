@@ -143,6 +143,13 @@ final class MainWindowController {
                                           // Summoned windows follow the user, so the display to fit
                                           // is the one this window was last put on.
                                           hostScreen: { [weak self] in self?.window?.screen },
+                                          // Same growth rule as the pinned panel (it holds its top
+                                          // left and clamps after every resize), so it takes the
+                                          // same position-aware cap: the content stops at the
+                                          // bottom of the display instead of pushing the window
+                                          // up from under the pointer. The CONTENT's top edge, so
+                                          // the titlebar is already out of the arithmetic.
+                                          hostTopEdge: { [weak self] in self?.window?.contentTopLeft.y },
                                           tokens: .shared, tabState: surfaceTab, host: .window))
             let window = NSWindow(contentViewController: hosting)
             window.title = BuildVariant.isDev ? "Tally Dev" : "Tally"   // Mission Control / Window menu name

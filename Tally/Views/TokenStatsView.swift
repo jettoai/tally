@@ -177,12 +177,9 @@ struct TokenStatsView: View {
                         .foregroundStyle(Color.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 6)
-                    share(row.share)
-                    value(row.totals.total)
-                    // A provider row has nothing to unfold, but it still reserves the disclosure
-                    // column: the two cards' figures sit on one vertical line, and a column that
-                    // existed on only one of them would knock them apart by exactly its width.
-                    disclosureSpacer
+                    // A provider row has nothing to unfold, so its disclosure column stands empty.
+                    trailingColumns(share: row.share, tokens: row.totals.total,
+                                    disclosure: disclosureSpacer)
                 }
             }
         }
@@ -197,9 +194,9 @@ struct TokenStatsView: View {
     /// `name · bar · share · value · disclosure`, the same left-to-right grammar the account meters
     /// use, so the two tabs read as one product. The bar is a share of the total, not a limit, so it
     /// carries no severity colour - nothing here can be "too high" - and the percentage beside it is
-    /// the same quantity in figures, for the rows too small to compare by eye. Providers use the
-    /// same three trailing columns, the disclosure one reserved but empty, so the numbers line up
-    /// across both cards.
+    /// the same quantity in figures, for the rows too small to compare by eye. The three trailing
+    /// columns are literally the provider card's (`trailingColumns`), which is what makes "the
+    /// figures line up across both cards" a fact rather than a hope.
     private var projects: some View {
         VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
             Text(L("Projects"))
@@ -255,9 +252,8 @@ struct TokenStatsView: View {
                 .tallyTooltip(project.isOther ? L("Scratch directories and sessions with no project")
                                       : project.key)
             shareBar(project.share)
-            share(project.share)
-            value(project.totals.total)
-            chevron(project)
+            trailingColumns(share: project.share, tokens: project.totals.total,
+                            disclosure: chevron(project))
         }
         // The whole row is the target, not just the arrow: a 10pt glyph is a poor thing to aim at,
         // and every other part of the row belongs to the same project anyway.
@@ -274,6 +270,23 @@ struct TokenStatsView: View {
                 .foregroundStyle(.tertiary)
                 .rotationEffect(.degrees(isExpanded(project) ? 90 : 0))
                 .frame(width: Self.chevronColumn, alignment: .trailing)
+        }
+    }
+
+    /// The three columns every row of BOTH cards ends with: share, value, disclosure.
+    ///
+    /// One piece of layout used twice, rather than two that are meant to agree. They did not: the
+    /// two cards' rows had their own HStacks at 6pt and 8pt spacing, so the figures the project
+    /// card's header promises are aligned sat 2pt apart per gap, and the disclosure column added to
+    /// only one of them widened the gap again. Sharing the container makes the promise structural -
+    /// both cards inset by the same card padding, so one trailing edge and one set of spacings can
+    /// only produce one column of figures.
+    private func trailingColumns(share fraction: Double, tokens: Int64,
+                                 disclosure: some View) -> some View {
+        HStack(spacing: 8) {
+            share(fraction)
+            value(tokens)
+            disclosure
         }
     }
 

@@ -94,11 +94,27 @@ func projectPolicyKey(cwd: String = FileManager.default.currentDirectoryPath) ->
 /// Fail open, exactly like the snapshot read: a missing file is the ordinary case (nobody has
 /// declared a profile), and an unreadable one must not stop a launch either - the launcher's job is
 /// to start a session, and no profile is a worse outcome than no session.
+///
+/// For READING only. A write must not come through here (see `loadProjectPoliciesForWrite`).
 func loadProjectPolicies(_ url: URL = projectPoliciesURL) -> ProjectPolicyFile {
     guard let data = try? Data(contentsOf: url),
           let file = try? JSONDecoder().decode(ProjectPolicyFile.self, from: data)
     else { return ProjectPolicyFile() }
     return file
+}
+
+/// The strict read behind every WRITE, because `set` and `clear` are read-modify-write and the
+/// fail-open read above is a data-loss bug in that position: a file that exists but does not parse
+/// would come back as an empty set, and saving that empty set on top of it deletes every OTHER
+/// project's profile to record one. Failing open costs a launch its profile for one run; failing
+/// open here costs the file.
+///
+/// Existence is what separates the two cases, and it has to be asked separately: "no such file" and
+/// "there but unreadable" are the same `Data(contentsOf:)` failure, and only the first one means
+/// there is nothing to lose. An absent file is a normal empty start - the first `set` creates it.
+func loadProjectPoliciesForWrite(_ url: URL = projectPoliciesURL) throws -> ProjectPolicyFile {
+    guard FileManager.default.fileExists(atPath: url.path) else { return ProjectPolicyFile() }
+    return try JSONDecoder().decode(ProjectPolicyFile.self, from: try Data(contentsOf: url))
 }
 
 /// Write the file back, atomically. Empty entries are pruned first, so clearing a project leaves no
@@ -195,12 +211,22 @@ private func optionValue(_ args: [String], _ flag: String) -> String? {
 }
 
 /// The provider a `tally project` invocation is about (claude unless asked otherwise), or nil when
-/// the name is not one this CLI launches - said here rather than at each caller so a subcommand
+/// the flag was given and cannot be honoured - said here rather than at each caller so a subcommand
 /// cannot teach a different vocabulary than its sibling.
+///
+/// A `--provider` with NO VALUE is refused rather than defaulted, and that is the whole reason this
+/// distinguishes "absent" from "present but empty". Both read as nil through `optionValue`, so
+/// defaulting on nil silently turned `tally project clear --provider` (a typo away from
+/// `--provider codex`) into a bare `clear`, which drops EVERY provider's profile for the project.
+/// A flag the user typed and this CLI cannot act on is an error, never a fallback.
 private func projectProvider(_ args: [String]) -> String? {
-    let id = optionValue(args, "--provider") ?? "claude"
+    guard args.contains("--provider") else { return "claude" }
+    guard let id = optionValue(args, "--provider") else {
+        warn("--provider needs a value - use claude or codex; nothing was changed")
+        return nil
+    }
     guard providers.contains(where: { $0.id == id }) else {
-        warn("unknown provider `\(id)` - use claude or codex")
+        warn("unknown provider `\(id)` - use claude or codex; nothing was changed")
         return nil
     }
     return id
@@ -208,6 +234,18 @@ private func projectProvider(_ args: [String]) -> String? {
 
 /// Write the file back, reporting a failure the way every subcommand here reports it. False means
 /// the caller must leave with an error rather than announce a change that did not land.
+private func readProjectPoliciesForWrite() -> ProjectPolicyFile? {
+    do {
+        return try loadProjectPoliciesForWrite()
+    } catch {
+        warn("\(projectPoliciesURL.path) exists but cannot be read as a launch-profile file " +
+             "(\(error.localizedDescription)) - refusing to rewrite it, because rewriting from " +
+             "an empty set would drop every other project's profile. Nothing was changed; fix or " +
+             "delete the file and try again.")
+        return nil
+    }
+}
+
 private func writeProjectPolicies(_ file: ProjectPolicyFile) -> Bool {
     do {
         try saveProjectPolicies(file)
@@ -230,7 +268,7 @@ private func runProjectSet(args: [String]) -> Int32 {
         return 2
     }
     let key = projectPolicyKey()
-    var file = loadProjectPolicies()
+    guard var file = readProjectPoliciesForWrite() else { return 1 }
     var policy = file.policy(providerID, for: key)
     if let model { policy.model = model }
     if let effort { policy.effort = effort }
@@ -305,16 +343,17 @@ private func runProjectList(cwd: String = FileManager.default.currentDirectoryPa
 /// `tally project clear`: drop this project's profile, or just one provider's half of it.
 private func runProjectClear(args: [String],
                              cwd: String = FileManager.default.currentDirectoryPath) -> Int32 {
-    let named = optionValue(args, "--provider")
     guard let providerID = projectProvider(args) else { return 2 }
+    // Whether the flag was TYPED, not whether it carried a value: a dangling `--provider` was
+    // refused above, so this can no longer read a typo as "clear everything".
+    let narrowed = args.contains("--provider")
     let key = projectPolicyKey(cwd: cwd)
-    var file = loadProjectPolicies()
+    guard var file = readProjectPoliciesForWrite() else { return 1 }
     let existing = file.declared(for: key)
     // A bare `clear` drops the whole project; `--provider` narrows it to that provider's half.
-    let dropping = named == nil ? Array(existing.keys) : existing.keys.filter { $0 == providerID }
+    let dropping = narrowed ? existing.keys.filter { $0 == providerID } : Array(existing.keys)
     guard !dropping.isEmpty else {
-        warn("no \(named == nil ? "" : "\(providerID) ")launch profile for \(key) - " +
-             "nothing to clear")
+        warn("no \(narrowed ? "\(providerID) " : "")launch profile for \(key) - nothing to clear")
         return 0
     }
     for id in dropping { file.projects[key]?.removeValue(forKey: id) }

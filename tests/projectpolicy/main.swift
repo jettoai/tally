@@ -249,10 +249,39 @@ check("typing --model fable over it moves the LAUNCH, not only the flag",
 // harness cannot call (it execs). What it can pin is that none of them went back to reading the
 // policy directly, which is exactly how the flag stopped reaching the pick the first time.
 let source = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
+let policySource = (try? String(contentsOfFile: "TallyCLI/ProjectPolicy.swift",
+                                encoding: .utf8)) ?? ""
+
+/// One top-level function's text, by name: from its `func` line to the next function declared at
+/// column 0. Anchored on the function rather than on a slice of the file, because the file's ORDER
+/// is not what any of this is about - the first version cut at "func runStatus" and would have gone
+/// red, saying nothing true, the day somebody moved a function or renamed the next one along.
+/// Nested helpers are indented, so the column-0 search steps over them rather than ending early.
+func topLevelFunction(_ name: String, in source: String) -> String {
+    let lines = source.components(separatedBy: "\n")
+    /// A line that DECLARES a top-level function: at column 0, with or without `private`. Passing a
+    /// name asks for that one function; passing none asks "is this where the previous one ends".
+    func declares(_ line: String, _ named: String?) -> Bool {
+        for prefix in ["func ", "private func "] where line.hasPrefix(prefix) {
+            guard let named else { return true }
+            return line.dropFirst(prefix.count).hasPrefix(named + "(")
+        }
+        return false
+    }
+    guard let start = lines.firstIndex(where: { declares($0, name) }) else { return "" }
+    let end = lines[(start + 1)...].firstIndex { declares($0, nil) } ?? lines.endIndex
+    return lines[start ..< end].joined(separator: "\n")
+}
+
 // `runLaunch` only: `best-dir` and `launch-dir` legitimately score on the policy, having no args a
 // model could have been typed into.
-let launcher = source.components(separatedBy: "func runStatus").first ?? ""
+let launcher = topLevelFunction("runLaunch", in: source)
 check("the harness really read the launcher", launcher.contains("func runLaunch"))
+check("…and stopped at its end rather than swallowing the rest of the file",
+      !launcher.contains("func runStatus") && !launcher.contains("func runResume"))
+check("the slice survives the functions being reordered",
+      topLevelFunction("runLaunch", in: "func runStatus() {}\n" + source)
+          .contains("let primaryModel = launchPrimaryModel"))
 check("the launcher scores the pick on the model the launch carries",
       launcher.contains("let primaryModel = launchPrimaryModel(passthrough, providerID: provider.id)"))
 check("…and hands that same value to the quarantine, the pick and the reason",
@@ -262,6 +291,127 @@ check("…and hands that same value to the quarantine, the pick and the reason",
 check("…with none of the three reading the configured default behind the flag's back",
       !launcher.contains("forPrimary: policy.model")
           && !launcher.contains("primaryModel: policy.model"))
+
+// MARK: - `resume` runs what it was scored for
+
+// The defect: the account was picked for the project's model and the exec passed the user's args
+// through untouched, so the conversation came back on the CLI's own default. An account pick has no
+// way to recover from that - by the time the session is running, it is already somewhere.
+let resumeSource = topLevelFunction("runResume", in: source)
+check("the harness really read resume", resumeSource.contains("newest.account.label"))
+check("resume injects the launch defaults it scored with",
+      resumeSource.contains("let resumeArgs = applyLaunchDefaults(args, policy: effective,"))
+check("…scores off that same vector",
+      resumeSource.contains("launchPrimaryModel(resumeArgs, providerID: provider.id)"))
+check("…and execs that same vector, not the raw args",
+      resumeSource.contains("args: [\"--resume\", sessionID] + resumeArgs")
+          && !resumeSource.contains("args: [\"--resume\", sessionID] + args"))
+// The behaviour behind those three lines, exercised directly.
+let resumeEffective = effectivePolicy(appDefaults, project: ProjectPolicy(model: "opus"))
+let resumeArgs = applyLaunchDefaults([], policy: resumeEffective, providerID: "claude")
+check("a resume in an opus project carries opus to the child",
+      after("--model", in: resumeArgs) == "opus")
+check("…and is scored for exactly that",
+      launchPrimaryModel(resumeArgs, providerID: "claude") == "opus")
+check("a typed --model still outranks the project on a resume",
+      launchPrimaryModel(applyLaunchDefaults(["--model", "haiku"], policy: resumeEffective,
+                                             providerID: "claude"),
+                         providerID: "claude") == "haiku")
+
+// MARK: - The shim may only steer by a model it can also deliver
+
+let claude = providers[0]
+let codex = providers[1]
+check("claude has a model variable to hand a bare launch", claude.modelEnvKey == "ANTHROPIC_MODEL")
+check("codex has none", codex.modelEnvKey == nil)
+
+let opusProfile = ProjectPolicy(model: "opus", effort: "high", accountID: "claude:.claude2")
+let claudeSteer = launchSteering(claude, appPolicy: appDefaults, project: opusProfile)
+check("claude scores a bare launch on the project's model",
+      claudeSteer.policy.model == "opus")
+check("…and hands that model over, so the two cannot disagree", claudeSteer.model == "opus")
+let codexSteer = launchSteering(codex, appPolicy: appDefaults, project: opusProfile)
+check("codex drops the model from the scoring, having no way to deliver it",
+      codexSteer.policy.model == appDefaults.model)
+check("…and exports no model", codexSteer.model == nil)
+check("codex keeps the rest of the profile, which needs no handover",
+      codexSteer.policy.pinnedAccountID == "claude:.claude2"
+          && codexSteer.policy.mode == "manual" && codexSteer.policy.effort == "high")
+// Nothing declared: the app's own default already reaches a bare launch through the CLI's settings,
+// and re-stating it would override a per-directory model the user set in Claude Code itself.
+check("a project that declares no model exports none",
+      launchSteering(claude, appPolicy: appDefaults, project: ProjectPolicy()).model == nil)
+
+let steered = launchExportLines(claude, home: "/Users/u/.claude2", model: "opus")
+check("the shim's environment carries the config home", steered.contains("export CLAUDE_CONFIG_DIR=/Users/u/.claude2"))
+check("…the Tally markers", steered.contains("export TALLY_LAUNCHED=1")
+          && steered.contains("export TALLY_SUPERVISED=0"))
+check("…and the model, in the variable the CLI reads",
+      steered.contains("export ANTHROPIC_MODEL=opus"))
+check("no model asked for, no model line",
+      !launchExportLines(claude, home: "/Users/u/.claude2").contains { $0.contains("ANTHROPIC_MODEL") })
+check("a provider with no model variable never gets the line",
+      !launchExportLines(codex, home: "/Users/u/.codex2", model: "opus")
+          .contains { $0.hasPrefix("export ") && $0.contains("MODEL") })
+// Both commands resolve through the same function and print the same pair. `best-dir` scoring on
+// the project's model while printing no model was the same decoupling this section is about, one
+// command over: it named an account chosen for opus and left the shell to run fable on it.
+let launchDirSource = (try? String(contentsOfFile: "TallyCLI/LaunchDir.swift", encoding: .utf8)) ?? ""
+let bestDir = topLevelFunction("runBestDir", in: launchDirSource)
+check("best-dir resolves through the shared steering",
+      bestDir.contains("launchSteering(provider, appPolicy:"))
+check("…and hands the model over with the home it chose",
+      bestDir.contains("printLaunchExports(provider, home: home, model: model)"))
+check("launch-dir does the same, so the two cannot drift apart",
+      topLevelFunction("runLaunchDir", in: launchDirSource)
+          .contains("printLaunchExports(provider, home: home, model: model)"))
+
+// MARK: - Writes refuse to run on a file they could not read
+
+let writeStore = tmp.appendingPathComponent("write-guard.json")
+check("an absent file is a normal empty start for a write",
+      ((try? loadProjectPoliciesForWrite(writeStore))?.projects.isEmpty) == true)
+var populated = ProjectPolicyFile()
+populated.projects["/a"] = ["claude": ProjectPolicy(model: "opus")]
+populated.projects["/b"] = ["claude": ProjectPolicy(model: "sonnet")]
+try! saveProjectPolicies(populated, to: writeStore)
+check("a readable file round-trips into a write",
+      (try? loadProjectPoliciesForWrite(writeStore))?.projects.count == 2)
+// The data-loss shape: `set` is read-modify-write, so a fail-open read of a CORRUPT file returns an
+// empty set and saving it back deletes every other project to record one.
+try! "{ this is not json".write(to: writeStore, atomically: true, encoding: .utf8)
+var refused = false
+do { _ = try loadProjectPoliciesForWrite(writeStore) } catch { refused = true }
+check("a corrupt file is refused for writing, not read as empty", refused)
+check("…while the read path stays fail-open, so a launch still runs",
+      loadProjectPolicies(writeStore).projects.isEmpty)
+let setSource = topLevelFunction("runProjectSet", in: policySource)
+let clearSource = topLevelFunction("runProjectClear", in: policySource)
+check("set reads through the strict loader",
+      setSource.contains("guard var file = readProjectPoliciesForWrite() else { return 1 }"))
+check("clear reads through the strict loader",
+      clearSource.contains("guard var file = readProjectPoliciesForWrite() else { return 1 }"))
+check("neither write path uses the fail-open read",
+      !setSource.contains("loadProjectPolicies()") && !clearSource.contains("loadProjectPolicies()"))
+
+// MARK: - A `--provider` that cannot be honoured is an error, never a fallback
+
+// `clear --provider` (value missing, a typo away from `--provider codex`) used to read as a bare
+// clear and drop EVERY provider's profile for the project.
+check("clear narrows on the flag being typed, not on it carrying a value",
+      clearSource.contains("let narrowed = args.contains(\"--provider\")")
+          && !clearSource.contains("named == nil"))
+check("…and the dropping set follows that signal",
+      clearSource.contains("narrowed ? existing.keys.filter { $0 == providerID } : Array(existing.keys)"))
+let providerSource = topLevelFunction("projectProvider", in: policySource)
+check("a dangling --provider is refused rather than defaulted",
+      providerSource.contains("guard let id = optionValue(args, \"--provider\") else {"))
+check("…an absent one still defaults to claude",
+      providerSource.contains("guard args.contains(\"--provider\") else { return \"claude\" }"))
+check("…and an unknown name is still refused",
+      providerSource.contains("guard providers.contains(where: { $0.id == id }) else {"))
+check("both refusals say nothing was changed",
+      providerSource.components(separatedBy: "nothing was changed").count == 3)
 
 // MARK: - `accountMatching`: one matcher for `--account` and for what `project set` stores
 

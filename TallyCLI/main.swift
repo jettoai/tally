@@ -305,15 +305,22 @@ func runResume(args: [String]) -> Never {
     }
     let sessionID = newest.file.deletingPathExtension().lastPathComponent
 
-    // Prefer the best OTHER eligible account; fall back to the source account (a plain resume).
-    // Scored on what THIS resume runs: a `--model` in the args passed through outranks the project
-    // profile, which outranks the app default, the same ranking the launcher applies. So a resume
-    // in an opus project is not held back by a Fable window it never spends. The account pin a
-    // project may also declare is deliberately not read here: this command's whole purpose is to
-    // move a conversation to a different account, and the app's own pin has never been honoured
-    // here either.
-    let primaryModel = launchPrimaryModel(args, providerID: provider.id)
-        ?? effectivePolicy(launchPolicy(provider.id), project: projectPolicy(provider.id)).model
+    // The args this resume will RUN with: the launch defaults injected exactly as a fresh launch
+    // injects them (a flag the user typed still wins), so the conversation comes back on the model
+    // its project declared instead of on whatever the CLI defaults to.
+    //
+    // Scoring the accounts and launching the session read the SAME vector, which is the whole point
+    // of building it here. They used to disagree: the pick was made for the project's model while
+    // the exec passed the user's args through untouched, so a resume was placed on an account
+    // chosen for opus and then ran fable on it - the one failure mode an account pick has no way to
+    // recover from, because by then the session is already somewhere.
+    //
+    // The account pin a project may also declare is deliberately not read here: this command's
+    // whole purpose is to move a conversation to a different account, and the app's own pin has
+    // never been honoured here either.
+    let effective = effectivePolicy(launchPolicy(provider.id), project: projectPolicy(provider.id))
+    let resumeArgs = applyLaunchDefaults(args, policy: effective, providerID: provider.id)
+    let primaryModel = launchPrimaryModel(resumeArgs, providerID: provider.id) ?? effective.model
     let target = snapshot.accounts
         .filter { $0.provider == provider.id && eligible($0, primaryModel: primaryModel)
             && $0.id != newest.account.id }
@@ -342,77 +349,8 @@ func runResume(args: [String]) -> Never {
 
     warn("→ resuming \(sessionID.prefix(8))… from \(newest.account.label) on \(target.label) " +
          "(\(pickReason(target, primaryModel: primaryModel)))")
-    exec(provider.cli, args: ["--resume", sessionID] + args, env: launchEnv(provider, home: target.launchHome!))
-}
-
-/// The config home a launch under `policy` would run in: its manual pin - in Tally or from
-/// `tally project set --account` - when that resolves to a launchable account, and otherwise the
-/// same headroom pick `runLaunch` makes, this project's model and the live cap quarantine included.
-/// A pin resolves regardless of headroom (the user chose by hand) except when its account has
-/// signed out, which is not launchable by anyone (AccountPick.swift).
-///
-/// Shared by `best-dir` and `launch-dir` so neither can print an export line naming an account the
-/// launch itself would skip, which is a wrong answer to the only question either command asks.
-func steeredLaunchHome(_ provider: Provider, in snapshot: Snapshot?,
-                       policy: LaunchPolicy) -> String? {
-    pinnedLaunchHome(snapshot, policy: policy)
-        ?? snapshot.flatMap {
-            launchPick(providerID: provider.id, in: $0, primaryModel: policy.model,
-                       quarantined: quarantinedAccounts(forPrimary: policy.model))?.launchHome
-        }
-}
-
-/// The eval-able answer both shim commands print, so the shim gets the same environment either way.
-func printLaunchExports(_ provider: Provider, home: String) {
-    // Mirror launchEnv: the default home must UNSET the variable (explicitly setting the default
-    // path makes Claude Code look up a hashed Keychain item that doesn't exist). Both lines eval.
-    if launchEnv(provider, home: home) == nil {
-        print("unset \(provider.envKey)")
-    } else {
-        print("export \(provider.envKey)=\(home)")
-    }
-    // The status line reads this to show "this session runs under Tally" (✦). A shim-steered bare
-    // launch has no resident supervisor, so mark it unsupervised (the status line stays quiet
-    // rather than nagging "supervisor unknown").
-    print("export TALLY_LAUNCHED=1")
-    print("export TALLY_SUPERVISED=0")
-}
-
-func runBestDir(_ providerID: String) {
-    guard let provider = providers.first(where: { $0.id == providerID }) else {
-        warn("unknown provider `\(providerID)` - use claude or codex")
-        exit(2)
-    }
-    let (snapshot, problem) = loadSnapshot()
-    if let problem { warn(problem) }
-    let policy = effectivePolicy(launchPolicy(provider.id), project: projectPolicy(provider.id))
-    guard let home = steeredLaunchHome(provider, in: snapshot, policy: policy) else {
-        warn("no eligible \(providerID) account")
-        exit(1)
-    }
-    printLaunchExports(provider, home: home)
-}
-
-/// `tally launch-dir` - the machine interface for the codex/claude PATH shims. Unlike `best-dir`
-/// (an explicit "which is best" question), this answers "should a BARE invocation be steered, and
-/// where": mode off prints nothing (the shim passes through untouched), manual prints the pin,
-/// auto prints the headroom pick. Output is eval-able (`export …` / `unset …`) or empty.
-func runLaunchDir(_ providerID: String) {
-    guard let provider = providers.first(where: { $0.id == providerID }) else {
-        warn("unknown provider `\(providerID)` - use claude or codex")
-        exit(2)
-    }
-    // The "off" gate is asked of the APP's policy, before the project overlay: off is about whether
-    // Tally may steer a launch it was not asked into at all, which is a question about the shim and
-    // not about what any one project runs.
-    let appPolicy = launchPolicy(provider.id)
-    guard appPolicy.mode != "off" else { return }
-    let policy = effectivePolicy(appPolicy, project: projectPolicy(provider.id))
-    let (snapshot, problem) = loadSnapshot()
-    if let problem { warn(problem) }
-    // Nothing eligible - stay silent, the shim runs the bare CLI.
-    guard let home = steeredLaunchHome(provider, in: snapshot, policy: policy) else { return }
-    printLaunchExports(provider, home: home)
+    exec(provider.cli, args: ["--resume", sessionID] + resumeArgs,
+         env: launchEnv(provider, home: target.launchHome!))
 }
 
 // MARK: - Entry

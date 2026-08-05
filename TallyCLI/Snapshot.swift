@@ -67,11 +67,25 @@ struct Provider {
     let id: String
     let cli: String
     let envKey: String
+    /// The environment variable that tells this CLI which model to run, or nil when it has none.
+    ///
+    /// Only the ENVIRONMENT reaches a launch nobody passed arguments to - the PATH shim's bare
+    /// `claude` (IntegrationsStore.shimScript). So this is also what decides whether a bare launch
+    /// may be STEERED by a model: scoring accounts for a model that cannot be handed to the child
+    /// picks an account for a session that will not run it, which is worse than not steering.
+    ///
+    /// claude: verified against 2.1.222 by reading the binary, never by running it (this repo does
+    /// not probe `claude -p`). The CLI resolves `t.model || process.env.ANTHROPIC_MODEL`, prefers
+    /// the env var over the settings file, and its own startup telemetry names the three sources in
+    /// that order (`cli_flag`, `env_var`, `settings_file`). codex 0.146.0 exposes no counterpart:
+    /// its CODEX_* variables cover auth, home, and transport, and none of them names a model.
+    let modelEnvKey: String?
 }
 
 let providers = [
-    Provider(id: "claude", cli: "claude", envKey: "CLAUDE_CONFIG_DIR"),
-    Provider(id: "codex", cli: "codex", envKey: "CODEX_HOME"),
+    Provider(id: "claude", cli: "claude", envKey: "CLAUDE_CONFIG_DIR",
+             modelEnvKey: "ANTHROPIC_MODEL"),
+    Provider(id: "codex", cli: "codex", envKey: "CODEX_HOME", modelEnvKey: nil),
 ]
 
 /// The user-intent half of the app↔CLI contract (`~/.tally/state.json`, written by the app's

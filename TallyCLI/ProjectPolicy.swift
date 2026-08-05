@@ -220,8 +220,15 @@ private func optionValue(_ args: [String], _ flag: String) -> String? {
 /// (LaunchDir.swift, where the mechanism is written down). Quoting alone would leave the profile
 /// itself holding a payload for whichever reader is written next; refusing it here alone would
 /// leave every profile an older build already wrote unquoted. Neither lock covers the other.
+///
+/// A value that is itself a flag is not a model, the same rule `launchPrimaryModel` states for the
+/// same reason (Snapshot.swift): `optionValue` hands back whatever token follows the flag, so
+/// `tally project set --model --account "Claude 4"` read `--account` as the model - and the dash is
+/// a legal character, so everything above waved it through. What got stored was then injected back
+/// as `--model --account`, breaking the launch it was meant to steer. The dash is legal INSIDE a
+/// name (`gpt-5.6-sol`) and never at the front of one.
 func isLaunchAxisValue(_ value: String) -> Bool {
-    !value.isEmpty && value.allSatisfy {
+    !value.isEmpty && !value.hasPrefix("-") && value.allSatisfy {
         $0.isASCII && ($0.isLetter || $0.isNumber || "._:-".contains($0))
     }
 }
@@ -288,8 +295,13 @@ private func runProjectSet(args: [String]) -> Int32 {
     // below, and only an id the snapshot already listed is ever written.
     for (flag, value) in [("--model", model), ("--effort", effort)] {
         guard let value, !isLaunchAxisValue(value) else { continue }
-        warn("\(flag) value \"\(value)\" is not a model or effort name - letters, digits, dot, " +
-             "underscore, colon and dash only; nothing was changed")
+        // A value that is another flag gets its own wording, because the general one ends in "and
+        // dash" and would be read as a contradiction by the one person who most needs to act on it.
+        warn(value.hasPrefix("-")
+            ? "\(flag) was given no value: \"\(value)\" is another flag, not a model or effort " +
+              "name; nothing was changed"
+            : "\(flag) value \"\(value)\" is not a model or effort name - letters, digits, dot, " +
+              "underscore, colon and dash only; nothing was changed")
         return 2
     }
     let key = projectPolicyKey()

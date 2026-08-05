@@ -90,6 +90,15 @@ func runAxisValueChecks(setSource: String) {
     check("nor a newline, which ends the export line and starts a command",
           !isLaunchAxisValue("opus\ntouch /tmp/x"))
     check("nor nothing at all", !isLaunchAxisValue(""))
+    // The dangling option: `optionValue` returns whatever token follows the flag, so
+    // `tally project set --model --account "Claude 4"` offers `--account` as the model. The dash is
+    // a legal character, so this is the only rule that catches it - and what got stored was injected
+    // straight back as `--model --account`, breaking the very launch the profile was steering.
+    check("a flag offered as a value is not one", !isLaunchAxisValue("--account"))
+    check("…in either spelling", !isLaunchAxisValue("-m"))
+    check("…and a bare dash is not a name either", !isLaunchAxisValue("-"))
+    check("while a dash INSIDE a name is what half of them contain",
+          isLaunchAxisValue("gpt-5.6-sol") && isLaunchAxisValue("claude-opus-4-1"))
     // ASCII only: a homoglyph reads as a letter to `isLetter` and as a different model to everyone
     // else, so accepting it stores a name that can never match anything.
     check("nor a letter that only looks like one", !isLaunchAxisValue("op\u{0445}s"))

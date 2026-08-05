@@ -163,12 +163,55 @@ for corner in [ResizeAnchor.Corner.topLeading, .bottomTrailing] {
           "\(corner): …at that corner of the bounds it was given")
 }
 
-for (name, path) in [("pinned panel", "Tally/MenuBar/PinnedPanelController.swift"),
-                     ("menu-bar popover", "Tally/MenuBar/StatusItemController.swift")] {
-    let source = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-    check(source.contains("onContentSize:") && source.contains("sizingOptions = []"),
-          "the \(name) is one of those hosts: it reports-and-sizes, with no second authority")
+// Matched against CODE, never comments: the version of this check that read raw source went green
+// on a doc comment that MENTIONED `sizingOptions = []` while the statement itself had moved to
+// another file (2026-08-05).
+func code(of path: String) -> String {
+    let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+    return text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> Substring in
+        var quotes = 0
+        for index in line.indices {
+            if line[index] == "\"" { quotes += 1 }
+            if quotes % 2 == 0, line[index] == "/", line.index(after: index) < line.endIndex,
+               line[line.index(after: index)] == "/" {
+                return line[..<index]
+            }
+        }
+        return line
+    }.joined(separator: "\n")
 }
+
+// The two surfaces that place themselves get the whole contract from one object, so the thing to
+// check is that they use it. The popover states its own, because it has no frame to write.
+for (name, path) in [("pinned panel", "Tally/MenuBar/PinnedPanelController.swift"),
+                     ("dashboard window", "Tally/MenuBar/MainWindowController.swift")] {
+    check(code(of: path).contains("SurfaceSizer(window:"),
+          "the \(name) is one of those hosts: its size comes from the shared measured-sizing contract")
+}
+let sizer = code(of: "Tally/MenuBar/SurfaceSizer.swift")
+check(sizer.contains("sizingOptions = []"),
+      "…and that contract is where the no-second-authority rule is actually stated")
+check(code(of: "Tally/MenuBar/StatusItemController.swift").contains("onContentSize:")
+        && code(of: "Tally/MenuBar/StatusItemController.swift").contains("sizingOptions = []"),
+      "the menu-bar popover reports-and-sizes too, on the only terms AppKit leaves it")
+
+section("what the content reports is a content size, not a frame")
+
+// The seam the shared contract exists to absorb: one of its two surfaces has a titlebar and the
+// other has no chrome at all. Writing the reported size straight into `setFrame` would take the
+// titlebar out of the CONTENT on every pass, so the surface would report a shorter size, which
+// would be written again, and the window would walk itself shut a titlebar at a time.
+let sample = CGRect(x: 0, y: 0, width: 400, height: 300)
+let titled = NSWindow(contentRect: sample, styleMask: [.titled, .closable, .miniaturizable],
+                      backing: .buffered, defer: true)
+let borderless = NSWindow(contentRect: sample, styleMask: [.borderless], backing: .buffered,
+                          defer: true)
+check(titled.frameRect(forContentRect: sample).height > sample.height,
+      "a titled window's frame is taller than the content it was asked for")
+check(borderless.frameRect(forContentRect: sample) == sample,
+      "…and a borderless one's is the same rectangle, which is why one conversion serves both")
+check(sizer.contains("frameRect(forContentRect:"),
+      "so the reported size is converted before it is written as a frame")
 
 print(failures == 0 ? "\nAll screen-fit cap tests passed." : "\n\(failures) screen-fit cap test(s) failed.")
 exit(failures == 0 ? 0 : 1)

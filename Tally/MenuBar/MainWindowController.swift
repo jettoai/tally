@@ -10,6 +10,25 @@ import SwiftUI
 /// until the switch moved into the header, at which point the wrapper was two tabs for one selection
 /// and went away. The titlebar shows only the traffic lights: the view carries its own branding row,
 /// and a second "Tally" in the frame would double it.
+///
+/// It also sizes itself the same way they do: `sizingOptions = []` on the hosting view, the
+/// content's MEASURED size in (`PopoverRootView.onContentSize`), one frame write out. It used to be
+/// the odd one out - the hosting controller's Auto Layout constraints were the size authority - and
+/// that difference cost it both halves of the transition fix the other two got. `HostAnchored`
+/// cannot apply to a constraint-sized host (reporting whatever size is proposed makes every size a
+/// fixpoint, so such a window keeps the degenerate size it is born with and never grows: measured
+/// 1x32), so this window alone kept `NSHostingView`'s centring of a root view that is momentarily a
+/// different height than its window - the whole page, header and all, lifting by half the growth
+/// and dropping back when the window caught up. Measured on 2026-08-05: 114pt on a density switch,
+/// 245-302pt sideways on a column-count click, 41 of 54 scripted triggers moving something.
+///
+/// Deliberately still NOT `.resizable`, and that is what makes one size authority possible at all:
+/// a drag would be a second one, and the next content report - a card folding, fresh data, the
+/// countdown ticking - would write the dragged size straight back out. The two things a user could
+/// want from a drag are already theirs by other means: the width is a column count they choose in
+/// the view-options card, and the height gives way to the screen through `ScreenFitStack` (content
+/// past the cap scrolls rather than running off the display). The zoom button follows the same
+/// mask, so it is inert for the same reason.
 @MainActor
 final class MainWindowController {
     static let shared = MainWindowController()
@@ -17,6 +36,9 @@ final class MainWindowController {
     private var window: NSWindow?
     /// The window's own Usage / Tokens selection, kept here so the pin hand-off can read it.
     let surfaceTab = SurfaceTabState()
+    /// Owns how big this window is and where a resize leaves it - the same object the pinned panel
+    /// uses, which is the point (see `SurfaceSizer`).
+    private var sizer: SurfaceSizer?
 
     /// Whether the window should come back on the next launch. An update relaunch is just
     /// quit + launch, so without this the dashboard the user was reading silently vanishes.
@@ -50,67 +72,6 @@ final class MainWindowController {
         ActivationPolicy.refresh()
     }
 
-    /// Content-driven resizes (the hosting controller is the size authority here) keep the
-    /// window's BOTTOM edge by AppKit default, so collapsing cards made the whole view, and the
-    /// row just clicked, drop by the height difference. Re-anchor a chosen corner instead: position
-    /// is corrected after each resize (origin-only, never a size write, so the layout engine's
-    /// single size authority stays untouched; see the pinned panel's recursion lesson). The
-    /// window has no .resizable mask, so every resize here is content-driven.
-    ///
-    /// The edges are refreshed after every move AND after every resize: a move is the last position
-    /// the user chose, and a resize is the shape they now have to be put back to. Only the pair
-    /// covers it, because a size change posts no move notification of its own.
-    private var anchorEdges: ResizeAnchor.Edges?
-
-    /// Which corner to hold: normally the top left, so the header stays put and a growing fleet runs
-    /// down the screen. While the view-options card is open, the bottom right instead - every control
-    /// in that card is a resize, the card sits at the bottom right, and with the top left held it
-    /// walks out from under the pointer after every click (see `ResizeAnchor`).
-    ///
-    /// The card has to be open in THIS window. The popover shares these settings and does not close
-    /// this window, so a card opened there resizes both surfaces, and answering yes to "is a card
-    /// open anywhere" moved the dashboard the user was not even pointing at.
-    private var anchorCorner: ResizeAnchor.Corner {
-        SettingsStore.shared.resizeAnchor(for: .window)
-    }
-
-    /// Both observers read the window on the spot (they already run on the main queue) instead of
-    /// from a hopped-to Task: a deferred read sees the frame WHEN THE TASK RUNS, not when the window
-    /// moved, so a move immediately followed by a content resize - exactly what opening the window
-    /// does - anchored to the post-resize top and the correction then agreed with the wrong
-    /// position. Correcting inside the resize also spares the user a frame painted at the old origin.
-    private func keepAnchorThroughResizes(_ window: NSWindow) {
-        anchorEdges = window.resizeEdges
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification, object: window, queue: .main
-        ) { [weak self, weak window] _ in
-            MainActor.assumeIsolated {
-                guard let self, let window else { return }
-                self.anchorEdges = window.resizeEdges
-            }
-        }
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.didResizeNotification, object: window, queue: .main
-        ) { [weak self, weak window] _ in
-            MainActor.assumeIsolated {
-                guard let self, let window, let edges = self.anchorEdges else { return }
-                window.restoreAnchor(edges, corner: self.anchorCorner)
-                // Holding an edge is what lets a growing view run off the display - the footer first
-                // under the top anchor, the leading edge under the bottom-right one - so the same
-                // growth that needs the anchor also needs the window put back on screen (the panel
-                // does the same after its resizes).
-                window.clampOnScreen()
-                // The shape this resize ended in is what the next one anchors against. The move
-                // observer above cannot be the only refresher: the top-leading correction of a
-                // width-only growth computes the origin the window is already at, so no move is
-                // written, no move notification fires, and the RIGHT edge - the one that resize
-                // just moved - would stay remembered from the last drag and misplace the next
-                // bottom-trailing pass.
-                self.anchorEdges = window.resizeEdges
-            }
-        }
-    }
-
     /// `restoring` = a launch-time restore: keep the autosaved frame (the window reappears where
     /// it was before the quit) instead of re-deriving the position from the pointer.
     ///
@@ -136,30 +97,36 @@ final class MainWindowController {
         if let tab = PinnedPanelController.shared.visibleTab { surfaceTab.tab = tab }
         StatusItemController.unpin()
         if window == nil {
-            // Opaque window: its cards stay solid. Glass cards belong to the hosts that put glass
-            // behind them (the popover's vibrancy, the pinned panel's behind-window blur).
-            let hosting = NSHostingController(
-                rootView: PopoverRootView(store: .shared, settings: .shared, hostDrawsGlass: false,
-                                          // Summoned windows follow the user, so the display to fit
-                                          // is the one this window was last put on.
-                                          hostScreen: { [weak self] in self?.window?.screen },
-                                          // Same growth rule as the pinned panel (it holds its top
-                                          // left and clamps after every resize), so it takes the
-                                          // same position-aware cap: the content stops at the
-                                          // bottom of the display instead of pushing the window
-                                          // up from under the pointer. The CONTENT's top edge, so
-                                          // the titlebar is already out of the arithmetic.
-                                          hostTopEdge: { [weak self] in self?.window?.contentTopLeft.y },
-                                          tokens: .shared, tabState: surfaceTab, host: .window))
-            let window = NSWindow(contentViewController: hosting)
+            // Built without a contentViewController: what goes in a window under this contract is
+            // a hosting VIEW with no sizing constraints, and that is `SurfaceSizer`'s job for both
+            // surfaces. A contentViewController would also size the window from its view's fitting
+            // size, which is the second authority all over again.
+            let window = NSWindow(contentRect: .zero,
+                                  styleMask: [.titled, .closable, .miniaturizable],
+                                  backing: .buffered, defer: false)
             window.title = BuildVariant.isDev ? "Tally Dev" : "Tally"   // Mission Control / Window menu name
             window.titleVisibility = .hidden
-            // Not resizable: the content is fixed-width by design, and the hosting controller is
-            // the single size authority (adding setContentSize/setFrame here recursed the layout
-            // engine to a stack overflow on the pinned panel; see PinnedPanelController).
-            window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
-            window.setFrameAutosaveName("TallyMainWindow.v3")
+            // Opaque window: its cards stay solid. Glass cards belong to the hosts that put glass
+            // behind them (the popover's vibrancy, the pinned panel's behind-window blur).
+            //
+            // Everything about the size is the sizer's, including the autosaved frame: restoring
+            // one IS a resize, so the anchor edges have to be read after it and not before.
+            sizer = SurfaceSizer(window: window, host: .window,
+                                 autosaveName: "TallyMainWindow.v3") { sizer in
+                PopoverRootView(store: .shared, settings: .shared,
+                                onContentSize: sizer.onContentSize,
+                                hostDrawsGlass: false,
+                                // Summoned windows follow the user, so the display to fit is the
+                                // one this window was last put on.
+                                hostScreen: sizer.screen,
+                                // Same growth rule as the pinned panel (it holds its top left and
+                                // clamps after every resize), so it takes the same position-aware
+                                // cap: the content stops at the bottom of the display instead of
+                                // pushing the window up from under the pointer.
+                                hostTopEdge: sizer.topEdge,
+                                tokens: .shared, tabState: surfaceTab, host: sizer.host)
+            }
             ActivationPolicy.track(window)
             NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification, object: window, queue: .main
@@ -172,7 +139,6 @@ final class MainWindowController {
                     }
                 }
             }
-            keepAnchorThroughResizes(window)
             self.window = window
         }
         // Summoned windows follow the user: place on the pointer's screen whenever the window
@@ -181,17 +147,19 @@ final class MainWindowController {
         // the window inherits its spot - the mirror of pinning handing this window's position to
         // the panel (see StatusItemController.setPinned).
         if window?.isVisible != true, !restoring {
-            // Placing reads the window's size, so the layout has to have run first: a window created
-            // in this same call is still empty until the hosting controller's constraints resolve,
-            // and placing it before that anchored an empty frame which then grew AWAY from the
-            // anchor (the window landed a full content-height off). Forcing layout is not a size
-            // write - the hosting controller stays the only size authority.
-            window?.layoutIfNeeded()
-            if let fromPanel {
-                window?.setContentTopLeft(fromPanel)
-            } else {
-                window?.centerOnPointerScreen()
+            // Centring reads the window's size, so it has to wait for the size the content is
+            // about to report: a window placed around the placeholder would then grow AWAY from
+            // where it was centred (measured, before there was a placement queue: the window landed
+            // a full content-height off). `layoutIfNeeded` runs the SwiftUI pass that produces the
+            // measurement and `sizeNow` applies it here rather than a run-loop turn later, so the
+            // window is already its real size and in its real place before it is ordered front.
+            // On the very first open of a launch the measurement can still be a turn away, and then
+            // the queued placement runs with it - a frame later, but never in the wrong place.
+            sizer?.place { window in
+                if let fromPanel { window.setContentTopLeft(fromPanel) } else { window.centerOnPointerScreen() }
             }
+            window?.layoutIfNeeded()
+            sizer?.sizeNow()
         }
         UserDefaults.standard.set(true, forKey: Self.restoreKey)
         ActivationPolicy.promote()   // a visible dashboard earns a Dock / Cmd-Tab presence

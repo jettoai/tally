@@ -101,31 +101,76 @@ check("a width-only top-leading resize corrects to no move at all",
 check("…yet its right edge is no longer the one the anchor remembers",
       !near(ResizeAnchor.Edges(frame: wider).right, edges.right))
 
-// 8. Which is a rule about the controllers, not about this arithmetic: both surfaces have to
-//    re-read their edges when a RESIZE finishes, not only when a move does. Read off the source,
-//    the way the login suite pins its chain, because AppKit windows cannot be driven from here.
-for (name, path, host) in [("dashboard window", "Tally/MenuBar/MainWindowController.swift", ".window"),
-                           ("pinned panel", "Tally/MenuBar/PinnedPanelController.swift", ".panel")] {
-    let source = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-    // The observer's closure, bounded by its own closing brace at the enclosing member's indent.
-    guard let start = source.range(of: "forName: NSWindow.didResizeNotification"),
-          let end = source.range(of: "\n        }\n", range: start.upperBound ..< source.endIndex)
-    else {
-        check("the \(name)'s resize observer was found to read", false)
-        continue
-    }
-    let observer = String(source[start.upperBound ..< end.lowerBound])
-    check("the \(name) re-reads its anchor edges when a resize finishes",
-          observer.contains("anchorEdges = ") && observer.contains("resizeEdges"))
-    // 9. And it asks about ITS OWN host. The menu-bar popover does not close the dashboard, so both
-    //    surfaces can be up at once reading the same settings, and a question that only asked "is a
-    //    card open somewhere" swapped the corner on the window the user was not even pointing at.
-    //    The answer itself belongs to the store, so that the rule has one statement (see below).
-    check("the \(name) asks the store for its own host's anchor",
-          source.contains("SettingsStore.shared.resizeAnchor(for: \(host))"))
-    check("…and does not decide the corner for itself",
-          !source.contains("? .bottomTrailing"))
+// 8. Which is a rule about the surfaces, not about this arithmetic: the edges have to be re-read
+//    when a RESIZE finishes, not only when a move does. Read off the source, the way the login
+//    suite pins its chain, because AppKit windows cannot be driven from here.
+//
+//    Assertions from here down match CODE, never comments. The version of this suite that matched
+//    raw source went green on a doc comment that merely MENTIONED the rule while the statement
+//    itself had moved to another file (2026-08-05, caught by this migration).
+func code(of path: String) -> String {
+    let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+    return text.split(separator: "\n", omittingEmptySubsequences: false).map { line -> Substring in
+        // Only a `//` outside a string literal starts a comment.
+        var quotes = 0
+        for index in line.indices {
+            if line[index] == "\"" { quotes += 1 }
+            if quotes % 2 == 0, line[index] == "/", line.index(after: index) < line.endIndex,
+               line[line.index(after: index)] == "/" {
+                return line[..<index]
+            }
+        }
+        return line
+    }.joined(separator: "\n")
 }
+
+let sizerSource = code(of: "Tally/MenuBar/SurfaceSizer.swift")
+guard let observerStart = sizerSource.range(of: "forName: NSWindow.didResizeNotification"),
+      let observerEnd = sizerSource.range(of: "\n        }\n",
+                                          range: observerStart.upperBound ..< sizerSource.endIndex)
+else {
+    check("the shared sizing contract's resize observer was found to read", false)
+    exit(1)
+}
+let observer = String(sizerSource[observerStart.upperBound ..< observerEnd.lowerBound])
+check("a finished resize re-reads the edges the next one anchors against",
+      observer.contains("anchorEdges = ") && observer.contains("resizeEdges"))
+// 9. And it asks about ITS OWN host. The menu-bar popover does not close the dashboard, so both
+//    surfaces can be up at once reading the same settings, and a question that only asked "is a
+//    card open somewhere" swapped the corner on the window the user was not even pointing at.
+//    The answer itself belongs to the store, so that the rule has one statement (see below).
+check("the sizing contract asks the store for its host's anchor",
+      sizerSource.contains("SettingsStore.shared.resizeAnchor(for: host)"))
+check("…and does not decide the corner for itself",
+      !sizerSource.contains("? .bottomTrailing"))
+
+// 9b. There is exactly ONE implementation of that contract. The panel and the dashboard window each
+//     drove their own copy of this plumbing until 2026-08-05, and the window's copy was the one
+//     that never got `sizingOptions = []` - so it could not take the anchored-transition fix, and
+//     41 of 54 scripted triggers moved the page under the reader. A controller that states any of
+//     it again has forked the invariant, which in this file's history is how invariants die.
+for (name, path, host) in [("dashboard window", "Tally/MenuBar/MainWindowController.swift", "window"),
+                           ("pinned panel", "Tally/MenuBar/PinnedPanelController.swift", "panel")] {
+    let source = code(of: path)
+    check("the \(name) hands its size to the shared contract, for its own host",
+          source.contains("SurfaceSizer(window:") && source.contains("host: .\(host)")
+              && source.contains("onContentSize: sizer.onContentSize"))
+    for forked in ["sizingOptions", "ResizeAnchor.origin", "didResizeNotification", "setFrame(",
+                   "setContentSize", "setFrameAutosaveName"] {
+        check("…and does not state `\(forked)` for itself", !source.contains(forked))
+    }
+}
+
+// 9c. The dashboard window is the one surface with a titlebar the user could drag a size out of,
+//     and it deliberately offers none: a drag would be a second size authority, and the next
+//     content report would write the dragged size straight back out (measured: a frame widened by
+//     200pt behind the content's back came back to the content's width on the next report, holding
+//     the top edge). The zoom button follows the same mask, so it is inert for the same reason.
+let windowSource = code(of: "Tally/MenuBar/MainWindowController.swift")
+check("the dashboard window offers no size of its own to drag",
+      windowSource.contains("styleMask: [.titled, .closable, .miniaturizable]")
+          && !windowSource.contains(".resizable"))
+
 let settingsSource = (try? String(contentsOfFile: "Tally/Stores/SettingsStore.swift",
                                   encoding: .utf8)) ?? ""
 // Closing is not symmetric with opening: one surface's card going away must not cancel an anchor

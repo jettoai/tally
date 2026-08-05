@@ -78,23 +78,13 @@ private struct GlassBackdrop: NSViewRepresentable {
     }
 }
 
-/// An NSHostingView that accepts the first mouse. Without it, the first click on the non-key
-/// floating panel is consumed by focus handling, so dragging a card needed one "wake-up" click
-/// first - macOS utility panels are expected to react on the very first click.
-private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    // SwiftUI only tracks gestures in the KEY window, so accepting the first mouse isn't enough:
-    // make the panel key synchronously as the click lands (non-activating panels may become key
-    // without stealing the active app), THEN route the event so the drag tracks immediately.
-    override func mouseDown(with event: NSEvent) {
-        if let window, !window.isKeyWindow { window.makeKey() }
-        super.mouseDown(with: event)
-    }
-}
-
 /// Owns the pinned floating panel. Separate from the popover so the transient popover keeps working
 /// untouched; pinning just hands its content off to this always-on-top window.
+///
+/// Its size comes from its content and nowhere else - `sizingOptions = []`, the measured size in,
+/// one anchored frame write out. That whole contract lives in `SurfaceSizer`, which the dashboard
+/// window follows too; what is left here is what is actually this panel's own (floating, borderless,
+/// drag-by-header, glass backdrop).
 @MainActor
 final class PinnedPanelController {
     static let shared = PinnedPanelController()
@@ -102,6 +92,8 @@ final class PinnedPanelController {
     private var panel: PinnedUsagePanel?
     /// The panel's own Usage / Tokens selection, seeded by the pin hand-off (see `show`).
     private let surfaceTab = SurfaceTabState()
+    /// Owns everything about how big this panel is and where a resize leaves it (`SurfaceSizer`).
+    private var sizer: SurfaceSizer?
 
     var isVisible: Bool { panel?.isVisible ?? false }
 
@@ -122,7 +114,8 @@ final class PinnedPanelController {
     /// Show the panel. When `topLeft` is given (the pin hand-off from the popover or the window),
     /// open there and on the view that surface was showing; otherwise reuse the autosaved frame and
     /// whatever the panel was last left on (launch restore / re-show). The size is driven by the
-    /// content's measured size via `PopoverRootView.onContentSize` → `resize(to:)`.
+    /// content's measured size (`SurfaceSizer`), so placing by TOP LEFT is safe before it arrives:
+    /// that is the corner a content-driven resize holds anyway.
     func show(atTopLeft topLeft: CGPoint?, showing tab: SurfaceTab? = nil) {
         if let tab { surfaceTab.tab = tab }
         let panel = panel ?? makePanel()
@@ -141,54 +134,6 @@ final class PinnedPanelController {
     func bringToFront() { panel?.makeKeyAndOrderFront(nil) }
 
     func hide() { panel?.orderOut(nil) }
-
-    /// The edges a content-driven resize puts back, refreshed after every resize AND every move (see
-    /// `ResizeAnchor`, and the observers in `makePanel` that keep this current).
-    private var anchorEdges: ResizeAnchor.Edges?
-
-    /// Which corner stays still: the top left normally, the bottom right while THIS panel is the
-    /// surface showing the view-options card. Same rule, same reason and same "whose card" question
-    /// as the dashboard window's.
-    private var anchorCorner: ResizeAnchor.Corner {
-        SettingsStore.shared.resizeAnchor(for: .panel)
-    }
-
-    /// Resize the panel to the content's MEASURED size (reported by `PopoverRootView.onContentSize`).
-    /// Measuring the real rendered size avoids `sizeThatFits`'s greedy screen-tall result. Deferred a
-    /// run-loop turn so it never resizes the window from inside the SwiftUI update that reported it, and
-    /// keyed on `sizingOptions = []` so this manual sizing is the only authority (two authorities were
-    /// the original stack-overflow crash).
-    ///
-    /// The measured size is used as given: capping it here never shrank the panel (the layout hands
-    /// the window its size), it only wrote a frame that disagrees with it. That is the same write-back
-    /// lie that jumped the popover a frame after every column change, where it also moved the surface
-    /// (see `StatusItemController.applyPopoverSize`). Fitting the screen happens in the content, one
-    /// layout pass earlier (see `ScreenFitStack`).
-    ///
-    /// Note what this does NOT do any more: by the time the deferred block runs, the window has
-    /// usually already taken the reported size itself (SwiftUI hands the window its size, keeping
-    /// the top left), so the sizes match and this returns. It stays as the one place that states
-    /// the top-left contract, and covers the states where the window has not followed on its own.
-    /// Putting the panel back on screen therefore cannot live here - it hangs off the resize
-    /// notification instead (see `makePanel`).
-    private func resize(to contentSize: CGSize) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let panel = self.panel else { return }
-            guard contentSize.width.isFinite, contentSize.height.isFinite,
-                  contentSize.width > 1, contentSize.height > 1 else { return }
-            // Not `!=`: a size that differs by a rounding residue is the same size, and writing a
-            // frame for it is what let the panel ratchet upward (`ResizeAnchor.needsResize`).
-            guard ResizeAnchor.needsResize(from: panel.frame.size, to: contentSize) else { return }
-            var frame = panel.frame
-            let edges = panel.resizeEdges
-            frame.size = contentSize
-            // Origin only, from the same rule the dashboard window follows: normally the top left
-            // stays put so a dragged position doesn't drift, and while the view-options card is open
-            // the bottom right does instead so its controls stay under the pointer (`ResizeAnchor`).
-            frame.origin = ResizeAnchor.origin(for: frame, edges: edges, corner: self.anchorCorner)
-            panel.setFrame(frame, display: false)
-        }
-    }
 
     private func makePanel() -> PinnedUsagePanel {
         let panel = PinnedUsagePanel(
@@ -210,69 +155,25 @@ final class PinnedPanelController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
 
-        // Borderless panels have no chrome, so the content supplies its own rounded surface (the popover
-        // got this from NSPopover). Same PopoverRootView, same shared stores.
-        let content = AnyView(
-            PopoverRootView(store: .shared, settings: .shared,
-                            onContentSize: { [weak self] size in self?.resize(to: size) },
-                            // The panel is a fixture the user placed: it fits the display it was
-                            // left on, which is not necessarily the one the menu bar is on.
-                            hostScreen: { [weak self] in self?.panel?.screen },
-                            // This panel grows downward from wherever it was dragged, so what it
-                            // may become depends on its own top edge and not just on the display:
-                            // without this the content grows past the bottom of the screen and
-                            // `clampOnScreen` shoves the whole panel up, taking the row the user
-                            // just clicked out from under the pointer.
-                            hostTopEdge: { [weak self] in self?.panel?.contentTopLeft.y },
-                            tabState: surfaceTab, host: .panel)
-                .background(PanelBackdrop(settings: .shared))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)))
-        let hostView = FirstMouseHostingView(rootView: content)
-        hostView.sizingOptions = []  // do NOT let SwiftUI install sizing constraints; we set the frame
-        hostView.autoresizingMask = [.width, .height]
-        panel.contentView = hostView
-        panel.setContentSize(CGSize(width: 500, height: 400))   // placeholder until onContentSize reports the real size
-        panel.setFrameAutosaveName("TallyPinnedUsagePanel")
-        // Every growth spurt ends with the panel back on a screen. The panel keeps its TOP left as
-        // it grows (so a position the user chose does not drift), which is exactly what pushes a
-        // taller fleet's footer - the way to unpin, and the way to the dashboard - off the bottom
-        // of the display. Hung off the notification rather than off `resize(to:)` because the
-        // window mostly takes the content's size on its own, which never reaches that method.
-        // The edges to put a resize back to, refreshed at every move - which for this surface is
-        // mostly the user dragging it by the header - and again at the end of every resize, since a
-        // size change posts no move notification and would otherwise leave them a shape behind.
-        anchorEdges = panel.resizeEdges
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification, object: panel, queue: .main
-        ) { [weak self, weak panel] _ in
-            MainActor.assumeIsolated {
-                guard let self, let panel else { return }
-                self.anchorEdges = panel.resizeEdges
-            }
-        }
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.didResizeNotification, object: panel, queue: .main
-        ) { [weak self, weak panel] _ in
-            MainActor.assumeIsolated {
-                guard let self, let panel else { return }
-                // Most resizes never reach `resize(to:)`: the panel usually takes the reported size
-                // itself, keeping its top left, which is right for reading and wrong while the
-                // view-options card is open. Only the bottom-right case corrects here, so the
-                // standing behaviour stays exactly what it was.
-                if self.anchorCorner == .bottomTrailing, let edges = self.anchorEdges {
-                    panel.restoreAnchor(edges, corner: .bottomTrailing)
-                }
-                panel.clampOnScreen()
-                // Whatever shape the panel ends this resize in IS what the next one has to put back,
-                // corrected or not. A size change through `setFrame` posts no MOVE notification, so
-                // the observer above never sees the ordinary top-left resizes (a provider folded, a
-                // tab switched, fresh data arriving) and the remembered bottom and right stayed at
-                // the last drag. The first bottom-trailing correction after that then anchored to a
-                // frame from several shapes ago and yanked the panel back to it.
-                self.anchorEdges = panel.resizeEdges
-            }
+        // Borderless panels have no chrome, so the content supplies its own rounded surface (the
+        // popover got this from NSPopover). Same PopoverRootView, same shared stores - and the same
+        // sizing contract as the dashboard window, which is why none of it is written here: how big
+        // this panel gets, which corner a resize holds, and putting it back on a screen afterwards
+        // all belong to `SurfaceSizer`. The panel is a fixture the user placed, so the display it
+        // fits is its own (not the menu bar's), and it grows downward from where it was dragged, so
+        // its cap depends on its own top edge - both of those the sizer answers from the panel.
+        sizer = SurfaceSizer(window: panel, host: .panel,
+                             autosaveName: "TallyPinnedUsagePanel",
+                             acceptsFirstMouse: true) { sizer in
+            AnyView(
+                PopoverRootView(store: .shared, settings: .shared,
+                                onContentSize: sizer.onContentSize,
+                                hostScreen: sizer.screen,
+                                hostTopEdge: sizer.topEdge,
+                                tabState: surfaceTab, host: sizer.host)
+                    .background(PanelBackdrop(settings: .shared))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)))
         }
         return panel
     }
-
 }

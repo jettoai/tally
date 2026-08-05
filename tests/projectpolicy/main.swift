@@ -343,11 +343,12 @@ check("a project that declares no model exports none",
       launchSteering(claude, appPolicy: appDefaults, project: ProjectPolicy()).model == nil)
 
 let steered = launchExportLines(claude, home: "/Users/u/.claude2", model: "opus")
-check("the shim's environment carries the config home", steered.contains("export CLAUDE_CONFIG_DIR=/Users/u/.claude2"))
+check("the shim's environment carries the config home",
+      steered.contains("export CLAUDE_CONFIG_DIR='/Users/u/.claude2'"))
 check("…the Tally markers", steered.contains("export TALLY_LAUNCHED=1")
           && steered.contains("export TALLY_SUPERVISED=0"))
 check("…and the model, in the variable the CLI reads",
-      steered.contains("export ANTHROPIC_MODEL=opus"))
+      steered.contains("export ANTHROPIC_MODEL='opus'"))
 check("no model asked for, no model line",
       !launchExportLines(claude, home: "/Users/u/.claude2").contains { $0.contains("ANTHROPIC_MODEL") })
 check("a provider with no model variable never gets the line",
@@ -365,6 +366,10 @@ check("…and hands the model over with the home it chose",
 check("launch-dir does the same, so the two cannot drift apart",
       topLevelFunction("runLaunchDir", in: launchDirSource)
           .contains("printLaunchExports(provider, home: home, model: model)"))
+
+// The lines above are eval'd by the shim, so every value in them has to be data and not source
+// (shellsafetychecks.swift).
+runShellSafetyChecks()
 
 // MARK: - Writes refuse to run on a file they could not read
 
@@ -412,6 +417,10 @@ check("…and an unknown name is still refused",
       providerSource.contains("guard providers.contains(where: { $0.id == id }) else {"))
 check("both refusals say nothing was changed",
       providerSource.components(separatedBy: "nothing was changed").count == 3)
+
+// The entrance half of that fix: what `set` may store as a model or an effort
+// (shellsafetychecks.swift).
+runAxisValueChecks(setSource: setSource)
 
 // MARK: - `accountMatching`: one matcher for `--account` and for what `project set` stores
 

@@ -210,6 +210,22 @@ private func optionValue(_ args: [String], _ flag: String) -> String? {
     return args[index + 1]
 }
 
+/// Whether a value is usable as a launch axis: a model or an effort name, and nothing else.
+///
+/// Letters, digits, dot, underscore, colon and dash, ASCII only - every model and effort name any
+/// provider here has ever used (`opus`, `gpt-5.6-sol`, `us.anthropic.claude-opus-4:1`, `xhigh`) fits
+/// inside that, and nothing a shell reacts to does.
+///
+/// The entrance half of the shell-injection fix whose other half is `shellSingleQuoted`
+/// (LaunchDir.swift, where the mechanism is written down). Quoting alone would leave the profile
+/// itself holding a payload for whichever reader is written next; refusing it here alone would
+/// leave every profile an older build already wrote unquoted. Neither lock covers the other.
+func isLaunchAxisValue(_ value: String) -> Bool {
+    !value.isEmpty && value.allSatisfy {
+        $0.isASCII && ($0.isLetter || $0.isNumber || "._:-".contains($0))
+    }
+}
+
 /// The provider a `tally project` invocation is about (claude unless asked otherwise), or nil when
 /// the flag was given and cannot be honoured - said here rather than at each caller so a subcommand
 /// cannot teach a different vocabulary than its sibling.
@@ -265,6 +281,15 @@ private func runProjectSet(args: [String]) -> Int32 {
     let account = optionValue(args, "--account")
     guard model != nil || effort != nil || account != nil else {
         warn("nothing to set - pass --model, --effort or --account")
+        return 2
+    }
+    // Checked before the file is even read, so a refused value cannot rewrite anything. The account
+    // needs no check of its own: it is not stored as typed but resolved against the live fleet
+    // below, and only an id the snapshot already listed is ever written.
+    for (flag, value) in [("--model", model), ("--effort", effort)] {
+        guard let value, !isLaunchAxisValue(value) else { continue }
+        warn("\(flag) value \"\(value)\" is not a model or effort name - letters, digits, dot, " +
+             "underscore, colon and dash only; nothing was changed")
         return 2
     }
     let key = projectPolicyKey()

@@ -42,6 +42,21 @@ func printLaunchExports(_ provider: Provider, home: String, model: String? = nil
     for line in launchExportLines(provider, home: home, model: model) { print(line) }
 }
 
+/// `value` as one single-quoted shell word, so a line carrying it means exactly what it says.
+///
+/// The shim `eval`s every line of `launchExportLines` (IntegrationsStore.shimScript), which makes an
+/// unquoted value shell SOURCE rather than data: a profile of `opus; touch /tmp/x` ran the `touch`
+/// on the next bare `claude`, and a config home under "~/My Projects" broke in the same place for
+/// the same reason. Single quotes suspend every expansion bash has; the one character they cannot
+/// contain, a quote itself, is closed, escaped and reopened ('it'\''s').
+///
+/// Always quoted, unlike `shellQuoted` (WorktreeKill.swift), which leaves tidy paths bare because it
+/// writes a line for a person to read. Here the shape of the line must not depend on the value: a
+/// quoting rule with an exception is a rule someone has to re-derive at every call site.
+func shellSingleQuoted(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
 /// The lines themselves, as values. The shim `eval`s every line of this output
 /// (IntegrationsStore.shimScript), so what this returns IS the environment a bare launch runs in,
 /// and it is worth being able to assert on without capturing stdout.
@@ -50,7 +65,7 @@ func launchExportLines(_ provider: Provider, home: String, model: String? = nil)
     // path makes Claude Code look up a hashed Keychain item that doesn't exist). Both lines eval.
     var lines = [launchEnv(provider, home: home) == nil
         ? "unset \(provider.envKey)"
-        : "export \(provider.envKey)=\(home)"]
+        : "export \(provider.envKey)=\(shellSingleQuoted(home))"]
     // The status line reads this to show "this session runs under Tally" (✦). A shim-steered bare
     // launch has no resident supervisor, so mark it unsupervised (the status line stays quiet
     // rather than nagging "supervisor unknown").
@@ -58,7 +73,9 @@ func launchExportLines(_ provider: Provider, home: String, model: String? = nil)
     lines.append("export TALLY_SUPERVISED=0")
     // A provider with no model variable gets no line, which is the same thing as not steering by
     // model at all - and `launchSteering` has already stopped scoring it that way.
-    if let model, let key = provider.modelEnvKey { lines.append("export \(key)=\(model)") }
+    if let model, let key = provider.modelEnvKey {
+        lines.append("export \(key)=\(shellSingleQuoted(model))")
+    }
     return lines
 }
 

@@ -27,7 +27,7 @@ struct ScreenFitStack: Layout {
 
     /// The flexible child never drops below this: on a display too short for even the fixed rows,
     /// the surface overflows a little rather than scrolling a slit.
-    private static let minFlexibleHeight: CGFloat = 120
+    static let minFlexibleHeight: CGFloat = 120
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let layout = resolve(proposal: proposal, subviews: subviews)
@@ -60,8 +60,31 @@ struct ScreenFitStack: Layout {
         guard maxHeight.isFinite, total > maxHeight,
               let flexible = subviews.indices.first(where: { subviews[$0][ScreenFitFlexibleKey.self] })
         else { return (width, heights) }
-        heights[flexible] = max(Self.minFlexibleHeight, heights[flexible] - (total - maxHeight))
+        heights[flexible] = Self.flexibleHeight(others: total - heights[flexible],
+                                                maxHeight: maxHeight)
         return (width, heights)
+    }
+
+    /// What the flexible child gets when the stack has to fit: whatever is left under the cap, in
+    /// WHOLE points, and never below the floor.
+    ///
+    /// The rounding is the load-bearing part, and it is not cosmetic. Taking the excess off the
+    /// child's own height (`h - (total - maxHeight)`) is the same arithmetic on paper but not in
+    /// binary: summing a dozen fractional child heights and subtracting leaves a residue, measured
+    /// at 480.00000000000006 for a cap of exactly 480. A surface reports that number as its size,
+    /// AppKit rounds a window frame up to whole points, and the surface is suddenly one point
+    /// taller than the room it was capped to - which moves its top edge up by a point, which raises
+    /// the cap (it is measured from that edge), which produces the same residue again on the next
+    /// resize. That is a ratchet: the pinned panel crept upward a point per expand, which is what
+    /// "the whole panel jumps up, about every third time" was (2026-08-05).
+    ///
+    /// Subtracting from the cap instead of from the child, and flooring, makes the answer land at
+    /// or just BELOW the cap. Below is safe (AppKit rounds up into the space that is there); above
+    /// is the ratchet.
+    /// Not private, and taking its inputs rather than reading them off the layout, so the rule can
+    /// be asserted directly (`tests/run-screenfit-tests.sh`) instead of restated by a test.
+    static func flexibleHeight(others: CGFloat, maxHeight: CGFloat) -> CGFloat {
+        max(minFlexibleHeight, (maxHeight - others).rounded(.down))
     }
 }
 
@@ -110,10 +133,13 @@ extension ScreenFitStack {
     /// it scrolls rather than grows, and below `minSurfaceHeight` the floor wins and the overflow
     /// (with the clamp that follows it) comes back. Keeping the footer reachable is the same call
     /// `makePanel` states for the panel: the footer is the way to unpin.
+    /// Whole points, because a window frame is whole points: a cap of 479.6 can only be honoured by
+    /// a surface that is 479 or 480 tall, and 480 is a point past the room it was supposed to fit
+    /// in (see `flexibleHeight`, which is where that point turns into a ratchet).
     static func cap(visible: CGRect, topEdge: CGFloat?) -> CGFloat {
         var cap = visible.height - screenMargin
         if let topEdge { cap = min(cap, topEdge - visible.minY) }
-        return max(minSurfaceHeight, cap)
+        return max(minSurfaceHeight, cap).rounded(.down)
     }
 
     /// The width twin, for the one layout whose column count depends on the display rather than on

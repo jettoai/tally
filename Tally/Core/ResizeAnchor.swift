@@ -60,6 +60,23 @@ enum ResizeAnchor {
     /// Whether that move is worth making. Sub-point differences are rounding in the layout, and
     /// writing them back would trade a correction for a move notification on every pass.
     static func needsMove(from origin: CGPoint, to corrected: CGPoint) -> Bool {
-        abs(origin.x - corrected.x) > 0.5 || abs(origin.y - corrected.y) > 0.5
+        abs(origin.x - corrected.x) > tolerance || abs(origin.y - corrected.y) > tolerance
     }
+
+    /// The same question for a size: is this content really a different size, or is it the same
+    /// size with a rounding residue on it?
+    ///
+    /// A surface that rewrites its frame for a difference of 6e-14 gets that residue rounded up to
+    /// a whole point by AppKit, and on a surface whose cap is measured from its own top edge that
+    /// point comes back as a bigger cap and a bigger residue: the pinned panel climbed a point per
+    /// expand until it had walked out from under the pointer (2026-08-05). The layout side of that
+    /// is fixed where the residue is produced (`ScreenFitStack.flexibleHeight`); this is the same
+    /// rule the move already follows, so no future residue can move a window either.
+    static func needsResize(from size: CGSize, to reported: CGSize) -> Bool {
+        abs(size.width - reported.width) > tolerance || abs(size.height - reported.height) > tolerance
+    }
+
+    /// Half a point: below this, two numbers are the same place on a screen that can only draw
+    /// whole points, and acting on the difference is acting on noise.
+    private static let tolerance: CGFloat = 0.5
 }

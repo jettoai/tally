@@ -4,5 +4,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/screenfit/main.swift Tally/Views/ScreenFitStack.swift
+swiftc -o "$out" tests/screenfit/main.swift Tally/Views/ScreenFitStack.swift Tally/Core/ResizeAnchor.swift
 "$out"

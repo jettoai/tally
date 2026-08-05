@@ -176,7 +176,9 @@ final class PinnedPanelController {
             guard let self, let panel = self.panel else { return }
             guard contentSize.width.isFinite, contentSize.height.isFinite,
                   contentSize.width > 1, contentSize.height > 1 else { return }
-            guard contentSize != panel.frame.size else { return }
+            // Not `!=`: a size that differs by a rounding residue is the same size, and writing a
+            // frame for it is what let the panel ratchet upward (`ResizeAnchor.needsResize`).
+            guard ResizeAnchor.needsResize(from: panel.frame.size, to: contentSize) else { return }
             var frame = panel.frame
             let edges = panel.resizeEdges
             frame.size = contentSize

@@ -98,6 +98,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         if let env = launchEnv(provider, home: account.launchHome!) {
             environment[env.key] = env.value
         }
+        // A relaunch inherits a terminal whose reader was just killed, and everything queued on it
+        // since - the answer to a query the dead child never collected, a keystroke typed into the
+        // gap - would arrive as the first thing the new child reads and land in its prompt box
+        // (TerminalHandover.swift). Not on the user's own first launch: they typed the command a
+        // moment ago, nothing has died here, and anything they type next is theirs.
+        if relaunching { drainTerminalInput() }
         guard let childPID = spawnChild([provider.cli] + launchArgs, environment: environment) else {
             warn("cannot launch `\(provider.cli)`")
             exit(127)

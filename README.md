@@ -92,9 +92,10 @@ subscriptions at once:
 - **Token usage, by project.** A Tokens view behind a header switch on every surface: total
   tokens over today / 7 days / 30 days / all time with the input, cache and output breakdown, a
   per-provider split, and a per-project table that traces even agent and workflow sessions back
-  to the project they served. Read from the CLIs' own local transcripts, aggregated behind an
-  incremental cache (a refresh with nothing new costs well under a second), and it never leaves
-  your machine.
+  to the project they served. Click a project row and it opens into a year of daily activity, a
+  contribution-style heatmap graded on that project's own scale, with each day's total a hover
+  away. Read from the CLIs' own local transcripts, aggregated behind an incremental cache (a
+  refresh with nothing new costs well under a second), and it never leaves your machine.
 - **Reset times everywhere.** Every window shows its own reset; click any reset label to flip all of
   them between countdown ("resets in 2d 4h") and exact time ("resets at 07/18 20:00").
 - **Logins that look after themselves.** Hover a card for the account's signed-in email; when a

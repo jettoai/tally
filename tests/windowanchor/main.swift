@@ -171,6 +171,26 @@ check("the dashboard window offers no size of its own to drag",
       windowSource.contains("styleMask: [.titled, .closable, .miniaturizable]")
           && !windowSource.contains(".resizable"))
 
+// 9d. And it is never SHOWN at a size nobody has measured. The synchronous flush in `show` usually
+//     settles the size before anything is on screen, but the report goes through a SwiftUI update
+//     and can be a run-loop turn behind - measured with that turn injected (2026-08-05, found by
+//     review): the window appeared opaque at the 500x400 placeholder on the wrong display and then
+//     jumped 3076pt. So it comes up transparent and is revealed by the pass that sizes it.
+//
+//     The two halves are asserted as a PAIR because either one alone is a bug, in opposite
+//     directions: hiding without queueing the reveal is a window that never appears at all, and
+//     queueing without hiding is the flash this exists to remove.
+check("a window being opened is hidden until it has been measured",
+      windowSource.contains("window?.alphaValue = 0"))
+check("…and the same pass that sizes it is what reveals it",
+      windowSource.contains("sizer?.whenSized { $0.alphaValue = 1 }"))
+//     Ordering it front is NOT conditional on any of that, and that is load-bearing: an unordered
+//     window is not laid out, and the measurement being waited for is a product of that layout, so
+//     holding the order back would wait for something only ordering can produce.
+check("…and it is ordered front regardless, because that is what gets it laid out",
+      windowSource.contains("window?.makeKeyAndOrderFront(nil)")
+          && !windowSource.contains("whenSized { $0.makeKeyAndOrderFront"))
+
 let settingsSource = (try? String(contentsOfFile: "Tally/Stores/SettingsStore.swift",
                                   encoding: .utf8)) ?? ""
 // Closing is not symmetric with opening: one surface's card going away must not cancel an anchor

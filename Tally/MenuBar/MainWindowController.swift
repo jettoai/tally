@@ -146,18 +146,34 @@ final class MainWindowController {
         // over a pinned panel is the exception: that surface was already where the user put it, so
         // the window inherits its spot - the mirror of pinning handing this window's position to
         // the panel (see StatusItemController.setPinned).
-        if window?.isVisible != true, !restoring {
-            // Centring reads the window's size, so it has to wait for the size the content is
-            // about to report: a window placed around the placeholder would then grow AWAY from
-            // where it was centred (measured, before there was a placement queue: the window landed
-            // a full content-height off). `layoutIfNeeded` runs the SwiftUI pass that produces the
-            // measurement and `sizeNow` applies it here rather than a run-loop turn later, so the
-            // window is already its real size and in its real place before it is ordered front.
-            // On the very first open of a launch the measurement can still be a turn away, and then
-            // the queued placement runs with it - a frame later, but never in the wrong place.
-            sizer?.place { window in
-                if let fromPanel { window.setContentTopLeft(fromPanel) } else { window.centerOnPointerScreen() }
+        if window?.isVisible != true {
+            if !restoring {
+                // Centring reads the window's size, so it has to wait for the size the content is
+                // about to report: a window placed around the placeholder would then grow AWAY from
+                // where it was centred (measured, before there was a queue: the window landed a full
+                // content-height off).
+                sizer?.whenSized { window in
+                    if let fromPanel { window.setContentTopLeft(fromPanel) } else { window.centerOnPointerScreen() }
+                    // The one move made here that is not an anchor correction, so the one that can
+                    // put a surface somewhere it does not fit.
+                    window.clampOnScreen()
+                }
             }
+            // And appearing waits for the same thing, for the same reason: a window ordered front
+            // before it has been measured shows its placeholder (or, restoring, whatever frame the
+            // last quit saved) and jumps to its real size and place a run-loop turn later. It comes
+            // up transparent instead and is revealed by the pass that sizes it.
+            //
+            // It is still ORDERED front below rather than held back, and that is load-bearing: an
+            // unordered window is not laid out, and the measurement being waited for is a product
+            // of that layout - waiting to order it would be waiting for something that only
+            // ordering it can produce.
+            window?.alphaValue = 0
+            sizer?.whenSized { $0.alphaValue = 1 }
+            // `layoutIfNeeded` runs the SwiftUI pass that produces the measurement and `sizeNow`
+            // applies it here rather than a run-loop turn later, so in the ordinary case the window
+            // is its real size, in its real place and fully opaque before anyone sees it. When the
+            // report is genuinely a turn behind, the queue above is what keeps that invisible.
             window?.layoutIfNeeded()
             sizer?.sizeNow()
         }

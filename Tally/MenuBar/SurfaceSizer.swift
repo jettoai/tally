@@ -55,11 +55,12 @@ final class SurfaceSizer {
     /// back to, and only the pair covers it.
     private var anchorEdges: ResizeAnchor.Edges?
 
-    /// Where a surface being opened has to land, deferred until there is a size to land around.
-    /// Placing reads the window's size, and under this contract that size arrives a run-loop turn
-    /// after the surface is built, so placing on the spot would centre the placeholder and then
-    /// grow away from it.
-    private var placement: ((NSWindow) -> Void)?
+    /// Work that cannot be done until this surface has a real size: placing a window being opened,
+    /// and revealing it. Both read the size, and under this contract the size arrives a run-loop
+    /// turn after the surface is built, so doing either on the spot works off the placeholder - a
+    /// window centred around it and then grown away from where it was centred, or shown at it and
+    /// then jumped (see `MainWindowController.show`).
+    private var awaitingSize: [(NSWindow) -> Void] = []
 
     /// What a surface is born with, replaced by the first measurement a run-loop turn later. A
     /// window with no constraints and no frame of its own would otherwise open at nothing at all.
@@ -154,20 +155,20 @@ final class SurfaceSizer {
             frame.origin = ResizeAnchor.origin(for: frame, edges: edges, corner: corner)
             window.setFrame(frame, display: false)
         }
-        if let placement {
-            self.placement = nil
-            placement(window)
-            // Placing is the one move this object makes that is not an anchor correction, so it is
-            // also the one that can put a surface somewhere it does not fit.
-            window.clampOnScreen()
-        }
+        // Drained after the write, never before: what these were waiting for is a surface that is
+        // already the size it is going to be.
+        let waiting = awaitingSize
+        awaitingSize = []
+        for action in waiting { action(window) }
     }
 
-    /// Position this surface as soon as it has a size to be positioned around (see `placement`).
-    /// A surface positioned by its top left does not need this: that corner is the one a
-    /// content-driven resize keeps anyway, so it can be set before the size arrives.
-    func place(whenSized place: @escaping (NSWindow) -> Void) {
-        placement = place
+    /// Run `action` once this surface has been sized by its content (see `awaitingSize`), which is
+    /// usually the same turn: a caller that has just forced a layout calls `sizeNow()` straight
+    /// after queueing, and the action runs there. A surface positioned by its TOP LEFT does not
+    /// need this at all: that corner is the one a content-driven resize keeps anyway, so it can be
+    /// set before any size arrives (which is why the pinned panel never queues anything).
+    func whenSized(_ action: @escaping (NSWindow) -> Void) {
+        awaitingSize.append(action)
     }
 
     // MARK: - Bookkeeping

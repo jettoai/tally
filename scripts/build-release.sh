@@ -26,13 +26,20 @@ DIST=dist
 rm -rf "$ARCHIVE" "$EXPORT"
 mkdir -p build "$DIST"
 
-# Fail before the five-minute build, not after it: notarization needs all three 1Password fields.
-# Values go to /dev/null; only the exit status is read.
+# Read the notary credentials up front, before the five-minute build rather than after it: a vault
+# that locks mid-build (screen lock, desktop app integration) then cannot break notarization, and a
+# missing key fails the release immediately. The .p8 only ever lands in a temp file removed on exit;
+# nothing here echoes a value.
 echo "==> preflight: App Store Connect notary key"
-for field in ASC_NOTARY_KEY_P8 ASC_NOTARY_KEY_ID ASC_NOTARY_ISSUER_ID; do
-  op read "$ASC_NOTARY_ITEM/$field" > /dev/null \
-    || { echo "1Password not signed in or ASC notary key missing ($field) - run op signin" >&2; exit 1; }
-done
+NOTARY_KEY_FILE=$(mktemp)
+trap 'rm -f "$NOTARY_KEY_FILE"' EXIT
+asc_read() {
+  op read "$ASC_NOTARY_ITEM/$1" \
+    || { echo "1Password not signed in or ASC notary key missing ($1) - run op signin" >&2; exit 1; }
+}
+asc_read ASC_NOTARY_KEY_P8 > "$NOTARY_KEY_FILE"
+NOTARY_KEY_ID=$(asc_read ASC_NOTARY_KEY_ID) || exit 1
+NOTARY_ISSUER_ID=$(asc_read ASC_NOTARY_ISSUER_ID) || exit 1
 
 echo "==> xcodegen"
 xcodegen generate
@@ -93,12 +100,7 @@ ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "Tally" -srcfolder "$STAGE" -ov -format UDZO "$DMG" -quiet
 
 echo "==> notarize + staple"
-# The .p8 private key only ever lands in a temp file that is removed on exit; never echo it.
-NOTARY_KEY_FILE=$(mktemp)
-trap 'rm -f "$NOTARY_KEY_FILE"' EXIT
-op read "$ASC_NOTARY_ITEM/ASC_NOTARY_KEY_P8" > "$NOTARY_KEY_FILE"
-NOTARY_KEY_ID=$(op read "$ASC_NOTARY_ITEM/ASC_NOTARY_KEY_ID")
-NOTARY_ISSUER_ID=$(op read "$ASC_NOTARY_ITEM/ASC_NOTARY_ISSUER_ID")
+# Credentials were read during preflight; no 1Password access happens after the build starts.
 xcrun notarytool submit "$DMG" \
   --key "$NOTARY_KEY_FILE" \
   --key-id "$NOTARY_KEY_ID" \

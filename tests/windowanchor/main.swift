@@ -157,6 +157,23 @@ check("the anchor rule needs the card to be this host's AND the pointer to be on
 check("…and everything else gets the top left",
       rule.contains(": .topLeading"))
 
+// 10b. And a host that does not place itself by this rule at all cannot be told a corner. The
+//      popover is attached to the status item's arrow by AppKit and `applyPopoverSize` only ever
+//      writes a content size, so answering "bottom right" for it would have the surface wait
+//      against an edge nothing keeps still. Found by review after the first fix shipped it
+//      (2026-08-05); the switch is exhaustive so a fourth surface has to answer for itself.
+guard let popoverCase = rule.range(of: "case .popover:") else {
+    check("the rule answers for the popover explicitly", false)
+    exit(1)
+}
+let afterPopover = rule[popoverCase.upperBound...]
+let popoverAnswer = afterPopover.range(of: "case .panel").map { String(afterPopover[..<$0.lowerBound]) }
+    ?? String(afterPopover)
+check("the popover is never told a resize will hold a corner it does not implement",
+      popoverAnswer.contains(".topLeading") && !popoverAnswer.contains("bottomTrailing"))
+check("…and it says so on its own, not by sharing a case with a host that does place itself",
+      !rule.contains("case .popover, ") && !rule.contains(", .popover"))
+
 // 11. And the claim has exactly one claimant. If any view other than the card could report the
 //     pointer, the open set would be back: something in the reading region could hold the card's
 //     corner without anyone noticing until a surface jumped.

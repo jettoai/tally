@@ -12,6 +12,7 @@ func check(_ condition: Bool, _ message: String) {
     if condition { print("  ok: \(message)") } else { print("  FAIL: \(message)"); failures += 1 }
 }
 func section(_ title: String) { print("\n\(title)") }
+func near(_ a: CGFloat, _ b: CGFloat, _ tol: CGFloat = 0.001) -> Bool { abs(a - b) < tol }
 
 // A 1152pt display with the menu bar taken out, the shape the incident was measured on.
 let visible = CGRect(x: 0, y: 0, width: 2048, height: 1120)
@@ -133,20 +134,34 @@ check(rootSource.contains(
       "the surface is anchored only where the host sizes itself from what it reports, "
           + "and to the corner that host is holding")
 
-// The transition and its destination must be the SAME corner. Pinning the top while the host is
-// about to hold the bottom leaves the footer - and the view-options card hanging off it - a whole
-// growth step out of place until the window lands: measured 34-235pt of card movement per control,
-// under a header that never budged, which is why the first version of this shipped past a matrix
-// that only watched the header (2026-08-05, found by review).
-let square = CGRect(x: 10, y: 20, width: 100, height: 200)
-let (topPoint, topAnchor) = HostAnchored.placement(in: square, corner: .topLeading)
-check(topPoint == CGPoint(x: square.minX, y: square.minY) && topAnchor == .topLeading,
-      "holding the top left puts the content against the top of the bounds")
-let (bottomPoint, bottomAnchor) = HostAnchored.placement(in: square, corner: .bottomTrailing)
-check(bottomPoint == CGPoint(x: square.minX, y: square.maxY) && bottomAnchor == .bottomLeading,
-      "holding the bottom right puts the content against the BOTTOM of the bounds")
-check(topPoint.x == bottomPoint.x && topAnchor.x == bottomAnchor.x,
-      "…and never against the trailing edge: a content resize does not move the left edge either way")
+// The transition and its destination must be the SAME corner, on BOTH axes. Waiting against the
+// wrong edge leaves whatever hangs off the opposite one a whole size-change out of place until the
+// window lands: measured 34-235pt of card movement per control on the vertical axis, under a header
+// that never budged (2026-08-05, found by review) - and the horizontal half of the same mistake was
+// still in the fix that followed, worth up to 728pt on a column-count click.
+//
+// Which edges the window keeps still is DERIVED here from `ResizeAnchor.origin` rather than
+// restated. That is the whole point: the version of this test that restated it ("leading under both
+// corners") agreed with the code, and the code was wrong.
+let start = CGRect(x: 300, y: 200, width: 500, height: 500)
+let held = ResizeAnchor.Edges(frame: start)
+let resized = CGRect(x: 300, y: 200, width: 620, height: 640)   // wider AND taller: both axes move
+let bounds = CGRect(x: 10, y: 20, width: 100, height: 200)
+
+for corner in [ResizeAnchor.Corner.topLeading, .bottomTrailing] {
+    let landed = CGRect(origin: ResizeAnchor.origin(for: resized, edges: held, corner: corner),
+                        size: resized.size)
+    let holdsLeft = near(landed.minX, start.minX), holdsRight = near(landed.maxX, start.maxX)
+    let holdsTop = near(landed.maxY, start.maxY), holdsBottom = near(landed.minY, start.minY)
+    let (point, anchor) = HostAnchored.placement(in: bounds, corner: corner)
+    check(holdsLeft == (anchor.x == 0) && holdsRight == (anchor.x == 1),
+          "\(corner): the transition waits on the same HORIZONTAL edge the window will hold")
+    check(holdsTop == (anchor.y == 0) && holdsBottom == (anchor.y == 1),
+          "\(corner): …and on the same vertical edge")
+    check(point.x == (anchor.x == 0 ? bounds.minX : bounds.maxX)
+            && point.y == (anchor.y == 0 ? bounds.minY : bounds.maxY),
+          "\(corner): …at that corner of the bounds it was given")
+}
 
 for (name, path) in [("pinned panel", "Tally/MenuBar/PinnedPanelController.swift"),
                      ("menu-bar popover", "Tally/MenuBar/StatusItemController.swift")] {

@@ -211,7 +211,20 @@ final class SettingsStore {
     /// top-left, which costs a re-aim; there is no arrangement in which a reading-region resize
     /// takes the card's corner and moves the page (see `ResizeAnchor`).
     func resizeAnchor(for host: SurfaceHost) -> ResizeAnchor.Corner {
-        viewOptionsHost == host && isPointerOnViewOptions ? .bottomTrailing : .topLeading
+        switch host {
+        case .popover:
+            // The popover is not placed by this rule at all: AppKit keeps it attached to the status
+            // item's arrow and `StatusItemController.applyPopoverSize` only ever writes a content
+            // SIZE, never an origin. A host that does not implement a corner must not be told that
+            // a resize is about to hold one - the content would wait against an edge nothing keeps
+            // still, which is a jump rather than the absence of one.
+            //
+            // A switch rather than a condition so that a fourth surface cannot inherit an answer:
+            // it will not compile until someone says which of these it is.
+            return .topLeading
+        case .panel, .window:
+            return viewOptionsHost == host && isPointerOnViewOptions ? .bottomTrailing : .topLeading
+        }
     }
 
     var isPanelTranslucent: Bool {

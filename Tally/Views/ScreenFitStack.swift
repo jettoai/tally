@@ -198,8 +198,12 @@ extension ScreenFitStack {
 /// So this takes the corner as an input and uses the same one: the transition and its destination
 /// are never different anchors.
 ///
-/// Leading on the other axis regardless: a content resize never moves the left edge under either
-/// corner (`ResizeAnchor.origin`), and it is the same reason the scroll regions are pinned leading.
+/// BOTH axes follow the corner, not just the vertical one. Under the top-left rule a content
+/// resize leaves origin.x alone, but under the bottom-right rule the window holds its RIGHT edge and
+/// takes the width change off origin.x (`ResizeAnchor.origin`) - so a transition that waited against
+/// the leading edge there would slide the whole surface sideways by the width change the moment the
+/// window landed: 380pt to 1108pt is a column-count click away, and the card would be 728pt from
+/// where the pointer left it.
 ///
 /// Nothing about what the surface REPORTS changes: the size the hosts follow is measured inside
 /// this, on the content itself (`PopoverRootView.sizeReporter`), so the host still resizes to the
@@ -225,14 +229,16 @@ struct HostAnchored: Layout {
     /// reading them off a layout pass, so the rule can be asserted directly
     /// (`tests/run-screenfit-tests.sh`) instead of only being seen on a display.
     ///
-    /// Leading in both cases: the corner names the edges the WINDOW holds still, and a content
-    /// resize never moves the left edge under either of them (`ResizeAnchor.origin`), so the
-    /// bottom-right case is bottom LEADING here.
+    /// The corner names the two edges the WINDOW keeps still (`ResizeAnchor.origin`), and the
+    /// content waits against those same two. Both of them: the bottom-right rule holds the right
+    /// edge as well as the bottom, so this is bottom TRAILING and not bottom leading - anchoring
+    /// the leading edge there would hold the wrong side of a width change and throw the surface
+    /// sideways when the window caught up (found by review, 2026-08-05).
     static func placement(in bounds: CGRect,
                           corner: ResizeAnchor.Corner) -> (CGPoint, UnitPoint) {
         switch corner {
         case .topLeading: return (CGPoint(x: bounds.minX, y: bounds.minY), .topLeading)
-        case .bottomTrailing: return (CGPoint(x: bounds.minX, y: bounds.maxY), .bottomLeading)
+        case .bottomTrailing: return (CGPoint(x: bounds.maxX, y: bounds.maxY), .bottomTrailing)
         }
     }
 }

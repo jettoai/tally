@@ -51,6 +51,22 @@ final class TokenStatsStore {
         }
     }
 
+    /// One project's tokens per local day, every provider merged, over the whole history that is
+    /// loaded. The row's activity heatmap is the only reader, and it asks once per expansion rather
+    /// than on every frame: the samples are already the finest grain the app keeps, so this is a
+    /// filter over a few thousand values, but it is a linear one and does not belong in a redraw.
+    ///
+    /// Deliberately not narrowed to the heatmap's window here. The caller owns which days it draws,
+    /// and a store method that silently dropped everything older would be a second, invisible
+    /// definition of "past year" sitting a layer away from the one on screen.
+    func dailyTotals(forProject key: String) -> [Int: Int64] {
+        var totals: [Int: Int64] = [:]
+        for sample in samples where sample.project == key {
+            totals[sample.day, default: 0] += sample.totals.total
+        }
+        return totals
+    }
+
     private func rebuild() {
         summary = TokenStatsSummary.make(samples: samples, range: range)
     }

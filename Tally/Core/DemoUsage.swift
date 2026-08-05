@@ -111,10 +111,11 @@ enum DemoUsage {
                                                   accountCount: 1)])]
     }
 
-    /// Fixture token history for the Tokens tab, so the screenshot shows a plausible month of work
-    /// instead of this machine's real project names. Spread over 45 days so every range button
-    /// (today / 7D / 30D / all) has something to show, and shaped like the real corpus: cache
-    /// reads dwarf everything, cache writes are a few times output, fresh input tracks output.
+    /// Fixture token history for the Tokens tab, so the screenshot shows a plausible year of work
+    /// instead of this machine's real project names. Spread over 366 days so every range button
+    /// (today / 7D / 30D / all) has something to show AND a row's expanded activity graph is a full
+    /// year rather than a bright corner, and shaped like the real corpus: cache reads dwarf
+    /// everything, cache writes are a few times output, fresh input tracks output.
     static func tokenSamples(today: Int = LocalDayStamper.today()) -> [TokenSample] {
         let projects: [(path: String, provider: String, output: Int64)] = [
             ("/Users/you/workspace/atlas", "claude", 96_000),
@@ -124,10 +125,14 @@ enum DemoUsage {
             ("/Users/you/.claude", "claude", 12_000),
             (TokenProject.otherKey, "codex", 7_000),
         ]
-        return (0 ..< 45).flatMap { offset -> [TokenSample] in
+        return (0 ..< 366).flatMap { offset -> [TokenSample] in
             // A fixed, uneven weekly rhythm (quiet weekends, one heavy day) - a flat series would
-            // make every range button show the same shape.
-            let weight = [1.0, 1.3, 0.9, 1.6, 1.1, 0.3, 0.2][offset % 7]
+            // make every range button show the same shape. Under it, a slow swell over about seven
+            // weeks, so the year-long graph reads as busy and quiet stretches instead of one even
+            // texture. Both are arithmetic on the day offset and carry no randomness: a fixture
+            // that redrew differently on every launch could not be screenshotted twice.
+            let season = 0.55 + 0.45 * sin(Double(offset) / 23)
+            let weight = [1.0, 1.3, 0.9, 1.6, 1.1, 0.3, 0.2][offset % 7] * season
             return projects.enumerated().map { index, project in
                 let output = Int64(Double(project.output) * weight * (index == 0 && offset == 0 ? 0.6 : 1))
                 return TokenSample(

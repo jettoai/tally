@@ -1,5 +1,53 @@
 import SwiftUI
 
+/// Which project's activity graph a design capture is holding open (`-TallyTokenGraphPreview
+/// atlas`, demo or dev builds only, argument domain so nothing persists): the surface opens on the
+/// Tokens tab with that row already unfolded, with no pointer involved.
+///
+/// It exists for the reason the other capture flags do. The graph is only reachable by clicking a
+/// row, so capturing it otherwise means synthesizing mouse events into the app, which takes the
+/// user's desktop away from them for as long as the verification runs (the rule and the incident
+/// behind it are in ~/.claude/docs/patterns/macos-app-verification.md: a dev-only flag that puts
+/// the state on screen IS the sanctioned answer). Same family as `-TallyTooltipPreview`,
+/// `-TallyUpdateChip` and `-TallyEmptyStatePreview`. It also makes a marketing capture repeatable:
+/// the same command opens the same row every time, where a click depends on where the row landed.
+///
+/// It names ONE project rather than opening every row, because the capture is of a graph and a
+/// surface with fifteen of them stacked is a capture of a scroll view.
+enum TokenGraphPreview {
+    /// The project the flag names, or nil on any normal launch.
+    static var project: String? {
+        guard DemoUsage.isActive || BuildVariant.isDev else { return nil }
+        let raw = (UserDefaults.standard.string(forKey: "TallyTokenGraphPreview") ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        return raw.isEmpty ? nil : raw
+    }
+
+    /// Whether this is the row the flag names. It matches the name as READ on screen, or the
+    /// trailing component of the project's path, because those are the two forms whoever writes the
+    /// capture command has in front of them. The pooled row never matches: it does not open at all.
+    static func matches(_ row: TokenStatsSummary.ProjectRow) -> Bool {
+        guard let target = project?.lowercased(), !row.isOther else { return false }
+        return row.name.lowercased() == target
+            || row.key.split(separator: "/").last?.lowercased() == target
+    }
+
+    /// Whether `-TallyTokenGraphHover` also wants the opened graph's callout on screen: the heaviest
+    /// day of the window starts hovered, so a capture shows the hover ring and the callout that a
+    /// pointer would have produced.
+    ///
+    /// The heaviest day rather than a named one, because it is the square a reader's eye goes to
+    /// anyway and it needs no second argument to identify; on the demo fixtures it is a fixed day,
+    /// so the capture is repeatable. Presence is the switch (any value but a plain "no" turns it
+    /// on), and it does nothing on its own: without a row opened by `-TallyTokenGraphPreview` there
+    /// is no graph to hover.
+    static var hoversPeak: Bool {
+        guard project != nil, let raw = UserDefaults.standard.object(forKey: "TallyTokenGraphHover")
+        else { return false }
+        return !["no", "false", "0", ""].contains(String(describing: raw).lowercased())
+    }
+}
+
 /// The dashboard's Tokens tab: how many tokens this machine's Claude and Codex sessions actually
 /// spent, over a chosen window, split by project.
 ///
@@ -23,6 +71,16 @@ struct TokenStatsView: View {
     /// goes to the bar, which is the column that reads better long, and not to a name column that
     /// would only stand empty beside names of a dozen characters.
     private static let nameColumn: CGFloat = 132
+    /// The disclosure arrow's column. Reserved on every project row, the pooled one included, so
+    /// the value column stays on one line whether or not a row can open.
+    private static let chevronColumn: CGFloat = 10
+
+    /// Which project rows have their activity graph open, by project key (an absolute path, so it
+    /// survives the rebuild a range switch causes). View state on purpose: the graph is something
+    /// the reader opened while looking, not a setting, and a closed panel starts clean.
+    @State private var expandedProjects: Set<String> = []
+    /// A need, not a preference - the same rule the rest of the surface follows.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: TallyMetrics.sectionSpacing) {
@@ -121,6 +179,10 @@ struct TokenStatsView: View {
                     Spacer(minLength: 6)
                     share(row.share)
                     value(row.totals.total)
+                    // A provider row has nothing to unfold, but it still reserves the disclosure
+                    // column: the two cards' figures sit on one vertical line, and a column that
+                    // existed on only one of them would knock them apart by exactly its width.
+                    disclosureSpacer
                 }
             }
         }
@@ -132,11 +194,12 @@ struct TokenStatsView: View {
 
     // MARK: Projects
 
-    /// `name · bar · share · value`, the same left-to-right grammar the account meters use, so the
-    /// two tabs read as one product. The bar is a share of the total, not a limit, so it carries no
-    /// severity colour - nothing here can be "too high" - and the percentage beside it is the same
-    /// quantity in figures, for the rows too small to compare by eye. Providers use the same two
-    /// trailing columns, so the numbers line up across both cards.
+    /// `name · bar · share · value · disclosure`, the same left-to-right grammar the account meters
+    /// use, so the two tabs read as one product. The bar is a share of the total, not a limit, so it
+    /// carries no severity colour - nothing here can be "too high" - and the percentage beside it is
+    /// the same quantity in figures, for the rows too small to compare by eye. Providers use the
+    /// same three trailing columns, the disclosure one reserved but empty, so the numbers line up
+    /// across both cards.
     private var projects: some View {
         VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
             Text(L("Projects"))
@@ -144,19 +207,7 @@ struct TokenStatsView: View {
                 .foregroundStyle(.secondary)
             VStack(spacing: 7) {
                 ForEach(store.summary.projects) { project in
-                    HStack(spacing: 8) {
-                        Text(project.name)
-                            .font(.footnote)
-                            .foregroundStyle(project.isOther ? Color.secondary.opacity(0.7) : Color.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(width: Self.nameColumn, alignment: .leading)
-                            .tallyTooltip(project.isOther ? L("Scratch directories and sessions with no project")
-                                                  : project.key)
-                        shareBar(project.share)
-                        share(project.share)
-                        value(project.totals.total)
-                    }
+                    projectRow(project)
                 }
             }
         }
@@ -164,6 +215,91 @@ struct TokenStatsView: View {
         .padding(.vertical, TallyMetrics.cardPaddingV)
         .frame(maxWidth: .infinity, alignment: .leading)
         .tallyCard()
+    }
+
+    /// One project: the row itself, and its year of daily activity when it is open.
+    ///
+    /// The pooled "Other" row is the one that never opens, and shows no arrow to say so. Its
+    /// members are whatever fell outside the top of THIS range, so the row is not one subject over
+    /// time and a year-long series drawn for it would be a different set of projects every week.
+    @ViewBuilder
+    private func projectRow(_ project: TokenStatsSummary.ProjectRow) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if project.isOther {
+                rowBody(project)
+            } else {
+                Button { toggle(project.key) } label: { rowBody(project) }
+                    .buttonStyle(.plain)
+            }
+            if isExpanded(project) {
+                TokenActivityHeatmapView(dailyTotals: store.dailyTotals(forProject: project.key),
+                                         today: LocalDayStamper.today(),
+                                         width: cardContentWidth,
+                                         // Only the row a capture opened, never one the reader
+                                         // opened themselves.
+                                         hoverPeak: TokenGraphPreview.hoversPeak
+                                                    && TokenGraphPreview.matches(project))
+                    .padding(.bottom, 2)
+            }
+        }
+    }
+
+    private func rowBody(_ project: TokenStatsSummary.ProjectRow) -> some View {
+        HStack(spacing: 8) {
+            Text(project.name)
+                .font(.footnote)
+                .foregroundStyle(project.isOther ? Color.secondary.opacity(0.7) : Color.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(width: Self.nameColumn, alignment: .leading)
+                .tallyTooltip(project.isOther ? L("Scratch directories and sessions with no project")
+                                      : project.key)
+            shareBar(project.share)
+            share(project.share)
+            value(project.totals.total)
+            chevron(project)
+        }
+        // The whole row is the target, not just the arrow: a 10pt glyph is a poor thing to aim at,
+        // and every other part of the row belongs to the same project anyway.
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func chevron(_ project: TokenStatsSummary.ProjectRow) -> some View {
+        if project.isOther {
+            disclosureSpacer
+        } else {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(isExpanded(project) ? 90 : 0))
+                .frame(width: Self.chevronColumn, alignment: .trailing)
+        }
+    }
+
+    /// The disclosure column, held open by a row that has nothing to disclose.
+    private var disclosureSpacer: some View {
+        Color.clear.frame(width: Self.chevronColumn, height: 1)
+    }
+
+    /// Whether this row's graph is showing: because the reader opened it, or because a design
+    /// capture asked for it (`TokenGraphPreview`).
+    private func isExpanded(_ project: TokenStatsSummary.ProjectRow) -> Bool {
+        expandedProjects.contains(project.key) || TokenGraphPreview.matches(project)
+    }
+
+    private func toggle(_ key: String) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) {
+            if expandedProjects.contains(key) { expandedProjects.remove(key) }
+            else { expandedProjects.insert(key) }
+        }
+    }
+
+    /// The width inside a card: the surface, less this view's own inset and the card's padding.
+    /// The activity graph draws itself to a width rather than to a square size, so it needs the
+    /// real figure and not an approximation of it.
+    private var cardContentWidth: CGFloat {
+        max(120, width - 24 - 2 * TallyMetrics.cardPaddingH)
     }
 
     /// A track that takes whatever width is left, the same shape the account meters draw, so the

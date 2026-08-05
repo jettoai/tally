@@ -46,7 +46,10 @@ enum SurfaceHost: Sendable {
 @MainActor
 @Observable
 final class SurfaceTabState {
-    var tab: SurfaceTab = .usage
+    /// Usage on every real launch. A design capture that named a project's activity graph
+    /// (`-TallyTokenGraphPreview`, demo and dev builds only) opens on the tab that graph is on
+    /// instead, so the capture needs no click to get there - the flag's whole purpose.
+    var tab: SurfaceTab = TokenGraphPreview.project == nil ? .usage : .tokens
 }
 
 struct PopoverRootView: View {

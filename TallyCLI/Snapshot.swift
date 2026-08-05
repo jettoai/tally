@@ -269,6 +269,92 @@ func removingOption(_ args: [String], _ flag: String) -> [String] {
     return options.filter { $0 != flag } + args[options.count...]
 }
 
+/// The value following `flag` in an argument vector (nil when absent or dangling). Read from the
+/// OPTIONS only: past a bare `--` the same word is part of the user's prompt, and `--model` there is
+/// something they wrote, not something they asked for.
+///
+/// Lives here with `optionsOnly`, the rule it is an application of, rather than with the launch-flag
+/// readers in LaunchFlags.swift: everything that asks what a launch will RUN needs it, including the
+/// account pick, which must compile without the supervisor.
+func flagValue(_ args: [String], _ flag: String) -> String? {
+    let options = optionsOnly(args)
+    guard let index = options.firstIndex(of: flag), index + 1 < options.count else { return nil }
+    return options[index + 1]
+}
+
+/// The model an argument vector will actually run under, in whichever spelling that provider uses
+/// (`--model` for claude, `-m` or `--model` for codex).
+///
+/// Read off the args AFTER `applyLaunchDefaults` has run, which is the whole point: that injection
+/// has already settled typed > project > app, so the account pick reads the ANSWER rather than
+/// ranking the three sources a second time. A second ranking is a second chance to rank them
+/// differently, and it did: `tally claude --model opus` reached the child as opus while the pick
+/// went on scoring accounts for the configured default, so a session deliberately launched a tier
+/// down was still refused an account whose flagship window was dry.
+///
+/// nil means the launch declares no model at all (nothing configured and nothing typed) - or that
+/// the user typed a dangling `--model` with no value, which suppresses the injection and leaves the
+/// CLI to complain about its own flag. Callers fall back to the configured default.
+func launchPrimaryModel(_ args: [String], providerID: String) -> String? {
+    /// A value that is itself a flag is not a model. Measured 2026-08-06: `tally claude --model`
+    /// with no value suppresses the model injection (the axis was typed) and the NEXT injection
+    /// lands right behind it, so the vector reads `--model --fallback-model opus …` and a plain
+    /// read hands back `--fallback-model` as the model this launch runs. Harmless while that value
+    /// only became a flag; it is not harmless now that it also decides which accounts are eligible.
+    func declared(_ flag: String) -> String? {
+        guard let value = flagValue(args, flag), !value.hasPrefix("-") else { return nil }
+        return value
+    }
+    if providerID == "codex" { return declared("-m") ?? declared("--model") }
+    return declared("--model")
+}
+
+/// Applies the launch defaults that can be decided BEFORE the account is known - the permission
+/// mode, the model, the fallback model and the effort - to a launch's arguments.
+///
+/// `policy` is the effective policy: the app's defaults with this project's profile already laid
+/// over them (ProjectPolicy.swift). Which is why every check here is against what the user TYPED
+/// rather than against the app's own values: the rule is one rule at both scopes ("a flag you typed
+/// wins"), and a project that declares opus must inject opus exactly as Settings would.
+///
+/// Both halves of every check stop at the first bare `--`: the question is what the user CHOSE, and
+/// the answer goes where it will be read (`optionsOnly`, `injectingOptions`).
+func applyLaunchDefaults(_ args: [String], policy: LaunchPolicy, providerID: String) -> [String] {
+    var next = args
+    let typed = optionsOnly(args)
+    if providerID == "claude" {
+        if let mode = policy.permissionMode,
+           !typed.contains("--dangerously-skip-permissions"),
+           !typed.contains("--permission-mode") {
+            switch mode {
+            case "plan": next = injectingOptions(next, ["--permission-mode", "plan"])
+            case "acceptEdits": next = injectingOptions(next, ["--permission-mode", "acceptEdits"])
+            case "bypass": next = injectingOptions(next, ["--dangerously-skip-permissions"])
+            default: break
+            }
+        }
+        if let model = policy.model, !typed.contains("--model") {
+            next = injectingOptions(next, ["--model", model])
+        }
+        if let fallback = policy.fallbackModel, !typed.contains("--fallback-model") {
+            next = injectingOptions(next, ["--fallback-model", fallback])
+        }
+        if let effort = policy.effort, !typed.contains("--effort") {
+            next = injectingOptions(next, ["--effort", effort])
+        }
+    }
+    if providerID == "codex" {
+        if let model = policy.model, !typed.contains("-m"), !typed.contains("--model") {
+            next = injectingOptions(next, ["-m", model])
+        }
+        if let effort = policy.effort,
+           !typed.contains(where: { $0.contains("model_reasoning_effort") }) {
+            next = injectingOptions(next, ["-c", "model_reasoning_effort=\"\(effort)\""])
+        }
+    }
+    return next
+}
+
 /// Applies the app's "continue by default" start mode to a launch, given the home it will run
 /// under. Returns the args to launch with, plus the one line to print when the injection was
 /// suppressed (nil = nothing to say).

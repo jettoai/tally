@@ -7,9 +7,11 @@ import Foundation
 //
 // Split of responsibility with main.swift: this file owns all worktree logic and depends only on
 // Foundation/Darwin plus a few symbols from Snapshot.swift (`warn`, `loadSnapshot`, `projectSlug`,
-// the `Snapshot` type), so tests can compile it standalone. The launch resolution itself is
-// fail-closed (the user explicitly asked for a worktree, so a wrong directory is worse than none),
-// while the memory link and setup hook are fail-open enhancements that only ever warn.
+// the `Snapshot` type) and GitRepoRoot.swift (`runGit`, `realpathString`, `resolveMainRepo` - the
+// repo identity a per-project launch profile is keyed by too), so tests can compile it standalone.
+// The launch resolution itself is fail-closed (the user explicitly asked for a worktree, so a wrong
+// directory is worse than none), while the memory link and setup hook are fail-open enhancements
+// that only ever warn.
 
 struct WorktreeLaunch {
     let mainRepo: String      // main repo root (realpath)
@@ -355,43 +357,11 @@ func stripContinueResume(_ args: inout [String]) -> Bool {
 
 // MARK: - Helpers
 
-/// Run git and capture trimmed stdout/stderr plus the exit code. Output is small (porcelain
-/// listings, single-line reads), so reading each pipe to EOF before waiting is safe. Shared with
-/// WorktreeTeardown.swift.
-func runGit(_ args: [String], cwd: String? = nil) -> (out: String, err: String, code: Int32) {
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-    process.arguments = args
-    if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
-    let outPipe = Pipe(), errPipe = Pipe()
-    process.standardOutput = outPipe
-    process.standardError = errPipe
-    do {
-        try process.run()
-    } catch {
-        return ("", "cannot run git: \(error.localizedDescription)", 127)
-    }
-    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-    let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-    process.waitUntilExit()
-    let trim = { (data: Data) in
-        String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-    return (trim(outData), trim(errData), process.terminationStatus)
-}
-
 /// True when a path exists as anything, INCLUDING a dangling symlink (lstat does not follow the
 /// final link) - so the never-clobber checks refuse to overwrite an existing link too.
 private func pathExists(_ path: String) -> Bool {
     var info = stat()
     return lstat(path, &info) == 0
-}
-
-/// Fully-resolved path (POSIX realpath, keeping the /private prefix like projectSlug), or the
-/// input unchanged when it can't be resolved. Shared with WorktreeTeardown.swift.
-func realpathString(_ path: String) -> String {
-    var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
-    return realpath(path, &buffer).map { String(cString: $0) } ?? path
 }
 
 /// Read one trimmed line from an open FILE stream; nil on EOF.

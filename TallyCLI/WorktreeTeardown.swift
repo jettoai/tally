@@ -10,10 +10,10 @@ import Foundation
 // target already gone prints a note and continues, so a rerun is safe. All output goes to stderr
 // (via `warn`) or /dev/tty (the menu); stdout carries nothing because this command execs nothing.
 //
-// Shared helpers come from Worktree.swift (`runGit`, `realpathString`, `parseWorktreePorcelain`,
-// `buildMenuRows`, `WorktreeEntry`), WorktreeTree.swift (`resolveWorktreeListing`,
-// `linkedWorktrees`, plus the `tally worktree` dispatch that reaches this file) and Snapshot.swift
-// (`warn`).
+// Shared helpers come from GitRepoRoot.swift (`runGit`, `realpathString`), Worktree.swift
+// (`parseWorktreePorcelain`, `buildMenuRows`, `WorktreeEntry`), WorktreeTree.swift
+// (`resolveWorktreeListing`, `linkedWorktrees`, plus the `tally worktree` dispatch that reaches
+// this file) and Snapshot.swift (`warn`).
 
 // MARK: - Process model
 

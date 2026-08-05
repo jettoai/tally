@@ -152,7 +152,7 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 4", IntegrationsStore.skillVersion == 4)
+    check("skill is at version 5", IntegrationsStore.skillVersion == 5)
     check("skill teaches the advisor field", currentSkill.contains("advisor.<provider>"))
     check("skill spells out every verdict",
           currentSkill.contains("`collecting`") && currentSkill.contains("`addAccount`")
@@ -183,6 +183,27 @@ try MainActor.assumeIsolated {
     check("…and reserves the empty list for having no weekly samples",
           skillProse.contains("the list is empty only when there are no weekly samples at all"))
     check("skill carries no em dash", !currentSkill.contains("\u{2014}"))
+
+    // The two commands the skill exists to make reachable. A subcommand named in prose but spelled
+    // wrong is worse than one left out: the agent runs it, gets exit 2, and concludes the feature
+    // is missing. Each is checked against the CLI's own vocabulary, not against a paraphrase.
+    check("skill teaches the per-project launch profile",
+          currentSkill.contains("tally project set --model opus")
+              && currentSkill.contains("tally project show")
+              && currentSkill.contains("tally project clear"))
+    check("skill says the profile covers worktrees, not just the directory",
+          skillProse.contains("worktrees included"))
+    check("skill states the precedence a reader would otherwise guess at",
+          skillProse.contains("a flag you type, then the project profile, then the app defaults"))
+    check("skill explains the account-pick effect, which is the non-obvious half",
+          skillProse.contains("steers the ACCOUNT pick"))
+    check("skill names the JSON key the profile surfaces as",
+          currentSkill.contains("`projectPolicy`"))
+    check("skill teaches resuming a conversation on another account",
+          currentSkill.contains("tally resume"))
+    check("…and describes what resume actually does, per TallyCLI/main.swift",
+          skillProse.contains("picks the best OTHER eligible account")
+              && skillProse.contains("copies the transcript over"))
 
     // MARK: auto-update - old installs follow the app, absent and foreign files never do.
     let autoDir = tmp.appendingPathComponent("auto")

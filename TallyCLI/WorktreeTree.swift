@@ -6,75 +6,14 @@ import Foundation
 // dispatch. Split out of WorktreeTeardown.swift, which keeps only the destructive half, so neither
 // file grows past the size limit.
 //
-// Shared helpers come from Worktree.swift (`runGit`, `realpathString`, `parseWorktreePorcelain`,
-// `buildMenuRows`), WorktreeTeardown.swift (`defaultListProcesses`, `worktreeProcessesToKill`),
-// WorktreeMenu.swift (`displayColumns`, so the tree and the menu agree on how wide a CJK or emoji
-// line is) and Snapshot.swift (`warn`). Nothing here emits ANSI: unlike the menu, this output is
-// routinely piped or redirected to a file.
+// Shared helpers come from GitRepoRoot.swift (`runGit`, `realpathString`, `resolveMainRepo` - the
+// last one keys a per-project launch profile too, so it sits beside neither caller),
+// Worktree.swift (`parseWorktreePorcelain`, `buildMenuRows`), WorktreeTeardown.swift
+// (`defaultListProcesses`, `worktreeProcessesToKill`), WorktreeMenu.swift (`displayColumns`, so the
+// tree and the menu agree on how wide a CJK or emoji line is) and Snapshot.swift (`warn`). Nothing
+// here emits ANSI: unlike the menu, this output is routinely piped or redirected to a file.
 
-// MARK: - Main repo resolution
-
-/// The main worktree of the ORDINARY layout, where the common git dir sits at `<checkout>/.git`:
-/// strip that suffix, which is the rule git applies internally. nil when the common dir lives
-/// somewhere else (a submodule keeps it at `<super>/.git/modules/<name>`, `--separate-git-dir` puts
-/// it anywhere, a bare repo is the dir), because its parent is then not a checkout at all and the
-/// answer has to be asked for rather than computed.
-func colocatedMainRepoPath(gitCommonDir dir: String) -> String? {
-    let suffix = "/.git"
-    guard dir.hasSuffix(suffix) else { return nil }
-    return String(dir.dropLast(suffix.count))
-}
-
-/// Whether `candidate` really is a working tree of the repo whose common git dir is `commonDir`.
-/// Every guess below is put through this: a computed path that looks like a checkout but is not one
-/// (or belongs to a different repo) is worse than admitting we do not know, because everything
-/// downstream treats the answer as a directory to print, to cd into, and to run git in.
-private func isWorkingTree(_ candidate: String, ofCommonDir commonDir: String) -> Bool {
-    guard !candidate.isEmpty else { return false }
-    let probe = runGit(["-C", candidate, "rev-parse", "--path-format=absolute", "--git-common-dir"])
-    return probe.code == 0 && realpathString(probe.out) == realpathString(commonDir)
-}
-
-/// The main repo's working tree, fully resolved, or nil when git says this is not a repository.
-///
-/// Four ways to the answer, each verified before it is trusted:
-///
-///  1. The caller is standing IN the main worktree (its git dir is the common one, true for every
-///     plain repo, submodule and separate-git-dir repo entered at its own checkout): git names it
-///     outright with `--show-toplevel`. `--show-toplevel` alone is not enough, because from a
-///     LINKED worktree it names that worktree rather than the main one.
-///  2. The colocated layout, common dir at `<checkout>/.git`: strip the suffix.
-///  3. `core.worktree`, which is how a submodule points back at its checkout from a linked worktree
-///     of that submodule (relative to the common dir).
-///  4. Nothing verified: the common dir, which is the answer `git worktree list` itself prints, and
-///     a warning that it is a git dir rather than a checkout.
-///
-/// Case 4 is reachable and is not an oversight: a repo made with `git init --separate-git-dir`
-/// records its working tree NOWHERE (measured 2026-07-27 on git 2.50.1: `core.worktree` unset, no
-/// path in the git dir's config, and the `.git` file in the checkout points one way only, into the
-/// git dir). Asked from a linked worktree of such a repo, git cannot answer either:
-/// `git -C <common dir> rev-parse --show-toplevel` fails with "this operation must be run in a work
-/// tree", and `--git-dir=<common dir>` resolves the toplevel from the caller's own cwd. So the
-/// information genuinely does not exist, and inventing a path would be the worse failure.
-func resolveMainRepo() -> String? {
-    let common = runGit(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-    guard common.code == 0, !common.out.isEmpty else { return nil }
-    if runGit(["rev-parse", "--path-format=absolute", "--absolute-git-dir"]).out == common.out {
-        let top = runGit(["rev-parse", "--path-format=absolute", "--show-toplevel"]).out
-        if !top.isEmpty { return realpathString(top) }   // empty in a bare repo
-    }
-    if let colocated = colocatedMainRepoPath(gitCommonDir: common.out),
-       isWorkingTree(colocated, ofCommonDir: common.out) {
-        return realpathString(colocated)
-    }
-    let recorded = runGit(["config", "--get", "core.worktree"]).out
-    let absolute = recorded.hasPrefix("/") ? recorded : "\(common.out)/\(recorded)"
-    if !recorded.isEmpty, isWorkingTree(absolute, ofCommonDir: common.out) {
-        return realpathString(absolute)
-    }
-    warn("this repository records no main working tree; using its git dir \(common.out)")
-    return realpathString(common.out)
-}
+// MARK: - Worktree listing
 
 /// The main repo path plus every worktree git has registered. nil when git says this is not a
 /// repository; callers decide whether that is a warning (the read commands) or an exit (teardown).

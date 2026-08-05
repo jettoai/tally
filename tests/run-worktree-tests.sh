@@ -1,6 +1,7 @@
 #!/bin/bash
 # Compiles the CLI's worktree logic (TallyCLI/Worktree.swift) together with a small assertion
-# harness and runs it. Worktree.swift depends only on Snapshot.swift, so no Xcode target is needed;
+# harness and runs it. Worktree.swift depends only on Snapshot.swift and GitRepoRoot.swift (the repo
+# identity it shares with the per-project launch profile), so no Xcode target is needed;
 # ReloadRequest.swift joins the source list only for `scannedPidCount`, which the teardown's process
 # scan shares, and WorktreeActivity.swift brings TranscriptWatcher.swift plus the files that one
 # needs to compile, because the teardown's busy gate calls the supervisor's own quiet test rather
@@ -15,6 +16,7 @@ swiftc -o "$out" \
   tests/worktree/treechecks.swift \
   tests/worktree/killchecks.swift \
   TallyCLI/Worktree.swift \
+  TallyCLI/GitRepoRoot.swift \
   TallyCLI/WorktreeTeardown.swift \
   TallyCLI/WorktreeKill.swift \
   TallyCLI/WorktreeTree.swift \

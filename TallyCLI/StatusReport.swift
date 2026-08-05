@@ -55,6 +55,26 @@ struct StatusReport: Encodable {
     /// the collecting threshold is impossible - a young reading is emitted with `verdict:
     /// "collecting"`. English headline; the numbers behind it let scripts phrase their own.
     var advisor: [String: Advisor]?
+    /// The per-project launch profile in force for the directory this command ran in
+    /// (`tally project`, ProjectPolicy.swift), absent when that directory declares none. Present
+    /// here because it changes what the rest of this report MEANS: an account marked `best` under a
+    /// project that declares opus was scored on opus, and a reader that quotes the arrow without
+    /// knowing that cannot explain why the Fable-drained account won.
+    var projectPolicy: ProjectProfile?
+
+    struct ProjectProfile: Encodable {
+        struct Overrides: Encodable {
+            var model: String?
+            var effort: String?
+            var accountID: String?
+        }
+
+        /// The project the profile is keyed by: the main repo's working tree, so every worktree of
+        /// it reports the same path here.
+        var path: String
+        /// Provider id → the axes that project overrides. Only providers with a profile appear.
+        var providers: [String: Overrides]
+    }
 
     struct Advisor: Encodable {
         var headline: String
@@ -121,9 +141,12 @@ func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPoli
 /// would be a lie scripts act on.
 /// `sessions` is the live context reading per account id (SessionContext.swift), a parameter for
 /// the same reason `quarantined` is one: the report stays a pure function of what it is handed.
+/// `projectPolicy` likewise: the caller resolved which project this is, this only publishes it.
 func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                   advisor: [UsageAdvisor.Reading] = [], quarantined: [String: Set<String>] = [:],
-                  sessions: [String: Int] = [:], now: Date = Date()) -> StatusReport {
+                  sessions: [String: Int] = [:],
+                  projectPolicy: StatusReport.ProjectProfile? = nil,
+                  now: Date = Date()) -> StatusReport {
     let advisorByProvider = Dictionary(uniqueKeysWithValues: advisor.map { reading in
         (reading.provider, StatusReport.Advisor(
             headline: UsageAdvisor.englishHeadline(reading),
@@ -172,7 +195,8 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
         accounts: accounts,
         fleet: snapshot.fleet,
         fleetPools: snapshot.fleetPools,
-        advisor: advisorByProvider.isEmpty ? nil : advisorByProvider)
+        advisor: advisorByProvider.isEmpty ? nil : advisorByProvider,
+        projectPolicy: projectPolicy)
 }
 
 /// The usage advisor's per-provider readings, computed straight from the burn-rate history the app

@@ -23,6 +23,9 @@ import Foundation
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String],
                    follow: Bool = false, recoveries: [Date] = [], resumed: Bool = false) -> Never {
     let slug = projectSlug(forCwd: FileManager.default.currentDirectoryPath)
+    /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
+    /// under a running supervisor, and the git probe behind the key must not run on every 2s tick.
+    let project = projectPolicy(provider.id)
 
     // The parent must survive Ctrl+C - claude uses SIGINT to interrupt a turn, and the whole
     // foreground process group (which the child shares) receives it.
@@ -197,11 +200,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // Before any relaunch decision reads it: every gate below asks the same tracker, and it
             // only learns anything by being given each tick's reading.
             keyboard.observe(stamp: lastKeyboardInput())
-            let policy = launchPolicy(provider.id)
-            // What THIS session is expected to run: a hand-typed --model outranks the configured
-            // default (a deliberate haiku session must not be "rescued" back to fable). Read by the
-            // drift monitor and the quota-degradation paths alike.
-            let effectivePrimary = flagValue(launchArgs, "--model") ?? policy.model
+            let policy = effectivePolicy(launchPolicy(provider.id), project: project)
+            // What THIS session is expected to run, read off its own command line: a hand-typed
+            // --model outranks the configured default (a deliberate haiku session must not be
+            // "rescued" back to fable), and a project profile reached it the same way, through the
+            // flag the launcher injected. Read by the drift monitor and the degradation paths.
+            let effectivePrimary = launchPrimaryModel(launchArgs, providerID: provider.id)
+                ?? policy.model
             // The single relaunch this tick will perform, if any. Reasons fire in priority order
             // (pin > cap > degradation > fallback) and the FIRST owns the account move; a follow
             // adoption only folds its model/effort onto that target. Executed once at the tick's
@@ -241,7 +246,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 pendingCap = nil
             }
             if sawCap, pendingCap == nil {
-                let capModel = flagValue(launchArgs, "--model") ?? policy.model
+                // The window that capped is the one this session was running in, which is the same
+                // question `effectivePrimary` above already answered.
+                let capModel = effectivePrimary
                 // The cap's own instant, not the moment this 2s poll noticed it. The recovery
                 // boundary is measured against this once and never recomputed, so the poll delay
                 // would otherwise be enough to read a reset landing inside it as a stale stamp and

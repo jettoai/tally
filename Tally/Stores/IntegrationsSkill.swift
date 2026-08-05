@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 4
+    nonisolated static let skillVersion = 5
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -17,7 +17,7 @@ extension IntegrationsStore {
         """
         ---
         name: tally-quota
-        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, which account a launch would land on, and the usage advisor's verdict on whether the current accounts cover the workload. Use when the user asks how much quota is left, about rate limits or resets, which account to use, whether to add another account, how usage is trending, or before starting heavy multi-agent work.
+        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, which account a launch would land on, and the usage advisor's verdict on whether the current accounts cover the workload. Also sets a per-project launch profile (which model this repo runs) and moves a running conversation to a fresh account. Use when the user asks how much quota is left, about rate limits or resets, which account to use, whether to add another account, how usage is trending, before starting heavy multi-agent work, when a project should run a cheaper model than the fleet default, or when the account a session is on runs low mid-conversation.
         ---
 
         <!-- tally-skill v\(skillVersion), managed by Tally.app (Settings -> Integrations); safe to delete -->
@@ -92,6 +92,54 @@ extension IntegrationsStore {
           drained.
         - If the `tally` command is missing, the Command line tool integration in Tally's
           Settings installs it.
+
+        # A per-project launch profile
+
+        Most projects want the flagship model. Some do not, and those are exactly the ones
+        whose sessions should stop spending the flagship window. When the user says
+        something like "this project can run on opus" or "stop burning Fable here", write
+        it down instead of remembering it:
+
+        ```
+        tally project set --model opus            # run from inside the project
+        tally project set --model opus --effort high
+        tally project set --account "Claude 2"    # pin this project to one account
+        tally project show                        # what this directory runs, and what it overrides
+        tally project clear                       # drop the profile
+        ```
+
+        What it does:
+
+        - The profile belongs to the whole repository, worktrees included, so a parallel
+          line launched with `tally claude -w <name>` inherits it.
+        - Precedence is a flag you type, then the project profile, then the app defaults.
+          Typing `--model haiku` still wins for that one launch.
+        - It steers the ACCOUNT pick, not only the flag. Tally scores an account on the
+          model the session will actually run, so under an opus profile an account whose
+          Fable window is drained is eligible again. That is the point: the projects that
+          need Fable keep the accounts that still have it.
+        - `tally status --json` reports the profile of the directory it runs in as a
+          top-level `projectPolicy` (`path`, and `providers.<provider>` with `model`,
+          `effort`, `accountID`); the key is absent when the directory has no profile. The
+          `best` flags in the same output already reflect it.
+
+        # When an account runs low mid-conversation
+
+        `tally resume` continues THIS directory's most recent Claude conversation on
+        another account:
+
+        ```
+        tally resume
+        ```
+
+        It finds the newest session transcript for the current directory across all
+        accounts, picks the best OTHER eligible account by the same scoring `tally claude`
+        uses, copies the transcript over when the accounts do not share a projects tree
+        (never overwriting), and launches `claude --resume <id>` there. With no other
+        eligible account it says so and resumes on the account the session is already on.
+        Suggest it when the current account's binding window is nearly drained and the
+        conversation is worth keeping; a session launched through `tally claude` also hands
+        itself off automatically when it actually hits a cap.
         """
     }
 

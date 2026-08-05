@@ -62,8 +62,9 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // A running session follows a later Settings change to the default model/effort UNLESS the
     // user opted out (--no-follow) or typed their own --model or --effort (a deliberate choice
     // outranks the default, and the follow adopts the pair as a whole - it must never overwrite
-    // a hand-typed flag). Captured before the policy injects its own flags below.
-    let allowFollow = autoFollowEnabled(args: passthrough)
+    // a hand-typed flag). Captured before the policy injects its own flags below; the project
+    // profile joins the same condition once it is read (`allowFollow`, further down).
+    let followEnabled = autoFollowEnabled(args: passthrough)
         && !optionsOnly(passthrough).contains("--model")
         && !optionsOnly(passthrough).contains("--effort")
     passthrough = removingOption(passthrough, "--no-follow")
@@ -76,50 +77,22 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
 
-    // Launch defaults from the app (Settings), injected only when the user typed no flag of
-    // their own on the same axis - explicit flags always win. `--new` is tally's own flag: it
-    // suppresses a "continue by default" setting for this one launch and is never passed through.
-    let policy = launchPolicy(provider.id)
+    // Launch defaults, injected only when the user typed no flag of their own on the same axis -
+    // explicit flags always win. Two sources, narrower first: this directory's own launch profile
+    // (`tally project`) laid over the app's Settings. What that decides is not only what the session
+    // runs but - through `primaryModel` below - which accounts it may run on. Resolved once; the cwd
+    // cannot change under this process (the worktree chdir already happened).
+    // `--new` is tally's own flag: it suppresses a "continue by default" setting for this one launch
+    // and is never passed through.
+    let project = projectPolicy(provider.id)
+    let policy = effectivePolicy(launchPolicy(provider.id), project: project)
+    // A project profile is as deliberate a choice about this session's pair as a typed flag, and
+    // the follow adopts the Settings pair AS A WHOLE - letting it run would overwrite what the
+    // project declared with the fleet-wide default it was written to escape.
+    let allowFollow = followEnabled && project.model == nil && project.effort == nil
     let wantsNew = optionsOnly(passthrough).contains("--new") || worktreeFresh
     passthrough = removingOption(passthrough, "--new")
-    if provider.id == "claude" {
-        // Both halves of every one of these stop at the first `--`: the question is what the
-        // user CHOSE, and the answer goes where it will be read (Snapshot.swift).
-        let typed = optionsOnly(passthrough)
-        if let mode = policy.permissionMode,
-           !typed.contains("--dangerously-skip-permissions"),
-           !typed.contains("--permission-mode") {
-            switch mode {
-            case "plan": passthrough = injectingOptions(passthrough, ["--permission-mode", "plan"])
-            case "acceptEdits":
-                passthrough = injectingOptions(passthrough, ["--permission-mode", "acceptEdits"])
-            case "bypass":
-                passthrough = injectingOptions(passthrough, ["--dangerously-skip-permissions"])
-            default: break
-            }
-        }
-        if let model = policy.model, !typed.contains("--model") {
-            passthrough = injectingOptions(passthrough, ["--model", model])
-        }
-        if let fallback = policy.fallbackModel, !typed.contains("--fallback-model") {
-            passthrough = injectingOptions(passthrough, ["--fallback-model", fallback])
-        }
-        if let effort = policy.effort, !typed.contains("--effort") {
-            passthrough = injectingOptions(passthrough, ["--effort", effort])
-        }
-    }
-    if provider.id == "codex" {
-        let typed = optionsOnly(passthrough)
-        if let model = policy.model,
-           !typed.contains("-m"), !typed.contains("--model") {
-            passthrough = injectingOptions(passthrough, ["-m", model])
-        }
-        if let effort = policy.effort,
-           !typed.contains(where: { $0.contains("model_reasoning_effort") }) {
-            passthrough = injectingOptions(passthrough,
-                                           ["-c", "model_reasoning_effort=\"\(effort)\""])
-        }
-    }
+    passthrough = applyLaunchDefaults(passthrough, policy: policy, providerID: provider.id)
 
     // The start mode is the one launch default that cannot be decided up here: `--continue` is
     // resolved by claude against the config home it runs under, so whether injecting it produces a
@@ -133,13 +106,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     }
 
     if let pinned {
-        let query = pinned.lowercased()
-        let match = snapshot?.accounts.first { account in
-            account.provider == provider.id && account.launchHome != nil &&
-                (account.label.lowercased().contains(query) ||
-                 URL(fileURLWithPath: account.launchHome!).lastPathComponent.lowercased().contains(query))
-        }
-        guard let match else {
+        guard let match = accountMatching(pinned, provider: provider.id, in: snapshot) else {
             warn("no \(provider.id) account matches \"\(pinned)\" - try `tally status`")
             exit(1)
         }
@@ -148,17 +115,20 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
              env: launchEnv(provider, home: match.launchHome!))
     }
 
-    // The app's launch policy (Settings → Launch account). A `--account` flag above outranks it.
+    // The pinned account: the app's launch policy (Settings → Launch account) or this project's own
+    // `tally project set --account`, which the overlay above expressed as the same pin. A
+    // `--account` flag outranks both (handled above).
     // "off" still auto-picks HERE: invoking `tally claude` is itself an explicit ask to pick -
     // off only means Tally must not steer launches it wasn't asked into (the PATH shim).
     if policy.mode == "manual" {
+        let pinnedBy = project.accountID != nil ? "pinned for this project" : "pinned in Tally"
         if let match = snapshot?.accounts.first(where: {
             $0.id == policy.pinnedAccountID && $0.launchHome != nil
         }) {
             if headroom(match) <= 0 {
-                warn("\(match.label) is out of quota - launching anyway (pinned in Tally)")
+                warn("\(match.label) is out of quota - launching anyway (\(pinnedBy))")
             }
-            warn("→ \(match.label) (pinned in Tally)")
+            warn("→ \(match.label) (\(pinnedBy))")
             let args = startModeArgs(passthrough, home: match.launchHome!)
             // Still supervised: a Tally pin can be MOVED from the panel mid-session (live pin
             // switch), so the supervisor stays resident; it won't cap-handoff while pinned.
@@ -185,17 +155,22 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
         exec(provider.cli, args: startModeArgs(passthrough, home: defaultHome(provider)), env: nil)
     }
+    // What the accounts are scored FOR: the model this launch will actually run, read off the args
+    // it will run with (Snapshot.swift). The three sources were already ranked when the defaults
+    // were injected, so a hand-typed `--model` reaches the pick exactly as it reaches the child -
+    // scoring on `policy.model` here would have quietly ignored the flag the user typed.
+    let primaryModel = launchPrimaryModel(passthrough, providerID: provider.id) ?? policy.model
     // Skip an account another session just saw cap: the snapshot lags the real cap, so its
     // percentage still reads healthy and picking it would drop a fresh session onto the wall that
     // just failed. `launchPick` also carries the "quarantine left nothing, launch anyway" fallback,
     // and is what `tally status` and the app's badge predict this launch with.
-    let quarantined = quarantinedAccounts(forPrimary: policy.model)
+    let quarantined = quarantinedAccounts(forPrimary: primaryModel)
     guard let account = launchPick(providerID: provider.id, in: snapshot,
-                                   primaryModel: policy.model, quarantined: quarantined) else {
+                                   primaryModel: primaryModel, quarantined: quarantined) else {
         warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
         exec(provider.cli, args: startModeArgs(passthrough, home: defaultHome(provider)), env: nil)
     }
-    warn("→ \(account.label) (\(pickReason(account, primaryModel: policy.model)))")
+    warn("→ \(account.label) (\(pickReason(account, primaryModel: primaryModel)))")
     let args = startModeArgs(passthrough, home: account.launchHome!)
     // Claude sessions get the resident supervisor (auto-handoff on a cap hit); an explicit
     // `--account` pin or `--no-handoff` opts out, and codex stays a plain exec for now.
@@ -212,15 +187,38 @@ func runStatus(json: Bool = false) {
     let advisor = loadAdvisorReadings(plans: accountPlans(snapshot))
     // The arrow marks the account a launch WOULD land on, so it has to skip what the launcher
     // skips: a quarantined account (see Quarantine.swift). Read once for both output shapes.
-    let policies = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, launchPolicy($0.id)) })
+    //
+    // Through the same overlay the launcher applies, and keyed on the directory this command was
+    // run in: a project that declares opus is predicted on opus. A status that answered from the
+    // fleet-wide default would name a different account than the launch a line later lands on,
+    // which is the one thing a prediction may never do (ProjectPolicy.swift).
+    let projectKey = projectPolicyKey()
+    let projectFile = loadProjectPolicies()
+    let policies = Dictionary(uniqueKeysWithValues: providers.map {
+        ($0.id, effectivePolicy(launchPolicy($0.id),
+                                project: projectFile.policy($0.id, for: projectKey)))
+    })
     let quarantined = policies.mapValues { quarantinedAccounts(forPrimary: $0.model) }
+    let profile = statusProjectProfile(projectFile, key: projectKey)
     if json {
         // Only the JSON shape carries the live sessions: the human output is a fleet summary, and
         // this is a per-conversation number a script asks for by name (SessionContext.swift).
         print(encodeStatusReport(statusReport(snapshot, policies: policies, advisor: advisor,
                                               quarantined: quarantined,
-                                              sessions: supervisedContextTokens())))
+                                              sessions: supervisedContextTokens(),
+                                              projectPolicy: profile)))
         return
+    }
+    // Said before the rows, because it changes how they read: these arrows were placed under this
+    // project's model, not under the app's.
+    let declaredHere = projectFile.declared(for: projectKey)
+    for provider in providers {
+        guard let declared = declaredHere[provider.id] else { continue }
+        // Named as the rows below name it: the id is what the profile stores, and printing it
+        // beside a list of labels asks the reader to do the join themselves.
+        print("project \(projectKey): \(provider.id) runs " +
+              projectPolicySummary(declared,
+                                   accountLabel: projectPolicyAccountLabel(declared, in: snapshot)))
     }
     for provider in providers {
         let accounts = snapshot.accounts.filter { $0.provider == provider.id }
@@ -308,7 +306,14 @@ func runResume(args: [String]) -> Never {
     let sessionID = newest.file.deletingPathExtension().lastPathComponent
 
     // Prefer the best OTHER eligible account; fall back to the source account (a plain resume).
-    let primaryModel = launchPolicy(provider.id).model
+    // Scored on what THIS resume runs: a `--model` in the args passed through outranks the project
+    // profile, which outranks the app default, the same ranking the launcher applies. So a resume
+    // in an opus project is not held back by a Fable window it never spends. The account pin a
+    // project may also declare is deliberately not read here: this command's whole purpose is to
+    // move a conversation to a different account, and the app's own pin has never been honoured
+    // here either.
+    let primaryModel = launchPrimaryModel(args, providerID: provider.id)
+        ?? effectivePolicy(launchPolicy(provider.id), project: projectPolicy(provider.id)).model
     let target = snapshot.accounts
         .filter { $0.provider == provider.id && eligible($0, primaryModel: primaryModel)
             && $0.id != newest.account.id }
@@ -340,22 +345,25 @@ func runResume(args: [String]) -> Never {
     exec(provider.cli, args: ["--resume", sessionID] + args, env: launchEnv(provider, home: target.launchHome!))
 }
 
-func runBestDir(_ providerID: String) {
-    guard let provider = providers.first(where: { $0.id == providerID }) else {
-        warn("unknown provider `\(providerID)` - use claude or codex")
-        exit(2)
-    }
-    let (snapshot, problem) = loadSnapshot()
-    if let problem { warn(problem) }
-    // A Tally-set manual pin is the answer regardless of headroom - the user chose by hand. Except
-    // a pin whose account has signed out, which is not launchable by anyone (AccountPick.swift).
-    let policy = launchPolicy(provider.id)
-    let home = pinnedLaunchHome(snapshot, policy: policy)
-        ?? snapshot.flatMap { best(providerID: provider.id, in: $0)?.launchHome }
-    guard let home else {
-        warn("no eligible \(providerID) account")
-        exit(1)
-    }
+/// The config home a launch under `policy` would run in: its manual pin - in Tally or from
+/// `tally project set --account` - when that resolves to a launchable account, and otherwise the
+/// same headroom pick `runLaunch` makes, this project's model and the live cap quarantine included.
+/// A pin resolves regardless of headroom (the user chose by hand) except when its account has
+/// signed out, which is not launchable by anyone (AccountPick.swift).
+///
+/// Shared by `best-dir` and `launch-dir` so neither can print an export line naming an account the
+/// launch itself would skip, which is a wrong answer to the only question either command asks.
+func steeredLaunchHome(_ provider: Provider, in snapshot: Snapshot?,
+                       policy: LaunchPolicy) -> String? {
+    pinnedLaunchHome(snapshot, policy: policy)
+        ?? snapshot.flatMap {
+            launchPick(providerID: provider.id, in: $0, primaryModel: policy.model,
+                       quarantined: quarantinedAccounts(forPrimary: policy.model))?.launchHome
+        }
+}
+
+/// The eval-able answer both shim commands print, so the shim gets the same environment either way.
+func printLaunchExports(_ provider: Provider, home: String) {
     // Mirror launchEnv: the default home must UNSET the variable (explicitly setting the default
     // path makes Claude Code look up a hashed Keychain item that doesn't exist). Both lines eval.
     if launchEnv(provider, home: home) == nil {
@@ -370,6 +378,21 @@ func runBestDir(_ providerID: String) {
     print("export TALLY_SUPERVISED=0")
 }
 
+func runBestDir(_ providerID: String) {
+    guard let provider = providers.first(where: { $0.id == providerID }) else {
+        warn("unknown provider `\(providerID)` - use claude or codex")
+        exit(2)
+    }
+    let (snapshot, problem) = loadSnapshot()
+    if let problem { warn(problem) }
+    let policy = effectivePolicy(launchPolicy(provider.id), project: projectPolicy(provider.id))
+    guard let home = steeredLaunchHome(provider, in: snapshot, policy: policy) else {
+        warn("no eligible \(providerID) account")
+        exit(1)
+    }
+    printLaunchExports(provider, home: home)
+}
+
 /// `tally launch-dir` - the machine interface for the codex/claude PATH shims. Unlike `best-dir`
 /// (an explicit "which is best" question), this answers "should a BARE invocation be steered, and
 /// where": mode off prints nothing (the shim passes through untouched), manual prints the pin,
@@ -379,23 +402,17 @@ func runLaunchDir(_ providerID: String) {
         warn("unknown provider `\(providerID)` - use claude or codex")
         exit(2)
     }
-    let policy = launchPolicy(provider.id)
-    guard policy.mode != "off" else { return }
+    // The "off" gate is asked of the APP's policy, before the project overlay: off is about whether
+    // Tally may steer a launch it was not asked into at all, which is a question about the shim and
+    // not about what any one project runs.
+    let appPolicy = launchPolicy(provider.id)
+    guard appPolicy.mode != "off" else { return }
+    let policy = effectivePolicy(appPolicy, project: projectPolicy(provider.id))
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
-    guard let home = pinnedLaunchHome(snapshot, policy: policy)
-        ?? snapshot.flatMap({ best(providerID: provider.id, in: $0)?.launchHome })
-    else { return }   // nothing eligible - stay silent, the shim runs the bare CLI
-    if launchEnv(provider, home: home) == nil {
-        print("unset \(provider.envKey)")
-    } else {
-        print("export \(provider.envKey)=\(home)")
-    }
-    // The status line reads this to show "this session runs under Tally" (✦). A shim-steered bare
-    // launch has no resident supervisor, so mark it unsupervised (the status line stays quiet
-    // rather than nagging "supervisor unknown").
-    print("export TALLY_LAUNCHED=1")
-    print("export TALLY_SUPERVISED=0")
+    // Nothing eligible - stay silent, the shim runs the bare CLI.
+    guard let home = steeredLaunchHome(provider, in: snapshot, policy: policy) else { return }
+    printLaunchExports(provider, home: home)
 }
 
 // MARK: - Entry
@@ -410,6 +427,8 @@ case "resume":
     runResume(args: Array(arguments.dropFirst()))
 case "worktree":
     runWorktree(args: Array(arguments.dropFirst()))
+case "project":
+    runProject(args: Array(arguments.dropFirst()))
 case "status", nil:
     runStatus(json: arguments.contains("--json"))
 case "best-dir":
@@ -442,6 +461,12 @@ default:
       tally worktree list       one tab-separated line per worktree, for grep and pipes
       tally worktree remove [name]  tear down a merged worktree (kill its agents, remove the
                                 worktree, its branch, and its transcripts); bare picks from a menu
+      tally project set --model <model> [--effort <effort>] [--account <name>]
+                                declare what THIS project launches (the whole repo, worktrees
+                                included): overrides the app's defaults, is overridden by a flag
+                                you type, and steers the account pick too - a project on opus
+                                stops letting a drained flagship window rule an account out.
+                                `show` / `list` / `clear` round it out
       tally status [--json]     show every account's remaining windows (--json: versioned
                                 machine-readable report for scripts, hooks, agent skills)
       tally best-dir <provider> print the export line for the best account

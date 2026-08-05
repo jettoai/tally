@@ -30,6 +30,23 @@ func eligible(_ account: Snapshot.Account, primaryModel: String? = nil) -> Bool 
         && headroom(account, primaryModel: primaryModel) > 0
 }
 
+/// The account a hand-written NAME picks out: matched case-insensitively, as a substring, against
+/// the label and the config-dir name, so nobody has to type an id (`--account claude2` finds both
+/// "Claude 2" and `~/.claude2`). Only launchable accounts are candidates - naming a signed-out one
+/// is not a way to launch it.
+///
+/// One matcher for `tally claude --account` and for `tally project set --account`, because the
+/// second stores what the first would have launched: a name that resolves one way when it is
+/// written down and another way when it is used is a pin that lands somewhere nobody asked for.
+func accountMatching(_ name: String, provider: String, in snapshot: Snapshot?) -> Snapshot.Account? {
+    let query = name.lowercased()
+    return snapshot?.accounts.first { account in
+        guard account.provider == provider, let home = account.launchHome else { return false }
+        return account.label.lowercased().contains(query)
+            || URL(fileURLWithPath: home).lastPathComponent.lowercased().contains(query)
+    }
+}
+
 // MARK: The manual pin, resolved
 
 /// Whether Tally KNOWS the pinned account's login is gone: the snapshot LISTS that account and

@@ -21,15 +21,6 @@ func autoFollowEnabled(args: [String]) -> Bool {
     return true
 }
 
-/// The value following `flag` in an argument vector (nil when absent or dangling). Read from the
-/// OPTIONS only: past a bare `--` the same word is part of the user's prompt, and `--model` there is
-/// something they wrote, not something they asked for.
-func flagValue(_ args: [String], _ flag: String) -> String? {
-    let options = optionsOnly(args)
-    guard let index = options.firstIndex(of: flag), index + 1 < options.count else { return nil }
-    return options[index + 1]
-}
-
 /// `args` minus the given value-taking flags (and their values), with everything from a bare `--`
 /// onward passed through untouched: that part is the prompt, and editing it edits what the user
 /// said.

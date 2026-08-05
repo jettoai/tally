@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 5
+    nonisolated static let skillVersion = 6
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -17,7 +17,7 @@ extension IntegrationsStore {
         """
         ---
         name: tally-quota
-        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, which account a launch would land on, and the usage advisor's verdict on whether the current accounts cover the workload. Also sets a per-project launch profile (which model this repo runs) and moves a running conversation to a fresh account. Use when the user asks how much quota is left, about rate limits or resets, which account to use, whether to add another account, how usage is trending, before starting heavy multi-agent work, when a project should run a cheaper model than the fleet default, or when the account a session is on runs low mid-conversation.
+        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, which account a launch would land on, and the usage advisor's verdict on whether the current accounts cover the workload. Also sets a per-project launch profile (which model this repo runs) and moves a running conversation to another account, either one the user names or the one with the most headroom. Use when the user asks how much quota is left, about rate limits or resets, which account to use, whether to add another account, how usage is trending, before starting heavy multi-agent work, when a project should run a cheaper model than the fleet default, when the user asks to switch this session to a particular account, or when the account a session is on runs low mid-conversation.
         ---
 
         <!-- tally-skill v\(skillVersion), managed by Tally.app (Settings -> Integrations); safe to delete -->
@@ -123,6 +123,40 @@ extension IntegrationsStore {
           `effort`, `accountID`); the key is absent when the directory has no profile. The
           `best` flags in the same output already reflect it.
 
+        # Moving this session to a named account
+
+        When the user says "switch to Claude 4", "move this session to my other account",
+        or "this one is nearly dry, hop over", run it from inside the session:
+
+        ```
+        tally switch "Claude 4"
+        ```
+
+        The name is matched against the account labels and config-dir names `tally status`
+        shows, case-insensitively. What happens next, and what to tell the user:
+
+        - THE MOVE HAPPENS WHEN THE CURRENT TURN ENDS, not while you are running the
+          command: the request waits for the session to stop writing, which includes the
+          tool call you just made. Finish your answer as normal. The session then restarts
+          on the named account with the conversation intact, so the next thing the user
+          types is answered from the same context on the new account.
+        - It is one shot. No pin is written and no project profile changes, so automatic
+          handoff keeps working from there: a cap still moves the session, a nearly dry
+          account still hands it on.
+        - It exits 0 having queued the move, or non-zero having changed nothing: no such
+          account, or a session nothing is supervising (launched bare, with `--no-handoff`,
+          or with an `--account` pin). Read the message rather than assuming it worked.
+        - When the session's supervisor is from another build, the move waits for it to
+          replace itself at an idle moment; the command says so. Relay that rather than
+          running the command again, which only queues the same move twice.
+        - Switching to a drained account is allowed and warned about: an explicit
+          instruction outranks the quota check.
+
+        For "this project should ALWAYS run on that account", write it down instead:
+        `tally project set --account "Claude 4"` (the section above). The two are different
+        instructions: `switch` moves this conversation now, `project set` decides where
+        future launches in this repo land.
+
         # When an account runs low mid-conversation
 
         `tally resume` continues THIS directory's most recent Claude conversation on
@@ -139,7 +173,8 @@ extension IntegrationsStore {
         eligible account it says so and resumes on the account the session is already on.
         Suggest it when the current account's binding window is nearly drained and the
         conversation is worth keeping; a session launched through `tally claude` also hands
-        itself off automatically when it actually hits a cap.
+        itself off automatically when it actually hits a cap. Use `tally switch` instead
+        when the user names the account to move to: `resume` picks one by headroom.
         """
     }
 

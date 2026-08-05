@@ -47,7 +47,7 @@ func pendingNoticeFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 /// or any of the documents written beside it under a suffix. nil for anything else in there, which
 /// is what keeps the sweep off files that are not ours - so a new document on this track is added
 /// to the list below, or a dead session's copy of it is never swept.
-let supervisorStateSuffixes = [pendingNoticeSuffix, sessionContextSuffix]
+let supervisorStateSuffixes = [pendingNoticeSuffix, sessionContextSuffix, supervisorCwdSuffix]
 
 func supervisorStatePid(ofFile name: String) -> pid_t? {
     if let pid = pid_t(name) { return pid }

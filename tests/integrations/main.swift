@@ -152,7 +152,7 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 5", IntegrationsStore.skillVersion == 5)
+    check("skill is at version 6", IntegrationsStore.skillVersion == 6)
     check("skill teaches the advisor field", currentSkill.contains("advisor.<provider>"))
     check("skill spells out every verdict",
           currentSkill.contains("`collecting`") && currentSkill.contains("`addAccount`")
@@ -204,6 +204,27 @@ try MainActor.assumeIsolated {
     check("…and describes what resume actually does, per TallyCLI/main.swift",
           skillProse.contains("picks the best OTHER eligible account")
               && skillProse.contains("copies the transcript over"))
+
+    // `tally switch` is the one command here whose main caller is the agent reading this file, run
+    // from inside the session it moves - so what the prose has to get right is the TIMING. An agent
+    // that believes the move is immediate stops mid-answer waiting for a restart that is waiting
+    // for it, and one that believes nothing happened says so to the user.
+    check("skill teaches switching this session to a named account",
+          currentSkill.contains("tally switch \"Claude 4\""))
+    check("skill says the move waits for the turn the agent is in",
+          skillProse.contains("THE MOVE HAPPENS WHEN THE CURRENT TURN ENDS"))
+    check("…and tells the agent to finish answering rather than wait",
+          skillProse.contains("Finish your answer as normal"))
+    check("…and promises the conversation survives it",
+          skillProse.contains("with the conversation intact"))
+    check("skill separates the one-shot move from the persistent profile",
+          skillProse.contains("`switch` moves this conversation now, `project set` decides where"))
+    check("skill says a failure changes nothing, so exit codes are read",
+          skillProse.contains("or non-zero having changed nothing"))
+    check("skill names the sessions that cannot be switched",
+          skillProse.contains("launched bare, with `--no-handoff`, or with an `--account` pin"))
+    check("…and tells the agent not to re-run a move that is merely waiting",
+          skillProse.contains("Relay that rather than running the command again"))
 
     // MARK: auto-update - old installs follow the app, absent and foreign files never do.
     let autoDir = tmp.appendingPathComponent("auto")

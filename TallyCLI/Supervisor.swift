@@ -77,30 +77,30 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// IS that exec, and written again when this process attempts one of its own.
     var selfUpdateAttempted = consumeSelfUpdateAttempt()
     let supervisorPID = String(getpid())
+    /// What the user has asked for by hand about the account this session runs on: the served
+    /// `tally switch` stamp and the pin a switch overrode (SessionSwitch.swift). Seeded from
+    /// whatever is addressed to this pid right now, so a request left by the session that held the
+    /// pid before never fires - except when this process IS that session carrying on through a
+    /// self-update exec, where the same file is a request somebody made seconds ago. Held across
+    /// relaunches, like the fuse and the quarantine.
+    var manualMoves = ManualMoveState(sessionKey: supervisorPID, servedEpoch: resumed ? 0 : nil)
     // Reap drift-state files left by dead supervisors (a SIGKILL skips the clear path) before this
     // one starts writing its own; also shrinks the pid-reuse window for a stale badge.
     sweepDeadSupervisorState()
     // Register in the same directory as a live supervisor (an empty file; a drift episode fills it
     // in later): `tally reload` counts these to say how many sessions its request will restart.
     markSupervisorLive(pid: supervisorPID)
+    // Where this session runs, for a `tally switch` typed in a shell that carries no session marker
+    // (SessionSwitch.swift). Written once: a supervisor's cwd cannot change under it.
+    writeSupervisorCwd(FileManager.default.currentDirectoryPath, pid: supervisorPID)
 
     while true {
         let launchedAt = Date()
-        var environment = ProcessInfo.processInfo.environment
-        environment.removeValue(forKey: provider.envKey)
-        // The status line reads this to show "this session runs under Tally" (✦).
-        environment["TALLY_LAUNCHED"] = "1"
-        if let supervisorVersion { environment["TALLY_SUPERVISOR_VERSION"] = supervisorVersion }
-        environment["TALLY_SUPERVISOR_PID"] = supervisorPID
-        // A relaunch resumes by id with nobody at the keyboard, so it must not stop at Claude Code's
-        // "resume the whole conversation?" prompt; the user's own first launch keeps it
-        // (ResumePrompt.swift).
-        for (key, value) in resumePromptSuppression(environment, relaunch: relaunching) {
-            environment[key] = value
-        }
-        if let env = launchEnv(provider, home: account.launchHome!) {
-            environment[env.key] = env.value
-        }
+        // What the child is launched with: the account's config home and the markers every Tally
+        // surface reads back out of it (SupervisorRuntime.swift).
+        let environment = supervisedChildEnvironment(
+            provider: provider, home: account.launchHome!, supervisorVersion: supervisorVersion,
+            supervisorPID: supervisorPID, relaunch: relaunching)
         // A relaunch inherits a terminal whose reader was just killed, and everything queued on it
         // since - the answer to a query the dead child never collected, a keystroke typed into the
         // gap - would arrive as the first thing the new child reads and land in its prompt box
@@ -224,6 +224,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // if the relaunch happens (SafeguardDrift.swift). Tick-local like the plan it belongs
             // to: a stand-down drops it by going out of scope, with nothing to undo.
             var safeguardRecord: PendingSafeguardRecord?
+            /// A served `tally switch`, for the same reason and on the same terms: the stamp and
+            /// the pin it overrides are written only if the relaunch happens (SessionSwitch.swift),
+            /// so a stand-down leaves the request pending instead of swallowing it.
+            var switchRecord: PendingSwitchConsumption?
 
             // Cap recovery has top priority: scan for the cap BEFORE any relaunch path (pin,
             // follow, rescue, fallback), because a relaunch resets the watcher's `since` and would
@@ -275,21 +279,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // quota-degradation paths below with `drift.isActive` (DriftMonitor.swift).
             observeDrift(&drift, watcher: &watcher, primary: effectivePrimary, pid: supervisorPID)
 
-            // Live pin switch: pinning another account in the Tally panel moves the RUNNING
-            // session there. An explicit human act, so no fuse; the pinned account is used even
-            // when capped (that is what pinning means). Waits for a quiet transcript so an
-            // in-flight response is never cut mid-stream (the next 2s poll retries) and a quiet
-            // keyboard so a prompt being typed survives too; both default to the same 5s bar.
-            if policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id,
-               watcher.isQuiet(), keyboard.idle() {
-                let (snapshot, _) = loadSnapshot()
-                if let target = snapshot?.accounts.first(where: {
-                    $0.id == pinnedID && $0.provider == provider.id && $0.launchHome != nil
-                }) {
-                    warn("pinned in Tally → switching to \(target.label)")
-                    plan = RelaunchPlan(target: target, reason: "pin", countsFuse: false)
-                }
-            }
+            // The moves the user asked for by hand - a `tally switch` typed inside this session,
+            // and the panel pin they moved - decided first, so every automatic reason below yields
+            // to them. The whole rule lives in SessionSwitch.swift; `switchRecord` is this tick's
+            // unwritten bookkeeping, committed at the execution point like the safeguard's.
+            applyManualMoves(plan: &plan, state: &manualMoves, record: &switchRecord,
+                             account: account, providerID: provider.id, policy: policy,
+                             watcher: &watcher, childAge: Date().timeIntervalSince(launchedAt),
+                             keyboardIdle: { keyboard.idle($0) })
 
             // Cap handoff / wait: a pending cap outranks follow, rescue, and fallback for the
             // account MOVE (the pin switch above still wins). The backoff gate and the "waiting"
@@ -472,6 +469,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // be written now, before the child goes, which is what the supervisor behind the
                 // relaunch reads to know the event was corrected (SafeguardDrift.swift).
                 safeguardRecord?.commit()
+                switchRecord?.commit(&manualMoves)
                 carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)
                 let upgrade = selfUpdateFold(captured: supervisorVersion,
                                              attempted: selfUpdateAttempted,

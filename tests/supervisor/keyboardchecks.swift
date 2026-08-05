@@ -238,11 +238,20 @@ func runKeyboardChecks() {
     } else {
         check("both the reading and a gate that uses it are present", false)
     }
-    if let pin = block(from: "// Live pin switch:", to: "// Cap handoff / wait:") {
-        check("the pin adoption waits for the keyboard too", pin.contains("keyboard.idle()"))
-    } else {
-        check("the pin block boundaries were found", false)
-    }
+    // The pin switch moved to SessionSwitch.swift, where it shares its decision with the
+    // `tally switch` a user types inside the session; its half of this is now asserted the way the
+    // follow adoption's below is - the rule asks the keyboard it was handed, and the tick hands it
+    // the tracker (the second half is the shared `keyboardIdle: { keyboard.idle($0) }` check).
+    let manualMoveSource = (try? String(contentsOfFile: "TallyCLI/SessionSwitch.swift",
+                                        encoding: .utf8)) ?? ""
+    check("the manual-move source is readable from the keyboard checks", !manualMoveSource.isEmpty)
+    check("the pin adoption waits for the keyboard too",
+          manualMoveSource.contains("keyboardIdle(manualMoveIdleSeconds)"))
+    check("and so does an explicit switch",
+          manualMoveSource.contains("keyboardQuiet: keyboardIdle(manualMoveIdleSeconds)"))
+    check("neither reads a keyboard of its own",
+          !manualMoveSource.contains("lastKeyboardInput")
+              && !manualMoveSource.contains("keyboardIdleNow"))
     // The follow adoption moved to a file of its own, so its half of this is asserted the way the
     // reload and safeguard gates already are: the decision asks the keyboard it was handed, and the
     // tick hands it the tracker. Splitting the assertion is what keeps a call site that stopped

@@ -31,6 +31,45 @@ func spawnChild(_ argv: [String], environment: [String: String],
     return posix_spawnp(&pid, program, nil, nil, cArgs, cEnv) == 0 ? pid : nil
 }
 
+// MARK: - The child's environment
+
+/// The environment a supervised child is launched with: the account's config home, plus the markers
+/// the surfaces outside this process read back out of it.
+///
+/// Three of them are a contract with something else in this repo, which is why they are assembled in
+/// one place rather than at the spawn:
+///
+///   - `TALLY_LAUNCHED` tells the status line this session runs under Tally (the ✦).
+///   - `TALLY_SUPERVISOR_VERSION` lets it tell whether the supervisor watching the session is the
+///     current build (a session launched before an app update runs stale logic).
+///   - `TALLY_SUPERVISOR_PID` addresses the session. The status line reads the drift badge and the
+///     pending notice under that pid, and `tally switch` writes its request there
+///     (SessionSwitch.swift) - it reaches the agent's own shell because every process the child
+///     spawns inherits this.
+///
+/// The provider's own home variable is cleared first and then set from the account, so a home
+/// exported in the parent's environment can never leak into a child the supervisor placed somewhere
+/// else; `launchEnv` returning nil is the DEFAULT home, which must launch with the variable unset
+/// (Snapshot.swift explains why).
+func supervisedChildEnvironment(provider: Provider, home: String, supervisorVersion: String?,
+                                supervisorPID: String, relaunch: Bool,
+                                base: [String: String] = ProcessInfo.processInfo.environment)
+    -> [String: String] {
+    var environment = base
+    environment.removeValue(forKey: provider.envKey)
+    environment["TALLY_LAUNCHED"] = "1"
+    if let supervisorVersion { environment["TALLY_SUPERVISOR_VERSION"] = supervisorVersion }
+    environment["TALLY_SUPERVISOR_PID"] = supervisorPID
+    // A relaunch resumes by id with nobody at the keyboard, so it must not stop at Claude Code's
+    // "resume the whole conversation?" prompt; the user's own first launch keeps it
+    // (ResumePrompt.swift).
+    for (key, value) in resumePromptSuppression(environment, relaunch: relaunch) {
+        environment[key] = value
+    }
+    if let env = launchEnv(provider, home: home) { environment[env.key] = env.value }
+    return environment
+}
+
 // MARK: - Non-urgent idle bar
 
 /// How still a session must be before a NON-URGENT relaunch takes it (a follow adoption, a reload

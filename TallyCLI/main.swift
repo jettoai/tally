@@ -249,9 +249,9 @@ func runStatus(json: Bool = false) {
         if !pools.isEmpty {
             let now = Date()
             let pieces = pools.map { pool -> String in
-                let label = pool.poolName.map { "\($0.lowercased()) pool" } ?? "pool"
-                var text = "\(label) " + String(format: "%.1f/%d", pool.remaining / 100,
-                                                Int((pool.capacity / 100).rounded()))
+                var text = "\(poolLabel(pool.poolName)) "
+                    + String(format: "%.1f/%d", pool.remaining / 100,
+                             Int((pool.capacity / 100).rounded()))
                 if let dryAt = pool.dryAt, dryAt > now {
                     text += " (~\(shortETA(dryAt.timeIntervalSince(now))) left)"
                 } else if pool.sustainable {
@@ -377,6 +377,8 @@ case "statusline":
     runStatusline(args: Array(arguments.dropFirst()))
 case "reload":
     exit(runReload(args: Array(arguments.dropFirst())))
+case "switch":
+    exit(runSwitch(args: Array(arguments.dropFirst())))
 case resuperviseCommand:   // internal: a supervisor replacing itself after an app update
     runResupervise(args: Array(arguments.dropFirst()))
 case "update":
@@ -415,6 +417,12 @@ default:
                                 (CLAUDE.md/AGENTS.md, skills, hooks, agents, settings) and
                                 conversation record are symlinked in BY DEFAULT: one setup
                                 serves every account. Opt out with --no-share
+      tally switch <account>    move THIS session to another account, keeping the conversation:
+                                run it inside the session (the agent in it can run it too) and the
+                                move happens when the current turn ends. One shot - it changes no
+                                pin and no project profile, and automatic handoff carries on from
+                                there. For "this project always runs there", use
+                                `tally project set --account`
       tally reload [--now]      restart every supervised session at its next idle moment, so edited
                                 hooks, skills, and instructions take effect everywhere without
                                 visiting each terminal (--now waits only for a 5s quiet gap, so it

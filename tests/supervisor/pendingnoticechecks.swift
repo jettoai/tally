@@ -242,16 +242,31 @@ func runPendingNoticeChecks() {
     }
     check("and the five-minute drift reminder is gone with it",
           !driftSource.contains("shouldNudge"))
+    // The pin switch and the `tally switch` beside it moved to SessionSwitch.swift; both halves
+    // move with them. A switch held back for the turn that asked for it is the deferring case that
+    // matters most here: the child is drawing that very turn, so a line landing in its input box
+    // would be printed over the answer the user is reading.
+    let manualMoveSource = (try? String(contentsOfFile: "TallyCLI/SessionSwitch.swift",
+                                        encoding: .utf8)) ?? ""
+    check("the manual-move source is readable from the pending-notice checks",
+          !manualMoveSource.isEmpty)
+    if let queuedSwitch = section(manualMoveSource, from: "case .none, .queued:", to: "case .gone:") {
+        check("a queued switch says nothing on the terminal", !queuedSwitch.contains("warn("))
+    } else {
+        check("the queued switch branch was found", false)
+    }
     // The speaking half: every one of these is printed as the child is being terminated, so the
     // terminal is about to be redrawn from scratch and the user needs to know why.
     for announcement in ["reload requested → restarting this session",
                          "cap hit → handing off to",
                          "nearly dry, moving to",
                          "model fell back to",
-                         "pinned in Tally → switching to"] {
+                         "pinned in Tally → switching to",
+                         "switching to \\(target.label) as asked"] {
         let source = announcement.hasPrefix("reload") ? reloadSource
             : announcement.hasPrefix("launch default") ? followSource
-            : announcement.hasPrefix("model fell back") ? degradationSource : loop
+            : announcement.hasPrefix("model fell back") ? degradationSource
+            : announcement.contains("switching to") ? manualMoveSource : loop
         check("\"\(announcement)\" still speaks, because the child is about to go",
               source.contains("warn(\"\(announcement)") || source.contains("\(announcement)"))
     }

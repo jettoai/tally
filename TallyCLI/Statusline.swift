@@ -122,26 +122,20 @@ func runStatusline(args: [String]) -> Never {
             }
             return text
         }
-        // The fleet piece: the provider's pools as ONE zone, each with its own label, in the
-        // panel gauge's units (accounts' worth left - a remaining number by nature) plus the
-        // pace forecast. Present only while the app's fleet gauge is on (same switch, same
-        // meaning; launch mode is deliberately irrelevant). `fleetPools` is the panel's own
-        // ordered pool list (gauge focus applied app-side), so the line shows every pool the
-        // gauge shows; a snapshot from an older app carries only the single headline pool.
+        // The fleet piece: the provider's pools as ONE zone, each with its own label, the share
+        // of the pool still unspent, plus the pace forecast. Present only while the app's fleet
+        // gauge is on (same switch, same meaning; launch mode is deliberately irrelevant).
+        // `fleetPools` is the panel's own ordered pool list (gauge focus applied app-side), so
+        // the line shows every pool the gauge shows; a snapshot from an older app carries only
+        // the single headline pool.
         let fleetPools = snapshot?.fleetPools?["claude"]
             ?? snapshot?.fleet?["claude"].map { [$0] } ?? []
         let poolPieces: [String] = fleetPools.filter { $0.capacity > 0 }.map { fleet in
             let remainingPct = fleet.remaining / fleet.capacity * 100
             let tint = tintFor(remainingPct)
-            let worth = String(format: "%.1f/%d", fleet.remaining / 100,
-                               Int((fleet.capacity / 100).rounded()))
-            // "pool", not "fleet": the DATA label matches the panel's own ("Weekly pool") -
-            // "fleet" stays the FEATURE's name (the gauge, the Settings toggle, the README).
-            // A model pool says WHICH ("fable pool"): the gauge focus can re-point this slot,
-            // and a bare "pool" flipping between budgets read as a wrong number (panel rule:
-            // pool names are always spelled out).
-            let label = fleet.poolName.map { "\($0.lowercased()) pool" } ?? "pool"
-            var text = "\(dim)\(label)\(reset) \(meter(remainingPct, tint)) \(tint)\(worth)\(reset)"
+            let figure = poolRemainingFigure(remaining: fleet.remaining, capacity: fleet.capacity)
+            var text = "\(dim)\(poolLabel(fleet.poolName))\(reset) " +
+                "\(meter(remainingPct, tint)) \(tint)\(figure)\(reset)"
             if let dryAt = fleet.dryAt, dryAt > now {
                 text += " \(dim)(~\(shortETA(dryAt.timeIntervalSince(now))))\(reset)"
             } else if fleet.sustainable {
@@ -231,4 +225,39 @@ func runStatusline(args: [String]) -> Never {
         .filter { !$0.isEmpty }
         .joined(separator: " \(dim)|\(reset) "))
     exit(0)
+}
+
+// MARK: - The fleet pool slot
+
+/// What a pool slot is called. "pool", not "fleet": the DATA label matches the panel's own
+/// ("Weekly pool") - "fleet" stays the FEATURE's name (the gauge, the Settings toggle, the README).
+/// A model pool says WHICH ("fable pool"): the gauge focus can re-point this slot, and a bare "pool"
+/// flipping between budgets read as a wrong number (panel rule: pool names are always spelled out).
+///
+/// Shared with `tally status`'s own fleet line (main.swift), so the two surfaces cannot come to name
+/// the same pool differently.
+func poolLabel(_ poolName: String?) -> String {
+    poolName.map { "\($0.lowercased()) pool" } ?? "pool"
+}
+
+/// The figure the status line shows for a pool: how much of the WHOLE pool is still unspent, as a
+/// percent, rounded to a whole number.
+///
+/// The pool's own units are accounts' worth (one account's full weekly window = 100), which is what
+/// the panel gauge and `tally status` show and what the capacity is expressed in. On a status line
+/// that reading needed its denominator carried with it ("0.6/5") to mean anything, and sat beside
+/// three windows already quoted in percent - so the one slot in the row that was not a percentage
+/// was also the one nobody could read at a glance. The same number as a share of capacity says the
+/// thing the row is for (how much is left), in the row's own vocabulary. How many accounts that is
+/// stays one `tally status` away, where there is room for the units.
+///
+/// The bar beside it already draws this exact ratio, so the two now agree by construction rather
+/// than by coincidence.
+///
+/// A pool with no capacity cannot have a share and is filtered out before this is called; it is
+/// guarded rather than trusted because the division would otherwise produce an infinity, and
+/// converting one to `Int` traps.
+func poolRemainingFigure(remaining: Double, capacity: Double) -> String {
+    guard capacity > 0 else { return "0%" }
+    return "\(Int((remaining / capacity * 100).rounded()))%"
 }

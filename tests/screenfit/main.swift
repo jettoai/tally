@@ -116,7 +116,7 @@ check(ResizeAnchor.needsResize(from: CGSize(width: 504, height: 480),
                                to: CGSize(width: 520, height: 480)),
       "and so is a width change on its own")
 
-section("who may be top-anchored in its host")
+section("which corner the surface waits on, and who may wait at all")
 
 // `TopAnchored` reports whatever size it is proposed, which is what stops `NSHostingView` centring
 // the page while the window catches up - and which is also a fixpoint at ANY size. A host that
@@ -128,8 +128,25 @@ section("who may be top-anchored in its host")
 // visible in a build, a type-check or any other test: the window simply comes up empty.
 let rootSource = (try? String(contentsOfFile: "Tally/Views/PopoverRootView.swift",
                               encoding: .utf8)) ?? ""
-check(rootSource.contains(".topAnchoredInHost(enabled: onContentSize != nil)"),
-      "the surface is top-anchored only where the host sizes itself from what it reports")
+check(rootSource.contains(
+        ".anchoredInHost(settings.resizeAnchor(for: host), enabled: onContentSize != nil)"),
+      "the surface is anchored only where the host sizes itself from what it reports, "
+          + "and to the corner that host is holding")
+
+// The transition and its destination must be the SAME corner. Pinning the top while the host is
+// about to hold the bottom leaves the footer - and the view-options card hanging off it - a whole
+// growth step out of place until the window lands: measured 34-235pt of card movement per control,
+// under a header that never budged, which is why the first version of this shipped past a matrix
+// that only watched the header (2026-08-05, found by review).
+let square = CGRect(x: 10, y: 20, width: 100, height: 200)
+let (topPoint, topAnchor) = HostAnchored.placement(in: square, corner: .topLeading)
+check(topPoint == CGPoint(x: square.minX, y: square.minY) && topAnchor == .topLeading,
+      "holding the top left puts the content against the top of the bounds")
+let (bottomPoint, bottomAnchor) = HostAnchored.placement(in: square, corner: .bottomTrailing)
+check(bottomPoint == CGPoint(x: square.minX, y: square.maxY) && bottomAnchor == .bottomLeading,
+      "holding the bottom right puts the content against the BOTTOM of the bounds")
+check(topPoint.x == bottomPoint.x && topAnchor.x == bottomAnchor.x,
+      "…and never against the trailing edge: a content resize does not move the left edge either way")
 
 for (name, path) in [("pinned panel", "Tally/MenuBar/PinnedPanelController.swift"),
                      ("menu-bar popover", "Tally/MenuBar/StatusItemController.swift")] {

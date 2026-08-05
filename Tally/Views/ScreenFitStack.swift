@@ -168,15 +168,15 @@ extension ScreenFitStack {
     }
 }
 
-/// Takes exactly the size it is offered and puts its content in the top left of it.
+/// Takes exactly the size it is offered and puts its content against the corner its host is
+/// holding still.
 ///
-/// This is what keeps the top edge of the surface still. A surface reports the height it WANTS and
-/// its host window follows a beat later - there is no way to make a window resize and a SwiftUI
-/// layout pass the same event - so for a handful of frames after anything opens or closes, the
-/// content is a different height than the window it is inside. `NSHostingView` CENTRES a root view
-/// whose size differs from its bounds, and centring content that is taller lifts the top of the
-/// page (the header, the wordmark, the whole reading column) by half the difference, then drops it
-/// back when the window catches up.
+/// A surface reports the height it WANTS and its host window follows a beat later - there is no way
+/// to make a window resize and a SwiftUI layout pass the same event - so for a handful of frames
+/// after anything opens or closes, the content is a different height than the window it is inside.
+/// `NSHostingView` CENTRES a root view whose size differs from its bounds, and centring content that
+/// is taller lifts the top of the page (the header, the wordmark, the whole reading column) by half
+/// the difference, then drops it back when the window catches up.
 ///
 /// Measured on the pinned panel (2026-08-05): opening a project's activity graph moved the header
 /// up 45pt and held it there for the length of the 0.2s animation, on every single toggle, while
@@ -184,15 +184,30 @@ extension ScreenFitStack {
 /// outside the process said the panel was standing perfectly still. That is the "the whole page
 /// including the header jumps up" report.
 ///
-/// Sizing to the proposal is what removes it: the root view is then exactly the window's size, so
-/// there is nothing to centre, and the difference goes where it cannot be seen - off the bottom,
-/// into the space the window is a frame away from growing into. Leading rather than centred for the
-/// same reason on the other axis, and the same reason the scroll regions are pinned leading.
+/// Sizing to the proposal is what removes the centring: the root view is then exactly the window's
+/// size, so there is nothing to centre, and the difference goes where it cannot be seen - off the
+/// edge the window is a frame away from growing past.
+///
+/// WHICH edge is the load-bearing part, and it is not a constant. The host holds one corner still
+/// through a resize (`ResizeAnchor`), so that corner is the only place the content can be put
+/// without the intervening frames moving something: pinning the top while the window is about to
+/// hold its BOTTOM leaves the footer - and the view-options card hanging off it - a whole growth
+/// step out of place until the window lands, which is the jump under the pointer that holding the
+/// bottom right exists to prevent, and it is also how the pointer gets shaken out of the card
+/// (`.onHover(false)` drops the claim, and the resize then finishes to the other corner entirely).
+/// So this takes the corner as an input and uses the same one: the transition and its destination
+/// are never different anchors.
+///
+/// Leading on the other axis regardless: a content resize never moves the left edge under either
+/// corner (`ResizeAnchor.origin`), and it is the same reason the scroll regions are pinned leading.
 ///
 /// Nothing about what the surface REPORTS changes: the size the hosts follow is measured inside
 /// this, on the content itself (`PopoverRootView.sizeReporter`), so the host still resizes to the
 /// content's ideal height and this only decides where that content sits until it does.
-struct TopAnchored: Layout {
+struct HostAnchored: Layout {
+    /// The corner the host will hold through the resize this layout is a frame ahead of.
+    var corner: ResizeAnchor.Corner
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let ideal = subviews.first?.sizeThatFits(proposal) ?? .zero
         // An unspecified proposal is answered with the content's own size: a host that asks how big
@@ -202,17 +217,33 @@ struct TopAnchored: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
                        cache: inout ()) {
-        for subview in subviews {
-            subview.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
-                          proposal: proposal)
+        let (point, anchor) = Self.placement(in: bounds, corner: corner)
+        for subview in subviews { subview.place(at: point, anchor: anchor, proposal: proposal) }
+    }
+
+    /// Where the content goes, given the corner the host is holding. Taking its inputs rather than
+    /// reading them off a layout pass, so the rule can be asserted directly
+    /// (`tests/run-screenfit-tests.sh`) instead of only being seen on a display.
+    ///
+    /// Leading in both cases: the corner names the edges the WINDOW holds still, and a content
+    /// resize never moves the left edge under either of them (`ResizeAnchor.origin`), so the
+    /// bottom-right case is bottom LEADING here.
+    static func placement(in bounds: CGRect,
+                          corner: ResizeAnchor.Corner) -> (CGPoint, UnitPoint) {
+        switch corner {
+        case .topLeading: return (CGPoint(x: bounds.minX, y: bounds.minY), .topLeading)
+        case .bottomTrailing: return (CGPoint(x: bounds.minX, y: bounds.maxY), .bottomLeading)
         }
     }
 }
 
 extension View {
-    /// Puts this view's top left corner on its host's top left corner and leaves it there while the
-    /// host resizes itself to fit (see `TopAnchored`).
+    /// Puts this view against the corner its host holds still, and leaves it there while the host
+    /// resizes itself to fit (see `HostAnchored`).
     ///
+    /// - Parameter corner: the host's own answer (`SettingsStore.resizeAnchor(for:)`), read by the
+    ///   view body so a change re-lays the surface out. Passed in rather than read here, because a
+    ///   `Layout` is not a view and does not observe anything.
     /// - Parameter enabled: whether the host sizes itself from what this view REPORTS (it passes an
     ///   `onContentSize` and sets `sizingOptions = []`). A host that instead takes its size from
     ///   this view's own layout constraints must not have this: reporting whatever size is proposed
@@ -220,8 +251,8 @@ extension View {
     ///   never grows into its content (measured: the dashboard window opened 1x32 instead of
     ///   504x548). The condition is the `onContentSize` itself rather than a list of hosts, so a
     ///   host that does not size from the report cannot accidentally opt in.
-    @ViewBuilder func topAnchoredInHost(enabled: Bool) -> some View {
-        if enabled { TopAnchored { self } } else { self }
+    @ViewBuilder func anchoredInHost(_ corner: ResizeAnchor.Corner, enabled: Bool) -> some View {
+        if enabled { HostAnchored(corner: corner) { self } } else { self }
     }
 }
 

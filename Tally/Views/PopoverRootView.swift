@@ -205,9 +205,11 @@ struct PopoverRootView: View {
         .environment(\.tallyCardStyle, cardStyle)
         .id(settings.languageOverride ?? "system")
         // Outermost, because it is about this view's relationship with the window it is in and
-        // nothing inside it: the surface's top edge stays put while the host catches up with the
-        // height the surface just reported (see `TopAnchored`).
-        .topAnchoredInHost(enabled: onContentSize != nil)
+        // nothing inside it: the surface stays against the corner the host is about to hold while
+        // the host catches up with the height the surface just reported (see `HostAnchored`).
+        // The corner is read HERE, in the body, so that the card claiming it re-lays the surface out
+        // rather than leaving the transition anchored to the corner the host has stopped holding.
+        .anchoredInHost(settings.resizeAnchor(for: host), enabled: onContentSize != nil)
     }
 
     /// The card fill for this surface: glass only where the host has glass to sample AND the user

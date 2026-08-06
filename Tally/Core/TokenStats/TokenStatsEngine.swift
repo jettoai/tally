@@ -42,7 +42,9 @@ final class TokenStatsEngine: @unchecked Sendable {
         /// 3: a turn's usage is counted at its highest restated value rather than its first.
         /// 4: a directory is attributed to the project whose claim on it is the deepest, so entries
         /// written by version 3 can credit a nested project's usage to the tree it sits in.
-        static let currentVersion = 4
+        /// 5: a worktree is attributed to the repository it was cut from, so entries written by
+        /// version 4 still hold a row per parallel line of work instead of one per project.
+        static let currentVersion = 5
 
         /// A cache stamped for the rules and the zone in force right now.
         static func current(files: [String: Entry] = [:]) -> Cache {

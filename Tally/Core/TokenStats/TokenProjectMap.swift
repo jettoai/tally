@@ -14,6 +14,11 @@ import Foundation
 /// org folder holding two products) its children are the projects instead, because collapsing them
 /// would merge two different products into one unreadable row.
 ///
+/// A git worktree is a checkout too, but not a project of its own: `tally-release` is a parallel
+/// line of work on `tally`, and ranking it beside `tally` splits one product's usage across two
+/// rows that nobody wants to add up by hand. So a worktree's directories are folded into the
+/// repository it was cut from, which is the row it belongs to.
+///
 /// Attribution is baked into the cached entries, so any change to which project owns a directory
 /// has to bump `TokenStatsEngine.Cache.currentVersion`; otherwise unchanged files keep the keys the
 /// old rule gave them and the table mixes both rules.
@@ -33,7 +38,8 @@ struct TokenProjectMap: Sendable {
         /// its resolved path when the folder (or the workspace folder itself) is a symlink onto
         /// another volume. A transcript records the working directory the process really had,
         /// which is the resolved one, so a project reached through a link would otherwise be
-        /// unrecognizable and pool into Other.
+        /// unrecognizable and pool into Other. Each of the project's worktrees contributes its
+        /// own pair, which is how a parallel line of work lands on the project's row.
         let paths: [String]
         /// The same paths in Claude Code's flattened transcript-folder spelling, so an agent's own
         /// cwd can be traced back to the project it was serving.
@@ -49,8 +55,9 @@ struct TokenProjectMap: Sendable {
         }
 
         /// The same for an agent's own transcript folder, where the separators have been flattened
-        /// away, so a container's spelling is also a prefix of what sits below it - and `tally` is
-        /// a prefix of `tally-release`, which is a different project rather than a directory in it.
+        /// away, so a container's spelling is also a prefix of what sits below it - and `specai` is
+        /// a prefix of `specai-e2e-local`, which is a different project rather than a directory in
+        /// it.
         func claim(transcriptFolder folder: String) -> Int? {
             munged.filter { folder == $0 || folder.hasPrefix($0 + "-") }.map(\.count).max()
         }
@@ -66,8 +73,9 @@ struct TokenProjectMap: Sendable {
 
     // MARK: Building
 
-    static func current() -> TokenProjectMap {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+    /// The home directory is a parameter so a fixture tree can be scanned (tests/tokenprojectmap);
+    /// every caller in the app uses the default.
+    static func current(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> TokenProjectMap {
         let workspace = home.appendingPathComponent(workspaceFolder, isDirectory: true)
 
         var relatives: [String] = []
@@ -79,11 +87,35 @@ struct TokenProjectMap: Sendable {
                 .filter { isCheckout(childURL.appendingPathComponent($0, isDirectory: true)) }
                 .map { child + "/" + $0 }
         }
-        let roots = relatives.map { relative -> Root in
+
+        var candidates = relatives.map { relative -> (relative: String, paths: [String]) in
             let absolute = workspace.path + "/" + relative
             let resolved = resolvedPath(absolute)
-            let paths = resolved == absolute ? [absolute] : [absolute, resolved]
-            return Root(relative: relative, paths: paths, munged: paths.map(munged))
+            return (relative, resolved == absolute ? [absolute] : [absolute, resolved])
+        }
+        // Which candidate a path belongs to, in either spelling, so a worktree's main repository
+        // can be looked up by the path its `.git` file points at.
+        var candidateOfPath: [String: Int] = [:]
+        for (index, candidate) in candidates.enumerated() {
+            for path in candidate.paths { candidateOfPath[path] = index }
+        }
+        // Fold every worktree into the repository it was cut from. One hop is the whole job: a
+        // worktree's `.git` file always names the repository's own `.git` DIRECTORY, so the
+        // target of a fold is never itself a worktree and folds cannot chain.
+        var folded = Set<Int>()
+        for (index, candidate) in candidates.enumerated() {
+            guard let main = mainRepository(ofWorktreeAt: candidate.paths[0]),
+                  let target = candidateOfPath[main] ?? candidateOfPath[resolvedPath(main)],
+                  target != index
+            else { continue }
+            candidates[target].paths += candidate.paths
+            folded.insert(index)
+        }
+
+        let roots = candidates.indices.filter { !folded.contains($0) }.map { index -> Root in
+            let candidate = candidates[index]
+            return Root(relative: candidate.relative, paths: candidate.paths,
+                        munged: candidate.paths.map(munged))
         }
 
         return TokenProjectMap(home: home.path, homeComponents: components(home.path),
@@ -120,6 +152,47 @@ struct TokenProjectMap: Sendable {
     /// A git checkout: a repository (`.git` directory) or a worktree of one (`.git` file).
     private static func isCheckout(_ url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path)
+    }
+
+    /// The repository a worktree belongs to, or `nil` when the directory is not a worktree.
+    ///
+    /// Read out of the `.git` FILE a worktree has in place of a directory, which holds one
+    /// `gitdir:` line naming the repository's bookkeeping for this worktree
+    /// (`<repository>/.git/worktrees/<name>`). Parsed rather than asked of `git`, because this
+    /// runs for every entry in the workspace folder on every scan and the app must not spawn a
+    /// process per directory to draw a table.
+    ///
+    /// Fail-open: a file that cannot be read, or whose contents are not in a spelling this
+    /// recognizes, leaves the directory a project of its own - a row too many is a far smaller
+    /// harm than a row of somebody else's tokens.
+    ///
+    /// Deliberately not `GitRepoRoot.swift`'s resolution, which the CLI shares between the worktree
+    /// overview and the launch profile: that one asks git, because its answer is a directory to
+    /// print and to `cd` into and must be right for every layout git allows. This one only decides
+    /// which existing row a directory joins, where the cost of not knowing is a separate row.
+    private static func mainRepository(ofWorktreeAt directory: String) -> String? {
+        let dotGit = directory + "/.git"
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dotGit, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              let contents = try? String(contentsOfFile: dotGit, encoding: .utf8)
+        else { return nil }
+
+        let marker = "gitdir:"
+        guard let line = contents.split(separator: "\n").first(where: { $0.hasPrefix(marker) })
+        else { return nil }
+        var gitDir = line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
+        guard !gitDir.isEmpty else { return nil }
+        // git can be configured to write the link relative to the worktree.
+        if !gitDir.hasPrefix("/") { gitDir = directory + "/" + gitDir }
+
+        // The repository is whatever holds that `.git`, found by the LAST `.git` component so a
+        // repository that itself sits below one is not mistaken for the answer. The result can
+        // still be an unresolved spelling (a relative link leaves `..` in it); the caller looks it
+        // up both as written and resolved.
+        let parts = components(gitDir)
+        guard let dotGitIndex = parts.lastIndex(of: ".git"), dotGitIndex > 0 else { return nil }
+        return "/" + parts.prefix(dotGitIndex).joined(separator: "/")
     }
 
     private static func components(_ path: String) -> [String] {

@@ -7,8 +7,9 @@ import Foundation
 //
 // Split of responsibility with main.swift: this file owns all worktree logic and depends only on
 // Foundation/Darwin plus a few symbols from Snapshot.swift (`warn`, `loadSnapshot`, `projectSlug`,
-// the `Snapshot` type) and GitRepoRoot.swift (`runGit`, `realpathString`, `resolveMainRepo` - the
-// repo identity a per-project launch profile is keyed by too), so tests can compile it standalone.
+// the `Snapshot` type), GitRepoRoot.swift (`runGit`, `realpathString`, `resolveMainRepo` - the
+// repo identity a per-project launch profile is keyed by too) and WorktreeOrigins.swift (the note
+// this writes for the app, which teardown writes too), so tests can compile it standalone.
 // The launch resolution itself is fail-closed (the user explicitly asked for a worktree, so a wrong
 // directory is worse than none), while the memory link and setup hook are fail-open enhancements
 // that only ever warn.
@@ -265,6 +266,28 @@ func ensureSharedMemory(_ wt: WorktreeLaunch, homes: [String]) {
     }
 }
 
+// MARK: - Origin note
+
+/// Write down which repository this worktree belongs to, now, while it is being opened.
+///
+/// The app credits a worktree's tokens to its repository by reading the `.git` file that says so,
+/// and `WorktreeOrigins` is the note that answers once that file is gone. Teardown writes one, but
+/// teardown is not the only way a parallel line ends: a bare `git worktree remove`, or an `rm -rf`
+/// on the directory, leaves nothing behind at all and the transcripts (which outlive the directory
+/// either way) pool into Other. Writing the note at the START costs one file write per launch and
+/// covers every ending. The file is a parameter for the same reason it is one in
+/// `performWorktreeRemove`: a test must never write into the ledger the running app reads.
+///
+/// Rewritten only when it would say something new, so re-entering a worktree every day does not
+/// rewrite the ledger every time, and a note teardown has already stamped with a removal time is
+/// left alone unless this worktree really is open again.
+func recordWorktreeOrigin(_ wt: WorktreeLaunch, in url: URL = WorktreeOrigins.fileURL()) {
+    let origin = WorktreeOrigin(worktree: wt.path, resolved: nil, repository: wt.mainRepo,
+                                removedAt: nil)
+    let pending = WorktreeOrigins.missing([origin], from: WorktreeOrigins.load(from: url))
+    WorktreeOrigins.recordAll(pending, in: url)
+}
+
 // MARK: - Setup hook
 
 /// Run the repo's `.tally/worktree-setup.sh` (if present) with the worktree as cwd, passing the
@@ -304,6 +327,7 @@ func runSetupHook(_ wt: WorktreeLaunch) {
 /// strips a hand-typed --continue/--resume so claude doesn't error out continuing nothing.
 func enterWorktree(name: String?) -> Bool {
     let wt = resolveWorktree(name: name)
+    recordWorktreeOrigin(wt)
     runSetupHook(wt)
     let (snapshot, _) = loadSnapshot()
     let homes = sharedMemoryHomes(snapshot)

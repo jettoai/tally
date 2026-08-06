@@ -11,10 +11,17 @@ import Foundation
 /// and the repository's own recorded history would shrink anyway, which is exactly what keeping the
 /// transcripts was meant to prevent.
 ///
-/// So teardown writes the fact down while it still knows it, and the map reads it back. The file is
-/// `~/.tally/worktree-origins.json`, versioned and additive like the other app-CLI contracts in that
-/// folder, and written by the CLI while being read by the app: both targets compile this one file
-/// rather than keeping two spellings of the same record.
+/// So the fact is written down while something still knows it, and the map reads it back. Teardown
+/// is the last moment that is true, not the only one: a worktree removed by hand (`git worktree
+/// remove`, or `rm -rf` on the directory) never reaches teardown at all, and its transcripts would
+/// pool exactly as if nothing had been kept. So the note is also written the moment a live worktree
+/// is SEEN, by both sides that see one: `tally claude -w` when it opens or reuses a parallel line,
+/// and the app's own scan when it folds one into its repository. By the time the directory is gone,
+/// whichever way it went, the ledger already says where it belonged.
+///
+/// The file is `~/.tally/worktree-origins.json`, versioned and additive like the other app-CLI
+/// contracts in that folder, and written by both the CLI and the app: both targets compile this one
+/// file rather than keeping two spellings of the same record.
 struct WorktreeOrigin: Codable, Sendable, Equatable {
     /// The worktree directory as git recorded it (which may be a symlinked spelling).
     var worktree: String
@@ -67,9 +74,21 @@ enum WorktreeOrigins {
         url.appendingPathExtension("lock")
     }
 
-    /// Add one record, replacing any earlier record for the same worktree path (a directory name is
-    /// reusable, and the repository it belonged to last is the one that answers for it), and keeping
+    /// Add one record. The batch form with one element, so there is a single write rule.
+    static func record(_ origin: WorktreeOrigin, in url: URL = fileURL()) {
+        recordAll([origin], in: url)
+    }
+
+    /// Add records, each replacing any earlier record naming the same directory in any of its
+    /// spellings (a directory name is reusable, and the repository it belonged to last is the one
+    /// that answers for it; matching on every spelling is what lets the note a teardown writes at
+    /// git's recorded path supersede the one a scan wrote at the workspace folder's), and keeping
     /// the newest `limit`.
+    ///
+    /// A batch rather than a loop over `record` because the scan side records what it saw in one
+    /// go: each call is a read-modify-write of the whole file under a lock, so a fleet of parallel
+    /// lines would otherwise rewrite the ledger once per line. Nothing to add writes nothing at all,
+    /// which is the common case for a caller that filters through `missing` first.
     ///
     /// Nothing here prunes records whose repository is no longer on disk, deliberately. A repository
     /// can be missing for a moment (an external disk unmounted, a stale symlink, a checkout being
@@ -82,18 +101,32 @@ enum WorktreeOrigins {
     /// reading it on a background scan. Failure is silent by design, including failure to take the
     /// lock: teardown must never fail over its own bookkeeping, so an unlockable ledger is written
     /// unserialised rather than not written at all.
-    static func record(_ origin: WorktreeOrigin, in url: URL = fileURL()) {
+    static func recordAll(_ origins: [WorktreeOrigin], in url: URL = fileURL()) {
+        guard !origins.isEmpty else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         withWriteLock(for: url) {
-            var entries = load(from: url).filter { $0.worktree != origin.worktree }
-            entries.append(origin)
+            let claimed = Set(origins.flatMap(\.paths))
+            var entries = load(from: url).filter { !$0.paths.contains(where: claimed.contains) }
+            entries += origins
             entries = Array(entries.suffix(limit))
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             guard let data = try? encoder.encode(Document(version: 1, entries: entries)) else { return }
             try? data.write(to: url, options: .atomic)
         }
+    }
+
+    /// The records `existing` does not already hold word for word.
+    ///
+    /// The gate a repeating writer passes through first. The app's scan sees the same live worktrees
+    /// every time it folds them, and the note it would write is a function of what it saw, so after
+    /// the first pass there is nothing new to say: rewriting the file anyway would put a lock and an
+    /// atomic write on a background scan that runs whenever the Tokens tab is looked at. Compared
+    /// verbatim rather than by path, so a record whose repository (or `removedAt`) changed is still
+    /// news.
+    static func missing(_ origins: [WorktreeOrigin], from existing: [WorktreeOrigin]) -> [WorktreeOrigin] {
+        origins.filter { !existing.contains($0) }
     }
 
     /// Run `body` holding an exclusive `flock` on the ledger's lock file, so that a read-modify-write

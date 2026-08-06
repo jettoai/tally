@@ -283,6 +283,61 @@ check(map.key(forCWD: "/private/tmp/build") == TokenProject.otherKey,
 check(map.key(forCWD: ws + "/tally-release/scratchpad/x") == TokenProject.otherKey,
       "a scratch directory pools even inside a folded worktree")
 
+// MARK: The scan writes down what it folded
+
+section("a live worktree's origin is written down while it is still live")
+
+/// A file's contents and modification time together, which is what "this was not rewritten" has to
+/// mean: a scan that rewrote the ledger with the records it already held would leave the bytes
+/// identical and move the timestamp, so comparing either one alone would pass over it.
+func fileStamp(_ url: URL) -> String {
+    let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    let modified = (try? manager.attributesOfItem(atPath: url.path))?[.modificationDate]
+    return "\((modified as? Date)?.timeIntervalSince1970 ?? 0)\n\(contents)"
+}
+
+/// The map records a repository by its resolved path, and every path in this fixture is reached
+/// through the symlink macOS puts in front of the temp folder (`/var` -> `/private/var`).
+func resolved(_ path: String) -> String {
+    var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
+    return realpath(path, &buffer).map { String(cString: $0) } ?? path
+}
+
+let ledger = WorktreeOrigins.fileURL(home: home)
+let recorded = WorktreeOrigins.load(from: ledger)
+
+// Building the map above folded `geo-admin` into `taiwanbigdata/geo` off its `.git` file. That
+// file is the only thing that says so, and a worktree removed by hand (a bare `git worktree
+// remove`, or `rm -rf` on the directory) takes it away without ever running the teardown that
+// would have written the note. So the fold writes it: the note is on file while the worktree is
+// still open, whichever way it later ends.
+let liveNote = recorded.first { $0.paths.contains(ws + "/geo-admin") }
+check(liveNote?.repository == resolved(ws + "/taiwanbigdata/geo"),
+      "the scan recorded the live worktree's repository, resolved")
+check(liveNote?.removedAt == nil, "and recorded it as still open (no removal time)")
+check(recorded.contains { $0.paths.contains(ws + "/tally-release") },
+      "every folded worktree gets one, not just the first")
+check(!recorded.contains { $0.paths.contains(ws + "/bare-feature") },
+      "a worktree with no checkout to fold into records nothing")
+check(recorded.filter { $0.worktree == ws + "/geo-gone" }.count == 1,
+      "and an existing note for a worktree that is already gone is left alone")
+
+// The scan runs on a background queue every time the Tokens tab is looked at, and its answer for
+// the same tree is the same every time, so the second pass must not touch the file at all.
+let stamp = fileStamp(ledger)
+usleep(20_000)   // so an identical rewrite is visible in the timestamp rather than a coin flip
+_ = TokenProjectMap.current(home: home)
+check(fileStamp(ledger) == stamp, "a second scan of an unchanged tree does not rewrite the ledger")
+
+// The point of writing it early, exercised the way it really happens: the directory disappears
+// without teardown ever running, and the sessions that ran there keep the repository's row.
+try! manager.removeItem(at: directory("geo-admin"))
+let afterBareRemoval = TokenProjectMap.current(home: home)
+check(afterBareRemoval.key(forCWD: ws + "/geo-admin") == ws + "/taiwanbigdata/geo",
+      "a worktree removed WITHOUT teardown still credits its directory to the repository")
+check(afterBareRemoval.key(forCWD: agentDirectory(serving: ws + "/geo-admin")) == ws + "/taiwanbigdata/geo",
+      "and its agents' transcript folders, which is the spelling that outlives the directory")
+
 // MARK: Cache version
 
 section("the cache version moves with the attribution rule")

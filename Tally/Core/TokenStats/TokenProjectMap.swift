@@ -18,8 +18,10 @@ import Foundation
 /// line of work on `tally`, and ranking it beside `tally` splits one product's usage across two
 /// rows that nobody wants to add up by hand. So a worktree's directories are folded into the
 /// repository it was cut from, which is the row it belongs to. A worktree that has been torn down
-/// is folded the same way, from the note teardown wrote before deleting it (`WorktreeOrigins`):
-/// its transcripts outlive it, so its row has to as well.
+/// is folded the same way, from the note left behind for it (`WorktreeOrigins`): its transcripts
+/// outlive it, so its row has to as well. Which is also why the scan WRITES that note for every
+/// live worktree it folds: a worktree removed by hand never runs the teardown that would have
+/// written one, and the fold above is the last thing that still knows the answer.
 ///
 /// Attribution is baked into the cached entries, so any change to which project owns a directory
 /// has to bump `TokenStatsEngine.Cache.currentVersion`; otherwise unchanged files keep the keys the
@@ -113,20 +115,27 @@ struct TokenProjectMap: Sendable {
             guard let git, !git.isLinkedWorktree, mainOfCommon[git.common] == nil else { continue }
             mainOfCommon[git.common] = index
         }
+        // The spellings each candidate answered to before any folding, so the note written below
+        // says what a worktree and its repository are, not what the target's row grew into.
+        let checkoutPaths = candidates.map(\.paths)
         var folded = Set<Int>()
+        var live: [WorktreeOrigin] = []
         for (index, git) in gits.enumerated() {
             guard let git, git.isLinkedWorktree,
                   let target = mainOfCommon[git.common], target != index
             else { continue }
+            live.append(note(worktree: checkoutPaths[index], repository: checkoutPaths[target]))
             candidates[target].paths += candidates[index].paths
             folded.insert(index)
         }
 
         // A worktree that has already been torn down has no `.git` file left to match on, so the
-        // note teardown wrote before removing it is the only thing that still says whose parallel
-        // line it was. Records naming a repository this machine no longer has are skipped, which
-        // pools their directories exactly as before.
-        for origin in WorktreeOrigins.load(from: WorktreeOrigins.fileURL(home: home)) {
+        // note left behind for it is the only thing that still says whose parallel line it was.
+        // Records naming a repository this machine no longer has are skipped, which pools their
+        // directories exactly as before.
+        let originsFile = WorktreeOrigins.fileURL(home: home)
+        let origins = WorktreeOrigins.load(from: originsFile)
+        for origin in origins {
             guard let target = candidateOfPath[origin.repository]
                     ?? candidateOfPath[resolvedPath(origin.repository)],
                   !folded.contains(target)
@@ -134,6 +143,14 @@ struct TokenProjectMap: Sendable {
             let known = Set(candidates[target].paths)
             candidates[target].paths += origin.paths.filter { !known.contains($0) }
         }
+
+        // Write down what the fold just worked out, for the day the filesystem can no longer say
+        // it. Only what the ledger does not already hold: this runs on a background scan, and the
+        // answer is the same every time until a worktree is added or removed. A live record is
+        // inert to the loop above - the fold has already given the repository those paths, so the
+        // filter finds nothing left to add - and it is superseded, spelling for spelling, by the
+        // record teardown writes if the worktree does go out through teardown.
+        WorktreeOrigins.recordAll(WorktreeOrigins.missing(live, from: origins), in: originsFile)
 
         let roots = candidates.indices.filter { !folded.contains($0) }.map { index -> Root in
             let candidate = candidates[index]
@@ -143,6 +160,17 @@ struct TokenProjectMap: Sendable {
 
         return TokenProjectMap(home: home.path, homeComponents: components(home.path),
                                workspace: workspace.path, roots: roots)
+    }
+
+    /// The ledger record for a live worktree, out of the path pairs the allow-list holds: a
+    /// candidate's paths are its spelling under the workspace folder and, when the two differ, its
+    /// resolved one, which is exactly the pair a record carries. `removedAt` stays empty because
+    /// nothing has been removed; teardown fills it in when something is.
+    private static func note(worktree: [String], repository: [String]) -> WorktreeOrigin {
+        WorktreeOrigin(worktree: worktree[0],
+                       resolved: worktree.count > 1 ? worktree[1] : nil,
+                       repository: repository.count > 1 ? repository[1] : repository[0],
+                       removedAt: nil)
     }
 
     private static func directories(in url: URL) -> [String] {

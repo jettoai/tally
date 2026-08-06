@@ -5,6 +5,11 @@ import Foundation
 // a temp filesystem. Mirrors the five scenario groups in
 // docs/specs/changes/worktree-launch/design.md.
 
+/// The repository root, read before anything chdirs into a fixture (the resolve/create groups
+/// below do, since `resolveWorktree` reads the process cwd), so a group that wants to read a
+/// source file can still find one.
+let repoRoot = FileManager.default.currentDirectoryPath
+
 var failures = 0
 func check(_ name: String, _ condition: Bool) {
     print("\(condition ? "PASS" : "FAIL"): \(name)")

@@ -4,6 +4,15 @@ import Foundation
 // (Tally/Core/WorktreeOrigins.swift), split out of teardownchecks.swift for file size. Runs as one
 // function that group calls, and uses the shared harness main.swift owns (`check`, `tempDir`).
 
+/// A file's contents and modification time together, which is what "this was not rewritten" has to
+/// mean here: a writer that rewrote the ledger with the records it already held would leave the
+/// bytes identical and move the timestamp, so comparing either one alone would pass over it.
+private func fileStamp(_ url: URL) -> String {
+    let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate]
+    return "\((modified as? Date)?.timeIntervalSince1970 ?? 0)\n\(contents)"
+}
+
 func runOriginsChecks() {
     // Its own file, so these assertions read a ledger nothing else in this run has written, and
     // never `~/.tally/worktree-origins.json`: a test must not write into the record the running app
@@ -35,6 +44,88 @@ func runOriginsChecks() {
     let reRecorded = WorktreeOrigins.load(from: ledger).filter { $0.worktree == "/here/repo-feat" }
     check("re-recording one worktree path replaces its note instead of duplicating it",
           reRecorded.count == 1 && reRecorded.first?.repository == "/other/repo")
+
+    // A record supersedes an earlier one naming the same directory in ANY of its spellings, not
+    // just the same `worktree` string. The scan writes a worktree under the workspace folder's
+    // spelling while teardown writes it under the one git recorded, and on a machine where those
+    // differ (a workspace folder reached through a symlink) two spellings of one directory would
+    // otherwise both sit in the file, one of them saying it is still open.
+    WorktreeOrigins.record(WorktreeOrigin(worktree: "/link/repo-two", resolved: "/real/repo-two",
+                                          repository: "/real/repo", removedAt: nil),
+                           in: ledger)
+    WorktreeOrigins.record(WorktreeOrigin(worktree: "/real/repo-two", resolved: nil,
+                                          repository: "/real/repo",
+                                          removedAt: "2026-08-06T01:00:00Z"),
+                           in: ledger)
+    let bySpelling = WorktreeOrigins.load(from: ledger).filter { $0.paths.contains("/real/repo-two") }
+    check("a record replaces an earlier one that named the same directory by another spelling",
+          bySpelling.count == 1 && bySpelling.first?.removedAt != nil)
+
+    // Recording several at once is one read-modify-write, not one per record: the scan side hands
+    // over everything it saw in a single call.
+    let batchLedger = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
+    WorktreeOrigins.recordAll([
+        WorktreeOrigin(worktree: "/b/one", resolved: nil, repository: "/b/repo", removedAt: nil),
+        WorktreeOrigin(worktree: "/b/two", resolved: nil, repository: "/b/repo", removedAt: nil),
+    ], in: batchLedger)
+    check("a batch write keeps every record in it",
+          Set(WorktreeOrigins.load(from: batchLedger).map(\.worktree)) == ["/b/one", "/b/two"])
+    WorktreeOrigins.recordAll([], in: batchLedger)
+    check("an empty batch writes nothing at all",
+          WorktreeOrigins.load(from: batchLedger).count == 2)
+
+    // What a repeating writer asks before it writes. The app's scan recomputes the same notes for
+    // the same live worktrees on every pass, so only a changed answer is news.
+    let held = WorktreeOrigins.load(from: batchLedger)
+    check("a record already on file is not missing",
+          WorktreeOrigins.missing([held[0]], from: held).isEmpty)
+    check("but the same directory with a different repository is",
+          WorktreeOrigins.missing([WorktreeOrigin(worktree: held[0].worktree, resolved: nil,
+                                                  repository: "/b/elsewhere", removedAt: nil)],
+                                  from: held).count == 1)
+
+    // MARK: The launch side writes the same note
+
+    // `tally claude -w` records where a worktree came from when it OPENS one, which is what covers
+    // a parallel line that never goes out through teardown (a bare `git worktree remove`, or the
+    // directory deleted by hand): by then nothing on disk says whose line it was, and its kept
+    // transcripts would pool into Other.
+    let launchLedger = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
+    let launched = WorktreeLaunch(mainRepo: "/w/repo", path: "/w/repo-feat", name: "feat",
+                                  created: true)
+    recordWorktreeOrigin(launched, in: launchLedger)
+    let launchNote = WorktreeOrigins.load(from: launchLedger).first { $0.worktree == "/w/repo-feat" }
+    check("opening a worktree records the repository it was cut from",
+          launchNote?.repository == "/w/repo")
+    check("and records it as still open (no removal time)", launchNote?.removedAt == nil)
+
+    // Re-entering the same worktree is the ordinary case (a session resumed day after day) and has
+    // nothing new to say, so it must not rewrite the file.
+    let launchStamp = fileStamp(launchLedger)
+    usleep(20_000)
+    recordWorktreeOrigin(launched, in: launchLedger)
+    check("re-entering an already recorded worktree does not rewrite the ledger",
+          fileStamp(launchLedger) == launchStamp)
+
+    // That the launch is WIRED to it, which the seam above cannot show: `enterWorktree` resolves a
+    // worktree, links shared memory into the real account homes and chdirs, so calling it here
+    // would write into the user's own ~/.claude. Read from the source instead, the way the map's
+    // suite reads the cache version, so removing the one line that records the origin fails here
+    // rather than silently going back to teardown being the only writer.
+    let launchSource = (try? String(contentsOfFile: repoRoot + "/TallyCLI/Worktree.swift",
+                                    encoding: .utf8)) ?? ""
+    check("entering a worktree calls the recorder",
+          launchSource.contains("func enterWorktree(") &&
+          launchSource.range(of: "recordWorktreeOrigin(wt)") != nil)
+
+    // And teardown's own record still wins afterwards: same directory, now with a removal time.
+    WorktreeOrigins.record(WorktreeOrigin(worktree: "/w/repo-feat", resolved: nil,
+                                          repository: "/w/repo",
+                                          removedAt: "2026-08-06T02:00:00Z"),
+                           in: launchLedger)
+    let afterTeardown = WorktreeOrigins.load(from: launchLedger).filter { $0.worktree == "/w/repo-feat" }
+    check("teardown's record supersedes the one the launch wrote",
+          afterTeardown.count == 1 && afterTeardown.first?.removedAt != nil)
 
     // Writers serialise on a lock file beside the ledger. Tearing several parallel lines down at
     // once runs several `tally worktree remove` processes over this one file, each reading it,

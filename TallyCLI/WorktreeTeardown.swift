@@ -218,37 +218,9 @@ func performWorktreeRemove(name: String?, force: Bool, purgeTranscripts: Bool,
         warn(worktreeIdleNote(branch: target.branch, liveAgents: doomed.count,
                               purgeTranscripts: purgeTranscripts))
     }
-    // 2b. Write down where this worktree came from, while the `.git` file that says so is still
-    // there to be believed. Keeping the transcripts is only half of keeping the history: the app
-    // rebuilds attribution from the filesystem on every full rescan (a cache version bump forces
-    // one), and by then this directory is gone, so the sessions that ran here would pool into Other
-    // and the repository's own recorded history would shrink anyway - the very thing keeping them
-    // was for.
-    //
-    // `--purge-transcripts` does the opposite, and does have to act: it leaves nothing to
-    // attribute, and this worktree was very likely written down when it was OPENED (`tally claude
-    // -w`, or the app's scan folding it) rather than only here. That earlier note must stop
-    // crediting a path whose transcripts are gone - which would be the wrong answer the day
-    // something else takes the directory's name.
-    //
-    // Written as a tombstone (`purged`) rather than deleted, because deleting it cannot be
-    // defended: the app's scan collects the live worktrees it sees and writes them afterwards, so a
-    // scan that started while this directory was still here would land its live note on an empty
-    // ledger and put the dead path back. A record defends itself - a note observed before this one
-    // cannot displace it - and the map skips a tombstone instead of crediting it. A worktree really
-    // cut again under this name later is observed later, and takes the path back.
-    // `observedAt` is the same instant as `removedAt`: this is the writer that was standing in front
-    // of the `.git` file when it made up its mind, so what it observed and what it recorded are one
-    // moment. That is what puts it ahead of a scan that started earlier, and behind a worktree cut
-    // anew under the same name afterwards.
-    let stamp = ISO8601DateFormatter().string(from: Date())
-    WorktreeOrigins.record(WorktreeOrigin(
-        worktree: target.recordedPath,
-        resolved: target.realPath == target.recordedPath ? nil : target.realPath,
-        repository: target.mainRepo,
-        removedAt: stamp,
-        purged: purgeTranscripts ? true : nil,
-        observedAt: stamp), in: originsFile)
+    // (Where this worktree came from is written down at the END of the teardown, once the directory
+    // is actually gone: step 4b. Nothing here depends on the `.git` file still being readable - the
+    // paths and the repository were resolved when the target was, before anything was touched.)
 
     // The rescan is the same selection over a fresh scan: a supervisor that got a relaunch in
     // before it died leaves a process no earlier list can name (see WorktreeKill.swift).
@@ -301,6 +273,37 @@ func performWorktreeRemove(name: String?, force: Bool, purgeTranscripts: Bool,
     } else {
         warn("transcripts kept")
     }
+
+    // 4b. Write down where this worktree came from, now that it is gone. Keeping the transcripts is
+    // only half of keeping the history: the app rebuilds attribution from the filesystem on every
+    // full rescan (a cache version bump forces one), and by then this directory is gone, so the
+    // sessions that ran here would pool into Other and the repository's own recorded history would
+    // shrink anyway - the very thing keeping them was for.
+    //
+    // `--purge-transcripts` writes the same record with `purged`, a tombstone rather than an
+    // attribution: it leaves nothing to credit, and this worktree was very likely written down when
+    // it was OPENED (`tally claude -w`, or the app's scan folding it) rather than only here. That
+    // earlier note has to stop crediting a path whose transcripts are gone. A record rather than a
+    // deletion, because a deletion cannot defend itself against a writer that is still in flight.
+    //
+    // LAST, not before the removal, and that ordering is the whole of its defence. Records are
+    // ordered by when their writer looked, so this one only outranks a live note if the note was
+    // written by someone who looked earlier - and a teardown takes seconds (killing agents, waiting
+    // for them to go, git). Stamped up front, that whole span is a window in which a scan or a
+    // `tally claude -w` can look at a directory that is still on disk, observe it LATER than the
+    // stamp, and legitimately overwrite the removal (on a purge: clear the tombstone and bring the
+    // dead path back). Stamped here, the window is closed by construction: anyone who could see the
+    // directory looked before this instant, and after it there is nothing left to see. An earlier
+    // exit (a refused gate, a git removal that failed) writes nothing at all, which is right -
+    // the worktree is still there.
+    let stamp = WorktreeOrigins.timestamp()
+    WorktreeOrigins.record(WorktreeOrigin(
+        worktree: target.recordedPath,
+        resolved: target.realPath == target.recordedPath ? nil : target.realPath,
+        repository: target.mainRepo,
+        removedAt: stamp,
+        purged: purgeTranscripts ? true : nil,
+        observedAt: stamp), in: originsFile)
 
     warn("worktree \(target.branch) removed (killed \(killed), "
         + "branch \(branchDeleted ? "deleted" : "kept"), "

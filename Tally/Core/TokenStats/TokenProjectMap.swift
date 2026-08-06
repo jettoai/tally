@@ -85,7 +85,7 @@ struct TokenProjectMap: Sendable {
         // spent a second parsing is reporting the world as it was when it started, and a teardown
         // that stamped a removal in between knows something newer. Reading the clock here is what
         // separates those two cases with no tolerance window to tune (`WorktreeOrigin.observedAt`).
-        let observedAt = ISO8601DateFormatter().string(from: Date())
+        let observedAt = WorktreeOrigins.timestamp()
         let workspace = home.appendingPathComponent(workspaceFolder, isDirectory: true)
 
         var relatives: [String] = []

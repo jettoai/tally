@@ -286,7 +286,7 @@ func ensureSharedMemory(_ wt: WorktreeLaunch, homes: [String]) {
 /// `observedAt` is now, because whoever is entering a worktree is standing in it; it is a parameter
 /// only so a test can place an entry before or after another writer's stamp.
 func recordWorktreeOrigin(_ wt: WorktreeLaunch, in url: URL = WorktreeOrigins.fileURL(),
-                          observedAt: String = ISO8601DateFormatter().string(from: Date())) {
+                          observedAt: String = WorktreeOrigins.timestamp()) {
     WorktreeOrigins.recordNew([WorktreeOrigins.liveNote(worktree: wt.path, repository: wt.mainRepo,
                                                         observedAt: observedAt)], in: url)
 }

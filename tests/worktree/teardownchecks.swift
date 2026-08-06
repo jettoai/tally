@@ -386,9 +386,31 @@ func runTeardownChecks() {
     sh("git merge -q feat-purge", cwd: liveRepo)
     let purgeTranscripts = "\(liveHome)/projects/\(worktreeTranscriptSlug(forResolvedPath: purgeWt.path))"
     seedTranscript(purgeTranscripts, body: closedTurn, ageSeconds: 900)
+    // Run with a live agent in it, for the sake of a look INSIDE the teardown. The kill loop
+    // rescans after it has signalled, which is a moment when the worktree directory is still on
+    // disk and the removal has not been recorded yet: exactly what a scan or a `tally claude -w`
+    // sees if either starts while a teardown is running (killing agents and waiting for them to go
+    // takes seconds). The instant taken there stands in for that observation.
+    let purger = Process()
+    purger.executableURL = URL(fileURLWithPath: "/bin/sleep")
+    purger.arguments = ["30"]
+    try? purger.run()
+    var purgeScans = 0
+    var insideTeardown: String?
+    let purgeScan = { (_: String) -> [ProcInfo] in
+        purgeScans += 1
+        if purgeScans == 1 {
+            return [ProcInfo(pid: purger.processIdentifier, name: "claude", cwd: purgeWt.path)]
+        }
+        if insideTeardown == nil { insideTeardown = WorktreeOrigins.timestamp() }
+        return []
+    }
     let purgeCode = performWorktreeRemove(name: "feat-purge", force: false, purgeTranscripts: true,
                                           transcriptHomes: [liveHome], originsFile: originsFile,
-                                          listProcesses: { _ in [] })
+                                          listProcesses: purgeScan)
+    check("the teardown was observed from the inside while the worktree was still on disk",
+          insideTeardown != nil
+            && FileManager.default.fileExists(atPath: purgeWt.path) == false)
     check("--purge-transcripts tears the worktree down too (exit 0)", purgeCode == 0)
     check("the purged worktree directory is gone",
           !FileManager.default.fileExists(atPath: purgeWt.path))
@@ -407,7 +429,18 @@ func runTeardownChecks() {
     // scan by carrying the instant it looked. Both instants are derived from the tombstone's own
     // stamp rather than from the clock, so the two writers cannot land in the same second and leave
     // the ordering to a tie-break.
+    // The window the record's placement closes: this observation was taken DURING the teardown,
+    // after the point the removal used to be recorded and while the directory was still there. It
+    // must not be able to bring the path back, which is only true because the record is written
+    // once nothing can see the worktree any more.
+    recordWorktreeOrigin(purgeWt, in: originsFile, observedAt: insideTeardown ?? "")
+    let afterWindow = WorktreeOrigins.load(from: originsFile)
+        .filter { $0.paths.contains(purgeWt.path) }
+    check("an observation taken during the teardown itself cannot undo the purge",
+          afterWindow.count == 1 && afterWindow.first?.purged == true)
+
     let clock = ISO8601DateFormatter()
+    clock.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     let purgedAt = purgeNote?.removedAt.flatMap(clock.date(from:)) ?? Date()
     recordWorktreeOrigin(purgeWt, in: originsFile,
                          observedAt: clock.string(from: purgedAt.addingTimeInterval(-2)))

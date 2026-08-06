@@ -89,6 +89,34 @@ enum WorktreeOrigins {
         return document.entries
     }
 
+    /// The instant a writer looked, spelled the way this ledger spells instants.
+    ///
+    /// ISO8601 with fractional seconds, because the events being ordered are milliseconds apart: a
+    /// teardown and a scan that crossed it happen inside one second as a matter of course, and whole
+    /// seconds would call that a tie and hand it to whichever record was already on file. Every
+    /// writer takes its stamp from here so the ledger cannot end up holding two precisions and
+    /// comparing them by luck.
+    static func timestamp(_ instant: Date = Date()) -> String {
+        fractionalClock.string(from: instant)
+    }
+
+    /// Writing and reading the two spellings an instant can have here: what this version writes, and
+    /// the whole-second one written before it, which a formatter carrying `.withFractionalSeconds`
+    /// cannot read at all (an `ISO8601DateFormatter` matches its options exactly). Read-only after
+    /// init, which is what makes sharing them safe; parsing is thread-safe on modern OSes.
+    ///
+    /// `Tally/Core/DateParsing.swift` states the same leniency for provider timestamps and is the
+    /// place to reach for anywhere else. Not reached for HERE because this file is deliberately
+    /// dependency-free: it is compiled into the app and the CLI as the one spelling of the ledger,
+    /// and the CLI target does not otherwise carry that file (nor do the two test harnesses that
+    /// compile this one standalone).
+    nonisolated(unsafe) private static let fractionalClock: ISO8601DateFormatter = {
+        let clock = ISO8601DateFormatter()
+        clock.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return clock
+    }()
+    nonisolated(unsafe) private static let wholeSecondClock = ISO8601DateFormatter()
+
     /// The record for a worktree that is being SEEN alive, written by both sides that see one: the
     /// app's scan when it folds a worktree into its repository, and `tally claude -w` when it opens
     /// or re-enters one. One constructor because the two must produce the same record for the same
@@ -225,26 +253,24 @@ enum WorktreeOrigins {
     /// the worktree by its resolved path alone, and letting that answer for the scan's pair would
     /// drop the spelling a transcript may have recorded.
     private static func answered(_ origin: WorktreeOrigin, by existing: [WorktreeOrigin]) -> Bool {
-        let clock = ISO8601DateFormatter()
         let spellings = Set(origin.paths)
-        let observed = observation(of: origin, clock)
+        let observed = observation(of: origin)
         return existing.contains { held in
             if held == origin { return true }
             guard held.paths.contains(where: spellings.contains) else { return false }
             if held.removedAt == nil, origin.removedAt == nil,
                held.repository == origin.repository,
                spellings.isSubset(of: Set(held.paths)) { return true }
-            return observation(of: held, clock) >= observed
+            return observation(of: held) >= observed
         }
     }
 
     /// When a record's writer looked, for ordering. Records from before `observedAt` fall back to
-    /// their removal time, and a live one from back then has neither, so it reads as long ago.
-    private static func observation(of origin: WorktreeOrigin,
-                                    _ clock: ISO8601DateFormatter) -> Date {
-        guard let stamp = origin.observedAt ?? origin.removedAt,
-              let date = clock.date(from: stamp) else { return .distantPast }
-        return date
+    /// their removal time, and a live one from back then has neither, so it reads as long ago - as
+    /// does one whose stamp none of the spellings can read, which is the same fail-open direction.
+    private static func observation(of origin: WorktreeOrigin) -> Date {
+        guard let stamp = origin.observedAt ?? origin.removedAt else { return .distantPast }
+        return fractionalClock.date(from: stamp) ?? wholeSecondClock.date(from: stamp) ?? .distantPast
     }
 
     /// `origins` on top of `existing`, each replacing any record naming the same directory in any of

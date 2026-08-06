@@ -133,6 +133,47 @@ func runOriginsChecks() {
     check("a live note observed in the same second as the removal leaves the removal standing",
           WorktreeOrigins.load(from: stampedLedger)
             .first { $0.worktree == "/s/repo-feat" }?.removedAt == stamp)
+    // Which second is not enough to order by. A teardown takes a few seconds and the writers that
+    // race it look milliseconds apart, so instants are written to the millisecond and compared
+    // there; whole seconds would call a scan that looked 40ms after a removal a tie and give it to
+    // the removal, quietly silencing a worktree that really was cut again.
+    let precisionLedger = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
+    let precise = "2026-08-06T03:00:00.500Z"
+    WorktreeOrigins.record(WorktreeOrigin(worktree: "/ms/repo-feat", resolved: nil,
+                                          repository: "/ms/repo", removedAt: precise,
+                                          purged: nil, observedAt: precise),
+                           in: precisionLedger)
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/ms/repo-feat", resolved: nil,
+                                              repository: "/ms/repo", removedAt: nil,
+                                              purged: nil, observedAt: precise)],
+                              in: precisionLedger)
+    check("two writers that looked in the same millisecond leave the removal standing",
+          WorktreeOrigins.load(from: precisionLedger)
+            .first { $0.worktree == "/ms/repo-feat" }?.removedAt == precise)
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/ms/repo-feat", resolved: nil,
+                                              repository: "/ms/repo", removedAt: nil,
+                                              purged: nil, observedAt: "2026-08-06T03:00:00.501Z")],
+                              in: precisionLedger)
+    check("a millisecond later is later, which whole seconds could not have told apart",
+          WorktreeOrigins.load(from: precisionLedger)
+            .first { $0.worktree == "/ms/repo-feat" }?.removedAt == nil)
+    check("and that is the spelling every writer stamps",
+          WorktreeOrigins.timestamp(Date(timeIntervalSince1970: 0)) == "1970-01-01T00:00:00.000Z")
+
+    // Both spellings are read, in a ledger that holds them side by side: the whole-second one was
+    // written by the tally before this, and a formatter that expects fractions cannot read it.
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/ms/legacy", resolved: nil,
+                                              repository: "/ms/repo", removedAt: nil,
+                                              purged: nil, observedAt: "2026-08-06T03:00:00Z")],
+                              in: precisionLedger)
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/ms/legacy", resolved: nil,
+                                              repository: "/ms/other", removedAt: nil,
+                                              purged: nil, observedAt: "2026-08-06T02:59:59.900Z")],
+                              in: precisionLedger)
+    check("a record stamped in whole seconds still orders against one stamped in fractions",
+          WorktreeOrigins.load(from: precisionLedger)
+            .first { $0.worktree == "/ms/legacy" }?.repository == "/ms/repo")
+
     // A record with no observation time at all is a ledger written by an older tally, and reads as
     // long ago: the same outcome the removed stamped-wins special case used to produce.
     WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/s/repo-feat", resolved: nil,

@@ -267,8 +267,11 @@ func runPendingNoticeChecks() {
                                   to: "case .alreadyThere:") {
         check("a queued switch says nothing on the terminal", !queuedSwitch.contains("warn("))
         // The branch that CAN outlast the turn says it in the one place a live child allows.
+        // Three shapes of badge now (a dormant account, one the fleet has momentarily stopped
+        // listing, and no snapshot at all), so they live in `switchWaitBadge` and the assertion is
+        // that this branch raises one rather than that it is spelled here.
         check("a switch held for an unavailable account raises a badge instead",
-              queuedSwitch.contains("state.waiting = PendingBadge("))
+              queuedSwitch.contains("state.waiting = switchWaitBadge("))
     } else {
         check("the queued switch branch was found", false)
     }

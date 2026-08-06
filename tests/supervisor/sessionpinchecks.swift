@@ -209,6 +209,29 @@ func runSessionPinChecks() {
         return (plan, pending)
     }
 
+    // Before any of that: the tick that has nothing to do must not pay for the decision. A plain
+    // default argument is evaluated at the CALL, so the snapshot was being read and JSON-decoded on
+    // every 2s tick of every supervised session for a branch that almost never runs (review,
+    // 2026-08-06); `@autoclosure` moves that read behind the guard.
+    var snapshotReads = 0
+    func countedSnapshot() -> (Snapshot?, String?) {
+        snapshotReads += 1
+        return (Snapshot(version: 2, generatedAt: capNow, accounts: [capped0, sibling]), nil)
+    }
+    var idlePlan: RelaunchPlan?
+    var noCap: PendingCapRecovery?
+    applyCapHandoff(plan: &idlePlan, pendingCap: &noCap, account: capped0, providerID: "claude",
+                    fleet: auto0, sessionPin: nil, quarantine: [:], fuseAllows: true, now: capNow,
+                    loaded: countedSnapshot())
+    check("a tick with no pending cap reads no snapshot at all", snapshotReads == 0)
+    var pendingNow: PendingCapRecovery? = PendingCapRecovery(
+        cappedAccountID: "D", cappedAt: capNow, primaryModel: "fable", recoveryResetsAt: nil,
+        nextRetry: .distantPast, reason: "")
+    applyCapHandoff(plan: &idlePlan, pendingCap: &pendingNow, account: capped0,
+                    providerID: "claude", fleet: auto0, sessionPin: nil, quarantine: [:],
+                    fuseAllows: true, now: capNow, loaded: countedSnapshot())
+    check("and the tick that has a cap to answer reads it exactly once", snapshotReads == 1)
+
     // The bug, end to end: both pins in force, and the session gets out.
     let bothPins = capTick(fleet: pinnedToP, sessionPin: "D")
     check("a cap moves a session pinned over a fleet pin", bothPins.plan != nil)

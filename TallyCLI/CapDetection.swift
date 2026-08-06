@@ -121,14 +121,20 @@ func capReading(fleet: LaunchPolicy, sessionPin: String?, candidates: [Snapshot.
 /// `fleet` is the policy WITHOUT this session's own pin over it, and `sessionPin` arrives beside it
 /// rather than folded in, because the cap is the one reader that treats the two differently
 /// (`capReading` states the whole rule). `loaded` is the tick's snapshot read, injectable like the
-/// rebalance's so the decision is testable without a home directory.
+/// rebalance's so the decision is testable without a home directory, and deferred so that ticks with
+/// nothing to do do not pay for it (see the guard).
 func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapRecovery?,
                      account: Snapshot.Account, providerID: String, fleet: LaunchPolicy,
                      sessionPin: String?, quarantine: [String: (model: String?, until: Date)],
                      fuseAllows: Bool, now: Date = Date(),
-                     loaded: (Snapshot?, String?) = loadSnapshot()) {
+                     loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot()) {
     guard plan == nil, var pending = pendingCap, now >= pending.nextRetry else { return }
-    let (snapshot, snapshotProblem) = loaded
+    // Read INSIDE the guard, and `@autoclosure` is what makes that possible: a plain default
+    // argument is evaluated at the call site, before this function is entered, so the snapshot was
+    // being read and JSON-decoded on every 2s tick of every supervised session for a branch that
+    // almost never runs (review, 2026-08-06). The injection seam is unchanged - a caller still
+    // passes a value, and the compiler wraps it.
+    let (snapshot, snapshotProblem) = loaded()
     let primary = pending.primaryModel
     let excluded = quarantinedAccounts(forPrimary: primary, sessionLocal: quarantine, now: now)
     // The candidates this cap considers usable at all: signed in, able to serve the model, not the

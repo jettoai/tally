@@ -359,6 +359,33 @@ func runRebalanceChecks() {
     check("a spent fuse still moves nobody here", move([dying, healthy], fuseAllows: false) == nil)
     check("and a session with no transcript to carry moves nobody here",
           move([dying, healthy], carryable: false) == nil)
+    // Nor did any of them READ anything. This is the tick almost every tick is - a session that is
+    // pinned, busy, out of fuse, or not carrying a conversation - and it used to read and decode
+    // `~/.tally/snapshot.json` regardless, because a plain default argument is evaluated at the call
+    // site before the function is even entered (review, 2026-08-06). `@autoclosure` plus the cheap
+    // gates first means the file is only opened by a tick that could actually move this session.
+    var snapshotReads = 0
+    func countedSnapshot(_ accounts: [Snapshot.Account]) -> (Snapshot?, String?) {
+        snapshotReads += 1
+        return (snapshot(accounts), nil)
+    }
+    func lazyMove(mode: String = "auto", isQuiet: Bool = true, carryable: Bool = true,
+                  fuseAllows: Bool = true) -> Snapshot.Account? {
+        let fresh = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("tally-rebalance-lazy-\(UUID().uuidString)")
+        scratchDirs.append(fresh)
+        return rebalanceMove(provider: "claude", account: dying, primaryModel: primary, mode: mode,
+                             isQuiet: isQuiet, carryable: carryable, fuseAllows: fuseAllows,
+                             loaded: countedSnapshot([dying, healthy]), now: launch, dir: fresh)
+    }
+    _ = lazyMove(mode: "manual")
+    _ = lazyMove(isQuiet: false)
+    _ = lazyMove(carryable: false)
+    _ = lazyMove(fuseAllows: false)
+    check("a tick that cannot move this session reads no snapshot at all", snapshotReads == 0)
+    check("and the tick that can, reads it once and moves", lazyMove()?.id == "B")
+    check("…exactly once", snapshotReads == 1)
+
     // None of those refusals spent the cycle: an account that was pinned, busy, out of fuse or not
     // yet carrying a conversation when the tick ran is still free to move the moment those clear.
     let sparedDir = URL(fileURLWithPath: NSTemporaryDirectory())

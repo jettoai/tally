@@ -99,20 +99,75 @@ func runSwitchChecks() {
                                      modelRemaining: nil, sessionResetsAt: nil, weeklyResetsAt: nil,
                                      modelResetsAt: nil, modelWindowName: nil,
                                      resetCreditsAvailable: nil, isStale: false, error: nil)]
-    check("an account with a launch home is launchable",
-          switchTargetState("B", provider: "claude", accounts: listedIn) == there)
+    /// The classifier with the disk answer injected, so nothing here reads a home directory. `gone`
+    /// is the ordinary case for these fixtures: ids like "B" name no config home at all.
+    func targetState(_ id: String, provider: String = "claude",
+                     accounts: [Snapshot.Account]? = listedIn,
+                     homeOnDisk: Bool = false) -> SwitchTargetState {
+        switchTargetState(id, provider: provider, accounts: accounts,
+                          homeOnDisk: { _, _ in homeOnDisk })
+    }
+    check("an account with a launch home is launchable", targetState("B") == there)
     // Tally publishes a dormant account WITHOUT a launch home, which is it saying "the login is
     // gone and the account is not" - the same distinction the pin resolution draws.
-    check("listed with no launch home is signed out, not removed",
-          switchTargetState("S", provider: "claude", accounts: listedIn) == .signedOut)
-    check("an id this snapshot does not list at all has left the fleet",
-          switchTargetState("Z", provider: "claude", accounts: listedIn) == .removed)
-    check("an empty snapshot really does list nobody",
-          switchTargetState("B", provider: "claude", accounts: []) == .removed)
+    check("listed with no launch home is signed out, not removed", targetState("S") == .signedOut)
+    check("an id this snapshot does not list, with no config home either, has left the fleet",
+          targetState("Z") == .removed)
+    check("an empty snapshot really does list nobody", targetState("B", accounts: []) == .removed)
     check("but no snapshot at all is unreadable, which is a different thing entirely",
-          switchTargetState("B", provider: "claude", accounts: nil) == .unreadable)
+          targetState("B", accounts: nil) == .unreadable)
     check("another provider's account of the same name is not this one",
-          switchTargetState("B", provider: "codex", accounts: listedIn) == .removed)
+          targetState("B", provider: "codex") == .removed)
+    // The fifth state, and the reason it exists: a snapshot is what the app saw a minute ago, and an
+    // account drops out of one for reasons that are nothing to do with removal (a Keychain probe
+    // that did not answer, a rescan in flight). A live switch was cancelled by exactly that, with
+    // every account present on disk and back in the very next snapshot (2026-08-06).
+    check("an id missing from the fleet whose config home is on disk is not removed",
+          targetState("Z", homeOnDisk: true) == .unlisted)
+    check("…and neither is one missing from an empty snapshot",
+          targetState("B", accounts: [], homeOnDisk: true) == .unlisted)
+    // The disk is only consulted where it can change the answer: a listed account is judged by the
+    // fleet exactly as before, whatever the disk says.
+    check("a listed account is not re-judged by the disk",
+          targetState("B", homeOnDisk: true) == there
+              && targetState("S", homeOnDisk: true) == .signedOut)
+
+    // MARK: - 31c3. The disk answer behind it
+
+    // The id IS the config home's name (`claude:.claude2` → `~/.claude2`), and the path is derived
+    // from `defaultHome` rather than spelled here, so the CLI has ONE answer to "where does this
+    // provider keep its accounts" (AccountHome.swift).
+    let claude = providers[0]
+    let codex = providers[1]
+    let homeDir = URL(fileURLWithPath: defaultHome(claude)).deletingLastPathComponent().path
+    check("the default account's home is the provider's own config dir",
+          accountConfigHome("claude:.claude", provider: claude) == "\(homeDir)/.claude")
+    check("a numbered one sits beside it",
+          accountConfigHome("claude:.claude4", provider: claude) == "\(homeDir)/.claude4")
+    check("so does a named one",
+          accountConfigHome("claude:.claude-work", provider: claude) == "\(homeDir)/.claude-work")
+    check("and codex answers about its own family",
+          accountConfigHome("codex:.codex2", provider: codex) == "\(homeDir)/.codex2")
+    // Everything that is not one of this provider's config homes answers nil, which reads as "no
+    // evidence" at the caller and therefore never blocks a cancellation on its own.
+    check("an id for another provider names nothing here",
+          accountConfigHome("codex:.codex2", provider: claude) == nil)
+    check("an id outside the family names nothing",
+          accountConfigHome("claude:.ssh", provider: claude) == nil)
+    check("an id with no provider prefix names nothing",
+          accountConfigHome(".claude2", provider: claude) == nil)
+    // A separator would let a snapshot or a request file point this at a path outside the home
+    // directory; the prefix check and this one together make that impossible by construction.
+    check("and a path separator is not a config dir name",
+          accountConfigHome("claude:.claude/../../etc", provider: claude) == nil)
+    check("an unknown provider id has no homes at all",
+          !accountHomeExists("mystery:.mystery", provider: "mystery", isDirectory: { _ in true }))
+    check("an account whose directory is there exists",
+          accountHomeExists("claude:.claude9", provider: "claude", isDirectory: {
+              $0 == "\(homeDir)/.claude9"
+          }))
+    check("…and one whose directory is not, does not",
+          !accountHomeExists("claude:.claude9", provider: "claude", isDirectory: { _ in false }))
 
     // MARK: - 31f. The switch through a whole tick
 
@@ -134,10 +189,11 @@ func runSwitchChecks() {
     func stampAfter(_ epoch: Int) -> Date { Date(timeIntervalSince1970: Double(epoch + 1) / 1000) }
     func afterServed() -> Date { stampAfter(state.servedEpoch) }
 
-    /// One poll tick's manual-move handling, with everything the loop would read injected.
+    /// One poll tick's manual-move handling, with everything the loop would read injected -
+    /// including the disk, so no assertion here depends on what is in the real home directory.
     func tick(_ watcher: inout TranscriptWatcher, request: SwitchRequest?,
               policy: LaunchPolicy = pinnedNowhere, keyboardIdle: Bool = true,
-              accounts: [Snapshot.Account] = fleet)
+              accounts: [Snapshot.Account] = fleet, homeOnDisk: Bool = false)
         -> (plan: RelaunchPlan?, record: PendingSwitchConsumption?) {
         var plan: RelaunchPlan?
         var record: PendingSwitchConsumption?
@@ -145,7 +201,8 @@ func runSwitchChecks() {
         applyManualMoves(plan: &plan, state: &state, record: &record, policy: &under,
                          account: onA, providerID: "claude", watcher: &watcher, childAge: 9999,
                          keyboardIdle: { _ in keyboardIdle }, dir: tickDir,
-                         request: { _ in request }, accounts: { accounts })
+                         request: { _ in request }, accounts: { accounts },
+                         homeOnDisk: { _, _ in homeOnDisk })
         return (plan, record)
     }
 
@@ -270,6 +327,33 @@ func runSwitchChecks() {
     let afterCancel = SwitchRequest(epoch: state.servedEpoch + 1, accountID: "B")
     _ = tick(&deleted, request: afterCancel, keyboardIdle: false)
     check("but a fresh request takes it down", state.badge == nil)
+    // The same tick, with the account's config home still on disk: the fleet and the filesystem
+    // disagree, so the request is HELD rather than cancelled. This is the reported bug end to end -
+    // a statusline showing "switch: account removed" while all five accounts were present, because
+    // one snapshot happened not to list the target (2026-08-06).
+    var blinked = idleWatcher("blinked")
+    try! writeSwitchRequest(accountID: "Q", sessionKey: session, now: afterServed(), dir: tickDir)
+    let blinkedRequest = readSwitchRequest(sessionKey: session, dir: tickDir)!
+    let blinkHeld = tick(&blinked, request: blinkedRequest, homeOnDisk: true)
+    check("an account missing from the snapshot but present on disk plans nothing yet",
+          blinkHeld.plan == nil)
+    check("and is HELD, not cancelled", state.servedEpoch < blinkedRequest.epoch)
+    check("so the request survives for the tick that can serve it",
+          readSwitchRequest(sessionKey: session, dir: tickDir) == blinkedRequest)
+    check("the badge names the wait rather than announcing a removal",
+          state.waiting?.badge == "switch: not listed" && state.cancelled == nil)
+    check("…and says which of the two waits it is, so nobody renews a login that is fine",
+          state.waiting?.detail?.contains("config home is still on disk") == true)
+    check("that badge fits the status line too", (state.waiting?.badge.count ?? 99) <= 24)
+    // And it fires by itself the moment the fleet lists the account again - no second command.
+    let listedAgain = tick(&blinked, request: blinkedRequest,
+                           accounts: fleet + [switchAccount("Q", label: "Claude 7")],
+                           homeOnDisk: true)
+    check("the held request moves the session once the snapshot catches up",
+          listedAgain.plan?.target.id == "Q")
+    listedAgain.record?.commit(&state)
+    check("and the wait comes down with it", state.badge == nil)
+
     // An unreadable snapshot says nothing about the account, so it waits rather than cancelling:
     // otherwise a missing snapshot file would drop every pending switch on the machine.
     var blind = idleWatcher("blind")
@@ -281,11 +365,16 @@ func runSwitchChecks() {
     applyManualMoves(plan: &blindPlan, state: &state, record: &blindRecord, policy: &blindPolicy,
                      account: onA, providerID: "claude", watcher: &blind, childAge: 9999,
                      keyboardIdle: { _ in true }, dir: tickDir, request: { _ in blindRequest },
-                     accounts: { nil })
+                     accounts: { nil }, homeOnDisk: { _, _ in false })
     check("no snapshot at all holds the request", blindPlan == nil)
     check("without cancelling it", state.servedEpoch < blindRequest.epoch
               && readSwitchRequest(sessionKey: session, dir: tickDir) == blindRequest)
-    check("and badges it as a wait", state.waiting?.badge == "switch: signed out")
+    // Its own wording, not the dormant account's: there is no snapshot to find ANY account in, and
+    // sending the reader off to renew a login that is fine is the wrong instruction twice over.
+    check("and badges it as a wait of its own kind",
+          state.waiting?.badge == "switch: no snapshot")
+    check("…naming what is actually missing", state.waiting?.detail?.contains("Tally.app") == true)
+    check("that badge fits the row too", (state.waiting?.badge.count ?? 99) <= 24)
     clearSwitchRequest(sessionKey: session, dir: tickDir)
 
     // The session got there on its own (a cap handoff landed on the named account first).

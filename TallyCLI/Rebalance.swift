@@ -249,6 +249,17 @@ func rebalanceRecordName(_ accountID: String) -> String {
     accountID.replacingOccurrences(of: "/", with: "_")
 }
 
+/// The gates that need nothing but what the caller already holds - no snapshot, no account, no
+/// filesystem - in the order they bite. They are the first four of the list documented under
+/// `rebalanceTarget` below, and one definition answers both readers: that decision asks them, and
+/// `rebalanceMove` asks them again BEFORE its snapshot read, so a tick that could not move this
+/// session anyway never pays for the read. Two copies of this list would be free to disagree, and
+/// the copy that fell behind would silently refuse moves the real gate allows.
+func rebalanceAllowedForSession(mode: String, isQuiet: Bool, carryable: Bool,
+                                fuseAllows: Bool) -> Bool {
+    mode != "manual" && isQuiet && carryable && fuseAllows
+}
+
 /// The account a running session should move to before its own account runs out, or nil to stay put.
 /// Every gate but the claim is pure, and the claim arrives as a closure, so the whole decision is
 /// testable without a snapshot, a child, or a filesystem.
@@ -294,7 +305,8 @@ func rebalanceTarget(mode: String, isQuiet: Bool, carryable: Bool, fuseAllows: B
                      current: Snapshot.Account, candidates: [Snapshot.Account],
                      primaryModel: String?, now: Date = Date(),
                      claim: () -> Bool = { true }) -> Snapshot.Account? {
-    guard mode != "manual", isQuiet, carryable, fuseAllows,
+    guard rebalanceAllowedForSession(mode: mode, isQuiet: isQuiet, carryable: carryable,
+                                     fuseAllows: fuseAllows),
           !accountIsComfortable(current, primaryModel: primaryModel, now: now),
           let target = capHandoffTarget(candidates, primaryModel: primaryModel, now: now),
           claim()
@@ -317,12 +329,31 @@ func rebalanceTarget(mode: String, isQuiet: Bool, carryable: Bool, fuseAllows: B
 ///
 /// The field is narrowed exactly as the cap handoff narrows it: this provider, eligible for the
 /// model actually running, not the account we are on, and nothing quarantined.
+///
+/// `loaded` is that snapshot read, injectable so the whole decision is testable without a home
+/// directory, and `@autoclosure` so a tick that will not use it does not pay for it: a plain default
+/// argument is evaluated at the CALL SITE, before this function is entered, and this one is called on
+/// every tick that has no other relaunch planned - which is nearly all of them. Reading and decoding
+/// `~/.tally/snapshot.json` every 2 seconds per supervised session, for a branch whose own gates
+/// (`mode == "manual"`, a session in use, a comfortable account) throw the answer away moments later,
+/// is a cost nobody asked for. Same fix, same reason, as `applyCapHandoff` (CapDetection.swift);
+/// `observeCapHit` reaches it a third way, with a plain closure it calls only on the tick a cap
+/// lands, which is the same property spelled differently and deliberately left alone.
 func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: String?,
                    mode: String, isQuiet: Bool, carryable: Bool, fuseAllows: Bool,
                    quarantine: [String: (model: String?, until: Date)] = [:],
-                   loaded: (Snapshot?, String?) = loadSnapshot(), now: Date = Date(),
+                   loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
+                   now: Date = Date(),
                    dir: URL = rebalanceDir) -> Snapshot.Account? {
-    let (snapshot, problem) = loaded
+    // The gates that cost nothing come first, so the read below is only paid for by a tick that
+    // could actually move this session. `mode` is the one that bites most: a pinned session (the
+    // app's pin, this project's profile, or a `tally switch` of its own) never rebalances, and it
+    // asks nothing of the filesystem to know that. Asked through the shared predicate, never
+    // re-spelled: `rebalanceTarget` asks the same four again with the same answer, so this can only
+    // ever be an early exit, never a second opinion.
+    guard rebalanceAllowedForSession(mode: mode, isQuiet: isQuiet, carryable: carryable,
+                                     fuseAllows: fuseAllows) else { return nil }
+    let (snapshot, problem) = loaded()
     guard problem == nil, let snapshot,
           let live = snapshot.accounts.first(where: { $0.id == account.id }),
           let cycle = rebalanceCycleKey(live, primaryModel: primaryModel, now: now)

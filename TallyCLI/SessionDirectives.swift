@@ -54,7 +54,12 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
     applyManualMoves(plan: &plan, state: &moves, record: &switchRecord, policy: &policy,
                      account: account, providerID: providerID, watcher: &watcher,
                      childAge: childAge, keyboardIdle: keyboardIdle)
-    applySessionModel(plan: &plan, state: &model, record: &modelRecord, follow: &follow,
+    // Handed the tick's relaunch as something it may only ADD to: with an account already chosen
+    // above, this station folds its pair onto that plan and cannot replace it (`TickPlan`,
+    // SupervisorRuntime.swift). The wrap is here rather than around the whole sequence because the
+    // station before it is the one that legitimately DOES choose an account.
+    var planning = TickPlan(plan)
+    applySessionModel(plan: &planning, state: &model, record: &modelRecord, follow: &follow,
                       policy: policy, account: account, providerID: providerID,
                       launchArgs: launchArgs,
                       // Every way an account can already be spoken for arrives as one question:
@@ -63,6 +68,7 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                       accountPinned: moves.sessionPin != nil || policy.mode == "manual",
                       quarantine: quarantine, watcher: &watcher, childAge: childAge,
                       keyboardIdle: keyboardIdle, request: modelRequest(model.sessionKey))
+    plan = planning.plan
     applyFollowAdoption(plan: &plan, state: &follow, following: following && !model.isPinned,
                         policy: policy, account: account, providerID: providerID,
                         launchArgs: launchArgs, quarantine: quarantine, watcher: &watcher,

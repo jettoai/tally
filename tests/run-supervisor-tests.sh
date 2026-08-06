@@ -31,7 +31,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/switchhookchecks.swift tests/supervisor/sessionpinchecks.swift \
   tests/supervisor/modelrequestchecks.swift tests/supervisor/modeltickchecks.swift \
   tests/supervisor/modelsurfacechecks.swift \
-  TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
+  TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptFork.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift TallyCLI/Reload.swift \
   TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AccountComfort.swift \
   TallyCLI/Rebalance.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift \
@@ -41,6 +41,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/SessionContext.swift TallyCLI/ResumePrompt.swift TallyCLI/SessionSwitch.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/AccountHome.swift TallyCLI/SwitchCommand.swift TallyCLI/SwitchHook.swift TallyCLI/SwitchMenu.swift TallyCLI/WorktreeMenu.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
   TallyCLI/ResuperviseContract.swift TallyCLI/ModelRequest.swift TallyCLI/SessionModel.swift \
+  TallyCLI/ChildReaper.swift \
   TallyCLI/SessionDirectives.swift TallyCLI/ModelCommand.swift TallyCLI/ModelHook.swift \
   TallyCLI/ModelMenu.swift Tally/Core/LaunchAxisNames.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift

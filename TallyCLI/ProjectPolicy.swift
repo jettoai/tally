@@ -216,6 +216,14 @@ private func optionValue(_ args: [String], _ flag: String) -> String? {
 /// provider here has ever used (`opus`, `gpt-5.6-sol`, `us.anthropic.claude-opus-4:1`, `xhigh`) fits
 /// inside that, and nothing a shell reacts to does.
 ///
+/// A FULL BEDROCK ARN DOES NOT FIT, and that is a decision rather than an oversight (raised in
+/// review, 2026-08-07, deferred deliberately). Those carry `/`, which this refuses. Widening it for
+/// the model axis alone would put the two entrances that share this rule - `tally project set
+/// --model` and `tally model` - in disagreement about what may be stored; and this is the entrance
+/// half of a shell-injection fix whose other half is `shellSingleQuoted` (LaunchDir.swift), so
+/// loosening one lock for a case nobody has hit is a bad trade. Supporting such an id means
+/// widening BOTH entrances and adding the quoting tests that go with it, which is its own change.
+///
 /// The entrance half of the shell-injection fix whose other half is `shellSingleQuoted`
 /// (LaunchDir.swift, where the mechanism is written down). Quoting alone would leave the profile
 /// itself holding a payload for whichever reader is written next; refusing it here alone would

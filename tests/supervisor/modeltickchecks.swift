@@ -23,17 +23,17 @@ func runModelTickChecks() {
               request: ModelRequest?, policy: LaunchPolicy, launchArgs: [String],
               watcher: inout TranscriptWatcher, accountPinned: Bool = false,
               fleet: [Snapshot.Account] = [], on: Snapshot.Account? = nil,
-              childAge: TimeInterval = 600)
+              childAge: TimeInterval = 600, planned: RelaunchPlan? = nil)
         -> (plan: RelaunchPlan?, record: PendingModelConsumption?) {
-        var plan: RelaunchPlan?
+        var planning = TickPlan(planned)
         var record: PendingModelConsumption?
-        applySessionModel(plan: &plan, state: &state, record: &record, follow: &follow,
+        applySessionModel(plan: &planning, state: &state, record: &record, follow: &follow,
                           policy: policy, account: on ?? onA, providerID: "claude",
                           launchArgs: launchArgs, accountPinned: accountPinned, quarantine: [:],
                           watcher: &watcher, childAge: childAge, keyboardIdle: { _ in true },
                           dir: tickDir, request: request,
                           snapshot: fleet.isEmpty ? { (nil, "no snapshot") } : fleetOf(fleet))
-        return (plan, record)
+        return (planning.plan, record)
     }
 
     var fleetDefault = LaunchPolicy()
@@ -243,6 +243,57 @@ func runModelTickChecks() {
                       policy: fleetDefault, launchArgs: [], watcher: &idle9, fleet: [])
     check("…and the tick goes ahead with it rather than waiting for quota",
           anyway.plan?.model == "opus" && anyway.plan?.target.id == onA.id)
+
+    // MARK: - 33e2. A switch and a model change in the same tick
+
+    // THE DEFECT THIS SECTION EXISTS FOR. `applyManualMoves` runs first and may already have chosen
+    // an account; this station used to REBUILD the plan around an account of its own, throwing that
+    // decision away while the execution point went on committing the switch's pin - a child on one
+    // account with the state recording another, and a phantom pin blocking every later automatic
+    // move (caught in review of 9ea3ea9). The two instructions COMPOSE: "run this conversation over
+    // there" and "run it on opus" are both honoured by one restart.
+    let switched = RelaunchPlan(target: roomier, reason: "switch", countsFuse: false)
+    var bothState = SessionModelState(sessionKey: "5511", servedEpoch: 0, dir: tickDir)
+    var bothFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "high"])
+    var idle10 = idleWatcher("model-with-switch")
+    let both = tick(&bothState, follow: &bothFollow,
+                    request: ModelRequest(epoch: 1200, model: "opus", effort: "xhigh"),
+                    policy: fleetDefault, launchArgs: ["--model", "fable", "--effort", "high"],
+                    watcher: &idle10, fleet: [onA, roomier], planned: switched)
+    check("the account the switch chose survives the model change",
+          both.plan?.target.id == roomier.id)
+    check("…and the pair the model change asked for rides that same relaunch",
+          both.plan?.model == "opus" && both.plan?.effort == "xhigh")
+    check("…on the switch's own audit tag, since it owns the move",
+          both.plan?.reason == "switch" && both.plan?.countsFuse == false)
+    check("…still guarded from the follow adoption that runs after it",
+          both.plan?.followFolded == true)
+    check("…and the request is served, so it is not asked for a second time",
+          both.record != nil)
+    // Folding rides the relaunch that is happening anyway, so it does not wait for a quiet moment
+    // of its own: the SIGTERM is already coming.
+    var busyBoth = SessionModelState(sessionKey: "5512", servedEpoch: 0, dir: tickDir)
+    var busyBothFollow = FollowState(launchArgs: [])
+    var midTurn = midTurnWatcher("model-with-switch-busy")
+    check("a fold does not wait for the session to go quiet",
+          tick(&busyBoth, follow: &busyBothFollow,
+               request: ModelRequest(epoch: 1300, model: "opus", effort: nil),
+               policy: fleetDefault, launchArgs: [], watcher: &midTurn, fleet: [onA, roomier],
+               planned: switched).plan?.model == "opus")
+    // The type is what enforces it: a station handed a `TickPlan` can add axes and cannot replace
+    // what is in it, so the mistake cannot be made again by writing the assignment back.
+    var sealed = TickPlan(switched)
+    sealed.propose(RelaunchPlan(target: onA, reason: "model", countsFuse: false))
+    check("a proposal made over an existing plan is ignored, not honoured",
+          sealed.plan?.target.id == roomier.id && sealed.plan?.reason == "switch")
+    sealed.foldAxes(model: "haiku", effort: nil, clearsAxes: false)
+    check("…while folding reaches it", sealed.plan?.model == "haiku")
+    var empty = TickPlan()
+    empty.foldAxes(model: "haiku", effort: nil, clearsAxes: false)
+    let foldedNothing = empty.plan == nil
+    empty.propose(RelaunchPlan(target: onA, reason: "model", countsFuse: false))
+    check("with nothing planned, folding changes nothing and proposing takes",
+          foldedNothing && empty.plan?.reason == "model")
 
     // MARK: - 33f. What the pair means, read off a request
 

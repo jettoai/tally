@@ -150,21 +150,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // Every child from here on is one this supervisor decided to start.
         relaunching = true
 
-        // One-shot reaper around waitpid: WNOHANG polls, blocking waits, and the status is
-        // remembered because a reaped pid cannot be waited on twice.
-        var childStatus: Int32?
-        func pollChild() {
-            guard childStatus == nil else { return }
-            var status: Int32 = 0
-            if waitpid(childPID, &status, WNOHANG) == childPID { childStatus = status }
-        }
-        func awaitChild() -> Int32 {
-            if let childStatus { return childStatus }
-            var status: Int32 = 0
-            while waitpid(childPID, &status, 0) == -1, errno == EINTR {}
-            childStatus = status
-            return status
-        }
+        // What became of this child, remembered because a reaped pid cannot be waited on twice
+        // and three places here ask (ChildReaper.swift).
+        var child = ChildReaper(pid: childPID)
 
         var watcher = TranscriptWatcher(
             projectDir: URL(fileURLWithPath: account.launchHome!).appendingPathComponent("projects/\(slug)"),
@@ -186,7 +174,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // a `--continue` the watcher cannot yet turn into a session id; a real move drops it.
             let sameAccount = target.id == account.id
             kill(childPID, SIGTERM)   // let claude run its SessionEnd cleanup
-            _ = awaitChild()
+            _ = child.wait()
             clearDriftState(pid: supervisorPID)   // a new child gets a fresh drift monitor
 
             // Forced, because the id this resumes must be the file the conversation is actually in:
@@ -236,11 +224,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         /// the only way out of the hold is a relaunch, and that child gets a fresh one of these.
         var unresolvedHoldWarned = false
 
-        pollChild()
-        while childStatus == nil {
+        child.poll()
+        while child.isRunning {
             usleep(2_000_000)
-            pollChild()
-            guard childStatus == nil else { break }
+            child.poll()
+            guard child.isRunning else { break }
             // Before any relaunch decision reads it: every gate below asks the same tracker, and it
             // only learns anything by being given each tick's reading.
             keyboard.observe(stamp: lastKeyboardInput())
@@ -419,9 +407,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                })
             // How much context a resume of this conversation would reload, for the surfaces outside
             // this terminal (SessionContext.swift). Read off the scan the tick already ran.
+            let axes = publishedSessionAxes(pin: sessionModelState.pin, launchArgs: launchArgs)
             sessionContext.sync(tokens: watcher.lastContextTokens, accountID: account.id,
-                                pin: manualMoves.sessionPin, model: sessionModelState.pin.model,
-                                effort: sessionModelState.pin.effort, pid: supervisorPID)
+                                pin: manualMoves.sessionPin, axes: axes, pid: supervisorPID)
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID,
@@ -468,14 +456,17 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                              attempted: selfUpdateAttempted,
                                              home: plan.target.launchHome)
                 performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse)
-                // Republish the account this conversation now runs on, rather than leaving it to
-                // the next tick that reads a token figure: a `tally switch` from a shell outside
-                // this session has only that file to go on (SessionContext.swift).
-                sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
-                                              model: sessionModelState.pin.model,
-                                              effort: sessionModelState.pin.effort,
-                                              pid: supervisorPID)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan)
+                // Republish the account this conversation now runs on, and the pair the next child
+                // will run, rather than leaving either to a later tick that reads a token figure: a
+                // `tally switch` or a `tally model` from a shell outside this session has only that
+                // file to go on (SessionContext.swift). AFTER the args are rewritten above, because
+                // what it publishes is what the child about to be spawned actually runs - before
+                // it, this would republish the pair the session is leaving.
+                let nextAxes = publishedSessionAxes(pin: sessionModelState.pin,
+                                                    launchArgs: launchArgs)
+                sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
+                                              axes: nextAxes, pid: supervisorPID)
                 // Last, so an exec that fails falls through to the respawn below with this plan
                 // fully applied: a failed upgrade can cost the new build, never the account switch.
                 execPlannedSelfUpdate(upgrade, attempted: &selfUpdateAttempted, target: plan.target,
@@ -489,11 +480,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         }
 
         if handoff { continue }
-        let status = awaitChild()   // no relaunch pending: the child exited on its own, so do we
+        let status = child.wait()   // no relaunch pending: the child exited on its own, so do we
         removeSupervisorState(pid: supervisorPID)
         clearPendingNotice(pid: supervisorPID)
         clearSessionContext(pid: supervisorPID)
-        let exited = (status & 0x7f) == 0
-        exit(exited ? (status >> 8) & 0xff : 128 + (status & 0x7f))
+        exit(supervisorExitCode(childStatus: status))
     }
 }

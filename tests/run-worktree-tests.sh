@@ -34,7 +34,7 @@ swiftc -o "$out" \
   TallyCLI/SafeguardDrift.swift \
   TallyCLI/KeyboardIdle.swift \
   TallyCLI/OpenTurn.swift \
-  TallyCLI/SupervisorRuntime.swift \
+  TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift \
   TallyCLI/ResumePrompt.swift \
   TallyCLI/LaunchFlags.swift \
   TallyCLI/WorktreeMenu.swift \

@@ -193,5 +193,41 @@ func runSessionContextChecks() {
     writer.sync(tokens: 101_000, accountID: "claude:.claude2", pin: nil, pid: livePid, dir: dir, now: at)
     check("a handoff rewrites it even at the same size",
           readSessionContext(pid: livePid, dir: dir)?.accountID == "claude:.claude2")
+
+    // MARK: - 28f. What a session is RUNNING, beside what it was PINNED to
+
+    // Two pairs, not one. The pin is what the user asked for; the running pair is what is on screen,
+    // and they come apart whenever anything else moves the session (a quota fallback, a safeguard
+    // restore, a flag typed at launch). A reader with only the pin can compute what SHOULD be
+    // running and has no way at all to learn what is.
+    let moved = SessionAxes(pinnedModel: "opus", pinnedEffort: nil,
+                            runningModel: "sonnet", runningEffort: "low")
+    writer.sync(tokens: 200_000, accountID: "claude:.claude2", pin: nil, axes: moved,
+                pid: livePid, dir: dir, now: at)
+    let readBack = readSessionContext(pid: livePid, dir: dir)
+    check("both pairs round-trip through the published file",
+          readBack?.sessionModel == "opus" && readBack?.sessionEffort == nil
+              && readBack?.runningModel == "sonnet" && readBack?.runningEffort == "low")
+    // The running pair is a reason to write on its own: a quota fallback changes what is running
+    // without changing the token count or anything the user asked for, and a reading that waited for
+    // the next thousand tokens would name a model the session had already left.
+    let onHaiku = SessionAxes(pinnedModel: "opus", runningModel: "haiku")
+    writer.sync(tokens: 200_100, accountID: "claude:.claude2", pin: nil, axes: onHaiku,
+                pid: livePid, dir: dir, now: at)
+    check("a changed running pair is published even when the number has barely moved",
+          readSessionContext(pid: livePid, dir: dir)?.runningModel == "haiku")
+    // The SAME pair, so "unchanged" is a fact of the fixture rather than an eyeball diff.
+    writer.sync(tokens: 200_200, accountID: "claude:.claude2", pin: nil, axes: onHaiku,
+                pid: livePid, dir: dir, now: at)
+    check("…and an unchanged one, under the delta, is not rewritten",
+          readSessionContext(pid: livePid, dir: dir)?.contextTokens == 200_100)
+    // Additive: a document written before these fields existed still decodes, with nil for both -
+    // which every reader has to treat as "cannot say" rather than as "running nothing".
+    try! #"{"accountID":"claude:.claude","contextTokens":1234,"updatedAt":"2026-08-06T00:00:00Z"}"#
+        .write(to: sessionContextFile(pid: "4242", dir: dir), atomically: true, encoding: .utf8)
+    let legacy = readSessionContext(pid: "4242", dir: dir)
+    check("a document from a build before these fields still decodes", legacy?.contextTokens == 1234)
+    check("…with no running pair, rather than a made-up one",
+          legacy?.runningModel == nil && legacy?.runningEffort == nil)
     try? FileManager.default.removeItem(at: dir)
 }

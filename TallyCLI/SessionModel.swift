@@ -33,7 +33,7 @@ import Foundation
 /// re-point the launch-default baseline as it lands; the reasoning for that is at `sessionModelPair`
 /// below. `request`, `snapshot` and `now` are injected so the whole decision is reachable in a test
 /// without a home directory, a snapshot or a child, the shape `applyFollowAdoption` already uses.
-func applySessionModel(plan: inout RelaunchPlan?, state: inout SessionModelState,
+func applySessionModel(plan: inout TickPlan, state: inout SessionModelState,
                        record: inout PendingModelConsumption?, follow: inout FollowState,
                        policy: LaunchPolicy, account: Snapshot.Account, providerID: String,
                        launchArgs: [String], accountPinned: Bool,
@@ -66,6 +66,25 @@ func applySessionModel(plan: inout RelaunchPlan?, state: inout SessionModelState
         serve(consumingNow: true)
         return
     }
+    // FOLD, NEVER REBUILD. A `tally switch` typed in the same window has already decided this
+    // tick's account (SessionDirectives.swift runs it first), and building a plan of our own around
+    // an account of our own choosing would throw that decision away while the execution point went
+    // on committing the switch's pin: the child comes up on one account with the state recording
+    // another, and that phantom pin then blocks every later automatic move.
+    //
+    // The two axes COMPOSE - "run this conversation over there" and "run it on opus" are both
+    // honoured by one restart - and folding is what makes them compose. The type is what enforces
+    // it (`TickPlan`, SupervisorRuntime.swift): this station cannot replace a plan it did not make.
+    //
+    // AHEAD OF THE QUIET GATE, deliberately: the relaunch is happening either way, so there is no
+    // idle moment left to wait for and waiting would only mean the pair missed the restart it could
+    // have ridden. `applyFollowAdoption` folds on the same terms, for the same reason.
+    guard !plan.isPlanned else {
+        plan.foldAxes(model: pair.model, effort: pair.effort, clearsAxes: request.isRelease)
+        warn(sessionModelNotice(pair, movingTo: nil, released: request.isRelease))
+        serve(consumingNow: false)
+        return
+    }
     guard reloadQuiet(transcriptQuiet: watcher.isQuiet(manualMoveIdleSeconds),
                       hasTranscript: watcher.file != nil, childAge: childAge,
                       bar: manualMoveIdleSeconds,
@@ -95,23 +114,49 @@ func applySessionModel(plan: inout RelaunchPlan?, state: inout SessionModelState
         warn("no \(providerID) account has quota to spare for \(named) right now - running it on "
             + "\(target.label) anyway, as you asked")
     } else {
-        warn("this session runs \(sessionModelDescription(pair)) from here on"
-            + (target.id == account.id ? "" : ", on \(target.label)")
-            + (request.isRelease ? " (following the project profile and the fleet default again)"
-               : "; `tally model --auto` to follow the default again"))
+        warn(sessionModelNotice(pair, movingTo: target.id == account.id ? nil : target.label,
+                                released: request.isRelease))
     }
-    plan = RelaunchPlan(target: target, reason: "model", countsFuse: false,
-                        model: pair.model, effort: pair.effort,
-                        // A release back to a default that names nothing has to TAKE the pinned
-                        // flags off the command line, which "nil means leave it alone" cannot say.
-                        clearsAxes: request.isRelease,
-                        // The follow adoption runs after this and would otherwise fold the FLEET's
-                        // pair onto this plan, overwriting the pair the user just chose. The pin
-                        // that stands this session's follow down is not recorded until the
-                        // execution point (a stand-down must leave the request pending), so within
-                        // this one tick the flag is what protects it.
-                        followFolded: true)
+    plan.propose(RelaunchPlan(target: target, reason: "model", countsFuse: false,
+                              model: pair.model, effort: pair.effort,
+                              // A release back to a default that names nothing has to TAKE the
+                              // pinned flags off the command line, which "nil means leave it alone"
+                              // cannot say.
+                              clearsAxes: request.isRelease,
+                              // The follow adoption runs after this and would otherwise fold the
+                              // FLEET's pair onto this plan, overwriting the pair the user just
+                              // chose. The pin that stands this session's follow down is not
+                              // recorded until the execution point (a stand-down must leave the
+                              // request pending), so within this tick the flag is what protects it.
+                              followFolded: true))
     serve(consumingNow: false)
+}
+
+/// What the supervisor publishes about this session's two axes: what the user PINNED, and what the
+/// child is actually RUNNING.
+///
+/// The running pair is read off the launch args rather than off the pin, and that is the whole point
+/// of it: the pin is empty for most sessions, while `--model` on the command line is the truth
+/// whoever last wrote it - the launcher's own injection, a flag the user typed, a quota fallback, a
+/// safeguard restore. Publishing the pin as though it were the running pair made `tally model` state
+/// the LAYER RESOLUTION in the indicative ("this session runs fable/high") for a session that had
+/// been moved off it minutes earlier (smoke-tested against the real binary, 2026-08-07).
+func publishedSessionAxes(pin: SessionModelPin, launchArgs: [String]) -> SessionAxes {
+    SessionAxes(pinnedModel: pin.model, pinnedEffort: pin.effort,
+                runningModel: flagValue(launchArgs, "--model"),
+                runningEffort: flagValue(launchArgs, "--effort"))
+}
+
+/// What the user is told on the terminal when the change lands: the pair, the account it lands on
+/// when that is somewhere new, and the way back out. One function because the change lands by two
+/// routes - folded onto a relaunch someone else planned, or on one of its own - and the difference
+/// between those is not something the person reading the line has any use for.
+func sessionModelNotice(_ pair: SessionModelPin, movingTo label: String?,
+                        released: Bool) -> String {
+    "this session runs \(sessionModelDescription(pair)) from here on"
+        + (label.map { ", on \($0)" } ?? "")
+        + (released ? " (following the project profile and the fleet default again)"
+           : "; `tally model --auto` to follow the default again")
 }
 
 /// The status-line badge a queued model change leaves. A constant because the wording is asserted in

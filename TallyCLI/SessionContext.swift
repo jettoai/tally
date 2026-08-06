@@ -97,11 +97,52 @@ struct SupervisedSession: Equatable, Codable {
     var sessionPin: String?
     /// The model and effort a `tally model` pinned this session to, or nil for an axis it follows
     /// the project profile and the fleet default on (SessionModel.swift). Additive on the same
-    /// terms as `sessionPin`, and published for the same reason: a surface outside this terminal -
-    /// `tally model` run from another shell, `tally status --json` - has nothing else to read, and
-    /// what a session RUNS is exactly what such a surface is being asked about.
+    /// terms as `sessionPin`.
     var sessionModel: String?
     var sessionEffort: String?
+    /// What the session is ACTUALLY RUNNING: the `--model` and `--effort` on the command line its
+    /// child was spawned with.
+    ///
+    /// A SEPARATE PAIR FROM THE ONE ABOVE, and the distinction is the whole reason these exist. The
+    /// pin is what the user asked for; this is what is on screen. They come apart routinely and
+    /// none of the ways are exotic: a `--model` typed at launch, a session that started before its
+    /// project declared a profile, and - the one that matters most - a quota fallback or a safeguard
+    /// restore having moved the session onto another model already (ModelDegradation.swift,
+    /// SafeguardDrift.swift). A reader with only the layers can compute what SHOULD be running and
+    /// has no way at all to learn what is, which is exactly the question `tally model` is asked at
+    /// the moment those paths have fired (found by smoke-testing the real binary, 2026-08-07).
+    ///
+    /// Additive like everything else on this track: a document written before these existed decodes
+    /// with nil, which reads as "cannot say" rather than as "running nothing".
+    var runningModel: String?
+    var runningEffort: String?
+}
+
+/// The four axis readings one publish carries. Grouped so the writer's two entry points take one
+/// argument rather than four, and so a caller cannot fill the pinned pair while forgetting the
+/// running one - which is the mistake the running pair was added to fix.
+struct SessionAxes: Equatable {
+    var pinnedModel: String?
+    var pinnedEffort: String?
+    var runningModel: String?
+    var runningEffort: String?
+}
+
+extension SupervisedSession {
+    /// This reading already describes those axes, so nothing has to be rewritten for them.
+    func matches(_ axes: SessionAxes) -> Bool {
+        sessionModel == axes.pinnedModel && sessionEffort == axes.pinnedEffort
+            && runningModel == axes.runningModel && runningEffort == axes.runningEffort
+    }
+
+    /// The four axis fields, spelled once, so a new publish cannot fill three of them.
+    init(accountID: String, contextTokens: Int, updatedAt: Date, sessionPin: String?,
+         axes: SessionAxes) {
+        self.init(accountID: accountID, contextTokens: contextTokens, updatedAt: updatedAt,
+                  sessionPin: sessionPin, sessionModel: axes.pinnedModel,
+                  sessionEffort: axes.pinnedEffort, runningModel: axes.runningModel,
+                  runningEffort: axes.runningEffort)
+    }
 }
 
 /// The file a supervisor's context reading lives in.
@@ -161,30 +202,29 @@ struct SessionContextWriter {
     /// Nothing to move before the first reading is published: a session that has never had a turn
     /// has no file, and inventing one with a token count nobody measured would be worse than the
     /// silence the reader already handles.
-    mutating func accountChanged(to accountID: String, pin: String?, model: String? = nil,
-                                 effort: String? = nil, pid: String,
+    mutating func accountChanged(to accountID: String, pin: String?,
+                                 axes: SessionAxes = SessionAxes(), pid: String,
                                  dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let current, current.accountID != accountID || current.sessionPin != pin
-            || current.sessionModel != model || current.sessionEffort != effort else { return }
+            || !current.matches(axes) else { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: current.contextTokens,
-                                  updatedAt: now, sessionPin: pin, sessionModel: model,
-                                  sessionEffort: effort), pid: pid, dir: dir)
+                                  updatedAt: now, sessionPin: pin, axes: axes), pid: pid, dir: dir)
     }
 
     /// The pin joins the account as a reason to write even when the number has not moved: it
     /// changes on a tick of its own (a `tally switch --auto` moves nothing at all), and a reading
     /// that waited for the next thousand tokens would describe a session that is no longer pinned.
-    /// The model pair joins it on identical terms - `tally model --auto` also moves nothing.
-    mutating func sync(tokens: Int?, accountID: String, pin: String?, model: String? = nil,
-                       effort: String? = nil, pid: String,
+    /// The axes join it on identical terms - `tally model --auto` also moves nothing, and a quota
+    /// fallback changes what is RUNNING without changing anything the user asked for.
+    mutating func sync(tokens: Int?, accountID: String, pin: String?,
+                       axes: SessionAxes = SessionAxes(), pid: String,
                        dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let tokens else { return }   // nothing read yet: leave whatever stands
         if let current, current.accountID == accountID, current.sessionPin == pin,
-           current.sessionModel == model, current.sessionEffort == effort,
+           current.matches(axes),
            abs(current.contextTokens - tokens) < sessionContextWriteDelta { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: tokens, updatedAt: now,
-                                  sessionPin: pin, sessionModel: model, sessionEffort: effort),
-                pid: pid, dir: dir)
+                                  sessionPin: pin, axes: axes), pid: pid, dir: dir)
     }
 
     /// The one way either of the above reaches the file, so the in-memory copy both of them judge

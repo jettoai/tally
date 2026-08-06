@@ -41,32 +41,121 @@ func runModelSurfaceChecks() {
 
     // MARK: - 34b. The listing, which is what a bare command answers with for free
 
-    let lines = modelStatusLines(overlaid, efforts: ["low", "high"])
-    check("it leads with what the session runs", lines.first == "this session runs opus/high")
-    check("…names the source of each axis",
-          lines[1].contains("opus") && lines[1].contains(modelLayerProject)
-              && lines[2].contains("high") && lines[2].contains(modelLayerFleet))
+    // WHAT IS RUNNING, READ RATHER THAN DERIVED. The first line is the one a user acts on, and
+    // until this was fixed it reported the LAYER RESOLUTION in the indicative: a session a quota
+    // fallback had already moved was told it was running the fleet default, at exactly the moment
+    // someone would type this command to find out (smoke-tested against the real binary,
+    // 2026-08-07). The layers still answer their own question - where `auto` lands - one line down.
+    let running = modelStatus(session: SessionModelPin(), project: project, projectKey: "/repo",
+                              fleet: fleet, running: SessionModelPin(model: "opus", effort: "high"))
+    let lines = modelStatusLines(running, efforts: ["low", "high"])
+    check("it leads with what the session is RUNNING",
+          lines.first == "this session runs opus/high")
+    check("…and the layers keep their own heading below it",
+          lines.contains("what the layers say:"))
+    check("…each axis still named with the layer that decided it",
+          lines.contains { $0.contains("opus") && $0.contains(modelLayerProject) }
+              && lines.contains { $0.contains("high") && $0.contains(modelLayerFleet) })
     check("…lists the layers underneath, so a release is predictable rather than a surprise",
           lines.contains { $0.hasPrefix("\(modelLayerProject) (/repo):") }
               && lines.contains { $0.hasPrefix("\(modelLayerFleet):") })
     check("…closes with what may be typed, including the closed set of efforts",
           lines[lines.count - 2].contains("/tally-model <model> [effort]")
               && lines.last == "efforts: low, high")
+    // Running something the layers do not resolve to is the case worth a sentence: it means
+    // something moved the session, and a reader comparing the two halves would otherwise conclude
+    // one of them is wrong.
+    let moved = modelStatusLines(modelStatus(session: SessionModelPin(), project: project,
+                                             projectKey: "/repo", fleet: fleet,
+                                             running: SessionModelPin(model: "sonnet",
+                                                                      effort: "high")))
+    check("running a pair the layers do not resolve to says the running one first",
+          moved.first == "this session runs sonnet/high")
+    check("…and says the layers disagree, without guessing at who moved it",
+          moved.contains { $0.contains("the layers below resolve to opus/high") })
+    check("agreement raises no such line",
+          !lines.contains { $0.contains("the layers below resolve to") })
+    // Nothing published is a real state, and the layers are NOT a substitute for a reading: a
+    // command whose job is to report what a session runs may not answer in the indicative when it
+    // cannot read it.
+    let unread = modelStatusLines(overlaid)
+    check("with nothing published, it says so rather than reporting the layers as fact",
+          unread.first?.contains("nothing published yet") == true
+              && unread.first?.contains("runs opus/high") != true)
+    check("…and raises no divergence line, having nothing to compare",
+          !unread.contains { $0.contains("the layers below resolve to") })
+    check("…while the layers themselves are still listed, which is what it CAN answer",
+          unread.contains("what the layers say:")
+              && unread.contains { $0.contains("opus") && $0.contains(modelLayerProject) })
     check("a project that declares nothing is not listed as a layer",
           !modelStatusLines(plain).contains { $0.hasPrefix("\(modelLayerProject) (") })
     // A request written moments ago has not been served yet, and a reading that ignored it would
-    // report the old pair as though the command had done nothing.
-    let queued = modelStatus(session: SessionModelPin(), project: ProjectPolicy(),
-                             projectKey: "/repo", fleet: fleet,
-                             pending: ModelRequest(epoch: 1, model: "opus", effort: "xhigh"))
+    // report the old pair as though the command had done nothing. The four readings below differ
+    // only in the request, what the session is running, and what it had pinned, so that is all each
+    // one spells out.
+    func queuedLines(_ request: ModelRequest, session: SessionModelPin = SessionModelPin(),
+                     running: SessionModelPin? = nil) -> [String] {
+        modelStatusLines(modelStatus(session: session, project: ProjectPolicy(),
+                                     projectKey: "/repo", fleet: fleet, pending: request,
+                                     running: running))
+    }
     check("a request not yet served is shown as queued",
-          modelStatusLines(queued).contains { $0.contains("queued: opus/xhigh") })
+          queuedLines(ModelRequest(epoch: 1, model: "opus", effort: "xhigh"))
+              .contains { $0.contains("queued: opus/xhigh") })
+    // A MODEL-ONLY REQUEST MUST NOT PROMISE AN EFFORT RESET. `tally model opus` in a session running
+    // `--effort xhigh` keeps that effort (`sessionModelPair`), and reading the request's own pin
+    // here printed `queued: opus/default` - a reset the mechanism was never going to perform
+    // (raised in review, 2026-08-07).
+    let partial = queuedLines(ModelRequest(epoch: 1, model: "opus", effort: nil),
+                              running: SessionModelPin(model: "fable", effort: "xhigh"))
+    check("a model-only request shows the effort it will actually keep",
+          partial.contains { $0.contains("queued: opus/xhigh") })
+    check("…never the word default, which would promise a reset",
+          !partial.contains { $0.contains("queued: opus/default") })
+    // With nothing published there is no effort to fill it with, and inventing one would be the same
+    // lie in a new place: the axis is reported as untouched instead.
+    check("with no running reading, the untouched axis is named as untouched",
+          queuedLines(ModelRequest(epoch: 1, model: "opus", effort: nil))
+              .contains { $0.contains("queued: opus, effort unchanged") })
     check("…and a queued release says what it is going back to",
-          modelStatusLines(modelStatus(session: SessionModelPin(model: "opus"),
-                                       project: ProjectPolicy(), projectKey: "/repo", fleet: fleet,
-                                       pending: ModelRequest(epoch: 1, model: modelAutoRequest,
-                                                             effort: nil)))
+          queuedLines(ModelRequest(epoch: 1, model: modelAutoRequest, effort: nil),
+                      session: SessionModelPin(model: "opus"))
               .contains { $0.contains("queued: going back to the layers below") })
+
+    // MARK: - 34b2. The two readings behind that listing
+
+    // The comparison behind the divergence line: an alias and the full id it names are the same
+    // model, so a note raised over a spelling difference would be worse than none.
+    check("an alias agrees with the id a rewrite put on the command line",
+          sessionModelMatchesLayers(running: SessionModelPin(model: "claude-opus-4-8",
+                                                            effort: "high"),
+                                    layers: SessionModelPin(model: "opus", effort: "high")))
+    check("…and the effort is compared case-insensitively",
+          sessionModelMatchesLayers(running: SessionModelPin(model: "opus", effort: "XHigh"),
+                                    layers: SessionModelPin(model: "opus", effort: "xhigh")))
+    check("a different model does not agree",
+          !sessionModelMatchesLayers(running: SessionModelPin(model: "sonnet"),
+                                     layers: SessionModelPin(model: "opus")))
+    check("naming nothing on both sides agrees; on one side it does not",
+          sessionModelMatchesLayers(running: SessionModelPin(), layers: SessionModelPin())
+              && !sessionModelMatchesLayers(running: SessionModelPin(model: "opus"),
+                                            layers: SessionModelPin()))
+    check("a matching model with a different effort is still a divergence",
+          !sessionModelMatchesLayers(running: SessionModelPin(model: "opus", effort: "low"),
+                                     layers: SessionModelPin(model: "opus", effort: "high")))
+
+    // What the supervisor publishes: the running pair comes off the LAUNCH ARGS, never off the pin.
+    // The pin is empty for most sessions while the command line is the truth of whoever wrote it
+    // last - the launcher's injection, a typed flag, a quota fallback, a safeguard restore.
+    let published = publishedSessionAxes(pin: SessionModelPin(model: "opus"),
+                                         launchArgs: ["--model", "sonnet", "--effort", "low"])
+    check("the published running pair is read off the args",
+          published.runningModel == "sonnet" && published.runningEffort == "low")
+    check("…and the pinned pair is still the pin, unchanged by it",
+          published.pinnedModel == "opus" && published.pinnedEffort == nil)
+    check("args carrying no pair publish none, rather than borrowing the pin's",
+          publishedSessionAxes(pin: SessionModelPin(model: "opus", effort: "xhigh"),
+                               launchArgs: ["--continue"]).runningModel == nil)
 
     // MARK: - 34c. The hook: always an answer, never a turn
 

@@ -70,10 +70,28 @@ struct TranscriptWatcher {
     /// reading the answer that tool call was part of (SessionSwitch.swift's cancellation notice was,
     /// caught in review 2026-08-06).
     ///
-    /// Cheap substring guards rather than a JSON parse, like every other signal in this scan: a
-    /// `tool_result` block names itself, and Claude Code marks its synthetic user events `isMeta`.
-    /// Both refusals fail in the safe direction - a prompt that happens to contain the word
-    /// `tool_result` is simply not counted, and the wait it ends lasts until the next prompt.
+    /// FOUR refusals, and the third is the one that matters most in practice. Claude Code appends a
+    /// main-chain `user` event when a background agent or task finishes - the `<task-notification>`
+    /// events - and those carry no `tool_result` and are not `isMeta`, so the first two guards wave
+    /// them through. On a machine running agents that is not an edge case: 4,796 of them sit in this
+    /// user's transcripts against 6,455 typed prompts (counted 2026-08-06 across ~/.claude/projects,
+    /// structure only), so a notice waiting for "the user came back" would be cleared by an agent
+    /// finishing while nobody was there.
+    ///
+    /// The discriminator is structural and Claude Code's own: those events carry
+    /// `"promptSource":"system"`, and no typed prompt in that corpus does (typed ones read `typed`,
+    /// `queued`, `suggestion_accepted`, `sdk`, or carry no such field at all, which is what older
+    /// transcripts look like). So the rule is a REFUSAL of `system` rather than a whitelist of the
+    /// others: absent stays "possibly a person", which is how every transcript written before the
+    /// field existed reads.
+    ///
+    /// The fourth guard is the content shape, and it is admittedly the fragile one - it is here only
+    /// for those older transcripts, where the structural field is missing (3 such events in the same
+    /// corpus). A future rename of the marker costs exactly that fallback and nothing else.
+    ///
+    /// Cheap substring tests rather than a JSON parse, like every other signal in this scan. Every
+    /// refusal fails in the safe direction: a prompt that happens to contain one of these words is
+    /// simply not counted, and the wait it would have ended lasts until the next prompt.
     var lastUserTurnAt: Date?
     /// The size of the conversation as of its newest main-chain assistant event, that turn's own
     /// answer included: how much context a resume of this conversation would reload
@@ -403,6 +421,8 @@ struct TranscriptWatcher {
             // replayed one is not somebody coming back.
             if line.contains("\"type\":\"user\""), !line.contains("\"isSidechain\":true"),
                !line.contains("\"tool_result\""), !line.contains("\"isMeta\":true"),
+               !line.contains("\"promptSource\":\"system\""),
+               !line.contains("<task-notification>"),
                let ts = lineTimestamp(line), ts >= since {
                 lastUserTurnAt = ts
             }

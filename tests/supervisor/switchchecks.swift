@@ -385,6 +385,44 @@ func runSwitchChecks() {
     _ = tick(&injected, request: nil)
     check("neither does a synthetic user event nobody typed",
           state.badge?.badge == "switch: account removed")
+    // Nor does a background agent finishing. Claude Code appends a main-chain `user` event when a
+    // task completes, and it carries no tool_result and is not isMeta, so the first two guards let
+    // it through - on a machine running agents that is dozens of false "the user came back" signals
+    // a day. It is refused on Claude Code's own structural marker (`promptSource: system`).
+    var taskNotified = scannedWatcher("tasknotify", lines: [
+        stampedLine(#""type":"user","promptSource":"system","message":{"content":"<task-notification>\n<task-name>x</task-name>"}"#, at: -95),
+    ])
+    check("a task notification is not the user saying anything",
+          taskNotified.lastUserTurnAt == nil)
+    _ = tick(&taskNotified, request: nil)
+    check("so an agent finishing does not take the notice down",
+          state.badge?.badge == "switch: account removed")
+    // Not every system-injected prompt is a task notification (the corpus has plain ones too), and
+    // those can only be refused by the structural marker - which is why the two guards are not
+    // interchangeable and are asserted apart.
+    var systemInjected = scannedWatcher("systeminjected", lines: [
+        stampedLine(#""type":"user","promptSource":"system","message":{"content":"continue"}"#, at: -96),
+    ])
+    check("anything Claude Code injects as a system prompt is not the user typing",
+          systemInjected.lastUserTurnAt == nil)
+    // Transcripts written before that field existed carry the same events without it; the content
+    // shape is the fallback that covers them, and the only fragile guard of the four.
+    var legacyNotify = scannedWatcher("legacynotify", lines: [
+        stampedLine(#""type":"user","message":{"content":"<task-notification>\n<task-name>x</task-name>"}"#, at: -94),
+    ])
+    check("…and one from before that field existed is caught by its shape",
+          legacyNotify.lastUserTurnAt == nil)
+    // The other direction, which the refusal must not break: a prompt with NO promptSource is what
+    // every older transcript's typed prompts look like, so "absent" has to keep meaning "a person".
+    var oldStyle = scannedWatcher("oldstyle", lines: [
+        stampedLine(#""type":"user","message":{"content":"do the thing"}"#, at: -93),
+    ])
+    check("a prompt carrying no promptSource still counts as one", oldStyle.lastUserTurnAt != nil)
+    var typedPrompt = scannedWatcher("typedprompt", lines: [
+        stampedLine(#""type":"user","promptSource":"typed","message":{"content":"do the thing"}"#, at: -92),
+    ])
+    check("and a typed one certainly does", typedPrompt.lastUserTurnAt != nil)
+
     // A prompt OLDER than the notice is not an answer to it either: it was still on screen when
     // that prompt was sent, so it has not been read since.
     var earlier = scannedWatcher("earlier", lines: [
@@ -434,8 +472,21 @@ func runSwitchChecks() {
     check("the supervisor source is readable from the switch checks", !loopSource.isEmpty)
     check("a supervisor that took over a running session adopts the notice it left behind",
           loopSource.contains("if resumed { manualMoves.adoptCancellation(readPendingNotice("))
+    // The upgrade this has to survive FIRST is out of the build that shipped the notice without the
+    // `kind` field (0.38.0 → 0.38.1): those files carry no kind at all, and the structural test
+    // alone would refuse them - unlinking, on the very next sync, exactly the notice being kept.
+    writePendingNotice(PendingNotice(badge: switchCancelledBadge, detail: "…", since: raisedAt),
+                       pid: "9393", dir: noticeDir)
+    var fromOldBuild = ManualMoveState(sessionKey: "9393", servedEpoch: 0)
+    fromOldBuild.adoptCancellation(readPendingNotice(pid: "9393", dir: noticeDir))
+    check("a notice from a build that stamped no kind is still recognised",
+          fromOldBuild.badge?.badge == switchCancelledBadge)
+    check("…with its original stamp, so the expiry is unchanged", fromOldBuild.cancelledAt == raisedAt)
+    check("and what this session writes from here on carries the kind",
+          fromOldBuild.badge?.kind == cancellationNoticeKind)
     // A WAIT is not adopted: those are re-derived from live state within a tick or two, so picking
-    // one up would only risk showing a condition that has since cleared.
+    // one up would only risk showing a condition that has since cleared. The legacy arm above is a
+    // whitelist of one badge, so it does not loosen this: a kind-less wait is still refused.
     writePendingNotice(PendingNotice(badge: "switch: signed out", detail: nil, since: raisedAt),
                        pid: "9292", dir: noticeDir)
     var waitAdopter = ManualMoveState(sessionKey: "9292", servedEpoch: 0)

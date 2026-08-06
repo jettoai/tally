@@ -69,10 +69,21 @@ func accountSetChanged(from before: [ProviderAccount], to after: [ProviderAccoun
     return identity(before) != identity(after)
 }
 
-/// Watches the provider config dirs and reports when the set of discoverable accounts changes.
+/// Watches a subtree and reports when something the owner cares about has changed.
+///
+/// Four parts, and the middle two are what keep an FSEvents stream from becoming a firehose: the
+/// ROOTS to watch, a cheap string FILTER over the paths that arrive, a DEBOUNCE so a burst settles
+/// into one answer, and a GATE (`discoverChanged`) that does the real work of deciding whether
+/// anything actually differs. Only past all four does `onChange` fire.
+///
+/// Generalized from the account-discovery watcher it started as (the filter and the gate above are
+/// still that use), because a second watcher arrived and the alternative was a second copy of the
+/// FSEvents C-interop below. What the settings self-heal supplies is a different filter and a
+/// different gate; everything from `start()` down is identical for both, which is the argument for
+/// there being one of it. The type name still says "AccountDir" and now under-describes it.
 ///
 /// Deliberately not an @Observable store: it owns no state anyone renders, and its whole output is
-/// one callback. The owner (UsageStore) decides what a change means.
+/// one callback. The owner decides what a change means.
 @MainActor
 final class AccountDirWatcher {
     /// Holds the raw stream apart from the main-actor state, so it can be torn down from `deinit`
@@ -90,26 +101,34 @@ final class AccountDirWatcher {
 
     private let box = StreamBox()
     private var debounceTask: Task<Void, Never>?
-    private let home: URL
+    private let roots: [URL]
     private let debounce: Duration
-    /// Runs a discovery pass and answers whether the account set differs from the last one the app
-    /// acted on. Injected so the watcher itself needs no provider knowledge.
+    /// Whether a changed path is worth waking the gate for. The cheap string test that keeps a
+    /// busy subtree's traffic away from everything downstream.
+    private let isInteresting: (String) -> Bool
+    /// Does the real work of deciding whether anything differs, and answers false when nothing
+    /// does. Injected so the watcher itself needs no knowledge of what it is watching for.
     private let discoverChanged: () -> Bool
     private let onChange: () -> Void
 
-    init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
+    init(roots: [URL] = [FileManager.default.homeDirectoryForCurrentUser],
          debounce: Duration = .seconds(3),
+         isInteresting: @escaping (String) -> Bool = {
+             accountDirEventIsInteresting(
+                 path: $0, home: FileManager.default.homeDirectoryForCurrentUser.path)
+         },
          discoverChanged: @escaping () -> Bool,
          onChange: @escaping () -> Void) {
-        self.home = home
+        self.roots = roots
         self.debounce = debounce
+        self.isInteresting = isInteresting
         self.discoverChanged = discoverChanged
         self.onChange = onChange
     }
 
     /// Begin watching. Safe to call twice; a second call is ignored.
     func start() {
-        guard box.stream == nil else { return }
+        guard box.stream == nil, !roots.isEmpty else { return }
         // `self` is handed over unretained: the stream is owned by this object and torn down in
         // deinit, so it cannot outlive it.
         var context = FSEventStreamContext(
@@ -130,7 +149,7 @@ final class AccountDirWatcher {
         // per busy directory rather than one per write, which is all the filter below needs and a
         // fraction of the traffic.
         guard let created = FSEventStreamCreate(
-            nil, callback, &context, [home.path] as CFArray,
+            nil, callback, &context, roots.map(\.path) as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 1.0,
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer)) else { return }
         FSEventStreamSetDispatchQueue(created, DispatchQueue.global(qos: .utility))
@@ -143,8 +162,7 @@ final class AccountDirWatcher {
     }
 
     private func handle(_ paths: [String]) {
-        guard paths.contains(where: { accountDirEventIsInteresting(path: $0, home: home.path) })
-        else { return }
+        guard paths.contains(where: isInteresting) else { return }
         // Coalesce: a login writes a burst, and the answer is only interesting once it settles.
         debounceTask?.cancel()
         debounceTask = Task { [debounce, discoverChanged, onChange] in

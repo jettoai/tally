@@ -9,10 +9,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/integrations/main.swift tests/integrations/switchcommandchecks.swift \
-  tests/integrations/statuslinechecks.swift tests/integrations/switchgroupchecks.swift \
+  tests/integrations/statuslinechecks.swift tests/integrations/switchgroupchecks.swift tests/integrations/selfhealchecks.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsSkill.swift \
   Tally/Stores/IntegrationsSwitchCommand.swift Tally/Stores/IntegrationsPromptCommand.swift \
-  Tally/Stores/IntegrationsModelCommand.swift \
+  Tally/Stores/IntegrationsModelCommand.swift Tally/Stores/IntegrationsSelfHeal.swift \
   Tally/Core/UsageSnapshot.swift \
   Tally/Core/AppLocale.swift Tally/Providers/ProviderModels.swift \
   Tally/Core/DemoUsage.swift Tally/Core/BuildVariant.swift Tally/Core/FleetForecast.swift Tally/Core/UsageHistory.swift \

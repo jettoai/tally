@@ -75,6 +75,13 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
           let observed = watcher.lastModel,
           let observedAt = watcher.lastMainChainEventAt, observedAt >= commandAt
     else { return false }
+    // CONSUMED HERE, BEFORE ANYTHING IS JUDGED. "The event has been served" and "the service
+    // changed something" are two questions, and the stamp belongs to the first: a `/model` that
+    // re-picked what the session was already running left it unconsumed, so the next genuine quota
+    // fallback on that child still satisfied "a /model happened, newer than the stamp" and was
+    // adopted as the user's choice - which is the very failure the stamp was added to close,
+    // reached through the one path that skipped it (review of 62335b8).
+    state.servedModelCommandAt = commandAt
     // TWO AXES, JUDGED SEPARATELY. The picker can keep the model and move only the depth, and that
     // is a real thing to do: reading "the model still agrees" as "nothing happened" threw the parsed
     // effort away, so the child ran xhigh and the next relaunch put high back (caught in review of
@@ -84,7 +91,6 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
     let runningEffort = state.pin.effort ?? flagValue(launchArgs, "--effort")
     let movedEffort = chosenEffort.map { $0.lowercased() != runningEffort?.lowercased() } ?? false
     guard movedModel || movedEffort else { return false }
-    state.servedModelCommandAt = commandAt
     if movedModel { state.pin.model = observed }
     if movedEffort { state.pin.effort = chosenEffort }
     follow.adopt(model: state.pin.model ?? flagValue(launchArgs, "--model"),

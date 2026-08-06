@@ -17,6 +17,11 @@ import Observation
 final class IntegrationsStore {
     static let shared = IntegrationsStore()
 
+    /// The settings-file watcher behind the prompt-hook self-heal (IntegrationsSelfHeal.swift).
+    /// Stored here because an extension cannot hold one, and ignored by observation because nothing
+    /// renders it: its whole output is a repair and the refresh that follows one.
+    @ObservationIgnored var settingsWatcher: AccountDirWatcher?
+
     enum Status: Equatable {
         case installed
         case notInstalled

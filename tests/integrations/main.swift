@@ -361,6 +361,8 @@ try MainActor.assumeIsolated {
     // The other half of the skill integration: the `/tally-switch` command file and the prompt hook
     // that answers it without a model turn (switchcommandchecks.swift).
     try runSwitchCommandChecks(tmp: tmp, skill: currentSkill)
+    // And keeping that hook there once something takes it out (selfhealchecks.swift).
+    try runSelfHealChecks(tmp: tmp, skill: currentSkill)
 
     try? FileManager.default.removeItem(at: tmp)
 }

@@ -314,12 +314,27 @@ extension IntegrationsStore {
     /// the manifest remembers. Accounts that logged out since install are no longer discovered,
     /// but their SKILL.md is still on disk, so both remove and the auto-update must see it -
     /// otherwise an orphan lies in wait for a later re-login.
-    private static func installedSkillFiles() -> [URL] {
+    static func installedSkillFiles() -> [URL] {
         var files = claudeSkillFiles()
         for path in manifestPaths("claudeSkill") where !files.contains(where: { $0.path == path }) {
             files.append(URL(fileURLWithPath: path))
         }
         return files
+    }
+
+    /// Whether a skills file on disk is one Tally wrote. The one predicate behind "is the skill
+    /// installed here", asked by the launch-time update and by the settings self-heal, which must
+    /// agree: a heal that judged installation differently would put hooks back into a home the user
+    /// had uninstalled from.
+    static func skillFileIsOurs(_ contents: String) -> Bool { contents.contains("tally-skill v") }
+
+    /// Those of `files` that exist and are ours. Absence is the signal the self-heal reads as "the
+    /// user does not want this here", so it is asked of the file rather than of the manifest, which
+    /// records intent from install time and not the state now.
+    static func oursAmong(_ files: [URL]) -> [URL] {
+        files.filter {
+            (try? String(contentsOf: $0, encoding: .utf8)).map(skillFileIsOurs) == true
+        }
     }
 
     /// The paths the manifest records for one component; empty when the entry, or the file, is
@@ -417,7 +432,7 @@ extension IntegrationsStore {
         for file in files {
             // Absent, unreadable, or not ours: leave it exactly as it is.
             guard let existing = try? String(contentsOf: file, encoding: .utf8),
-                  existing.contains("tally-skill v") else { continue }
+                  skillFileIsOurs(existing) else { continue }
             ours.append(file)
             guard !existing.contains("tally-skill v\(skillVersion)") else { continue }
             do {

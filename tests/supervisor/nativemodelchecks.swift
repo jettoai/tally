@@ -207,6 +207,26 @@ func runNativeModelChecks() {
                                  primaryModel: "claude-opus-4-8", launchArgs: ["--model", "fable"])
               && consumed.pin.model == "claude-haiku-4-5")
 
+    // A /model that re-picked what was already running changed nothing, but it WAS served, and the
+    // stamp belongs to that rather than to whether anything moved. Leaving it unconsumed put the
+    // whole child back in the state the stamp exists to prevent: the next real fallback satisfied
+    // "a /model happened, newer than the stamp" and was adopted as a choice (review of 62335b8).
+    var noop = freshState()
+    var noopFollow = FollowState(launchArgs: ["--model", "fable"])
+    let repicked = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
+        + [servedLine("claude-fable-5", at: 60)])
+    check("re-picking the model already running adopts nothing",
+          !adoptNativeModelChoice(state: &noop, follow: &noopFollow, watcher: repicked,
+                                  primaryModel: "fable", launchArgs: ["--model", "fable"]))
+    check("…but the event is still consumed, because it was still served",
+          noop.servedModelCommandAt == launch.addingTimeInterval(30))
+    let fallbackAfterNoop = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
+        + [servedLine("claude-fable-5", at: 60), servedLine("claude-haiku-4-5", at: 90)])
+    check("…so a real fallback after it is left to the rescue, not read as that choice",
+          !adoptNativeModelChoice(state: &noop, follow: &noopFollow, watcher: fallbackAfterNoop,
+                                  primaryModel: "fable", launchArgs: ["--model", "fable"])
+              && !noop.isPinned)
+
     // MARK: - 35c3. Keeping the model and moving only the depth
 
     // The picker can leave the model alone and change the effort, and reading "the model still

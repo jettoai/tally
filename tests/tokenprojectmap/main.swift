@@ -5,6 +5,13 @@ import Foundation
 // so the answers are the same on every machine. The rule under test here is the newest one: a git
 // worktree is a parallel line of work on a repository, not a project beside it, so its directories
 // and its agents' transcript folders belong to the repository's row.
+//
+// The layouts where a repository's git directory is NOT the checkout's own `.git` (a submodule, a
+// `--separate-git-dir` repository, a bare one) are built by RUNNING git rather than by writing the
+// files this suite believes git writes. That distinction is the whole reason this note exists: a
+// hand-written fixture once carried a `core.worktree` key in a separate git dir's config, which
+// git does not put there, and the test passed over an implementation that could only work if it
+// did. A test may spawn git; the app may not, and `checkoutGit` says why.
 
 var failures = 0
 
@@ -60,14 +67,33 @@ func worktree(_ relative: String, of gitDir: String) {
     checkout(relative, dotGit: "gitdir: \(gitDir)\n")
 }
 
-/// A git directory that is not its checkout's own `.git`, as git writes one for a submodule and for
-/// `--separate-git-dir`: `core.worktree` names the checkout, absolute or relative to this directory.
-/// `worktree` is nil for a bare repository, which has no checkout to name.
-func gitDirectory(at path: String, worktree: String?) {
-    try! manager.createDirectory(at: URL(fileURLWithPath: path), withIntermediateDirectories: true)
-    var config = "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n"
-    if let worktree { config += "\tworktree = \(worktree)\n" }
-    try! config.write(to: URL(fileURLWithPath: path + "/config"), atomically: true, encoding: .utf8)
+/// Run a shell command, returning its exit status. Only the real-git fixtures use it: nothing the
+/// map does shells out, and nothing here asserts through git either. The identity `git init` and
+/// friends write is the fixture, and reading what they actually wrote is the point.
+@discardableResult
+func sh(_ command: String) -> Int32 {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/sh")
+    process.arguments = ["-c", command]
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    try? process.run()
+    process.waitUntilExit()
+    return process.terminationStatus
+}
+
+/// A repository with one empty commit, so worktrees can be cut from it.
+func gitRepository(at path: String, _ initFlags: String = "") {
+    sh("git init -q \(initFlags) '\(path)' && git -C '\(path)' -c user.email=t@t -c user.name=t "
+        + "commit -q --allow-empty -m init")
+}
+
+/// The `gitdir:` line of a checkout's `.git` FILE, for asserting the fixture is the layout this
+/// suite thinks it is. A shape assertion that fails means git changed what it writes, which is a
+/// different failure from the map reading it wrongly, and the two must not look alike.
+func gitDirLine(of checkout: String) -> String {
+    ((try? String(contentsOfFile: checkout + "/.git", encoding: .utf8)) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 repository("tally")
@@ -90,33 +116,79 @@ worktree("specai-relative", of: "../specai/.git/worktrees/rel")
 checkout("broken", dotGit: "this is not a link\n")
 worktree("orphan", of: "/nowhere/repo/.git/worktrees/x")
 
-// The three layouts where the repository's git directory is NOT the checkout's own `.git`, which
-// is where reading the path for a `.git` component gave the wrong answer or none.
+// The three layouts where the repository's git directory is NOT the checkout's own `.git`, each
+// built by running git. This is where reading a path for its `.git` component gave the wrong answer
+// or none at all.
+let ws = workspace.path
 
-// A submodule, and a parallel line cut from the submodule (not from the superproject). git keeps
-// the submodule's bookkeeping at `<super>/.git/modules/<name>`, whose `core.worktree` is written
-// relative to it, and the submodule's own checkout carries a `.git` file pointing there. The
-// submodule is reached through a link in the workspace folder, which is how a subproject someone
-// works on directly gets its own row.
-repository("super")
-checkout("super/sub", dotGit: "gitdir: ../.git/modules/sub\n")
-gitDirectory(at: workspace.path + "/super/.git/modules/sub", worktree: "../../../sub")
-try! manager.createSymbolicLink(atPath: workspace.path + "/subproject",
-                                withDestinationPath: workspace.path + "/super/sub")
-worktree("sub-feature", of: workspace.path + "/super/.git/modules/sub/worktrees/wt1")
+// A submodule, and a parallel line cut from the submodule rather than from the superproject. git
+// keeps the submodule's bookkeeping at `<super>/.git/modules/<name>`, so the worktree's gitdir line
+// names a path that contains the SUPERPROJECT's `.git`. The submodule is reached through a link in
+// the workspace folder, which is how a subproject someone works on directly earns its own row (a
+// submodule's own directory sits inside a checkout, and the allow-list does not look inside those).
+gitRepository(at: home.path + "/src/sub")
+gitRepository(at: ws + "/super")
+sh("git -C '\(ws)/super' -c protocol.file.allow=always -c user.email=t@t -c user.name=t "
+    + "submodule add -q '\(home.path)/src/sub' sub")
+sh("git -C '\(ws)/super/sub' worktree add -q '\(ws)/sub-feature' -b sub-feat")
+try! manager.createSymbolicLink(atPath: ws + "/subproject", withDestinationPath: ws + "/super/sub")
 
-// A repository created with `--separate-git-dir`: the checkout's `.git` is a file, the git
-// directory lives elsewhere, and `core.worktree` there names the checkout absolutely.
-checkout("separate", dotGit: "gitdir: \(home.path)/gitdirs/separate.git\n")
-gitDirectory(at: home.path + "/gitdirs/separate.git", worktree: workspace.path + "/separate")
-worktree("separate-feature", of: home.path + "/gitdirs/separate.git/worktrees/wt")
+// A repository created with `--separate-git-dir`: the checkout's `.git` is a file naming a git
+// directory that is not called `.git` and does not sit in the checkout. git records the way back
+// nowhere, which is why the map matches on the git directory instead of trying to find one.
+// The parent has to exist first: git refuses to place a separate git dir under a missing folder.
+try! manager.createDirectory(atPath: home.path + "/gitdirs", withIntermediateDirectories: true)
+gitRepository(at: ws + "/separate", "--separate-git-dir='\(home.path)/gitdirs/separate.git'")
+sh("git -C '\(ws)/separate' worktree add -q '\(ws)/separate-feature' -b sep-feat")
 
-// A bare repository has no checkout to fold into, so its worktrees keep their own rows.
-gitDirectory(at: home.path + "/gitdirs/bare.git", worktree: nil)
-worktree("bare-feature", of: home.path + "/gitdirs/bare.git/worktrees/wt")
+// A bare repository has no checkout at all, so its worktrees have no row to fold into.
+gitRepository(at: home.path + "/src/bare-src")
+sh("git clone -q --bare '\(home.path)/src/bare-src' '\(home.path)/gitdirs/bare.git'")
+sh("git -C '\(home.path)/gitdirs/bare.git' worktree add -q '\(ws)/bare-feature' -b bare-feat")
+
+// A worktree that has already been torn down: no directory, no `.git` file, only the note teardown
+// wrote before removing it. Written through the same API the CLI writes it with, so the writer and
+// the reader cannot drift into two spellings of one file.
+// Deliberately NOT named `<repo>-<name>` beside its repository, which is where `tally claude -w`
+// puts one: that spelling is a dash-prefix of the repository's own flattened path, so an agent's
+// transcript folder would fold by the prefix rule whether the note existed or not, and the test
+// would pass over a map that had stopped reading it. This one is a parallel line of `taiwanbigdata/
+// geo` cut at the top level (the `geo-admin` shape, which is real), where nothing but the note says
+// so.
+WorktreeOrigins.record(WorktreeOrigin(worktree: ws + "/geo-gone", resolved: nil,
+                                      repository: ws + "/taiwanbigdata/geo",
+                                      removedAt: "2026-08-06T00:00:00Z"),
+                       in: WorktreeOrigins.fileURL(home: home))
+// And one whose repository this machine no longer has, which must place nothing.
+WorktreeOrigins.record(WorktreeOrigin(worktree: ws + "/elsewhere-gone", resolved: nil,
+                                      repository: "/nowhere/repo", removedAt: nil),
+                       in: WorktreeOrigins.fileURL(home: home))
 
 let map = TokenProjectMap.current(home: home)
-let ws = workspace.path
+
+// MARK: The fixtures are the layouts git really writes
+
+section("the real-git fixtures have the shapes the map is written against")
+
+// Read back before anything is asserted about attribution. A git that changed what it writes has to
+// fail HERE, saying the fixture moved, rather than silently turning the assertions below into a
+// test of nothing.
+check(gitDirLine(of: ws + "/sub-feature").contains("/super/.git/modules/sub/worktrees/"),
+      "a submodule's worktree points into the superproject's modules dir (the old rule's trap)")
+check(gitDirLine(of: ws + "/subproject").contains("modules/sub"),
+      "and the submodule's own checkout points at that same modules dir")
+// Asserted on the ending rather than the whole line: git writes the path it resolved, and a temp
+// folder on macOS is reached through a symlink (`/var` -> `/private/var`), so the two spellings of
+// the same directory are both correct answers.
+let separateGitDirLine = gitDirLine(of: ws + "/separate")
+check(separateGitDirLine.hasSuffix("/gitdirs/separate.git") && !separateGitDirLine.contains("/.git"),
+      "a --separate-git-dir checkout names a git dir that is not called .git")
+let separateConfig = (try? String(contentsOfFile: home.path + "/gitdirs/separate.git/config",
+                                  encoding: .utf8)) ?? ""
+check(!separateConfig.contains("worktree"),
+      "and git writes NO core.worktree there, so nothing can read the checkout back out of it")
+check(gitDirLine(of: ws + "/bare-feature").contains("/gitdirs/bare.git/worktrees/"),
+      "a bare repository's worktree points into the bare dir, which is nobody's checkout")
 
 // MARK: Worktrees
 
@@ -149,11 +221,26 @@ check(map.key(forCWD: ws + "/sub-feature/app") == ws + "/subproject",
 check(map.key(forCWD: ws + "/subproject") == ws + "/subproject",
       "the submodule's own checkout is still its own row, not a worktree of anything")
 check(map.key(forCWD: ws + "/separate-feature") == ws + "/separate",
-      "a --separate-git-dir repository's worktree folds into the checkout core.worktree names")
+      "a --separate-git-dir repository's worktree folds into the checkout sharing its git dir")
 check(map.key(forCWD: ws + "/separate") == ws + "/separate",
       "that repository keeps its own row")
 check(map.key(forCWD: ws + "/bare-feature") == ws + "/bare-feature",
       "a bare repository has no checkout to fold into, so its worktree keeps its own row")
+
+section("a worktree that has been torn down keeps its repository's row")
+
+// The half that the filesystem can no longer answer: the directory is gone, so only the note
+// teardown wrote before removing it says whose parallel line those sessions were. Without this a
+// full rescan (which a cache version bump forces, and this delivery bumped one) would pool the
+// repository's own history into Other, which is what keeping the transcripts was meant to prevent.
+check(map.key(forCWD: ws + "/geo-gone") == ws + "/taiwanbigdata/geo",
+      "a removed worktree's directory is still credited to the repository")
+check(map.key(forCWD: ws + "/geo-gone/app") == ws + "/taiwanbigdata/geo",
+      "so is a directory inside it")
+check(map.key(forCWD: agentDirectory(serving: ws + "/geo-gone")) == ws + "/taiwanbigdata/geo",
+      "and an agent's transcript folder, which is the spelling that actually outlives the worktree")
+check(map.key(forCWD: ws + "/elsewhere-gone") == TokenProject.otherKey,
+      "a note naming a repository this machine no longer has places nothing")
 
 section("an unreadable link leaves the directory a project of its own")
 

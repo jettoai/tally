@@ -69,6 +69,11 @@ targets:
       - path: Tally/Core/SharedHarness.swift
       - path: Tally/Core/TrustSeed.swift
       - path: Tally/Core/ClaudeOnboarding.swift
+      # Where a torn-down worktree came from: `tally worktree remove` writes the note and the app's
+      # token attribution reads it back, so both targets compile the one record. A drifted second
+      # spelling would silently stop the app from finding what the CLI wrote, and the symptom (a
+      # removed worktree's history pooling into Other) only appears on a later full rescan.
+      - path: Tally/Core/WorktreeOrigins.swift
     settings:
       base:
         PRODUCT_NAME: tally

@@ -44,8 +44,10 @@ final class TokenStatsEngine: @unchecked Sendable {
         /// written by version 3 can credit a nested project's usage to the tree it sits in.
         /// 5: a worktree is attributed to the repository it was cut from, so entries written by
         /// version 4 still hold a row per parallel line of work instead of one per project.
-        /// 6: that attribution reads the git directory a worktree actually belongs to, so entries
-        /// written by version 5 can credit a submodule's parallel line to the superproject.
+        /// 6: that attribution reads the git directory a worktree actually belongs to (so entries
+        /// written by version 5 can credit a submodule's parallel line to the superproject), and it
+        /// remembers a torn-down worktree's repository from the note teardown leaves, so entries
+        /// written by version 5 pool the sessions of every worktree that has since been removed.
         static let currentVersion = 6
 
         /// A cache stamped for the rules and the zone in force right now.

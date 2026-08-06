@@ -196,8 +196,10 @@ extension IntegrationsStore {
           from the main repo first; `--force` is for when losing them is the intent.
         - Transcripts are KEPT. The conversations that ran in the worktree stay readable
           and keep counting toward the repository's usage, which is the row the app files
-          them under. `--purge-transcripts` deletes them and nothing else does, so offer
-          it rather than assuming it.
+          them under, and they go on doing so after the worktree directory itself is gone.
+          `--purge-transcripts` deletes them and nothing else does, so offer it rather
+          than assuming it; passing it together with `--keep-transcripts` is refused
+          rather than guessed at.
 
         Run it from the main repository: removing the worktree the current directory sits
         in is refused, which is the right answer and not a bug to work around.

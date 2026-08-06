@@ -10,5 +10,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/tokenprojectmap/main.swift \
-  Tally/Core/TokenStats/TokenProjectMap.swift Tally/Core/TokenStats/TokenTotals.swift
+  Tally/Core/TokenStats/TokenProjectMap.swift Tally/Core/TokenStats/TokenTotals.swift \
+  Tally/Core/WorktreeOrigins.swift
 "$out"

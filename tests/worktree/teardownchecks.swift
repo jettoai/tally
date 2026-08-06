@@ -98,6 +98,11 @@ func runTeardownChecks() {
 
     // MARK: - 12. Teardown: git cleanup end to end (real git, no killing)
 
+    // Where the "this worktree belonged to that repository" notes go for the rest of this function.
+    // A temp file, never `~/.tally/worktree-origins.json`: a test must not write into the record the
+    // running app reads, and asserting on the real one would depend on this machine's own history.
+    let originsFile = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
+
     // A merged worktree tears all the way down: worktree gone, branch gone, exit 0.
     let mergedRepo = tempDir()
     sh("git init -q && git config user.email t@t && git config user.name t && " +
@@ -107,11 +112,24 @@ func runTeardownChecks() {
     sh("git commit -q --allow-empty -m work", cwd: mergedWt.path)
     sh("git merge -q feat", cwd: mergedRepo)        // fast-forward main to feat so feat is an ancestor
     let mergedCode = performWorktreeRemove(name: "feat", force: false, purgeTranscripts: false,
+                                           originsFile: originsFile,
                                            listProcesses: { _ in [] })
     check("a merged worktree removes cleanly (exit 0)", mergedCode == 0)
     check("the merged worktree directory is gone", !FileManager.default.fileExists(atPath: mergedWt.path))
     check("the merged branch is deleted",
           sh("git show-ref --verify --quiet refs/heads/feat", cwd: mergedRepo) != 0)
+
+    // The note that outlives the directory. Keeping the transcripts is only half of keeping the
+    // history: the app rebuilds attribution from the filesystem, and the `.git` file that said whose
+    // parallel line this was has just been deleted. What is asserted here is exactly what
+    // TokenProjectMap reads back (tests/tokenprojectmap builds its fixture through this same
+    // writer, so the two suites cannot drift into different spellings of one file).
+    let mergedOrigin = WorktreeOrigins.load(from: originsFile).first { $0.repository == rp(mergedRepo) }
+    check("teardown remembers which repository the worktree belonged to", mergedOrigin != nil)
+    check("…under the worktree's own resolved path, which is what a transcript recorded",
+          mergedOrigin?.paths.contains(rp(mergedWt.path)) == true)
+    check("…and dates it, so the oldest notes are the ones dropped when the file fills up",
+          mergedOrigin?.removedAt?.isEmpty == false)
 
     // An unmerged worktree is refused without --force, then removed with it.
     let unmergedRepo = tempDir()
@@ -121,10 +139,12 @@ func runTeardownChecks() {
     let unmergedWt = resolveWorktree(name: "feat2")
     sh("git commit -q --allow-empty -m unmerged", cwd: unmergedWt.path)   // ahead of main, not merged
     let refusedCode = performWorktreeRemove(name: "feat2", force: false, purgeTranscripts: false,
+                                            originsFile: originsFile,
                                             listProcesses: { _ in [] })
     check("an unmerged worktree is refused without --force (exit 1)", refusedCode == 1)
     check("the refused worktree is left in place", FileManager.default.fileExists(atPath: unmergedWt.path))
     let forcedCode = performWorktreeRemove(name: "feat2", force: true, purgeTranscripts: false,
+                                           originsFile: originsFile,
                                            listProcesses: { _ in [] })
     check("--force removes the unmerged worktree (exit 0)", forcedCode == 0)
     check("the forced worktree directory is gone", !FileManager.default.fileExists(atPath: unmergedWt.path))
@@ -142,6 +162,7 @@ func runTeardownChecks() {
     sh("git merge -q feat3", cwd: insideRepo)       // merged, so only the cwd guard can refuse
     FileManager.default.changeCurrentDirectoryPath(insideWt.path)
     let insideCode = performWorktreeRemove(name: "feat3", force: false, purgeTranscripts: false,
+                                           originsFile: originsFile,
                                            listProcesses: { _ in [] })
     check("removal from inside the target worktree is refused (exit 1)", insideCode == 1)
     check("the worktree the caller sits in is left in place",
@@ -158,6 +179,7 @@ func runTeardownChecks() {
     sh("git commit -q --allow-empty -m unmerged", cwd: shadowWt.path)
     sh("git tag feat4 HEAD", cwd: shadowRepo)       // tag at main HEAD, which IS an ancestor
     let shadowCode = performWorktreeRemove(name: "feat4", force: false, purgeTranscripts: false,
+                                           originsFile: originsFile,
                                            listProcesses: { _ in [] })
     check("a merged same-name tag does not waive the merged gate (exit 1)", shadowCode == 1)
     check("the tag-shadowed worktree is left in place",
@@ -178,6 +200,7 @@ func runTeardownChecks() {
     check("the half-removed worktree directory is on disk before teardown",
           FileManager.default.fileExists(atPath: staleWt.path))
     let staleCode = performWorktreeRemove(name: "feat5", force: false, purgeTranscripts: false,
+                                          originsFile: originsFile,
                                           listProcesses: { _ in [] })
     check("a half-removed worktree still tears down (exit 0)", staleCode == 0)
     check("teardown deletes the directory git left behind",
@@ -249,6 +272,15 @@ func runTeardownChecks() {
           forcedFlags?.force == true && forcedFlags?.name == "feat")
     check("an unknown flag is refused", parseWorktreeRemoveFlags(["feat", "--nope"]) == nil)
     check("a second name is refused", parseWorktreeRemoveFlags(["feat", "other"]) == nil)
+    // Both transcript flags at once is refused rather than resolved, in either order. Last-wins
+    // would let an old script that still carries --keep-transcripts (written when it was the only
+    // way to save a conversation) end up deleting one, and that direction is not undoable.
+    check("asking to keep AND purge is refused",
+          parseWorktreeRemoveFlags(["feat", "--keep-transcripts", "--purge-transcripts"]) == nil)
+    check("…whichever order they were typed in",
+          parseWorktreeRemoveFlags(["feat", "--purge-transcripts", "--keep-transcripts"]) == nil)
+    check("…and the refusal is the command's own exit 2, not a teardown that ran halfway",
+          runWorktreeRemove(args: ["feat", "--keep-transcripts", "--purge-transcripts"]) == 2)
 
     // A transcript fixture: `body` with a chosen mtime, which is what the quiet test reads first.
     func seedTranscript(_ dir: String, body: String, ageSeconds: TimeInterval) {
@@ -337,7 +369,8 @@ func runTeardownChecks() {
     let liveTranscripts = "\(liveHome)/projects/\(worktreeTranscriptSlug(forResolvedPath: liveWt.path))"
     func removeLive(force: Bool = false, purgeTranscripts: Bool = false) -> Int32 {
         performWorktreeRemove(name: "feat-live", force: force, purgeTranscripts: purgeTranscripts,
-                              transcriptHomes: [liveHome], listProcesses: liveAgentScan)
+                              transcriptHomes: [liveHome], originsFile: originsFile,
+                              listProcesses: liveAgentScan)
     }
     func liveWorktreeUntouched() -> Bool {
         FileManager.default.fileExists(atPath: liveWt.path)
@@ -410,7 +443,8 @@ func runTeardownChecks() {
     check("the idle worktree's transcript is in place before the run",
           FileManager.default.fileExists(atPath: "\(idleTranscripts)/session.jsonl"))
     let idleCode = performWorktreeRemove(name: "feat-idle", force: false, purgeTranscripts: false,
-                                         transcriptHomes: [liveHome], listProcesses: idleAgentScan)
+                                         transcriptHomes: [liveHome], originsFile: originsFile,
+                                         listProcesses: idleAgentScan)
     check("an idle worktree tears down with no flags at all (exit 0)", idleCode == 0)
     waited = 0
     while idler.isRunning, waited < 50 { usleep(100_000); waited += 1 }
@@ -431,10 +465,17 @@ func runTeardownChecks() {
     let purgeTranscripts = "\(liveHome)/projects/\(worktreeTranscriptSlug(forResolvedPath: purgeWt.path))"
     seedTranscript(purgeTranscripts, body: closedTurn, ageSeconds: 900)
     let purgeCode = performWorktreeRemove(name: "feat-purge", force: false, purgeTranscripts: true,
-                                          transcriptHomes: [liveHome], listProcesses: { _ in [] })
+                                          transcriptHomes: [liveHome], originsFile: originsFile,
+                                          listProcesses: { _ in [] })
     check("--purge-transcripts tears the worktree down too (exit 0)", purgeCode == 0)
     check("the purged worktree directory is gone",
           !FileManager.default.fileExists(atPath: purgeWt.path))
     check("--purge-transcripts is what deletes the transcript directory",
           !FileManager.default.fileExists(atPath: purgeTranscripts))
+    // And with the conversation deliberately gone there is nothing left to attribute, so no note is
+    // written: the origins file records repositories to credit, not worktrees that once existed.
+    check("a purging teardown leaves no origin note behind",
+          !WorktreeOrigins.load(from: originsFile).contains { $0.paths.contains(purgeWt.path) })
+    check("while the teardown that kept its transcripts did leave one",
+          WorktreeOrigins.load(from: originsFile).contains { $0.paths.contains(idleWt.path) })
 }

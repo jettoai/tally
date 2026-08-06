@@ -251,6 +251,10 @@ try MainActor.assumeIsolated {
     check("skill states the transcript default the CLI now has",
           skillProse.contains("Transcripts are KEPT")
               && skillProse.contains("`--purge-transcripts` deletes them and nothing else does"))
+    check("…including the part that survives the directory, which is why teardown leaves a note",
+          skillProse.contains("after the worktree directory itself is gone"))
+    check("…and that the two transcript flags together are refused, not resolved",
+          skillProse.contains("refused rather than guessed at"))
     check("skill names the gates that refuse on their own",
           skillProse.contains("refuses on its own while those agents are mid turn")
               && skillProse.contains("An unmerged branch is refused"))

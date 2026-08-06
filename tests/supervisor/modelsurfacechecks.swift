@@ -51,7 +51,7 @@ func runModelSurfaceChecks() {
                               observedModel: "opus")
     let lines = modelStatusLines(running, efforts: ["low", "high"])
     check("it leads with the model that actually SERVED the last turn",
-          lines.first == "this session is served by opus")
+          lines.first == "this session's last response was served by opus")
     check("…and the layers keep their own heading below it",
           lines.contains("what the layers say:"))
     check("…each axis still named with the layer that decided it",
@@ -71,8 +71,8 @@ func runModelSurfaceChecks() {
                                              declared: SessionModelPin(model: "sonnet",
                                                                        effort: "high"),
                                              observedModel: "sonnet"))
-    check("running a pair the layers do not resolve to says the running one first",
-          moved.first == "this session is served by sonnet")
+    check("running a pair the layers do not resolve to says the observed one first",
+          moved.first == "this session's last response was served by sonnet")
     check("…and says the layers disagree, without guessing at who moved it",
           moved.contains { $0.contains("the layers below resolve to opus/high") })
     check("agreement raises no such line",
@@ -95,10 +95,10 @@ func runModelSurfaceChecks() {
         session: SessionModelPin(), project: ProjectPolicy(), projectKey: "/repo", fleet: fleet,
         declared: SessionModelPin(model: "opus", effort: "xhigh"), observedModel: "sonnet"))
     check("what was SEEN wins over what the command line asked for",
-          degraded.first == "this session is served by sonnet")
+          degraded.first == "this session's last response was served by sonnet")
     check("…and the stale command line is named as the fact it is, without diagnosing who moved it",
           degraded.contains { $0.contains("the command line still says opus")
-              && $0.contains("moved this session onto sonnet") })
+              && $0.contains("moved this session onto sonnet after it started") })
     // The observation is a full model id and every layer speaks in aliases, so the comparison goes
     // through `modelsAgree`: a divergence note raised over a spelling would be worse than none.
     let sameModel = modelStatusLines(modelStatus(
@@ -108,7 +108,7 @@ func runModelSurfaceChecks() {
     check("a full model id and the alias that names it are not a divergence",
           !sameModel.contains { $0.contains("the command line still says") })
     check("…and the id that was actually seen is what gets reported",
-          sameModel.first == "this session is served by claude-fable-5-20260101")
+          sameModel.first == "this session's last response was served by claude-fable-5-20260101")
     // Nothing served yet is its own state: the argv is all there is, and it is reported as the
     // request it is rather than as a reading nobody took.
     let unserved = modelStatusLines(modelStatus(
@@ -118,9 +118,25 @@ func runModelSurfaceChecks() {
           unserved.first?.contains("was launched on opus") == true)
     check("…and it says so rather than claiming the model was seen",
           unserved.first?.contains("nothing it has served has been read back yet") == true
-              && unserved.first?.hasPrefix("this session is served by") != true)
+              && unserved.first?.contains("last response was served by") != true)
     check("…with no divergence line, there being no observation to disagree with anything",
           !unserved.contains { $0.contains("the command line still says") })
+
+    // EVERY LINE DRAWN FROM THE READING IS IN THE PAST, and that is not fussiness. The observation
+    // is of the last answer WRITTEN DOWN; a user who types Claude Code's own `/model` and has not
+    // sent a turn since has changed what answers next while leaving this untouched. "is served by"
+    // is confidently wrong in exactly that case - the case the observation was added for - and "the
+    // last response was" is true at every moment including that one (caught in review of 1c39846).
+    check("the reading is reported as being of the last response, not of this instant",
+          lines.first?.hasPrefix("this session's last response was served by") == true)
+    check("…and no line drawn from it claims the present",
+          lines.allSatisfy { !$0.contains("is served by") && !$0.contains("is running") })
+    check("…including the line about the command line having been left behind",
+          degraded.allSatisfy { !$0.contains("is served by") }
+              && degraded.contains { $0.contains("after it started") })
+    check("…and the one about the layers, which states them rather than what is happening now",
+          moved.contains { $0.contains("resolve to opus/high instead of that") }
+              && moved.allSatisfy { !$0.contains("has moved this session off") })
 
     // Nothing published is a real state, and the layers are NOT a substitute for a reading: a
     // command whose job is to report what a session runs may not answer in the indicative when it

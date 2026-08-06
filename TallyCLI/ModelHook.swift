@@ -48,8 +48,15 @@ struct ModelStatus: Equatable {
     var project = SessionModelPin()
     var projectKey = ""
     var fleet = SessionModelPin()
-    /// The model SEEN serving this session's most recent turn (SessionContext.swift). nil until a
-    /// turn has been read, which is a real state and not a zero.
+    /// The model seen serving this session's most recently READ assistant event
+    /// (SessionContext.swift). nil until one has been read, which is a real state and not a zero.
+    ///
+    /// A READING OF THE PAST, and every sentence built on it has to say so. Nothing here observes
+    /// the future: a user who types Claude Code's own `/model` and has not sent a turn since has
+    /// changed what will answer next while this still holds what answered last, so reporting it in
+    /// the present tense makes this command wrong in exactly the case the previous round added it
+    /// for (caught in review of 1c39846). The fix is the tense, not a cleverer reading - detecting
+    /// that command would mean guessing at an event shape nobody here has measured.
     ///
     /// The only measurement of the three readings this type holds, and it outranks the other two
     /// wherever they disagree. `pair` is what the LAYERS resolve to and `declared` is what the
@@ -125,31 +132,41 @@ func modelStatus(session: SessionModelPin, project: ProjectPolicy, projectKey: S
 /// COMMAND LINE. Its own function so that answer can be asserted directly, without the layer block
 /// and the closing help around it.
 ///
-/// TWO FACTS, TWO VOICES. The model is a reading once a turn has been served and a request until
-/// then; the effort is ALWAYS a request, because nothing reports it back. Saying them in one
-/// indicative sentence is exactly the shape of the two defects, so the difference is carried in the
-/// wording rather than assumed away.
+/// TWO FACTS, TWO VOICES, AND ONE TENSE. The model is a reading once a turn has been served and a
+/// request until then; the effort is ALWAYS a request, because nothing reports it back. And the
+/// reading is of the LAST response, never of this instant, so every line drawn from it is written in
+/// the past. All three defects this command has had were the same move - stating something in the
+/// present indicative that was not measured at present - so the distinctions live in the wording
+/// rather than being assumed away.
 func modelStatusRunningLines(_ status: ModelStatus) -> [String] {
     guard let running = status.running else {
         return ["this session: nothing published yet, so what it is running cannot be read here "
             + "(a supervisor publishes it once the conversation has had a turn)"]
     }
     let named = running.model ?? "no model of its own"
+    // PAST TENSE FOR THE READING, and it is load-bearing rather than fussy. The observation is of
+    // the last answer that was written down; anything the user has done since - Claude Code's own
+    // `/model` above all - changes what answers NEXT without touching it. Said as "is served by",
+    // this line is confidently wrong in the one case worth asking about; said as "the last response
+    // was", it is true at every moment, including that one.
     var lines = [status.modelObserved
-        ? "this session is served by \(named)"
+        ? "this session's last response was served by \(named)"
         : "this session was launched on \(named), and nothing it has served has been read back yet"]
     lines.append("  effort \(running.effort ?? "not set"), as asked on the command line - nothing "
         + "reports effort back, so this is the request rather than a reading")
     // The sharp one: the command line has not moved and the answers have. Stated as the fact it is;
     // which of the several paths did it is not something this command can tell.
+    // The sharp one: the command line has not moved and the answers had. Kept in the same tense as
+    // the reading it is drawn from - it is a fact about that response, not a claim about this
+    // instant - and it names no culprit, which is not something this command can tell.
     if let observed = status.observedModel, let asked = status.declared?.model,
        !modelsAgree(asked, observed) {
-        lines.append("  the command line still says \(asked), so something has moved this session "
-            + "onto \(observed)")
+        lines.append("  the command line still says \(asked), so something moved this session onto "
+            + "\(observed) after it started")
     }
     if !sessionModelMatchesLayers(running: running, layers: status.pair) {
         lines.append("  the layers below resolve to \(sessionModelDescription(status.pair)) "
-            + "instead, so something has moved this session off them")
+            + "instead of that")
     }
     return lines
 }

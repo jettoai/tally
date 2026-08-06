@@ -125,6 +125,29 @@ func runSwitchHookChecks() {
               == ["no claude account is signed in right now, so there is nowhere to move this "
                   + "session - `tally add claude` logs one in"])
 
+    // MARK: - What the snapshot read said about ITSELF
+
+    // The whole claim of the zero-turn path is that it answers from the file on disk. That carries
+    // the obligation to say how old the file is: with Tally.app stopped, every percentage below is
+    // stale and so is the recommendation drawn from them. The terminal menu has always warned; this
+    // surface dropped the warning on the floor (found in review of 0.38.1's zero-turn work).
+    let stale = "snapshot is 74m old - is Tally.app running?"
+    let staleListing = hookSwitchListing(rows: rows, provider: "claude", problem: stale)
+    check("a stale snapshot is said before the numbers it makes stale",
+          staleListing.first == stale)
+    check("…and the listing itself is unchanged underneath it",
+          Array(staleListing.dropFirst()) == hookSwitchListing(rows: rows, provider: "claude"))
+    // With no rows at all the problem IS the answer, and the more specific one: it names the age,
+    // where the generic line can only guess at the cause.
+    check("with nothing to rank, the problem replaces the generic line",
+          hookSwitchListing(rows: nil, provider: "claude", problem: stale) == [stale])
+    check("…and a signed-out fleet still says how to get a login, after it",
+          hookSwitchListing(rows: [], provider: "claude", problem: stale)
+              == [stale, "no claude account is signed in right now, so there is nowhere to move "
+                  + "this session - `tally add claude` logs one in"])
+    check("no problem adds no line",
+          hookSwitchListing(rows: rows, provider: "claude", problem: nil).count == 5)
+
     // MARK: - The three surfaces, and which screen each of them owns
 
     // A named account acts, whatever the terminal is: an instruction is not a question.
@@ -175,6 +198,112 @@ func runSwitchHookChecks() {
     check("a menu with no action line draws only its rows",
           renderRows(menu, highlighted: 0, action: nil).count == menu.count
               && renderRows(menu, highlighted: 0).count == menu.count + 1)
+
+    // MARK: - What a chosen row means
+
+    // THE FIX THIS SECTION EXISTS FOR. A picked row used to be reported as its LABEL and re-resolved
+    // through `accountMatching`, which is a case-insensitive SUBSTRING match answering with the
+    // first account it hits. That is right for a name somebody typed, which is a query, and wrong
+    // for a row somebody selected, which is not - and on a fleet whose labels are prefixes of each
+    // other it does not merely risk the wrong answer, it gives one.
+    //
+    // The fixture is this repo owner's own machine: "Claude", "Claude 2", "Claude 3". The account
+    // with the least room is the one labelled "Claude", so it sorts LAST in the menu while the
+    // matcher, walking the snapshot in its own order, hits "Claude 2" first.
+    let lookalikes = [
+        fleetAccount("claude:.claude2", label: "Claude 2", session: 90, weekly: 80, model: 70),
+        fleetAccount("claude:.claude3", label: "Claude 3", session: 70, weekly: 60, model: 55),
+        fleetAccount("claude:.claude", label: "Claude", session: 30, weekly: 25, model: 20),
+    ]
+    let lookalikeRows = switchFleetRows(accounts: lookalikes, provider: "claude", current: nil)
+    check("the fixture really is ambiguous to the matcher",
+          lookalikeRows[2].label == "Claude"
+              && accountMatching("Claude", provider: "claude",
+                                 in: Snapshot(version: 2, generatedAt: Date(),
+                                              accounts: lookalikes))?.id == "claude:.claude2")
+    check("picking a row yields the account THAT ROW named",
+          switchMenuPick(lookalikeRows, index: 2) == .picked("claude:.claude"))
+    check("…including the first row, where the two answers happen to agree",
+          switchMenuPick(lookalikeRows, index: 0) == .picked("claude:.claude2"))
+    // A row index outside the list is the caller's arithmetic, not the user's: fall back to the
+    // usage text rather than moving a session somewhere nobody pointed at.
+    check("a row that is not there picks nothing",
+          switchMenuPick(lookalikeRows, index: 3) == .unavailable
+              && switchMenuPick([], index: 0) == .unavailable)
+    // And the resolved id reaches the request as an id: it can never go back through the matcher,
+    // which compares labels and config-dir names and would find nothing in `claude:.claude`.
+    check("a resolved pick is its own intent, distinct from a typed name",
+          SwitchIntent.pinAccount("claude:.claude") != SwitchIntent.pin("claude:.claude"))
+
+    // MARK: - Where the menu opens
+
+    // Enter is the key a menu teaches you to press first, and row 0 is the account with the most
+    // room - which is the account this session is already ON whenever it is the healthiest one. The
+    // menu therefore opens on the row it RECOMMENDS, not on the first one.
+    let onBest = switchFleetRows(accounts: fleet, provider: "claude", current: "roomy")
+    check("with the session already on the roomiest account, row 0 is not the recommendation",
+          onBest[0].tags == ["this session"] && switchMenuStart(onBest) == 1)
+    check("with the session elsewhere, the recommendation is row 0 and so is the highlight",
+          switchMenuStart(switchFleetRows(accounts: fleet, provider: "claude",
+                                          current: "drained")) == 0)
+    check("nothing recommended opens on the first row",
+          switchMenuStart([]) == 0)
+    // The clamp the drawing code applies, asserted here because everything else about it needs a
+    // real terminal and an out-of-range start would fail inside raw mode.
+    check("a start index is clamped into the menu",
+          menuStartIndex(selected: 9, lineCount: 3) == 2
+              && menuStartIndex(selected: -1, lineCount: 3) == 0
+              && menuStartIndex(selected: 0, lineCount: 0) == 0)
+
+    // MARK: - Which session a manual-pick surface is describing
+
+    // The two halves of one command have to agree on this. The half that WRITES the request has
+    // always gone through `sessionLookup`, so it finds the single supervisor running in this
+    // directory even with no marker in the environment; the halves that DRAW the fleet first read
+    // only the marker, so from a second terminal they marked no row as "this session" and could
+    // recommend the account that session was already on - and then move it there for real.
+    let lookupDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-session-lookup-\(UUID().uuidString)")
+    let here = "/tmp/tally-lookup-project"
+    let livePid = String(getpid())
+    markSupervisorLive(pid: livePid, dir: lookupDir)
+    writeSupervisorCwd(here, pid: livePid, dir: lookupDir)
+    let fromOutside = currentSessionLookup(cwd: here, dir: lookupDir, environment: [:])
+    check("a shell with no marker still finds the one session in this directory",
+          fromOutside?.key == livePid)
+    check("…and knows it is not inside it, so the environment cannot answer for it",
+          fromOutside?.isThisSession == false)
+    let fromInside = currentSessionLookup(cwd: here, dir: lookupDir,
+                                          environment: ["TALLY_SUPERVISOR_PID": livePid])
+    check("a shell inside the session names it from the marker",
+          fromInside?.key == livePid && fromInside?.isThisSession == true)
+    check("a directory nothing is supervising answers nothing",
+          currentSessionLookup(cwd: "/tmp/tally-lookup-empty", dir: lookupDir,
+                               environment: [:]) == nil)
+    // Two sessions in one directory and the command from outside both: no way to tell which was
+    // meant, so no surface may claim to describe either.
+    markSupervisorLive(pid: "1", dir: lookupDir)
+    writeSupervisorCwd(here, pid: "1", dir: lookupDir)
+    check("two sessions in one directory answer nothing from outside",
+          currentSessionLookup(cwd: here, dir: lookupDir, environment: [:]) == nil)
+    check("…while a marker still names the one it was typed in",
+          currentSessionLookup(cwd: here, dir: lookupDir,
+                               environment: ["TALLY_SUPERVISOR_PID": livePid])?.key == livePid)
+    try? FileManager.default.removeItem(at: lookupDir)
+
+    // MARK: - Which invocations may meet a menu at all
+
+    // Both ends have to be a terminal. `tally switch | cat` from an interactive shell still has a
+    // tty on stdin, so a stdin-only test drew the menu on /dev/tty - invisible to the pipe reader -
+    // and blocked the pipeline on a keypress nobody knew to make. Same rule, same reason, as
+    // `shouldSupervise` reading stdout (LaunchFlags.swift).
+    check("a menu needs a keyboard AND a screen",
+          switchMenuAvailable(stdinIsTTY: true, stdoutIsTTY: true))
+    check("…so a piped stdout gets the usage text, tty stdin or not",
+          !switchMenuAvailable(stdinIsTTY: true, stdoutIsTTY: false)
+              && !switchMenuAvailable(stdinIsTTY: false, stdoutIsTTY: false))
+    check("…and so does a piped stdin",
+          !switchMenuAvailable(stdinIsTTY: false, stdoutIsTTY: true))
 
     // MARK: - The outcome both surfaces share
 

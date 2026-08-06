@@ -38,10 +38,20 @@ struct SwitchAttempt: Equatable {
     }
 }
 
-/// What one invocation asks for. Two shapes, because the command has two: pin this session to an
-/// account, or hand it back to automatic selection.
+/// What one invocation asks for. Three shapes for two instructions, because a target can arrive
+/// already resolved: pin this session to an account NAMED (a query to match against the fleet), pin
+/// it to an account IDENTIFIED (a row the user selected, which needs no matching), or hand it back
+/// to automatic selection.
+///
+/// The middle one is not a convenience. `accountMatching` is a substring match answering with the
+/// first hit, which is the right rule for a typed name and loses information when the caller already
+/// knows exactly which account it means (`switchMenuPick`, SwitchMenu.swift). An id cannot go
+/// through that matcher at all, either: an id is `<provider>:<config-dir name>` while the matcher
+/// compares the label and the config dir's own name, and neither of those carries the provider
+/// prefix - so "just pass the id instead" would have matched nothing.
 enum SwitchIntent: Equatable {
     case pin(String)
+    case pinAccount(String)
     case auto
 }
 
@@ -81,6 +91,18 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
         guard let match = accountMatching(name, provider: provider.id, in: snapshot) else {
             return .refusal("no claude account matches \"\(name)\" - try `tally status`",
                             notes: notes)
+        }
+        target = match
+    case .pinAccount(let id):
+        // By id, exactly, and with a launch home: the caller picked this account off a listing of
+        // the fleet, so there is nothing to match and nothing to guess. The snapshot is read again
+        // here (the menu read its own), so the account can have gone in between - said plainly
+        // rather than falling back to the name, which is the very step this case exists to skip.
+        guard let match = snapshot?.accounts.first(where: {
+            $0.id == id && $0.provider == provider.id && $0.launchHome != nil
+        }) else {
+            return .refusal("the account that row named (\(id)) is not in the fleet snapshot any "
+                                + "more - try `tally status`", notes: notes)
         }
         target = match
     }
@@ -207,11 +229,23 @@ enum SwitchEntry: Equatable {
     case usage
 }
 
+/// Whether a bare invocation may open the arrow-key menu: a human at the keyboard AND a terminal to
+/// answer on. BOTH, because either alone is a pipeline blocked on a keypress nobody will make.
+///
+/// `tally switch | cat`, run from an interactive shell, still has a tty on stdin - so a stdin-only
+/// test opened the menu, drew it on /dev/tty (which is not the pipe, so the reader sees nothing) and
+/// waited. Reading stdout is how `shouldSupervise` decides the same kind of question
+/// (LaunchFlags.swift), for the same reason it gives: the redirection is a property of the shell
+/// line rather than of anything the user typed, so it is invisible unless it is asked about.
+func switchMenuAvailable(stdinIsTTY: Bool, stdoutIsTTY: Bool) -> Bool {
+    stdinIsTTY && stdoutIsTTY
+}
+
 /// The routing, pure, so it is testable without a terminal: the menu needs one, and "does a script
 /// still get the usage text" is exactly the question a test has to be able to ask.
 ///
-/// `interactive` is whether there is a human at a keyboard (stdin is a tty). A pipeline gets what it
-/// has always got, because a script that suddenly meets an arrow-key menu hangs.
+/// `interactive` is `switchMenuAvailable` above. A pipeline gets what it has always got, because a
+/// script that suddenly meets an arrow-key menu hangs.
 func switchEntry(_ args: [String], interactive: Bool) -> SwitchEntry {
     if let intent = switchIntent(args) { return .act(intent) }
     // Only a TRULY bare invocation opens the menu. `--auto "Claude 4"` and a two-name line are
@@ -225,12 +259,15 @@ func switchEntry(_ args: [String], interactive: Bool) -> SwitchEntry {
 /// a terminal, it asks (SwitchMenu.swift).
 func runSwitch(args: [String]) -> Int32 {
     let chosen: SwitchIntent?
-    switch switchEntry(args, interactive: isatty(STDIN_FILENO) == 1) {
+    switch switchEntry(args, interactive: switchMenuAvailable(
+        stdinIsTTY: isatty(STDIN_FILENO) == 1, stdoutIsTTY: isatty(STDOUT_FILENO) == 1)) {
     case .act(let intent):
         chosen = intent
     case .menu:
         switch pickSwitchTarget() {
-        case .picked(let label): chosen = .pin(label)
+        // The id the chosen row carried, not its label: the pick is already unambiguous
+        // (`switchMenuPick`, SwitchMenu.swift).
+        case .picked(let id): chosen = .pinAccount(id)
         case .cancelled: return 1        // they said no; saying it back to them adds nothing
         case .unavailable: chosen = nil  // no menu to draw: the usage text says what to type
         }

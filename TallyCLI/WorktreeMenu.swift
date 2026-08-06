@@ -295,6 +295,14 @@ private func menuSigintHandler(_ signal: Int32) {
 
 // MARK: - Interactive selection
 
+/// Where the highlight starts, clamped into the menu that is about to be drawn. Its own function so
+/// the clamp is assertable without a terminal: everything else about `selectMenuRow` needs a real
+/// tty, and an out-of-range start would be a crash inside raw mode - the one place in this file
+/// where a defect costs the user their terminal settings rather than a wrong answer.
+func menuStartIndex(selected: Int, lineCount: Int) -> Int {
+    min(max(selected, 0), max(lineCount - 1, 0))
+}
+
 /// The worktree menu: rows plus the "new worktree" affordance. Named for its caller because that
 /// is the whole vocabulary it speaks (`.newWorktree`); the account picker behind `tally switch`
 /// calls the general form below with no action line.
@@ -309,7 +317,13 @@ func selectWorktree(rows: [MenuRow]) -> MenuSelection? {
 ///
 /// /dev/tty, never stdout: the menu has to draw on the user's screen even when stdout is a pipe,
 /// and stdout has to stay clean for whatever the command execs afterwards.
-func selectMenuRow(rows: [MenuRow], action: String?) -> MenuSelection? {
+///
+/// `selected` is the row the highlight starts on, so a menu whose best answer is not its first row
+/// can open on that answer (`switchMenuStart`, SwitchMenu.swift) instead of teaching Enter to do the
+/// wrong thing. Clamped rather than trusted: an out-of-range index is a caller's arithmetic bug, and
+/// the honest recovery is the first row, not a crash in a raw-mode terminal. Zero by default, which
+/// is what the worktree menus have always done.
+func selectMenuRow(rows: [MenuRow], action: String?, selected: Int = 0) -> MenuSelection? {
     if ProcessInfo.processInfo.environment["TERM"] == "dumb" { return nil }
     let fd = open("/dev/tty", O_RDWR)
     guard fd >= 0 else { return nil }
@@ -342,7 +356,7 @@ func selectMenuRow(rows: [MenuRow], action: String?) -> MenuSelection? {
     // 40 graphemes are roughly 80 columns.
     let columns = max(1, terminalWidth(fd) - 1)
     let lineCount = rows.count + (action == nil ? 0 : 1)
-    var highlighted = 0
+    var highlighted = menuStartIndex(selected: selected, lineCount: lineCount)
     writeTTY(fd, "\u{1B}[?25l")                 // hide the cursor while the menu is live
     writeTTY(fd, frame(rows: rows, highlighted: highlighted, redraw: false, columns: columns,
                        action: action))

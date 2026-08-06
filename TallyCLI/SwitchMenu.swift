@@ -19,7 +19,7 @@ import Foundation
 
 /// What a bare `tally switch` came to.
 enum SwitchMenuOutcome: Equatable {
-    /// The label to pin, resolved by the same matcher a typed name goes through.
+    /// The ACCOUNT ID of the row that was chosen (see `switchMenuPick` for why not the label).
     case picked(String)
     /// Esc, q, or Ctrl-C: the user said no, so nothing happens and nothing is printed.
     case cancelled
@@ -46,21 +46,53 @@ func switchMenuFrame(_ rows: [SwitchFleetRow]) -> (rows: [MenuRow], action: Stri
     return (rows: lines, action: nil)
 }
 
+/// What a chosen row means: the ACCOUNT ID that row named, and never the label it displayed.
+///
+/// The label would go back through `accountMatching`, which is a case-insensitive SUBSTRING match
+/// answering with the FIRST account it hits (AccountPick.swift). That is the right rule for a name
+/// somebody typed - a query, which may legitimately be ambiguous and is resolved against the fleet
+/// as it stands - and the wrong one for a row somebody selected, which is not a query at all. On a
+/// machine whose accounts are "Claude", "Claude 2", "Claude 3", "Claude 4" (this repo's owner's),
+/// every label contains the first one, so picking the row labelled "Claude" resolved to whichever
+/// of the four the snapshot happened to list first: the menu moved the session to an account the
+/// user could see they had not chosen.
+///
+/// The old reasoning was that a pick and a typed name should resolve identically. They should not:
+/// this surface is HOLDING the unambiguous answer, and handing back the display name throws it away
+/// so the matcher can guess it again. Typing a name is unchanged.
+///
+/// An index outside the rows is `.unavailable` rather than a crash: the caller then prints the usage
+/// text, which still says what to type.
+func switchMenuPick(_ rows: [SwitchFleetRow], index: Int) -> SwitchMenuOutcome {
+    guard rows.indices.contains(index) else { return .unavailable }
+    return .picked(rows[index].id)
+}
+
+/// The row the menu opens on: the one it recommends.
+///
+/// Zero is the obvious default and is wrong exactly when the fleet is healthiest. The rows are
+/// sorted by headroom and the account this session is ALREADY on is excluded from the
+/// recommendation (`switchFleetRows`), so whenever that account has the most room it sits at row 0
+/// while the recommendation sits at row 1 - and Enter, the key a menu teaches you to press first,
+/// would pick the account the user opened the menu to leave. Falls back to the first row when
+/// nothing is marked, which is the behaviour every other menu here has.
+func switchMenuStart(_ rows: [SwitchFleetRow]) -> Int {
+    rows.firstIndex { $0.tags.contains(switchRecommendedTag) } ?? 0
+}
+
 /// Read the fleet, draw the menu, and report what the user chose.
 func pickSwitchTarget() -> SwitchMenuOutcome {
     let (rows, problem) = liveSwitchFleetRows()
     if let problem { warn(problem) }
     guard let rows, !rows.isEmpty else { return .unavailable }
     let frame = switchMenuFrame(rows)
-    guard let selection = selectMenuRow(rows: frame.rows, action: frame.action) else {
+    guard let selection = selectMenuRow(rows: frame.rows, action: frame.action,
+                                        selected: switchMenuStart(rows)) else {
         return .unavailable
     }
     switch selection {
     case .existing(let index):
-        // The LABEL, not the id: it goes back through `accountMatching`, the one matcher every
-        // typed name uses, so a pick from this menu and the same name typed by hand resolve
-        // identically (AccountPick.swift).
-        return .picked(rows[index].label)
+        return switchMenuPick(rows, index: index)
     case .newWorktree:
         return .unavailable   // unreachable without an action line; never a silent wrong move
     case .cancelled:

@@ -165,6 +165,37 @@ func sessionLookup(envPid: String?, here: [String]) -> SessionLookup {
     return here.isEmpty ? .none : .ambiguous(here)
 }
 
+/// The session a command typed HERE belongs to, asked of the live world: the supervisor pid to
+/// address, and whether the command was run from inside that session. nil when nothing supervised is
+/// running here, and nil when several are and the command came from outside all of them - the two
+/// cases in which nothing may claim to describe "this session".
+///
+/// It exists so the two halves of ONE command cannot answer that question differently. The half that
+/// writes the request has always gone through `sessionLookup` and therefore through the directory
+/// fallback; the halves that DRAW the fleet first (the arrow-key menu, the hook's listing) read only
+/// the environment marker, which a shell opened separately in the project directory does not carry.
+/// So a bare `tally switch` in a second terminal marked no row as "this session" and could
+/// recommend the very account that session was already running - while the request it went on to
+/// write moved that session for real (found in review of 0.38.1's zero-turn work).
+///
+/// A refusal still belongs to the caller: `attemptSwitch` keeps its own `switch` because `.none` and
+/// `.ambiguous` need sentences of their own there. What is shared is the RULE, not the wording.
+///
+/// `dir` and `environment` are injected for the reason every other file-touching helper here injects
+/// them: a test of the fallback must not read the machine's own `~/.tally` or its own shell's
+/// variables. The defaults are the real ones, so every caller reads unchanged.
+func currentSessionLookup(cwd: String = FileManager.default.currentDirectoryPath,
+                          dir: URL = supervisorStateDir,
+                          environment: [String: String] = ProcessInfo.processInfo.environment)
+    -> (key: String, isThisSession: Bool)? {
+    let marker = liveSessionMarker(environment)
+    guard case .session(let key) = sessionLookup(envPid: marker,
+                                                 here: supervisorsInDirectory(cwd, dir: dir)) else {
+        return nil
+    }
+    return (key, marker == key)
+}
+
 /// The account a supervised session is running on RIGHT NOW, or nil when nothing can say.
 ///
 /// The supervisor publishes it beside its presence entry, rewritten by every handoff

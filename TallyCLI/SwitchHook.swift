@@ -47,6 +47,13 @@ func hookSwitchAction(_ raw: String) -> HookSwitchAction {
     return name.isEmpty ? .list : .queue(name)
 }
 
+/// The two tags a row can carry, spelled once because the second is read by CODE: the menu opens
+/// on the recommended row (`switchMenuStart`, SwitchMenu.swift), and a literal repeated in two files
+/// is a highlight that would silently stop landing on the right line. The first is named beside it
+/// so the pair reads as one vocabulary rather than as one constant and one loose string.
+let switchCurrentSessionTag = "this session"
+let switchRecommendedTag = "most headroom"
+
 /// One account as a manual pick shows it, independent of the surface drawing it: the hook's stderr
 /// list and the arrow-key menu behind a bare `tally switch` (SwitchMenu.swift) are the same reading
 /// of the same fleet, in the same order, with the same recommendation. Two surfaces that ranked the
@@ -76,8 +83,8 @@ func switchFleetRows(accounts: [Snapshot.Account], provider: String,
     let recommended = (ranked.first { $0.id != current } ?? ranked[0]).id
     return ranked.map { account in
         var tags: [String] = []
-        if account.id == current { tags.append("this session") }
-        if account.id == recommended { tags.append("most headroom") }
+        if account.id == current { tags.append(switchCurrentSessionTag) }
+        if account.id == recommended { tags.append(switchRecommendedTag) }
         let flagship = account.modelWindowName?.lowercased() ?? "model"
         // One element per window, so the separator is written once and cannot drift between them.
         return SwitchFleetRow(
@@ -92,16 +99,29 @@ func switchFleetRows(accounts: [Snapshot.Account], provider: String,
 /// The same reading as text, which is all a hook has: one line per account, and the two commands
 /// that act on it. `rows` is nil when there was no readable snapshot to rank, which is NOT an empty
 /// fleet: it means Tally is not publishing, and saying so is the actionable answer.
-func hookSwitchListing(rows: [SwitchFleetRow]?, provider: String) -> [String] {
+///
+/// `problem` is what the snapshot read itself had to say (`loadSnapshot`), and it LEADS the listing
+/// rather than being dropped. The whole claim of this path is that it answers from the file on disk
+/// without waking a model, which carries the obligation to say how old that file is: with Tally.app
+/// stopped for an hour, every percentage below is an hour old and the recommendation drawn from
+/// them is an hour old too. The terminal menu has always warned (`pickSwitchTarget`); this surface
+/// silently did not.
+func hookSwitchListing(rows: [SwitchFleetRow]?, provider: String,
+                       problem: String? = nil) -> [String] {
+    // With no rows at all the problem IS the answer, and it is the more specific one: "snapshot is
+    // 74m old" says what to do about it, where the generic line only guesses at the cause.
     guard let rows else {
-        return ["no fleet snapshot to read, so there is nothing to choose from - is Tally.app "
-            + "running? (`tally status` says what it can see)"]
+        return [problem ?? "no fleet snapshot to read, so there is nothing to choose from - is "
+            + "Tally.app running? (`tally status` says what it can see)"]
     }
+    // Everything below it is a reading of a file this old, so it leads.
+    let heading = [problem].compactMap { $0 }
     guard !rows.isEmpty else {
-        return ["no \(provider) account is signed in right now, so there is nowhere to move this "
-            + "session - `tally add \(provider)` logs one in"]
+        return heading
+            + ["no \(provider) account is signed in right now, so there is nowhere to move this "
+                + "session - `tally add \(provider)` logs one in"]
     }
-    return ["accounts you can move this session to:"]
+    return heading + ["accounts you can move this session to:"]
         + rows.map {
             "  \($0.label)  \($0.windows)"
                 + ($0.tags.isEmpty ? "" : "  (\($0.tags.joined(separator: ", ")))")
@@ -113,11 +133,16 @@ func hookSwitchListing(rows: [SwitchFleetRow]?, provider: String) -> [String] {
 /// The account this session is running on, or nil when nothing can say - which both manual-pick
 /// surfaces need and neither should ask for differently (SwitchRequest.swift requires the
 /// environment and the published context to agree before it answers at all).
+///
+/// Through `currentSessionLookup`, the same rule the request-writing half uses, so the directory
+/// fallback reaches here too: from a second terminal in the project directory there is no
+/// environment marker, and reading only that marker made this answer nil while `attemptSwitch` went
+/// on to move the single session running there. The row for the account it was already on then
+/// carried no "this session" mark and could be recommended as somewhere to go.
 func currentSessionAccount(_ accounts: [Snapshot.Account]) -> String? {
-    liveSessionMarker().flatMap {
-        sessionAccountID(sessionKey: $0, isThisSession: true, provider: providers[0],
-                         accounts: accounts)
-    }
+    guard let session = currentSessionLookup() else { return nil }
+    return sessionAccountID(sessionKey: session.key, isThisSession: session.isThisSession,
+                            provider: providers[0], accounts: accounts)
 }
 
 /// The fleet this machine can offer a manual pick right now, read ONCE for both surfaces: the
@@ -133,9 +158,11 @@ func liveSwitchFleetRows() -> (rows: [SwitchFleetRow]?, problem: String?) {
                             current: currentSessionAccount(accounts)), problem)
 }
 
-/// The same listing, read off this machine.
+/// The same listing, read off this machine, with whatever the snapshot read had to say about
+/// itself carried into it rather than discarded.
 func switchFleetListing() -> [String] {
-    hookSwitchListing(rows: liveSwitchFleetRows().rows, provider: providers[0].id)
+    let (rows, problem) = liveSwitchFleetRows()
+    return hookSwitchListing(rows: rows, provider: providers[0].id, problem: problem)
 }
 
 /// `tally hook-switch`: the hook entry. Registered by the app with the skill (IntegrationsStore),

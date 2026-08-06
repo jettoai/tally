@@ -46,27 +46,45 @@ extension PopoverRootView {
     var launchSummaryStrip: some View {
         let items = launchSummaryItems
         if !items.isEmpty {
-            Button {
-                StatusItemController.openSettingsWindow()
-            } label: {
-                HStack(spacing: 12) {
-                    ForEach(items, id: \.0) { provider, chips, _ in
-                        HStack(spacing: 5) {
-                            ProviderIconView(providerID: provider, size: 11)
-                            Text(chips.joined(separator: " · "))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+            // THE STRIP IS NOT A LABEL. It reads like one - chips, no chrome - but the whole row is
+            // a button onto Settings, so it cannot simply become a drag handle: `performDrag`
+            // consumes the mouseDown and the click that opens Settings would stop working. What it
+            // does have is a long empty run after the chips, and on this panel that run is the
+            // widest uninterrupted surface there is. So the button is sized to its chips and the
+            // remainder is drag, which costs the strip nothing and hands the pinned panel a grab
+            // area wider than the header's.
+            HStack(spacing: 0) {
+                Button {
+                    StatusItemController.openSettingsWindow()
+                } label: {
+                    HStack(spacing: 12) {
+                        ForEach(items, id: \.0) { provider, chips, _ in
+                            HStack(spacing: 5) {
+                                ProviderIconView(providerID: provider, size: 11)
+                                Text(chips.joined(separator: " · "))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
                     }
-                    Spacer(minLength: 0)
+                    .padding(.leading, 12)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .tallyTooltip(launchSummaryTooltip(items))
+                // The chips are served first and the drag surface takes what is left. Without the
+                // priority the greedy filler wins the split and the chips truncate mid-word - which
+                // is what the first build did ("continue · bypass ·…", seen in the capture): a drag
+                // area bought at the price of the text it was supposed to sit beside.
+                .layoutPriority(1)
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .background(WindowDragArea())
             }
-            .buttonStyle(.plain)
-            .tallyTooltip(launchSummaryTooltip(items))
+            .fixedSize(horizontal: false, vertical: true)
             Divider()
         }
     }

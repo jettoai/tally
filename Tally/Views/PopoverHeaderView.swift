@@ -135,10 +135,7 @@ extension PopoverRootView {
             // transcripts rather than re-polling the quota. A button that silently drove the other
             // tab's store would look broken - the numbers under it would not move.
             Button {
-                switch tab {
-                case .usage: Task { await store.refresh(userInitiated: true) }
-                case .tokens: tokens.refresh()
-                }
+                startRefresh()
             } label: {
                 // A hand-rolled rotation cannot end cleanly: animating back after an interrupted
                 // repeatForever unwinds the arrow (a visible bob), and a nil animation does not
@@ -157,6 +154,11 @@ extension PopoverRootView {
             }
             .buttonStyle(.borderless)
             .disabled(isRefreshing)
+            // The other end of the header's grab strip: on the pinned panel a press that travels
+            // moves the window, and one that does not is the refresh it always was. The overlay is
+            // above a DISABLED control here, which is why the tap path asks the same question the
+            // modifier above does rather than trusting SwiftUI to have stopped it.
+            .windowDragOrTap { startRefresh() }
             .accessibilityLabel(L("Refresh"))
             .tallyTooltipAroundControl(L("Refresh"))
             .padding(.trailing, 12)
@@ -164,6 +166,18 @@ extension PopoverRootView {
         }
         .frame(height: 40)
         .background(alignment: .topLeading) { clockProbes }
+    }
+
+    /// One refresh, reached two ways: the button's own action and the press that turned out not to
+    /// be a window move. Stated once so the second entrance cannot drift into refreshing a different
+    /// tab than the first, and it carries the guard the button expresses with `.disabled` - an
+    /// overlay is not a SwiftUI control and nothing stops it on the caller's behalf.
+    private func startRefresh() {
+        guard !isRefreshing else { return }
+        switch tab {
+        case .usage: Task { await store.refresh(userInitiated: true) }
+        case .tokens: tokens.refresh()
+        }
     }
 
     /// Whichever store the visible tab reads from, so the spinner and the disabled state describe
@@ -178,7 +192,8 @@ extension PopoverRootView {
     private var surfaceTabPicker: some View {
         NeutralSegmentedPicker(selection: $tabState.tab,
                                options: SurfaceTab.allCases,
-                               size: .mini) { $0.label }
+                               size: .mini,
+                               dragsWindow: true) { $0.label }
             .background { widthProbe { headerWidths.picker = $0 } }
     }
 

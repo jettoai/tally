@@ -32,6 +32,84 @@ struct WindowDragArea: NSViewRepresentable {
     func updateNSView(_ nsView: DragView, context: Context) {}
 }
 
+/// The same window-move duty for a spot that is ALREADY a control: the tab switch and the refresh
+/// button, the two things sitting in the middle of the header's grab strip. `WindowDragArea` cannot
+/// be laid over them, because a view that hands every mouse-down to `performDrag` eats the click as
+/// well - so this one keeps the press to itself only long enough to find out which it was, and then
+/// commits to exactly one (`PointerIntent`).
+///
+/// The two outcomes are exclusive BY STRUCTURE, not by a flag: the loop below returns on the pass
+/// that decides, so there is no path on which a window moves and the tab under it also changes.
+///
+/// Inert everywhere but the pinned panel, by the same rule `WindowDragArea` follows and for the same
+/// reason: nothing about the transient popover may change, and a window that is anchored to a status
+/// item cannot be moved anyway. `hitTest` answering nil there leaves the control underneath with the
+/// plain SwiftUI behaviour it has always had, pointer tracking included.
+struct DragOrTapArea: NSViewRepresentable {
+    /// What a press that never travelled should do: the control's own action, stated by the caller
+    /// so this view knows nothing about tabs or refreshing.
+    let onTap: () -> Void
+
+    final class HandleView: NSView {
+        var onTap: () -> Void = {}
+
+        // As on the plain drag area: a borderless panel that is not focused would otherwise spend
+        // the first click on focus handling, and this one sits on controls that people click.
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        /// Transparent to the pointer on any window that is not the pinned panel, which is what
+        /// makes this safe to leave on a control that also lives in the popover.
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            window is PinnedUsagePanel ? super.hitTest(point) : nil
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let panel = window as? PinnedUsagePanel else {
+                return super.mouseDown(with: event)
+            }
+            let start = event.locationInWindow
+            // Peek at the press as it unfolds. No deadline and no timer: the loop only ever waits
+            // for the pointer to move or the button to come up, so a press that does neither is
+            // still sitting on a control that has not decided anything yet.
+            while let next = panel.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+                let intent = PointerIntent.dragOrTap(from: start, to: next.locationInWindow)
+                if next.type == .leftMouseUp {
+                    if intent == .tap { onTap() }
+                    return
+                }
+                if intent == .drag {
+                    // Handed the CURRENT event rather than the mouse-down: `performDrag` moves the
+                    // window with the pointer from the position the event it is given carries, and
+                    // starting it from a point the pointer has already left jumps the panel by the
+                    // slop distance on the first frame.
+                    panel.performDrag(with: next)
+                    return
+                }
+            }
+        }
+    }
+
+    func makeNSView(context: Context) -> HandleView {
+        let view = HandleView()
+        view.onTap = onTap
+        return view
+    }
+
+    func updateNSView(_ nsView: HandleView, context: Context) { nsView.onTap = onTap }
+}
+
+extension View {
+    /// Let this control move the pinned panel when the press travels, and do `onTap` when it does
+    /// not. An overlay rather than a background: the press has to be intercepted before the control
+    /// under it sees it, which is the opposite of what `WindowDragArea` is for.
+    ///
+    /// - Parameter enabled: off leaves the view exactly as it was, for the copies of a shared
+    ///   control that are not sitting in a drag strip.
+    func windowDragOrTap(enabled: Bool = true, _ onTap: @escaping () -> Void) -> some View {
+        overlay { if enabled { DragOrTapArea(onTap: onTap) } }
+    }
+}
+
 /// The pinned panel's base surface. Glass mode shows the desktop through behind-window vibrancy -
 /// SwiftUI's `Material` only samples in-app content, so this must be an `NSVisualEffectView` with
 /// `.behindWindow`, and it carries its own rounded mask because the window server composites the blur

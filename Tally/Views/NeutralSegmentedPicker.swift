@@ -33,6 +33,11 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
     @Binding var selection: Value
     let options: [Value]
     let size: NeutralSegmentedSize
+    /// Whether a press on a segment may also move the pinned panel (see `DragOrTapArea`). Off by
+    /// default and asked for only by the copy that sits in the panel's header, which is the one
+    /// standing in the middle of that surface's grab strip; the footer's and the token view's own
+    /// copies are surrounded by draggable space already and would gain nothing.
+    var dragsWindow = false
     let label: (Value) -> String
 
     @Environment(\.controlActiveState) private var activeState
@@ -165,6 +170,11 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // On the pinned panel a press that travels moves the window instead of switching the tab,
+        // which is what stops the centred switch from being a hole in the header's grab strip. The
+        // tap half is this same button's action, so the two readings of a press can never disagree
+        // about what a click does.
+        .windowDragOrTap(enabled: dragsWindow) { selection = option }
         .focusable(false)
         .onHover { hovered = $0 ? option : (hovered == option ? nil : hovered) }
         .accessibilityLabel(text)

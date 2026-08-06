@@ -170,6 +170,13 @@ struct PopoverRootView: View {
                 footer
             }
             .frame(width: popoverWidth)
+            // The whole surface as a grab area, BEHIND the content: every control sits in front and
+            // keeps its clicks, so what reaches this layer is by definition space nothing else
+            // claimed - the gaps between cards, the margins, the band under a short fleet. It costs
+            // nothing on the popover, where `WindowDragArea` is inert by construction (it drags only
+            // a `PinnedUsagePanel`), which is also why this needs no NSPanel property changed: the
+            // pinned panel's sizing authority is a documented crash surface and is left untouched.
+            .background(WindowDragArea())
             .background(sizeReporter)
             // The floating copy of the dragged card, above everything, tracking the pointer.
             if let cardLift {

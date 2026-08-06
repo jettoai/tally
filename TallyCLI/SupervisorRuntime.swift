@@ -302,18 +302,23 @@ struct PendingCapRecovery {
 
 /// The pending cap recovery a relaunch hands to the next child, or nil to start it clean.
 ///
-/// Only a RELOAD carries it. That relaunch restarts the same conversation on the same account for
-/// reasons that have nothing to do with the cap, and a capped session with no sibling to take it is
-/// by definition quiet, so a reload always restarts it - while the new child's watcher filters the
-/// original cap event away as history. Dropping the pending state there would leave the session
-/// waiting on an account that has stopped serving, with nothing left to notice when a sibling frees
-/// up: the automatic handoff would only resume after the user hit the wall a second time
-/// (2026-07-25). Every other reason genuinely changes the situation - a cap handoff moved account,
-/// a pin or follow re-pointed the session, a fallback changed the model pairing - so the next child
-/// starts from scratch, as it always has.
+/// Two reasons carry it, and they are the two that change nothing about the cap: a RELOAD and a
+/// SELF-UPDATE. Both restart the same conversation on the same account for reasons of their own, and
+/// a capped session with no sibling to take it is by definition quiet, so both always get to restart
+/// it - while the new child's watcher filters the original cap event away as history. Dropping the
+/// pending state there would leave the session waiting on an account that has stopped serving, with
+/// nothing left to notice when a sibling frees up: the automatic handoff would only resume after the
+/// user hit the wall a second time (2026-07-25). Every other reason genuinely changes the situation
+/// - a cap handoff moved account, a pin or follow re-pointed the session, a fallback changed the
+/// model pairing - so the next child starts from scratch, as it always has.
+///
+/// The self-update is the newer of the two, and its answer here is read twice: the new image gets it
+/// through the exec argv (`resupervisePendingCapFlag`, SelfUpdate.swift), and a respawn after an
+/// exec that FAILED gets it from this same value in memory. One decision, so the two paths cannot
+/// disagree about what the session is still waiting for.
 func capCarriedAcrossRelaunch(_ pending: PendingCapRecovery?,
                               reason: String) -> PendingCapRecovery? {
-    reason == "reload" ? pending : nil
+    reason == "reload" || reason == "self-update" ? pending : nil
 }
 
 /// When the window this cap was hit on comes back, decided ONCE at the moment of the cap and then

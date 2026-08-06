@@ -37,13 +37,16 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     // MARK: - 21. A pending cap across a relaunch
 
     // A capped session with no sibling to take it is quiet by definition, so a reload always
-    // restarts it - and the new watcher reads the old cap event as history. Only the reload hands
-    // the pending recovery over; every other reason starts the next child clean, as before.
+    // restarts it - and the new watcher reads the old cap event as history. The reload and the
+    // self-update hand the pending recovery over (neither changes anything about the cap); every
+    // other reason starts the next child clean, as before.
     let capped = PendingCapRecovery(cappedAccountID: "acct-1", cappedAt: launch,
                                     primaryModel: "fable", recoveryResetsAt: nil,
                                     nextRetry: launch, reason: "waiting")
     check("a reload relaunch carries the pending cap",
           capCarriedAcrossRelaunch(capped, reason: "reload")?.cappedAccountID == "acct-1")
+    check("so does a self-update, which restarts the same conversation on the same account",
+          capCarriedAcrossRelaunch(capped, reason: "self-update")?.cappedAccountID == "acct-1")
     check("a cap handoff does not (it just moved account)",
           capCarriedAcrossRelaunch(capped, reason: "cap") == nil)
     check("a fallback pairing does not (the situation changed)",
@@ -64,55 +67,53 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     // the moment the bundle is replaced under it), so a LATER installed version means the app
     // updated underneath us and this process is running stale logic.
     let clear = { (captured: String?, installed: String?, quiet: Bool, planned: Bool,
-                   cap: Bool, uptime: TimeInterval, attempted: String?) in
+                   uptime: TimeInterval, attempted: String?) in
         selfUpdateTarget(captured: captured, installed: installed, isQuiet: quiet,
-                         relaunchPlanned: planned, capPending: cap, uptime: uptime,
-                         attempted: attempted)
+                         relaunchPlanned: planned, uptime: uptime, attempted: attempted)
     }
     check("everything clear upgrades to the installed version",
-          clear("0.25.0", "0.26.0", true, false, false, 300, nil) == "0.26.0")
+          clear("0.25.0", "0.26.0", true, false, 300, nil) == "0.26.0")
     check("the same version is nothing to do",
-          clear("0.26.0", "0.26.0", true, false, false, 300, nil) == nil)
+          clear("0.26.0", "0.26.0", true, false, 300, nil) == nil)
     // Newer, not merely different. The exec is one-way (the child is already gone), and an older
     // build has no `__resupervise`: it would print the usage text, exit, and take the session with
     // it. An older DMG installed over the top, or a Release rebuilt from an earlier checkout, is
     // exactly this case, and a bundle alternating between two versions would exec on every tick.
     check("an older installed build is never exec'd into",
-          clear("0.26.0", "0.25.0", true, false, false, 300, nil) == nil)
+          clear("0.26.0", "0.25.0", true, false, 300, nil) == nil)
     check("versions compare by component, not as strings",
-          clear("0.9.0", "0.10.0", true, false, false, 300, nil) == "0.10.0")
+          clear("0.9.0", "0.10.0", true, false, 300, nil) == "0.10.0")
     check("and not the other way round",
-          clear("0.10.0", "0.9.0", true, false, false, 300, nil) == nil)
+          clear("0.10.0", "0.9.0", true, false, 300, nil) == nil)
     check("a longer version string beats its own prefix",
-          clear("0.26", "0.26.1", true, false, false, 300, nil) == "0.26.1")
+          clear("0.26", "0.26.1", true, false, 300, nil) == "0.26.1")
     check("equal after padding is still nothing to do",
-          clear("0.26", "0.26.0", true, false, false, 300, nil) == nil)
+          clear("0.26", "0.26.0", true, false, 300, nil) == nil)
     check("a version we cannot parse stays put",
-          clear("0.25.0", "0.26.0-beta", true, false, false, 300, nil) == nil)
+          clear("0.25.0", "0.26.0-beta", true, false, 300, nil) == nil)
     check("no installed version (mid-install, or no bundle) waits",
-          clear("0.25.0", nil, true, false, false, 300, nil) == nil)
+          clear("0.25.0", nil, true, false, 300, nil) == nil)
     check("a dev build with no captured version never self-updates",
-          clear(nil, "0.26.0", true, false, false, 300, nil) == nil)
+          clear(nil, "0.26.0", true, false, 300, nil) == nil)
     check("neither version known does nothing",
-          clear(nil, nil, true, false, false, 300, nil) == nil)
+          clear(nil, nil, true, false, 300, nil) == nil)
     check("a session mid-turn waits",
-          clear("0.25.0", "0.26.0", false, false, false, 300, nil) == nil)
+          clear("0.25.0", "0.26.0", false, false, 300, nil) == nil)
     check("a relaunch already planned this tick waits",
-          clear("0.25.0", "0.26.0", true, true, false, 300, nil) == nil)
-    // A capped session is holding state (which account capped, when to retry) that an exec would
-    // drop, and it is quiet by definition, so it would upgrade instantly if this gate were missing.
-    check("a pending cap recovery waits",
-          clear("0.25.0", "0.26.0", true, false, true, 300, nil) == nil)
+          clear("0.25.0", "0.26.0", true, true, 300, nil) == nil)
     check("a child younger than the loop-safety floor waits",
-          clear("0.25.0", "0.26.0", true, false, false, selfUpdateMinUptime - 1, nil) == nil)
+          clear("0.25.0", "0.26.0", true, false, selfUpdateMinUptime - 1, nil) == nil)
     check("exactly at the floor is allowed",
-          clear("0.25.0", "0.26.0", true, false, false, selfUpdateMinUptime, nil) == "0.26.0")
+          clear("0.25.0", "0.26.0", true, false, selfUpdateMinUptime, nil) == "0.26.0")
     // Loop safety: a bundle that still reports the old version after the exec would otherwise have
     // every generation exec again. The target the last exec aimed for is never attempted twice.
     check("the target a previous exec already tried is not tried again",
-          clear("0.25.0", "0.26.0", true, false, false, 300, "0.26.0") == nil)
+          clear("0.25.0", "0.26.0", true, false, 300, "0.26.0") == nil)
     check("but a genuinely newer version still upgrades",
-          clear("0.25.0", "0.26.1", true, false, false, 300, "0.26.0") == "0.26.1")
+          clear("0.25.0", "0.26.1", true, false, 300, "0.26.0") == "0.26.1")
+    // A pending cap USED to be a gate of its own here, and its removal is section 32's subject
+    // (capselfupdatechecks.swift): the state it was protecting rides across the exec now, and while
+    // it was a gate a capped session could never take an update at all.
 
     // The argv that carries continuity across the exec: the account is named so the new supervisor
     // cannot re-pick, and the child args (already carrying --resume <session>) ride after the "--".
@@ -136,7 +137,8 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
                    recoveries: [Date] = [], sessionPin: String? = nil, pinOverride: String? = nil,
                    args: [String]) -> (id: String, label: String, home: String, follow: Bool,
                                        recoveries: [Date], sessionPin: String?,
-                                       pinOverride: String?, childArgs: [String]) {
+                                       pinOverride: String?, pendingCap: PendingCapRecovery?,
+                                       childArgs: [String]) {
         parseResuperviseArgs(Array(selfUpdateArgv(binary: "/usr/local/bin/tally", id: id,
                                                   label: label, home: home, follow: follow,
                                                   recoveries: recoveries, sessionPin: sessionPin,
@@ -281,7 +283,7 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     func due(binary: String?, home: String?, attempted: String? = nil)
         -> (target: String, binary: String, home: String)? {
         selfUpdateDue(captured: "0.25.0", attempted: attempted, isQuiet: true,
-                      relaunchPlanned: false, capPending: false, uptime: 300, home: home,
+                      relaunchPlanned: false, uptime: 300, home: home,
                       installed: "0.26.0", binary: binary)
     }
     check("a clear tick with a real binary and a home upgrades",

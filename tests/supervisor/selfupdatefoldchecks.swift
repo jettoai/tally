@@ -27,9 +27,9 @@ func runSelfUpdateFoldChecks() {
     let movedTo = foldAccount("acct-2", home: movedToHome)
 
     func fold(captured: String? = "0.25.0", installed: String? = "0.26.0", attempted: String? = nil,
-              home: String? = movedToHome, capCarried: Bool = false, binary: String? = "/bin/ls")
+              home: String? = movedToHome, binary: String? = "/bin/ls")
         -> (target: String, binary: String, home: String)? {
-        selfUpdateFold(captured: captured, attempted: attempted, home: home, capCarried: capCarried,
+        selfUpdateFold(captured: captured, attempted: attempted, home: home,
                        installed: installed, binary: binary)
     }
 
@@ -58,7 +58,7 @@ func runSelfUpdateFoldChecks() {
     // answers - which is the entire point.
     func standalone(isQuiet: Bool, uptime: TimeInterval) -> String? {
         selfUpdateDue(captured: "0.25.0", attempted: nil, isQuiet: isQuiet, relaunchPlanned: false,
-                      capPending: false, uptime: uptime, home: movedToHome,
+                      uptime: uptime, home: movedToHome,
                       installed: "0.26.0", binary: "/bin/ls")?.target
     }
     check("a lone upgrade still waits for a quiet session",
@@ -84,21 +84,25 @@ func runSelfUpdateFoldChecks() {
                           recoveries: [], args: ["--resume", "abc"])
     check("nothing to fold leaves the attempt record untouched", attempted == nil)
 
-    // 24e. The one piece of state a fold must not drop. A reload restarting a session that is still
-    // waiting for a sibling to free up hands the pending cap to the next child, and in-memory state
-    // does not survive the exec: that session would come back with nothing left to notice the
-    // sibling. It waits for the next idle instead. A cap HANDOFF carries nothing (it just moved
-    // account), so the common case still folds.
+    // 24e. The one piece of state a fold used to refuse to risk. A reload restarting a session that
+    // is still waiting for a sibling to free up hands the pending cap to the next child, and
+    // in-memory state does not survive the exec, so the fold stood the upgrade down and left it to
+    // the next idle tick. It rides the argv now (section 32, capselfupdatechecks.swift), so the
+    // refusal is gone and the fold happens whatever the relaunch is carrying.
     let capped = PendingCapRecovery(cappedAccountID: "acct-1", cappedAt: launch,
                                     primaryModel: "fable", recoveryResetsAt: nil,
                                     nextRetry: launch, reason: "waiting")
-    check("a reload that carries a pending cap does not fold the upgrade in",
-          fold(capCarried: capCarriedAcrossRelaunch(capped, reason: "reload") != nil) == nil)
-    check("a cap handoff carries nothing, so it folds",
-          fold(capCarried: capCarriedAcrossRelaunch(capped, reason: "cap") != nil)?.target
-          == "0.26.0")
-    check("and a session with no pending cap folds",
-          fold(capCarried: capCarriedAcrossRelaunch(nil, reason: "reload") != nil) != nil)
+    check("a reload that carries a pending cap folds the upgrade in", fold()?.target == "0.26.0")
+    check("and what it carries is handed to the exec rather than dropped",
+          selfUpdateArgv(binary: "/usr/local/bin/tally", id: "acct-1", label: "A",
+                         home: movedToHome, follow: true,
+                         pendingCap: capCarriedAcrossRelaunch(capped, reason: "reload"),
+                         args: []).contains(resupervisePendingCapFlag))
+    check("a cap handoff carries nothing, so its exec carries nothing either",
+          !selfUpdateArgv(binary: "/usr/local/bin/tally", id: "acct-1", label: "A",
+                          home: movedToHome, follow: true,
+                          pendingCap: capCarriedAcrossRelaunch(capped, reason: "cap"),
+                          args: []).contains(resupervisePendingCapFlag))
 
     // 24f. The exec argv a fold produces: the plan's target and the plan's rewritten args, so the
     // new build resumes the same conversation where the handoff has just put it.
@@ -160,8 +164,13 @@ func runSelfUpdateFoldChecks() {
               block.contains("selfUpdateFold("))
         check("it asks against the account the plan moves to",
               block.contains("home: plan.target.launchHome"))
-        check("and against the cap the relaunch would have carried",
-              block.contains("capCarried: carriedCap != nil"))
+        // What the relaunch decided to hand on is what the exec is handed: one decision, so a
+        // failed exec (which falls through to the respawn reading the same variable) and a
+        // successful one cannot leave the session waiting for different things.
+        check("and the cap the relaunch carries is handed to the exec, not dropped",
+              block.contains("pendingCap: carriedCap"))
+        check("the decision itself is still the relaunch's",
+              block.contains("carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)"))
         let decided = at("selfUpdateFold(", in: block)
         let killed = at("performHandoff(", in: block)
         let rewritten = at("launchArgs = planLaunchArgs(", in: block)

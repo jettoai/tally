@@ -168,14 +168,14 @@ func runKeyboardChecks() {
                            isQuiet: reloadQuiet(transcriptQuiet: true, hasTranscript: true,
                                                 childAge: 9999, bar: followIdleSeconds,
                                                 keyboardQuiet: false),
-                           relaunchPlanned: false, capPending: false, uptime: 300,
+                           relaunchPlanned: false, uptime: 300,
                            attempted: nil) == nil)
     check("and lets it through once the typing stops",
           selfUpdateTarget(captured: "0.25.0", installed: "0.26.0",
                            isQuiet: reloadQuiet(transcriptQuiet: true, hasTranscript: true,
                                                 childAge: 9999, bar: followIdleSeconds,
                                                 keyboardQuiet: true),
-                           relaunchPlanned: false, capPending: false, uptime: 300,
+                           relaunchPlanned: false, uptime: 300,
                            attempted: nil) == "0.26.0")
 
     // MARK: - 24c. A machine with no terminal behaves exactly as it did before

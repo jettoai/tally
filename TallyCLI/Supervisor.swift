@@ -25,9 +25,14 @@ import Foundation
 /// `sessionPin`: the account a `tally switch` pinned this session to, handed over by the supervisor
 /// this process replaced (SessionSwitch.swift). `pinOverride`: the pin a switch took a session off
 /// under an older build, which had no session pin. Both nil for every normal launch.
+///
+/// `pendingCap`: the cap recovery that supervisor was still waiting out, handed over the same way
+/// (SelfUpdate.swift) - without it an upgrade would hand a capped session back with nothing left to
+/// notice a sibling freeing up. nil for every normal launch.
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String],
                    follow: Bool = false, recoveries: [Date] = [], resumed: Bool = false,
-                   sessionPin: String? = nil, pinOverride: String? = nil) -> Never {
+                   sessionPin: String? = nil, pinOverride: String? = nil,
+                   pendingCap: PendingCapRecovery? = nil) -> Never {
     let cwd = FileManager.default.currentDirectoryPath
     let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
@@ -81,8 +86,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// after the first, and all of them when this process is a self-update taking a running session
     /// over. Read only by the resume-prompt suppression (ResumePrompt.swift).
     var relaunching = resumed
-    /// A pending cap recovery handed from one child to the next (see `capCarriedAcrossRelaunch`).
-    var carriedCap: PendingCapRecovery?
+    /// A pending cap recovery handed from one child to the next (see `capCarriedAcrossRelaunch`),
+    /// seeded from the supervisor this process replaced in a self-update: that exec is one of the
+    /// relaunches which carry it, and the argv is how it arrived (SelfUpdate.swift).
+    var carriedCap = pendingCap
     /// Stamped into the child env so the status line can tell whether the supervisor watching this
     /// session is the current build (a session launched before an app update runs stale logic).
     let supervisorVersion = supervisorBuildVersion()
@@ -359,6 +366,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // block below performs the exec, so there is exactly one place the process is replaced.
             // Ahead of the reload check because an upgrade restarts the child too, so a pending
             // reload request is satisfied by the same act instead of costing a second restart.
+            // A pending cap does NOT hold it back: that wait lasts as long as the sibling accounts
+            // stay dry, so deferring to it never ended, and the capped session was the one session
+            // on the machine that could not take a fix (2026-08-06, SelfUpdate.swift). The state
+            // rides across the exec instead - `carriedCap` below is what the argv carries.
             let childAge = Date().timeIntervalSince(launchedAt)
             if selfUpdateDue(
                    captured: supervisorVersion, attempted: selfUpdateAttempted,
@@ -366,7 +377,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                         hasTranscript: watcher.file != nil, childAge: childAge,
                                         bar: followIdleSeconds,
                                         keyboardQuiet: keyboard.idle(followIdleSeconds)),
-                   relaunchPlanned: plan != nil, capPending: pendingCap != nil,
+                   relaunchPlanned: plan != nil,
                    uptime: childAge, home: account.launchHome) != nil {
                 plan = RelaunchPlan(target: account, reason: "self-update", countsFuse: false)
             }
@@ -445,8 +456,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)
                 let upgrade = selfUpdateFold(captured: supervisorVersion,
                                              attempted: selfUpdateAttempted,
-                                             home: plan.target.launchHome,
-                                             capCarried: carriedCap != nil)
+                                             home: plan.target.launchHome)
                 performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse)
                 // Republish the account this conversation now runs on, rather than leaving it to
                 // the next tick that reads a token figure: a `tally switch` from a shell outside
@@ -459,7 +469,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 execPlannedSelfUpdate(upgrade, attempted: &selfUpdateAttempted, target: plan.target,
                                       follow: follow, recoveries: fuse.carried(),
                                       sessionPin: manualMoves.sessionPin,
-                                      pinOverride: manualMoves.overriddenPin, args: launchArgs)
+                                      pinOverride: manualMoves.overriddenPin,
+                                      pendingCap: carriedCap, args: launchArgs)
                 break
             }
         }

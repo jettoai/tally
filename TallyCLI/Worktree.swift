@@ -279,11 +279,16 @@ func ensureSharedMemory(_ wt: WorktreeLaunch, homes: [String]) {
 /// `performWorktreeRemove`: a test must never write into the ledger the running app reads.
 ///
 /// Written only when it would say something new (`recordNew`), so re-entering a worktree every day
-/// does not rewrite the ledger every time, and a note teardown has already stamped with a removal
-/// time is left where it is.
-func recordWorktreeOrigin(_ wt: WorktreeLaunch, in url: URL = WorktreeOrigins.fileURL()) {
-    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: wt.path, resolved: nil,
-                                              repository: wt.mainRepo, removedAt: nil)], in: url)
+/// does not rewrite the ledger every time, and a record of something observed later than this entry
+/// is left where it is. Through the same constructor the app's scan uses, so the two sides cannot
+/// write two different records for one directory.
+///
+/// `observedAt` is now, because whoever is entering a worktree is standing in it; it is a parameter
+/// only so a test can place an entry before or after another writer's stamp.
+func recordWorktreeOrigin(_ wt: WorktreeLaunch, in url: URL = WorktreeOrigins.fileURL(),
+                          observedAt: String = ISO8601DateFormatter().string(from: Date())) {
+    WorktreeOrigins.recordNew([WorktreeOrigins.liveNote(worktree: wt.path, repository: wt.mainRepo,
+                                                        observedAt: observedAt)], in: url)
 }
 
 // MARK: - Setup hook

@@ -174,9 +174,15 @@ WorktreeOrigins.record(WorktreeOrigin(worktree: ws + "/geo-purged", resolved: ni
 // the state the scan sees when `tally worktree remove` is running while it scans. The scan folds it
 // off its `.git` file (still there for a moment longer) and would write a live note for it, which
 // must not overwrite the record of a line that is closing.
+//
+// Stamped in the future on purpose. What decides this is whether the teardown observed the worktree
+// AFTER this scan's snapshot began, and the snapshot begins when `current()` below is called - so
+// the fixture states that relation as a date rather than racing the machine's clock to produce it.
+let stampedAfterScan = "2099-01-01T00:00:00Z"
 WorktreeOrigins.record(WorktreeOrigin(worktree: ws + "/specai-relative", resolved: nil,
                                       repository: resolved(ws + "/specai"),
-                                      removedAt: "2026-08-06T00:00:00Z"),
+                                      removedAt: stampedAfterScan, purged: nil,
+                                      observedAt: stampedAfterScan),
                        in: WorktreeOrigins.fileURL(home: home))
 
 let map = TokenProjectMap.current(home: home)
@@ -348,13 +354,34 @@ check(recorded.filter { $0.worktree == ws + "/geo-gone" }.count == 1,
 // The race with a teardown running over the same file: the scan sees a worktree that is still on
 // disk and a record saying it has been removed. The record wins - it knows the line is closed, the
 // scan only knows the directory has not gone yet, and both agree on the repository.
-check(recorded.first { $0.worktree == ws + "/specai-relative" }?.removedAt == "2026-08-06T00:00:00Z",
+check(recorded.first { $0.worktree == ws + "/specai-relative" }?.removedAt == stampedAfterScan,
       "the scan does not overwrite a teardown's record of a worktree it can still see")
+check(recorded.first { $0.paths.contains(ws + "/geo-admin") }?.observedAt != nil,
+      "and every note it does write says when the snapshot that wrote it began")
+
+// What that instant has to BE, which no fixture can show at second resolution: the moment the scan
+// began, not the moment it reached the ledger. The difference is the whole of the straddle case - a
+// teardown that stamps a removal while this scan is parsing transcripts observed the world after
+// this scan did, and only a clock read before the scan looks at anything says so. Read from the
+// source, the way the cache version below is.
+let mapSource = (try? String(contentsOfFile: "Tally/Core/TokenStats/TokenProjectMap.swift",
+                             encoding: .utf8)) ?? ""
+let mapLines = mapSource.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+let clockLine = mapLines.firstIndex { $0.contains("let observedAt = ") }
+let firstLook = mapLines.firstIndex { $0.contains("for child in directories(in: workspace)") }
+check(clockLine != nil && firstLook != nil && clockLine! < firstLook!,
+      "the scan reads its clock before it looks at the filesystem, not when it writes")
 
 // The scan runs on a background queue every time the Tokens tab is looked at, and its answer for
 // the same tree is the same every time, so the second pass must not touch the file at all.
+//
+// Deliberately made to cross a second boundary first. Two scans inside one second write word for
+// word the same note (the instant is spelled to the second), which is the WEAK reason for saying
+// nothing; the reason that has to hold is that the directory is already on file as a live worktree
+// of that repository, and only a scan in a later second tests it.
 let stamp = fileStamp(ledger)
-usleep(20_000)   // so an identical rewrite is visible in the timestamp rather than a coin flip
+let nextSecond = (Date().timeIntervalSince1970).rounded(.down) + 1.05
+Thread.sleep(forTimeInterval: max(0.02, nextSecond - Date().timeIntervalSince1970))
 _ = TokenProjectMap.current(home: home)
 check(fileStamp(ledger) == stamp, "a second scan of an unchanged tree does not rewrite the ledger")
 

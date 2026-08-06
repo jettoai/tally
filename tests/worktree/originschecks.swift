@@ -83,34 +83,73 @@ func runOriginsChecks() {
     WorktreeOrigins.recordNew([held[0]], in: batchLedger)
     check("recording what the ledger already holds does not touch the file",
           fileStamp(batchLedger) == batchStamp)
+    // A note about the same directory that was observed LATER is news, whatever it says: here the
+    // directory has been cut from a different repository since. (Was "a different repository is
+    // always news", which said the same thing about this case and the wrong thing about a stale
+    // note arriving late - the next assertion.)
     WorktreeOrigins.recordNew([WorktreeOrigin(worktree: held[0].worktree, resolved: nil,
-                                              repository: "/b/elsewhere", removedAt: nil)],
+                                              repository: "/b/elsewhere", removedAt: nil,
+                                              purged: nil, observedAt: "2026-08-06T03:00:00Z")],
                               in: batchLedger)
-    check("but the same directory cut from a different repository is news",
+    check("a later observation of the same directory is news, even from another repository",
           WorktreeOrigins.load(from: batchLedger)
             .first { $0.worktree == held[0].worktree }?.repository == "/b/elsewhere")
 
-    // The ordering rule between the two kinds of writer. A teardown records that a worktree is gone;
-    // a scan that started before it (or `tally claude -w` from a stale read) would then write its
-    // own live note over the top, losing the removal time and reopening a line that is closed. The
-    // live writer never displaces a stamped record of the same directory and repository.
+    // And the mirror of it, which no rule covered before: a note carrying an OLDER observation
+    // arrives after the record that took the directory over - a scan that listed this path while it
+    // still belonged to the other repository, and only got to the lock afterwards. It loses.
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: held[0].worktree, resolved: nil,
+                                              repository: "/b/stale", removedAt: nil,
+                                              purged: nil, observedAt: "2026-08-06T01:00:00Z")],
+                              in: batchLedger)
+    check("while an older observation arriving late does not, whatever repository it names",
+          WorktreeOrigins.load(from: batchLedger)
+            .first { $0.worktree == held[0].worktree }?.repository == "/b/elsewhere")
+
+    // The ordering rule where the two kinds of writer meet. A teardown records that a worktree is
+    // gone; a scan that BEGAN before it (or a `tally claude -w` entry from before the stamp) would
+    // then write its own live note over the top, losing the removal time and reopening a line that
+    // is closed.
     let stampedLedger = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
+    let stamp = "2026-08-06T03:00:00Z"
     WorktreeOrigins.record(WorktreeOrigin(worktree: "/s/repo-feat", resolved: nil,
-                                          repository: "/s/repo",
-                                          removedAt: "2026-08-06T03:00:00Z"),
+                                          repository: "/s/repo", removedAt: stamp,
+                                          purged: nil, observedAt: stamp),
                            in: stampedLedger)
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/s/repo-feat", resolved: nil,
+                                              repository: "/s/repo", removedAt: nil,
+                                              purged: nil, observedAt: "2026-08-06T02:59:00Z")],
+                              in: stampedLedger)
+    let stamped = WorktreeOrigins.load(from: stampedLedger).filter { $0.worktree == "/s/repo-feat" }
+    check("a live note observed before the removal does not overwrite it",
+          stamped.count == 1 && stamped.first?.removedAt == stamp)
+    // The tie. ISO8601 is written to the second, so a teardown and a scan that looked in the same
+    // second are indistinguishable here, and what is already on file stands: a removal that might
+    // have been observed a fraction later survives, which is the direction that cannot lose history.
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/s/repo-feat", resolved: nil,
+                                              repository: "/s/repo", removedAt: nil,
+                                              purged: nil, observedAt: stamp)],
+                              in: stampedLedger)
+    check("a live note observed in the same second as the removal leaves the removal standing",
+          WorktreeOrigins.load(from: stampedLedger)
+            .first { $0.worktree == "/s/repo-feat" }?.removedAt == stamp)
+    // A record with no observation time at all is a ledger written by an older tally, and reads as
+    // long ago: the same outcome the removed stamped-wins special case used to produce.
     WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/s/repo-feat", resolved: nil,
                                               repository: "/s/repo", removedAt: nil)],
                               in: stampedLedger)
-    let stamped = WorktreeOrigins.load(from: stampedLedger).filter { $0.worktree == "/s/repo-feat" }
-    check("a live note does not overwrite the teardown record of the same worktree",
-          stamped.count == 1 && stamped.first?.removedAt == "2026-08-06T03:00:00Z")
-    // Unless it really is a different parallel line now: the directory name was reused by another
-    // repository, and the newest answer is the one that answers for it.
+    check("nor does one from a writer too old to say when it looked",
+          WorktreeOrigins.load(from: stampedLedger)
+            .first { $0.worktree == "/s/repo-feat" }?.removedAt == stamp)
+    // But a worktree cut anew under the same name after the removal is a different parallel line,
+    // and its note lands. (Was "a different repository is news"; being another repository is not
+    // what earns it, being observed later is - the same name cut again from the SAME repository is
+    // the case that rule got wrong, and the purge section below is where it is asserted.)
     WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/s/repo-feat", resolved: nil,
-                                              repository: "/s/other", removedAt: nil)],
+                                              repository: "/s/other", removedAt: nil,
+                                              purged: nil, observedAt: "2026-08-06T04:00:00Z")],
                               in: stampedLedger)
-    check("while the same path cut from another repository still supersedes it",
+    check("while an entry observed after the removal supersedes it",
           WorktreeOrigins.load(from: stampedLedger)
             .first { $0.worktree == "/s/repo-feat" }?.repository == "/s/other")
 
@@ -132,9 +171,10 @@ func runOriginsChecks() {
           ((try? String(contentsOf: purgeLedger, encoding: .utf8)) ?? "").contains("purged") == false)
     // The purge, written the way teardown writes it: matched on the resolved spelling, which is the
     // one git recorded when the launch wrote the other.
+    let purgeStamp = "2026-08-06T04:00:00Z"
     WorktreeOrigins.record(WorktreeOrigin(worktree: "/private/p/repo-one", resolved: nil,
-                                          repository: "/p/repo",
-                                          removedAt: "2026-08-06T04:00:00Z", purged: true),
+                                          repository: "/p/repo", removedAt: purgeStamp,
+                                          purged: true, observedAt: purgeStamp),
                            in: purgeLedger)
     let purged = WorktreeOrigins.load(from: purgeLedger).filter { $0.paths.contains("/private/p/repo-one") }
     check("a purge replaces the opening note with a tombstone, across spellings",
@@ -142,23 +182,28 @@ func runOriginsChecks() {
     check("and leaves every other worktree's note alone",
           WorktreeOrigins.load(from: purgeLedger).contains { $0.worktree == "/p/repo-two" })
 
-    // The race it exists for: a scan (or a launch) that read the world before the purge writes its
-    // live note after it.
+    // The race it exists for: a scan that LOOKED before the purge writes its live note after it.
     WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/private/p/repo-one", resolved: nil,
-                                              repository: "/p/repo", removedAt: nil)],
+                                              repository: "/p/repo", removedAt: nil,
+                                              purged: nil, observedAt: "2026-08-06T03:59:00Z")],
                               in: purgeLedger)
     let afterLate = WorktreeOrigins.load(from: purgeLedger).filter { $0.paths.contains("/private/p/repo-one") }
-    check("a live note arriving after the purge cannot clear the tombstone",
+    check("a live note observed before the purge cannot clear the tombstone",
           afterLate.count == 1 && afterLate.first?.purged == true)
 
-    // Unless the directory really is somebody else's parallel line now, which is the one thing that
-    // makes a purged path worth crediting again.
+    // And what the tombstone must NOT do, which is what the rule it replaced got wrong: a worktree
+    // cut again under the same name, from the same repository, is an ordinary and frequent thing
+    // (`admin`, `fix`, `release` come back). Its note is observed after the purge, so it lands and
+    // replaces the tombstone outright - `purged` and all, since the record is replaced rather than
+    // edited. Under the old stamped-wins rule this note was silenced for good, and a line that then
+    // ended by hand (no teardown to correct the ledger) lost its history without a word.
     WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/private/p/repo-one", resolved: nil,
-                                              repository: "/p/other", removedAt: nil)],
+                                              repository: "/p/repo", removedAt: nil,
+                                              purged: nil, observedAt: "2026-08-06T05:00:00Z")],
                               in: purgeLedger)
     let reused = WorktreeOrigins.load(from: purgeLedger).first { $0.paths.contains("/private/p/repo-one") }
-    check("while the same directory cut from another repository supersedes the tombstone",
-          reused?.repository == "/p/other" && reused?.purged == nil)
+    check("while the same name cut again afterwards lands and clears the tombstone",
+          reused?.repository == "/p/repo" && reused?.purged == nil && reused?.removedAt == nil)
 
     // MARK: The launch side writes the same note
 
@@ -182,6 +227,32 @@ func runOriginsChecks() {
     recordWorktreeOrigin(launched, in: launchLedger)
     check("re-entering an already recorded worktree does not rewrite the ledger",
           fileStamp(launchLedger) == launchStamp)
+
+    // The same thing a day later, which is the case that matters and the one an identical record
+    // cannot cover: the note now carries a different instant, so it is not word for word what the
+    // ledger holds, and only "this directory is already held as a live worktree of that repository"
+    // keeps the writer quiet. Without it every entry, and every scan, would rewrite the file.
+    recordWorktreeOrigin(launched, in: launchLedger, observedAt: "2026-08-07T09:00:00Z")
+    check("nor does re-entering it in a later second, when the note is no longer identical",
+          fileStamp(launchLedger) == launchStamp)
+
+    // But being held as live is only "already answered" when the held record answers for every
+    // spelling: the launch side knows the worktree by its resolved path alone, and letting that
+    // stand for the scan's pair would drop the spelling a transcript may have recorded. So a scan
+    // that looked afterwards still gets to widen it.
+    let spellingLedger = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
+    WorktreeOrigins.record(WorktreeOrigin(worktree: "/real/repo-feat", resolved: nil,
+                                          repository: "/real/repo", removedAt: nil,
+                                          purged: nil, observedAt: "2026-08-06T06:00:00Z"),
+                           in: spellingLedger)
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/link/repo-feat",
+                                              resolved: "/real/repo-feat",
+                                              repository: "/real/repo", removedAt: nil,
+                                              purged: nil, observedAt: "2026-08-06T06:00:30Z")],
+                              in: spellingLedger)
+    let spellings = WorktreeOrigins.load(from: spellingLedger).filter { $0.paths.contains("/real/repo-feat") }
+    check("a live note claiming a spelling the held one does not is still news",
+          spellings.count == 1 && spellings.first?.resolved == "/real/repo-feat")
 
     // That the launch is WIRED to it, which the seam above cannot show: `enterWorktree` resolves a
     // worktree, links shared memory into the real account homes and chdirs, so calling it here

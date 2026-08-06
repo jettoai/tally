@@ -402,13 +402,32 @@ func runTeardownChecks() {
           purgeNote?.purged == true && purgeNote?.removedAt?.isEmpty == false)
 
     // The race the tombstone exists for: the app's scan collects the live worktrees it can see and
-    // writes them when it is done, so a scan that started before this teardown lands its live note
-    // after it. Replayed here with the same writer the scan and the launch both use.
-    recordWorktreeOrigin(purgeWt, in: originsFile)
+    // writes them when it is done, so a scan that BEGAN before this teardown lands its live note
+    // after it. Replayed with the same writer the scan and the launch both use, standing in for the
+    // scan by carrying the instant it looked. Both instants are derived from the tombstone's own
+    // stamp rather than from the clock, so the two writers cannot land in the same second and leave
+    // the ordering to a tie-break.
+    let clock = ISO8601DateFormatter()
+    let purgedAt = purgeNote?.removedAt.flatMap(clock.date(from:)) ?? Date()
+    recordWorktreeOrigin(purgeWt, in: originsFile,
+                         observedAt: clock.string(from: purgedAt.addingTimeInterval(-2)))
     let afterLateScan = WorktreeOrigins.load(from: originsFile)
         .filter { $0.paths.contains(purgeWt.path) }
     check("a scan still in flight cannot resurrect the purged worktree as a live one",
           afterLateScan.count == 1 && afterLateScan.first?.purged == true)
+
+    // The other side of the same rule, and the reason it is a rule about time rather than about
+    // which writer spoke: the name is used again. `<repo>-admin`, `<repo>-fix` and their kind come
+    // back, and a worktree cut anew after the purge is a different parallel line whose sessions
+    // belong to the repository. Its note is observed after the stamp, so it lands.
+    recordWorktreeOrigin(purgeWt, in: originsFile,
+                         observedAt: clock.string(from: purgedAt.addingTimeInterval(2)))
+    let afterReuse = WorktreeOrigins.load(from: originsFile)
+        .filter { $0.paths.contains(purgeWt.path) }
+    check("while the same name cut again after the purge is recorded as live",
+          afterReuse.count == 1 && afterReuse.first?.purged == nil
+            && afterReuse.first?.removedAt == nil
+            && afterReuse.first?.repository == rp(liveRepo))
     check("while the teardown that kept its transcripts did leave one",
           WorktreeOrigins.load(from: originsFile).contains { $0.paths.contains(idleWt.path) })
 

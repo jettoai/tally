@@ -234,14 +234,21 @@ func performWorktreeRemove(name: String?, force: Bool, purgeTranscripts: Bool,
     // Written as a tombstone (`purged`) rather than deleted, because deleting it cannot be
     // defended: the app's scan collects the live worktrees it sees and writes them afterwards, so a
     // scan that started while this directory was still here would land its live note on an empty
-    // ledger and put the dead path back. A record defends itself - a live note never displaces a
-    // stamped one - and the map skips a tombstone instead of crediting it.
+    // ledger and put the dead path back. A record defends itself - a note observed before this one
+    // cannot displace it - and the map skips a tombstone instead of crediting it. A worktree really
+    // cut again under this name later is observed later, and takes the path back.
+    // `observedAt` is the same instant as `removedAt`: this is the writer that was standing in front
+    // of the `.git` file when it made up its mind, so what it observed and what it recorded are one
+    // moment. That is what puts it ahead of a scan that started earlier, and behind a worktree cut
+    // anew under the same name afterwards.
+    let stamp = ISO8601DateFormatter().string(from: Date())
     WorktreeOrigins.record(WorktreeOrigin(
         worktree: target.recordedPath,
         resolved: target.realPath == target.recordedPath ? nil : target.realPath,
         repository: target.mainRepo,
-        removedAt: ISO8601DateFormatter().string(from: Date()),
-        purged: purgeTranscripts ? true : nil), in: originsFile)
+        removedAt: stamp,
+        purged: purgeTranscripts ? true : nil,
+        observedAt: stamp), in: originsFile)
 
     // The rescan is the same selection over a fresh scan: a supervisor that got a relaunch in
     // before it died leaves a process no earlier list can name (see WorktreeKill.swift).

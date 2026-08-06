@@ -80,6 +80,12 @@ struct TokenProjectMap: Sendable {
     /// The home directory is a parameter so a fixture tree can be scanned (tests/tokenprojectmap);
     /// every caller in the app uses the default.
     static func current(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> TokenProjectMap {
+        // When this scan looked, taken before it looks at anything and carried by every note it
+        // writes at the end. Not the instant of the write: a scan that listed the worktrees and then
+        // spent a second parsing is reporting the world as it was when it started, and a teardown
+        // that stamped a removal in between knows something newer. Reading the clock here is what
+        // separates those two cases with no tolerance window to tune (`WorktreeOrigin.observedAt`).
+        let observedAt = ISO8601DateFormatter().string(from: Date())
         let workspace = home.appendingPathComponent(workspaceFolder, isDirectory: true)
 
         var relatives: [String] = []
@@ -115,16 +121,18 @@ struct TokenProjectMap: Sendable {
             guard let git, !git.isLinkedWorktree, mainOfCommon[git.common] == nil else { continue }
             mainOfCommon[git.common] = index
         }
-        // The spellings each candidate answered to before any folding, so the note written below
-        // says what a worktree and its repository are, not what the target's row grew into.
-        let checkoutPaths = candidates.map(\.paths)
         var folded = Set<Int>()
         var live: [WorktreeOrigin] = []
         for (index, git) in gits.enumerated() {
             guard let git, git.isLinkedWorktree,
                   let target = mainOfCommon[git.common], target != index
             else { continue }
-            live.append(note(worktree: checkoutPaths[index], repository: checkoutPaths[target]))
+            // Each candidate's own directory is `paths[0]`, which folding only ever appends after,
+            // so a note says what a worktree and its repository are rather than what the target's
+            // row has grown into.
+            live.append(WorktreeOrigins.liveNote(worktree: candidates[index].paths[0],
+                                                 repository: candidates[target].paths[0],
+                                                 observedAt: observedAt))
             candidates[target].paths += candidates[index].paths
             folded.insert(index)
         }
@@ -169,17 +177,6 @@ struct TokenProjectMap: Sendable {
 
         return TokenProjectMap(home: home.path, homeComponents: components(home.path),
                                workspace: workspace.path, roots: roots)
-    }
-
-    /// The ledger record for a live worktree, out of the path pairs the allow-list holds: a
-    /// candidate's paths are its spelling under the workspace folder and, when the two differ, its
-    /// resolved one, which is exactly the pair a record carries. `removedAt` stays empty because
-    /// nothing has been removed; teardown fills it in when something is.
-    private static func note(worktree: [String], repository: [String]) -> WorktreeOrigin {
-        WorktreeOrigin(worktree: worktree[0],
-                       resolved: worktree.count > 1 ? worktree[1] : nil,
-                       repository: repository.count > 1 ? repository[1] : repository[0],
-                       removedAt: nil)
     }
 
     private static func directories(in url: URL) -> [String] {

@@ -30,7 +30,8 @@ struct WorktreeOrigin: Codable, Sendable, Equatable {
     var resolved: String?
     /// The repository it was cut from, resolved.
     var repository: String
-    /// When teardown removed it. Informational, and what the newest-first cap is judged by.
+    /// When teardown removed it. Informational: the file's cap drops the records written longest
+    /// ago, which is insertion order, and a record of a LIVE worktree has no removal time at all.
     var removedAt: String?
     /// Whether teardown deleted its transcripts too (`--purge-transcripts`), which makes this a
     /// tombstone rather than an attribution: there is nothing left to credit, so the map skips it.
@@ -38,10 +39,26 @@ struct WorktreeOrigin: Codable, Sendable, Equatable {
     /// A record rather than a deletion because a deletion cannot be defended. A scan that collected
     /// its live worktrees while this one was still on disk writes them after the purge has finished,
     /// and an absent record is indistinguishable from one that was never written: the live note
-    /// lands and the dead path is credited to the repository again. A record IS the defence, because
-    /// a live note never displaces a stamped one (`answered`). Optional, and absent when false, so an
-    /// older reader (or an older ledger) is unchanged by it.
+    /// lands and the dead path is credited to the repository again. A record IS the defence, since
+    /// what a writer observed earlier cannot displace what was observed later (`answered`) - while a
+    /// worktree genuinely cut anew under the same name afterwards was observed later, so it replaces
+    /// this record outright and the flag goes with it. Optional, and absent when false, so an older
+    /// reader (or an older ledger) is unchanged by it.
     var purged: Bool?
+    /// When the writer OBSERVED what this record states (ISO8601), which is not when it wrote it.
+    ///
+    /// The ledger is written by three processes that cannot see each other, and a directory name is
+    /// reusable, so what is being ordered is not paths but INCARNATIONS of a path: one "cut here,
+    /// then removed" lifetime after another. Ordering those by who reached the lock last says the
+    /// wrong thing whenever a writer is slower than the fact it carries - a scan that listed the
+    /// worktrees, then wrote them a second later, is reporting the world as it was when it looked.
+    /// So each writer records when it looked (teardown: the instant it read the `.git` file, which
+    /// is `removedAt`; a scan: when its snapshot BEGAN, not when it got to the lock; `tally claude
+    /// -w`: the moment of entry, since it is standing in the directory), and `answered` orders by
+    /// that. Absent on records written before this field existed, which read as "long ago" - the
+    /// conservative direction, since anything that states when it looked is more trustworthy than
+    /// something that does not.
+    var observedAt: String?
 
     /// Every spelling of the worktree directory this record can answer for.
     var paths: [String] {
@@ -70,6 +87,31 @@ enum WorktreeOrigins {
               let document = try? JSONDecoder().decode(Document.self, from: data)
         else { return [] }
         return document.entries
+    }
+
+    /// The record for a worktree that is being SEEN alive, written by both sides that see one: the
+    /// app's scan when it folds a worktree into its repository, and `tally claude -w` when it opens
+    /// or re-enters one. One constructor because the two must produce the same record for the same
+    /// directory - a launch that spelled it one way and a scan that spelled it another would take
+    /// turns overwriting each other, and the shorter spelling would drop a path a transcript can
+    /// have recorded. `observedAt` is the caller's, because only the caller knows when it looked:
+    /// a scan looked when its snapshot began, a launch is looking right now.
+    static func liveNote(worktree: String, repository: String, observedAt: String) -> WorktreeOrigin {
+        let resolved = resolvedPath(worktree)
+        return WorktreeOrigin(worktree: worktree,
+                              resolved: resolved == worktree ? nil : resolved,
+                              repository: resolvedPath(repository),
+                              removedAt: nil, purged: nil, observedAt: observedAt)
+    }
+
+    /// The path a process started at `path` would report as its working directory.
+    ///
+    /// `realpath(3)` rather than `URL.resolvingSymlinksInPath()`, which strips a leading `/private`
+    /// and so returns a spelling no transcript ever contains (TokenProjectMap says the same).
+    private static func resolvedPath(_ path: String) -> String {
+        guard let resolved = realpath(path, nil) else { return path }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     /// The advisory lock writers hold, `<file>.lock` beside the file itself.
@@ -154,22 +196,55 @@ enum WorktreeOrigins {
 
     /// Whether the ledger already says what `origin` would say, so writing it adds nothing.
     ///
-    /// Two ways it can: the record is held word for word, or the ledger holds a TEARDOWN's record
-    /// (one carrying a removal time) of the same directory and the same repository. The second is
-    /// the ordering rule between the two kinds of writer. Both agree on the answer that matters -
-    /// which repository those transcripts belong to - and only one of them knows the worktree is
-    /// gone, so the one that knows more wins and a scan racing it cannot reopen a closed line - nor
-    /// undo a tombstone, which is the same rule doing the same job for a purge.
-    /// A note naming a DIFFERENT repository is news either way: that directory has been cut anew
-    /// from somewhere else, and the newest answer is the one that answers for it.
+    /// One ordering rule, over the directory's records rather than over its writers: a record is
+    /// answered by any record of the same directory that was OBSERVED no earlier than it was
+    /// (`observedAt`, falling back to `removedAt` and then to long ago for records written before
+    /// that field existed). Nothing here asks which process wrote what, or whether a record carries
+    /// a removal time, or whether the repository matches - those were the special cases this
+    /// replaces, and each of them was this rule seen from one angle:
+    ///
+    ///   - a scan still in flight when a teardown stamped the worktree observed the world BEFORE
+    ///     the stamp, so its live note is answered and cannot reopen a closed line, or undo a
+    ///     tombstone (which was `stamped wins`);
+    ///   - a worktree cut anew under a name that had been torn down is observed AFTER the stamp, so
+    ///     its note lands and replaces the old record outright, tombstone and all (which the
+    ///     stamped-wins rule got backwards, silencing the reused directory for good);
+    ///   - a stale note naming another repository loses to the newer record that took the path over
+    ///     (which `a different repository is always news` got backwards for as long as it took the
+    ///     next scan to correct it).
+    ///
+    /// A tie goes to what is already on file, so a teardown and a scan that observed the same
+    /// instant leave the removal standing.
+    ///
+    /// Ahead of all that, two ways of holding the same answer already, which keep a repeating writer
+    /// silent: the record is held word for word, or the directory is held as a LIVE worktree of the
+    /// same repository under at least the spellings this one claims. The second is what makes a scan
+    /// free - its notes carry the snapshot's instant, so they are never word for word identical to
+    /// last scan's, and without this it would rewrite the ledger on every pass. It asks for the
+    /// spellings because a record that claims fewer of them answers for less: the launch side knows
+    /// the worktree by its resolved path alone, and letting that answer for the scan's pair would
+    /// drop the spelling a transcript may have recorded.
     private static func answered(_ origin: WorktreeOrigin, by existing: [WorktreeOrigin]) -> Bool {
+        let clock = ISO8601DateFormatter()
         let spellings = Set(origin.paths)
+        let observed = observation(of: origin, clock)
         return existing.contains { held in
-            held == origin
-                || (origin.removedAt == nil && held.removedAt != nil
-                    && held.repository == origin.repository
-                    && held.paths.contains(where: spellings.contains))
+            if held == origin { return true }
+            guard held.paths.contains(where: spellings.contains) else { return false }
+            if held.removedAt == nil, origin.removedAt == nil,
+               held.repository == origin.repository,
+               spellings.isSubset(of: Set(held.paths)) { return true }
+            return observation(of: held, clock) >= observed
         }
+    }
+
+    /// When a record's writer looked, for ordering. Records from before `observedAt` fall back to
+    /// their removal time, and a live one from back then has neither, so it reads as long ago.
+    private static func observation(of origin: WorktreeOrigin,
+                                    _ clock: ISO8601DateFormatter) -> Date {
+        guard let stamp = origin.observedAt ?? origin.removedAt,
+              let date = clock.date(from: stamp) else { return .distantPast }
+        return date
     }
 
     /// `origins` on top of `existing`, each replacing any record naming the same directory in any of

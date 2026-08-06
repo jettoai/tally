@@ -242,14 +242,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // not stop (`capReading`).
             let fleetPolicy = effectivePolicy(launchPolicy(provider.id), project: project)
             var policy = fleetPolicy
-            // What THIS session is expected to run, read off its own command line: a hand-typed
-            // --model outranks the configured default (a deliberate haiku session must not be
-            // "rescued" back to fable), and a project profile reached it the same way, through the
-            // flag the launcher injected. Read by the drift monitor and the degradation paths.
-            // Safe to take before the pin is folded in above: a pin decides the ACCOUNT and never
-            // touches the model, so both readings of the policy answer this identically.
-            let effectivePrimary = launchPrimaryModel(launchArgs, providerID: provider.id)
-                ?? policy.model
+            // What THIS session is expected to run: its own pin first, then its command line, then
+            // the configured default (`sessionPrimaryModel`, SessionModel.swift). Read by the drift
+            // monitor and the degradation paths. Safe to take before the ACCOUNT pin is folded in
+            // above: that one never touches the model, so both readings answer this identically.
+            var effectivePrimary = sessionPrimaryModel(pin: sessionModelState.pin,
+                                                       launchArgs: launchArgs,
+                                                       providerID: provider.id, policy: policy)
             // The single relaunch this tick will perform, if any. Reasons fire in priority order
             // (pin > cap > degradation > fallback) and the FIRST owns the account move; a follow
             // adoption only folds its model/effort onto that target. Executed once at the tick's
@@ -295,8 +294,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                    model: &sessionModelState, modelRecord: &modelRecord,
                                    follow: &followState, following: follow, policy: &policy,
                                    account: account, providerID: provider.id,
-                                   launchArgs: launchArgs, quarantine: quarantine,
-                                   watcher: &watcher,
+                                   launchArgs: launchArgs, primaryModel: &effectivePrimary,
+                                   quarantine: quarantine, watcher: &watcher,
                                    childAge: Date().timeIntervalSince(launchedAt),
                                    keyboardIdle: { keyboard.idle($0) })
 

@@ -40,11 +40,14 @@ extension IntegrationsStore {
 
         ## What this command is for
 
-        Claude Code's own `/model` changes the model of the running process. Tally's supervisor
-        relaunches that process from its own command line whenever it hands the session to another
-        account, adopts a settings change, or replaces itself after an app update - and every one of
-        those puts the original model back. This command writes the choice where the relaunch reads
-        it, so it survives all of them and lasts for the rest of the conversation.
+        Claude Code's own `/model` changes the model of the running process, and Tally now ADOPTS
+        that choice: the supervisor sees it in the transcript and pins the session to the model that
+        answered, so its own relaunches carry it instead of putting the launch model back. So if the
+        user has already typed `/model`, there is nothing to do here, and saying so is the answer.
+
+        This command is for the cases that one cannot reach: naming a model without opening a
+        picker, setting one from a script or a tool call, and releasing the pin again with `auto`.
+        It is also the only way to name an EFFORT that Tally will hold on to.
 
         ## When a model is named
 
@@ -86,7 +89,8 @@ extension IntegrationsStore {
         - Naming only a model leaves the effort exactly as it is. Say so, because the alternative
           reading (that it reset the depth) is the one that would worry them.
         - `tally model auto` hands the session back to this project's profile and then the app's
-          default. It is the only way out; nothing else releases it.
+          default. It is the only way out, including out of a pin Tally adopted from the user's own
+          `/model`: choosing "default" in that picker is not something Tally can recognise.
         - Changing the model can also move the session to another ACCOUNT, because a drained window
           for one model does not rule an account out for another. If no account has room for the
           model they named, it runs there anyway and says so rather than waiting.

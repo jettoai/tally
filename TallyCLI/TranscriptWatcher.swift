@@ -55,6 +55,25 @@ struct TranscriptWatcher {
     /// The model id of the newest assistant event seen so far - how the supervisor notices a
     /// server-side model fallback.
     var lastModel: String?
+    /// When the user last typed Claude Code's OWN `/model` in this child, and the effort the line
+    /// it printed named.
+    ///
+    /// Claude Code writes that command as two adjacent main-chain user events sharing one stamp: the
+    /// invocation (`<command-name>/model</command-name>`) and what it printed
+    /// (`<local-command-stdout>Set model to ...`). Neither asks anything of this supervisor; they
+    /// are how a session says "the person changed the model themselves", which is the one signal
+    /// that tells that apart from the server degrading it. What is then DONE about it, and why the
+    /// answer is the opposite of a rescue, is `adoptNativeModelChoice` (SessionModel.swift).
+    ///
+    /// The same guards `lastModel` carries, for the same reason: a resumed session replays its whole
+    /// history, and that history holds every earlier `/model` - four of them in the session this was
+    /// written for. A replayed one is not somebody changing the model now.
+    var lastModelCommandAt: Date?
+    /// The effort named by that line, when it named one. Best effort in the literal sense: the two
+    /// shapes on this machine are "... for new sessions" and "... for new sessions with <effort>
+    /// effort" (78 and 92 occurrences respectively), so an absent one is ordinary rather than a
+    /// parse failure, and nil means "leave the effort axis alone".
+    var lastModelCommandEffort: String?
     /// The timestamp of the newest main-chain, real, post-launch assistant event. A cap recovery
     /// is cleared when this passes the cap time (a genuine turn happened after the cap, so the
     /// account came back on its own). Same three guards as `lastModel`.
@@ -425,6 +444,23 @@ struct TranscriptWatcher {
                !line.contains("<task-notification>"),
                let ts = lineTimestamp(line), ts >= since {
                 lastUserTurnAt = ts
+            }
+            // Claude Code's own `/model`, in the two events it writes. The invocation is what
+            // marks the moment; the line it printed carries the effort, and is JSON-parsed only
+            // past a substring prefilter (its text is ANSI-coded, so it cannot be read off the raw
+            // line). Guarded like the model signal - post-launch, main-chain - because a resumed
+            // session replays every earlier one.
+            if line.contains(nativeModelCommandTag), !line.contains("\"isSidechain\":true"),
+               let ts = lineTimestamp(line), ts >= since {
+                lastModelCommandAt = ts
+            }
+            if line.contains(nativeModelStdoutPrefix),
+               let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))
+                   as? [String: Any],
+               (object["isSidechain"] as? Bool) != true,
+               let when = (object["timestamp"] as? String).flatMap(parseISO), when >= since,
+               let content = (object["message"] as? [String: Any])?["content"] as? String {
+                lastModelCommandEffort = nativeModelEffort(inStdout: content)
             }
             // A Fable safeguard fallback: a structured system event, parsed only past a cheap
             // substring prefilter. Guarded like the model signal (post-launch, main-chain) so a

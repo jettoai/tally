@@ -99,7 +99,17 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 11", IntegrationsStore.skillVersion == 11)
+    check("skill is at version 12", IntegrationsStore.skillVersion == 12)
+    // The native `/model` is adopted now, not overwritten. The command file used to teach the
+    // opposite, which was true when it was written and became a lie the moment the supervisor
+    // learned to read that event (geo session 7cfa11a4, 2026-08-06).
+    check("the skill teaches that the native command is adopted",
+          currentSkill.contains("Tally adopts Claude Code's own `/model`"))
+    check("…and the command file no longer teaches that it gets put back",
+          !IntegrationsStore.modelPromptCommand.markdown.contains("puts the original model back"))
+    check("…while both still name `auto` as the only way out of an adopted pin",
+          IntegrationsStore.modelPromptCommand.markdown.contains("including out of a pin Tally "
+              + "adopted") && currentSkill.contains("including out of an adopted one"))
     // A SECOND slash command ships with the skill now, and every surface that walks the commands
     // walks one list: a command added to the sync and forgotten by the uninstall (or by the "is
     // this install current" check) is exactly the failure the list exists to make impossible.
@@ -120,8 +130,11 @@ try MainActor.assumeIsolated {
           modelCommand.contains("YOU ARE THE FALLBACK") && modelCommand.contains("/tally-model"))
     check("…passes the arguments through rather than quoting them as one word",
           modelCommand.contains("tally model $ARGUMENTS"))
-    check("…says the change outlives every relaunch, which is why `/model` cannot do this",
-          modelCommand.contains("relaunches that process from its own command line"))
+    check("…says the native picker's choice is adopted rather than undone",
+          modelCommand.contains("Tally now ADOPTS"))
+    check("…and says what is left for this command to do that the picker cannot",
+          modelCommand.contains("naming a model without opening a")
+              && modelCommand.contains("name an EFFORT that Tally will hold on to"))
     check("…and says naming only a model leaves the effort alone",
           modelCommand.contains("leaves the effort exactly as it is"))
     check("no slash command carries an em dash",

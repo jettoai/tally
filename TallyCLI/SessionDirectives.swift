@@ -34,6 +34,12 @@ import Foundation
 /// change inside this call and every mover after it must be judged by the pin the session has now
 /// (the reasoning is `applyManualMoves`'s own).
 ///
+/// Both request readings are injected, for the reason every other file-touching helper here injects
+/// them: the sequence has to be reachable in a test without a home directory.
+///
+/// `primaryModel` comes in as what the session was understood to run and goes out as what it runs
+/// now, which the adoption below can change without any relaunch at all.
+///
 /// `following` is the session-lifetime opt-out: false when the user typed their own `--model` or
 /// `--effort` at launch, or passed `--no-follow`. The per-tick stand-down for a live model pin is
 /// decided here rather than by the caller, so the two cannot come apart.
@@ -45,15 +51,31 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                             follow: inout FollowState, following: Bool,
                             policy: inout LaunchPolicy,
                             account: Snapshot.Account, providerID: String, launchArgs: [String],
+                            primaryModel: inout String?,
                             quarantine: [String: (model: String?, until: Date)],
                             watcher: inout TranscriptWatcher, childAge: TimeInterval,
                             keyboardIdle: (TimeInterval) -> Bool,
                             modelRequest: (String) -> ModelRequest? = {
                                 readModelRequest(sessionKey: $0)
+                            },
+                            switchRequest: (String) -> SwitchRequest? = {
+                                readSwitchRequest(sessionKey: $0)
                             }) {
+    // Claude Code's own `/model`, read out of the transcript and taken as the instruction it is.
+    // FIRST, because it changes what this session is understood to run, and everything after it -
+    // including the degradation rescue one call further down the tick - has to be judged against
+    // that rather than against the command line the session was launched with. It plans no
+    // relaunch, so it cannot compete with the two below for the tick's one restart.
+    adoptNativeModelChoice(state: &model, follow: &follow, watcher: watcher,
+                           primaryModel: primaryModel, launchArgs: launchArgs)
+    // Re-derived HERE rather than by the caller, exactly as `policy` is and for the same reason:
+    // this call can change the pin, and every reader after it - the degradation rescue above all -
+    // must judge the session by what it runs now.
+    primaryModel = sessionPrimaryModel(pin: model.pin, launchArgs: launchArgs,
+                                       providerID: providerID, policy: policy)
     applyManualMoves(plan: &plan, state: &moves, record: &switchRecord, policy: &policy,
                      account: account, providerID: providerID, watcher: &watcher,
-                     childAge: childAge, keyboardIdle: keyboardIdle)
+                     childAge: childAge, keyboardIdle: keyboardIdle, request: switchRequest)
     // Handed the tick's relaunch as something it may only ADD to: with an account already chosen
     // above, this station folds its pair onto that plan and cannot replace it (`TickPlan`,
     // SupervisorRuntime.swift). The wrap is here rather than around the whole sequence because the

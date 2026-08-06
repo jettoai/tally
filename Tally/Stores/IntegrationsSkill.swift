@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 11
+    nonisolated static let skillVersion = 12
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -122,6 +122,27 @@ extension IntegrationsStore {
           top-level `projectPolicy` (`path`, and `providers.<provider>` with `model`,
           `effort`, `accountID`); the key is absent when the directory has no profile. The
           `best` flags in the same output already reflect it.
+
+        # The model this conversation runs
+
+        Tally adopts Claude Code's own `/model`. When the user changes the model that way in a
+        supervised session, the supervisor reads the choice out of the transcript and pins the
+        session to it, so the model survives every relaunch Tally makes of its own accord (an
+        account handoff, a reload, an app self-update) instead of being replaced by the one the
+        session was launched with. It is no longer read as a server-side degradation to be undone.
+
+        So when the user says they already changed the model themselves, believe them and check
+        rather than re-doing it:
+
+        ```
+        tally model                  # what this session runs, and which layer decided it
+        ```
+
+        `tally model <model> [effort]` is for what the picker cannot do: naming a model without
+        opening it, setting one as a tool call, pinning an EFFORT, and `tally model auto` to release
+        the pin (the only way out, including out of an adopted one). The adoption needs one served
+        turn to confirm it, so immediately after `/model` the reading still describes the previous
+        answer; that is stated in the output rather than guessed at.
 
         # Moving this session to a named account
 

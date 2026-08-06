@@ -486,5 +486,6 @@ runSessionPinChecks()
 runModelRequestChecks()
 runModelTickChecks()
 runModelSurfaceChecks()
+runNativeModelChecks()
 
 exit(failures == 0 ? 0 : 1)

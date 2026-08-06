@@ -20,6 +20,67 @@ import Foundation
 // silently expires at the next restart the session was going to have anyway. Anything that means to
 // outlive a relaunch has to be written where the relaunch reads.
 
+/// What this session is expected to RUN, in precedence order: the pin it carries, then the command
+/// line it was launched with, then the configured default.
+///
+/// The pin leads, and that is new. It used to be the command line, which was true while only a
+/// relaunch could change the pair - a `tally model` rewrites the argv on its way past. A native
+/// `/model` adopted from the transcript changes nothing about the argv (the session is ALREADY
+/// running the new model; restarting it would be a no-op), so a reader that asked the command line
+/// would go on believing the session runs what it was launched with, and the degradation rescue
+/// would go on "curing" the difference.
+func sessionPrimaryModel(pin: SessionModelPin, launchArgs: [String], providerID: String,
+                         policy: LaunchPolicy) -> String? {
+    pin.model ?? launchPrimaryModel(launchArgs, providerID: providerID) ?? policy.model
+}
+
+/// Take the model the user chose with Claude Code's OWN `/model` and make it this session's pin.
+/// True when it did, which is the tick's cue to say so.
+///
+/// WHY ADOPT RATHER THAN RESCUE. The transcript cannot tell the two apart on its own: "the serving
+/// model is not the one we expect" is what a quota degradation looks like AND what a person
+/// changing the model looks like. Read as a degradation, the response was to move the session to
+/// another account and relaunch it from the argv - which put the old model back, so the next
+/// `/model` went round again (geo session 7cfa11a4, 2026-08-06; the owner's question was "why is
+/// the native one not supported"). The `/model` event is the one signal that separates them, and
+/// with it the right answer is the opposite of a rescue: the user's choice IS the instruction, so
+/// it joins the layer that already means "this conversation runs this", and everything downstream -
+/// the follow standing down, `--auto` releasing it, the pair riding the next relaunch and the
+/// self-update exec - is the machinery `tally model` already built.
+///
+/// AND IT DOES NOT RELAUNCH. The session is already serving the chosen model; restarting it would
+/// interrupt a conversation to arrive where it already is. The argv catches up at the next relaunch
+/// something else asks for, which is exactly what a pin is for.
+///
+/// THE OBSERVATION MUST POST-DATE THE COMMAND. `lastModel` is the model that served the last answer
+/// WRITTEN DOWN, so between the `/model` and the next turn it still holds the old one: adopting
+/// then would pin the model the user just moved away from. Requiring the newest main-chain event to
+/// be no older than the command is what makes this wait for the first answer that can confirm it.
+///
+/// KNOWN LIMIT, deliberately not guessed at: choosing "default" in that picker is not something we
+/// can recognise, because the line it prints in that case has never been seen here and inventing a
+/// shape for it would put a guess in the one place this function exists to remove one. A session
+/// pinned this way is released the way every other pin is, with `tally model auto`.
+@discardableResult
+func adoptNativeModelChoice(state: inout SessionModelState, follow: inout FollowState,
+                            watcher: TranscriptWatcher, primaryModel: String?,
+                            launchArgs: [String]) -> Bool {
+    guard let commandAt = watcher.lastModelCommandAt, let observed = watcher.lastModel,
+          let observedAt = watcher.lastMainChainEventAt, observedAt >= commandAt,
+          !modelsAgree(primaryModel, observed),
+          // Already this session's pin: adopting again every tick would re-announce a choice the
+          // user made once, and re-point the follow baseline for nothing.
+          !modelsAgree(state.pin.model, observed) else { return false }
+    state.pin.model = observed
+    if let effort = watcher.lastModelCommandEffort { state.pin.effort = effort }
+    follow.adopt(model: observed,
+                 effort: state.pin.effort ?? flagValue(launchArgs, "--effort"))
+    warn("adopted the model you chose with `/model` as this session's pin: it runs \(observed)"
+        + (state.pin.effort.map { "/\($0)" } ?? "")
+        + " until `tally model auto` releases it, and is no longer read as a degradation")
+    return true
+}
+
 /// One poll tick's handling of a `tally model` request. Deliberate, so no fuse - the user asked for
 /// this restart, exactly as they do for a `tally switch`.
 ///

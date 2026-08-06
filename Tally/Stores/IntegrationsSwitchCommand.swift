@@ -140,10 +140,9 @@ extension IntegrationsStore {
     nonisolated static let switchHookEvent = "UserPromptExpansion"
     /// Which command it fires for.
     nonisolated static let switchHookMatcher = "tally-switch"
-    /// Provenance: the ONLY entry this code may rewrite or delete is one running this subcommand.
-    /// The binary path is not part of the marker because the path is the thing that moves (the app
-    /// is dragged elsewhere, or replaced by an update), and an entry stranded on an old path is
-    /// exactly what the sync exists to repair.
+    /// The subcommand the hook runs. The binary PATH is deliberately not part of the identity: the
+    /// path is the thing that moves (the app is dragged elsewhere, or replaced by an update), and
+    /// an entry stranded on an old path is exactly what the sync exists to repair.
     nonisolated static let switchHookMarker = "hook-switch"
 
     /// Quoted, because the release app lives at a fixed path but a dev build does not, and app
@@ -152,10 +151,18 @@ extension IntegrationsStore {
         "\"\(binary.path)\" \(switchHookMarker)"
     }
 
-    /// True when this entry is one of ours.
+    /// Provenance, and the ONLY entry this code may rewrite or delete: it fires for OUR command and
+    /// ends in our subcommand as its own word.
+    ///
+    /// Both halves are load-bearing, and the second is why this is a suffix rather than a substring
+    /// (which is what it was): a user's `/usr/local/bin/my-hook-switcher` contains "hook-switch",
+    /// and treating it as ours would silently replace their hook with a Tally registration and
+    /// delete it on uninstall. Two conditions cost one line and mean an accident has to be
+    /// deliberate.
     private static func isSwitchHookEntry(_ entry: [String: Any]) -> Bool {
+        guard entry["matcher"] as? String == switchHookMatcher else { return false }
         let hooks = entry["hooks"] as? [[String: Any]] ?? []
-        return hooks.contains { ($0["command"] as? String)?.contains(switchHookMarker) == true }
+        return hooks.contains { ($0["command"] as? String)?.hasSuffix(" \(switchHookMarker)") == true }
     }
 
     private static func switchHookEntry(command: String) -> [String: Any] {
@@ -240,6 +247,46 @@ extension IntegrationsStore {
         }
     }
 
+    /// What one home's sync came to: what changed, what is now installed there, and what went
+    /// wrong. A result rather than a throw, because a home that fails must not stop the next one.
+    struct SwitchCommandSync {
+        var changed = false
+        /// The command file, when it is ours.
+        var command: URL?
+        /// The settings file, when the hook was registered in it. Nil when the hook was skipped,
+        /// which is a state the caller must be able to see: it means this home is untouched.
+        var settings: URL?
+        var error: String?
+    }
+
+    /// One home's half of the sync, in the order that matters. Static and file-driven so it is
+    /// testable without the singleton, whose manifest lives in the real `~/.tally`.
+    ///
+    /// THE ORDER IS THE POINT. The hook is registered only when the command file is ours, because
+    /// the two are one instruction: the hook intercepts `/tally-switch` and exits 2, which STOPS
+    /// the expansion. Registering it beside a `commands/tally-switch.md` that belongs to the user
+    /// would take their command away from them - it would never run again, and nothing would say
+    /// why. Neither half, or both.
+    static func syncSwitchCommand(inHome home: URL, hookCommand: String) -> SwitchCommandSync {
+        var result = SwitchCommandSync()
+        let file = switchCommandFile(inHome: home)
+        do {
+            result.changed = try upsertSwitchCommand(in: file)
+            result.command = file
+        } catch {
+            return SwitchCommandSync(error: error.localizedDescription)
+        }
+        let settings = home.appendingPathComponent("settings.json")
+        do {
+            result.changed = try upsertSwitchHook(in: settings, command: hookCommand)
+                || result.changed
+            result.settings = settings
+        } catch {
+            result.error = error.localizedDescription
+        }
+        return result
+    }
+
     /// Bring the command file and the hook up to date for every home the skill is installed in.
     /// Returns true when anything on disk changed.
     ///
@@ -254,24 +301,16 @@ extension IntegrationsStore {
         var seenSettings = Set<String>()
         let command = Self.switchHookCommand(Self.bundledCLIURL)
         for home in Self.homes(ofSkillFiles: files) {
-            let file = Self.switchCommandFile(inHome: home)
-            do {
-                changed = try Self.upsertSwitchCommand(in: file) || changed
-                commands.append(file.path)
-            } catch {
-                lastError = error.localizedDescription
-            }
-            // The settings file, deduplicated a second time: two homes can share one settings.json
-            // by symlink while their commands folders are their own.
-            let settings = home.appendingPathComponent("settings.json")
-            guard seenSettings.insert(settings.resolvingSymlinksInPath().path).inserted else {
-                continue
-            }
-            do {
-                changed = try Self.upsertSwitchHook(in: settings, command: command) || changed
-                settingsFiles.append(settings.path)
-            } catch {
-                lastError = error.localizedDescription
+            let result = Self.syncSwitchCommand(inHome: home, hookCommand: command)
+            changed = result.changed || changed
+            if let error = result.error { lastError = error }
+            if let file = result.command { commands.append(file.path) }
+            // Recorded once per PHYSICAL file: two homes can share one settings.json by symlink
+            // while their commands folders are their own, and a manifest listing the same file
+            // twice would read as two installs.
+            if let file = result.settings,
+               seenSettings.insert(file.resolvingSymlinksInPath().path).inserted {
+                settingsFiles.append(file.path)
             }
         }
         recordManifest("claudeSwitchCommand", paths: commands.isEmpty ? nil : commands)

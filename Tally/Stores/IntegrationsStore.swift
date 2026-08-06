@@ -269,26 +269,42 @@ final class IntegrationsStore {
     /// one already in trouble. Internal for the unit tests - a mis-write here eats user
     /// configuration. JSON round-trip note: key order is not preserved (settings.json is
     /// machine-managed JSON; Claude Code does the same).
+    ///
+    /// It writes to the PHYSICAL file, which is not always the path it was handed: this machine's
+    /// multi-account setup symlinks `~/.claudeN/settings.json` at the main account's file so one
+    /// configuration serves every account. An atomic write replaces the path it is given, so
+    /// writing to the link would replace the link with a regular file - severing exactly the
+    /// sharing the user set up, silently, and leaving the other accounts on a copy that stops
+    /// following their edits.
     static func editSettings(_ file: URL,
                              _ edit: ([String: Any]) -> [String: Any]?) throws -> Bool {
+        let target = file.resolvingSymlinksInPath()
+        /// The one refusal, reached through two doors: bytes that cannot be read, and bytes that
+        /// do not parse. Both mean the same thing here, and cost the same thing if ignored.
+        func unreadable() -> Error {
+            NSError(domain: "tally", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: L("Could not read settings.json, so it was left untouched"),
+            ])
+        }
         var settings: [String: Any] = [:]
-        // An absent file, and an empty one, are a fresh document. Only bytes that are there and do
-        // not parse are the refusal below.
-        if let data = try? Data(contentsOf: file), !data.isEmpty {
-            guard let parsed = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            else {
-                throw NSError(domain: "tally", code: 5, userInfo: [
-                    NSLocalizedDescriptionKey: L("Could not read settings.json, so it was left untouched"),
-                ])
+        // Present and unreadable is NOT absent. A permissions failure reaching the `?? [:]` path
+        // would rewrite a file whose contents were never seen.
+        if FileManager.default.fileExists(atPath: target.path) {
+            guard let data = try? Data(contentsOf: target) else { throw unreadable() }
+            // An empty file is a fresh document; only bytes that are there and do not parse are
+            // the refusal.
+            if !data.isEmpty {
+                guard let parsed = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                else { throw unreadable() }
+                settings = parsed
             }
-            settings = parsed
         }
         guard let merged = edit(settings) else { return false }
         let out = try JSONSerialization.data(withJSONObject: merged,
                                              options: [.prettyPrinted, .sortedKeys])
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(),
                                                 withIntermediateDirectories: true)
-        try out.write(to: file, options: .atomic)
+        try out.write(to: target, options: .atomic)
         return true
     }
 

@@ -235,4 +235,114 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
                            atomically: true, encoding: .utf8)
     check("an older command file drops it back out of current",
           !IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [pairSkill]))
+
+    // MARK: the shared settings.json - a symlink, which is how this machine is actually set up.
+    //
+    // `tally add` links every extra account's config at the main account's, settings.json included,
+    // so one harness serves all of them. An atomic write replaces the path it is given: writing to
+    // the LINK would replace the link with a regular file and sever that sharing silently, leaving
+    // the other accounts on a copy that no longer follows the user's edits.
+    let sharedHome = tmp.appendingPathComponent("shared-real")
+    let sharedSettings = sharedHome.appendingPathComponent("settings.json")
+    try FileManager.default.createDirectory(at: sharedHome, withIntermediateDirectories: true)
+    try JSONSerialization.data(withJSONObject: ["model": "opusplan"]).write(to: sharedSettings)
+    let linkedHome = tmp.appendingPathComponent("shared-link")
+    try FileManager.default.createDirectory(at: linkedHome, withIntermediateDirectories: true)
+    let linkedSettings = linkedHome.appendingPathComponent("settings.json")
+    try FileManager.default.createSymbolicLink(at: linkedSettings,
+                                               withDestinationURL: sharedSettings)
+    check("registering through a symlink writes the file it points at",
+          try IntegrationsStore.upsertSwitchHook(in: linkedSettings, command: hookCommand) == true
+              && IntegrationsStore.settingsCarrySwitchHook(sharedSettings))
+    check("…and leaves the link a link, which is the sharing itself",
+          (try? FileManager.default.destinationOfSymbolicLink(atPath: linkedSettings.path))
+              == sharedSettings.path)
+    let sharedAfter = (try? JSONSerialization.jsonObject(with: Data(contentsOf: sharedSettings)))
+        as? [String: Any] ?? [:]
+    check("…with the settings the file already held", sharedAfter["model"] as? String == "opusplan")
+    // The second account pointing at the same file: one physical document, so it is already done.
+    check("a second home sharing that file writes nothing",
+          try IntegrationsStore.upsertSwitchHook(in: sharedSettings, command: hookCommand) == false)
+    check("uninstalling through the link takes the hook out, still without severing it",
+          try IntegrationsStore.removeSwitchHook(in: linkedSettings) == true
+              && !IntegrationsStore.settingsCarrySwitchHook(sharedSettings)
+              && (try? FileManager.default.destinationOfSymbolicLink(atPath: linkedSettings.path))
+                  == sharedSettings.path)
+
+    // Present and unreadable is not absent. This arrives through a different door than the parse
+    // failure above and costs the same thing: a file rewritten without its contents ever being seen.
+    let lockedSettings = tmp.appendingPathComponent("locked-home/settings.json")
+    let lockedText = "{\n  \"model\": \"opusplan\"\n}\n"
+    try FileManager.default.createDirectory(at: lockedSettings.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try lockedText.write(to: lockedSettings, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: lockedSettings.path)
+    var refusedLocked = false
+    do { _ = try IntegrationsStore.upsertSwitchHook(in: lockedSettings, command: hookCommand) }
+    catch { refusedLocked = true }
+    try FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                          ofItemAtPath: lockedSettings.path)
+    let lockedAfter = try String(contentsOf: lockedSettings, encoding: .utf8)
+    check("a settings.json that exists but cannot be read is refused, not rewritten",
+          refusedLocked && lockedAfter == lockedText)
+
+    // MARK: whose entry is it - the identity that decides what may be rewritten and deleted.
+    //
+    // Ownership is the matcher AND the subcommand as its own trailing word. A substring test (what
+    // this was) hands a user's own `my-hook-switcher` to Tally: replaced on install, deleted on
+    // uninstall, and nothing anywhere says why their hook stopped running.
+    let lookalikes: [String: Any] = ["hooks": ["UserPromptExpansion": [
+        ["matcher": "my-switcher",
+         "hooks": [["type": "command", "command": "/usr/local/bin/my-hook-switcher"]]],
+        ["matcher": "tally-switch",
+         "hooks": [["type": "command", "command": "/usr/local/bin/their-own-wrapper.sh"]]],
+    ]]]
+    let lookalikeFile = tmp.appendingPathComponent("lookalike-home/settings.json")
+    try FileManager.default.createDirectory(at: lookalikeFile.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try JSONSerialization.data(withJSONObject: lookalikes).write(to: lookalikeFile)
+    check("a hook that merely contains our subcommand is not ours",
+          !IntegrationsStore.settingsCarrySwitchHook(lookalikeFile))
+    guard let beside = IntegrationsStore.settingsRegisteringSwitchHook(lookalikes,
+                                                                      command: hookCommand)
+    else { fatalError("registering beside look-alike entries must produce a document") }
+    check("…so ours is added beside them rather than replacing one",
+          commands(beside) == ["/usr/local/bin/my-hook-switcher",
+                               "/usr/local/bin/their-own-wrapper.sh", hookCommand])
+    check("…and uninstalling deletes only ours",
+          IntegrationsStore.settingsWithoutSwitchHook(beside).map(commands)
+              == ["/usr/local/bin/my-hook-switcher", "/usr/local/bin/their-own-wrapper.sh"])
+    check("a look-alike file on its own has nothing of ours to remove",
+          IntegrationsStore.settingsWithoutSwitchHook(lookalikes) == nil)
+
+    // MARK: one home at a time - and the order that keeps a user's own command file running.
+    //
+    // The hook exits 2, which STOPS the expansion. Registering it next to a commands/tally-switch.md
+    // that belongs to the user would take their command away: it would never run again, and nothing
+    // would say why. So a home whose command file is not ours is left entirely alone.
+    let ownedHome = tmp.appendingPathComponent("owned-home")
+    let ownedCommand = IntegrationsStore.switchCommandFile(inHome: ownedHome)
+    try FileManager.default.createDirectory(at: ownedCommand.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try userCommand.write(to: ownedCommand, atomically: true, encoding: .utf8)
+    let refusedHome = IntegrationsStore.syncSwitchCommand(inHome: ownedHome,
+                                                          hookCommand: hookCommand)
+    check("a foreign command file stops the hook being registered",
+          refusedHome.error != nil && refusedHome.settings == nil && refusedHome.command == nil)
+    check("…so that home's settings.json is never even created",
+          !FileManager.default.fileExists(
+            atPath: ownedHome.appendingPathComponent("settings.json").path))
+    check("…and their command file is exactly as they left it",
+          try String(contentsOf: ownedCommand, encoding: .utf8) == userCommand)
+
+    let cleanHome = tmp.appendingPathComponent("clean-home")
+    let installed = IntegrationsStore.syncSwitchCommand(inHome: cleanHome,
+                                                        hookCommand: hookCommand)
+    check("a clean home gets both halves, and says so",
+          installed.error == nil && installed.changed
+              && installed.command == IntegrationsStore.switchCommandFile(inHome: cleanHome)
+              && installed.settings == cleanHome.appendingPathComponent("settings.json"))
+    check("…and a second pass changes nothing",
+          IntegrationsStore.syncSwitchCommand(inHome: cleanHome,
+                                              hookCommand: hookCommand).changed == false)
 }

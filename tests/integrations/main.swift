@@ -99,7 +99,7 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 8", IntegrationsStore.skillVersion == 8)
+    check("skill is at version 9", IntegrationsStore.skillVersion == 9)
     check("skill teaches the advisor field", currentSkill.contains("advisor.<provider>"))
     check("skill spells out every verdict",
           currentSkill.contains("`collecting`") && currentSkill.contains("`addAccount`")

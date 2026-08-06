@@ -189,4 +189,39 @@ func runSwitchGroupChecks(tmp: URL, skill currentSkill: String) throws {
     // is still on disk: named files are kept whatever the population says.
     check("a home named by the files survives a population that has forgotten it",
           IntegrationsStore.homesCarrying(deduplicated, population: []).map(\.path) == [popA.path])
+
+    // MARK: detection asks the same question of the same population.
+    //
+    // Sync installs for every home in the population; detection judging the deduplicated survivors
+    // alone reported an install COMPLETE while a home sat there without its command file. Settings
+    // then offered nothing to fix, and the only thing that repaired it was the next launch.
+    let seenHome = tmp.appendingPathComponent("detect-seen")
+    let hiddenHome = tmp.appendingPathComponent("detect-hidden")
+    let seenSkill = IntegrationsStore.claudeSkillFile(inHome: seenHome)
+    let seenSettings = seenHome.appendingPathComponent("settings.json")
+    try FileManager.default.createDirectory(at: seenSkill.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try currentSkill.write(to: seenSkill, atomically: true, encoding: .utf8)
+    let hiddenSkill = IntegrationsStore.claudeSkillFile(inHome: hiddenHome)
+    try FileManager.default.createDirectory(at: hiddenSkill.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(at: hiddenSkill, withDestinationURL: seenSkill)
+    try FileManager.default.createSymbolicLink(at: hiddenHome.appendingPathComponent("settings.json"),
+                                               withDestinationURL: seenSettings)
+    // Only the visible home gets its half installed, which is exactly the state a shared skills
+    // tree produces when the population is not consulted.
+    _ = try IntegrationsStore.upsertSwitchCommand(
+        in: IntegrationsStore.switchCommandFile(inHome: seenHome))
+    _ = try IntegrationsStore.upsertSwitchHook(in: seenSettings, command: hookCommand)
+    check("the home the dedup drops is missing its command file, and detection now sees it",
+          !IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [seenSkill],
+                                                    population: [seenHome, hiddenHome]))
+    check("…which is precisely what the deduplicated view alone called complete",
+          IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [seenSkill],
+                                                   population: [seenHome]))
+    _ = try IntegrationsStore.upsertSwitchCommand(
+        in: IntegrationsStore.switchCommandFile(inHome: hiddenHome))
+    check("once its half is there, the whole population reads as current",
+          IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [seenSkill],
+                                                   population: [seenHome, hiddenHome]))
 }

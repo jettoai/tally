@@ -44,8 +44,8 @@ extension IntegrationsStore {
     nonisolated static func switchCommandMarkdown() -> String {
         """
         ---
-        description: Move this Claude Code session to another account, keeping the conversation
-        argument-hint: [account name]
+        description: Pin this Claude Code session to another account, keeping the conversation
+        argument-hint: [account name | --auto]
         allowed-tools: Bash(tally:*), AskUserQuestion
         ---
 
@@ -72,6 +72,10 @@ extension IntegrationsStore {
         tally switch "$ARGUMENTS"
         ```
 
+        `--auto` needs no special case here. It arrives as `$ARGUMENTS` like any other word and the
+        CLI reads the flag itself, so the same line releases the pin: one mapping, shared by the
+        hook and the command, with nothing to keep in step.
+
         ## When nothing is named
 
         Read the fleet first, then ask:
@@ -87,13 +91,20 @@ extension IntegrationsStore {
 
         ## What to tell them afterwards
 
-        Relay what the command printed, and these three things about it:
+        Relay what the command printed, and the rest of what it means:
 
         - The move happens when this turn ENDS, not while the command runs. The session then comes
           back on the other account with this conversation intact, so the next thing they type is
           answered from the same context.
-        - It is one shot. No pin is written and no project profile changes, so automatic handoff
-          carries on from there.
+        - IT STICKS FOR THE REST OF THE SESSION. The account named is where this conversation
+          stays: automatic account selection (the idle rebalance off a nearly dry account, the
+          model-degradation rescue, a pin moved in the Tally panel) stops moving it. That is the
+          difference between this and asking again in ten minutes, so say it.
+        - Two ways out, and one of them is not theirs. `tally switch --auto` releases the pin and
+          hands the session back to automatic selection. A HARD CAP hands it on anyway, because a
+          session pinned to an account that cannot answer is worse than one that moved: that
+          handoff clears the pin and says so, and they have to re-pin once quota returns.
+        - No project profile is touched either way, and the pin dies with the session.
         - A non-zero exit means nothing was queued (no such account, or a session nothing is
           supervising). Read the message rather than assuming it worked.
 
@@ -420,8 +431,14 @@ extension IntegrationsStore {
 
     /// Whether every home with the skill also has a current command file and a registered hook.
     /// Detection only, so Settings can offer to fix an install from an older app version.
-    static func switchCommandIsCurrent(forSkillFiles files: [URL]) -> Bool {
-        homesCarrying(files, population: []).allSatisfy { home in
+    ///
+    /// Through the same population the sync uses, and for the same reason: a home whose skills tree
+    /// is symlinked at another's is absent from the deduplicated file list while its commands folder
+    /// is its own. Judging on the survivors alone reported an install complete while a home was
+    /// missing its half of it. Injected rather than discovered so the tests never touch a real
+    /// config home (`claudeHomes()` enumerates the machine's).
+    static func switchCommandIsCurrent(forSkillFiles files: [URL], population: [URL]) -> Bool {
+        homesCarrying(files, population: population).allSatisfy { home in
             let command = (try? String(contentsOf: switchCommandFile(inHome: home), encoding: .utf8))
             return command?.contains(switchCommandMarker) == true
                 && settingsCarrySwitchHook(home.appendingPathComponent("settings.json"))

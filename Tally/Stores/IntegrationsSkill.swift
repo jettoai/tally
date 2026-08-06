@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 8
+    nonisolated static let skillVersion = 9
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -313,7 +313,7 @@ extension IntegrationsStore {
         // carrying only the SKILL.md is an install from an older app: the same "bring it up to
         // date" answer the version marker gets, and `autoUpdateSkill()` does exactly that at the
         // next launch.
-        return Self.switchCommandIsCurrent(forSkillFiles: files)
+        return Self.switchCommandIsCurrent(forSkillFiles: files, population: Self.claudeHomes())
             ? .installed : .broken(L("Older version installed"))
     }
 

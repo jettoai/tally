@@ -23,7 +23,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
           IntegrationsStore.switchCommandMarker == "tally-command v\(IntegrationsStore.skillVersion)")
     check("command carries no em dash", !command.contains("\u{2014}"))
     check("command declares its argument hint and the tools it needs",
-          command.contains("argument-hint: [account name]")
+          command.contains("argument-hint: [account name | --auto]")
               && command.contains("allowed-tools: Bash(tally:*), AskUserQuestion"))
     // Spelled as it must be RUN. `$ARGUMENTS` is the whole rest of the typed line, quoted because
     // account labels contain spaces ("Claude 4").
@@ -42,6 +42,26 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
           commandProse.contains("The move happens when this turn ENDS"))
     check("…and that a non-zero exit means nothing was queued",
           commandProse.contains("A non-zero exit means nothing was queued"))
+
+    // The move STICKS (0.38.0). A command file still promising "one shot" would have the agent
+    // relay the opposite of what the CLI now does: the user would be told automatic handoff carries
+    // on, and then watch their session refuse to move for the rest of the day.
+    check("command says the pin holds for the session",
+          commandProse.contains("IT STICKS FOR THE REST OF THE SESSION")
+              && commandProse.contains("stops moving it"))
+    check("…and never says the old one-shot promise", !commandProse.contains("It is one shot"))
+    check("command names both ways out, including the one that is not the user's",
+          commandProse.contains("`tally switch --auto` releases the pin")
+              && commandProse.contains("A HARD CAP hands it on anyway")
+              && commandProse.contains("clears the pin and says so"))
+    check("…and what the pin does not touch, and how long it lives",
+          commandProse.contains("No project profile is touched either way, and the pin dies with "
+                                + "the session"))
+    // The release path goes through the SAME line as a move, because the CLI reads the flag itself
+    // (SwitchCommand.swift `switchIntent`). A command file that special-cased it here would be a
+    // second mapping to keep in step.
+    check("command says --auto rides the same line the hook hands over",
+          commandProse.contains("`--auto` needs no special case here"))
 
     // Command-file surgery: the same rules the skill file gets, because it lands in the same
     // user-owned tree. A file that is not ours is never touched, in either direction.
@@ -222,19 +242,19 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
                                             withIntermediateDirectories: true)
     try currentSkill.write(to: pairSkill, atomically: true, encoding: .utf8)
     check("a skill with no command file beside it is not current",
-          !IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [pairSkill]))
+          !IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [pairSkill], population: [pairHome]))
     _ = try IntegrationsStore.upsertSwitchCommand(
         in: IntegrationsStore.switchCommandFile(inHome: pairHome))
     check("…nor with the command but no hook registered",
-          !IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [pairSkill]))
+          !IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [pairSkill], population: [pairHome]))
     _ = try IntegrationsStore.upsertSwitchHook(
         in: pairHome.appendingPathComponent("settings.json"), command: hookCommand)
     check("with both, the install is current",
-          IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [pairSkill]))
+          IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [pairSkill], population: [pairHome]))
     try staleCommand.write(to: IntegrationsStore.switchCommandFile(inHome: pairHome),
                            atomically: true, encoding: .utf8)
     check("an older command file drops it back out of current",
-          !IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [pairSkill]))
+          !IntegrationsStore.switchCommandIsCurrent(forSkillFiles: [pairSkill], population: [pairHome]))
 
     // MARK: the shared settings.json - a symlink, which is how this machine is actually set up.
     //

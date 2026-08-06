@@ -22,12 +22,14 @@ import Foundation
 /// ResumePrompt.swift (nobody is at the keyboard for a restart Tally performed on its own), and the
 /// switch request's served stamp, which must not be seeded from a request this same session made.
 ///
-/// `pinOverride`: the pin a `tally switch` took this session off, handed over by the supervisor this
-/// process replaced (SessionSwitch.swift). nil for every normal launch.
+/// `sessionPin`: the account a `tally switch` pinned this session to, handed over by the supervisor
+/// this process replaced (SessionSwitch.swift). `pinOverride`: the pin a switch took a session off
+/// under an older build, which had no session pin. Both nil for every normal launch.
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String],
                    follow: Bool = false, recoveries: [Date] = [], resumed: Bool = false,
-                   pinOverride: String? = nil) -> Never {
-    let slug = projectSlug(forCwd: FileManager.default.currentDirectoryPath)
+                   sessionPin: String? = nil, pinOverride: String? = nil) -> Never {
+    let cwd = FileManager.default.currentDirectoryPath
+    let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
     /// under a running supervisor, and the git probe behind the key must not run on every 2s tick.
     let project = projectPolicy(provider.id)
@@ -94,7 +96,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// relaunches and across a self-update exec like the fuse (SessionSwitch.swift owns the rules;
     /// `resumed` is what stops a request this same session just made from being seeded away).
     var manualMoves = ManualMoveState(sessionKey: supervisorPID, servedEpoch: resumed ? 0 : nil,
-                                      overriddenPin: pinOverride)
+                                      sessionPin: sessionPin, overriddenPin: pinOverride)
     // Reap drift-state files left by dead supervisors (a SIGKILL skips the clear path) before this
     // one starts writing its own; also shrinks the pid-reuse window for a stale badge.
     sweepDeadSupervisorState()
@@ -103,7 +105,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     markSupervisorLive(pid: supervisorPID)
     // Where this session runs, for a `tally switch` typed in a shell with no session marker; written
     // once, because a supervisor's cwd cannot change under it (SwitchRequest.swift).
-    writeSupervisorCwd(FileManager.default.currentDirectoryPath, pid: supervisorPID)
+    writeSupervisorCwd(cwd, pid: supervisorPID)
 
     while true {
         let launchedAt = Date()
@@ -174,8 +176,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 shareTranscript(sessionFile, toHome: target.launchHome!, slug: slug)
             }
 
+            // A hard cap is the one mover allowed past a session pin, and it ends it: said here,
+            // after the child is gone, because the terminal is only ours between a tear-down and
+            // the next spawn (PendingNotice.swift), and recorded here so a stood-down relaunch
+            // never clears a pin it did not act on.
+            let pinCleared = manualMoves.pinClearedByCap(reason)
+            if pinCleared { warn(sessionPinClearedByCapNotice) }
             logHandoff(sessionID: sessionFile?.deletingPathExtension().lastPathComponent,
-                       from: fromLabel, to: target.label, reason: reason)
+                       from: fromLabel, to: target.label,
+                       reason: handoffReason(reason, pinCleared: pinCleared),
+                       pid: supervisorPID, cwd: cwd)
             if countingFuse { fuse.record() }
             account = target
             launchArgs = relaunchArgs(
@@ -211,7 +221,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // Before any relaunch decision reads it: every gate below asks the same tracker, and it
             // only learns anything by being given each tick's reading.
             keyboard.observe(stamp: lastKeyboardInput())
-            let policy = effectivePolicy(launchPolicy(provider.id), project: project)
+            // Two readings of the same policy, and the difference is one account pin. `fleetPolicy`
+            // is what the app and this project declare; `policy` is that with this SESSION's own
+            // pin over it, which is what every mover below is judged against - a pinned session is
+            // not rebalanced, not rescued, and not re-picked (`sessionPolicy`, SessionSwitch.swift).
+            // The cap handoff is the single reader of the fleet reading, because it is the one move
+            // a session pin may not stop.
+            let fleetPolicy = effectivePolicy(launchPolicy(provider.id), project: project)
+            let policy = sessionPolicy(fleetPolicy, sessionPin: manualMoves.sessionPin)
             // What THIS session is expected to run, read off its own command line: a hand-typed
             // --model outranks the configured default (a deliberate haiku session must not be
             // "rescued" back to fable), and a project profile reached it the same way, through the
@@ -282,7 +299,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                         && $0.id != account.id && !excluded.contains($0.id)
                 }
                 let target = capHandoffTarget(eligibleAccounts, primaryModel: primary, now: pickedAt)
-                let action = capRecoveryAction(mode: policy.mode, fuseAllows: fuse.allows(),
+                let action = capRecoveryAction(mode: fleetPolicy.mode, fuseAllows: fuse.allows(),
                                                snapshotStale: snapshotProblem != nil,
                                                hasTarget: target != nil)
                 if action == .handoff, let target {
@@ -403,7 +420,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // How much context a resume of this conversation would reload, for the surfaces outside
             // this terminal (SessionContext.swift). Read off the scan the tick already ran.
             sessionContext.sync(tokens: watcher.lastContextTokens, accountID: account.id,
-                                pid: supervisorPID)
+                                pin: manualMoves.sessionPin, pid: supervisorPID)
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID,
@@ -452,12 +469,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // Republish the account this conversation now runs on, rather than leaving it to
                 // the next tick that reads a token figure: a `tally switch` from a shell outside
                 // this session has only that file to go on (SessionContext.swift).
-                sessionContext.accountChanged(to: account.id, pid: supervisorPID)
+                sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
+                                              pid: supervisorPID)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan)
                 // Last, so an exec that fails falls through to the respawn below with this plan
                 // fully applied: a failed upgrade can cost the new build, never the account switch.
                 execPlannedSelfUpdate(upgrade, attempted: &selfUpdateAttempted, target: plan.target,
                                       follow: follow, recoveries: fuse.carried(),
+                                      sessionPin: manualMoves.sessionPin,
                                       pinOverride: manualMoves.overriddenPin, args: launchArgs)
                 break
             }

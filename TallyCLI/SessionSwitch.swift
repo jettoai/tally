@@ -12,13 +12,30 @@ import Foundation
 // is new is only the addressing: a reload speaks to EVERY session, this speaks to ONE.
 //
 // How a request reaches ONE session (the file, and the two ways a session is identified) is next
-// door in SwitchRequest.swift; what a supervisor DOES about one is here.
+// door in SwitchRequest.swift, and the command that writes one is in SwitchCommand.swift; what a
+// supervisor DOES about a request is here.
 //
-// ONE-SHOT, deliberately. It moves this conversation now and changes nothing else: no pin is
-// written, no project profile is touched, and once the session is over there, automatic handoff
-// carries on exactly as before (a cap still moves it, a nearly dry account still rebalances it).
-// "This project always runs on that account" is a different instruction with a home of its own,
-// `tally project set --account`.
+// STICKY FOR THE SESSION, deliberately. It moves this conversation now AND pins it: the account it
+// names is where this session stays, across every relaunch that follows (a self-update, a reload, a
+// safeguard restore), until the user says otherwise. Naming an account is an instruction, and an
+// instruction that quota reasoning may undo a minute later is not one - the session was moved back
+// off the named account by the very next idle rebalance, which is the behaviour this replaced
+// (owner report, 2026-08-06).
+//
+// So the three scopes are ordered, the same way the model axis already orders them: THIS SESSION's
+// pin (here) > this project's profile (`tally project set --account`) > the fleet's own pin or
+// smart pick (the app). The mechanism is one line - a session pin is presented to the rest of the
+// poll loop AS a pin (`sessionPolicy` below) - so every gate that already yields to a pinned
+// account yields to this one without being taught anything new.
+//
+// TWO WAYS OUT, and only two. `tally switch --auto` releases it, which is the user changing their
+// mind. And a hard cap moves the session anyway, because a pinned session that cannot answer is
+// worse than one that moved: that handoff CLEARS the pin and says so (`pinClearedByCap`), so the
+// session does not silently drift back later. A nearly dry account is not a cap and does not
+// qualify - the whole point of naming an account is that its quota is the user's business.
+//
+// "This project always runs on that account" is still a different instruction with a home of its
+// own, `tally project set --account`: this one dies with the session, that one outlives it.
 
 // MARK: - Supervisor-side decision
 
@@ -87,6 +104,7 @@ enum SwitchDecision: Equatable {
     case alreadyThere  // the session is on that account already (a handoff got there first)
     case relaunch      // move now
     case queued        // the session is mid-turn: hold the request until it goes quiet
+    case unpin         // `tally switch --auto`: drop the pin, move nothing
 }
 
 /// Pure decision, so the bookkeeping is testable without a child. A request fires exactly once (it
@@ -103,9 +121,15 @@ enum SwitchDecision: Equatable {
 /// instead, and that is not a change of heart about holding: the id can be re-earned by a different
 /// login (`SwitchTargetState`), so holding stops meaning "wait for that account" and starts meaning
 /// "resume this conversation onto whoever takes the name next".
+///
+/// `--auto` is answered before anything else and without any of the waits, because it is the one
+/// request that moves nothing: there is no child to be careful of, no account to be launchable, and
+/// a release that waited for a quiet moment would leave the pin in force for exactly as long as the
+/// user kept working - which is when they are least likely to want it.
 func switchDecision(served: Int, request: SwitchRequest, target: SwitchTargetState, onTarget: Bool,
                     isQuiet: Bool) -> SwitchDecision {
     guard request.epoch > served else { return .none }
+    guard !request.isUnpin else { return .unpin }
     switch target {
     case .removed: return .cancelled
     case .signedOut, .unreadable: return .unavailable
@@ -122,9 +146,16 @@ struct ManualMoveState {
     let sessionKey: String
     /// The newest switch stamp this supervisor has served.
     var servedEpoch: Int
-    /// The pin this session was moved OFF by hand, so the live pin switch below stops dragging it
-    /// back. Scoped to that exact pin: moving the pin somewhere NEW in the panel afterwards is a
-    /// fresh instruction and takes effect as it always did.
+    /// The account a `tally switch` pinned THIS session to, for as long as the session lasts: the
+    /// sticky half of the command (see the header). nil means automatic selection is in charge,
+    /// which is where every session starts and where `tally switch --auto` puts it back.
+    var sessionPin: String?
+    /// LEGACY, and only ever handed in: the pin a session was moved off by a supervisor from a
+    /// build before the pin above existed, carried across that build's self-update exec
+    /// (`--pin-override`, SelfUpdate.swift). Nothing in this build writes it - a switch now records
+    /// `sessionPin`, which outranks every pin rather than just the one it overrode - but a session
+    /// upgrading mid-life arrives holding one, and dropping it would hand that session straight
+    /// back to the pin its user had moved it off, minutes later, for no reason they can see.
     var overriddenPin: String?
     /// Why a request is being held rather than served, for the status line's badge; nil when nothing
     /// is being held for a reason worth showing. Re-derived every tick from live state, like every
@@ -147,19 +178,43 @@ struct ManualMoveState {
     /// moments before it was written for this conversation and would be swallowed by the seed
     /// (`resumed`, Supervisor.swift).
     ///
-    /// `overriddenPin` is likewise handed over across that exec (`--pin-override`, SelfUpdate.swift):
-    /// in memory only, and a new image that started without it would hand the session back to the
-    /// pin its user had just moved it off.
-    init(sessionKey: String, servedEpoch: Int? = nil, overriddenPin: String? = nil,
-         dir: URL = switchRequestDir) {
+    /// `sessionPin` is likewise handed over across that exec (`--session-pin`, SelfUpdate.swift),
+    /// and so is `overriddenPin` before it (`--pin-override`): both are promises about the user's
+    /// SESSION rather than about this process, and a new image that started without them would undo
+    /// by itself an instruction the user gave by hand.
+    init(sessionKey: String, servedEpoch: Int? = nil, sessionPin: String? = nil,
+         overriddenPin: String? = nil, dir: URL = switchRequestDir) {
         self.sessionKey = sessionKey
         self.servedEpoch = servedEpoch
             ?? (readSwitchRequest(sessionKey: sessionKey, dir: dir)?.epoch ?? 0)
+        self.sessionPin = sessionPin
         self.overriddenPin = overriddenPin
     }
 
     func pinOverridden(_ pinnedAccountID: String) -> Bool { pinnedAccountID == overriddenPin }
+
+    /// A relaunch is about to happen for `reason`: whether it is the one move allowed past the
+    /// session pin, which therefore ends it. True exactly once per pin, and the pin is gone by the
+    /// time this returns - the caller's only job is to SAY so (`sessionPinClearedByCapNotice`) and
+    /// to name the audit line accordingly.
+    ///
+    /// The cap alone. Every other automatic mover is prevented from planning anything at all while
+    /// a pin stands (`sessionPolicy`), so nothing else can reach here holding one; a cap can,
+    /// because a session that cannot answer is worse than a session that moved. Clearing rather
+    /// than remembering is what stops the pin from dragging the conversation back to a capped
+    /// account on the next quiet tick.
+    mutating func pinClearedByCap(_ reason: String) -> Bool {
+        guard reason == "cap", sessionPin != nil else { return false }
+        sessionPin = nil
+        return true
+    }
 }
+
+/// What the user is told when a cap takes a pinned session anyway. A constant because it is the one
+/// sentence tying the two halves of that decision together (the move happened, the pin is gone), and
+/// a copy of it drifting in a test would assert nothing.
+let sessionPinClearedByCapNotice =
+    "session pin cleared (cap hit); re-pin with `tally switch <account>` once quota is back"
 
 /// The bookkeeping a PLANNED switch owes, carried from the decision to the execution point and
 /// written only once the relaunch is certain.
@@ -170,7 +225,10 @@ struct ManualMoveState {
 /// is undone on a stand-down because nothing has been written yet.
 struct PendingSwitchConsumption {
     let epoch: Int
-    let pinOverride: String?
+    /// Where the session pin stands once this request has been served: the account it named, or nil
+    /// for a `--auto` that released it. A branch that changes nothing about the pin passes what is
+    /// already there.
+    let sessionPin: String?
     let dir: URL
 
     /// The file is unlinked only when it still holds the request that was SERVED. Between planning
@@ -186,12 +244,42 @@ struct PendingSwitchConsumption {
     /// located and shared, a process spawned) to two syscalls.
     func commit(_ state: inout ManualMoveState) {
         state.servedEpoch = epoch
-        state.overriddenPin = pinOverride
+        state.sessionPin = sessionPin
         state.waiting = nil
         if readSwitchRequest(sessionKey: state.sessionKey, dir: dir)?.epoch == epoch {
             clearSwitchRequest(sessionKey: state.sessionKey, dir: dir)
         }
     }
+}
+
+// MARK: - What the rest of the loop sees
+
+/// The launch policy this SESSION runs under: the one the loop already assembles (the app's, with
+/// this project's profile over it) with the session pin over that.
+///
+/// A session pin is presented as a manual pin because it IS one, at a third scope - "this
+/// conversation runs there", against the project's "this repo runs there" and the app's "this fleet
+/// runs there". Expressing it as the pin the whole CLI already understands is what makes every
+/// consequence follow without teaching anything: the idle rebalance leaves a pinned account alone
+/// (Rebalance.swift), the degradation rescue does too (ModelDegradation.swift), the reload's repick
+/// is the rebalance so it does as well, and a launch-default follow adopts the new model ON this
+/// account instead of re-picking one (FollowAdoption.swift). Exactly the same reasoning
+/// `effectivePolicy` uses for a project account (ProjectPolicy.swift), one scope down.
+///
+/// `pinnedHome` goes with it for that same reason: it is a denormalised path the APP wrote beside
+/// the account IT pinned, and carrying it under a different account's id would name the wrong
+/// config dir.
+///
+/// THE ONE READER THAT MUST NOT USE THIS is the cap handoff, which is asked against the policy
+/// without the pin: a capped session that cannot answer is worse than one that moved, so the cap is
+/// allowed past and takes the pin with it (`pinClearedByCap`).
+func sessionPolicy(_ policy: LaunchPolicy, sessionPin: String?) -> LaunchPolicy {
+    guard let sessionPin else { return policy }
+    var pinned = policy
+    pinned.mode = "manual"
+    pinned.pinnedAccountID = sessionPin
+    pinned.pinnedHome = nil
+    return pinned
 }
 
 // MARK: - Poll-loop wiring
@@ -204,8 +292,8 @@ struct PendingSwitchConsumption {
 ///
 /// The switch wins over the pin when they disagree, and keeps winning: it is the newer and the more
 /// specific of the two ("move THIS conversation", against "new sessions go there"), and without the
-/// override a pinned project would drag the session home on the very next tick, which is the one
-/// outcome that would make the command useless to the person most likely to want it.
+/// pin it leaves behind a pinned project would drag the session home on the very next tick, which
+/// is the one outcome that would make the command useless to the person most likely to want it.
 ///
 /// `accounts` is a closure because the snapshot read behind it is one most ticks do not need;
 /// `request` is one because a default argument cannot name `state.sessionKey`, and the file it
@@ -224,7 +312,7 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                           loadSnapshot().0?.accounts
                       }) {
     applySwitchRequest(plan: &plan, state: &state, record: &record, account: account,
-                       providerID: providerID, policy: policy, watcher: &watcher,
+                       providerID: providerID, watcher: &watcher,
                        childAge: childAge, keyboardIdle: keyboardIdle, dir: dir,
                        request: request(state.sessionKey), accounts: accounts)
     guard plan == nil else { return }
@@ -244,13 +332,12 @@ private func launchableAccount(_ id: String?, provider: String,
 }
 
 /// The `tally switch` half. Consumes nothing on the branch that plans a relaunch (see
-/// `PendingSwitchConsumption`); the two branches that plan NOTHING consume immediately, because
-/// there is no execution point to hang the bookkeeping on and a request about a vanished account
-/// would otherwise be re-read forever.
+/// `PendingSwitchConsumption`); the three that plan NOTHING (removed account, already there,
+/// released pin) consume immediately, because there is no execution point to hang the bookkeeping
+/// on and an unserved request would otherwise be re-read forever.
 private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                                 record: inout PendingSwitchConsumption?,
                                 account: Snapshot.Account, providerID: String,
-                                policy: LaunchPolicy,
                                 watcher: inout TranscriptWatcher, childAge: TimeInterval,
                                 keyboardIdle: (TimeInterval) -> Bool,
                                 dir: URL, request: SwitchRequest?,
@@ -259,11 +346,11 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
     // well as inside the decision below, because everything between costs a snapshot read and a
     // transcript tail: `isQuiet` locates and tails the file, which is not free per tick.
     guard let request, request.epoch > state.servedEpoch else { return }
-    /// Consume without moving anything: whatever pin override stands, stands - nothing here took
-    /// this session off a pin.
-    func consume() {
-        PendingSwitchConsumption(epoch: request.epoch, pinOverride: state.overriddenPin, dir: dir)
-            .commit(&state)
+    /// Consume the request, leaving the session pin wherever `pin` puts it. The default is "leave
+    /// it alone", which is what the branches that changed nothing about where this session runs
+    /// want; the two that decided something about the pin say so.
+    func consume(pin: String?) {
+        PendingSwitchConsumption(epoch: request.epoch, sessionPin: pin, dir: dir).commit(&state)
     }
     // A request this supervisor has not served yet supersedes whatever was said about the last one:
     // the cancellation badge describes a request that no longer exists, and this is the moment it
@@ -297,19 +384,28 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
         // its config home's name, so holding this would eventually resume the conversation onto
         // whatever new login claims that name (`SwitchTargetState`).
         state.waiting = nil
-        consume()
+        consume(pin: state.sessionPin)
         state.cancelled = PendingBadge(
             "switch: account removed",
             detail: "the account `tally switch` named is no longer in the fleet, so the move was "
                 + "cancelled rather than held for a different login with the same name")
     case .alreadyThere:
-        consume()
+        // A handoff got there first, or the user named the account they are already on. Either way
+        // the instruction was "run this session there", and the pin is the half of it that has not
+        // happened yet - without this, `tally switch <the account I am on>` would be the one way to
+        // ask for a pin and not get one.
+        consume(pin: named?.id ?? state.sessionPin)
+    case .unpin:
+        // `tally switch --auto`: automatic selection is in charge again from this tick on. Nothing
+        // is relaunched and nothing is said - the session stays exactly where it is, which is what
+        // the command that wrote this already told the person who ran it.
+        state.waiting = nil
+        consume(pin: nil)
     case .relaunch:
         guard let named else { return }
-        warn("switching to \(named.label) as asked")
+        warn("switching to \(named.label) as asked, and staying there until you say otherwise")
         plan = RelaunchPlan(target: named, reason: "switch", countsFuse: false)
-        record = PendingSwitchConsumption(epoch: request.epoch,
-                                          pinOverride: policy.pinnedAccountID, dir: dir)
+        record = PendingSwitchConsumption(epoch: request.epoch, sessionPin: named.id, dir: dir)
     }
 }
 
@@ -319,13 +415,18 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
 /// 2s poll retries) and a quiet keyboard so a prompt being typed survives too; both default to the
 /// same 5s bar.
 ///
-/// It stands down while the pin it names is the one a `tally switch` took this session off.
+/// It stands down entirely while this session carries a pin of its own: the session scope outranks
+/// the fleet scope, so a panel pin moved after a `tally switch` is a change to where NEW sessions
+/// go, not an instruction to drag this conversation somewhere its user just moved it off. (The
+/// legacy `overriddenPin` says the same thing about a narrower case, for a session that upgraded
+/// mid-life out of a build that only had that.)
 private func applyPinSwitch(plan: inout RelaunchPlan?, state: ManualMoveState,
                             account: Snapshot.Account, providerID: String, policy: LaunchPolicy,
                             watcher: inout TranscriptWatcher,
                             keyboardIdle: (TimeInterval) -> Bool,
                             accounts: () -> [Snapshot.Account]?) {
-    guard policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id,
+    guard state.sessionPin == nil,
+          policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id,
           !state.pinOverridden(pinnedID), watcher.isQuiet(manualMoveIdleSeconds),
           keyboardIdle(manualMoveIdleSeconds),
           let target = launchableAccount(pinnedID, provider: providerID, in: accounts)
@@ -334,144 +435,3 @@ private func applyPinSwitch(plan: inout RelaunchPlan?, state: ManualMoveState,
     plan = RelaunchPlan(target: target, reason: "pin", countsFuse: false)
 }
 
-// MARK: - Asking for the move
-
-/// What asking to move this session came to, decided but not yet said.
-///
-/// Split out of the command because there are now two surfaces asking the same question and they
-/// must get the same answer: `tally switch` typed (or run as a tool call) inside the session, and
-/// the `/tally-switch` prompt hook, which reports back without a model turn ever running
-/// (SwitchHook.swift). One decision, one wording, two printers.
-struct SwitchAttempt: Equatable {
-    enum Result: Equatable {
-        /// A request is on disk; the supervisor performs the move at the next quiet moment.
-        case queued
-        /// The session is on that account already, which is not a failure and not a move.
-        case alreadyThere
-        /// Nothing was queued, and `message` says why.
-        case refused
-    }
-
-    let result: Result
-    /// The one sentence answering "what happened", written to stand ALONE: a surface with a single
-    /// line to spend (the hook's stderr) shows this and nothing else.
-    let message: String
-    /// Worth saying alongside it, never instead of it: a snapshot problem, a drained target, a
-    /// supervisor that has to replace itself before it can act.
-    var notes: [String] = []
-
-    var exitCode: Int32 { result == .refused ? 1 : 0 }
-
-    /// Named because most of the ways `attemptSwitch` can end are this one: nothing was queued, and
-    /// the sentence handed in says why.
-    static func refusal(_ message: String, notes: [String]) -> SwitchAttempt {
-        SwitchAttempt(result: .refused, message: message, notes: notes)
-    }
-}
-
-/// Resolve the account, find the session, and write the request. Everything the command does except
-/// print, so both surfaces share it.
-///
-/// Unconfirmed, like `tally reload`: asking IS the intent. It returns as soon as the request is
-/// written - the supervisor performs the move - so it never blocks the turn it was run in, which
-/// matters because that turn has to END before the move can happen.
-func attemptSwitch(name: String) -> SwitchAttempt {
-    let (snapshot, problem) = loadSnapshot()
-    var notes: [String] = []
-    if let problem { notes.append(problem) }
-    // Claude only for now, exactly as the supervisor is: codex launches are a plain exec with
-    // nothing resident to act on a request.
-    let provider = providers[0]
-    guard let target = accountMatching(name, provider: provider.id, in: snapshot) else {
-        return .refusal("no claude account matches \"\(name)\" - try `tally status`", notes: notes)
-    }
-    let sessionKey: String
-    let marker = liveSessionMarker()
-    switch sessionLookup(envPid: marker,
-                         here: supervisorsInDirectory(FileManager.default.currentDirectoryPath)) {
-    case .session(let key):
-        sessionKey = key
-    case .none:
-        return .refusal(
-            "this session is not supervised, so there is nothing here to move it: it was launched "
-                + "bare, with --no-handoff, or with an --account pin. Sessions started with "
-                + "`tally claude` can be switched.",
-            notes: notes)
-    case .ambiguous(let pids):
-        return .refusal(
-            "\(pids.count) supervised sessions are running in this directory, so this command "
-                + "cannot tell which one you mean (pids \(pids.joined(separator: ", "))). Run it "
-                + "inside the session you want to move - or ask the agent in that session to run "
-                + "it.",
-            notes: notes)
-    }
-    // Already there? Asked of the SESSION being moved, not of this shell. The two are the same
-    // process tree only on the main path; through the directory fallback the shell is somebody
-    // else's terminal, and its `CLAUDE_CONFIG_DIR` describes whatever launched IT (often nothing at
-    // all, which reads as the default home and would announce "already on <the default account>"
-    // for a session running somewhere else entirely).
-    if sessionAccountID(sessionKey: sessionKey, isThisSession: marker == sessionKey,
-                        provider: provider, accounts: snapshot?.accounts ?? []) == target.id {
-        return SwitchAttempt(result: .alreadyThere, message: "already on \(target.label)",
-                             notes: notes)
-    }
-    // Whether anything will read the request, asked only when the session named ITSELF: the
-    // environment carries that session's supervisor build, and a directory match carries nothing.
-    let honourability = marker == nil ? SwitchHonourability.honoured
-        : switchHonourability(supervisorVersion:
-                                ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_VERSION"],
-                              installedVersion: supervisorBuildVersion())
-    if honourability == .tooOld {
-        return .refusal(
-            "this session's supervisor predates `tally switch` and would never read the request, "
-                + "so nothing was queued. Restart this session once (exit, then launch again with "
-                + "`tally claude`) and it can be switched from then on.",
-            notes: notes)
-    }
-    // Said, not refused: naming an account is an instruction, and its quota is the user's business
-    // (the same reading a pin gets - `tally claude` launches a pinned account that is out too).
-    if headroom(target) <= 0 {
-        notes.append("\(target.label) is out of quota - switching anyway (you asked)")
-    }
-    sweepDeadSwitchRequests()
-    do {
-        try writeSwitchRequest(accountID: target.id, sessionKey: sessionKey)
-    } catch {
-        return .refusal("cannot write \(switchRequestFile(sessionKey: sessionKey).path): "
-                            + "\(error.localizedDescription)",
-                        notes: notes)
-    }
-    if honourability == .afterSelfUpdate {
-        notes.append("this session runs a supervisor from another build: it replaces itself with "
-            + "the installed one at the next idle moment, and the switch happens after that")
-    }
-    // The timing, spelled out, because the caller is usually an agent that has to relay it: the
-    // move waits for the turn making this tool call to finish (OpenTurn.swift), so the session
-    // stays exactly where it is until the answer is delivered, and comes back on the other account
-    // with the conversation intact.
-    return SwitchAttempt(
-        result: .queued,
-        message: "switch queued: this session moves to \(target.label) when the current turn ends, "
-            + "and the conversation continues there",
-        notes: notes)
-}
-
-// MARK: - CLI entry
-
-/// `tally switch <account>`: move the session this command was run in onto the named account, at the
-/// end of the turn that asked for it.
-func runSwitch(args: [String]) -> Int32 {
-    guard args.count == 1, let name = args.first, !name.hasPrefix("-") else {
-        warn("usage: tally switch <account>   (label or config-dir name, as `tally status` lists " +
-             "them). Moves THIS session to that account at the end of the current turn; to make a " +
-             "project always launch there, use `tally project set --account`")
-        return 2
-    }
-    let attempt = attemptSwitch(name: name)
-    // The one line that answers the command goes to stdout when it worked, so a script can read it;
-    // a refusal is stderr, like every other failure here. The notes are always stderr: they qualify
-    // the answer rather than being it.
-    if attempt.result == .refused { warn(attempt.message) } else { print(attempt.message) }
-    for note in attempt.notes { warn(note) }
-    return attempt.exitCode
-}

@@ -419,14 +419,17 @@ default:
                                 (CLAUDE.md/AGENTS.md, skills, hooks, agents, settings) and
                                 conversation record are symlinked in BY DEFAULT: one setup
                                 serves every account. Opt out with --no-share
-      tally switch <account>    move THIS session to another account, keeping the conversation:
-                                run it inside the session (the agent in it can run it too) and the
-                                move happens when the current turn ends. One shot - it changes no
-                                pin and no project profile, and automatic handoff carries on from
-                                there. For "this project always runs there", use
-                                `tally project set --account`. Inside Claude Code, typing
-                                `/tally-switch <account>` does the same without waking a model
-                                (installed with the Claude Code skill integration)
+      tally switch <account>    pin THIS session to another account, keeping the conversation: run
+                                it inside the session (the agent in it can run it too) and the move
+                                happens when the current turn ends. It STAYS there - automatic
+                                selection stops moving this session - until `tally switch --auto`
+                                releases it or a hard cap hands it on (which clears the pin and says
+                                so). No project profile is touched: for "this project always runs
+                                there", use `tally project set --account`. Inside Claude Code,
+                                typing `/tally-switch <account>` does the same without waking a
+                                model (installed with the Claude Code skill integration)
+      tally switch --auto       release that pin: this session follows automatic account selection
+                                again (the project profile, then the app's pin or smart pick)
       tally reload [--now]      restart every supervised session at its next idle moment, so edited
                                 hooks, skills, and instructions take effect everywhere without
                                 visiting each terminal (--now waits only for a 5s quiet gap, so it

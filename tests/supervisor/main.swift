@@ -481,5 +481,6 @@ runSwitchChecks()
 runSwitchRequestChecks()
 runSwitchSessionChecks()
 runSwitchHookChecks()
+runSessionPinChecks()
 
 exit(failures == 0 ? 0 : 1)

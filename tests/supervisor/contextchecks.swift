@@ -172,22 +172,22 @@ func runSessionContextChecks() {
     // The loop polls every 2s and a working session produces a turn every few of them; a write per
     // turn would replace the file all day for a number every surface rounds to thousands.
     var writer = SessionContextWriter()
-    writer.sync(tokens: nil, accountID: "claude:.claude", pid: livePid, dir: dir, now: at)
+    writer.sync(tokens: nil, accountID: "claude:.claude", pin: nil, pid: livePid, dir: dir, now: at)
     check("nothing read yet writes nothing", readSessionContext(pid: livePid, dir: dir) == nil)
-    writer.sync(tokens: 100_000, accountID: "claude:.claude", pid: livePid, dir: dir, now: at)
+    writer.sync(tokens: 100_000, accountID: "claude:.claude", pin: nil, pid: livePid, dir: dir, now: at)
     check("the first reading is written",
           readSessionContext(pid: livePid, dir: dir)?.contextTokens == 100_000)
     clearSessionContext(pid: livePid, dir: dir)
-    writer.sync(tokens: 100_400, accountID: "claude:.claude", pid: livePid, dir: dir, now: at)
+    writer.sync(tokens: 100_400, accountID: "claude:.claude", pin: nil, pid: livePid, dir: dir, now: at)
     check("a move under the delta is not rewritten",
           readSessionContext(pid: livePid, dir: dir) == nil)
-    writer.sync(tokens: 101_000, accountID: "claude:.claude", pid: livePid, dir: dir, now: at)
+    writer.sync(tokens: 101_000, accountID: "claude:.claude", pin: nil, pid: livePid, dir: dir, now: at)
     check("a move past the delta is written, and exact",
           readSessionContext(pid: livePid, dir: dir)?.contextTokens == 101_000)
     clearSessionContext(pid: livePid, dir: dir)
     // A handoff moves the same conversation to another account: the reading has not changed, but
     // who it belongs to has, so the file must say so immediately.
-    writer.sync(tokens: 101_000, accountID: "claude:.claude2", pid: livePid, dir: dir, now: at)
+    writer.sync(tokens: 101_000, accountID: "claude:.claude2", pin: nil, pid: livePid, dir: dir, now: at)
     check("a handoff rewrites it even at the same size",
           readSessionContext(pid: livePid, dir: dir)?.accountID == "claude:.claude2")
     try? FileManager.default.removeItem(at: dir)

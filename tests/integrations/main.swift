@@ -164,8 +164,24 @@ try MainActor.assumeIsolated {
           skillProse.contains("Finish your answer as normal"))
     check("…and promises the conversation survives it",
           skillProse.contains("with the conversation intact"))
-    check("skill separates the one-shot move from the persistent profile",
+    check("skill separates the session-scoped move from the persistent profile",
           skillProse.contains("`switch` moves this conversation now, `project set` decides where"))
+    // The half an agent will otherwise get wrong, because the command used to work the other way: a
+    // switch is not a one-shot nudge that the next idle rebalance may undo. An agent that relays it
+    // as one leaves the user re-asking every ten minutes, which is the report this replaced.
+    check("skill says the move sticks for the rest of the session",
+          skillProse.contains("IT STICKS FOR THE REST OF THE SESSION"))
+    check("…and names what stops moving the session",
+          skillProse.contains("stops")
+              && skillProse.contains("the idle rebalance off a nearly"))
+    check("skill hands the user the way back to automatic selection",
+          currentSkill.contains("tally switch --auto"))
+    check("…and warns that a hard cap ends the pin without being asked",
+          skillProse.contains("A HARD CAP hands it on")
+              && skillProse.contains("clears the pin and says so"))
+    check("skill states the three scopes in order, so the agent can answer which wins",
+          skillProse.contains("a session pin beats")
+              && skillProse.contains("the project profile, which beats the app's own pin"))
     check("skill says a failure changes nothing, so exit codes are read",
           skillProse.contains("or non-zero having changed nothing"))
     check("skill names the sessions that cannot be switched",

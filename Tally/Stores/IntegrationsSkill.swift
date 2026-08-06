@@ -129,7 +129,8 @@ extension IntegrationsStore {
         or "this one is nearly dry, hop over", run it from inside the session:
 
         ```
-        tally switch "Claude 4"
+        tally switch "Claude 4"      # pin this session there
+        tally switch --auto          # release the pin, follow automatic selection again
         ```
 
         The name is matched against the account labels and config-dir names `tally status`
@@ -141,6 +142,7 @@ extension IntegrationsStore {
 
         ```
         /tally-switch Claude 4       # zero turns: the hook queues the move and stops there
+        /tally-switch --auto         # zero turns: releases the pin again
         ! tally switch "Claude 4"    # zero turns too, under respondToBashCommands: false
         ```
 
@@ -168,9 +170,17 @@ extension IntegrationsStore {
           tool call you just made. Finish your answer as normal. The session then restarts
           on the named account with the conversation intact, so the next thing the user
           types is answered from the same context on the new account.
-        - It is one shot. No pin is written and no project profile changes, so automatic
-          handoff keeps working from there: a cap still moves the session, a nearly dry
-          account still hands it on.
+        - IT STICKS FOR THE REST OF THE SESSION. The account named is where this
+          conversation stays: automatic account selection (the idle rebalance off a nearly
+          dry account, the model-degradation rescue, a pin moved in the Tally panel) stops
+          moving it. Say so when you relay the move, because it is the difference between
+          this and asking again in ten minutes.
+        - Two ways out, and one of them is not the user's. `tally switch --auto` releases the
+          pin and hands the session back to automatic selection. A HARD CAP hands it on
+          anyway, because a session pinned to an account that cannot answer is worse than one
+          that moved: that handoff clears the pin and says so on the terminal, so the user has
+          to re-pin if they want to go back once quota returns.
+        - No project profile is touched either way, and the pin dies with the session.
         - It exits 0 having queued the move, or non-zero having changed nothing: no such
           account, or a session nothing is supervising (launched bare, with `--no-handoff`,
           or with an `--account` pin). Read the message rather than assuming it worked.
@@ -178,12 +188,13 @@ extension IntegrationsStore {
           replace itself at an idle moment; the command says so. Relay that rather than
           running the command again, which only queues the same move twice.
         - Switching to a drained account is allowed and warned about: an explicit
-          instruction outranks the quota check.
+          instruction outranks the quota check (up to the cap above).
 
         For "this project should ALWAYS run on that account", write it down instead:
         `tally project set --account "Claude 4"` (the section above). The two are different
         instructions: `switch` moves this conversation now, `project set` decides where
-        future launches in this repo land.
+        future launches in this repo land. They stack in that order, so a session pin beats
+        the project profile, which beats the app's own pin or smart pick.
 
         # Parallel lines of work on the same repository
 

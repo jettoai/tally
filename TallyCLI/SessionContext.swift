@@ -87,6 +87,14 @@ struct SupervisedSession: Equatable, Codable {
     /// When this reading was taken. An idle session keeps a true number with an old stamp, so this
     /// is the age of the last turn rather than a freshness warning.
     let updatedAt: Date
+    /// The account a `tally switch` pinned this session to, or nil when it follows automatic
+    /// selection (SessionSwitch.swift). Published so a surface outside this terminal can say why a
+    /// session is sitting on a dying account instead of being rebalanced off it.
+    ///
+    /// Additive, like every other field on this track: it has a default, so a document written
+    /// before it existed decodes with nil rather than being rejected, and a reader that has never
+    /// heard of it is unaffected.
+    var sessionPin: String?
 }
 
 /// The file a supervisor's context reading lives in.
@@ -146,20 +154,25 @@ struct SessionContextWriter {
     /// Nothing to move before the first reading is published: a session that has never had a turn
     /// has no file, and inventing one with a token count nobody measured would be worse than the
     /// silence the reader already handles.
-    mutating func accountChanged(to accountID: String, pid: String,
+    mutating func accountChanged(to accountID: String, pin: String?, pid: String,
                                  dir: URL = supervisorStateDir, now: Date = Date()) {
-        guard let current, current.accountID != accountID else { return }
+        guard let current, current.accountID != accountID || current.sessionPin != pin else {
+            return
+        }
         publish(SupervisedSession(accountID: accountID, contextTokens: current.contextTokens,
-                                  updatedAt: now), pid: pid, dir: dir)
+                                  updatedAt: now, sessionPin: pin), pid: pid, dir: dir)
     }
 
-    mutating func sync(tokens: Int?, accountID: String, pid: String,
+    /// The pin joins the account as a reason to write even when the number has not moved: it
+    /// changes on a tick of its own (a `tally switch --auto` moves nothing at all), and a reading
+    /// that waited for the next thousand tokens would describe a session that is no longer pinned.
+    mutating func sync(tokens: Int?, accountID: String, pin: String?, pid: String,
                        dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let tokens else { return }   // nothing read yet: leave whatever stands
-        if let current, current.accountID == accountID,
+        if let current, current.accountID == accountID, current.sessionPin == pin,
            abs(current.contextTokens - tokens) < sessionContextWriteDelta { return }
-        publish(SupervisedSession(accountID: accountID, contextTokens: tokens, updatedAt: now),
-                pid: pid, dir: dir)
+        publish(SupervisedSession(accountID: accountID, contextTokens: tokens, updatedAt: now,
+                                  sessionPin: pin), pid: pid, dir: dir)
     }
 
     /// The one way either of the above reaches the file, so the in-memory copy both of them judge

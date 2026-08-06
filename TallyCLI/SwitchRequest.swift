@@ -21,6 +21,16 @@ import Foundation
 let switchRequestDir = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent(".tally/switch")
 
+/// The account id that means "no account": `tally switch --auto`, asking the supervisor to drop the
+/// session pin a previous switch left behind (SessionSwitch.swift).
+///
+/// The flag the user types and the token the file carries are ONE string on purpose: the request
+/// file is the only channel between the command and the supervisor, so a second spelling would be a
+/// second thing to keep in step for no gain. It cannot collide with a real account: an id is
+/// `<provider>:<config-dir name>` (Snapshot.swift), so it always carries a colon and never starts
+/// with a dash.
+let switchAutoRequest = "--auto"
+
 /// A parsed switch request: when it was made, and the account it names.
 struct SwitchRequest: Equatable {
     /// MILLISECONDS since the unix epoch, unlike the reload stamp's seconds. The supervisor acts
@@ -33,6 +43,9 @@ struct SwitchRequest: Equatable {
     /// against the live fleet at write time (the same rule `tally project set --account` follows),
     /// so a label renamed while the request sat here still moves the session to the right account.
     let accountID: String
+
+    /// This request releases the session pin rather than naming somewhere to go.
+    var isUnpin: Bool { accountID == switchAutoRequest }
 }
 
 /// Parse the file body: the stamp on line 1, the account id on line 2. Pure, so the format is

@@ -147,14 +147,14 @@ func runSwitchRequestChecks() {
     // The supervisor narrows the fallback's staleness window by republishing at the relaunch
     // itself, rather than waiting for a tick that has a token figure to report.
     var moved = SessionContextWriter()
-    moved.sync(tokens: 12_000, accountID: "H2", pid: "5150", dir: ctxDir)
-    moved.accountChanged(to: "D1", pid: "5150", dir: ctxDir)
+    moved.sync(tokens: 12_000, accountID: "H2", pin: nil, pid: "5150", dir: ctxDir)
+    moved.accountChanged(to: "D1", pin: nil, pid: "5150", dir: ctxDir)
     check("a handoff republishes the conversation under the account it moved to",
           readSessionContext(pid: "5150", dir: ctxDir)?.accountID == "D1")
     check("carrying the reading it already had, since the conversation is the same one",
           readSessionContext(pid: "5150", dir: ctxDir)?.contextTokens == 12_000)
     var neverPublished = SessionContextWriter()
-    neverPublished.accountChanged(to: "D1", pid: "5151", dir: ctxDir)
+    neverPublished.accountChanged(to: "D1", pin: nil, pid: "5151", dir: ctxDir)
     check("a session that never published a reading invents nothing",
           readSessionContext(pid: "5151", dir: ctxDir) == nil)
     try? FileManager.default.removeItem(at: ctxDir)

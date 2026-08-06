@@ -296,7 +296,7 @@ func runSwitchChecks() {
 
     // MARK: - 31g. The switch against the pin
 
-    // The case the override exists for: a project pinned to one account (`tally project set
+    // The case the session pin exists for: a project pinned to one account (`tally project set
     // --account`, which reads as a manual pin) and a user who asks this conversation to move
     // elsewhere. Without it the pin drags the session home on the next tick and the command is
     // useless to exactly the person most likely to want it.
@@ -309,17 +309,17 @@ func runSwitchChecks() {
     check("an explicit switch outranks the pin", overriding.plan?.target.id == "D")
     check("and is planned as a switch, not as a pin", overriding.plan?.reason == "switch")
     overriding.record?.commit(&state)
-    check("the pin it overrode is remembered", state.overriddenPin == "B")
+    check("the account it named is what this session is now pinned to", state.sessionPin == "D")
     check("so the pin no longer drags the session back",
           tick(&pinned, request: nil, policy: pinnedToB).plan == nil)
-    // A pin MOVED afterwards is a fresh instruction from the same person, and takes effect as it
-    // always did: the override is scoped to the pin that was overridden, not to pinning as such.
-    var pinnedToD = LaunchPolicy()
-    pinnedToD.mode = "manual"
-    pinnedToD.pinnedAccountID = "D"
-    let repinned = tick(&pinned, request: nil, policy: pinnedToD)
-    check("moving the pin somewhere new still moves the session", repinned.plan?.target.id == "D")
-    check("as a pin switch", repinned.plan?.reason == "pin")
+    // A pin MOVED afterwards does not take this session with it either: it is the FLEET saying
+    // where sessions go, and this session was given an instruction of its own, which outranks it
+    // until the user releases it. (The rest of that story is in sessionpinchecks.swift.)
+    var pinnedToA = LaunchPolicy()
+    pinnedToA.mode = "manual"
+    pinnedToA.pinnedAccountID = "A"
+    check("and moving that pin somewhere new does not either",
+          tick(&pinned, request: nil, policy: pinnedToA).plan == nil)
 
     // The pin switch itself, unchanged by any of this: a session with no switch in its history
     // follows the panel exactly as before (this path moved file when the switch was added).

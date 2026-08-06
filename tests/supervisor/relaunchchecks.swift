@@ -133,13 +133,14 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     // trip: what one version writes, the next version's parser must read back unchanged. `dropFirst`
     // removes the binary path and the subcommand, which main.swift consumes before parsing.
     func roundTrip(id: String, label: String, home: String, follow: Bool,
-                   recoveries: [Date] = [], pinOverride: String? = nil,
+                   recoveries: [Date] = [], sessionPin: String? = nil, pinOverride: String? = nil,
                    args: [String]) -> (id: String, label: String, home: String, follow: Bool,
-                                       recoveries: [Date], pinOverride: String?,
-                                       childArgs: [String]) {
+                                       recoveries: [Date], sessionPin: String?,
+                                       pinOverride: String?, childArgs: [String]) {
         parseResuperviseArgs(Array(selfUpdateArgv(binary: "/usr/local/bin/tally", id: id,
                                                   label: label, home: home, follow: follow,
-                                                  recoveries: recoveries, pinOverride: pinOverride,
+                                                  recoveries: recoveries, sessionPin: sessionPin,
+                                                  pinOverride: pinOverride,
                                                   args: args).dropFirst(2)))
     }
     let trip = roundTrip(id: "acct-2", label: "Claude 2", home: "/Users/x/.claude2", follow: true,

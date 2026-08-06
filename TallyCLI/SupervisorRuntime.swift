@@ -196,12 +196,50 @@ struct RecoveryFuse {
 let handoffLog = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent(".tally/handoff.log")
 
-/// Append one audit line. Never contains a token; the fields are the session id prefix, from->to
-/// labels, and the reason.
-func logHandoff(sessionID: String?, from: String, to: String, reason: String, now: Date = Date()) {
+/// The name a relaunch is recorded under, which is the question this log exists to answer: WHY did
+/// this conversation end up on a different account. The plan's own reason is an internal tag shared
+/// with the terminal warnings, so the three that a reader has to tell apart after the fact are given
+/// the names the feature uses out loud - a hand-typed `tally switch`, a hard cap, and the quota
+/// reasoning that re-picks an account on its own. The rest keep their tag: `pin` (moved in the
+/// panel), `reload`, `follow`, `degraded`, `fallback`, `safeguard`, `self-update`.
+///
+/// `pinCleared` outranks all of it, because that move is the one an owner reading this log is
+/// looking for: the session was pinned by hand, and something moved it anyway (SessionSwitch.swift).
+func handoffReason(_ planReason: String, pinCleared: Bool) -> String {
+    if pinCleared { return "pin-cleared-cap" }
+    switch planReason {
+    case "switch": return "manual-switch"
+    case "cap": return "cap-handoff"
+    case "rebalance": return "auto-select"
+    default: return planReason
+    }
+}
+
+/// One audit line, formatted. Pure, so the shape can be asserted without a home directory - the
+/// whole point of the fields is that somebody reads them back weeks later, and a format nothing
+/// tests is a format that drifts.
+///
+/// `cwd` goes LAST because it is the one field that can contain a space: everything before it stays
+/// at a fixed offset for a reader with an eye or a `grep`. Never contains a token; the fields are
+/// the session id prefix, the supervisor's pid, the from->to labels, the reason, and the directory
+/// the session runs in.
+func handoffLogLine(sessionID: String?, from: String, to: String, reason: String, pid: String,
+                    cwd: String, now: Date = Date()) -> String {
     let stamp = ISO8601DateFormatter().string(from: now)
     let sid = sessionID.map { String($0.prefix(8)) } ?? "unknown"
-    appendHandoffLine("\(stamp) session=\(sid) \(from)->\(to) reason=\(reason)\n")
+    return "\(stamp) session=\(sid) pid=\(pid) \(from)->\(to) reason=\(reason) cwd=\(cwd)\n"
+}
+
+/// Append one audit line.
+///
+/// The pid and the cwd are here because the reason alone could not answer the question this log was
+/// consulted for: with several sessions moving accounts on one machine, "which session was this, and
+/// where was it running" had no answer at all, and the account a conversation ended up on could not
+/// be traced back to the decision that put it there (2026-08-06).
+func logHandoff(sessionID: String?, from: String, to: String, reason: String, pid: String,
+                cwd: String, now: Date = Date()) {
+    appendHandoffLine(handoffLogLine(sessionID: sessionID, from: from, to: to, reason: reason,
+                                     pid: pid, cwd: cwd, now: now))
 }
 
 /// Append one whole line to the shared handoff log, O_APPEND so concurrent supervisors interleave

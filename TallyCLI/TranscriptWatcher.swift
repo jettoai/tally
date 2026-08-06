@@ -59,6 +59,22 @@ struct TranscriptWatcher {
     /// is cleared when this passes the cap time (a genuine turn happened after the cap, so the
     /// account came back on its own). Same three guards as `lastModel`.
     var lastMainChainEventAt: Date?
+    /// The timestamp of the newest main-chain, post-launch event where THE USER SAID SOMETHING: a
+    /// prompt they typed, not a tool result and not a synthetic injection.
+    ///
+    /// The distinction is the whole reason this exists beside `lastMainChainEventAt`. Claude Code
+    /// writes a tool's return as a `"type":"user"` event, and an assistant event follows every one
+    /// of them, so "an assistant event happened" is true several times INSIDE a single turn - which
+    /// makes it useless as an answer to "has the person been back since". A `tally switch` is run as
+    /// a tool call from inside a turn, so anything measured that way expires while the user is still
+    /// reading the answer that tool call was part of (SessionSwitch.swift's cancellation notice was,
+    /// caught in review 2026-08-06).
+    ///
+    /// Cheap substring guards rather than a JSON parse, like every other signal in this scan: a
+    /// `tool_result` block names itself, and Claude Code marks its synthetic user events `isMeta`.
+    /// Both refusals fail in the safe direction - a prompt that happens to contain the word
+    /// `tool_result` is simply not counted, and the wait it ends lasts until the next prompt.
+    var lastUserTurnAt: Date?
     /// The size of the conversation as of its newest main-chain assistant event, that turn's own
     /// answer included: how much context a resume of this conversation would reload
     /// (SessionContext.swift).
@@ -380,6 +396,15 @@ struct TranscriptWatcher {
             if line.contains("\"type\":\"user\""), !line.contains("\"isSidechain\":true"),
                let uuid = lineUUID(line), let text = userExcerpt(line) {
                 rememberExcerpt(uuid: uuid, text: text)
+            }
+            // When the person last said something themselves (`lastUserTurnAt` explains why this is
+            // not the event above, and why it is not `lastMainChainEventAt` either). Post-launch
+            // only, like the model signal: a resumed conversation replays its prompts, and a
+            // replayed one is not somebody coming back.
+            if line.contains("\"type\":\"user\""), !line.contains("\"isSidechain\":true"),
+               !line.contains("\"tool_result\""), !line.contains("\"isMeta\":true"),
+               let ts = lineTimestamp(line), ts >= since {
+                lastUserTurnAt = ts
             }
             // A Fable safeguard fallback: a structured system event, parsed only past a cheap
             // substring prefilter. Guarded like the model signal (post-launch, main-chain) so a

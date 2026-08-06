@@ -36,7 +36,20 @@ struct PendingNotice: Equatable, Codable {
     /// When THIS badge appeared. Preserved while the badge holds steady, which is what makes it the
     /// age of the wait rather than the age of the last poll tick.
     let since: Date
+    /// What KIND of notice this is, for the one reader that has to tell them apart: the supervisor
+    /// taking over its own file after a self-update (`ManualMoveState.adoptCancellation`). Every
+    /// badge on this track describes a live wait and is re-derived from state each tick, except the
+    /// cancellation notice, which is news nothing re-derives - so that one has to be recognisable
+    /// on disk to be picked back up.
+    ///
+    /// Additive and optional: a notice written before this field decodes with nil, which reads as
+    /// "an ordinary wait", and every existing reader ignores it.
+    var kind: String?
 }
+
+/// The one `PendingNotice.kind` that means anything so far: a `tally switch` this supervisor
+/// cancelled (SessionSwitch.swift).
+let cancellationNoticeKind = "switch-cancelled"
 
 /// The file a supervisor's pending notice lives in.
 func pendingNoticeFile(pid: String, dir: URL = supervisorStateDir) -> URL {
@@ -87,10 +100,14 @@ func clearPendingNotice(pid: String, dir: URL = supervisorStateDir) {
 struct PendingBadge: Equatable {
     let badge: String
     let detail: String?
+    /// Carried through to the file so a notice can be recognised when it is read back
+    /// (`PendingNotice.kind`); nil for the waits, which nobody has to recognise.
+    let kind: String?
 
-    init(_ badge: String, detail: String? = nil) {
+    init(_ badge: String, detail: String? = nil, kind: String? = nil) {
         self.badge = badge
         self.detail = detail
+        self.kind = kind
     }
 }
 
@@ -201,7 +218,8 @@ struct PendingNoticeWriter {
             current = nil
             return
         }
-        writePendingNotice(PendingNotice(badge: pending.badge, detail: pending.detail, since: now),
+        writePendingNotice(PendingNotice(badge: pending.badge, detail: pending.detail, since: now,
+                                         kind: pending.kind),
                            pid: pid, dir: dir)
         current = pending.badge
     }

@@ -329,41 +329,120 @@ func runSwitchChecks() {
     _ = tick(&deleted, request: afterCancel, keyboardIdle: false)
     check("but a fresh request takes it down", state.badge == nil)
 
-    // …and so does simply carrying on, which is the bound this notice was missing: nothing
+    // …and so does the user coming back, which is the bound this notice was missing: nothing
     // re-derives it, so before it was given an end it stayed on the status line for the life of the
     // session - "switch: account removed" was still there long after the account was back, and it
-    // even outlived the app update that replaced the supervisor (2026-08-06). It ends at the first
-    // assistant turn after it was raised: an answer arriving IS the user coming back to read it.
-    /// A transcript whose newest main-chain answer landed `offset` seconds ago, ALREADY SCANNED:
-    /// the tick reads `lastMainChainEventAt` off a watcher that `observeCapHit` has just walked
-    /// (Supervisor.swift keeps that order, and capresetchecks.swift asserts it), so a fixture that
-    /// had never been scanned would be testing a state the loop cannot be in.
-    func answeredWatcher(_ label: String, at offset: TimeInterval) -> TranscriptWatcher {
+    // even outlived the app update that replaced the supervisor (2026-08-06).
+    //
+    // The end is THEIR NEXT PROMPT, and the first version of this got that wrong in a way worth
+    // keeping a test for: it ended on the next assistant event, and `tally switch` is normally run
+    // BY the agent as a tool call, so the turn that queued it writes several more assistant events
+    // seconds later. The notice came down before the answer it belongs to had finished printing.
+    func stampedLine(_ body: String, at offset: TimeInterval) -> String {
         let when = ISO8601DateFormatter().string(from: Date().addingTimeInterval(offset))
-        var watcher = switchWatcher(label, lines: [
-            #"{"type":"assistant","timestamp":"\#(when)","isSidechain":false,"message":{"model":"claude-fable-5"}}"#,
-        ])
+        return #"{"timestamp":"\#(when)","isSidechain":false,\#(body)}"#
+    }
+    /// A transcript, ALREADY SCANNED: the tick reads the watcher `observeCapHit` has just walked
+    /// (Supervisor.swift keeps that order and capresetchecks.swift asserts it), so a fixture that
+    /// had never been scanned would be testing a state the loop cannot be in.
+    func scannedWatcher(_ label: String, lines: [String]) -> TranscriptWatcher {
+        var watcher = switchWatcher(label, lines: lines)
         _ = watcher.sawCapHit()
         return watcher
     }
+    let noticeDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-switch-notice-\(UUID().uuidString)")
+    // A whole second, because the file round-trips through ISO 8601 and the stamp has to come back
+    // EXACTLY as it went in for the expiry to measure from the original moment.
+    let raisedAt = Date(timeIntervalSince1970: 1_800_000_000)
     let cancelledAt = Date().addingTimeInterval(-120)
     try! writeSwitchRequest(accountID: "Q2", sessionKey: session, now: afterServed(), dir: tickDir)
     let secondRemoval = readSwitchRequest(sessionKey: session, dir: tickDir)!
     _ = tick(&deleted, request: secondRemoval, now: cancelledAt)
     check("a second removal raises the notice again",
           state.badge?.badge == "switch: account removed")
-    // A turn OLDER than the notice is not an answer to it: it was already on screen when that turn
-    // ended, so it has not been read yet.
-    var earlier = answeredWatcher("earlier", at: -300)
-    _ = tick(&earlier, request: nil)
-    check("an answer that predates the notice does not take it down",
+    // Written to disk the way the loop writes it, so the exec case further down takes over a real
+    // notice rather than a hand-built one.
+    var beforeExec = PendingNoticeWriter(pid: "9191", dir: noticeDir)
+    syncPendingNotice(&beforeExec, pid: "9191", manualMove: state.badge, reload: nil,
+                      followDeadEnd: false, followQueued: false, policy: pinnedNowhere,
+                      capReason: nil, dir: noticeDir, now: raisedAt)
+    check("the loop's own writer records it as a cancellation, not as a wait",
+          readPendingNotice(pid: "9191", dir: noticeDir)?.kind == cancellationNoticeKind)
+    // The rest of the turn the command was run in: the tool's result comes back as a `user` event
+    // and the agent keeps writing. None of that is the person saying anything.
+    var restOfTurn = scannedWatcher("restofturn", lines: [
+        stampedLine(#""type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_s","content":"cancelled"}]}"#, at: -90),
+        stampedLine(#""type":"assistant","message":{"model":"claude-fable-5"}"#, at: -80),
+    ])
+    _ = tick(&restOfTurn, request: nil)
+    check("the rest of the turn that asked for the switch does not take the notice down",
           state.badge?.badge == "switch: account removed")
-    // The next one does.
-    var answeredSince = answeredWatcher("since", at: -60)
-    _ = tick(&answeredSince, request: nil)
-    check("the first answer after it ends the notice", state.badge == nil)
+    // Nor does Claude Code's own synthetic user event.
+    var injected = scannedWatcher("injected", lines: [
+        stampedLine(#""type":"user","isMeta":true,"message":{"content":"<system-reminder>"}"#, at: -70),
+    ])
+    _ = tick(&injected, request: nil)
+    check("neither does a synthetic user event nobody typed",
+          state.badge?.badge == "switch: account removed")
+    // A prompt OLDER than the notice is not an answer to it either: it was still on screen when
+    // that prompt was sent, so it has not been read since.
+    var earlier = scannedWatcher("earlier", lines: [
+        stampedLine(#""type":"user","message":{"content":"before all this"}"#, at: -300),
+    ])
+    _ = tick(&earlier, request: nil)
+    check("a prompt that predates the notice does not take it down",
+          state.badge?.badge == "switch: account removed")
+    // The next thing they type does.
+    var typedAgain = scannedWatcher("typed", lines: [
+        stampedLine(#""type":"user","message":{"content":"ok, try Claude 2"}"#, at: -60),
+    ])
+    _ = tick(&typedAgain, request: nil)
+    check("the first prompt after it ends the notice", state.badge == nil)
     check("and it stays gone on the ticks after that",
-          tick(&answeredSince, request: nil).plan == nil && state.badge == nil)
+          tick(&typedAgain, request: nil).plan == nil && state.badge == nil)
+
+    // Surviving the app update in between: the exec keeps the pid and starts the state from
+    // nothing, so the notice lives only in its file - and the seeded writer would take it down as
+    // the honest answer to "nothing is pending" unless it is picked back up (`adoptCancellation`).
+    var afterUpgrade = ManualMoveState(sessionKey: "9191", servedEpoch: 0)
+    afterUpgrade.adoptCancellation(readPendingNotice(pid: "9191", dir: noticeDir))
+    check("the new image picks the notice back up",
+          afterUpgrade.badge?.badge == "switch: account removed")
+    check("…stamped when it was RAISED, not when the upgrade happened",
+          afterUpgrade.cancelledAt == raisedAt)
+    // The half that made this necessary: the new image's writer is seeded from that same file, so
+    // an empty state would have had it unlink the notice on the very first tick. With the state
+    // holding it, the first sync writes the same badge back and the file stands.
+    var afterExecWriter = PendingNoticeWriter(pid: "9191", dir: noticeDir)
+    syncPendingNotice(&afterExecWriter, pid: "9191", manualMove: afterUpgrade.badge, reload: nil,
+                      followDeadEnd: false, followQueued: false, policy: pinnedNowhere,
+                      capReason: nil, dir: noticeDir, now: raisedAt.addingTimeInterval(30))
+    check("so the first tick of the new image leaves the notice on screen",
+          readPendingNotice(pid: "9191", dir: noticeDir)?.badge == "switch: account removed")
+    check("…still stamped from when it was raised",
+          readPendingNotice(pid: "9191", dir: noticeDir)?.since == raisedAt)
+    // And it ends the same way it would have without the upgrade.
+    afterUpgrade.expireCancellation(lastUserTurnAt: raisedAt.addingTimeInterval(-10))
+    check("a prompt from before it still does not end it", afterUpgrade.badge != nil)
+    afterUpgrade.expireCancellation(lastUserTurnAt: raisedAt.addingTimeInterval(10))
+    check("and the first prompt after it does", afterUpgrade.badge == nil)
+    // The wiring only the loop can show, asserted against the source the way the rebalance and the
+    // cap reset do it: the adoption happens, and only where the pid was inherited (on a normal
+    // launch any notice under this pid belongs to a dead session, and the sweep removes it).
+    let loopSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("the supervisor source is readable from the switch checks", !loopSource.isEmpty)
+    check("a supervisor that took over a running session adopts the notice it left behind",
+          loopSource.contains("if resumed { manualMoves.adoptCancellation(readPendingNotice("))
+    // A WAIT is not adopted: those are re-derived from live state within a tick or two, so picking
+    // one up would only risk showing a condition that has since cleared.
+    writePendingNotice(PendingNotice(badge: "switch: signed out", detail: nil, since: raisedAt),
+                       pid: "9292", dir: noticeDir)
+    var waitAdopter = ManualMoveState(sessionKey: "9292", servedEpoch: 0)
+    waitAdopter.adoptCancellation(readPendingNotice(pid: "9292", dir: noticeDir))
+    check("a wait badge on disk is not picked up as news", waitAdopter.badge == nil)
+    try? FileManager.default.removeItem(at: noticeDir)
+
     // The same tick, with the account's config home still on disk: the fleet and the filesystem
     // disagree, so the request is HELD rather than cancelled. This is the reported bug end to end -
     // a statusline showing "switch: account removed" while all five accounts were present, because

@@ -99,6 +99,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// `resumed` is what stops a request this same session just made from being seeded away).
     var manualMoves = ManualMoveState(sessionKey: supervisorPID, servedEpoch: resumed ? 0 : nil,
                                       sessionPin: sessionPin, overriddenPin: pinOverride)
+    // A self-update keeps the pid and gives this state a fresh start, so a cancellation notice the
+    // replaced image had just raised lives only in its file - where the seeded writer above would
+    // take it down on the first tick, as the honest answer to "this session has nothing pending".
+    // Adopted back only on that path (`resumed`): on a normal launch the pid is this process's own
+    // and any notice under it belongs to a dead session, which the sweep below removes.
+    if resumed { manualMoves.adoptCancellation(readPendingNotice(pid: supervisorPID)) }
     // Reap drift-state files left by dead supervisors (a SIGKILL skips the clear path) before this
     // one starts writing its own; also shrinks the pid-reuse window for a stale badge.
     sweepDeadSupervisorState()

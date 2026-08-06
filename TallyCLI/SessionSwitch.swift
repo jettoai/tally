@@ -93,23 +93,46 @@ struct ManualMoveState {
     /// old news, because it is the thing that is still true.
     var badge: PendingBadge? { waiting ?? cancelled }
 
-    /// The cancellation notice has been READ, so it stops being shown: the session has produced an
-    /// assistant turn since it was raised, which is this repo's existing standard for "the user has
-    /// been back here since" (the cap recovery clears on the same signal, CapDetection.swift).
+    /// The cancellation notice has been READ, so it stops being shown: the user has said something
+    /// themselves since it was raised.
     ///
-    /// That event rather than a timer, because a timer would measure the wrong thing: a notice that
-    /// expires after five minutes vanishes unread from a session nobody is looking at, and stays on
-    /// a session being worked in long after the person has moved on. An answer arriving IS the user
-    /// coming back, and the next thing they do after reading it is a fresh command, which supersedes
-    /// this anyway (`state.cancelled = nil` at the top of `applySwitchRequest`).
+    /// THE USER, not the session. The obvious signal is the one the cap recovery uses - an assistant
+    /// event newer than the thing being cleared (CapDetection.swift) - and it is wrong here for a
+    /// reason specific to this command: `tally switch` is normally run BY the agent, as a tool call,
+    /// from inside a turn. A tool call is followed by its result and by more assistant events within
+    /// that same turn, so "an assistant event happened since" is true a second or two after the
+    /// notice is raised, and the notice would come down while the user is still reading the answer
+    /// it belongs to - never seen, which is the whole thing it exists to be (caught in review,
+    /// 2026-08-06). Their next prompt is the first moment they demonstrably have.
     ///
-    /// `lastTurnAt` is the watcher's newest main-chain assistant event. Per CHILD, so a relaunch
-    /// resets it to nil: a notice raised before a restart then waits for the first answer after it,
-    /// which is the same promise measured from the same place.
-    mutating func expireCancellation(lastTurnAt: Date?) {
-        guard let cancelledAt, let lastTurnAt, lastTurnAt > cancelledAt else { return }
+    /// A prompt rather than a timer for the same reason a timer was refused before: it would expire
+    /// unread on a session nobody is watching, and linger on one being worked in.
+    ///
+    /// `lastUserTurnAt` is per CHILD, so a relaunch resets it to nil: a notice that outlives a
+    /// restart then waits for the first prompt after it, which is the same promise measured from
+    /// the same place.
+    mutating func expireCancellation(lastUserTurnAt: Date?) {
+        guard let cancelledAt, let lastUserTurnAt, lastUserTurnAt > cancelledAt else { return }
         cancelled = nil
         self.cancelledAt = nil
+    }
+
+    /// Pick a cancellation notice back up off disk, which is how it survives a self-update.
+    ///
+    /// The exec keeps the pid and starts this state from nothing, so the notice the replaced image
+    /// had just raised exists only in `<pid>.notice` - and the seeded writer's first honest "nothing
+    /// is pending" would unlink it (PendingNotice.swift). The file carries everything needed to put
+    /// it back, including WHEN it was raised (`since`), so the expiry measures from the original
+    /// moment rather than from the upgrade.
+    ///
+    /// Only a cancellation is adopted. Every other badge on this track is re-derived from live state
+    /// within a tick or two of the new image starting, so adopting those would be picking up a value
+    /// that is about to be recomputed anyway - and picking up a stale one if the condition has since
+    /// cleared.
+    mutating func adoptCancellation(_ notice: PendingNotice?) {
+        guard let notice, notice.kind == cancellationNoticeKind else { return }
+        cancelled = PendingBadge(notice.badge, detail: notice.detail, kind: notice.kind)
+        cancelledAt = notice.since
     }
 
     /// `servedEpoch` defaults to whatever is pending right now, so a request written before this
@@ -274,8 +297,8 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
     // the cancellation notice is the one badge here that nothing re-derives, so the tick that takes
     // it down has to be a tick that runs anyway (`expireCancellation`). The watcher has already
     // scanned this tick's new lines by the time the loop reaches this call (`observeCapHit` runs
-    // first, Supervisor.swift), so the turn that ends it is seen on the tick it lands.
-    state.expireCancellation(lastTurnAt: watcher.lastMainChainEventAt)
+    // first, Supervisor.swift), so the prompt that ends it is seen on the tick it lands.
+    state.expireCancellation(lastUserTurnAt: watcher.lastUserTurnAt)
     applySwitchRequest(plan: &plan, state: &state, record: &record, account: account,
                        providerID: providerID, watcher: &watcher,
                        childAge: childAge, keyboardIdle: keyboardIdle, dir: dir,
@@ -398,7 +421,8 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
         state.cancelled = PendingBadge(
             "switch: account removed",
             detail: "the account `tally switch` named is no longer in the fleet, so the move was "
-                + "cancelled rather than held for a different login with the same name")
+                + "cancelled rather than held for a different login with the same name",
+            kind: cancellationNoticeKind)
     case .alreadyThere:
         // A handoff got there first, or the user named the account they are already on. Either way
         // the instruction was "run this session there", and the pin is the half of it that has not

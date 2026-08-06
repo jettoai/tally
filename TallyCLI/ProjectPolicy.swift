@@ -316,13 +316,22 @@ private func runProjectSet(args: [String]) -> Int32 {
         // matches nothing today is a pin that silently never applies.
         let (snapshot, problem) = loadSnapshot()
         if let problem { warn(problem) }
-        guard let match = accountMatching(account, provider: providerID, in: snapshot) else {
+        switch accountMatching(account, provider: providerID, in: snapshot) {
+        case .one(let match):
+            policy.accountID = match.id
+            accountLabel = match.label
+        case .none:
             warn("no \(providerID) account matches \"\(account)\" - try `tally status`; " +
                  "nothing was changed")
             return 1
+        case .several(let candidates):
+            // Stored profiles outlive the moment they are written, so an ambiguous name is worse
+            // here than anywhere else: the wrong account would be pinned for every future launch in
+            // this repo, with nothing on screen to say which one was chosen.
+            warn(accountMatchAmbiguity(account, provider: providerID, candidates: candidates) +
+                 "; nothing was changed")
+            return 1
         }
-        policy.accountID = match.id
-        accountLabel = match.label
     }
     file.projects[key, default: [:]][providerID] = policy
     guard writeProjectPolicies(file) else { return 1 }

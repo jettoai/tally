@@ -48,18 +48,20 @@ func switchMenuFrame(_ rows: [SwitchFleetRow]) -> (rows: [MenuRow], action: Stri
 
 /// What a chosen row means: the ACCOUNT ID that row named, and never the label it displayed.
 ///
-/// The label would go back through `accountMatching`, which is a case-insensitive SUBSTRING match
-/// answering with the FIRST account it hits (AccountPick.swift). That is the right rule for a name
-/// somebody typed - a query, which may legitimately be ambiguous and is resolved against the fleet
-/// as it stands - and the wrong one for a row somebody selected, which is not a query at all. On a
-/// machine whose accounts are "Claude", "Claude 2", "Claude 3", "Claude 4" (this repo's owner's),
-/// every label contains the first one, so picking the row labelled "Claude" resolved to whichever
-/// of the four the snapshot happened to list first: the menu moved the session to an account the
-/// user could see they had not chosen.
+/// A label would go back through `accountMatching`, which resolves a NAME: a query, answered against
+/// the fleet as it stands, which may legitimately be ambiguous (AccountPick.swift). A selected row is
+/// not a query, and two things follow that no amount of fixing that matcher changes. It now REFUSES
+/// an ambiguous name rather than guessing at one, so two accounts carrying the same label would make
+/// a picked row unresolvable - a refusal for a row the user had just pointed at. And an id cannot go
+/// through it at all: an id is `<provider>:<config-dir name>`, which is neither of the two names it
+/// compares.
 ///
-/// The old reasoning was that a pick and a typed name should resolve identically. They should not:
-/// this surface is HOLDING the unambiguous answer, and handing back the display name throws it away
-/// so the matcher can guess it again. Typing a name is unchanged.
+/// The history is worth keeping because this surface is where it was found. On a machine whose
+/// accounts are "Claude", "Claude 2", "Claude 3", "Claude 4" (this repo owner's), every label
+/// contains the first, and the matcher answered with the first hit: picking the row labelled
+/// "Claude" moved the session to whichever the snapshot listed first. The defect had two halves -
+/// this surface throwing away an answer it was already holding, and the matcher guessing where it
+/// should refuse - and they are fixed separately, because either alone leaves the other standing.
 ///
 /// An index outside the rows is `.unavailable` rather than a crash: the caller then prints the usage
 /// text, which still says what to type.

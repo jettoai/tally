@@ -30,21 +30,94 @@ func eligible(_ account: Snapshot.Account, primaryModel: String? = nil) -> Bool 
         && headroom(account, primaryModel: primaryModel) > 0
 }
 
-/// The account a hand-written NAME picks out: matched case-insensitively, as a substring, against
-/// the label and the config-dir name, so nobody has to type an id (`--account claude2` finds both
-/// "Claude 2" and `~/.claude2`). Only launchable accounts are candidates - naming a signed-out one
-/// is not a way to launch it.
+/// What a hand-written name resolved to.
 ///
-/// One matcher for `tally claude --account` and for `tally project set --account`, because the
-/// second stores what the first would have launched: a name that resolves one way when it is
-/// written down and another way when it is used is a pin that lands somewhere nobody asked for.
-func accountMatching(_ name: String, provider: String, in snapshot: Snapshot?) -> Snapshot.Account? {
+/// Three answers, because `nil` used to carry two of them and they are opposite instructions to the
+/// person who just typed the name: "there is no such account" sends them to `tally status`, while
+/// "several answer to that" means type more of one. Collapsing them into one silence left every
+/// caller saying the first sentence for both.
+enum AccountMatch: Equatable {
+    /// Exactly one account answers to the name.
+    case one(Snapshot.Account)
+    /// Nothing does.
+    case none
+    /// Several do, in the order the snapshot lists them. Never acted on: acting on the first of
+    /// these is the failure this type exists to make impossible.
+    case several([Snapshot.Account])
+}
+
+/// The account a hand-written NAME picks out. Only launchable accounts are candidates - naming a
+/// signed-out one is not a way to launch it.
+///
+/// FOUR STAGES, most exact first, and the order is the whole point:
+///
+///   1. the label, exactly (case-insensitively)
+///   2. the config-dir name, exactly
+///   3. a substring of either, when exactly ONE account contains it
+///   4. a substring of either matching several: refuse, and hand back the candidates
+///
+/// It used to be stage 3 alone, answering with the FIRST hit, which is wrong on the fleet this repo
+/// is written for. Accounts labelled "Claude", "Claude 2", "Claude 3", "Claude 4" all contain
+/// "Claude", so typing the full, exact, unambiguous name of the first one resolved to whichever of
+/// the four the snapshot happened to list first: `tally switch Claude` moved the session to
+/// "Claude 2" and reported success. Substring matching is still the convenience it was added to be
+/// (`--account claude2` finds "Claude 2" and `~/.claude2`); it is now the LAST thing tried rather
+/// than the only thing, and it no longer guesses when it is ambiguous.
+///
+/// REFUSING IS THE SAFE SIDE HERE, which is worth stating because it usually is not. This matcher
+/// serves exactly one moment: a person has just typed a name and is waiting. The alternative to
+/// refusing is silently acting on an account they did not name - a live conversation moved, or a
+/// project pinned, somewhere else - and unlike a refusal, that failure is invisible until much
+/// later. Nothing else comes through here: a project profile stores the RESOLVED id
+/// (ProjectPolicy.swift), so a launch carrying an existing pin never re-runs this.
+///
+/// One matcher for `tally claude --account`, `tally switch` and `tally project set --account`,
+/// because the last stores what the first would have launched: a name that resolves one way when it
+/// is written down and another way when it is used is a pin that lands somewhere nobody asked for.
+func accountMatching(_ name: String, provider: String, in snapshot: Snapshot?) -> AccountMatch {
     let query = name.lowercased()
-    return snapshot?.accounts.first { account in
-        guard account.provider == provider, let home = account.launchHome else { return false }
-        return account.label.lowercased().contains(query)
-            || URL(fileURLWithPath: home).lastPathComponent.lowercased().contains(query)
+    // The config-dir name is derived once per account: three of the four stages read it.
+    let candidates = (snapshot?.accounts ?? []).compactMap {
+        account -> (account: Snapshot.Account, dir: String)? in
+        guard account.provider == provider, let home = account.launchHome else { return nil }
+        return (account, URL(fileURLWithPath: home).lastPathComponent.lowercased())
     }
+    // Uniqueness is required even of an exact hit. Two accounts really carrying the same label are
+    // indistinguishable BY LABEL, so an exact match on both of them is not an answer: it falls
+    // through to the config dir, which is the one name that still tells them apart, and then to the
+    // refusal below.
+    let byLabel = candidates.filter { $0.account.label.lowercased() == query }
+    if byLabel.count == 1 { return .one(byLabel[0].account) }
+    let byDir = candidates.filter { $0.dir == query }
+    if byDir.count == 1 { return .one(byDir[0].account) }
+    let hits = candidates.filter {
+        $0.account.label.lowercased().contains(query) || $0.dir.contains(query)
+    }
+    if hits.count == 1 { return .one(hits[0].account) }
+    return hits.isEmpty ? .none : .several(hits.map(\.account))
+}
+
+/// How every surface names the accounts an ambiguous query hit: the label, with the config-dir name
+/// beside it.
+///
+/// Both, for two reasons. The label alone cannot always tell them apart - two accounts may carry the
+/// same one, and the directory is then the only name that resolves - and both are things the matcher
+/// accepts, so the list doubles as the set of answers to retype.
+func accountMatchCandidates(_ accounts: [Snapshot.Account]) -> String {
+    accounts.map { account in
+        guard let home = account.launchHome else { return account.label }
+        return "\(account.label) (\(URL(fileURLWithPath: home).lastPathComponent))"
+    }.joined(separator: ", ")
+}
+
+/// The whole sentence a `.several` becomes, so the three surfaces that resolve a typed name cannot
+/// describe the same refusal differently - which they had already started to do within one change.
+/// Each still adds its own tail (`; nothing was changed` for a write, a note for the switch), which
+/// is the part that really is per-surface; the count, the candidates and the instruction are not.
+func accountMatchAmbiguity(_ name: String, provider: String,
+                           candidates: [Snapshot.Account]) -> String {
+    "\"\(name)\" matches \(candidates.count) \(provider) accounts "
+        + "(\(accountMatchCandidates(candidates))) - name one of them exactly"
 }
 
 // MARK: The manual pin, resolved

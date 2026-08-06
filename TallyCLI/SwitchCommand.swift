@@ -43,12 +43,12 @@ struct SwitchAttempt: Equatable {
 /// it to an account IDENTIFIED (a row the user selected, which needs no matching), or hand it back
 /// to automatic selection.
 ///
-/// The middle one is not a convenience. `accountMatching` is a substring match answering with the
-/// first hit, which is the right rule for a typed name and loses information when the caller already
-/// knows exactly which account it means (`switchMenuPick`, SwitchMenu.swift). An id cannot go
-/// through that matcher at all, either: an id is `<provider>:<config-dir name>` while the matcher
-/// compares the label and the config dir's own name, and neither of those carries the provider
-/// prefix - so "just pass the id instead" would have matched nothing.
+/// The middle one is not a convenience. `accountMatching` answers a NAME, which may be ambiguous and
+/// is then refused; a caller that already knows exactly which account it means has nothing to gain
+/// from that and something to lose to it (`switchMenuPick`, SwitchMenu.swift, states both halves).
+/// An id cannot go through the matcher at all either: an id is `<provider>:<config-dir name>` while
+/// the matcher compares the label and the config dir's own name, neither of which carries the
+/// provider prefix - so "just pass the id instead" would have matched nothing.
 enum SwitchIntent: Equatable {
     case pin(String)
     case pinAccount(String)
@@ -88,11 +88,19 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
     case .auto:
         target = nil
     case .pin(let name):
-        guard let match = accountMatching(name, provider: provider.id, in: snapshot) else {
+        switch accountMatching(name, provider: provider.id, in: snapshot) {
+        case .one(let match):
+            target = match
+        case .none:
             return .refusal("no claude account matches \"\(name)\" - try `tally status`",
                             notes: notes)
+        case .several(let candidates):
+            // Nothing is queued and nothing is guessed. This command MOVES a live conversation, so
+            // acting on the first of several accounts that merely contain the word is the failure
+            // the exact stages exist to prevent - and it would report success while doing it.
+            return .refusal(accountMatchAmbiguity(name, provider: provider.id,
+                                                  candidates: candidates), notes: notes)
         }
-        target = match
     case .pinAccount(let id):
         // By id, exactly, and with a launch home: the caller picked this account off a listing of
         // the fleet, so there is nothing to match and nothing to guess. The snapshot is read again

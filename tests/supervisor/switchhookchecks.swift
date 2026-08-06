@@ -202,25 +202,28 @@ func runSwitchHookChecks() {
     // MARK: - What a chosen row means
 
     // THE FIX THIS SECTION EXISTS FOR. A picked row used to be reported as its LABEL and re-resolved
-    // through `accountMatching`, which is a case-insensitive SUBSTRING match answering with the
-    // first account it hits. That is right for a name somebody typed, which is a query, and wrong
-    // for a row somebody selected, which is not - and on a fleet whose labels are prefixes of each
-    // other it does not merely risk the wrong answer, it gives one.
+    // through `accountMatching`, which resolves a NAME. A typed name is a query and may be
+    // ambiguous; a row somebody selected is neither, and the answer to it is already in hand.
     //
-    // The fixture is this repo owner's own machine: "Claude", "Claude 2", "Claude 3". The account
-    // with the least room is the one labelled "Claude", so it sorts LAST in the menu while the
-    // matcher, walking the snapshot in its own order, hits "Claude 2" first.
+    // The fixture is this repo owner's own machine: "Claude", "Claude 2", "Claude 3". Two things
+    // still follow now that the matcher itself refuses an ambiguous name rather than guessing at one
+    // (AccountPick.swift): an id is not a name it accepts at all, and an ambiguous query is a
+    // REFUSAL - which is an absurd answer to a row the user just pointed at. Either alone is enough
+    // to keep the pick out of the matcher, and they are fixed separately because either alone would
+    // otherwise leave the other standing.
     let lookalikes = [
         fleetAccount("claude:.claude2", label: "Claude 2", session: 90, weekly: 80, model: 70),
         fleetAccount("claude:.claude3", label: "Claude 3", session: 70, weekly: 60, model: 55),
         fleetAccount("claude:.claude", label: "Claude", session: 30, weekly: 25, model: 20),
     ]
+    let lookalikeFleet = Snapshot(version: 2, generatedAt: Date(), accounts: lookalikes)
     let lookalikeRows = switchFleetRows(accounts: lookalikes, provider: "claude", current: nil)
-    check("the fixture really is ambiguous to the matcher",
-          lookalikeRows[2].label == "Claude"
-              && accountMatching("Claude", provider: "claude",
-                                 in: Snapshot(version: 2, generatedAt: Date(),
-                                              accounts: lookalikes))?.id == "claude:.claude2")
+    check("the row this menu draws last is the one labelled Claude",
+          lookalikeRows[2].label == "Claude")
+    // (That an ID is not a name the matcher accepts at all is asserted where the fixture's config
+    // homes are realistic: tests/projectpolicy/matcherchecks.swift.)
+    check("a name that IS ambiguous is refused, which is no answer for a chosen row",
+          accountMatching("Clau", provider: "claude", in: lookalikeFleet) == .several(lookalikes))
     check("picking a row yields the account THAT ROW named",
           switchMenuPick(lookalikeRows, index: 2) == .picked("claude:.claude"))
     check("…including the first row, where the two answers happen to agree",

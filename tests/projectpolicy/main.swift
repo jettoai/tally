@@ -422,20 +422,8 @@ check("both refusals say nothing was changed",
 // (shellsafetychecks.swift).
 runAxisValueChecks(setSource: setSource)
 
-// MARK: - `accountMatching`: one matcher for `--account` and for what `project set` stores
-
-/// The account a hand-written name resolves to, by id.
-func matchedID(_ name: String, provider: String = "claude", in snapshot: Snapshot) -> String? {
-    accountMatching(name, provider: provider, in: snapshot)?.id
-}
-check("an account matches on its label", matchedID("claude 2", in: snapshot) == "claude:.claude2")
-check("…and on its config-dir name", matchedID(".claude2", in: snapshot) == "claude:.claude2")
-check("matching is case-insensitive", matchedID("CLAUDE 2", in: snapshot) == "claude:.claude2")
-check("a name nobody answers to matches nothing", matchedID("zzz", in: snapshot) == nil)
-check("another provider's accounts are not candidates",
-      matchedID("claude 2", provider: "codex", in: snapshot) == nil)
-check("a signed-out account is not matchable: naming it is not a way to launch it",
-      matchedID("claude 2", in: dormant) == nil)
+// What a hand-written name resolves to (matcherchecks.swift).
+runAccountMatchChecks(setSource: setSource)
 
 // MARK: - `status --json`: additive, and only when the directory has a profile
 

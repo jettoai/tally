@@ -14,6 +14,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/projectpolicy/main.swift tests/projectpolicy/shellsafetychecks.swift \
+  tests/projectpolicy/matcherchecks.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
   TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift TallyCLI/AccountComfort.swift \
   TallyCLI/ProviderExecutable.swift TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift \

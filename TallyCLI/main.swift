@@ -106,8 +106,18 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     }
 
     if let pinned {
-        guard let match = accountMatching(pinned, provider: provider.id, in: snapshot) else {
+        let match: Snapshot.Account
+        switch accountMatching(pinned, provider: provider.id, in: snapshot) {
+        case .one(let account):
+            match = account
+        case .none:
             warn("no \(provider.id) account matches \"\(pinned)\" - try `tally status`")
+            exit(1)
+        case .several(let candidates):
+            // Refused rather than picked, and refused rather than falling through to the headroom
+            // pick below: `--account` is the flag that means "not the one you would have chosen",
+            // so answering it with a choice of our own is the one thing it rules out.
+            warn(accountMatchAmbiguity(pinned, provider: provider.id, candidates: candidates))
             exit(1)
         }
         warn("→ \(match.label) (pinned)")

@@ -114,39 +114,51 @@ func runOriginsChecks() {
           WorktreeOrigins.load(from: stampedLedger)
             .first { $0.worktree == "/s/repo-feat" }?.repository == "/s/other")
 
-    // Deleting notes, which is what `--purge-transcripts` does with the note its worktree was
-    // opened under: the conversation it pointed at is being deleted, so the record has to go too
-    // rather than keep crediting a path whose transcripts no longer exist.
+    // What `--purge-transcripts` leaves behind. The conversation that note was pointing at has been
+    // deleted, so there is nothing left to credit - but taking the record OUT cannot be defended:
+    // the app's scan collects live worktrees and writes them when it finishes, so a scan that
+    // started while the directory was still there would land its live note on a ledger with no
+    // record to stop it, and the dead path would be credited to the repository all over again. A
+    // tombstone defends itself through the same rule a teardown's record already had.
     let purgeLedger = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
+    // The note the worktree was opened under, in the spelling the launch side writes.
     WorktreeOrigins.recordAll([
         WorktreeOrigin(worktree: "/p/repo-one", resolved: "/private/p/repo-one",
                        repository: "/p/repo", removedAt: nil),
         WorktreeOrigin(worktree: "/p/repo-two", resolved: nil, repository: "/p/repo",
                        removedAt: nil),
     ], in: purgeLedger)
-    // Matched on the resolved spelling, which is the one teardown holds when git recorded the other.
-    WorktreeOrigins.removeAll(matching: ["/private/p/repo-one"], in: purgeLedger)
-    let afterPurge = WorktreeOrigins.load(from: purgeLedger)
-    check("removing a note takes the record that answers for that directory in any spelling",
-          !afterPurge.contains { $0.worktree == "/p/repo-one" })
-    check("and leaves every other repository's notes alone",
-          afterPurge.contains { $0.worktree == "/p/repo-two" })
+    check("the ledger of live worktrees carries no purge flag at all",
+          ((try? String(contentsOf: purgeLedger, encoding: .utf8)) ?? "").contains("purged") == false)
+    // The purge, written the way teardown writes it: matched on the resolved spelling, which is the
+    // one git recorded when the launch wrote the other.
+    WorktreeOrigins.record(WorktreeOrigin(worktree: "/private/p/repo-one", resolved: nil,
+                                          repository: "/p/repo",
+                                          removedAt: "2026-08-06T04:00:00Z", purged: true),
+                           in: purgeLedger)
+    let purged = WorktreeOrigins.load(from: purgeLedger).filter { $0.paths.contains("/private/p/repo-one") }
+    check("a purge replaces the opening note with a tombstone, across spellings",
+          purged.count == 1 && purged.first?.purged == true)
+    check("and leaves every other worktree's note alone",
+          WorktreeOrigins.load(from: purgeLedger).contains { $0.worktree == "/p/repo-two" })
 
-    let purgeStamp = fileStamp(purgeLedger)
-    usleep(20_000)
-    WorktreeOrigins.removeAll(matching: ["/p/nothing-here"], in: purgeLedger)
-    check("removing a note that is not there does not rewrite the file",
-          fileStamp(purgeLedger) == purgeStamp)
-    WorktreeOrigins.removeAll(matching: [], in: purgeLedger)
-    check("and an empty removal is a no-op too", fileStamp(purgeLedger) == purgeStamp)
+    // The race it exists for: a scan (or a launch) that read the world before the purge writes its
+    // live note after it.
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/private/p/repo-one", resolved: nil,
+                                              repository: "/p/repo", removedAt: nil)],
+                              in: purgeLedger)
+    let afterLate = WorktreeOrigins.load(from: purgeLedger).filter { $0.paths.contains("/private/p/repo-one") }
+    check("a live note arriving after the purge cannot clear the tombstone",
+          afterLate.count == 1 && afterLate.first?.purged == true)
 
-    // A purge of a worktree from a machine that has no ledger at all must not conjure one, nor the
-    // lock file beside it: teardown's bookkeeping never creates the thing it is bookkeeping about.
-    let absent = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
-    WorktreeOrigins.removeAll(matching: ["/a/repo-feat"], in: absent)
-    check("removing from a ledger that does not exist creates neither it nor its lock",
-          !FileManager.default.fileExists(atPath: absent.path)
-            && !FileManager.default.fileExists(atPath: WorktreeOrigins.lockURL(for: absent).path))
+    // Unless the directory really is somebody else's parallel line now, which is the one thing that
+    // makes a purged path worth crediting again.
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/private/p/repo-one", resolved: nil,
+                                              repository: "/p/other", removedAt: nil)],
+                              in: purgeLedger)
+    let reused = WorktreeOrigins.load(from: purgeLedger).first { $0.paths.contains("/private/p/repo-one") }
+    check("while the same directory cut from another repository supersedes the tombstone",
+          reused?.repository == "/p/other" && reused?.purged == nil)
 
     // MARK: The launch side writes the same note
 

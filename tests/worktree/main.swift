@@ -384,8 +384,9 @@ check("the straddling-escape clip still respects the budget", displayColumns(str
 
 // MARK: - 10-13, 19. Teardown (kill decision, path guards, git cleanup, killer no-op, liveness gate)
 
-// Split into tests/worktree/teardownchecks.swift for file size; top-level statements only run in
-// main.swift, so those groups run as one function called from here.
+// Split into tests/worktree/teardownchecks.swift for file size (and the pure decisions of 10-11 one
+// step further, into teardownpurechecks.swift); top-level statements only run in main.swift, so
+// those groups run as one function called from here.
 runTeardownChecks()
 
 // MARK: - 14. List: line formatting (pure)

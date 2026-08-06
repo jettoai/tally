@@ -163,6 +163,13 @@ WorktreeOrigins.record(WorktreeOrigin(worktree: ws + "/geo-gone", resolved: nil,
 WorktreeOrigins.record(WorktreeOrigin(worktree: ws + "/elsewhere-gone", resolved: nil,
                                       repository: "/nowhere/repo", removedAt: nil),
                        in: WorktreeOrigins.fileURL(home: home))
+// A worktree torn down WITH `--purge-transcripts`: the record is still on file (it is what stops an
+// in-flight scan from writing the path back as a live worktree) but its transcripts were deleted, so
+// there is nothing left to credit and the map must not let the repository claim that directory.
+WorktreeOrigins.record(WorktreeOrigin(worktree: ws + "/geo-purged", resolved: nil,
+                                      repository: ws + "/taiwanbigdata/geo",
+                                      removedAt: "2026-08-06T00:00:00Z", purged: true),
+                       in: WorktreeOrigins.fileURL(home: home))
 // A worktree that is still on disk here, but which a teardown has already recorded the removal of:
 // the state the scan sees when `tally worktree remove` is running while it scans. The scan folds it
 // off its `.git` file (still there for a moment longer) and would write a live note for it, which
@@ -249,6 +256,15 @@ check(map.key(forCWD: agentDirectory(serving: ws + "/geo-gone")) == ws + "/taiwa
       "and an agent's transcript folder, which is the spelling that actually outlives the worktree")
 check(map.key(forCWD: ws + "/elsewhere-gone") == TokenProject.otherKey,
       "a note naming a repository this machine no longer has places nothing")
+// The tombstone a purging teardown leaves. Crediting it would hand the repository a directory whose
+// transcripts were deliberately deleted, and go on doing so the day something else is created under
+// that name - the record is kept to defend the ledger from a late writer, not to place anything.
+check(map.key(forCWD: ws + "/geo-purged") == TokenProject.otherKey,
+      "a purged worktree's note credits nothing to the repository")
+// Its agents' transcript folders go where every unrecognized one goes - the config home's own row,
+// since that is where the directory sits - rather than to the repository.
+check(map.key(forCWD: agentDirectory(serving: ws + "/geo-purged")) != ws + "/taiwanbigdata/geo",
+      "and neither do the transcript folders of the agents that ran there")
 
 section("an unreadable link leaves the directory a project of its own")
 

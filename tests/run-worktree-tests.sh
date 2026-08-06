@@ -16,6 +16,7 @@ out=$(mktemp -d)/run
 swiftc -o "$out" \
   tests/worktree/main.swift \
   tests/worktree/teardownchecks.swift \
+  tests/worktree/teardownpurechecks.swift \
   tests/worktree/treechecks.swift \
   tests/worktree/killchecks.swift \
   tests/worktree/originschecks.swift \

@@ -32,6 +32,16 @@ struct WorktreeOrigin: Codable, Sendable, Equatable {
     var repository: String
     /// When teardown removed it. Informational, and what the newest-first cap is judged by.
     var removedAt: String?
+    /// Whether teardown deleted its transcripts too (`--purge-transcripts`), which makes this a
+    /// tombstone rather than an attribution: there is nothing left to credit, so the map skips it.
+    ///
+    /// A record rather than a deletion because a deletion cannot be defended. A scan that collected
+    /// its live worktrees while this one was still on disk writes them after the purge has finished,
+    /// and an absent record is indistinguishable from one that was never written: the live note
+    /// lands and the dead path is credited to the repository again. A record IS the defence, because
+    /// a live note never displaces a stamped one (`answered`). Optional, and absent when false, so an
+    /// older reader (or an older ledger) is unchanged by it.
+    var purged: Bool?
 
     /// Every spelling of the worktree directory this record can answer for.
     var paths: [String] {
@@ -128,26 +138,9 @@ enum WorktreeOrigins {
         }
     }
 
-    /// Drop every record naming any of `paths`, in any of its spellings.
-    ///
-    /// The counterpart of writing a note when a worktree is opened: `--purge-transcripts` says the
-    /// conversation is not worth keeping, and once it is deleted there is nothing left to attribute,
-    /// so the note has to go with it. Leaving it would outlive both the worktree and its transcripts
-    /// and go on crediting that path to a repository, which is wrong the day the path is reused by
-    /// something else. A ledger that does not exist is left alone rather than answered with a lock
-    /// file beside nothing.
-    static func removeAll(matching paths: [String], in url: URL = fileURL()) {
-        guard !paths.isEmpty, FileManager.default.fileExists(atPath: url.path) else { return }
-        let claimed = Set(paths)
-        update(url) { entries in
-            let kept = entries.filter { !$0.paths.contains(where: claimed.contains) }
-            return kept.count == entries.count ? nil : kept
-        }
-    }
-
     /// Read-modify-write the ledger under the write lock: `change` is handed what is on file and
-    /// returns what should replace it, or nil to leave the file exactly as it is. The one place the
-    /// three writers agree on how a change is made, so "decided the change from what the lock is
+    /// returns what should replace it, or nil to leave the file exactly as it is. The one place both
+    /// writers agree on how a change is made, so "decided the change from what the lock is
     /// holding still" and "nothing to say writes nothing" are properties of the ledger rather than
     /// of each caller (a snapshot read before the lock is what let a scan overwrite a teardown).
     private static func update(_ url: URL, _ change: ([WorktreeOrigin]) -> [WorktreeOrigin]?) {
@@ -165,7 +158,8 @@ enum WorktreeOrigins {
     /// (one carrying a removal time) of the same directory and the same repository. The second is
     /// the ordering rule between the two kinds of writer. Both agree on the answer that matters -
     /// which repository those transcripts belong to - and only one of them knows the worktree is
-    /// gone, so the one that knows more wins and a scan racing it cannot reopen a closed line.
+    /// gone, so the one that knows more wins and a scan racing it cannot reopen a closed line - nor
+    /// undo a tombstone, which is the same rule doing the same job for a purge.
     /// A note naming a DIFFERENT repository is news either way: that directory has been cut anew
     /// from somewhere else, and the newest answer is the one that answers for it.
     private static func answered(_ origin: WorktreeOrigin, by existing: [WorktreeOrigin]) -> Bool {

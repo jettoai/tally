@@ -227,19 +227,21 @@ func performWorktreeRemove(name: String?, force: Bool, purgeTranscripts: Bool,
     //
     // `--purge-transcripts` does the opposite, and does have to act: it leaves nothing to
     // attribute, and this worktree was very likely written down when it was OPENED (`tally claude
-    // -w`, or the app's scan folding it) rather than only here. That earlier note has to be taken
-    // out with the conversation it was pointing at, or the ledger goes on crediting a path whose
-    // transcripts are gone - to a repository that will be the wrong answer the day something else
-    // takes the directory's name.
-    if !purgeTranscripts {
-        WorktreeOrigins.record(WorktreeOrigin(
-            worktree: target.recordedPath,
-            resolved: target.realPath == target.recordedPath ? nil : target.realPath,
-            repository: target.mainRepo,
-            removedAt: ISO8601DateFormatter().string(from: Date())), in: originsFile)
-    } else {
-        WorktreeOrigins.removeAll(matching: [target.recordedPath, target.realPath], in: originsFile)
-    }
+    // -w`, or the app's scan folding it) rather than only here. That earlier note must stop
+    // crediting a path whose transcripts are gone - which would be the wrong answer the day
+    // something else takes the directory's name.
+    //
+    // Written as a tombstone (`purged`) rather than deleted, because deleting it cannot be
+    // defended: the app's scan collects the live worktrees it sees and writes them afterwards, so a
+    // scan that started while this directory was still here would land its live note on an empty
+    // ledger and put the dead path back. A record defends itself - a live note never displaces a
+    // stamped one - and the map skips a tombstone instead of crediting it.
+    WorktreeOrigins.record(WorktreeOrigin(
+        worktree: target.recordedPath,
+        resolved: target.realPath == target.recordedPath ? nil : target.realPath,
+        repository: target.mainRepo,
+        removedAt: ISO8601DateFormatter().string(from: Date()),
+        purged: purgeTranscripts ? true : nil), in: originsFile)
 
     // The rescan is the same selection over a fresh scan: a supervisor that got a relaunch in
     // before it died leaves a process no earlier list can name (see WorktreeKill.swift).

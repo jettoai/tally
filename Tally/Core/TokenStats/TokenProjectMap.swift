@@ -135,7 +135,12 @@ struct TokenProjectMap: Sendable {
         // directories exactly as before.
         let originsFile = WorktreeOrigins.fileURL(home: home)
         let origins = WorktreeOrigins.load(from: originsFile)
-        for origin in origins {
+        // A tombstone is skipped: `--purge-transcripts` deleted the conversation that record was
+        // pointing at, so there is nothing left to credit, and keeping the path in the repository's
+        // claim would make the repository answer for that directory the day something else is
+        // created there. (The record itself has to stay - it is what stops an in-flight scan from
+        // writing the dead path back as a live worktree - so skipping it is the reader's job.)
+        for origin in origins where origin.purged != true {
             guard let target = candidateOfPath[origin.repository]
                     ?? candidateOfPath[resolvedPath(origin.repository)],
                   !folded.contains(target)

@@ -159,37 +159,43 @@ func sessionLookup(envPid: String?, here: [String]) -> SessionLookup {
 /// about rather than the shell doing the asking. It appears once that session has had a turn with a
 /// usage reading in it, so a conversation that has not said anything yet has none.
 ///
-/// TWO TRACKS, each asking the authority that is actually fresh for it.
+/// TWO WITNESSES, and the answer is only given when they do not contradict each other.
 ///
-/// Run INSIDE the session (`isThisSession`, the main path): this process's own `CLAUDE_CONFIG_DIR`
-/// is the answer, because it IS that session's environment - the supervisor exported it when it
-/// spawned the child this shell descends from, so it changes exactly when the session moves and can
-/// never be behind. The published file can be: it is written on a poll tick, so a `tally switch A`
-/// typed in the seconds after a handoff moved the session A -> B would read the pre-handoff account
-/// and answer "already on A" for a session that has just left it, dropping a request the user made
-/// deliberately.
+/// From ANOTHER shell in the project directory there is only one: that shell's own config home
+/// describes whatever launched IT, so the published reading is all there is. Its staleness window is
+/// stated rather than hidden - from a handoff until the supervisor publishes again, it can name the
+/// account the session just left - and the supervisor narrows it by republishing at the relaunch
+/// itself (`SessionContextWriter.accountChanged`).
 ///
-/// Run from another shell in the project directory: there is no session environment to read (that
-/// shell's own config home describes whatever launched IT), so the published reading is the only
-/// evidence there is. Its staleness window is stated rather than hidden: from a handoff until the
-/// supervisor next publishes, this can name the previous account. The supervisor narrows it by
-/// republishing at the relaunch itself (`SessionContextWriter.accountChanged`), which leaves the
-/// window at the handoff's own duration; a request that slips through it is dropped as already-on,
-/// which the user sees at once because the session does not move.
+/// From INSIDE the session (`isThisSession`) there are two, and each is fresh in a way the other is
+/// not. The environment IS that session's, exported when the supervisor spawned the child this shell
+/// descends from... unless this shell is OLDER than the last handoff. A long-lived background
+/// process started before the move still carries the pre-handoff `CLAUDE_CONFIG_DIR` and still sees
+/// a live `TALLY_SUPERVISOR_PID` (the pid does not change when the child does), so on its own the
+/// environment would answer "already on A" for a session that has since moved to B - dropping a
+/// deliberate "switch back to A" as a no-op. The published file is fresh in the opposite direction:
+/// written on a poll tick and at every relaunch, it follows the moves and lags the seconds after
+/// one.
 ///
-/// nil when neither track can say, which the caller reads as "do not decide" rather than as "not
-/// there": the request is written, and the supervisor's own `alreadyThere` branch settles it
-/// against the account the session is really on at that moment.
+/// So they are required to AGREE. Agreement means both describe the same account, and either being
+/// silent (nothing published yet; a home that matches no account) leaves the other to answer alone.
+/// A disagreement is exactly the case where neither can be trusted, and it answers nil.
+///
+/// nil is not "not there": the caller reads it as "do not decide here", writes the request anyway,
+/// and the supervisor settles it against the account the session is really on at that moment (its
+/// `alreadyThere` branch consumes the request and restarts nothing).
 func sessionAccountID(sessionKey: String, isThisSession: Bool, provider: Provider,
                       accounts: [Snapshot.Account],
                       dir: URL = supervisorStateDir,
                       environment: [String: String] = ProcessInfo.processInfo.environment)
     -> String? {
-    if isThisSession {
-        let home = environment[provider.envKey] ?? defaultHome(provider)
-        return accounts.first { $0.provider == provider.id && $0.launchHome == home }?.id
-    }
-    return readSessionContext(pid: sessionKey, dir: dir)?.accountID
+    let published = readSessionContext(pid: sessionKey, dir: dir)?.accountID
+    guard isThisSession else { return published }
+    let home = environment[provider.envKey] ?? defaultHome(provider)
+    let fromEnvironment = accounts.first { $0.provider == provider.id && $0.launchHome == home }?.id
+    guard let fromEnvironment else { return published }
+    guard let published else { return fromEnvironment }
+    return fromEnvironment == published ? fromEnvironment : nil
 }
 
 /// The session marker in this process's environment, or nil when there is none (or its supervisor

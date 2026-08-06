@@ -326,4 +326,7 @@ func runReloadChecks() {
 
     // What a relaunch carries: args, pending cap, self-update, control flow (relaunchchecks.swift).
     runRelaunchChecks(account: tickAccount, watcher: &tickWatcher, t0: tickT0)
+    // And the half of a relaunch that is about the args rather than the account: no positional, so
+    // no prompt is re-submitted (positionalchecks.swift).
+    runPositionalChecks(account: tickAccount)
 }

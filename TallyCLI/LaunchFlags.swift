@@ -38,19 +38,72 @@ func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
 
 // MARK: - Positionals, and why a relaunch must not carry them
 
-/// The options a claude child takes that consume NO value, so the word after one is a POSITIONAL
-/// rather than its value. Everything else that starts with a dash is assumed to take a value, which
-/// is the safe assumption in the one place this is used (`withoutPositionals`): guessing "value"
-/// wrongly leaves a stray word in the args, guessing "no value" wrongly DELETES a real one.
+// How many words each claude option consumes, which is the whole difference between a VALUE and a
+// positional.
+//
+// READ OUT OF THE CLI BINARY, not guessed and not asked: `strings` over
+// ~/.local/share/claude/versions/2.1.223 carries the commander registration verbatim
+// (`.option("--add-dir <directories...>", …)`), so every flag's arity is written down in the build
+// itself. Extracted that way 2026-08-06 against 2.1.223. This repo never RUNS `claude` to find out
+// what it does - the stop hook would hijack the session and spend quota - and the binary is the
+// same source `Provider.modelEnvKey` was established from.
+//
+// Commander has three shapes and they map onto three arities: a bare `--flag` consumes nothing,
+// `<value>` and `[value]` consume one (an optional value is still taken when the next word is not
+// itself a flag), and `<values...>` consumes every following word up to the next flag.
+
+/// How many words a flag takes with it.
+enum ChildFlagArity: Equatable {
+    case zero
+    case one
+    case variadic
+}
+
+/// The options that consume NO word, so whatever follows one is a positional. `printFlags` and
+/// `continueFlags` are reused rather than respelled.
+let zeroValueChildFlags: Set<String> = printFlags.union(continueFlags).union([
+    "--verbose", "--bare", "--safe-mode", "--init", "--init-only", "--maintenance",
+    "--include-hook-events", "--include-partial-messages", "--forward-subagent-text",
+    "--session-mirror", "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions",
+    "--replay-user-messages", "--enable-auth-status", "--exclude-dynamic-system-prompt-sections",
+    "--fork-session", "--deep-link-origin", "--no-session-persistence", "--reply-on-resume",
+    "--ide", "--strict-mcp-config", "--disable-slash-commands", "--chrome", "--no-chrome",
+    "--tmux", "--enable-auto-mode", "--bg", "--background", "--brief", "--ax-screen-reader",
+    "--plan-mode-required", "--help", "-h", "--version", "-v", "--debug-to-stderr", "-d2e",
+])
+
+/// The options that consume EVERY following word until the next flag (commander's `<values...>`).
 ///
-/// Deliberately small and evidence-based: every entry is a flag this repo already handles as
-/// valueless somewhere else (`printFlags` and `continueFlags` are reused rather than respelled - the
-/// latter is what `relaunchArgs` below skips without consuming a following word - and
-/// `--dangerously-skip-permissions` is what `applyLaunchDefaults` injects on its own). A flag whose
-/// arity we have not established is left out on purpose - it degrades to a positional surviving one
-/// relaunch, never to a launch losing an argument it needed.
-let valuelessChildFlags: Set<String> = printFlags.union(continueFlags)
-    .union(["--dangerously-skip-permissions"])
+/// Reading one of these as taking a single value throws arguments away: `--add-dir one two` comes
+/// back as `--add-dir one`, silently narrowing what the session may touch, and `two` is then handed
+/// to the child as a prompt on top of that. Both spellings of the two-name options are listed
+/// because commander registers both.
+let variadicChildFlags: Set<String> = [
+    "--allowedTools", "--allowed-tools", "--disallowedTools", "--disallowed-tools", "--tools",
+    "--mcp-config", "--betas", "--add-dir", "--channels",
+    "--dangerously-load-development-channels", "--file",
+]
+
+/// How many words this flag takes. A `--flag=value` token carries its own value and consumes
+/// nothing; anything not in either set above is assumed to take one.
+///
+/// THE RESIDUAL, stated rather than papered over. That default is wrong in three known shapes:
+///
+///   - A zero-arity flag from a LATER claude release, or one this table missed: the word after it
+///     is read as a value and survives, so a stray word rides one more relaunch. This is the safe
+///     direction, and the reason the default is "one" rather than "zero": the opposite guess
+///     DELETES an argument the launch was given.
+///   - A new variadic flag: only its first value survives, which does narrow what the child gets.
+///     The fix is a line in the set above, which is why that set is a list read from the binary
+///     rather than a guess at the description text.
+///   - Clustered short flags (`-cp`). Commander accepts them; this reads the cluster as one unknown
+///     option and consumes the next word. Not observed in a Tally-launched argv, where flags are
+///     either injected by this repo or typed one at a time.
+func childFlagArity(_ flag: String) -> ChildFlagArity {
+    if flag.hasPrefix("--"), flag.contains("=") { return .zero }
+    if zeroValueChildFlags.contains(flag) { return .zero }
+    return variadicChildFlags.contains(flag) ? .variadic : .one
+}
 
 /// `args` with every POSITIONAL argument removed, keeping the options and the values they take.
 ///
@@ -65,9 +118,10 @@ let valuelessChildFlags: Set<String> = printFlags.union(continueFlags)
 /// those two would have carried their fossil indefinitely.
 ///
 /// The parse follows the convention every other reader here uses (`flagValue`, `optionsOnly`,
-/// `launchPrimaryModel`): a word after an option is that option's value, a word that is itself a
-/// flag never is, and a bare `--` ends the options. Past that marker EVERYTHING is positional (that
-/// is what the marker means), so the whole tail goes, marker included.
+/// `launchPrimaryModel`): a word that is itself a flag is never a value, and a bare `--` ends the
+/// options. Past that marker EVERYTHING is positional (that is what the marker means), so the whole
+/// tail goes, marker included. How many words each flag actually takes comes from the arity table
+/// above, read out of the CLI binary, rather than from a rule of thumb.
 func withoutPositionals(_ args: [String]) -> [String] {
     let options = optionsOnly(args)
     var kept: [String] = []
@@ -79,11 +133,15 @@ func withoutPositionals(_ args: [String]) -> [String] {
         // starting with a dash is the prompt.
         guard token.hasPrefix("-"), token != "-" else { continue }
         kept.append(token)
-        // The word behind it is its value, unless the flag takes none or that word is a flag itself.
-        if !valuelessChildFlags.contains(token), index < options.count,
-           !options[index].hasPrefix("-") {
+        // The words behind it are its values: none, one, or as many as follow before the next flag
+        // (`childFlagArity`). A word that is itself a flag is never a value, which is the same rule
+        // `launchPrimaryModel` applies to `--model`.
+        let arity = childFlagArity(token)
+        guard arity != .zero else { continue }
+        while index < options.count, !options[index].hasPrefix("-") {
             kept.append(options[index])
             index += 1
+            if arity == .one { break }
         }
     }
     return kept

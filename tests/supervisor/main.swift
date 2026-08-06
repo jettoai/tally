@@ -478,5 +478,7 @@ runResumePromptChecks()
 runShimChecks()
 runFollowChecks()
 runSwitchChecks()
+runSwitchRequestChecks()
+runSwitchSessionChecks()
 
 exit(failures == 0 ? 0 : 1)

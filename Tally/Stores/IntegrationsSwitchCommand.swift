@@ -262,23 +262,16 @@ extension IntegrationsStore {
 
     // MARK: - Installed as one unit with the skill
 
-    /// The homes to install into, deduplicated by physical path: shared setups symlink one config
-    /// tree into several homes, and writing the same file N times would count one install N times.
-    private static func homes(ofSkillFiles files: [URL]) -> [URL] {
-        var seen = Set<String>()
-        return files.map(claudeHome(ofSkillFile:)).filter {
-            seen.insert($0.resolvingSymlinksInPath().path).inserted
-        }
-    }
-
     /// What one group's sync came to: what changed, what is now installed, and what went wrong.
     /// A result rather than a throw, because a group that fails must not stop the next one.
     struct SwitchCommandSync {
         var changed = false
         /// The command files that are ours now, one per home that accepted one.
         var commands: [URL] = []
-        /// The settings file the hook went into. Nil when the hook was SKIPPED, which is a state
-        /// the caller must be able to see: it means no session reading that file is intercepted.
+        /// The settings file whose hook is, or may still be, ours: just registered, or left in
+        /// place by a write that failed. This is what the manifest records, so an uninstall can
+        /// always reach what an install left. Nil means nothing of ours is in that file - either
+        /// the hook was never registered, or it was just stood down.
         var settings: URL?
         var error: String?
     }
@@ -297,6 +290,12 @@ extension IntegrationsStore {
     /// half of the answer: a home with no command of its own gains a working `/tally-switch` (the
     /// model-turn path, one turn slower), and the home that has its own keeps running it. Skipping
     /// those too would punish the clean homes for their neighbour's file without protecting anyone.
+    ///
+    /// AND IT IS A DECISION, NOT A SKIP. The answer can change under a registration that is already
+    /// there: a home whose `/tally-switch` was Tally's until the user wrote their own is a group
+    /// that WAS manageable and is not any more, and the hook left behind goes on intercepting the
+    /// command they just took back. So the unmanageable branch stands the registration down rather
+    /// than returning early, which is the same instruction as never registering, applied late.
     static func syncSwitchCommand(inHomes homes: [URL], hookCommand: String) -> SwitchCommandSync {
         var result = SwitchCommandSync()
         var manageable = true
@@ -310,24 +309,53 @@ extension IntegrationsStore {
                 manageable = false
             }
         }
-        guard manageable, let settings = homes.first?.appendingPathComponent("settings.json")
-        else { return result }
+        guard let settings = homes.first?.appendingPathComponent("settings.json") else { return result }
         do {
-            result.changed = try upsertSwitchHook(in: settings, command: hookCommand)
-                || result.changed
-            result.settings = settings
+            if manageable {
+                result.changed = try upsertSwitchHook(in: settings, command: hookCommand)
+                    || result.changed
+                result.settings = settings
+            } else if try removeSwitchHook(in: settings) {
+                result.changed = true
+            }
         } catch {
             result.error = result.error ?? error.localizedDescription
+            // The file could not be acted on, so whatever is in it is still in it. Tracked
+            // deliberately: a manifest that forgets it can never reach the hook we failed to reach
+            // today, and an uninstall would leave it interposed forever.
+            result.settings = settings
         }
         return result
     }
 
-    /// The homes the skill is installed in, grouped by the physical settings.json they share, in a
-    /// stable order. A group is what the hook decision is made for (above).
-    private static func settingsGroups(ofSkillFiles files: [URL]) -> [[URL]] {
+    /// Every home the skill is installed in, drawn from the whole account POPULATION rather than
+    /// from the deduplicated skill files alone.
+    ///
+    /// `claudeSkillFiles()` deduplicates by physical SKILL.md, because one edit to a shared skills
+    /// tree must not be counted twice. A home whose skills tree is symlinked at another's therefore
+    /// never appears in `files` at all - while its commands folder is entirely its own, and so is
+    /// the `/tally-switch` it may hold. Grouping on the survivor of that dedup asks the ownership
+    /// question about one home and answers it for two.
+    ///
+    /// Homes named by `files` are kept even when the population does not list them: an account that
+    /// logged out since install is no longer discovered, and its SKILL.md is still on disk.
+    static func homesCarrying(_ files: [URL], population: [URL]) -> [URL] {
+        let wanted = Set(files.map { $0.resolvingSymlinksInPath().path })
+        let sharing = population.filter {
+            wanted.contains(claudeSkillFile(inHome: $0).resolvingSymlinksInPath().path)
+        }
+        var seen = Set<String>()
+        return (files.map(claudeHome(ofSkillFile:)) + sharing).filter {
+            seen.insert($0.resolvingSymlinksInPath().path).inserted
+        }
+    }
+
+    /// Those homes grouped by the physical settings.json they share, in a stable order. A group is
+    /// what the hook decision is made for (above).
+    private static func settingsGroups(ofSkillFiles files: [URL], population: [URL]) -> [[URL]] {
         var groups: [String: [URL]] = [:]
         var order: [String] = []
-        for home in homes(ofSkillFiles: files) {
+        for home in homesCarrying(files, population: population) {
             let key = home.appendingPathComponent("settings.json").resolvingSymlinksInPath().path
             if groups[key] == nil { order.append(key) }
             groups[key, default: []].append(home)
@@ -349,7 +377,7 @@ extension IntegrationsStore {
         let command = Self.switchHookCommand(Self.bundledCLIURL)
         // One pass per PHYSICAL settings file. The manifest therefore records each shared file
         // once, which is also what it means: one registration, however many homes read it.
-        for group in Self.settingsGroups(ofSkillFiles: files) {
+        for group in Self.settingsGroups(ofSkillFiles: files, population: Self.claudeHomes()) {
             let result = Self.syncSwitchCommand(inHomes: group, hookCommand: command)
             changed = result.changed || changed
             if let error = result.error { lastError = error }
@@ -373,7 +401,7 @@ extension IntegrationsStore {
 
     /// Take both halves back out.
     func removeSwitchCommand(forSkillFiles files: [URL]) {
-        let homes = Self.homes(ofSkillFiles: files)
+        let homes = Self.homesCarrying(files, population: [])
         for file in Self.installedFiles(homes.map(Self.switchCommandFile(inHome:)),
                                         manifest: "claudeSwitchCommand") {
             do { try Self.removeSwitchCommand(in: file) } catch {
@@ -393,7 +421,7 @@ extension IntegrationsStore {
     /// Whether every home with the skill also has a current command file and a registered hook.
     /// Detection only, so Settings can offer to fix an install from an older app version.
     static func switchCommandIsCurrent(forSkillFiles files: [URL]) -> Bool {
-        homes(ofSkillFiles: files).allSatisfy { home in
+        homesCarrying(files, population: []).allSatisfy { home in
             let command = (try? String(contentsOf: switchCommandFile(inHome: home), encoding: .utf8))
             return command?.contains(switchCommandMarker) == true
                 && settingsCarrySwitchHook(home.appendingPathComponent("settings.json"))

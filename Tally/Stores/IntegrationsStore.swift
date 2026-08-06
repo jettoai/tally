@@ -204,6 +204,23 @@ final class IntegrationsStore {
     /// this string). Depends on the CLI tool integration for the stable public path.
     nonisolated static let statusLineCommand = "/usr/local/bin/tally statusline claude"
 
+    /// Every discovered claude config home, NOT deduplicated - the population, as opposed to the
+    /// physical-file lists below it.
+    ///
+    /// Deduplication is right when the question is "which FILE do I write", and wrong when it is
+    /// "whose file is this". Homes that share one settings.json, or one skills tree, still have
+    /// their own commands folder: asking about the survivor of a dedup and answering for all of
+    /// them is how a home's own `/tally-switch` gets taken over (IntegrationsSwitchCommand.swift).
+    static func claudeHomes() -> [URL] {
+        ClaudeAccounts.discover().compactMap { $0.launchHome.map { URL(fileURLWithPath: $0) } }
+    }
+
+    /// Where the skill lives inside one config home. (`claudeSkillFiles()` builds the same path for
+    /// the discovered homes; folding it onto this is a follow-up, its file is held open elsewhere.)
+    static func claudeSkillFile(inHome home: URL) -> URL {
+        home.appendingPathComponent("skills/tally/SKILL.md")
+    }
+
     /// One settings.json per discovered claude home, deduplicated by physical file (shared
     /// setups symlink the same settings everywhere - one edit must not be counted N times).
     /// Internal (not private): the skill's prompt hook is registered in the same files.

@@ -106,7 +106,7 @@ func runTeardownChecks() {
     let mergedWt = resolveWorktree(name: "feat")   // reuse the launch resolver to create it
     sh("git commit -q --allow-empty -m work", cwd: mergedWt.path)
     sh("git merge -q feat", cwd: mergedRepo)        // fast-forward main to feat so feat is an ancestor
-    let mergedCode = performWorktreeRemove(name: "feat", force: false, keepTranscripts: true,
+    let mergedCode = performWorktreeRemove(name: "feat", force: false, purgeTranscripts: false,
                                            listProcesses: { _ in [] })
     check("a merged worktree removes cleanly (exit 0)", mergedCode == 0)
     check("the merged worktree directory is gone", !FileManager.default.fileExists(atPath: mergedWt.path))
@@ -120,11 +120,11 @@ func runTeardownChecks() {
     FileManager.default.changeCurrentDirectoryPath(unmergedRepo)
     let unmergedWt = resolveWorktree(name: "feat2")
     sh("git commit -q --allow-empty -m unmerged", cwd: unmergedWt.path)   // ahead of main, not merged
-    let refusedCode = performWorktreeRemove(name: "feat2", force: false, keepTranscripts: true,
+    let refusedCode = performWorktreeRemove(name: "feat2", force: false, purgeTranscripts: false,
                                             listProcesses: { _ in [] })
     check("an unmerged worktree is refused without --force (exit 1)", refusedCode == 1)
     check("the refused worktree is left in place", FileManager.default.fileExists(atPath: unmergedWt.path))
-    let forcedCode = performWorktreeRemove(name: "feat2", force: true, keepTranscripts: true,
+    let forcedCode = performWorktreeRemove(name: "feat2", force: true, purgeTranscripts: false,
                                            listProcesses: { _ in [] })
     check("--force removes the unmerged worktree (exit 0)", forcedCode == 0)
     check("the forced worktree directory is gone", !FileManager.default.fileExists(atPath: unmergedWt.path))
@@ -141,7 +141,7 @@ func runTeardownChecks() {
     sh("git commit -q --allow-empty -m work", cwd: insideWt.path)
     sh("git merge -q feat3", cwd: insideRepo)       // merged, so only the cwd guard can refuse
     FileManager.default.changeCurrentDirectoryPath(insideWt.path)
-    let insideCode = performWorktreeRemove(name: "feat3", force: false, keepTranscripts: true,
+    let insideCode = performWorktreeRemove(name: "feat3", force: false, purgeTranscripts: false,
                                            listProcesses: { _ in [] })
     check("removal from inside the target worktree is refused (exit 1)", insideCode == 1)
     check("the worktree the caller sits in is left in place",
@@ -157,7 +157,7 @@ func runTeardownChecks() {
     let shadowWt = resolveWorktree(name: "feat4")
     sh("git commit -q --allow-empty -m unmerged", cwd: shadowWt.path)
     sh("git tag feat4 HEAD", cwd: shadowRepo)       // tag at main HEAD, which IS an ancestor
-    let shadowCode = performWorktreeRemove(name: "feat4", force: false, keepTranscripts: true,
+    let shadowCode = performWorktreeRemove(name: "feat4", force: false, purgeTranscripts: false,
                                            listProcesses: { _ in [] })
     check("a merged same-name tag does not waive the merged gate (exit 1)", shadowCode == 1)
     check("the tag-shadowed worktree is left in place",
@@ -177,7 +177,7 @@ func runTeardownChecks() {
     sh("rm -f .git", cwd: staleWt.path)             // registration kept, checkout no longer validates
     check("the half-removed worktree directory is on disk before teardown",
           FileManager.default.fileExists(atPath: staleWt.path))
-    let staleCode = performWorktreeRemove(name: "feat5", force: false, keepTranscripts: true,
+    let staleCode = performWorktreeRemove(name: "feat5", force: false, purgeTranscripts: false,
                                           listProcesses: { _ in [] })
     check("a half-removed worktree still tears down (exit 0)", staleCode == 0)
     check("teardown deletes the directory git left behind",
@@ -221,16 +221,34 @@ func runTeardownChecks() {
     let unknownText = worktreeRemovalRefusal(branch: "feat", liveAgents: 1, activity: .unknown)
     check("the unreadable refusal says why it cannot tell",
           unknownText.contains("1 agent") && unknownText.contains("no transcript"))
-    check("both refusals name --force and --force --keep-transcripts",
+    check("both refusals name --force and say the conversation survives it",
           [busyText, unknownText].allSatisfy {
-              $0.contains("--force to close them now and delete their transcripts")
-                  && $0.contains("--force --keep-transcripts")
+              $0.contains("--force to close them now, keeping their transcripts")
+                  && $0.contains("--purge-transcripts")
           })
     check("the idle note tells what is being closed and what happens to the conversation",
-          worktreeIdleNote(branch: "feat", liveAgents: 1, keepTranscripts: false)
-            == "worktree feat: closing 1 agent that went idle, deleting their transcripts" &&
-          worktreeIdleNote(branch: "feat", liveAgents: 2, keepTranscripts: true)
-            .hasSuffix("closing 2 agents that went idle, keeping their transcripts"))
+          worktreeIdleNote(branch: "feat", liveAgents: 1, purgeTranscripts: false)
+            == "worktree feat: closing 1 agent that went idle, keeping their transcripts" &&
+          worktreeIdleNote(branch: "feat", liveAgents: 2, purgeTranscripts: true)
+            .hasSuffix("closing 2 agents that went idle, deleting their transcripts"))
+
+    // The flag vocabulary, at the parser. `--purge-transcripts` is the only way to ask for the
+    // deletion that used to be the default, and `--keep-transcripts` (which every note and script
+    // written before the flip still says) must not be an unknown flag: it asks for what already
+    // happens.
+    let plainFlags = parseWorktreeRemoveFlags(["feat"])
+    check("no flags at all keeps the transcripts",
+          plainFlags?.name == "feat" && plainFlags?.force == false
+              && plainFlags?.purgeTranscripts == false)
+    check("--purge-transcripts is how deletion is asked for",
+          parseWorktreeRemoveFlags(["feat", "--purge-transcripts"])?.purgeTranscripts == true)
+    check("--keep-transcripts is accepted and changes nothing",
+          parseWorktreeRemoveFlags(["--keep-transcripts"])?.purgeTranscripts == false)
+    let forcedFlags = parseWorktreeRemoveFlags(["--force", "feat"])
+    check("--force parses beside a name that follows it",
+          forcedFlags?.force == true && forcedFlags?.name == "feat")
+    check("an unknown flag is refused", parseWorktreeRemoveFlags(["feat", "--nope"]) == nil)
+    check("a second name is refused", parseWorktreeRemoveFlags(["feat", "other"]) == nil)
 
     // A transcript fixture: `body` with a chosen mtime, which is what the quiet test reads first.
     func seedTranscript(_ dir: String, body: String, ageSeconds: TimeInterval) {
@@ -317,8 +335,8 @@ func runTeardownChecks() {
     }
     let liveHome = rp(tempDir())
     let liveTranscripts = "\(liveHome)/projects/\(worktreeTranscriptSlug(forResolvedPath: liveWt.path))"
-    func removeLive(force: Bool = false, keepTranscripts: Bool = false) -> Int32 {
-        performWorktreeRemove(name: "feat-live", force: force, keepTranscripts: keepTranscripts,
+    func removeLive(force: Bool = false, purgeTranscripts: Bool = false) -> Int32 {
+        performWorktreeRemove(name: "feat-live", force: force, purgeTranscripts: purgeTranscripts,
                               transcriptHomes: [liveHome], listProcesses: liveAgentScan)
     }
     func liveWorktreeUntouched() -> Bool {
@@ -354,12 +372,16 @@ func runTeardownChecks() {
           teardownIdleSeconds > followIdleSeconds && removeLive() == 1)
     check("nothing was touched while it was under the bar", liveWorktreeUntouched())
 
-    // --keep-transcripts is not a way around the gate: it spares transcripts, never processes.
-    check("--keep-transcripts does not waive the gate", removeLive(keepTranscripts: true) == 1)
+    // The transcript flag is not a way around the gate, in either direction: it decides what
+    // happens to a conversation, never to a process.
+    check("--purge-transcripts does not waive the gate", removeLive(purgeTranscripts: true) == 1)
     check("nothing was touched by that attempt either", liveWorktreeUntouched())
+    check("and the transcripts it named are still there",
+          FileManager.default.fileExists(atPath: "\(liveTranscripts)/session.jsonl"))
 
     // --force is the documented way through a session that IS working, and it still does the whole
-    // teardown.
+    // teardown - except to the conversation, which it now leaves alone. Someone forcing a busy
+    // worktree down is the LEAST likely to also mean "and delete what it recorded".
     check("--force tears down a working worktree (exit 0)", removeLive(force: true) == 0)
     var waited = 0
     while sleeper.isRunning, waited < 50 { usleep(100_000); waited += 1 }
@@ -368,8 +390,8 @@ func runTeardownChecks() {
           !FileManager.default.fileExists(atPath: liveWt.path))
     check("the forced branch is deleted",
           sh("git show-ref --verify --quiet refs/heads/feat-live", cwd: liveRepo) != 0)
-    check("the forced run deletes the transcripts the gate had protected",
-          !FileManager.default.fileExists(atPath: liveTranscripts))
+    check("the forced run keeps the transcripts the gate had protected",
+          FileManager.default.fileExists(atPath: "\(liveTranscripts)/session.jsonl"))
 
     // The case the whole change is for: agents alive, quiet well past the bar, no flags typed. This
     // is the ordinary end of a worktree, so it must not need one.
@@ -387,7 +409,7 @@ func runTeardownChecks() {
     seedTranscript(idleTranscripts, body: closedTurn, ageSeconds: 900)
     check("the idle worktree's transcript is in place before the run",
           FileManager.default.fileExists(atPath: "\(idleTranscripts)/session.jsonl"))
-    let idleCode = performWorktreeRemove(name: "feat-idle", force: false, keepTranscripts: false,
+    let idleCode = performWorktreeRemove(name: "feat-idle", force: false, purgeTranscripts: false,
                                          transcriptHomes: [liveHome], listProcesses: idleAgentScan)
     check("an idle worktree tears down with no flags at all (exit 0)", idleCode == 0)
     waited = 0
@@ -397,6 +419,22 @@ func runTeardownChecks() {
           !FileManager.default.fileExists(atPath: idleWt.path))
     check("the idle branch is deleted",
           sh("git show-ref --verify --quiet refs/heads/feat-idle", cwd: liveRepo) != 0)
-    check("the idle worktree's transcripts are deleted with it",
-          !FileManager.default.fileExists(atPath: idleTranscripts))
+    // The flip: the app credits a worktree's usage to the repository it was cut from, so its
+    // transcripts are part of that project's own history. An ordinary teardown keeps them.
+    check("the idle worktree's transcripts outlive it",
+          FileManager.default.fileExists(atPath: "\(idleTranscripts)/session.jsonl"))
+
+    // And the one flag that still deletes them, over a worktree torn down the same ordinary way.
+    let purgeWt = resolveWorktree(name: "feat-purge")
+    sh("git commit -q --allow-empty -m work", cwd: purgeWt.path)
+    sh("git merge -q feat-purge", cwd: liveRepo)
+    let purgeTranscripts = "\(liveHome)/projects/\(worktreeTranscriptSlug(forResolvedPath: purgeWt.path))"
+    seedTranscript(purgeTranscripts, body: closedTurn, ageSeconds: 900)
+    let purgeCode = performWorktreeRemove(name: "feat-purge", force: false, purgeTranscripts: true,
+                                          transcriptHomes: [liveHome], listProcesses: { _ in [] })
+    check("--purge-transcripts tears the worktree down too (exit 0)", purgeCode == 0)
+    check("the purged worktree directory is gone",
+          !FileManager.default.fileExists(atPath: purgeWt.path))
+    check("--purge-transcripts is what deletes the transcript directory",
+          !FileManager.default.fileExists(atPath: purgeTranscripts))
 }

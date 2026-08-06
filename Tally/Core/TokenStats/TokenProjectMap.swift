@@ -99,9 +99,10 @@ struct TokenProjectMap: Sendable {
         for (index, candidate) in candidates.enumerated() {
             for path in candidate.paths { candidateOfPath[path] = index }
         }
-        // Fold every worktree into the repository it was cut from. One hop is the whole job: a
-        // worktree's `.git` file always names the repository's own `.git` DIRECTORY, so the
-        // target of a fold is never itself a worktree and folds cannot chain.
+        // Fold every worktree into the repository it was cut from. One hop is the whole job: what
+        // a worktree's `.git` file leads to is always the repository's MAIN checkout, never
+        // another linked worktree, so the target of a fold is never itself folded and folds cannot
+        // chain.
         var folded = Set<Int>()
         for (index, candidate) in candidates.enumerated() {
             guard let main = mainRepository(ofWorktreeAt: candidate.paths[0]),
@@ -157,20 +158,55 @@ struct TokenProjectMap: Sendable {
     /// The repository a worktree belongs to, or `nil` when the directory is not a worktree.
     ///
     /// Read out of the `.git` FILE a worktree has in place of a directory, which holds one
-    /// `gitdir:` line naming the repository's bookkeeping for this worktree
-    /// (`<repository>/.git/worktrees/<name>`). Parsed rather than asked of `git`, because this
-    /// runs for every entry in the workspace folder on every scan and the app must not spawn a
+    /// `gitdir:` line naming the bookkeeping git keeps for THIS worktree inside the repository's
+    /// common git directory: `<common>/worktrees/<id>`. Parsed rather than asked of `git`, because
+    /// this runs for every entry in the workspace folder on every scan and the app must not spawn a
     /// process per directory to draw a table.
     ///
-    /// Fail-open: a file that cannot be read, or whose contents are not in a spelling this
-    /// recognizes, leaves the directory a project of its own - a row too many is a far smaller
-    /// harm than a row of somebody else's tokens.
+    /// That trailing `worktrees/<id>` is the whole identification, and it is what a `.git` file
+    /// naming anything else is measured against: a submodule's checkout points straight at
+    /// `<super>/.git/modules/<name>` and is not a worktree of anybody, so it keeps its own row.
+    ///
+    /// From the common directory the checkout is found two ways, config first:
+    ///
+    ///   - `core.worktree` in `<common>/config`, which git writes exactly when the git directory is
+    ///     not the checkout's own `.git`: a submodule's `<super>/.git/modules/<name>`, or a
+    ///     repository created with `--separate-git-dir`. git-config documents the value as absolute
+    ///     or relative to the git directory, so both spellings are resolved. Asked FIRST because a
+    ///     common directory can be named `.git` and still not sit in its checkout
+    ///     (`--separate-git-dir=.../x/.git`), where the folder holding it is the wrong answer; an
+    ///     ordinary colocated repository has no such key, so this costs it nothing but the read.
+    ///   - otherwise the folder holding a common directory literally named `.git`, which is the
+    ///     ordinary layout.
+    ///
+    /// Fail-open: a file that cannot be read, a shape this does not recognize, or a common
+    /// directory with no checkout at all (a bare repository) leaves the directory a project of its
+    /// own - a row too many is a far smaller harm than a row of somebody else's tokens.
     ///
     /// Deliberately not `GitRepoRoot.swift`'s resolution, which the CLI shares between the worktree
     /// overview and the launch profile: that one asks git, because its answer is a directory to
     /// print and to `cd` into and must be right for every layout git allows. This one only decides
     /// which existing row a directory joins, where the cost of not knowing is a separate row.
     private static func mainRepository(ofWorktreeAt directory: String) -> String? {
+        guard let gitDir = worktreeGitDir(at: directory) else { return nil }
+
+        // The answer can still be an unresolved spelling (a relative link leaves `..` in it, and so
+        // can a relative `core.worktree`); the caller looks it up both as written and resolved.
+        let parts = components(gitDir)
+        guard parts.count >= 3, parts[parts.count - 2] == "worktrees" else { return nil }
+        let commonParts = parts.dropLast(2)
+        let common = "/" + commonParts.joined(separator: "/")
+
+        if let checkout = configuredWorktree(inGitDir: common) { return checkout }
+        // The ordinary layout: the folder holding a common directory literally named `.git`.
+        guard commonParts.count >= 2, commonParts.last == ".git" else { return nil }
+        return "/" + commonParts.dropLast().joined(separator: "/")
+    }
+
+    /// The path a directory's `.git` FILE points at, absolute (git can be configured to write the
+    /// link relative to the worktree). `nil` when there is no such file, when it is a directory
+    /// instead, or when nothing in it is a `gitdir:` line.
+    private static func worktreeGitDir(at directory: String) -> String? {
         let dotGit = directory + "/.git"
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: dotGit, isDirectory: &isDirectory),
@@ -181,18 +217,39 @@ struct TokenProjectMap: Sendable {
         let marker = "gitdir:"
         guard let line = contents.split(separator: "\n").first(where: { $0.hasPrefix(marker) })
         else { return nil }
-        var gitDir = line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
+        let gitDir = line.dropFirst(marker.count).trimmingCharacters(in: .whitespaces)
         guard !gitDir.isEmpty else { return nil }
-        // git can be configured to write the link relative to the worktree.
-        if !gitDir.hasPrefix("/") { gitDir = directory + "/" + gitDir }
+        return gitDir.hasPrefix("/") ? gitDir : directory + "/" + gitDir
+    }
 
-        // The repository is whatever holds that `.git`, found by the LAST `.git` component so a
-        // repository that itself sits below one is not mistaken for the answer. The result can
-        // still be an unresolved spelling (a relative link leaves `..` in it); the caller looks it
-        // up both as written and resolved.
-        let parts = components(gitDir)
-        guard let dotGitIndex = parts.lastIndex(of: ".git"), dotGitIndex > 0 else { return nil }
-        return "/" + parts.prefix(dotGitIndex).joined(separator: "/")
+    /// `core.worktree` as written in a git directory's own `config`, resolved against that
+    /// directory when the value is relative. `nil` when the file cannot be read or names no
+    /// worktree, which is the ordinary case: a repository whose checkout holds its `.git` never
+    /// carries the key, and neither does a bare one.
+    private static func configuredWorktree(inGitDir gitDir: String) -> String? {
+        guard let config = try? String(contentsOfFile: gitDir + "/config", encoding: .utf8)
+        else { return nil }
+        var inCore = false
+        for rawLine in config.split(separator: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("#") || line.hasPrefix(";") { continue }
+            if line.hasPrefix("[") {
+                // Section names are case insensitive, and a subsection (`[core "x"]`) is a
+                // different section that holds no key this reads.
+                inCore = line.dropFirst().lowercased().hasPrefix("core]")
+                continue
+            }
+            guard inCore, let equals = line.firstIndex(of: "="),
+                  line[..<equals].trimmingCharacters(in: .whitespaces).lowercased() == "worktree"
+            else { continue }
+            var value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") {
+                value = String(value.dropFirst().dropLast())
+            }
+            guard !value.isEmpty else { return nil }
+            return value.hasPrefix("/") ? value : gitDir + "/" + value
+        }
+        return nil
     }
 
     private static func components(_ path: String) -> [String] {

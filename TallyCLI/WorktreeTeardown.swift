@@ -3,7 +3,8 @@ import Foundation
 
 // `tally worktree remove [name]` - the teardown counterpart of `tally claude -w`. The main-repo
 // session runs it AFTER merging the worktree branch: it kills leftover agent processes rooted in
-// the worktree, removes the worktree and its branch, and deletes the orphaned transcript directory.
+// the worktree and removes the worktree and its branch. The transcripts it wrote are KEPT unless
+// `--purge-transcripts` asks for them to go.
 //
 // Ordering is the safety design (mirrors docs/specs/current/worktree-teardown.md): merged-check ->
 // busy gate -> kill processes -> git cleanup -> transcript cleanup. Every step that finds its
@@ -72,8 +73,8 @@ func worktreeProcessesToKill(_ processes: [ProcInfo], worktreePath: String) -> [
 // The busy gate itself lives in WorktreeActivity.swift (`worktreeRemovalAllowed`), with the
 // activity signal it reads: the merged check alone does not protect a running session, because a
 // session that stopped at a clean intermediate commit (which the worktree protocol encourages)
-// leaves a branch the main repo happily merges. Only --force waives the gate, and
-// --keep-transcripts deliberately does not: it spares the transcripts, not the processes.
+// leaves a branch the main repo happily merges. Only --force waives the gate; the transcript flags
+// never do, in either direction: they decide what happens to a conversation, not to a process.
 
 /// Whether teardown may delete the worktree directory itself. Only true once git has let go of the
 /// path, so the normal path (where `git worktree remove` deletes the files) never reaches it.
@@ -257,7 +258,7 @@ private func pickWorktreeToRemove(_ others: [WorktreeEntry]) -> String {
 /// the git path runs with no real killing, and `transcriptHomes` so the transcript sweep can be
 /// pointed at a temp tree instead of the account homes (a test must never write into, let alone
 /// delete from, the user's real ~/.claude/projects, and a read-only home would fail it anyway).
-func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
+func performWorktreeRemove(name: String?, force: Bool, purgeTranscripts: Bool,
                           transcriptHomes: [String]? = nil,
                           listProcesses: (String) -> [ProcInfo] = defaultListProcesses) -> Int32 {
     let target = resolveWorktreeForRemoval(name: name)
@@ -308,7 +309,7 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
     }
     if !doomed.isEmpty, !force {
         warn(worktreeIdleNote(branch: target.branch, liveAgents: doomed.count,
-                              keepTranscripts: keepTranscripts))
+                              purgeTranscripts: purgeTranscripts))
     }
     // The rescan is the same selection over a fresh scan: a supervisor that got a relaunch in
     // before it died leaves a process no earlier list can name (see WorktreeKill.swift).
@@ -349,14 +350,17 @@ func performWorktreeRemove(name: String?, force: Bool, keepTranscripts: Bool,
         warn("branch \(target.branch) already deleted")
     }
 
-    // 4. Transcript cleanup: delete the orphaned per-worktree projects dir in EVERY account home the
-    // launch side seeds (never following the memory symlink inside it - removeItem unlinks the link,
-    // leaving the project's memory intact).
+    // 4. Transcript cleanup, which happens only when it was asked for. Keeping them is the default
+    // because the app credits a worktree's usage to the repository it was cut from (the Tokens page
+    // ranks one row per project, not one per parallel line), so those transcripts are part of the
+    // main project's own recorded history: deleting them on the way out of a finished worktree
+    // silently rewrites the numbers the user reads for the repository. `--purge-transcripts` is the
+    // way to say the conversation is not worth keeping.
     var transcriptsRemoved = false
-    if keepTranscripts {
-        warn("transcripts kept")
-    } else {
+    if purgeTranscripts {
         transcriptsRemoved = removeTranscriptDirs(slug: slug, homes: homes)
+    } else {
+        warn("transcripts kept")
     }
 
     warn("worktree \(target.branch) removed (killed \(killed), "
@@ -397,8 +401,9 @@ private func removeOrphanedWorktreeDirectory(_ target: RemovalTarget) {
 /// symlinks behind in secondary homes. Homes that resolve to one physical projects tree (e.g.
 /// ~/.claude2/projects symlinked to ~/.claude/projects) are acted on once; a home whose dir is
 /// already gone (removed via a shared tree, or never created) prints a note and continues. Each
-/// removal is guarded so nothing outside that home's transcript tree is ever touched. Returns
-/// whether at least one directory was removed.
+/// removal is guarded so nothing outside that home's transcript tree is ever touched, and the memory
+/// symlink inside the dir is never followed (removeItem unlinks the link, leaving the project's
+/// memory intact). Returns whether at least one directory was removed.
 func removeTranscriptDirs(slug: String, homes: [String]) -> Bool {
     guard !slug.isEmpty else {
         warn("transcripts kept (empty slug)")
@@ -431,30 +436,45 @@ func removeTranscriptDirs(slug: String, homes: [String]) -> Bool {
 
 // MARK: - Remove flags
 
-/// Parse `remove` flags and run the teardown. Returns the process exit code. Called by the
-/// `tally worktree` dispatch, which lives with the read-only commands in WorktreeTree.swift.
-func runWorktreeRemove(args: [String]) -> Int32 {
+/// The `remove` flags as typed, or nil when they do not make sense (warned about here, since only
+/// this function knows which word was the problem). Split from the run so the flag vocabulary can
+/// be asserted without a repository to tear down.
+func parseWorktreeRemoveFlags(_ args: [String])
+    -> (name: String?, force: Bool, purgeTranscripts: Bool)? {
     var force = false
-    var keepTranscripts = false
+    var purgeTranscripts = false
     var name: String?
     for arg in args {
         switch arg {
         case "--force":
             force = true
+        case "--purge-transcripts":
+            purgeTranscripts = true
         case "--keep-transcripts":
-            keepTranscripts = true
+            // What this flag asks for is now what happens anyway. Accepted rather than rejected so
+            // a script, a habit, or a note written down when deletion was the default keeps
+            // working, and answered so nobody keeps typing it for a guarantee it no longer buys.
+            warn("transcripts are kept by default now")
         default:
             if arg.hasPrefix("-") {
                 warn("unknown flag \(arg)")
-                return 2
+                return nil
             }
             if name == nil {
                 name = arg
             } else {
                 warn("unexpected argument \(arg)")
-                return 2
+                return nil
             }
         }
     }
-    return performWorktreeRemove(name: name, force: force, keepTranscripts: keepTranscripts)
+    return (name, force, purgeTranscripts)
+}
+
+/// Parse `remove` flags and run the teardown. Returns the process exit code. Called by the
+/// `tally worktree` dispatch, which lives with the read-only commands in WorktreeTree.swift.
+func runWorktreeRemove(args: [String]) -> Int32 {
+    guard let flags = parseWorktreeRemoveFlags(args) else { return 2 }
+    return performWorktreeRemove(name: flags.name, force: flags.force,
+                                 purgeTranscripts: flags.purgeTranscripts)
 }

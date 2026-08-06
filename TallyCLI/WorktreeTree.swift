@@ -277,9 +277,10 @@ func runWorktree(args: [String]) -> Never {
           tally worktree root       print the main repo's absolute path, one line for scripts
           tally worktree list       one tab-separated line per worktree, for grep and pipes
                                     (branch, age, dirty, live agents, last subject)
-          tally worktree remove [name] [--force] [--keep-transcripts]
-                                    remove a merged worktree: kill its agents, delete the worktree,
-                                    its branch, and its transcript dir (bare: pick from a menu)
+          tally worktree remove [name] [--force] [--purge-transcripts]
+                                    remove a merged worktree: kill its agents, delete the worktree
+                                    and its branch, keeping the transcripts they wrote unless
+                                    --purge-transcripts (bare: pick from a menu)
         """)
         exit(2)
     }

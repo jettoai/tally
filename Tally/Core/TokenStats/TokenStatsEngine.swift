@@ -44,7 +44,9 @@ final class TokenStatsEngine: @unchecked Sendable {
         /// written by version 3 can credit a nested project's usage to the tree it sits in.
         /// 5: a worktree is attributed to the repository it was cut from, so entries written by
         /// version 4 still hold a row per parallel line of work instead of one per project.
-        static let currentVersion = 5
+        /// 6: that attribution reads the git directory a worktree actually belongs to, so entries
+        /// written by version 5 can credit a submodule's parallel line to the superproject.
+        static let currentVersion = 6
 
         /// A cache stamped for the rules and the zone in force right now.
         static func current(files: [String: Entry] = [:]) -> Cache {

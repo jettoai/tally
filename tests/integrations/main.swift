@@ -152,7 +152,7 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 6", IntegrationsStore.skillVersion == 6)
+    check("skill is at version 7", IntegrationsStore.skillVersion == 7)
     check("skill teaches the advisor field", currentSkill.contains("advisor.<provider>"))
     check("skill spells out every verdict",
           currentSkill.contains("`collecting`") && currentSkill.contains("`addAccount`")
@@ -225,6 +225,37 @@ try MainActor.assumeIsolated {
           skillProse.contains("launched bare, with `--no-handoff`, or with an `--account` pin"))
     check("…and tells the agent not to re-run a move that is merely waiting",
           skillProse.contains("Relay that rather than running the command again"))
+
+    // The worktree section. `remove` is the one command in this file that destroys work, and the
+    // agent reading it is the one who will be asked to run it ("we merged it, clean it up"), so
+    // what the prose has to carry is the CONSEQUENCE and the check that comes before it. Each claim
+    // is pinned against the CLI's own behaviour (TallyCLI/Worktree.swift, WorktreeTeardown.swift,
+    // WorktreeTree.swift), not against a paraphrase of it.
+    check("skill teaches opening and listing a parallel line",
+          currentSkill.contains("tally claude -w <name>")
+              && currentSkill.contains("tally worktree list")
+              && currentSkill.contains("tally worktree remove <name>"))
+    check("skill says removal closes the sessions running there",
+          skillProse.contains("It CLOSES the sessions in that worktree"))
+    check("…and points at the agent column as the check that comes first",
+          skillProse.contains("Read the agent column of `tally worktree list` first")
+              && skillProse.contains("`-` means nobody is working in it"))
+    check("skill names the argument as the branch, not the directory",
+          skillProse.contains("is the BRANCH, the first column of `tally worktree list`, not the")
+              && skillProse.contains("`<repo>-` prefix"))
+    check("…and warns that a bare remove opens a menu no agent can answer",
+          skillProse.contains("interactive menu that an agent cannot answer"))
+    // The behaviour this version changed. An agent that still believes teardown deletes the
+    // conversation would either talk the user out of a cleanup they should run, or promise a
+    // deletion that no longer happens.
+    check("skill states the transcript default the CLI now has",
+          skillProse.contains("Transcripts are KEPT")
+              && skillProse.contains("`--purge-transcripts` deletes them and nothing else does"))
+    check("skill names the gates that refuse on their own",
+          skillProse.contains("refuses on its own while those agents are mid turn")
+              && skillProse.contains("An unmerged branch is refused"))
+    check("skill says a parallel line inherits the project profile",
+          skillProse.contains("The project profile above belongs to the repository"))
 
     // MARK: auto-update - old installs follow the app, absent and foreign files never do.
     let autoDir = tmp.appendingPathComponent("auto")

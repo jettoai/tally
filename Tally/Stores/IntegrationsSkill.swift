@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 6
+    nonisolated static let skillVersion = 7
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -17,7 +17,7 @@ extension IntegrationsStore {
         """
         ---
         name: tally-quota
-        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, which account a launch would land on, and the usage advisor's verdict on whether the current accounts cover the workload. Also sets a per-project launch profile (which model this repo runs) and moves a running conversation to another account, either one the user names or the one with the most headroom. Use when the user asks how much quota is left, about rate limits or resets, which account to use, whether to add another account, how usage is trending, before starting heavy multi-agent work, when a project should run a cheaper model than the fleet default, when the user asks to switch this session to a particular account, or when the account a session is on runs low mid-conversation.
+        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, which account a launch would land on, and the usage advisor's verdict on whether the current accounts cover the workload. Also sets a per-project launch profile (which model this repo runs), moves a running conversation to another account (one the user names or the one with the most headroom), and opens, lists and tears down git worktrees, the parallel lines of work a repository runs sessions in. Use when the user asks how much quota is left, about rate limits or resets, which account to use, whether to add another account, how usage is trending, before starting heavy multi-agent work, when a project should run a cheaper model than the fleet default, when the user asks to switch this session to a particular account, when the account a session is on runs low mid-conversation, or when the user wants to start a parallel line of work on a branch of its own and to clean one up once it is merged.
         ---
 
         <!-- tally-skill v\(skillVersion), managed by Tally.app (Settings -> Integrations); safe to delete -->
@@ -156,6 +156,51 @@ extension IntegrationsStore {
         `tally project set --account "Claude 4"` (the section above). The two are different
         instructions: `switch` moves this conversation now, `project set` decides where
         future launches in this repo land.
+
+        # Parallel lines of work on the same repository
+
+        A worktree is a second checkout of one repository on its own branch: its own
+        directory, its own sessions, one shared history. Tally owns the whole life cycle:
+
+        ```
+        tally claude -w <name>        # open, or rejoin, the line named <name>
+        tally worktree list           # one line per line of work, for reading and grep
+        tally worktree root           # the main repo's path, from anywhere inside it
+        tally worktree remove <name>  # tear one down once its branch is merged
+        ```
+
+        Opening one (`-w`) creates `<repo>-<name>` beside the main repository the first
+        time and reuses it afterwards, shares the project's memory into it, and runs the
+        repo's `.tally/worktree-setup.sh` if it has one. The project profile above belongs
+        to the repository, so a parallel line launches on the same model without being
+        told again.
+
+        `tally worktree list` prints one tab-separated line per worktree: branch, age,
+        a `*` when the working tree is dirty, the live agent count (`2 agents`, or `-`
+        when none are running there), and the last commit subject.
+
+        Before running `remove`, four things worth knowing, because it is the one
+        irreversible command here:
+
+        - It CLOSES the sessions in that worktree. Every agent process whose working
+          directory is the worktree is signalled, then the worktree directory and its
+          branch are deleted. Read the agent column of `tally worktree list` first and say
+          what is there: `-` means nobody is working in it, `2 agents` means closing it
+          ends two sessions. The command refuses on its own while those agents are mid
+          turn, and `--force` is what overrides that refusal.
+        - `<name>` is the BRANCH, the first column of `tally worktree list`, not the
+          directory name: the directory carries a `<repo>-` prefix that this command does
+          not want. Always pass it, since a bare `tally worktree remove` opens an
+          interactive menu that an agent cannot answer.
+        - An unmerged branch is refused, naming how many commits would be lost. Merge it
+          from the main repo first; `--force` is for when losing them is the intent.
+        - Transcripts are KEPT. The conversations that ran in the worktree stay readable
+          and keep counting toward the repository's usage, which is the row the app files
+          them under. `--purge-transcripts` deletes them and nothing else does, so offer
+          it rather than assuming it.
+
+        Run it from the main repository: removing the worktree the current directory sits
+        in is refused, which is the right answer and not a bug to work around.
 
         # When an account runs low mid-conversation
 

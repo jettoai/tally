@@ -399,7 +399,8 @@ default:
       tally worktree root       print the main repo's absolute path, one line for scripts
       tally worktree list       one tab-separated line per worktree, for grep and pipes
       tally worktree remove [name]  tear down a merged worktree (kill its agents, remove the
-                                worktree, its branch, and its transcripts); bare picks from a menu
+                                worktree and its branch, keeping their transcripts unless
+                                --purge-transcripts); bare picks from a menu
       tally project set --model <model> [--effort <effort>] [--account <name>]
                                 declare what THIS project launches (the whole repo, worktrees
                                 included): overrides the app's defaults, is overridden by a flag

@@ -125,10 +125,10 @@ private func agentPhrase(_ count: Int) -> String {
     "\(count) agent\(count == 1 ? "" : "s")"
 }
 
-/// Both ways out, named together: someone stopped by the gate next wants to know how to take the
-/// worktree down WITHOUT losing the conversation, and that flag pair is right here.
-private let worktreeForceHint = "or --force to close them now and delete their transcripts, "
-    + "or --force --keep-transcripts to close them and keep the conversation"
+/// The way out, and what it does to the conversation: someone stopped by the gate wants to know how
+/// to take the worktree down anyway, and whether doing so costs them what the session recorded.
+private let worktreeForceHint = "or --force to close them now, keeping their transcripts "
+    + "(add --purge-transcripts to delete those too)"
 
 /// The one-line refusal, naming the worktree, how many agents it has, and why they are not being
 /// closed: still working, or working unobserved.
@@ -142,7 +142,7 @@ func worktreeRemovalRefusal(branch: String, liveAgents: Int, activity: WorktreeA
 /// The note an idle teardown prints on its way past the gate. Telling, not asking: the agents are
 /// quiet, so closing them is the point of the command, but which of them and what happens to their
 /// conversation should never be a surprise.
-func worktreeIdleNote(branch: String, liveAgents: Int, keepTranscripts: Bool) -> String {
+func worktreeIdleNote(branch: String, liveAgents: Int, purgeTranscripts: Bool) -> String {
     "worktree \(branch): closing \(agentPhrase(liveAgents)) that went idle, "
-        + (keepTranscripts ? "keeping their transcripts" : "deleting their transcripts")
+        + (purgeTranscripts ? "deleting their transcripts" : "keeping their transcripts")
 }

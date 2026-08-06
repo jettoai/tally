@@ -170,8 +170,27 @@ func supervisorPendingBadges(manualMove: PendingBadge? = nil, reload: PendingBad
 /// would be a file replace every 2s per session for the whole time something is queued. Holding the
 /// last value in memory also preserves `since`: the badge is the identity of the wait, so as long as
 /// it reads the same, the wait is the same one and keeps its start time.
+///
+/// THE IN-MEMORY COPY MUST BE SEEDED FROM THE FILE, and that is not an optimisation. A self-update
+/// replaces the supervisor with `execv`, which keeps the pid: the new image starts with `current` at
+/// nil while a notice file written by the image it replaced is still sitting at `<pid>.notice`. The
+/// nil-in / nil-held case then short-circuits, nothing is ever unlinked, and whatever badge happened
+/// to be up at the moment of the upgrade is displayed for the rest of the session - by a supervisor
+/// that has no idea it is saying it. Both badges reported on 2026-08-06 ("cap: no account with quota
+/// to spare" after the session had been switched away, "switch: account removed" with the account
+/// present) came back to this one line, which is why they survived everything including the
+/// conditions they described.
+///
+/// Seeding costs one read per supervisor start and buys the invariant this type is supposed to have:
+/// what is on disk is what this writer last decided, whichever image decided it.
 struct PendingNoticeWriter {
     private var current: String?
+
+    /// `pid` is optional only so a test can build a writer with nothing to reconcile; the supervisor
+    /// always passes its own, because the file it may have to take over is named for it.
+    init(pid: String? = nil, dir: URL = supervisorStateDir) {
+        current = pid.flatMap { readPendingNotice(pid: $0, dir: dir)?.badge }
+    }
 
     /// Idempotent: same badge in, nothing happens.
     mutating func sync(_ pending: PendingBadge?, pid: String, dir: URL = supervisorStateDir,

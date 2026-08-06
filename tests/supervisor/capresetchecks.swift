@@ -183,6 +183,43 @@ func runCapResetChecks() {
     check("and a transcript with no cap at all names no instant",
           watcherAfterScanning([]).capHitAt == nil)
 
+    // MARK: - 27b3. A pending cap belongs to the account it named
+
+    // The reported symptom: a session capped on Claude 5 was moved to Claude 2 by a hand-typed
+    // `tally switch` (handoff.log: `Claude 5->Claude 2 reason=manual-switch`) and the status line
+    // went on saying "no account with quota to spare, waiting for one to free up". The wait was
+    // about an account this conversation is no longer running on, so there was nothing left for it
+    // to be waiting for.
+    let waiting = PendingCapRecovery(
+        cappedAccountID: "A", cappedAt: cappedAt, primaryModel: nil,
+        recoveryResetsAt: launch.addingTimeInterval(10_000),   // far out: not this test's clear path
+        nextRetry: .distantPast,
+        reason: "no account with quota to spare, waiting for one to free up")
+    /// One tick's observation over an empty transcript, so the ONLY thing that can clear the pending
+    /// state is the account the session is running on.
+    func afterMoving(to accountID: String) -> PendingCapRecovery? {
+        var state: PendingCapRecovery? = waiting
+        var quarantine: [String: (model: String?, until: Date)] = [:]
+        var watcher = watcherAfterScanning([])
+        observeCapHit(pendingCap: &state, quarantine: &quarantine, watcher: &watcher,
+                      account: acct(accountID), primaryModel: nil,
+                      now: launch.addingTimeInterval(200), snapshotAccounts: { [] })
+        return state
+    }
+    check("a session still on the account it capped on keeps waiting",
+          afterMoving(to: "A")?.cappedAccountID == "A")
+    check("a session that has been moved elsewhere has nothing left to wait for",
+          afterMoving(to: "B") == nil)
+    // Which is what takes the badge down, since it is derived from the pending state every tick.
+    func capBadge(_ pending: PendingCapRecovery?) -> PendingBadge? {
+        supervisorPendingBadges(reload: nil, followDeadEnd: false, followQueued: false,
+                                policy: LaunchPolicy(), capReason: pending?.reason).chosen
+    }
+    check("so the status line still shows the wait on the account that capped",
+          capBadge(afterMoving(to: "A"))?.badge.contains("no account with quota") == true)
+    check("and shows nothing once the session is somewhere else",
+          capBadge(afterMoving(to: "B")) == nil)
+
     // MARK: - 27c. The loop wiring
 
     // The decision is reachable in a test; its placement in the tick is not, so the source carries

@@ -76,6 +76,37 @@ func runPendingNoticeChecks() {
     writer.sync(nil, pid: "444", dir: noticeDir, now: noticeAt)
     check("and staying empty stays quiet", readPendingNotice(pid: "444", dir: noticeDir) == nil)
 
+    // MARK: - 27b2. Taking over a file this process did not write
+
+    // A self-update replaces the supervisor with `execv`, KEEPING THE PID: the new image starts with
+    // an empty writer while the badge the old one wrote is still at `<pid>.notice`. Without seeding,
+    // "nothing pending" reads as "already nothing" and the file is never unlinked - so whatever was
+    // up at the moment of the upgrade stays on the status line for the rest of the session. Both
+    // badges reported on 2026-08-06 were living that way (a cap wait for an account the session had
+    // been switched off, and a cancellation notice for an account that was present all along).
+    writePendingNotice(PendingNotice(badge: "cap: no account with quota to spare",
+                                     detail: nil, since: noticeAt),
+                       pid: "555", dir: noticeDir)
+    var afterExec = PendingNoticeWriter(pid: "555", dir: noticeDir)
+    afterExec.sync(nil, pid: "555", dir: noticeDir, now: noticeAt.addingTimeInterval(10))
+    check("a writer seeded from the file takes down a badge it never wrote",
+          readPendingNotice(pid: "555", dir: noticeDir) == nil)
+    // And it still knows what is there, so the first tick of a session that is genuinely still
+    // waiting does not rewrite the file (which would restamp the wait as if it had just begun).
+    writePendingNotice(PendingNotice(badge: "reload at idle", detail: nil, since: noticeAt),
+                       pid: "666", dir: noticeDir)
+    var stillWaiting = PendingNoticeWriter(pid: "666", dir: noticeDir)
+    stillWaiting.sync(PendingBadge("reload at idle"), pid: "666", dir: noticeDir,
+                      now: noticeAt.addingTimeInterval(600))
+    check("…and a wait that carried across the upgrade keeps its original start time",
+          readPendingNotice(pid: "666", dir: noticeDir)?.since == noticeAt)
+    // A pid with nothing on file seeds empty, which is every ordinary launch.
+    var fresh = PendingNoticeWriter(pid: "777", dir: noticeDir)
+    fresh.sync(nil, pid: "777", dir: noticeDir, now: noticeAt)
+    check("a supervisor starting clean has nothing to take over",
+          readPendingNotice(pid: "777", dir: noticeDir) == nil)
+    clearPendingNotice(pid: "666", dir: noticeDir)
+
     // MARK: - 27c. The sweep reaches both files
 
     // A SIGKILLed supervisor runs no clear path. Its presence file was already swept; without the

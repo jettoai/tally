@@ -41,8 +41,18 @@ func observeCapHit(pendingCap: inout PendingCapRecovery?,
     // there naming an account that was back at 100%. The boundary it compares against was fixed when
     // the cap happened, so this reads no files at all (SupervisorRuntime.swift explains why it
     // cannot be recomputed here).
+    //
+    // Or the session simply IS NOT THERE ANY MORE. A pending cap is about one account - it names it
+    // (`cappedAccountID`), the badge it raises describes waiting for a sibling to take the session
+    // OFF it - so the moment this conversation is running somewhere else, there is nothing left for
+    // it to describe. Every way that can happen ends here rather than at each mover, because the
+    // list of movers keeps growing (a hand-typed `tally switch` is the one that exposed it: the
+    // session moved from Claude 5 to Claude 2 and the status line went on saying "no account with
+    // quota to spare", 2026-08-06) and a clear that has to be remembered at each of them is a clear
+    // that will be forgotten at the next one.
     if let pending = pendingCap,
-       watcher.lastMainChainEventAt.map({ $0 > pending.cappedAt }) == true
+       pending.cappedAccountID != account.id
+           || watcher.lastMainChainEventAt.map({ $0 > pending.cappedAt }) == true
            || capRecoveredByReset(pending, now: now) {
         pendingCap = nil
     }

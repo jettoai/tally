@@ -74,8 +74,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// What has been said about a queued reload: the stamp it was said for, so a session in use
     /// says it once, and when the wait began, so a wait past five minutes says so once more.
     var reloadNotice = ReloadWait()
-    /// The status line's view of what this supervisor is waiting to do (PendingNotice.swift).
-    var pendingNotice = PendingNoticeWriter()   // cleared when it exits, swept if it is killed
     /// How big this session's conversation has grown, published on the same track for `tally status`
     /// (SessionContext.swift). Outside the loop, like the notice: the session survives its children.
     var sessionContext = SessionContextWriter()
@@ -92,6 +90,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// IS that exec, and written again when this process attempts one of its own.
     var selfUpdateAttempted = consumeSelfUpdateAttempt()
     let supervisorPID = String(getpid())
+    /// The status line's view of what this supervisor is waiting to do, SEEDED from this pid's own
+    /// notice file: a self-update exec keeps the pid and leaves its badge behind for the image it
+    /// hands over to, which then has to be the one that takes it down (PendingNotice.swift).
+    var pendingNotice = PendingNoticeWriter(pid: supervisorPID)   // cleared when it exits
     /// What the user has asked for by hand about the account this session runs on, held across
     /// relaunches and across a self-update exec like the fuse (SessionSwitch.swift owns the rules;
     /// `resumed` is what stops a request this same session just made from being seeded away).

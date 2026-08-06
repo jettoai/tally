@@ -193,7 +193,8 @@ func runSwitchChecks() {
     /// including the disk, so no assertion here depends on what is in the real home directory.
     func tick(_ watcher: inout TranscriptWatcher, request: SwitchRequest?,
               policy: LaunchPolicy = pinnedNowhere, keyboardIdle: Bool = true,
-              accounts: [Snapshot.Account] = fleet, homeOnDisk: Bool = false)
+              accounts: [Snapshot.Account] = fleet, homeOnDisk: Bool = false,
+              now: Date = Date())
         -> (plan: RelaunchPlan?, record: PendingSwitchConsumption?) {
         var plan: RelaunchPlan?
         var record: PendingSwitchConsumption?
@@ -202,7 +203,7 @@ func runSwitchChecks() {
                          account: onA, providerID: "claude", watcher: &watcher, childAge: 9999,
                          keyboardIdle: { _ in keyboardIdle }, dir: tickDir,
                          request: { _ in request }, accounts: { accounts },
-                         homeOnDisk: { _, _ in homeOnDisk })
+                         homeOnDisk: { _, _ in homeOnDisk }, now: now)
         return (plan, record)
     }
 
@@ -327,6 +328,42 @@ func runSwitchChecks() {
     let afterCancel = SwitchRequest(epoch: state.servedEpoch + 1, accountID: "B")
     _ = tick(&deleted, request: afterCancel, keyboardIdle: false)
     check("but a fresh request takes it down", state.badge == nil)
+
+    // …and so does simply carrying on, which is the bound this notice was missing: nothing
+    // re-derives it, so before it was given an end it stayed on the status line for the life of the
+    // session - "switch: account removed" was still there long after the account was back, and it
+    // even outlived the app update that replaced the supervisor (2026-08-06). It ends at the first
+    // assistant turn after it was raised: an answer arriving IS the user coming back to read it.
+    /// A transcript whose newest main-chain answer landed `offset` seconds ago, ALREADY SCANNED:
+    /// the tick reads `lastMainChainEventAt` off a watcher that `observeCapHit` has just walked
+    /// (Supervisor.swift keeps that order, and capresetchecks.swift asserts it), so a fixture that
+    /// had never been scanned would be testing a state the loop cannot be in.
+    func answeredWatcher(_ label: String, at offset: TimeInterval) -> TranscriptWatcher {
+        let when = ISO8601DateFormatter().string(from: Date().addingTimeInterval(offset))
+        var watcher = switchWatcher(label, lines: [
+            #"{"type":"assistant","timestamp":"\#(when)","isSidechain":false,"message":{"model":"claude-fable-5"}}"#,
+        ])
+        _ = watcher.sawCapHit()
+        return watcher
+    }
+    let cancelledAt = Date().addingTimeInterval(-120)
+    try! writeSwitchRequest(accountID: "Q2", sessionKey: session, now: afterServed(), dir: tickDir)
+    let secondRemoval = readSwitchRequest(sessionKey: session, dir: tickDir)!
+    _ = tick(&deleted, request: secondRemoval, now: cancelledAt)
+    check("a second removal raises the notice again",
+          state.badge?.badge == "switch: account removed")
+    // A turn OLDER than the notice is not an answer to it: it was already on screen when that turn
+    // ended, so it has not been read yet.
+    var earlier = answeredWatcher("earlier", at: -300)
+    _ = tick(&earlier, request: nil)
+    check("an answer that predates the notice does not take it down",
+          state.badge?.badge == "switch: account removed")
+    // The next one does.
+    var answeredSince = answeredWatcher("since", at: -60)
+    _ = tick(&answeredSince, request: nil)
+    check("the first answer after it ends the notice", state.badge == nil)
+    check("and it stays gone on the ticks after that",
+          tick(&answeredSince, request: nil).plan == nil && state.badge == nil)
     // The same tick, with the account's config home still on disk: the fleet and the filesystem
     // disagree, so the request is HELD rather than cancelled. This is the reported bug end to end -
     // a statusline showing "switch: account removed" while all five accounts were present, because

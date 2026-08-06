@@ -77,14 +77,40 @@ struct ManualMoveState {
     /// other badge (PendingNotice.swift), so it disappears the moment the reason does.
     var waiting: PendingBadge?
     /// A request this supervisor CANCELLED, which is news rather than a state: the thing it
-    /// describes is gone by the time it is read, so nothing re-derives it and it has to be held
-    /// until something about switching happens again. Cleared by the next request (below) and
-    /// carried no further than that.
+    /// describes is gone by the time it is read, so nothing re-derives it and it has to be HELD.
+    ///
+    /// Which is exactly why it needs an end of its own. Every other badge on this track disappears
+    /// when its condition does; this one has no condition left to watch, so until it was given the
+    /// bound below it simply stayed - a "switch: account removed" was still on the status line long
+    /// after the account was back, outliving even the app update that replaced the supervisor
+    /// (2026-08-06; the file that carried it across that exec is PendingNotice.swift's half of the
+    /// same report).
     var cancelled: PendingBadge?
+    /// When that news was raised, so it can stop being news. nil whenever `cancelled` is.
+    var cancelledAt: Date?
 
     /// The one badge the status line gets from this session's manual moves: a live wait outranks
     /// old news, because it is the thing that is still true.
     var badge: PendingBadge? { waiting ?? cancelled }
+
+    /// The cancellation notice has been READ, so it stops being shown: the session has produced an
+    /// assistant turn since it was raised, which is this repo's existing standard for "the user has
+    /// been back here since" (the cap recovery clears on the same signal, CapDetection.swift).
+    ///
+    /// That event rather than a timer, because a timer would measure the wrong thing: a notice that
+    /// expires after five minutes vanishes unread from a session nobody is looking at, and stays on
+    /// a session being worked in long after the person has moved on. An answer arriving IS the user
+    /// coming back, and the next thing they do after reading it is a fresh command, which supersedes
+    /// this anyway (`state.cancelled = nil` at the top of `applySwitchRequest`).
+    ///
+    /// `lastTurnAt` is the watcher's newest main-chain assistant event. Per CHILD, so a relaunch
+    /// resets it to nil: a notice raised before a restart then waits for the first answer after it,
+    /// which is the same promise measured from the same place.
+    mutating func expireCancellation(lastTurnAt: Date?) {
+        guard let cancelledAt, let lastTurnAt, lastTurnAt > cancelledAt else { return }
+        cancelled = nil
+        self.cancelledAt = nil
+    }
 
     /// `servedEpoch` defaults to whatever is pending right now, so a request written before this
     /// supervisor existed is never replayed (the file is addressed by pid, and pids come round
@@ -241,13 +267,20 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                       },
                       homeOnDisk: @escaping (String, String) -> Bool = {
                           accountHomeExists($0, provider: $1)
-                      }) {
+                      },
+                      now: Date = Date()) {
     let fleet = policy
+    // Before anything else this tick, and on every tick rather than only the ones with a request:
+    // the cancellation notice is the one badge here that nothing re-derives, so the tick that takes
+    // it down has to be a tick that runs anyway (`expireCancellation`). The watcher has already
+    // scanned this tick's new lines by the time the loop reaches this call (`observeCapHit` runs
+    // first, Supervisor.swift), so the turn that ends it is seen on the tick it lands.
+    state.expireCancellation(lastTurnAt: watcher.lastMainChainEventAt)
     applySwitchRequest(plan: &plan, state: &state, record: &record, account: account,
                        providerID: providerID, watcher: &watcher,
                        childAge: childAge, keyboardIdle: keyboardIdle, dir: dir,
                        request: request(state.sessionKey), accounts: accounts,
-                       homeOnDisk: homeOnDisk)
+                       homeOnDisk: homeOnDisk, now: now)
     policy = sessionPolicy(fleet, sessionPin: state.sessionPin)
     guard plan == nil else { return }
     // The FLEET's policy, deliberately: this half is about the pin moved in the panel, and the
@@ -313,7 +346,7 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
                                 keyboardIdle: (TimeInterval) -> Bool,
                                 dir: URL, request: SwitchRequest?,
                                 accounts: () -> [Snapshot.Account]?,
-                                homeOnDisk: (String, String) -> Bool) {
+                                homeOnDisk: (String, String) -> Bool, now: Date) {
     // No request, or one this supervisor has already served. The staleness rule is answered here as
     // well as inside the decision below, because everything between costs a snapshot read and a
     // transcript tail: `isQuiet` locates and tails the file, which is not free per tick.
@@ -326,8 +359,10 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
     }
     // A request this supervisor has not served yet supersedes whatever was said about the last one:
     // the cancellation badge describes a request that no longer exists, and this is the moment it
-    // stops being the news.
+    // stops being the news. Its stamp goes with it, so nothing is left for the expiry to compare
+    // against a turn that has not happened yet.
     state.cancelled = nil
+    state.cancelledAt = nil
     let target = switchTargetState(request.accountID, provider: providerID, accounts: accounts(),
                                    homeOnDisk: homeOnDisk)
     let named = target.account
@@ -359,6 +394,7 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
         // the disk agree the account is gone - a snapshot alone cannot cancel anything.
         state.waiting = nil
         consume(pin: state.sessionPin)
+        state.cancelledAt = now
         state.cancelled = PendingBadge(
             "switch: account removed",
             detail: "the account `tally switch` named is no longer in the fleet, so the move was "

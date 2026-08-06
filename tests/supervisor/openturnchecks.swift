@@ -237,7 +237,7 @@ func runOpenTurnChecks() {
     let supervisorSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift",
                                         encoding: .utf8)) ?? ""
     if let start = supervisorSource.range(of: "// Cap handoff / wait:"),
-       let end = supervisorSource.range(of: "// Follow the launch default:",
+       let end = supervisorSource.range(of: "// The session's ACTUAL model",
                                         range: start.upperBound ..< supervisorSource.endIndex) {
         let cap = String(supervisorSource[start.upperBound ..< end.lowerBound])
         check("the cap handoff consults neither the quiet gate nor the open-turn check",

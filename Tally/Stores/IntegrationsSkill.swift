@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 10
+    nonisolated static let skillVersion = 11
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -195,8 +195,9 @@ extension IntegrationsStore {
           to re-pin if they want to go back once quota returns.
         - No project profile is touched either way, and the pin dies with the session.
         - It exits 0 having queued the move, or non-zero having changed nothing: no such
-          account, or a session nothing is supervising (launched bare, with `--no-handoff`,
-          or with an `--account` pin). Read the message rather than assuming it worked.
+          account, a name that fits SEVERAL accounts (the message lists them - type one of those
+          exactly), or a session nothing is supervising (launched bare, with `--no-handoff`, or
+          with an `--account` pin). Read the message rather than assuming it worked.
         - When the session's supervisor is from another build, the move waits for it to
           replace itself at an idle moment; the command says so. Relay that rather than
           running the command again, which only queues the same move twice.
@@ -322,11 +323,11 @@ extension IntegrationsStore {
         if older > 0 { return .broken(L("Older version installed")) }
         if ours == 0 { return .notInstalled }
         guard ours == files.count else { return .broken(L("Not installed for every account")) }
-        // The `/tally-switch` command and its prompt hook ship WITH the skill, so an install
-        // carrying only the SKILL.md is an install from an older app: the same "bring it up to
-        // date" answer the version marker gets, and `autoUpdateSkill()` does exactly that at the
-        // next launch.
-        return Self.switchCommandIsCurrent(forSkillFiles: files, population: Self.claudeHomes())
+        // The slash commands and their prompt hooks ship WITH the skill, so an install carrying
+        // only the SKILL.md - or carrying one command but not a second the app has since gained -
+        // is an install from an older app: the same "bring it up to date" answer the version marker
+        // gets, and `autoUpdateSkill()` does exactly that at the next launch.
+        return Self.promptCommandsAreCurrent(forSkillFiles: files, population: Self.claudeHomes())
             ? .installed : .broken(L("Older version installed"))
     }
 
@@ -342,7 +343,7 @@ extension IntegrationsStore {
         }
         // Outside the do/catch above on purpose: a skills folder that refused the SKILL.md says
         // nothing about the commands folder next to it, and this call reports its own failures.
-        syncSwitchCommand(forSkillFiles: files)
+        syncPromptCommands(forSkillFiles: files)
         refresh()
     }
 
@@ -356,7 +357,7 @@ extension IntegrationsStore {
         } catch {
             lastError = error.localizedDescription
         }
-        removeSwitchCommand(forSkillFiles: files)
+        removePromptCommands(forSkillFiles: files)
         refresh()
     }
 
@@ -373,12 +374,13 @@ extension IntegrationsStore {
         // Before the early return: when EVERY update failed (an unwritable skills folder) there is
         // nothing to record, but the failure is exactly what Settings must be able to show.
         if let error = result.error { lastError = error }
-        // The command file and its hook follow the SKILL.md's PRESENCE, not their own: an install
-        // from an app that predates them has neither, and "an absent file stays absent" would keep
-        // it that way forever. Run whether or not the skill itself needed rewriting, because a hook
-        // can also go stale on its own (the app moved, so its binary path did).
-        let switchChanged = result.ours.isEmpty ? false : syncSwitchCommand(forSkillFiles: result.ours)
-        guard result.updated > 0 || switchChanged else { return }
+        // The command files and their hooks follow the SKILL.md's PRESENCE, not their own: an
+        // install from an app that predates one has neither, and "an absent file stays absent" would
+        // keep it that way forever. Run whether or not the skill itself needed rewriting, because a
+        // hook can also go stale on its own (the app moved, so its binary path did).
+        let commandsChanged = result.ours.isEmpty ? false
+            : syncPromptCommands(forSkillFiles: result.ours)
+        guard result.updated > 0 || commandsChanged else { return }
         recordManifest("claudeSkill", paths: result.ours.map(\.path))
         refresh()
     }

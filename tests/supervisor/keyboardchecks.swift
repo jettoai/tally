@@ -278,7 +278,7 @@ func runKeyboardChecks() {
     // The one that must NOT have it: that turn is already dead and its owner is waiting on an
     // error, so the handoff is the opposite of an interruption. Nothing between the cap block's
     // opening and the follow block may consult the keyboard, by either spelling.
-    if let cap = block(from: "// Cap handoff / wait:", to: "// Follow the launch default:") {
+    if let cap = block(from: "// Cap handoff / wait:", to: "// The session's ACTUAL model") {
         check("the cap handoff never waits on the keyboard",
               !cap.contains("keyboardIdleNow") && !cap.contains("keyboard.idle"))
     } else {

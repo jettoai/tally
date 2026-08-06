@@ -148,12 +148,8 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
         sessionAccountID(sessionKey: sessionKey, isThisSession: marker == sessionKey,
                          provider: provider, accounts: snapshot?.accounts ?? []) == $0.id
     } ?? false
-    // Whether anything will read the request, asked only when the session named ITSELF: the
-    // environment carries that session's supervisor build, and a directory match carries nothing.
-    let honourability = marker == nil ? SwitchHonourability.honoured
-        : switchHonourability(supervisorVersion:
-                                ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_VERSION"],
-                              installedVersion: supervisorBuildVersion())
+    // Whether anything will read the request (SwitchRequest.swift states when it can be judged).
+    let honourability = liveRequestHonourability(marker: marker)
     if honourability == .tooOld {
         return .refusal(
             "this session's supervisor predates `tally switch` and would never read the request, "
@@ -167,7 +163,7 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
         notes.append("\(target.label) is out of quota - pinning anyway (you asked). A hard cap "
             + "still hands the session on, and clears the pin when it does")
     }
-    sweepDeadSwitchRequests()
+    sweepDeadSessionRequests(dir: switchRequestDir)
     do {
         try writeSwitchRequest(accountID: target?.id ?? switchAutoRequest, sessionKey: sessionKey)
     } catch {
@@ -240,19 +236,23 @@ enum SwitchEntry: Equatable {
 /// Whether a bare invocation may open the arrow-key menu: a human at the keyboard AND a terminal to
 /// answer on. BOTH, because either alone is a pipeline blocked on a keypress nobody will make.
 ///
+/// Named for the menu rather than for this command: `tally model` asks the identical question of the
+/// identical pair of file descriptors (ModelCommand.swift), and the answer must not be allowed to
+/// differ between two commands a user types in the same shell.
+///
 /// `tally switch | cat`, run from an interactive shell, still has a tty on stdin - so a stdin-only
 /// test opened the menu, drew it on /dev/tty (which is not the pipe, so the reader sees nothing) and
 /// waited. Reading stdout is how `shouldSupervise` decides the same kind of question
 /// (LaunchFlags.swift), for the same reason it gives: the redirection is a property of the shell
 /// line rather than of anything the user typed, so it is invisible unless it is asked about.
-func switchMenuAvailable(stdinIsTTY: Bool, stdoutIsTTY: Bool) -> Bool {
+func menuIsAvailable(stdinIsTTY: Bool, stdoutIsTTY: Bool) -> Bool {
     stdinIsTTY && stdoutIsTTY
 }
 
 /// The routing, pure, so it is testable without a terminal: the menu needs one, and "does a script
 /// still get the usage text" is exactly the question a test has to be able to ask.
 ///
-/// `interactive` is `switchMenuAvailable` above. A pipeline gets what it has always got, because a
+/// `interactive` is `menuIsAvailable` above. A pipeline gets what it has always got, because a
 /// script that suddenly meets an arrow-key menu hangs.
 func switchEntry(_ args: [String], interactive: Bool) -> SwitchEntry {
     if let intent = switchIntent(args) { return .act(intent) }
@@ -267,7 +267,7 @@ func switchEntry(_ args: [String], interactive: Bool) -> SwitchEntry {
 /// a terminal, it asks (SwitchMenu.swift).
 func runSwitch(args: [String]) -> Int32 {
     let chosen: SwitchIntent?
-    switch switchEntry(args, interactive: switchMenuAvailable(
+    switch switchEntry(args, interactive: menuIsAvailable(
         stdinIsTTY: isatty(STDIN_FILENO) == 1, stdoutIsTTY: isatty(STDOUT_FILENO) == 1)) {
     case .act(let intent):
         chosen = intent

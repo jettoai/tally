@@ -71,7 +71,7 @@ func runFollowChecks() {
     check("the follow block consults the args, not just its own baseline",
           block.contains("followAlreadySatisfied("))
     var baselineComesFirst = false
-    if let rebaseline = block.range(of: "(state.followedModel, state.followedEffort) = desired"),
+    if let rebaseline = block.range(of: "state.adopt(model: desired.0, effort: desired.1)"),
        let firstQueue = block.range(of: "else if state.pendingSince == nil") {
         baselineComesFirst = rebaseline.lowerBound < firstQueue.lowerBound
     }

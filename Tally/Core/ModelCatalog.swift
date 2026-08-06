@@ -4,9 +4,10 @@ import Foundation
 /// provider offers. Neither list is a hard gate - the UI always keeps a Custom escape hatch,
 /// because model ids evolve server-side faster than any list.
 enum ModelCatalog {
-    /// Claude Code documents these aliases in its own --help ("an alias for the latest model");
-    /// aliases track the latest model of each tier, so the list stays valid across releases.
-    static let claudeAliases = ["fable", "opus", "sonnet", "haiku"]
+    /// The documented Claude aliases, from the list both targets compile (LaunchAxisNames.swift):
+    /// `tally model` offers the same names in its own picker, and two copies would eventually
+    /// suggest different models on the same machine.
+    static let claudeAliases = claudeModelAliases
 
     /// Codex maintains its own model list on disk (`models_cache.json`, fetched and refreshed by
     /// the CLI itself with etag semantics) - read the slugs from the first home that has one.

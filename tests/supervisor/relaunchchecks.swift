@@ -135,10 +135,7 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     // removes the binary path and the subcommand, which main.swift consumes before parsing.
     func roundTrip(id: String, label: String, home: String, follow: Bool,
                    recoveries: [Date] = [], sessionPin: String? = nil, pinOverride: String? = nil,
-                   args: [String]) -> (id: String, label: String, home: String, follow: Bool,
-                                       recoveries: [Date], sessionPin: String?,
-                                       pinOverride: String?, pendingCap: PendingCapRecovery?,
-                                       childArgs: [String]) {
+                   args: [String]) -> ResuperviseArgs {
         parseResuperviseArgs(Array(selfUpdateArgv(binary: "/usr/local/bin/tally", id: id,
                                                   label: label, home: home, follow: follow,
                                                   recoveries: recoveries, sessionPin: sessionPin,
@@ -329,13 +326,26 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
           followSource.contains("state.deadEnd = true") && followSource.contains("return"))
     check("no bare continue skips the rest of the tick",
           followSource.range(of: #"(?<![-"])\bcontinue\b"#, options: .regularExpression) == nil)
-    if let followCall = supervisorSource.range(of: "applyFollowAdoption("),
+    // The adoption is now called from SessionDirectives.swift with the two typed instructions it
+    // shares an order with; what the tick still has to guarantee is the half this check is about -
+    // that a dead-ended adoption does not take the rest of the tick with it.
+    if let directives = supervisorSource.range(of: "applySessionDirectives("),
        let reloadCall = supervisorSource.range(of: "applyReloadRequest(") {
         check("and a reload request is still handled after it, dead end or not",
-              followCall.lowerBound < reloadCall.lowerBound)
+              directives.lowerBound < reloadCall.lowerBound)
     } else {
         check("both calls were found in the tick", false)
     }
+    // The order is the rule that file exists to hold: where the session runs, then what it runs
+    // there, then the launch default it follows when told neither. A planner that was not found at
+    // all drops out of the list, so the count is asserted too rather than a missing call reading as
+    // a pass.
+    let directivesSource = (try? String(contentsOfFile: "TallyCLI/SessionDirectives.swift",
+                                        encoding: .utf8)) ?? ""
+    let directiveCalls = ["applyManualMoves(", "applySessionModel(", "applyFollowAdoption("]
+        .compactMap { directivesSource.range(of: $0)?.lowerBound }
+    check("the three directives run in the order the file states, adoption last",
+          directiveCalls.count == 3 && directiveCalls == directiveCalls.sorted())
 
     // The fuse carry is only real if the loop is wired to both ends of it, and neither end can be
     // reached without spawning a child, so the source carries the invariant (as above).

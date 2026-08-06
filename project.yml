@@ -74,6 +74,11 @@ targets:
       # spelling would silently stop the app from finding what the CLI wrote, and the symptom (a
       # removed worktree's history pooling into Other) only appears on a later full rescan.
       - path: Tally/Core/WorktreeOrigins.swift
+      # The names a launch axis may take. `tally model` validates an effort against the same list
+      # the app's picker offers and suggests the same model aliases, so both targets compile the
+      # one copy: a drifted second list would let the CLI write an `--effort` value the child does
+      # not recognise (a session that will not start) while the app's picker still refused it.
+      - path: Tally/Core/LaunchAxisNames.swift
     settings:
       base:
         PRODUCT_NAME: tally

@@ -122,18 +122,24 @@ struct PendingBadge: Equatable {
 /// The order is by how much the user is being kept from: a `tally switch` that cannot be carried out
 /// leads, because it is the most specific instruction anyone has given this session and the command
 /// that queued it has already returned, so this badge is the only thing left to say it is stuck;
-/// then a reload they asked for; then a model change that Settings will re-apply on its own, where a
-/// follow with nowhere to land outranks one that is merely queued; and a capped session waiting for
-/// a sibling is last because the transcript already told them the turn failed.
+/// then a `tally model` they typed, which is the same kind of instruction one axis over; then a
+/// reload they asked for; then a model change that Settings will re-apply on its own, where a follow
+/// with nowhere to land outranks one that is merely queued; and a capped session waiting for a
+/// sibling is last because the transcript already told them the turn failed.
+///
+/// The typed model change sits under the switch and over the reload for the reason the order is
+/// about: a held switch is STUCK and nobody has been told, while a queued model change is waiting
+/// out the turn that asked for it and ends on its own.
 struct PendingBadges: Equatable {
     var manualMove: PendingBadge?
+    var sessionModel: PendingBadge?
     var reload: PendingBadge?
     var followDeadEnd: PendingBadge?
     var followQueued: PendingBadge?
     var capWaiting: PendingBadge?
 
     var chosen: PendingBadge? {
-        manualMove ?? reload ?? followDeadEnd ?? followQueued ?? capWaiting
+        manualMove ?? sessionModel ?? reload ?? followDeadEnd ?? followQueued ?? capWaiting
     }
 }
 
@@ -143,10 +149,12 @@ struct PendingBadges: Equatable {
 /// cap: the loop hands over the four pieces of state it already holds, and everything else (ranking,
 /// wording, deciding whether the file needs touching at all) happens on this side.
 func syncPendingNotice(_ writer: inout PendingNoticeWriter, pid: String,
-                       manualMove: PendingBadge?, reload: PendingBadge?,
+                       manualMove: PendingBadge?, sessionModel: PendingBadge? = nil,
+                       reload: PendingBadge?,
                        followDeadEnd: Bool, followQueued: Bool, policy: LaunchPolicy,
                        capReason: String?, dir: URL = supervisorStateDir, now: Date = Date()) {
-    writer.sync(supervisorPendingBadges(manualMove: manualMove, reload: reload,
+    writer.sync(supervisorPendingBadges(manualMove: manualMove, sessionModel: sessionModel,
+                                        reload: reload,
                                         followDeadEnd: followDeadEnd, followQueued: followQueued,
                                         policy: policy, capReason: capReason).chosen,
                 pid: pid, dir: dir, now: now)
@@ -155,13 +163,17 @@ func syncPendingNotice(_ writer: inout PendingNoticeWriter, pid: String,
 /// Everything the poll loop knows about what it is deferring, turned into badges. The long forms are
 /// the sentences these used to print on the terminal, kept verbatim so nothing is lost by moving
 /// them off it.
-func supervisorPendingBadges(manualMove: PendingBadge? = nil, reload: PendingBadge?,
+func supervisorPendingBadges(manualMove: PendingBadge? = nil, sessionModel: PendingBadge? = nil,
+                             reload: PendingBadge?,
                              followDeadEnd: Bool, followQueued: Bool,
                              policy: LaunchPolicy, capReason: String?) -> PendingBadges {
     let model = policy.model ?? "default"
     let effort = policy.effort ?? "default"
     return PendingBadges(
         manualMove: manualMove,
+        // Already a finished badge when it arrives: what it says is about the pair the user typed,
+        // which this function has no other way to know (SessionModel.swift raises it).
+        sessionModel: sessionModel,
         reload: reload,
         followDeadEnd: followDeadEnd
             ? PendingBadge("no account for \(shortModelName(model))",

@@ -7,6 +7,51 @@ import Foundation
 // but the risk lives in the other half: the merge writes into settings.json, which is the user's
 // entire harness configuration and, on shared setups, one physical file behind several accounts.
 // So most of what is asserted below is what comes out UNCHANGED.
+// The `/tally-switch` descriptor applied to the shared machinery. The install, the hook surgery and
+// the group decision moved to IntegrationsPromptCommand.swift when a second command arrived
+// (`/tally-model`); every property they had is this command's property still, so these checks name
+// them the way they always did and supply the descriptor here, once.
+extension IntegrationsStore {
+    static var switchCommand: PromptCommand { switchPromptCommand }
+    static func switchCommandMarkdown() -> String { switchCommand.markdown }
+    static var switchCommandMarker: String { promptCommandMarker }
+    static func switchCommandFile(inHome home: URL) -> URL {
+        promptCommandFile(inHome: home, command: switchCommand)
+    }
+    static func upsertSwitchCommand(in file: URL) throws -> Bool {
+        try upsertPromptCommand(in: file, command: switchCommand)
+    }
+    static func removeSwitchCommand(in file: URL) throws {
+        try removePromptCommand(in: file)
+    }
+    static func switchHookCommand(_ binary: URL) -> String {
+        promptHookCommand(binary, command: switchCommand)
+    }
+    static func settingsRegisteringSwitchHook(_ settings: [String: Any],
+                                              command: String) -> [String: Any]? {
+        settingsRegisteringPromptHook(settings, command: command, hook: switchCommand)
+    }
+    static func settingsWithoutSwitchHook(_ settings: [String: Any]) -> [String: Any]? {
+        settingsWithoutPromptHook(settings, hook: switchCommand)
+    }
+    static func upsertSwitchHook(in file: URL, command: String) throws -> Bool {
+        try upsertPromptHook(in: file, command: command, hook: switchCommand)
+    }
+    static func removeSwitchHook(in file: URL) throws -> Bool {
+        try removePromptHook(in: file, hook: switchCommand)
+    }
+    static func settingsCarrySwitchHook(_ file: URL) -> Bool {
+        settingsCarryPromptHook(file, hook: switchCommand)
+    }
+    static func switchCommandIsCurrent(forSkillFiles files: [URL], population: [URL]) -> Bool {
+        promptCommandIsCurrent(forSkillFiles: files, population: population, command: switchCommand)
+    }
+    static func syncSwitchCommand(inHomes homes: [URL],
+                                  hookCommand: String) -> PromptCommandSync {
+        syncPromptCommand(inHomes: homes, hookCommand: hookCommand, command: switchCommand)
+    }
+}
+
 @MainActor
 func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     // MARK: /tally-switch - the command file, which is the FALLBACK half of the feature.

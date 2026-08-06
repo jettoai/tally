@@ -60,7 +60,7 @@ func runSwitchRequestChecks() {
     try! writeSwitchRequest(accountID: "acct-2", sessionKey: String(getpid()), dir: switchDir)
     try! "notes".write(to: switchDir.appendingPathComponent("notes.txt"), atomically: true,
                        encoding: .utf8)
-    sweepDeadSwitchRequests(dir: switchDir)
+    sweepDeadSessionRequests(dir: switchDir)
     check("a request for a dead session is swept",
           readSwitchRequest(sessionKey: "99999", dir: switchDir) == nil)
     check("a live session's request survives the sweep",

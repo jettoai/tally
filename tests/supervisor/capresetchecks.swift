@@ -255,7 +255,7 @@ func runCapResetChecks() {
     // The placement that made all of it work: the scan happens before anything can plan a relaunch,
     // because a relaunch resets the watcher's `since` and the cap event would be read as history.
     if let observe = loop.range(of: "observeCapHit("),
-       let firstPlanner = loop.range(of: "applyManualMoves(") {
+       let firstPlanner = loop.range(of: "applySessionDirectives(") {
         check("the cap scan runs before the first planner in the tick",
               observe.lowerBound < firstPlanner.lowerBound)
     } else {

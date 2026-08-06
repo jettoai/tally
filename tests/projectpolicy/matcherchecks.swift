@@ -77,6 +77,26 @@ func runAccountMatchChecks(setSource: String) {
     check("…and the config-dir name is what still tells them apart",
           matchedID(".claudeB", in: twinFleet) == "claude:.claudeB")
 
+    // ACROSS the two names, not only within one. A label is free text the user can edit, so one
+    // account's label can be exactly another's directory name - and then trying the label first
+    // answers an input that points just as exactly at the other account. No ordering fixes that:
+    // whichever name is tried first wins, and both readings were exact, so the only honest answer is
+    // to refuse. (Found in review of the fix that introduced the stages, 2026-08-07.)
+    let collide = [Snapshot.Account(id: "claude:.work", provider: "claude", label: ".claude9",
+                                    launchHome: "/Users/u/.work", isStale: false),
+                   lookalike(".claude9", "Claude 9")]
+    let collideFleet = Snapshot(version: 2, generatedAt: now, accounts: collide)
+    check("one account's label being another's directory name is refused, not ordered around",
+          accountMatching(".claude9", provider: "claude", in: collideFleet) == .several(collide))
+    check("…and both readings are listed, so either can be retyped unambiguously",
+          accountMatchCandidates(collide) == ".claude9 (.work), Claude 9 (.claude9)")
+    // The collision is only about the colliding input: each account still answers to its own other
+    // name, which is what makes the refusal actionable rather than a dead end.
+    check("the account whose label collided still answers to its own directory",
+          matchedID(".work", in: collideFleet) == "claude:.work")
+    check("…and the other one to its own label", matchedID("Claude 9", in: collideFleet)
+              == "claude:.claude9")
+
     // The candidate list a refusal hands back: both names, because the label alone cannot always tell
     // them apart and both are things this matcher accepts, so the list is also the set of answers to
     // retype.

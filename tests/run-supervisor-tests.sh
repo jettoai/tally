@@ -6,6 +6,11 @@
 # app policy it re-reads (TallyCLI/ProjectPolicy.swift); GitRepoRoot.swift is the repo identity
 # that profile is keyed by, and StatusReport/UsageAdvisor come along because the profile also
 # publishes itself into `tally status --json`.
+#
+# The Model*/SessionModel/SessionDirectives files are `tally model`, which is the same shape one
+# axis over: a request file, a tick decision, and the CLI surfaces that write one. LaunchAxisNames
+# is the shared effort enumeration both targets compile, and ResuperviseContract is the exec
+# contract the self-update tests already assert (it was split out of SelfUpdate.swift).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
@@ -24,6 +29,8 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/standdownchecks.swift tests/supervisor/switchchecks.swift \
   tests/supervisor/switchrequestchecks.swift tests/supervisor/switchsessionchecks.swift \
   tests/supervisor/switchhookchecks.swift tests/supervisor/sessionpinchecks.swift \
+  tests/supervisor/modelrequestchecks.swift tests/supervisor/modeltickchecks.swift \
+  tests/supervisor/modelsurfacechecks.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptFork.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift TallyCLI/Reload.swift \
   TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AccountComfort.swift \
@@ -33,5 +40,8 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/PendingNotice.swift TallyCLI/FollowAdoption.swift TallyCLI/StandDown.swift \
   TallyCLI/SessionContext.swift TallyCLI/ResumePrompt.swift TallyCLI/SessionSwitch.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/AccountHome.swift TallyCLI/SwitchCommand.swift TallyCLI/SwitchHook.swift TallyCLI/SwitchMenu.swift TallyCLI/WorktreeMenu.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
+  TallyCLI/ResuperviseContract.swift TallyCLI/ModelRequest.swift TallyCLI/SessionModel.swift \
+  TallyCLI/SessionDirectives.swift TallyCLI/ModelCommand.swift TallyCLI/ModelHook.swift \
+  TallyCLI/ModelMenu.swift Tally/Core/LaunchAxisNames.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift
 "$out"

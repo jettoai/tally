@@ -90,12 +90,17 @@ func clearSwitchRequest(sessionKey: String, dir: URL = switchRequestDir) {
 /// (it was queued behind a turn that never ended), and the OS reuses pids. Swept by the CLI as it
 /// writes, which is the only moment anything here grows.
 ///
-/// Its own function rather than `sweepDeadSupervisorState` pointed at this directory, though the
+/// Named for the SESSION rather than for the switch, and the directory is a required argument, so
+/// every per-session request directory sweeps through this one loop: `tally model` writes into its
+/// own (ModelRequest.swift) under the same naming rule, and a second copy of this loop would be a
+/// second answer to "is that pid still alive".
+///
+/// Its own function rather than `sweepDeadSupervisorState` pointed at these directories, though the
 /// two loops look alike: that one reads names through `supervisorStatePid`, which accepts the
 /// suffixed documents the state directory holds, and NOTHING here is ever suffixed. Sharing it would
-/// make this directory's naming contract the other one's, so a document added there could start
+/// make these directories' naming contract the other one's, so a document added there could start
 /// being deleted from here.
-func sweepDeadSwitchRequests(dir: URL = switchRequestDir) {
+func sweepDeadSessionRequests(dir: URL) {
     let files = (try? FileManager.default.contentsOfDirectory(at: dir,
         includingPropertiesForKeys: nil)) ?? []
     for file in files {
@@ -254,10 +259,15 @@ func liveSessionMarker(_ env: [String: String] = ProcessInfo.processInfo.environ
 /// it stamped into the environment against the installed one - the same two values the status line's
 /// supervision note compares (SupervisorRuntime.swift).
 ///
-/// It exists because the failure it prevents is SILENT. A supervisor from a build without this
-/// feature registers, stamps its pid, and polls nothing here: the request would be written, read by
-/// nobody, and the session would sit where it was while the command reported success.
-enum SwitchHonourability: Equatable {
+/// It exists because the failure it prevents is SILENT. A supervisor from a build without a given
+/// feature registers, stamps its pid, and polls nothing for it: the request would be written, read
+/// by nobody, and the session would sit as it was while the command reported success.
+///
+/// Named for the REQUEST rather than for the switch, because the question is about the supervisor
+/// and not about the axis: `tally model` writes into a directory of its own and asks exactly this
+/// before it does (ModelCommand.swift). A second copy would be a second answer to "is that
+/// supervisor new enough".
+enum RequestHonourability: Equatable {
     /// The supervisor is the current build and reads these requests.
     case honoured
     /// A different build, which replaces itself at the next idle moment (since 0.26.0) and reads the
@@ -273,12 +283,26 @@ enum SwitchHonourability: Equatable {
 /// only where a live session marker was found, so `steered` and `supervised` are true by
 /// construction. `.ok` covers the case with no installed version to compare against (a standalone or
 /// dev build of this CLI), which assumes it works rather than asserting a problem it cannot see.
-func switchHonourability(supervisorVersion: String?, installedVersion: String?)
-    -> SwitchHonourability {
+func requestHonourability(supervisorVersion: String?, installedVersion: String?)
+    -> RequestHonourability {
     switch supervisionStatus(steered: true, supervised: true, supervisorVersion: supervisorVersion,
                              installedVersion: installedVersion) {
     case .unknown: return .tooOld
     case .outdated: return .afterSelfUpdate
     case .ok, .notSteered, .notSupervised: return .honoured
     }
+}
+
+/// The same question asked of the live world, which is what every command that writes a request has
+/// to ask before it writes one (`attemptSwitch`, `attemptModel`).
+///
+/// `marker` is the session marker the caller already read for the lookup. It is asked ONLY when the
+/// session named ITSELF: the environment carries that session's supervisor build, and a session
+/// found through the directory fallback carries nothing to compare, so there is no version there to
+/// judge and the request is written on the assumption that it will be read.
+func liveRequestHonourability(marker: String?) -> RequestHonourability {
+    guard marker != nil else { return .honoured }
+    return requestHonourability(
+        supervisorVersion: ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_VERSION"],
+        installedVersion: supervisorBuildVersion())
 }

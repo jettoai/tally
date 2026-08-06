@@ -11,22 +11,17 @@ import Observation
 final class EffortLevels {
     static let shared = EffortLevels()
 
-    private(set) var claude = EffortLevels.withAliases(["low", "medium", "high", "xhigh", "max"])
+    /// Both readings - the fallback list and the parsed one below - go through
+    /// `claudeEffortNames` in LaunchAxisNames.swift, which the CLI target compiles too: the same
+    /// names decide what `tally model` will accept after `--effort`, and a second copy here would
+    /// let the two disagree about what is safe to launch.
+    private(set) var claude = claudeEffortNames()
     let codex = ["low", "medium", "high", "xhigh"]
-
-    /// Accepted by the claude CLI's `--effort` parser but absent from its help enumeration:
-    /// "ultracode" (xhigh + the CLI's session-scoped multi-agent orchestration mode; alias map
-    /// and activation path verified in binary 2.1.214).
-    private nonisolated static let undocumentedClaudeAliases = ["ultracode"]
-
-    nonisolated static func withAliases(_ levels: [String]) -> [String] {
-        levels + undocumentedClaudeAliases.filter { !levels.contains($0) }
-    }
 
     private init() {
         Task.detached(priority: .utility) {
             guard let parsed = Self.parseClaudeLevels() else { return }
-            await MainActor.run { EffortLevels.shared.claude = Self.withAliases(parsed) }
+            await MainActor.run { EffortLevels.shared.claude = claudeEffortNames(parsed) }
         }
     }
 

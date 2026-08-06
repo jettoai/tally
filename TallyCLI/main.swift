@@ -190,6 +190,17 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     exec(provider.cli, args: args, env: launchEnv(provider, home: account.launchHome!))
 }
 
+/// The live sessions as `status --json` reports them: the published reading per account
+/// (SessionContext.swift) turned into the report's own value type. Here rather than in either file,
+/// because StatusReport.swift is a pure value type that must not learn where a supervisor publishes
+/// anything, and SessionContext.swift must not learn what the JSON contract looks like.
+func statusSessions() -> [String: StatusReport.SessionSummary] {
+    supervisedSessionsByAccount().mapValues {
+        StatusReport.SessionSummary(contextTokens: $0.contextTokens, model: $0.sessionModel,
+                                    effort: $0.sessionEffort)
+    }
+}
+
 func runStatus(json: Bool = false) {
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
@@ -215,7 +226,7 @@ func runStatus(json: Bool = false) {
         // this is a per-conversation number a script asks for by name (SessionContext.swift).
         print(encodeStatusReport(statusReport(snapshot, policies: policies, advisor: advisor,
                                               quarantined: quarantined,
-                                              sessions: supervisedContextTokens(),
+                                              sessions: statusSessions(),
                                               projectPolicy: profile)))
         return
     }
@@ -388,8 +399,12 @@ case "reload":
     exit(runReload(args: Array(arguments.dropFirst())))
 case "switch":
     exit(runSwitch(args: Array(arguments.dropFirst())))
+case "model":
+    exit(runModel(args: Array(arguments.dropFirst())))
 case "hook-switch":   // internal: the `/tally-switch` prompt hook (SwitchHook.swift)
     exit(runHookSwitch())
+case "hook-model":    // internal: the `/tally-model` prompt hook (ModelHook.swift)
+    exit(runHookModel())
 case resuperviseCommand:   // internal: a supervisor replacing itself after an app update
     runResupervise(args: Array(arguments.dropFirst()))
 case "update":
@@ -440,6 +455,17 @@ default:
                                 model (installed with the Claude Code skill integration)
       tally switch --auto       release that pin: this session follows automatic account selection
                                 again (the project profile, then the app's pin or smart pick)
+      tally model <model> [effort]
+                                run THIS conversation on that model (and depth) for the rest of its
+                                life: it changes when the current turn ends and STAYS, surviving
+                                every relaunch - a cap handoff, a reload, an app self-update - which
+                                is what Claude Code's own `/model` cannot do, since the supervisor
+                                relaunches from its own command line. Name only a model and the
+                                effort is left alone. `tally model auto` hands the session back to
+                                this project's profile and then the app's default; bare, in a
+                                terminal, it shows what is running and offers a menu. Inside Claude
+                                Code, `/tally-model opus xhigh` does the same without waking a model
+                                (installed with the Claude Code skill integration)
       tally reload [--now]      restart every supervised session at its next idle moment, so edited
                                 hooks, skills, and instructions take effect everywhere without
                                 visiting each terminal (--now waits only for a 5s quiet gap, so it

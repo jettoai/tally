@@ -483,5 +483,8 @@ runSwitchRequestChecks()
 runSwitchSessionChecks()
 runSwitchHookChecks()
 runSessionPinChecks()
+runModelRequestChecks()
+runModelTickChecks()
+runModelSurfaceChecks()
 
 exit(failures == 0 ? 0 : 1)

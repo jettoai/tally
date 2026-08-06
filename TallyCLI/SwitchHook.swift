@@ -35,14 +35,26 @@ enum HookSwitchAction: Equatable {
     case list
 }
 
-/// The decision, pure: everything about the payload, nothing about the world. `command_args` is what
-/// Claude Code puts the rest of the typed line in, already past its own quote handling, so the value
-/// IS the account name and is passed on as written (an account label may contain spaces, and
-/// re-parsing it here would be a second, different, quoting rule).
-func hookSwitchAction(_ raw: String) -> HookSwitchAction {
+/// The rest of the typed line, as Claude Code hands it to a prompt hook: one JSON object on stdin,
+/// with `command_args` holding everything after the command, already past its own quote handling.
+/// nil for anything else - stdin that is not JSON, a payload without the field, a shape from a
+/// future Claude Code - which every hook here reads as "nothing was named".
+///
+/// Named for the HOOK CONTRACT rather than for the switch, because the contract is Claude Code's and
+/// not this command's: `/tally-model` is handed the same object by the same event (ModelHook.swift),
+/// and a second copy of the reading would be a second answer to what an unparseable payload means.
+func hookCommandArguments(_ raw: String) -> String? {
     guard let data = raw.data(using: .utf8),
-          let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-          let arguments = payload["command_args"] as? String else { return .list }
+          let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    else { return nil }
+    return payload["command_args"] as? String
+}
+
+/// The decision, pure: everything about the payload, nothing about the world. The value IS the
+/// account name and is passed on as written (an account label may contain spaces, and re-parsing it
+/// here would be a second, different, quoting rule).
+func hookSwitchAction(_ raw: String) -> HookSwitchAction {
+    guard let arguments = hookCommandArguments(raw) else { return .list }
     let name = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
     return name.isEmpty ? .list : .queue(name)
 }

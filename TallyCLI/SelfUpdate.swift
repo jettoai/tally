@@ -26,21 +26,10 @@ import Foundation
 // more times. So the fuse's recorded recoveries ride across in the argv below, as absolute times.
 //
 // Everything else that is a promise about the SESSION rather than about this process rides the same
-// way, and for the same reason: the pins a `tally switch` left, and the cap recovery the session is
-// still waiting out. Each is a flag below with its own note on what an absent one has to mean.
-//
-// LOAD-BEARING ACROSS VERSIONS: `__resupervise` and its flags are a contract between two DIFFERENT
-// builds, not an internal detail. The old build writes the argv; the NEW build's parser reads it.
-// Rename the subcommand, remove a flag, or change what one means, and every session that upgrades
-// into that release dies at the exec: its child has already been terminated, the new image does not
-// recognise the command, prints the usage text, exits 2, and the user is left staring at a shell
-// prompt where their conversation was. The upgrade-only gate cannot protect against this, because
-// the build they land on is by definition the newer one. Adding a new OPTIONAL flag is safe (an old
-// build simply never writes it, and the parser must keep defaulting sensibly when it is absent);
-// renaming or removing anything here is not. If it ever has to change, ship a release that accepts
-// both spellings first, and drop the old one only once no supervisor predating that release can
-// still be running. `parseResuperviseArgs` is round-trip tested against `selfUpdateArgv` for the
-// same reason: the two halves are one contract.
+// way, and for the same reason: the pins a `tally switch` left, the pair a `tally model` pinned, and
+// the cap recovery the session is still waiting out. How each of those is SPELLED in the argv is
+// next door in ResuperviseContract.swift, which is the half a different BUILD has to agree with;
+// what is here is only the decision to replace this process at all.
 
 /// How long this supervisor must have been running its current child before it may replace itself.
 /// The brake on a pathological environment (a half-installed bundle whose plist reads differently
@@ -52,11 +41,6 @@ let selfUpdateMinUptime: TimeInterval = 60
 /// again. Without it, a bundle that keeps reporting the old version after the swap would have every
 /// generation exec once more, forever.
 let selfUpdateTargetEnvKey = "TALLY_SELF_UPDATE_TARGET"
-
-/// The internal subcommand a self-update re-enters through. Not a user-facing command (it is absent
-/// from the usage text on purpose): it carries the account and the conversation across the exec so
-/// the new supervisor resumes exactly what the old one was watching, with no re-picking.
-let resuperviseCommand = "__resupervise"
 
 /// Whether `installed` is a LATER release than `captured`, compared component by component so 0.10.0
 /// beats 0.9.0 (a string compare has that backwards). A version that is not plain dotted integers
@@ -109,156 +93,6 @@ func selfUpdateTarget(captured: String?, installed: String?, isQuiet: Bool, rela
     return installed
 }
 
-/// The flag carrying the recovery fuse's recorded recoveries across the exec, so the limit holds
-/// for the SESSION rather than for the process. Optional by construction: a supervisor with an
-/// empty fuse writes no flag at all, which is also what every build predating it wrote.
-let resuperviseFuseFlag = "--fuse"
-
-/// The flag carrying the account a `tally switch` pinned this session to (SessionSwitch.swift), for
-/// the same reason the fuse rides along: the pin is a promise about the user's SESSION, and it lives
-/// in memory only. Without it, the first quiet tick after an upgrade would hand the session back to
-/// automatic selection - a nearly dry account rebalances it away, and the account the user named
-/// silently stops being the one they are on.
-///
-/// A NEW optional flag rather than a new meaning for `--pin-override` below, because the two halves
-/// of this argv are written by different BUILDS: an old supervisor writes the pin it moved the
-/// session OFF, and reading that as the pin it was moved ONTO would name the wrong account. Optional
-/// by construction, like the fuse - an unpinned session writes no flag, and so does every build
-/// predating this one, which is exactly the behaviour those builds had.
-let resuperviseSessionPinFlag = "--session-pin"
-
-/// The flag carrying the pin a `tally switch` took this session OFF (SessionSwitch.swift), for the
-/// same reason the fuse rides along: it is a promise about the user's session, not about this
-/// process. Without it the new image starts with no override, and the first quiet tick after an
-/// upgrade hands the session straight back to the pin it was deliberately moved away from - undoing
-/// an instruction the user gave by hand, minutes later, for no reason they can see.
-///
-/// Optional by construction, like the fuse: a session that never overrode a pin writes no flag, and
-/// so does every build predating this one. An absent flag means "no override", which is exactly the
-/// behaviour those builds had.
-///
-/// Nothing in this build WRITES it any more (a switch records a session pin instead, which outranks
-/// every pin rather than only the one it overrode), and it is still parsed and still forwarded: a
-/// session that upgrades out of a build that wrote one arrives holding it, and dropping it there
-/// would undo that session's switch on its first quiet tick.
-let resupervisePinOverrideFlag = "--pin-override"
-
-/// The fuse's recoveries as a flag value: absolute epoch seconds, comma separated. Absolute, not
-/// "N seconds ago", because the exec takes real time (and can be delayed by a slow disk mid-install)
-/// and durations re-based on arrival would silently stretch the window they are measured in.
-func encodeRecoveryFuse(_ recoveries: [Date]) -> String {
-    recoveries.map { String($0.timeIntervalSince1970) }.joined(separator: ",")
-}
-
-/// The recoveries a previous build wrote, or none. Anything unreadable answers empty rather than a
-/// partial list: the value comes from a DIFFERENT build, so a shape we cannot fully parse is a
-/// disagreement about the format, and half-believing it would put an arbitrary number of recoveries
-/// into the new fuse. Empty degrades to exactly today's behaviour (a fresh fuse), never to a crash.
-func decodeRecoveryFuse(_ raw: String) -> [Date] {
-    guard !raw.isEmpty else { return [] }
-    var recoveries: [Date] = []
-    for field in raw.split(separator: ",", omittingEmptySubsequences: false) {
-        guard let epoch = Double(field), epoch.isFinite else { return [] }
-        recoveries.append(Date(timeIntervalSince1970: epoch))
-    }
-    return recoveries
-}
-
-/// The flag carrying the cap recovery this session is still waiting on, for the same reason the fuse
-/// rides along: it is a promise about the SESSION - which account capped, when, when the window it
-/// capped on refills, when to retry the handoff, and what the status line is currently saying about
-/// the wait - and it lives in memory only. Without it the new image comes back with nothing left to
-/// notice a sibling freeing up, and the session waits on a dead account until its user hits the wall
-/// a second time: the same failure `capCarriedAcrossRelaunch` (SupervisorRuntime.swift) exists to
-/// prevent one child later. That function decides WHETHER the state survives a given relaunch; this
-/// flag is only how it gets across an exec, and a self-update relaunch is one it carries.
-///
-/// JSON, where the fuse uses a delimited list, because these fields are not all numbers: the waiting
-/// note is a sentence containing commas and parentheses, and an account id can be a path. One argv
-/// token either way. Optional by construction, like every flag here - a session with no pending cap
-/// writes nothing, which is also what every build predating this one wrote, and an old parser
-/// reading an argv it does not recognise skips the flag and its value as two unknown words.
-let resupervisePendingCapFlag = "--pending-cap"
-
-/// A pending cap recovery as a flag value: one JSON object, with absolute epoch seconds for the
-/// times for the reason the fuse uses them - the exec takes real time, and a duration re-based on
-/// arrival would silently move the boundary it names. Keys are sorted so a given state always spells
-/// the same argv. nil when the value cannot be serialised at all, which writes no flag: a state we
-/// cannot spell in full is one the new image must not receive in part.
-func encodePendingCap(_ pending: PendingCapRecovery) -> String? {
-    var fields: [String: Any] = [
-        "account": pending.cappedAccountID,
-        "cappedAt": pending.cappedAt.timeIntervalSince1970,
-        "nextRetry": pending.nextRetry.timeIntervalSince1970,
-        "reason": pending.reason,
-    ]
-    if let model = pending.primaryModel { fields["model"] = model }
-    if let resets = pending.recoveryResetsAt { fields["resets"] = resets.timeIntervalSince1970 }
-    guard let data = try? JSONSerialization.data(withJSONObject: fields, options: [.sortedKeys]),
-          let text = String(data: data, encoding: .utf8) else { return nil }
-    return text
-}
-
-/// The pending cap a previous build wrote, or none. Anything unreadable answers nil rather than a
-/// partial record, for the reason `decodeRecoveryFuse` gives: the value comes from a DIFFERENT
-/// build, so a shape we cannot fully parse is a disagreement about the format. Half-believing one is
-/// worse here than dropping it - a record that lost `resets` is a session whose badge can never
-/// clear itself, and one that lost `model` scores every handoff candidate against the wrong quota
-/// window - so a key that is present but unreadable discards the whole value. Keys a later build
-/// adds are ignored; keys genuinely absent are genuinely absent (no reset boundary the snapshot
-/// could name, no model this session pinned).
-func decodePendingCap(_ raw: String) -> PendingCapRecovery? {
-    func seconds(_ value: Any?) -> Date? {
-        guard let epoch = value as? Double, epoch.isFinite else { return nil }
-        return Date(timeIntervalSince1970: epoch)
-    }
-    guard let data = raw.data(using: .utf8),
-          let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-          let account = object["account"] as? String, !account.isEmpty,
-          let cappedAt = seconds(object["cappedAt"]), let nextRetry = seconds(object["nextRetry"]),
-          let reason = object["reason"] as? String
-    else { return nil }
-    var model: String?
-    if let value = object["model"] {
-        guard let text = value as? String, !text.isEmpty else { return nil }
-        model = text
-    }
-    var resets: Date?
-    if let value = object["resets"] {
-        guard let date = seconds(value) else { return nil }
-        resets = date
-    }
-    return PendingCapRecovery(cappedAccountID: account, cappedAt: cappedAt, primaryModel: model,
-                              recoveryResetsAt: resets, nextRetry: nextRetry, reason: reason)
-}
-
-/// The argv an upgrade execs. Continuity is spelled out rather than re-derived: the account is named
-/// explicitly so the new supervisor cannot re-pick a different one, and `args` already carries the
-/// `--resume <session>` the relaunch path produced, so the conversation is pinned by id. Passing the
-/// original launch argv instead would let the new process pick another account and then follow a
-/// bare `--continue` into whatever conversation happens to be newest there. `recoveries` is the
-/// recovery fuse's live record (already pruned by `RecoveryFuse.carried`), and `pendingCap` the cap
-/// state the relaunch this exec rides on decided to hand over (`capCarriedAcrossRelaunch`), so the
-/// new image inherits exactly what the next CHILD would have inherited had there been no upgrade.
-func selfUpdateArgv(binary: String, id: String, label: String, home: String, follow: Bool,
-                    recoveries: [Date] = [], sessionPin: String? = nil,
-                    pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
-                    args: [String]) -> [String] {
-    var argv = [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
-                follow ? "--follow" : "--no-follow"]
-    if !recoveries.isEmpty { argv += [resuperviseFuseFlag, encodeRecoveryFuse(recoveries)] }
-    if let sessionPin, !sessionPin.isEmpty {
-        argv += [resuperviseSessionPinFlag, sessionPin]
-    }
-    if let pinOverride, !pinOverride.isEmpty {
-        argv += [resupervisePinOverrideFlag, pinOverride]
-    }
-    if let pendingCap, let encoded = encodePendingCap(pendingCap) {
-        argv += [resupervisePendingCapFlag, encoded]
-    }
-    return argv + ["--"] + args
-}
-
 /// The path this process would exec, but only when something runnable is actually there right now.
 /// Checked BEFORE the child is terminated: an installer swapping the bundle makes the path vanish
 /// for a moment, and paying for that with the session's child (killed for an exec that was never
@@ -285,14 +119,15 @@ func consumeSelfUpdateAttempt() -> String? {
 /// silently restarting a session is exactly the surprise the dialogs elsewhere exist to avoid.
 func execSelfUpdate(to target: String, id: String, label: String, home: String, follow: Bool,
                     recoveries: [Date] = [], sessionPin: String? = nil, pinOverride: String? = nil,
-                    pendingCap: PendingCapRecovery? = nil,
+                    pendingCap: PendingCapRecovery? = nil, sessionModel: SessionModelPin? = nil,
                     args: [String], binary: String? = Bundle.main.executableURL?.path) {
     guard let binary else { return }
     warn("tally updated to \(target), restarting this session on the new build")
     setenv(selfUpdateTargetEnvKey, target, 1)
     let argv = selfUpdateArgv(binary: binary, id: id, label: label, home: home, follow: follow,
                               recoveries: recoveries, sessionPin: sessionPin,
-                              pinOverride: pinOverride, pendingCap: pendingCap, args: args)
+                              pinOverride: pinOverride, pendingCap: pendingCap,
+                              sessionModel: sessionModel, args: args)
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)
     execv(binary, &cargs)
@@ -345,19 +180,21 @@ func selfUpdateDue(captured: String?, attempted: String?, isQuiet: Bool, relaunc
 /// session, and all three are in memory only. So does the pending cap this relaunch chose to hand on
 /// (`pendingCap`, the caller's `carriedCap`): passing the CARRIED value rather than the live one is
 /// what makes a failed exec and a successful one leave the session in the same place, since the
-/// respawn the caller falls through to reads that same variable. Returns normally only when there
-/// was nothing to do or the exec failed, leaving the caller to respawn.
+/// respawn the caller falls through to reads that same variable. `sessionModel` is the pair a
+/// `tally model` pinned, on the same terms as the account pin: an upgrade that dropped it would put
+/// the session back on the fleet default a minute after the user chose otherwise. Returns normally
+/// only when there was nothing to do or the exec failed, leaving the caller to respawn.
 func execPlannedSelfUpdate(_ upgrade: (target: String, binary: String, home: String)?,
                            attempted: inout String?, target: Snapshot.Account,
                            follow: Bool, recoveries: [Date], sessionPin: String? = nil,
                            pinOverride: String? = nil, pendingCap: PendingCapRecovery? = nil,
-                           args: [String]) {
+                           sessionModel: SessionModelPin? = nil, args: [String]) {
     guard let upgrade else { return }
     attempted = upgrade.target
     execSelfUpdate(to: upgrade.target, id: target.id, label: target.label, home: upgrade.home,
                    follow: follow, recoveries: recoveries, sessionPin: sessionPin,
-                   pinOverride: pinOverride, pendingCap: pendingCap, args: args,
-                   binary: upgrade.binary)
+                   pinOverride: pinOverride, pendingCap: pendingCap, sessionModel: sessionModel,
+                   args: args, binary: upgrade.binary)
 }
 
 /// The upgrade a relaunch ALREADY happening this tick should carry, or nil to come back on the build
@@ -382,71 +219,18 @@ func selfUpdateFold(captured: String?, attempted: String?, home: String?,
                   installed: installed, binary: binary)
 }
 
-/// Parse the exec contract's flags. Pure, and round-trip tested against `selfUpdateArgv`: the two
-/// halves are written by different BUILDS of this program, so a silent disagreement between them
-/// would strand exactly the sessions that were mid-upgrade. Values are taken positionally, so a
-/// label that looks like a flag (`--label --home`) is still a label; a missing or trailing `--`
-/// yields no child args rather than an error, because the supervisor can still resume without them.
-/// An absent `--fuse` (every build before it, and any supervisor whose fuse was empty) means no
-/// recoveries, which is the fresh-fuse behaviour this contract had all along; an absent
-/// `--session-pin` means the session was never pinned by hand, an absent `--pin-override` means it
-/// never overrode a pin, and an absent `--pending-cap` means the session was not waiting on a cap,
-/// which is what every build before each flag effectively said too.
-func parseResuperviseArgs(_ args: [String]) -> (id: String, label: String, home: String,
-                                                follow: Bool, recoveries: [Date],
-                                                sessionPin: String?, pinOverride: String?,
-                                                pendingCap: PendingCapRecovery?,
-                                                childArgs: [String]) {
-    var id = "", label = "", home = ""
-    var follow = true
-    var recoveries: [Date] = []
-    var sessionPin: String?
-    var pinOverride: String?
-    var pendingCap: PendingCapRecovery?
-    var childArgs: [String] = []
-    var index = 0
-    while index < args.count {
-        let argument = args[index]
-        func value() -> String {
-            index + 1 < args.count ? args[index + 1] : ""
-        }
-        switch argument {
-        case "--id": id = value(); index += 2
-        case "--label": label = value(); index += 2
-        case "--home": home = value(); index += 2
-        case resuperviseFuseFlag: recoveries = decodeRecoveryFuse(value()); index += 2
-        // An empty value is no pin rather than a pin on "": these flags are only written with a
-        // real account id, so an empty one is a disagreement about the format, and the safe reading
-        // of it is the behaviour of every build that never wrote the flag at all.
-        case resuperviseSessionPinFlag:
-            sessionPin = value().isEmpty ? nil : value()
-            index += 2
-        case resupervisePinOverrideFlag:
-            pinOverride = value().isEmpty ? nil : value()
-            index += 2
-        case resupervisePendingCapFlag: pendingCap = decodePendingCap(value()); index += 2
-        case "--follow": follow = true; index += 1
-        case "--no-follow": follow = false; index += 1
-        case "--":
-            childArgs = Array(args[(index + 1)...])
-            index = args.count
-        default: index += 1
-        }
-    }
-    return (id, label, home, follow, recoveries, sessionPin, pinOverride, pendingCap, childArgs)
-}
-
 /// `tally __resupervise --id <id> --label <label> --home <path> --follow|--no-follow
 /// [--fuse <epochs>] [--session-pin <accountID>] [--pin-override <accountID>]
-/// [--pending-cap <json>] -- <args...>`: the other side of the exec. Rebuilds the account from what
-/// the previous supervisor passed rather than from the snapshot (which may be stale, or missing the
-/// account entirely at that instant) and resumes supervision, with the recovery fuse, the pins, and
-/// any cap this session is still waiting out continuing where that supervisor left off. Only the id,
-/// label, and home are ever read from an account by the loop; the quota fields are always re-read
-/// from the live snapshot, so leaving them empty here is safe.
+/// [--pending-cap <json>] [--session-model <json>] -- <args...>`: the other side of the exec.
+/// Rebuilds the account from what the previous supervisor passed rather than from the snapshot
+/// (which may be stale, or missing the account entirely at that instant) and resumes supervision,
+/// with the recovery fuse, the pins, and any cap this session is still waiting out continuing where
+/// that supervisor left off. Only the id, label, and home are ever read from an account by the loop;
+/// the quota fields are always re-read from the live snapshot, so leaving them empty here is safe.
+/// The flags themselves are spelled in ResuperviseContract.swift.
 func runResupervise(args: [String]) -> Never {
-    let (id, label, home, follow, recoveries, sessionPin, pinOverride, pendingCap, childArgs) =
-        parseResuperviseArgs(args)
+    let parsed = parseResuperviseArgs(args)
+    let (id, label, home) = (parsed.id, parsed.label, parsed.home)
     guard !home.isEmpty else {
         warn("\(resuperviseCommand) needs --home; this is an internal command")
         exit(2)
@@ -460,7 +244,8 @@ func runResupervise(args: [String]) -> Never {
         resetCreditsAvailable: nil, isStale: false, error: nil)
     // `resumed`: this process replaced a supervisor whose child was already terminated, so the very
     // first spawn below continues a running conversation rather than starting the user's session.
-    runSupervised(provider, account: account, args: childArgs, follow: follow,
-                  recoveries: recoveries, resumed: true, sessionPin: sessionPin,
-                  pinOverride: pinOverride, pendingCap: pendingCap)
+    runSupervised(provider, account: account, args: parsed.childArgs, follow: parsed.follow,
+                  recoveries: parsed.recoveries, resumed: true, sessionPin: parsed.sessionPin,
+                  pinOverride: parsed.pinOverride, pendingCap: parsed.pendingCap,
+                  sessionModel: parsed.sessionModel)
 }

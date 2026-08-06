@@ -147,14 +147,17 @@ func runSessionContextChecks() {
 
     // MARK: - 28d. Reading it back per account
 
+    /// The token figure alone, which is what these assertions are about; the rest of the reading is
+    /// asserted where it is published (statusjson).
+    func tokens() -> [String: Int] {
+        supervisedSessionsByAccount(dir: dir).mapValues(\.contextTokens)
+    }
     writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 12_000,
                                           updatedAt: at), pid: siblingPid, dir: dir)
-    check("two sessions on one account report the largest",
-          supervisedContextTokens(dir: dir) == ["claude:.claude": 477_070])
+    check("two sessions on one account report the largest", tokens() == ["claude:.claude": 477_070])
     writeSessionContext(SupervisedSession(accountID: "claude:.claude2", contextTokens: 33_000,
                                           updatedAt: at), pid: deadPid, dir: dir)
-    check("a dead supervisor's reading is ignored",
-          supervisedContextTokens(dir: dir) == ["claude:.claude": 477_070])
+    check("a dead supervisor's reading is ignored", tokens() == ["claude:.claude": 477_070])
     // And it is swept, so it cannot be repainted for whatever process inherits that pid.
     sweepDeadSupervisorState(dir: dir)
     check("the dead supervisor's file is swept",
@@ -163,7 +166,7 @@ func runSessionContextChecks() {
           readSessionContext(pid: livePid, dir: dir) == reading)
     clearSessionContext(pid: livePid, dir: dir)
     clearSessionContext(pid: siblingPid, dir: dir)
-    check("clearing removes the reading", supervisedContextTokens(dir: dir).isEmpty)
+    check("clearing removes the reading", tokens().isEmpty)
     check("and leaves the presence entry alone",
           FileManager.default.fileExists(atPath: dir.appendingPathComponent(livePid).path))
 

@@ -95,6 +95,13 @@ struct SupervisedSession: Equatable, Codable {
     /// before it existed decodes with nil rather than being rejected, and a reader that has never
     /// heard of it is unaffected.
     var sessionPin: String?
+    /// The model and effort a `tally model` pinned this session to, or nil for an axis it follows
+    /// the project profile and the fleet default on (SessionModel.swift). Additive on the same
+    /// terms as `sessionPin`, and published for the same reason: a surface outside this terminal -
+    /// `tally model` run from another shell, `tally status --json` - has nothing else to read, and
+    /// what a session RUNS is exactly what such a surface is being asked about.
+    var sessionModel: String?
+    var sessionEffort: String?
 }
 
 /// The file a supervisor's context reading lives in.
@@ -154,25 +161,30 @@ struct SessionContextWriter {
     /// Nothing to move before the first reading is published: a session that has never had a turn
     /// has no file, and inventing one with a token count nobody measured would be worse than the
     /// silence the reader already handles.
-    mutating func accountChanged(to accountID: String, pin: String?, pid: String,
+    mutating func accountChanged(to accountID: String, pin: String?, model: String? = nil,
+                                 effort: String? = nil, pid: String,
                                  dir: URL = supervisorStateDir, now: Date = Date()) {
-        guard let current, current.accountID != accountID || current.sessionPin != pin else {
-            return
-        }
+        guard let current, current.accountID != accountID || current.sessionPin != pin
+            || current.sessionModel != model || current.sessionEffort != effort else { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: current.contextTokens,
-                                  updatedAt: now, sessionPin: pin), pid: pid, dir: dir)
+                                  updatedAt: now, sessionPin: pin, sessionModel: model,
+                                  sessionEffort: effort), pid: pid, dir: dir)
     }
 
     /// The pin joins the account as a reason to write even when the number has not moved: it
     /// changes on a tick of its own (a `tally switch --auto` moves nothing at all), and a reading
     /// that waited for the next thousand tokens would describe a session that is no longer pinned.
-    mutating func sync(tokens: Int?, accountID: String, pin: String?, pid: String,
+    /// The model pair joins it on identical terms - `tally model --auto` also moves nothing.
+    mutating func sync(tokens: Int?, accountID: String, pin: String?, model: String? = nil,
+                       effort: String? = nil, pid: String,
                        dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let tokens else { return }   // nothing read yet: leave whatever stands
         if let current, current.accountID == accountID, current.sessionPin == pin,
+           current.sessionModel == model, current.sessionEffort == effort,
            abs(current.contextTokens - tokens) < sessionContextWriteDelta { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: tokens, updatedAt: now,
-                                  sessionPin: pin), pid: pid, dir: dir)
+                                  sessionPin: pin, sessionModel: model, sessionEffort: effort),
+                pid: pid, dir: dir)
     }
 
     /// The one way either of the above reaches the file, so the in-memory copy both of them judge
@@ -185,17 +197,22 @@ struct SessionContextWriter {
 
 // MARK: - Reading it back
 
-/// The live context reading per account: every supervisor still running, keyed by the account it is
-/// on. Several sessions can share an account, and the LARGEST wins, because the number answers "how
-/// much would a resume here cost" and the biggest conversation is the one that answer is about.
+/// The live published reading per account: every supervisor still running, keyed by the account it
+/// is on, carrying both the context a resume would reload and the pair a `tally model` pinned that
+/// session to.
+///
+/// Several sessions can share an account, and the LARGEST conversation wins, because every question
+/// asked of this map ("how much would a resume here cost", "what is that session pinned to") is
+/// about the session a person would be thinking of. One value type per account rather than a field
+/// at a time, so a caller cannot pair one session's token count with another's pinned model.
 ///
 /// A file whose supervisor is gone is ignored rather than trusted, the same rule the drift badge
 /// follows: the startup sweep unlinks it, but a reader running in between must not paint a session
 /// that has already exited.
-func supervisedContextTokens(dir: URL = supervisorStateDir) -> [String: Int] {
+func supervisedSessionsByAccount(dir: URL = supervisorStateDir) -> [String: SupervisedSession] {
     let files = (try? FileManager.default.contentsOfDirectory(at: dir,
         includingPropertiesForKeys: nil)) ?? []
-    var byAccount: [String: Int] = [:]
+    var byAccount: [String: SupervisedSession] = [:]
     for file in files {
         // Through the shared name reader (PendingNotice.swift), so one place knows how a document
         // on this track maps back to the supervisor that wrote it.
@@ -203,7 +220,10 @@ func supervisedContextTokens(dir: URL = supervisorStateDir) -> [String: Int] {
         guard name.hasSuffix(sessionContextSuffix), let pid = supervisorStatePid(ofFile: name),
               supervisorAlive(pid),
               let session = readSessionContext(pid: String(pid), dir: dir) else { continue }
-        byAccount[session.accountID] = max(byAccount[session.accountID] ?? 0, session.contextTokens)
+        if let seen = byAccount[session.accountID], seen.contextTokens >= session.contextTokens {
+            continue
+        }
+        byAccount[session.accountID] = session
     }
     return byAccount
 }

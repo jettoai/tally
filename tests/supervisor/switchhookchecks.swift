@@ -301,12 +301,12 @@ func runSwitchHookChecks() {
     // and blocked the pipeline on a keypress nobody knew to make. Same rule, same reason, as
     // `shouldSupervise` reading stdout (LaunchFlags.swift).
     check("a menu needs a keyboard AND a screen",
-          switchMenuAvailable(stdinIsTTY: true, stdoutIsTTY: true))
+          menuIsAvailable(stdinIsTTY: true, stdoutIsTTY: true))
     check("…so a piped stdout gets the usage text, tty stdin or not",
-          !switchMenuAvailable(stdinIsTTY: true, stdoutIsTTY: false)
-              && !switchMenuAvailable(stdinIsTTY: false, stdoutIsTTY: false))
+          !menuIsAvailable(stdinIsTTY: true, stdoutIsTTY: false)
+              && !menuIsAvailable(stdinIsTTY: false, stdoutIsTTY: false))
     check("…and so does a piped stdin",
-          !switchMenuAvailable(stdinIsTTY: false, stdoutIsTTY: true))
+          !menuIsAvailable(stdinIsTTY: false, stdoutIsTTY: true))
 
     // MARK: - The outcome both surfaces share
 

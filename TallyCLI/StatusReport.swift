@@ -36,6 +36,12 @@ struct StatusReport: Encodable {
         /// the ordinary case for an idle machine - so a script tests for the key rather than
         /// reading a 0 as an empty conversation.
         var sessionContextTokens: Int?
+        /// What that same session was told to RUN, when a `tally model` pinned it (SessionModel.swift).
+        /// Absent when it follows this project's profile and the fleet default, which is where every
+        /// session starts - so, like the reading above, a script tests for the key. The two describe
+        /// ONE session (the largest conversation on the account), never a mixture of several.
+        var sessionModel: String?
+        var sessionEffort: String?
     }
 
     /// Version of THIS output contract, independent of the snapshot file's internal version.
@@ -74,6 +80,17 @@ struct StatusReport: Encodable {
         var path: String
         /// Provider id → the axes that project overrides. Only providers with a profile appear.
         var providers: [String: Overrides]
+    }
+
+    /// One account's live session as this report describes it. A value type rather than three
+    /// parallel dictionaries because the fields are one session's: a caller that assembled them
+    /// separately could publish one session's token count beside another's pinned model.
+    struct SessionSummary: Equatable {
+        var contextTokens: Int
+        /// Optional, so the synthesised memberwise initialiser defaults them: a caller with only a
+        /// token count writes `.init(contextTokens:)`, which is every session that pinned nothing.
+        var model: String?
+        var effort: String?
     }
 
     struct Advisor: Encodable {
@@ -139,12 +156,13 @@ func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPoli
 /// rather than a file read so the report stays a pure function, but callers must pass it: `best`
 /// promises "would launch", and a report that named an account the launcher is currently skipping
 /// would be a lie scripts act on.
-/// `sessions` is the live context reading per account id (SessionContext.swift), a parameter for
-/// the same reason `quarantined` is one: the report stays a pure function of what it is handed.
+/// `sessions` is the live reading per account id (SessionContext.swift), a parameter for the same
+/// reason `quarantined` is one: the report stays a pure function of what it is handed, and this file
+/// never learns where a supervisor publishes anything.
 /// `projectPolicy` likewise: the caller resolved which project this is, this only publishes it.
 func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                   advisor: [UsageAdvisor.Reading] = [], quarantined: [String: Set<String>] = [:],
-                  sessions: [String: Int] = [:],
+                  sessions: [String: StatusReport.SessionSummary] = [:],
                   projectPolicy: StatusReport.ProjectProfile? = nil,
                   now: Date = Date()) -> StatusReport {
     let advisorByProvider = Dictionary(uniqueKeysWithValues: advisor.map { reading in
@@ -186,7 +204,9 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                 modelRemaining: account.modelRemaining,
                 modelResetsAt: account.modelResetsAt,
                 resetCreditsAvailable: account.resetCreditsAvailable,
-                sessionContextTokens: sessions[account.id]))
+                sessionContextTokens: sessions[account.id]?.contextTokens,
+                sessionModel: sessions[account.id]?.model,
+                sessionEffort: sessions[account.id]?.effort))
         }
     }
     return StatusReport(

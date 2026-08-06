@@ -444,6 +444,14 @@ struct RelaunchPlan {
     /// follow adoption and a fallback fill these; a plain cap handoff or pin switch leaves them nil.
     var model: String?
     var effort: String?
+    /// True when a nil `model`/`effort` means REMOVE that flag rather than leave it alone.
+    ///
+    /// Only a `tally model --auto` sets it, and it is the one caller for which the default reading
+    /// is wrong: releasing a pin back to a fleet default that declares no model has to TAKE the
+    /// pinned `--model` off the command line, and "nil leaves it alone" would silently keep the
+    /// session on the pair it was just released from. Every other filler either names both axes or
+    /// means the default reading.
+    var clearsAxes = false
     /// Extra flags the fallback profile appends (e.g. --append-system-prompt).
     var extraArgs: [String] = []
     /// True once a follow adoption has folded its pair in, so the same tick does not do it twice.
@@ -456,7 +464,8 @@ struct RelaunchPlan {
 /// One function rather than an inline rewrite because a self-update folded into the plan execs with
 /// these same args: the new build must receive what the child would have been given.
 func planLaunchArgs(_ args: [String], plan: RelaunchPlan) -> [String] {
-    guard plan.model != nil || plan.effort != nil || !plan.extraArgs.isEmpty else { return args }
+    guard plan.model != nil || plan.effort != nil || !plan.extraArgs.isEmpty || plan.clearsAxes
+    else { return args }
     // Gathered first, then placed where they will be READ (`injectingOptions`, Snapshot.swift).
     // Appended, a relaunch that changed the model landed it past the user's `--` and into the
     // prompt: claude ran the OLD pairing, `FollowState` could not see the new one either, and its

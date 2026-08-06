@@ -63,15 +63,15 @@ func runSwitchSessionChecks() {
     // registers and stamps its pid exactly like a current one, so a request written for it would be
     // read by nobody while the command reported success.
     check("a supervisor on the installed build reads the request",
-          switchHonourability(supervisorVersion: "0.37.0", installedVersion: "0.37.0")
+          requestHonourability(supervisorVersion: "0.37.0", installedVersion: "0.37.0")
               == .honoured)
     check("another build reads it after replacing itself",
-          switchHonourability(supervisorVersion: "0.36.1", installedVersion: "0.37.0")
+          requestHonourability(supervisorVersion: "0.36.1", installedVersion: "0.37.0")
               == .afterSelfUpdate)
     check("a supervisor with no version stamp never will",
-          switchHonourability(supervisorVersion: nil, installedVersion: "0.37.0") == .tooOld)
+          requestHonourability(supervisorVersion: nil, installedVersion: "0.37.0") == .tooOld)
     check("a CLI outside any bundle cannot compare, and does not invent a problem",
-          switchHonourability(supervisorVersion: "0.36.1", installedVersion: nil) == .honoured)
+          requestHonourability(supervisorVersion: "0.36.1", installedVersion: nil) == .honoured)
 
     // MARK: - 31j. The marker the whole feature is addressed by
 

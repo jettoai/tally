@@ -48,6 +48,20 @@ struct FollowState {
         followedModel = flagValue(launchArgs, "--model")?.lowercased()
         followedEffort = flagValue(launchArgs, "--effort")?.lowercased()
     }
+
+    /// This session now runs `model`/`effort`, whoever decided that: re-point the baseline and drop
+    /// any adoption that was queued against the old one.
+    ///
+    /// Its own method because a SECOND writer appeared (`applySessionModel`, SessionModel.swift) and
+    /// the three fields have to move together: a baseline updated without clearing `pendingSince`
+    /// leaves a debounce running for a pair nobody is waiting for any more, and the queued note
+    /// beside it would go on describing it.
+    mutating func adopt(model: String?, effort: String?) {
+        followedModel = model?.lowercased()
+        followedEffort = effort?.lowercased()
+        pendingSince = nil
+        queuedNotice = false
+    }
 }
 
 /// One tick's follow decision. Deliberate, so no fuse. Adoption waits until the desired pair holds
@@ -79,9 +93,7 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
     if desired == (state.followedModel, state.followedEffort)
         || followAlreadySatisfied(desiredModel: desired.0, desiredEffort: desired.1,
                                   launchArgs: launchArgs) {
-        (state.followedModel, state.followedEffort) = desired
-        state.pendingSince = nil
-        state.queuedNotice = false
+        state.adopt(model: desired.0, effort: desired.1)
     } else if state.pendingSince == nil || desired != (state.pendingModel, state.pendingEffort) {
         (state.pendingModel, state.pendingEffort) = desired
         state.pendingSince = Date()
@@ -101,8 +113,7 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
             plan = existing
             warn("also adopting launch default \(policy.model ?? "default")/" +
                  "\(policy.effort ?? "default")")
-            (state.followedModel, state.followedEffort) = desired
-            state.pendingSince = nil
+            state.adopt(model: desired.0, effort: desired.1)
         } else if plan == nil {
             let repick: Snapshot.Account?
             if policy.mode == "manual" {
@@ -134,8 +145,7 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
                  (repick.id != account.id ? " on \(repick.label)" : ""))
             plan = RelaunchPlan(target: repick, reason: "follow", countsFuse: false,
                                 model: policy.model, effort: policy.effort)
-            (state.followedModel, state.followedEffort) = desired
-            state.pendingSince = nil
+            state.adopt(model: desired.0, effort: desired.1)
         }
     } else {
         // Queued behind an in-use session: the badge carries it, so the change never

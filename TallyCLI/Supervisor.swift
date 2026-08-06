@@ -28,11 +28,13 @@ import Foundation
 ///
 /// `pendingCap`: the cap recovery that supervisor was still waiting out, handed over the same way
 /// (SelfUpdate.swift) - without it an upgrade would hand a capped session back with nothing left to
-/// notice a sibling freeing up. nil for every normal launch.
+/// notice a sibling freeing up. `sessionModel`: the pair a `tally model` pinned, on the same terms
+/// and for the same reason as the account pin (SessionModel.swift). Both nil for a normal launch.
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String],
                    follow: Bool = false, recoveries: [Date] = [], resumed: Bool = false,
                    sessionPin: String? = nil, pinOverride: String? = nil,
-                   pendingCap: PendingCapRecovery? = nil) -> Never {
+                   pendingCap: PendingCapRecovery? = nil,
+                   sessionModel: SessionModelPin? = nil) -> Never {
     let cwd = FileManager.default.currentDirectoryPath
     let slug = projectSlug(forCwd: cwd)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
@@ -106,6 +108,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// `resumed` is what stops a request this same session just made from being seeded away).
     var manualMoves = ManualMoveState(sessionKey: supervisorPID, servedEpoch: resumed ? 0 : nil,
                                       sessionPin: sessionPin, overriddenPin: pinOverride)
+    /// What the user has asked this session to RUN, on the same terms as the account pin above
+    /// (SessionModel.swift owns the rules; `resumed` stops a request this session just made from
+    /// being seeded away as served).
+    var sessionModelState = SessionModelState(sessionKey: supervisorPID,
+                                              servedEpoch: resumed ? 0 : nil,
+                                              pin: sessionModel ?? SessionModelPin())
     // A self-update keeps the pid and gives this state a fresh start, so a cancellation notice the
     // replaced image had just raised lives only in its file - where the seeded writer above would
     // take it down on the first tick, as the honest answer to "this session has nothing pending".
@@ -274,6 +282,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             /// A served `tally switch`, on the same terms: written only if the relaunch happens, so
             /// a stand-down leaves the request pending (SessionSwitch.swift).
             var switchRecord: PendingSwitchConsumption?
+            /// A served `tally model`, on those same terms (SessionModel.swift).
+            var modelRecord: PendingModelConsumption?
 
             // Cap recovery has top priority: the transcript is scanned BEFORE any relaunch path
             // (pin, switch, follow, rescue, fallback), because a relaunch resets the watcher's
@@ -287,14 +297,20 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // quota-degradation paths below with `drift.isActive` (DriftMonitor.swift).
             observeDrift(&drift, watcher: &watcher, primary: effectivePrimary, pid: supervisorPID)
 
-            // The moves the user asked for by hand (a `tally switch` typed inside this session, the
-            // panel pin they moved), decided first so every automatic reason below yields to them.
-            // The rule lives in SessionSwitch.swift; `switchRecord` is this tick's unwritten
-            // bookkeeping, committed at the execution point like the safeguard's.
-            applyManualMoves(plan: &plan, state: &manualMoves, record: &switchRecord,
-                             policy: &policy, account: account, providerID: provider.id,
-                             watcher: &watcher, childAge: Date().timeIntervalSince(launchedAt),
-                             keyboardIdle: { keyboard.idle($0) })
+            // Where this session runs and what it runs there: a `tally switch` or a panel pin, a
+            // `tally model`, and the launch default it follows when told neither. All three
+            // together because the ORDER between them is a rule, and it lives with them in
+            // SessionDirectives.swift. Everything below yields to them by being gated on
+            // `plan == nil`; the two records are committed at the execution point like the
+            // safeguard's.
+            applySessionDirectives(plan: &plan, moves: &manualMoves, switchRecord: &switchRecord,
+                                   model: &sessionModelState, modelRecord: &modelRecord,
+                                   follow: &followState, following: follow, policy: &policy,
+                                   account: account, providerID: provider.id,
+                                   launchArgs: launchArgs, quarantine: quarantine,
+                                   watcher: &watcher,
+                                   childAge: Date().timeIntervalSince(launchedAt),
+                                   keyboardIdle: { keyboard.idle($0) })
 
             // Cap handoff / wait: a pending cap outranks follow, rescue, and fallback for the
             // account MOVE (the pin switch above still wins), and it is the only mover a session pin
@@ -304,15 +320,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                             providerID: provider.id, fleet: fleetPolicy,
                             sessionPin: manualMoves.sessionPin, quarantine: quarantine,
                             fuseAllows: fuse.allows())
-
-            // Follow the launch default: a Settings change to "Default model & effort" re-points
-            // this RUNNING session at the next quiet moment. The whole rule lives in
-            // FollowAdoption.swift; what the tick supplies is the state, the plan it may fold into,
-            // and the two things it has to ask about idleness.
-            applyFollowAdoption(plan: &plan, state: &followState, following: follow, policy: policy,
-                                account: account, providerID: provider.id, launchArgs: launchArgs,
-                                quarantine: quarantine, watcher: &watcher,
-                                keyboardIdle: { keyboard.idle($0) })
 
             // The session's ACTUAL model is no longer the one it was launched for (claude fell back
             // server-side - e.g. the flagship weekly ran dry). Two ordered answers, at most one per
@@ -413,11 +420,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // How much context a resume of this conversation would reload, for the surfaces outside
             // this terminal (SessionContext.swift). Read off the scan the tick already ran.
             sessionContext.sync(tokens: watcher.lastContextTokens, accountID: account.id,
-                                pin: manualMoves.sessionPin, pid: supervisorPID)
+                                pin: manualMoves.sessionPin, model: sessionModelState.pin.model,
+                                effort: sessionModelState.pin.effort, pid: supervisorPID)
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID,
-                              manualMove: manualMoves.badge, reload: reloadNotice.pending,
+                              manualMove: manualMoves.badge, sessionModel: sessionModelState.waiting,
+                              reload: reloadNotice.pending,
                               followDeadEnd: followState.deadEnd, followQueued: followState.queuedNotice,
                               policy: policy, capReason: pendingCap?.reason)
 
@@ -453,6 +462,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // relaunch reads to know the event was corrected (SafeguardDrift.swift).
                 safeguardRecord?.commit()
                 switchRecord?.commit(&manualMoves)
+                modelRecord?.commit(&sessionModelState)
                 carriedCap = capCarriedAcrossRelaunch(pendingCap, reason: plan.reason)
                 let upgrade = selfUpdateFold(captured: supervisorVersion,
                                              attempted: selfUpdateAttempted,
@@ -462,6 +472,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // the next tick that reads a token figure: a `tally switch` from a shell outside
                 // this session has only that file to go on (SessionContext.swift).
                 sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
+                                              model: sessionModelState.pin.model,
+                                              effort: sessionModelState.pin.effort,
                                               pid: supervisorPID)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan)
                 // Last, so an exec that fails falls through to the respawn below with this plan
@@ -470,7 +482,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                       follow: follow, recoveries: fuse.carried(),
                                       sessionPin: manualMoves.sessionPin,
                                       pinOverride: manualMoves.overriddenPin,
-                                      pendingCap: carriedCap, args: launchArgs)
+                                      pendingCap: carriedCap,
+                                      sessionModel: sessionModelState.pin, args: launchArgs)
                 break
             }
         }

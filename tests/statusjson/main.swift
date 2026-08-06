@@ -222,13 +222,27 @@ check("quarantine: a manual pin still launches, so it keeps the marker",
 // MARK: live sessions - the context a resume would reload, per account (SessionContext.swift)
 let sessions = parse(encodeStatusReport(statusReport(
     snapshot, policies: ["claude": LaunchPolicy()],
-    sessions: ["claude:.claude": 477_070], now: now)))
+    sessions: ["claude:.claude": .init(contextTokens: 477_070, model: "opus", effort: "xhigh")],
+    now: now)))
 check("a supervised account carries its context reading",
       account(sessions, "claude:.claude")["sessionContextTokens"] as? Int == 477_070)
 // Absent rather than zero: an account with no session running has no answer, and a 0 would read
 // as an empty conversation.
 check("an account with no session has no key at all",
       account(sessions, "claude:.claude2")["sessionContextTokens"] == nil)
+// Additive: what that same session was told to RUN, when a `tally model` pinned it. One session's
+// fields, never a mixture of several - the caller picks the largest conversation on the account and
+// this reports THAT one (SessionContext.swift).
+check("…and carries what that session was pinned to run",
+      account(sessions, "claude:.claude")["sessionModel"] as? String == "opus"
+          && account(sessions, "claude:.claude")["sessionEffort"] as? String == "xhigh")
+check("a session following the defaults reports no pair at all, rather than a guess",
+      { let unpinned = parse(encodeStatusReport(statusReport(
+            snapshot, policies: ["claude": LaunchPolicy()],
+            sessions: ["claude:.claude": .init(contextTokens: 1_000)], now: now)))
+        let row = account(unpinned, "claude:.claude")
+        return row["sessionContextTokens"] as? Int == 1_000 && row["sessionModel"] == nil
+            && row["sessionEffort"] == nil }())
 check("and neither does anything when no session is running",
       accounts(auto).allSatisfy { $0["sessionContextTokens"] == nil })
 

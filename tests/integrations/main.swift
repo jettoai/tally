@@ -99,7 +99,33 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 10", IntegrationsStore.skillVersion == 10)
+    check("skill is at version 11", IntegrationsStore.skillVersion == 11)
+    // A SECOND slash command ships with the skill now, and every surface that walks the commands
+    // walks one list: a command added to the sync and forgotten by the uninstall (or by the "is
+    // this install current" check) is exactly the failure the list exists to make impossible.
+    check("both slash commands are managed",
+          IntegrationsStore.promptCommands.map(\.name) == ["tally-switch", "tally-model"])
+    check("each has its own hook subcommand, file and manifest keys",
+          Set(IntegrationsStore.promptCommands.map(\.hookMarker)).count == 2
+              && Set(IntegrationsStore.promptCommands.map(\.commandManifest)).count == 2
+              && Set(IntegrationsStore.promptCommands.map(\.hookManifest)).count == 2)
+    check("…and both carry the version marker the skill shares",
+          IntegrationsStore.promptCommands.allSatisfy {
+              $0.markdown.contains(IntegrationsStore.promptCommandMarker)
+          })
+    let modelCommand = IntegrationsStore.modelPromptCommand.markdown
+    // The command file is the FALLBACK, so it has to be able to answer alone: it says what the free
+    // path is, what to run, and the two things a user would otherwise have to be told twice.
+    check("the model command says it is the fallback and names the free path",
+          modelCommand.contains("YOU ARE THE FALLBACK") && modelCommand.contains("/tally-model"))
+    check("…passes the arguments through rather than quoting them as one word",
+          modelCommand.contains("tally model $ARGUMENTS"))
+    check("…says the change outlives every relaunch, which is why `/model` cannot do this",
+          modelCommand.contains("relaunches that process from its own command line"))
+    check("…and says naming only a model leaves the effort alone",
+          modelCommand.contains("leaves the effort exactly as it is"))
+    check("no slash command carries an em dash",
+          IntegrationsStore.promptCommands.allSatisfy { !$0.markdown.contains("\u{2014}") })
     check("skill teaches the advisor field", currentSkill.contains("advisor.<provider>"))
     check("skill spells out every verdict",
           currentSkill.contains("`collecting`") && currentSkill.contains("`addAccount`")

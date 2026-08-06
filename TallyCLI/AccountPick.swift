@@ -49,12 +49,17 @@ enum AccountMatch: Equatable {
 /// The account a hand-written NAME picks out. Only launchable accounts are candidates - naming a
 /// signed-out one is not a way to launch it.
 ///
-/// FOUR STAGES, most exact first, and the order is the whole point:
+/// THREE STAGES, most exact first, and the order is the whole point:
 ///
-///   1. the label, exactly (case-insensitively)
-///   2. the config-dir name, exactly
-///   3. a substring of either, when exactly ONE account contains it
-///   4. a substring of either matching several: refuse, and hand back the candidates
+///   1. an EXACT hit on either name (the label, case-insensitively, or the config-dir name), when
+///      exactly one account has one
+///   2. a substring of either name, when exactly one account contains it
+///   3. anything else that hit: refuse, and hand back the candidates
+///
+/// The two names share one stage rather than being tried in turn, and that is not a tidy-up. A label
+/// is free text the user can edit, so account A's label can be exactly account B's directory name -
+/// and then a label-first order answers A for an input that points just as exactly at B. Trying them
+/// together makes that what it is: one input, two exact readings, no answer.
 ///
 /// It used to be stage 3 alone, answering with the FIRST hit, which is wrong on the fleet this repo
 /// is written for. Accounts labelled "Claude", "Claude 2", "Claude 3", "Claude 4" all contain
@@ -76,20 +81,20 @@ enum AccountMatch: Equatable {
 /// is written down and another way when it is used is a pin that lands somewhere nobody asked for.
 func accountMatching(_ name: String, provider: String, in snapshot: Snapshot?) -> AccountMatch {
     let query = name.lowercased()
-    // The config-dir name is derived once per account: three of the four stages read it.
+    // The config-dir name is derived once per account: every stage below reads it.
     let candidates = (snapshot?.accounts ?? []).compactMap {
         account -> (account: Snapshot.Account, dir: String)? in
         guard account.provider == provider, let home = account.launchHome else { return nil }
         return (account, URL(fileURLWithPath: home).lastPathComponent.lowercased())
     }
-    // Uniqueness is required even of an exact hit. Two accounts really carrying the same label are
-    // indistinguishable BY LABEL, so an exact match on both of them is not an answer: it falls
-    // through to the config dir, which is the one name that still tells them apart, and then to the
-    // refusal below.
-    let byLabel = candidates.filter { $0.account.label.lowercased() == query }
-    if byLabel.count == 1 { return .one(byLabel[0].account) }
-    let byDir = candidates.filter { $0.dir == query }
-    if byDir.count == 1 { return .one(byDir[0].account) }
+    // Uniqueness is required even of an exact hit, and it is required ACROSS both names. Two
+    // accounts carrying the same label are indistinguishable by it; an account whose label is
+    // another's directory name is exactly as indistinguishable, in a way no ordering can break -
+    // whichever name is tried first wins, and both readings were exact. Filtering over the
+    // per-account rows above is also what deduplicates: an account matching on both of its own
+    // names is still one candidate, not two.
+    let exact = candidates.filter { $0.account.label.lowercased() == query || $0.dir == query }
+    if exact.count == 1 { return .one(exact[0].account) }
     let hits = candidates.filter {
         $0.account.label.lowercased().contains(query) || $0.dir.contains(query)
     }

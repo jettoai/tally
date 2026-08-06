@@ -83,12 +83,26 @@ extension PopoverRootView {
     }
 
     /// Quiet, on every surface, and off the header so the product wordmark stands alone.
+    ///
+    /// The build's own version rides here, after the wordmark: during a day of shipping several
+    /// builds the question "is this window the one I just installed" has to be answerable without
+    /// opening Settings, and the footer is the band that can afford an extra fact. Rendered as part
+    /// of the credit rather than beside it so it is inside what `showsCredit` measures - the width
+    /// probe below sizes an unrendered copy of THIS view, so a version that is wider on one machine
+    /// than another is already accounted for, and the row drops the whole credit rather than letting
+    /// it reach the icons.
     private var jettoCredit: some View {
         HStack(spacing: 4) {
             Text("by").font(.caption2).foregroundStyle(.tertiary)
             ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
                 .fill(Color.secondary, style: FillStyle(eoFill: true))
                 .frame(width: 40, height: 9)
+            // Not localized on purpose: a dotted version number is a token, not prose. Absent on a
+            // bundle that carries none, rather than trailing the byline with a placeholder for a
+            // fact nobody asked to see.
+            if let version = BuildVariant.version {
+                Text(version).font(.caption2).foregroundStyle(.tertiary)
+            }
         }
         .opacity(0.75)
         .allowsHitTesting(false)

@@ -426,7 +426,7 @@ final class IntegrationsStore {
             manifest[component] = [
                 "paths": paths,
                 "installedAt": ISO8601DateFormatter().string(from: Date()),
-                "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev",
+                "appVersion": BuildVariant.version ?? "dev",
             ]
         } else {
             manifest.removeValue(forKey: component)

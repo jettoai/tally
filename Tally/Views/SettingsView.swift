@@ -470,7 +470,7 @@ struct SettingsView: View {
                     .background(Capsule().fill(TallyColor.warning.opacity(0.15)))
                     .help(L("Built from source without an update feed - it cannot update itself"))
             }
-            Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")")
+            Text("v\(BuildVariant.version ?? "—")")
                 .font(.caption).foregroundStyle(.secondary)
             Link("jetto.ai", destination: URL(string: "https://jetto.ai")!)
                 .font(.caption)

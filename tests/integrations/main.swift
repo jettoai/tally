@@ -99,7 +99,7 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 9", IntegrationsStore.skillVersion == 9)
+    check("skill is at version 10", IntegrationsStore.skillVersion == 10)
     check("skill teaches the advisor field", currentSkill.contains("advisor.<provider>"))
     check("skill spells out every verdict",
           currentSkill.contains("`collecting`") && currentSkill.contains("`addAccount`")
@@ -198,6 +198,18 @@ try MainActor.assumeIsolated {
     check("…names the bang path and the setting that makes it free too",
           currentSkill.contains("! tally switch \"Claude 4\"")
               && skillProse.contains("respondToBashCommands: false"))
+    // The escape hatch may not depend on the thing it escapes: a bare `/tally-switch` is answered
+    // by the hook itself, from the snapshot, with no model in the loop. An agent that still
+    // believed it costs a turn would talk the user out of the one command that still works when
+    // their model quota is gone.
+    check("skill says the bare command prints the fleet without a turn",
+          currentSkill.contains("/tally-switch                # zero turns: the hook PRINTS the "
+              + "fleet, they type a name"))
+    check("…and says why that matters",
+          skillProse.contains("an escape hatch may not depend on the thing it is escaping"))
+    check("…and keeps the terminal menu out of Claude Code",
+          skillProse.contains("that menu is for real terminals only: it never appears under "
+              + "Claude Code"))
     check("…and says why it is preferred, so the agent volunteers it",
           skillProse.contains("Prefer that phrasing when they ask \"how do I switch accounts\""))
     check("…while keeping the agent's own route unambiguous",

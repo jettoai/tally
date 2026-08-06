@@ -38,6 +38,17 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
               && commandProse.contains("most headroom first and mark it Recommended"))
     check("command explains the free path it is standing in for",
           commandProse.contains("without waking a model at all"))
+    // The command file is now purely the fallback: the hook answers BOTH shapes, so an agent
+    // reading this one knows it is here because the hook is not installed, not because the user
+    // typed something the hook could not handle.
+    check("command knows it is the fallback and says which one",
+          commandProse.contains("YOU ARE THE FALLBACK")
+              && commandProse.contains("prints the fleet to pick from when one is not"))
+    check("…and names the two free paths it is standing in for",
+          commandProse.contains("`/tally-switch` lists the accounts itself")
+              && commandProse.contains("`tally switch` on its own opens an arrow-key picker"))
+    check("…and marks the picker it teaches as the degraded path",
+          commandProse.contains("this is the degraded path"))
     check("command relays the timing, which is the thing a user gets wrong",
           commandProse.contains("The move happens when this turn ENDS"))
     check("…and that a non-zero exit means nothing was queued",

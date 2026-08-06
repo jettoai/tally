@@ -48,12 +48,17 @@ func truncateSubject(_ subject: String, max: Int = 40) -> String {
     subject.count <= max ? subject : String(subject.prefix(max - 1)) + "\u{2026}"
 }
 
-/// Build the menu frame as one line per row plus a trailing "n) new worktree" line. `highlighted`
-/// is an index into `[rows..., newWorktreeRow]`: 0..<rows.count marks an existing worktree,
-/// rows.count marks the new-worktree line. The highlighted row wears the "▸" cursor and purple
+/// The trailing action line the worktree menu carries. A menu that has no such affordance passes
+/// `action: nil` (the account picker behind `tally switch` does), and then the rows are all there is.
+let newWorktreeAction = "n) new worktree"
+
+/// Build the menu frame as one line per row plus the trailing action line, when there is one.
+/// `highlighted` is an index into `[rows..., actionRow]`: 0..<rows.count marks an existing row,
+/// rows.count marks the action line. The highlighted row wears the "▸" cursor and purple
 /// branch; a dirty worktree gets a yellow "●"; the subject is dimmed and clipped. Pure: the ANSI
 /// codes are literal so tests can assert on "▸"/"●" without a terminal.
-func renderRows(_ rows: [MenuRow], highlighted: Int) -> [String] {
+func renderRows(_ rows: [MenuRow], highlighted: Int,
+                action: String? = newWorktreeAction) -> [String] {
     var lines: [String] = []
     for (i, row) in rows.enumerated() {
         let selected = i == highlighted
@@ -65,9 +70,10 @@ func renderRows(_ rows: [MenuRow], highlighted: Int) -> [String] {
         let subject = clipped.isEmpty ? "" : "  \(ansiDim)\(clipped)\(ansiReset)"
         lines.append("\(cursor) \(i + 1)) \(branch)  \(age)\(dirty)\(subject)")
     }
+    guard let action else { return lines }
     let newSelected = highlighted == rows.count
     let newCursor = newSelected ? "\(ansiPurple)\u{25B8}\(ansiReset)" : " "
-    let newLabel = newSelected ? "\(ansiPurple)n) new worktree\(ansiReset)" : "n) new worktree"
+    let newLabel = newSelected ? "\(ansiPurple)\(action)\(ansiReset)" : action
     lines.append("\(newCursor) \(newLabel)")
     return lines
 }
@@ -236,23 +242,30 @@ func decodeKey(_ bytes: [UInt8]) -> Key {
 
 // MARK: - Pure state transition
 
-/// Fold one decoded key into the menu state. `rowCount` excludes the trailing new-worktree line, so
-/// the valid highlight range is 0...rowCount (rowCount marks the new-worktree line). A non-nil
-/// selection means the key committed a choice and the loop should stop; nil means keep going with
-/// the returned highlight. Pure, so the whole key-to-selection path is tested without a tty.
-func applyKey(_ key: Key, highlighted: Int, rowCount: Int) -> (highlighted: Int, selection: MenuSelection?) {
-    let lineCount = rowCount + 1
+/// Fold one decoded key into the menu state. `rowCount` excludes the trailing action line, so with
+/// one the valid highlight range is 0...rowCount (rowCount marks that line) and without one it is
+/// 0..<rowCount. A non-nil selection means the key committed a choice and the loop should stop; nil
+/// means keep going with the returned highlight. Pure, so the whole key-to-selection path is tested
+/// without a tty.
+///
+/// `hasAction: false` is the account picker (`tally switch`): there is nothing to create, so the
+/// key that would create it does nothing rather than committing a choice the caller has no answer
+/// for.
+func applyKey(_ key: Key, highlighted: Int, rowCount: Int,
+              hasAction: Bool = true) -> (highlighted: Int, selection: MenuSelection?) {
+    let lineCount = rowCount + (hasAction ? 1 : 0)
     switch key {
     case .up:
         return ((highlighted - 1 + lineCount) % lineCount, nil)
     case .down:
         return ((highlighted + 1) % lineCount, nil)
     case .enter:
-        return (highlighted, highlighted == rowCount ? .newWorktree : .existing(highlighted))
+        return (highlighted, hasAction && highlighted == rowCount
+            ? .newWorktree : .existing(highlighted))
     case .digit(let n):
         return n >= 1 && n <= rowCount ? (highlighted, .existing(n - 1)) : (highlighted, nil)
     case .newKey:
-        return (highlighted, .newWorktree)
+        return hasAction ? (highlighted, .newWorktree) : (highlighted, nil)
     case .cancel:
         return (highlighted, .cancelled)
     case .other:
@@ -282,11 +295,21 @@ private func menuSigintHandler(_ signal: Int32) {
 
 // MARK: - Interactive selection
 
+/// The worktree menu: rows plus the "new worktree" affordance. Named for its caller because that
+/// is the whole vocabulary it speaks (`.newWorktree`); the account picker behind `tally switch`
+/// calls the general form below with no action line.
+func selectWorktree(rows: [MenuRow]) -> MenuSelection? {
+    selectMenuRow(rows: rows, action: newWorktreeAction)
+}
+
 /// Present the arrow-key menu on /dev/tty and return the choice, or nil when an interactive menu is
 /// not possible (no tty, a dumb terminal, or raw mode could not be set) so the caller falls back to
-/// the numbered prompt. The terminal is always restored: a `defer` covers every normal and error
-/// path, and a SIGINT handler covers Ctrl-C.
-func selectWorktree(rows: [MenuRow]) -> MenuSelection? {
+/// whatever it does without one. The terminal is always restored: a `defer` covers every normal and
+/// error path, and a SIGINT handler covers Ctrl-C.
+///
+/// /dev/tty, never stdout: the menu has to draw on the user's screen even when stdout is a pipe,
+/// and stdout has to stay clean for whatever the command execs afterwards.
+func selectMenuRow(rows: [MenuRow], action: String?) -> MenuSelection? {
     if ProcessInfo.processInfo.environment["TERM"] == "dumb" { return nil }
     let fd = open("/dev/tty", O_RDWR)
     guard fd >= 0 else { return nil }
@@ -318,19 +341,22 @@ func selectWorktree(rows: [MenuRow]) -> MenuSelection? {
     // the cursor-up redraw math). This matters for the CJK commit subjects in Albert's repos, where
     // 40 graphemes are roughly 80 columns.
     let columns = max(1, terminalWidth(fd) - 1)
-    let lineCount = rows.count + 1
+    let lineCount = rows.count + (action == nil ? 0 : 1)
     var highlighted = 0
     writeTTY(fd, "\u{1B}[?25l")                 // hide the cursor while the menu is live
-    writeTTY(fd, frame(rows: rows, highlighted: highlighted, redraw: false, columns: columns))
+    writeTTY(fd, frame(rows: rows, highlighted: highlighted, redraw: false, columns: columns,
+                       action: action))
 
     var result: MenuSelection = .cancelled
     while true {
         guard let bytes = readKeySequence(fd) else { break }   // EOF: leave as cancelled
-        let (moved, selection) = applyKey(decodeKey(bytes), highlighted: highlighted, rowCount: rows.count)
+        let (moved, selection) = applyKey(decodeKey(bytes), highlighted: highlighted,
+                                          rowCount: rows.count, hasAction: action != nil)
         if let selection { result = selection; break }
         guard moved != highlighted else { continue }   // ignored key: no redraw
         highlighted = moved
-        writeTTY(fd, frame(rows: rows, highlighted: highlighted, redraw: true, columns: columns))
+        writeTTY(fd, frame(rows: rows, highlighted: highlighted, redraw: true, columns: columns,
+                           action: action))
     }
 
     // Wipe the menu, then leave a one-line dim summary of what was chosen.
@@ -351,9 +377,10 @@ func selectWorktree(rows: [MenuRow]) -> MenuSelection? {
 /// end first so a now-shorter line leaves no tail. Each line is clipped to `columns` display columns
 /// so none wraps (a wrapped line would desync the cursor-up count). OPOST stays enabled (only
 /// ICANON/ECHO are off), so a bare "\n" still maps to CR+LF.
-private func frame(rows: [MenuRow], highlighted: Int, redraw: Bool, columns: Int) -> String {
-    var out = redraw ? "\u{1B}[\(rows.count + 1)A" : ""
-    for line in renderRows(rows, highlighted: highlighted) {
+private func frame(rows: [MenuRow], highlighted: Int, redraw: Bool, columns: Int,
+                   action: String?) -> String {
+    var out = redraw ? "\u{1B}[\(rows.count + (action == nil ? 0 : 1))A" : ""
+    for line in renderRows(rows, highlighted: highlighted, action: action) {
         out += "\r\u{1B}[K\(clipToDisplayWidth(line, columns: columns))\n"
     }
     return out

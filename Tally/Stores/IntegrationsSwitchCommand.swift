@@ -53,15 +53,14 @@ extension IntegrationsStore {
 
         # Move this session to another account
 
-        Tally normally answers `/tally-switch <account>` without waking a model at all: a prompt
-        hook queues the move and stops the prompt there, so naming an account costs nothing.
-        Reaching this file means the hook did not answer, which happens in two cases, and the
-        second one is the common one:
+        YOU ARE THE FALLBACK. Tally normally answers `/tally-switch` without waking a model at all,
+        in both of its shapes: a prompt hook queues the move when an account is named, and prints
+        the fleet to pick from when one is not. Either way the prompt stops there and no turn is
+        spent, which is the point, because the usual reason to move accounts is that this one has
+        no model left to answer with.
 
-        1. The hook is not registered, or shell execution is turned off by policy.
-        2. The command was typed with no account named, because the user wants to choose.
-
-        Either way, do the work here.
+        So reaching this file means the hook did not answer: it is not registered on this machine,
+        or shell execution is turned off by policy. Do the work here instead.
 
         ## When an account is named
 
@@ -78,7 +77,8 @@ extension IntegrationsStore {
 
         ## When nothing is named
 
-        Read the fleet first, then ask:
+        With the hook in place the user has already seen the fleet and only has to type a name, so
+        this is the degraded path: do by hand what the hook would have done for free.
 
         1. Run `tally status`. Every Claude account is listed with the percent left of its session
            (5 hour), weekly, and flagship model windows, and `->` marks the one a launch would land
@@ -88,6 +88,10 @@ extension IntegrationsStore {
            headroom first and mark it Recommended. Do not pick for the user: the whole point of the
            bare command is that they want the choice.
         3. Queue the move to the account they chose: `tally switch "<account>"`.
+
+        Mention, once, that the free path exists: with Tally's hook installed `/tally-switch` lists
+        the accounts itself, and in a terminal `tally switch` on its own opens an arrow-key picker.
+        Neither spends a turn.
 
         ## What to tell them afterwards
 

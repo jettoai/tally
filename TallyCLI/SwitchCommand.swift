@@ -197,10 +197,47 @@ func switchIntent(_ args: [String]) -> SwitchIntent? {
     return .pin(name)
 }
 
+/// Which of the command's three surfaces an invocation lands on.
+enum SwitchEntry: Equatable {
+    /// A name (or `--auto`) was given: do it, do not ask.
+    case act(SwitchIntent)
+    /// Bare, with a terminal to draw on: offer the fleet.
+    case menu
+    /// Bare in a pipe, or arguments this command cannot act on.
+    case usage
+}
+
+/// The routing, pure, so it is testable without a terminal: the menu needs one, and "does a script
+/// still get the usage text" is exactly the question a test has to be able to ask.
+///
+/// `interactive` is whether there is a human at a keyboard (stdin is a tty). A pipeline gets what it
+/// has always got, because a script that suddenly meets an arrow-key menu hangs.
+func switchEntry(_ args: [String], interactive: Bool) -> SwitchEntry {
+    if let intent = switchIntent(args) { return .act(intent) }
+    // Only a TRULY bare invocation opens the menu. `--auto "Claude 4"` and a two-name line are
+    // refusals with something to say (`switchIntent`), and answering them with a menu would hide
+    // the mistake instead of naming it.
+    return args.isEmpty && interactive ? .menu : .usage
+}
+
 /// `tally switch <account>`: pin the session this command was run in to the named account, moving it
-/// there at the end of the turn that asked for it. `tally switch --auto` releases that pin.
+/// there at the end of the turn that asked for it. `tally switch --auto` releases that pin. Bare, in
+/// a terminal, it asks (SwitchMenu.swift).
 func runSwitch(args: [String]) -> Int32 {
-    guard let intent = switchIntent(args) else {
+    let chosen: SwitchIntent?
+    switch switchEntry(args, interactive: isatty(STDIN_FILENO) == 1) {
+    case .act(let intent):
+        chosen = intent
+    case .menu:
+        switch pickSwitchTarget() {
+        case .picked(let label): chosen = .pin(label)
+        case .cancelled: return 1        // they said no; saying it back to them adds nothing
+        case .unavailable: chosen = nil  // no menu to draw: the usage text says what to type
+        }
+    case .usage:
+        chosen = nil
+    }
+    guard let intent = chosen else {
         warn("""
         usage: tally switch <account>   (label or config-dir name, as `tally status` lists them)
                tally switch --auto
@@ -210,6 +247,8 @@ func runSwitch(args: [String]) -> Int32 {
         after that, and that handoff clears the pin and says so.
         --auto releases the pin, handing the session back to automatic selection (this project's
         profile, then the app's pin or smart pick). It takes no account name.
+        Run it bare in a terminal and it lists the fleet to pick from with the arrow keys; in a pipe
+        (or with nothing to list) you get this text instead.
         To make every launch in this project land on one account, use `tally project set --account`.
         """)
         return 2

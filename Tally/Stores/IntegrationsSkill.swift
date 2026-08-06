@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 9
+    nonisolated static let skillVersion = 10
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -142,13 +142,24 @@ extension IntegrationsStore {
 
         ```
         /tally-switch Claude 4       # zero turns: the hook queues the move and stops there
+        /tally-switch                # zero turns: the hook PRINTS the fleet, they type a name
         /tally-switch --auto         # zero turns: releases the pin again
         ! tally switch "Claude 4"    # zero turns too, under respondToBashCommands: false
         ```
 
-        The second one is the fallback worth naming when the command is not installed: a
-        `!` line runs in their shell, and with `respondToBashCommands: false` in settings
-        its output never goes to a model at all.
+        Note the second line: `/tally-switch` with no account named does NOT reach a model.
+        The hook reads the snapshot itself and prints one line per account with its
+        remaining windows, marking the one with the most headroom, and they pick with a
+        second `/tally-switch <name>`. Two commands, no turn. That matters because the
+        usual reason to move accounts is that this one has no model left to answer with,
+        and an escape hatch may not depend on the thing it is escaping.
+
+        The `!` line is the fallback worth naming when the command is not installed: it
+        runs in their shell, and with `respondToBashCommands: false` in settings its output
+        never goes to a model at all. In a terminal of their own, `tally switch` with no
+        argument opens an arrow-key picker over the same fleet reading (that menu is for
+        real terminals only: it never appears under Claude Code, whose screen it would
+        fight).
 
         Prefer that phrasing when they ask "how do I switch accounts": a move that costs a
         turn to ask for is a move that costs part of what it saves. You cannot type a slash
@@ -160,8 +171,10 @@ extension IntegrationsStore {
         for them: run `tally status`, then ask with AskUserQuestion, one option per Claude
         account, the account's label as the option and its remaining session, weekly and
         model windows as the description, the account with the most headroom first and
-        marked Recommended. Then run `tally switch` on the one they picked. (Typing
-        `/tally-switch` with no account named arrives at exactly this, one turn later.)
+        marked Recommended. Then run `tally switch` on the one they picked. This is the
+        path for a request made IN CONVERSATION, where a turn is already running and the
+        picker is the fastest way to answer it; `/tally-switch` typed by the user is the
+        free path and needs nothing from you.
 
         What happens next, and what to tell the user:
 

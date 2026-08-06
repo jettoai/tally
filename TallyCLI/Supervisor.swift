@@ -222,17 +222,21 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // only learns anything by being given each tick's reading.
             keyboard.observe(stamp: lastKeyboardInput())
             // Two readings of the same policy, and the difference is one account pin. `fleetPolicy`
-            // is what the app and this project declare; `policy` is that with this SESSION's own
-            // pin over it, which is what every mover below is judged against - a pinned session is
-            // not rebalanced, not rescued, and not re-picked (`sessionPolicy`, SessionSwitch.swift).
-            // The cap handoff is the single reader of the fleet reading, because it is the one move
-            // a session pin may not stop.
+            // is what the app and this project declare; `policy` becomes that with this SESSION's
+            // own pin over it - a pinned session is not rebalanced, not rescued, and not re-picked
+            // (`sessionPolicy`, SessionSwitch.swift). It is derived inside `applyManualMoves` below
+            // rather than here, because that call can create or release the pin, and every mover
+            // after it must read the pin the session has once it returns. The cap handoff is the
+            // one reader that gets the fleet reading, because it is the one move a session pin may
+            // not stop (`capReading`).
             let fleetPolicy = effectivePolicy(launchPolicy(provider.id), project: project)
-            let policy = sessionPolicy(fleetPolicy, sessionPin: manualMoves.sessionPin)
+            var policy = fleetPolicy
             // What THIS session is expected to run, read off its own command line: a hand-typed
             // --model outranks the configured default (a deliberate haiku session must not be
             // "rescued" back to fable), and a project profile reached it the same way, through the
             // flag the launcher injected. Read by the drift monitor and the degradation paths.
+            // Safe to take before the pin is folded in above: a pin decides the ACCOUNT and never
+            // touches the model, so both readings of the policy answer this identically.
             let effectivePrimary = launchPrimaryModel(launchArgs, providerID: provider.id)
                 ?? policy.model
             // The single relaunch this tick will perform, if any. Reasons fire in priority order
@@ -273,48 +277,18 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // The rule lives in SessionSwitch.swift; `switchRecord` is this tick's unwritten
             // bookkeeping, committed at the execution point like the safeguard's.
             applyManualMoves(plan: &plan, state: &manualMoves, record: &switchRecord,
-                             account: account, providerID: provider.id, policy: policy,
+                             policy: &policy, account: account, providerID: provider.id,
                              watcher: &watcher, childAge: Date().timeIntervalSince(launchedAt),
                              keyboardIdle: { keyboard.idle($0) })
 
             // Cap handoff / wait: a pending cap outranks follow, rescue, and fallback for the
-            // account MOVE (the pin switch above still wins). The backoff gate and the "waiting"
-            // branch only skip the cap HANDOFF ATTEMPT, never the rest of the tick: a blocked cap
-            // (no eligible target) must still let the follow block below run, so a single-account
-            // user who caps and then switches Settings to a model with headroom actually adopts it
-            // (the main UX complaint from the 2026-07-24 incident). rescue/fallback stay gated by
-            // `plan == nil`.
-            if plan == nil, var pending = pendingCap, Date() >= pending.nextRetry {
-                let (snapshot, snapshotProblem) = loadSnapshot()
-                let primary = pending.primaryModel
-                let excluded = quarantinedAccounts(forPrimary: primary, sessionLocal: quarantine)
-                // The nearly-dry gate, stricter here than on the launch path (AccountComfort.swift):
-                // handing a capped session to an account with 1% left just caps it again a few
-                // minutes later, and unlike a launch there is a running conversation to reload, so
-                // no comfortable sibling means WAIT rather than move. One `now` for the gate and the
-                // ordering so they agree.
-                let pickedAt = Date()
-                let eligibleAccounts = (snapshot?.accounts ?? []).filter {
-                    $0.provider == provider.id && eligible($0, primaryModel: primary)
-                        && $0.id != account.id && !excluded.contains($0.id)
-                }
-                let target = capHandoffTarget(eligibleAccounts, primaryModel: primary, now: pickedAt)
-                let action = capRecoveryAction(mode: fleetPolicy.mode, fuseAllows: fuse.allows(),
-                                               snapshotStale: snapshotProblem != nil,
-                                               hasTarget: target != nil)
-                if action == .handoff, let target {
-                    warn("cap hit → handing off to \(target.label) " +
-                         "(\(pickReason(target, primaryModel: primary)))")
-                    // Own the account move; a follow adoption below folds its pair into this plan.
-                    plan = RelaunchPlan(target: target, reason: "cap", countsFuse: true)
-                } else {
-                    // The reason rides in the badge (the child keeps running, so nothing may be
-                    // printed over it); it is held here so the badge only changes when it changes.
-                    if let note = action.waitingNote { pending.reason = note }
-                    pending.nextRetry = Date().addingTimeInterval(capRetryBackoff)
-                    pendingCap = pending
-                }
-            }
+            // account MOVE (the pin switch above still wins), and it is the only mover a session pin
+            // does not stop. The whole rule, including what a fleet pin under that session pin does
+            // to it, lives in CapDetection.swift; rescue/fallback stay gated by `plan == nil`.
+            applyCapHandoff(plan: &plan, pendingCap: &pendingCap, account: account,
+                            providerID: provider.id, fleet: fleetPolicy,
+                            sessionPin: manualMoves.sessionPin, quarantine: quarantine,
+                            fuseAllows: fuse.allows())
 
             // Follow the launch default: a Settings change to "Default model & effort" re-points
             // this RUNNING session at the next quiet moment. The whole rule lives in

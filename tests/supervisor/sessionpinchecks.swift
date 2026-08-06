@@ -53,15 +53,20 @@ func runSessionPinChecks() {
     pinnedToB.mode = "manual"
     pinnedToB.pinnedAccountID = "B"
 
+    /// The policy the LAST `tick` handed back: what every mover after the manual moves would be
+    /// judged by on that same tick.
+    var tickPolicy = auto0
     func tick(_ watcher: inout TranscriptWatcher, request: SwitchRequest?,
               policy: LaunchPolicy = auto0, on: Snapshot.Account = onA)
         -> (plan: RelaunchPlan?, record: PendingSwitchConsumption?) {
         var plan: RelaunchPlan?
         var record: PendingSwitchConsumption?
-        applyManualMoves(plan: &plan, state: &state, record: &record, account: on,
-                         providerID: "claude", policy: policy, watcher: &watcher, childAge: 9999,
+        var under = policy
+        applyManualMoves(plan: &plan, state: &state, record: &record, policy: &under,
+                         account: on, providerID: "claude", watcher: &watcher, childAge: 9999,
                          keyboardIdle: { _ in true }, dir: tickDir,
                          request: { _ in request }, accounts: { fleet })
+        tickPolicy = under
         return (plan, record)
     }
 
@@ -105,6 +110,18 @@ func runSessionPinChecks() {
     check("switching to the account we are on restarts nothing", inPlace.plan == nil)
     check("but pins the session there", state.sessionPin == "A")
     check("and consumes the request", state.servedEpoch == staying.epoch)
+    // …and THIS TICK's movers have to see it. That request planned no relaunch, so nothing gated on
+    // `plan == nil` was stopped: a policy derived before the request was consumed would still read
+    // "unpinned", the rescue or the rebalance would move the session off A on this very tick, and
+    // since nothing but a cap clears a pin, every later tick would then refuse to move it back - the
+    // pin and the account would disagree for the rest of the session (found in review, 2026-08-06).
+    check("the policy handed back on that tick already carries the pin",
+          tickPolicy.mode == "manual" && tickPolicy.pinnedAccountID == "A")
+    // The release is the same hazard in reverse, and must be just as immediate: a mover held back by
+    // a pin the user has just dropped is a tick of the session not following the fleet.
+    let dropped = SwitchRequest(epoch: state.servedEpoch + 1, accountID: switchAutoRequest)
+    _ = tick(&quiet, request: dropped, on: onA)
+    check("and a release is out of the policy on the tick it lands", tickPolicy.mode == "auto")
 
     // MARK: - 31j. What the rest of the loop sees
 
@@ -166,6 +183,81 @@ func runSessionPinChecks() {
     check("the user is told how to get the pin back",
           sessionPinClearedByCapNotice.contains("tally switch")
               && sessionPinClearedByCapNotice.contains("cap"))
+
+    // …and the cap has to be able to REACH that clearance, which is the hole this section is really
+    // about: with a project or panel pin already in force, asking `capRecoveryAction` about the
+    // session's own policy answers `.waitPinned` for ever, no plan is ever built, `pinClearedByCap`
+    // is never called, and the session sits on a dry account it cannot work on (review, 2026-08-06).
+    let capNow = Date(timeIntervalSince1970: 1_800_000_000)
+    let capped0 = account("D", model: 0.5)      // where the session is, and where it just capped
+    let fleetPinned = account("P", model: 60)   // what the project/panel pin names
+    let sibling = account("S", model: 80)       // what a pick of its own would choose
+    var pinnedToP = LaunchPolicy()
+    pinnedToP.mode = "manual"
+    pinnedToP.pinnedAccountID = "P"
+
+    func capTick(fleet: LaunchPolicy, sessionPin: String?,
+                 accounts: [Snapshot.Account] = [capped0, fleetPinned, sibling])
+        -> (plan: RelaunchPlan?, pending: PendingCapRecovery?) {
+        var plan: RelaunchPlan?
+        var pending: PendingCapRecovery? = PendingCapRecovery(
+            cappedAccountID: "D", cappedAt: capNow, primaryModel: "fable",
+            recoveryResetsAt: nil, nextRetry: .distantPast, reason: "")
+        applyCapHandoff(plan: &plan, pendingCap: &pending, account: capped0, providerID: "claude",
+                        fleet: fleet, sessionPin: sessionPin, quarantine: [:], fuseAllows: true,
+                        now: capNow, loaded: (Snapshot(version: 2, generatedAt: capNow, accounts: accounts), nil))
+        return (plan, pending)
+    }
+
+    // The bug, end to end: both pins in force, and the session gets out.
+    let bothPins = capTick(fleet: pinnedToP, sessionPin: "D")
+    check("a cap moves a session pinned over a fleet pin", bothPins.plan != nil)
+    check("…to the account the fleet pin names, which is where the pin says it belongs",
+          bothPins.plan?.target.id == "P")
+    check("…tagged as a cap, so the clearance and the audit line follow from it",
+          bothPins.plan?.reason == "cap")
+    var pinnedSession = ManualMoveState(sessionKey: "capped", servedEpoch: 0, sessionPin: "D")
+    check("and that plan is what ends the session pin",
+          pinnedSession.pinClearedByCap(bothPins.plan?.reason ?? "")
+              && pinnedSession.sessionPin == nil)
+    check("which the log then names for what it was",
+          handoffReason(bothPins.plan?.reason ?? "", pinCleared: true) == "pin-cleared-cap")
+
+    // A session pin with nothing under it picks for itself, as it did before.
+    let onlySession = capTick(fleet: auto0, sessionPin: "D")
+    check("with no fleet pin under it, the cap picks the best sibling",
+          onlySession.plan?.target.id == "S")
+
+    // Untouched: a FLEET-pinned session with no pin of its own still waits, because nothing is
+    // clearing that pin and staying put is what pinning means.
+    let fleetOnly = capTick(fleet: pinnedToP, sessionPin: nil)
+    check("a fleet-pinned session with no session pin still stays put", fleetOnly.plan == nil)
+    check("…and says why", fleetOnly.pending?.reason.contains("pinned in Tally") == true)
+
+    // The fleet pin cannot be honoured (drained, so not a candidate at all): waiting again, and
+    // deliberately. Moving anywhere else would be undone within seconds - the pin switch asks only
+    // whether an account is launchable, not whether it has quota, so it would drag the session
+    // straight back onto the pinned account and the cap would fire again there.
+    let deadEnd = capTick(fleet: pinnedToP, sessionPin: "D",
+                          accounts: [capped0, account("P", model: 0), sibling])
+    check("a fleet pin that cannot take the session keeps it where it is", deadEnd.plan == nil)
+    check("…rather than moving it somewhere the pin would undo",
+          deadEnd.pending?.reason.contains("pinned in Tally") == true)
+
+    // The rule those four cases come from, on its own.
+    let candidates = [fleetPinned, sibling]
+    check("no session pin leaves the fleet's own mode alone",
+          capReading(fleet: pinnedToP, sessionPin: nil, candidates: candidates).mode == "manual")
+    check("a session pin alone lets the cap decide",
+          capReading(fleet: auto0, sessionPin: "D", candidates: candidates).mode == "auto")
+    check("a session pin over a fleet pin lands on the fleet's account", {
+        let reading = capReading(fleet: pinnedToP, sessionPin: "D", candidates: candidates)
+        return reading.mode == "auto" && reading.preferred?.id == "P"
+    }())
+    check("a fleet pin outside the candidates is a wait, not a free pick", {
+        let reading = capReading(fleet: pinnedToP, sessionPin: "D", candidates: [sibling])
+        return reading.mode == "manual" && reading.preferred == nil
+    }())
 
     // MARK: - 31l. What the audit log says
 
@@ -232,9 +324,34 @@ func runSessionPinChecks() {
           parseResuperviseArgs(["--home", "/h", resuperviseSessionPinFlag, ""]).sessionPin == nil)
     // The legacy flag still parses and still travels: a session upgrading out of a build that only
     // had the override arrives holding one, and dropping it would undo that session's switch.
-    let bothPins = roundTrip(sessionPin: "claude:.claude4", pinOverride: "claude:.claude2")
+    let bothFlags = roundTrip(sessionPin: "claude:.claude4", pinOverride: "claude:.claude2")
     check("the legacy override rides alongside the new pin",
-          bothPins.sessionPin == "claude:.claude4" && bothPins.pinOverride == "claude:.claude2")
+          bothFlags.sessionPin == "claude:.claude4" && bothFlags.pinOverride == "claude:.claude2")
+
+    // …and a session that upgraded out of a build with no session pin arrives holding only the
+    // legacy override, which refuses the fleet pin all by itself (`applyPinSwitch`). `--auto` has to
+    // take that with it, or the command says "following automatic selection again" and then goes on
+    // ignoring the one instruction that selection has.
+    var legacy = ManualMoveState(sessionKey: "5353", servedEpoch: 100, overriddenPin: "B")
+    var legacyWatcher = idleWatcher("legacy")
+    func legacyTick(_ request: SwitchRequest?) -> RelaunchPlan? {
+        var plan: RelaunchPlan?
+        var record: PendingSwitchConsumption?
+        var under = pinnedToB
+        applyManualMoves(plan: &plan, state: &legacy, record: &record, policy: &under,
+                         account: onA, providerID: "claude", watcher: &legacyWatcher,
+                         childAge: 9999, keyboardIdle: { _ in true }, dir: tickDir,
+                         request: { _ in request }, accounts: { fleet })
+        return plan
+    }
+    check("the legacy override still refuses the pin it was taken off", legacyTick(nil) == nil)
+    let legacyRelease = SwitchRequest(epoch: legacy.servedEpoch + 1, accountID: switchAutoRequest)
+    let legacyPlan = legacyTick(legacyRelease)
+    check("a release drops the legacy override with the pin", legacy.overriddenPin == nil)
+    // On that very tick, and that is the release doing exactly what it says: the fleet pin is what
+    // automatic selection has to say about this session, and it was the only thing being ignored.
+    check("so the fleet pin governs the session again", legacyPlan?.target.id == "B")
+    check("as a pin switch, not as anything the release invented", legacyPlan?.reason == "pin")
 
     // The other half of surviving it: the new process seeds its state from that argv, and the pin
     // is in force from its very first tick.
@@ -243,8 +360,9 @@ func runSessionPinChecks() {
     var relaunched = idleWatcher("afterexec")
     var execPlan: RelaunchPlan?
     var execRecord: PendingSwitchConsumption?
-    applyManualMoves(plan: &execPlan, state: &afterExec, record: &execRecord, account: toD,
-                     providerID: "claude", policy: pinnedToB, watcher: &relaunched, childAge: 9999,
+    var execPolicy = pinnedToB
+    applyManualMoves(plan: &execPlan, state: &afterExec, record: &execRecord, policy: &execPolicy,
+                     account: toD, providerID: "claude", watcher: &relaunched, childAge: 9999,
                      keyboardIdle: { _ in true }, dir: tickDir, request: { _ in nil },
                      accounts: { fleet })
     check("a session that came back from an upgrade is still pinned", execPlan == nil)

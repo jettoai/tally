@@ -141,8 +141,9 @@ func runSwitchChecks() {
         -> (plan: RelaunchPlan?, record: PendingSwitchConsumption?) {
         var plan: RelaunchPlan?
         var record: PendingSwitchConsumption?
-        applyManualMoves(plan: &plan, state: &state, record: &record, account: onA,
-                         providerID: "claude", policy: policy, watcher: &watcher, childAge: 9999,
+        var under = policy   // in: the fleet's; out: this session's (`applyManualMoves`)
+        applyManualMoves(plan: &plan, state: &state, record: &record, policy: &under,
+                         account: onA, providerID: "claude", watcher: &watcher, childAge: 9999,
                          keyboardIdle: { _ in keyboardIdle }, dir: tickDir,
                          request: { _ in request }, accounts: { accounts })
         return (plan, record)
@@ -276,8 +277,9 @@ func runSwitchChecks() {
     let blindRequest = readSwitchRequest(sessionKey: session, dir: tickDir)!
     var blindPlan: RelaunchPlan?
     var blindRecord: PendingSwitchConsumption?
-    applyManualMoves(plan: &blindPlan, state: &state, record: &blindRecord, account: onA,
-                     providerID: "claude", policy: pinnedNowhere, watcher: &blind, childAge: 9999,
+    var blindPolicy = pinnedNowhere
+    applyManualMoves(plan: &blindPlan, state: &state, record: &blindRecord, policy: &blindPolicy,
+                     account: onA, providerID: "claude", watcher: &blind, childAge: 9999,
                      keyboardIdle: { _ in true }, dir: tickDir, request: { _ in blindRequest },
                      accounts: { nil })
     check("no snapshot at all holds the request", blindPlan == nil)
@@ -327,8 +329,9 @@ func runSwitchChecks() {
     var plainWatcher = idleWatcher("plainpin")
     var plainPlan: RelaunchPlan?
     var plainRecord: PendingSwitchConsumption?
-    applyManualMoves(plan: &plainPlan, state: &plainPin, record: &plainRecord, account: onA,
-                     providerID: "claude", policy: pinnedToB, watcher: &plainWatcher,
+    var plainPolicy = pinnedToB
+    applyManualMoves(plan: &plainPlan, state: &plainPin, record: &plainRecord, policy: &plainPolicy,
+                     account: onA, providerID: "claude", watcher: &plainWatcher,
                      childAge: 9999, keyboardIdle: { _ in true }, dir: tickDir,
                      request: { _ in nil }, accounts: { fleet })
     check("a pinned session with no switch history follows the pin",
@@ -339,8 +342,9 @@ func runSwitchChecks() {
     var midPlan: RelaunchPlan?
     var midRecord: PendingSwitchConsumption?
     var midState = ManualMoveState(sessionKey: "no-switches", servedEpoch: 0)
-    applyManualMoves(plan: &midPlan, state: &midState, record: &midRecord, account: onA,
-                     providerID: "claude", policy: pinnedToB, watcher: &pinMidTurn, childAge: 9999,
+    var midPolicy = pinnedToB
+    applyManualMoves(plan: &midPlan, state: &midState, record: &midRecord, policy: &midPolicy,
+                     account: onA, providerID: "claude", watcher: &pinMidTurn, childAge: 9999,
                      keyboardIdle: { _ in true }, dir: tickDir, request: { _ in nil },
                      accounts: { fleet })
     check("a pin does not cut a live turn short either", midPlan == nil)

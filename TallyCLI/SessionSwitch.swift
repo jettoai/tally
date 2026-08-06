@@ -270,9 +270,10 @@ struct PendingSwitchConsumption {
 /// the account IT pinned, and carrying it under a different account's id would name the wrong
 /// config dir.
 ///
-/// THE ONE READER THAT MUST NOT USE THIS is the cap handoff, which is asked against the policy
-/// without the pin: a capped session that cannot answer is worse than one that moved, so the cap is
-/// allowed past and takes the pin with it (`pinClearedByCap`).
+/// THE ONE READER THAT MUST NOT USE THIS is the cap handoff, which is asked against the fleet's
+/// policy through `capReading` (CapDetection.swift, beside the handoff that is its only caller): a
+/// capped session that cannot answer is worse than one that moved, so the cap is allowed past and
+/// takes the pin with it (`pinClearedByCap`).
 func sessionPolicy(_ policy: LaunchPolicy, sessionPin: String?) -> LaunchPolicy {
     guard let sessionPin else { return policy }
     var pinned = policy
@@ -295,13 +296,25 @@ func sessionPolicy(_ policy: LaunchPolicy, sessionPin: String?) -> LaunchPolicy 
 /// pin it leaves behind a pinned project would drag the session home on the very next tick, which
 /// is the one outcome that would make the command useless to the person most likely to want it.
 ///
+/// `policy` COMES IN as the fleet's (the app's, with this project's profile over it) and GOES OUT as
+/// this session's, because the pin can change inside this call and every mover after it is judged by
+/// the pin the session has NOW.
+///
+/// That is a fix, not a convenience. A request that plans no relaunch still records a pin the moment
+/// it is consumed - naming the account the session is already on is exactly that - so a policy
+/// derived before this call says "unpinned" while the state says "pinned to A". The degradation
+/// rescue or the idle rebalance would then move the session off A on that same tick, and because
+/// nothing but a cap ever clears a pin, every later tick would refuse to move it back: the pin and
+/// the account it names would disagree for the rest of the session. Deriving it here means no caller
+/// can hold the stale reading, because there is no moment at which one exists.
+///
 /// `accounts` is a closure because the snapshot read behind it is one most ticks do not need;
 /// `request` is one because a default argument cannot name `state.sessionKey`, and the file it
 /// reads is what every tick is polling for anyway. Both are also the seam that makes this testable
 /// without a home directory or a snapshot.
 func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
-                      record: inout PendingSwitchConsumption?,
-                      account: Snapshot.Account, providerID: String, policy: LaunchPolicy,
+                      record: inout PendingSwitchConsumption?, policy: inout LaunchPolicy,
+                      account: Snapshot.Account, providerID: String,
                       watcher: inout TranscriptWatcher, childAge: TimeInterval,
                       keyboardIdle: (TimeInterval) -> Bool,
                       dir: URL = switchRequestDir,
@@ -311,13 +324,17 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                       accounts: @escaping () -> [Snapshot.Account]? = {
                           loadSnapshot().0?.accounts
                       }) {
+    let fleet = policy
     applySwitchRequest(plan: &plan, state: &state, record: &record, account: account,
                        providerID: providerID, watcher: &watcher,
                        childAge: childAge, keyboardIdle: keyboardIdle, dir: dir,
                        request: request(state.sessionKey), accounts: accounts)
+    policy = sessionPolicy(fleet, sessionPin: state.sessionPin)
     guard plan == nil else { return }
+    // The FLEET's policy, deliberately: this half is about the pin moved in the panel, and the
+    // session's own pin reaches it as the stand-down inside it rather than as a pin to follow.
     applyPinSwitch(plan: &plan, state: state, account: account, providerID: providerID,
-                   policy: policy, watcher: &watcher, keyboardIdle: keyboardIdle,
+                   policy: fleet, watcher: &watcher, keyboardIdle: keyboardIdle,
                    accounts: accounts)
 }
 
@@ -399,7 +416,13 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
         // `tally switch --auto`: automatic selection is in charge again from this tick on. Nothing
         // is relaunched and nothing is said - the session stays exactly where it is, which is what
         // the command that wrote this already told the person who ran it.
+        //
+        // The legacy override goes with the pin, and it has to: a session that upgraded out of an
+        // older build carries one (`overriddenPin`), and it makes `applyPinSwitch` refuse the fleet
+        // pin all by itself. Leaving it behind would mean this command said "following automatic
+        // selection again" and then went on ignoring the one instruction that selection has.
         state.waiting = nil
+        state.overriddenPin = nil
         consume(pin: nil)
     case .relaunch:
         guard let named else { return }

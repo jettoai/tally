@@ -191,6 +191,10 @@ func runPendingNoticeChecks() {
     // leave the user with no explanation for a restart they are watching happen.
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     let reloadSource = (try? String(contentsOfFile: "TallyCLI/Reload.swift", encoding: .utf8)) ?? ""
+    // The cap handoff left the loop when the session pin gave it a second input (2026-08-06); both
+    // of its halves - the silent wait and the announcement - are asserted against its new home.
+    let capSource = (try? String(contentsOfFile: "TallyCLI/CapDetection.swift",
+                                 encoding: .utf8)) ?? ""
     let driftSource = (try? String(contentsOfFile: "TallyCLI/DriftMonitor.swift",
                                    encoding: .utf8)) ?? ""
     // The two quota-degradation responses moved to ModelDegradation.swift; the announcement one of
@@ -234,8 +238,9 @@ func runPendingNoticeChecks() {
     } else {
         check("the queued follow branch was found", false)
     }
-    if let capWait = section(loop, from: "if let note = action.waitingNote",
-                             to: "// Follow the launch default:") {
+    check("the cap handoff source is readable from the pending-notice checks", !capSource.isEmpty)
+    if let capWait = section(capSource, from: "if let note = action.waitingNote",
+                             to: "warn(\"cap hit") {
         check("a capped session waiting for a sibling says nothing on the terminal",
               !capWait.contains("warn("))
     } else {
@@ -278,7 +283,8 @@ func runPendingNoticeChecks() {
         let source = announcement.hasPrefix("reload") ? reloadSource
             : announcement.hasPrefix("launch default") ? followSource
             : announcement.hasPrefix("model fell back") ? degradationSource
-            : announcement.contains("switching to") ? manualMoveSource : loop
+            : announcement.contains("switching to") ? manualMoveSource
+            : announcement.hasPrefix("cap hit") ? capSource : loop
         check("\"\(announcement)\" still speaks, because the child is about to go",
               source.contains("warn(\"\(announcement)") || source.contains("\(announcement)"))
     }

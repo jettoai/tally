@@ -163,6 +163,14 @@ WorktreeOrigins.record(WorktreeOrigin(worktree: ws + "/geo-gone", resolved: nil,
 WorktreeOrigins.record(WorktreeOrigin(worktree: ws + "/elsewhere-gone", resolved: nil,
                                       repository: "/nowhere/repo", removedAt: nil),
                        in: WorktreeOrigins.fileURL(home: home))
+// A worktree that is still on disk here, but which a teardown has already recorded the removal of:
+// the state the scan sees when `tally worktree remove` is running while it scans. The scan folds it
+// off its `.git` file (still there for a moment longer) and would write a live note for it, which
+// must not overwrite the record of a line that is closing.
+WorktreeOrigins.record(WorktreeOrigin(worktree: ws + "/specai-relative", resolved: nil,
+                                      repository: resolved(ws + "/specai"),
+                                      removedAt: "2026-08-06T00:00:00Z"),
+                       in: WorktreeOrigins.fileURL(home: home))
 
 let map = TokenProjectMap.current(home: home)
 
@@ -321,6 +329,11 @@ check(!recorded.contains { $0.paths.contains(ws + "/bare-feature") },
       "a worktree with no checkout to fold into records nothing")
 check(recorded.filter { $0.worktree == ws + "/geo-gone" }.count == 1,
       "and an existing note for a worktree that is already gone is left alone")
+// The race with a teardown running over the same file: the scan sees a worktree that is still on
+// disk and a record saying it has been removed. The record wins - it knows the line is closed, the
+// scan only knows the directory has not gone yet, and both agree on the repository.
+check(recorded.first { $0.worktree == ws + "/specai-relative" }?.removedAt == "2026-08-06T00:00:00Z",
+      "the scan does not overwrite a teardown's record of a worktree it can still see")
 
 // The scan runs on a background queue every time the Tokens tab is looked at, and its answer for
 // the same tree is the same every time, so the second pass must not touch the file at all.

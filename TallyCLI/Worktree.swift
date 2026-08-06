@@ -278,14 +278,12 @@ func ensureSharedMemory(_ wt: WorktreeLaunch, homes: [String]) {
 /// covers every ending. The file is a parameter for the same reason it is one in
 /// `performWorktreeRemove`: a test must never write into the ledger the running app reads.
 ///
-/// Rewritten only when it would say something new, so re-entering a worktree every day does not
-/// rewrite the ledger every time, and a note teardown has already stamped with a removal time is
-/// left alone unless this worktree really is open again.
+/// Written only when it would say something new (`recordNew`), so re-entering a worktree every day
+/// does not rewrite the ledger every time, and a note teardown has already stamped with a removal
+/// time is left where it is.
 func recordWorktreeOrigin(_ wt: WorktreeLaunch, in url: URL = WorktreeOrigins.fileURL()) {
-    let origin = WorktreeOrigin(worktree: wt.path, resolved: nil, repository: wt.mainRepo,
-                                removedAt: nil)
-    let pending = WorktreeOrigins.missing([origin], from: WorktreeOrigins.load(from: url))
-    WorktreeOrigins.recordAll(pending, in: url)
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: wt.path, resolved: nil,
+                                              repository: wt.mainRepo, removedAt: nil)], in: url)
 }
 
 // MARK: - Setup hook

@@ -145,12 +145,16 @@ struct TokenProjectMap: Sendable {
         }
 
         // Write down what the fold just worked out, for the day the filesystem can no longer say
-        // it. Only what the ledger does not already hold: this runs on a background scan, and the
-        // answer is the same every time until a worktree is added or removed. A live record is
-        // inert to the loop above - the fold has already given the repository those paths, so the
-        // filter finds nothing left to add - and it is superseded, spelling for spelling, by the
-        // record teardown writes if the worktree does go out through teardown.
-        WorktreeOrigins.recordAll(WorktreeOrigins.missing(live, from: origins), in: originsFile)
+        // it. `recordNew` writes only what the ledger does not already answer for, and decides that
+        // under its own lock rather than from the snapshot read above: this runs on a background
+        // scan, so the answer is the same every time until a worktree is added or removed, and a
+        // teardown may be recording that worktree's removal while this scan is in flight. The
+        // snapshot above stays lock-free because it only READS - the reading loop must never wait on
+        // a stuck CLI to draw the table.
+        //
+        // A live record is inert to that loop: the fold has already given the repository those
+        // paths, so the filter finds nothing left to add.
+        WorktreeOrigins.recordNew(live, in: originsFile)
 
         let roots = candidates.indices.filter { !folded.contains($0) }.map { index -> Root in
             let candidate = candidates[index]

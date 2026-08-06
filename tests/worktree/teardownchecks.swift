@@ -460,6 +460,12 @@ func runTeardownChecks() {
 
     // And the one flag that still deletes them, over a worktree torn down the same ordinary way.
     let purgeWt = resolveWorktree(name: "feat-purge")
+    // Opened the way `tally claude -w` opens one, which writes the note up front. That is the state
+    // the purge below has to clean up: teardown declining to write a new note is not enough once
+    // there is already one on file saying this path belongs to that repository.
+    recordWorktreeOrigin(purgeWt, in: originsFile)
+    check("opening the worktree left a note for the purge to deal with",
+          WorktreeOrigins.load(from: originsFile).contains { $0.paths.contains(purgeWt.path) })
     sh("git commit -q --allow-empty -m work", cwd: purgeWt.path)
     sh("git merge -q feat-purge", cwd: liveRepo)
     let purgeTranscripts = "\(liveHome)/projects/\(worktreeTranscriptSlug(forResolvedPath: purgeWt.path))"
@@ -472,9 +478,10 @@ func runTeardownChecks() {
           !FileManager.default.fileExists(atPath: purgeWt.path))
     check("--purge-transcripts is what deletes the transcript directory",
           !FileManager.default.fileExists(atPath: purgeTranscripts))
-    // And with the conversation deliberately gone there is nothing left to attribute, so no note is
-    // written: the origins file records repositories to credit, not worktrees that once existed.
-    check("a purging teardown leaves no origin note behind",
+    // And with the conversation deliberately gone there is nothing left to attribute, so the note
+    // goes too - including the one that was already there from opening it. The origins file records
+    // repositories to credit, not worktrees that once existed.
+    check("a purging teardown clears the origin note, including one written when it opened",
           !WorktreeOrigins.load(from: originsFile).contains { $0.paths.contains(purgeWt.path) })
     check("while the teardown that kept its transcripts did leave one",
           WorktreeOrigins.load(from: originsFile).contains { $0.paths.contains(idleWt.path) })

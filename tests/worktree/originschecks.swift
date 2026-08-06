@@ -74,15 +74,79 @@ func runOriginsChecks() {
     check("an empty batch writes nothing at all",
           WorktreeOrigins.load(from: batchLedger).count == 2)
 
-    // What a repeating writer asks before it writes. The app's scan recomputes the same notes for
-    // the same live worktrees on every pass, so only a changed answer is news.
+    // What a repeating writer does instead of writing. The app's scan recomputes the same notes for
+    // the same live worktrees on every pass, so only a changed answer is news - and the comparison
+    // happens inside the write lock, not against a snapshot read before it.
     let held = WorktreeOrigins.load(from: batchLedger)
-    check("a record already on file is not missing",
-          WorktreeOrigins.missing([held[0]], from: held).isEmpty)
-    check("but the same directory with a different repository is",
-          WorktreeOrigins.missing([WorktreeOrigin(worktree: held[0].worktree, resolved: nil,
-                                                  repository: "/b/elsewhere", removedAt: nil)],
-                                  from: held).count == 1)
+    let batchStamp = fileStamp(batchLedger)
+    usleep(20_000)
+    WorktreeOrigins.recordNew([held[0]], in: batchLedger)
+    check("recording what the ledger already holds does not touch the file",
+          fileStamp(batchLedger) == batchStamp)
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: held[0].worktree, resolved: nil,
+                                              repository: "/b/elsewhere", removedAt: nil)],
+                              in: batchLedger)
+    check("but the same directory cut from a different repository is news",
+          WorktreeOrigins.load(from: batchLedger)
+            .first { $0.worktree == held[0].worktree }?.repository == "/b/elsewhere")
+
+    // The ordering rule between the two kinds of writer. A teardown records that a worktree is gone;
+    // a scan that started before it (or `tally claude -w` from a stale read) would then write its
+    // own live note over the top, losing the removal time and reopening a line that is closed. The
+    // live writer never displaces a stamped record of the same directory and repository.
+    let stampedLedger = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
+    WorktreeOrigins.record(WorktreeOrigin(worktree: "/s/repo-feat", resolved: nil,
+                                          repository: "/s/repo",
+                                          removedAt: "2026-08-06T03:00:00Z"),
+                           in: stampedLedger)
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/s/repo-feat", resolved: nil,
+                                              repository: "/s/repo", removedAt: nil)],
+                              in: stampedLedger)
+    let stamped = WorktreeOrigins.load(from: stampedLedger).filter { $0.worktree == "/s/repo-feat" }
+    check("a live note does not overwrite the teardown record of the same worktree",
+          stamped.count == 1 && stamped.first?.removedAt == "2026-08-06T03:00:00Z")
+    // Unless it really is a different parallel line now: the directory name was reused by another
+    // repository, and the newest answer is the one that answers for it.
+    WorktreeOrigins.recordNew([WorktreeOrigin(worktree: "/s/repo-feat", resolved: nil,
+                                              repository: "/s/other", removedAt: nil)],
+                              in: stampedLedger)
+    check("while the same path cut from another repository still supersedes it",
+          WorktreeOrigins.load(from: stampedLedger)
+            .first { $0.worktree == "/s/repo-feat" }?.repository == "/s/other")
+
+    // Deleting notes, which is what `--purge-transcripts` does with the note its worktree was
+    // opened under: the conversation it pointed at is being deleted, so the record has to go too
+    // rather than keep crediting a path whose transcripts no longer exist.
+    let purgeLedger = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
+    WorktreeOrigins.recordAll([
+        WorktreeOrigin(worktree: "/p/repo-one", resolved: "/private/p/repo-one",
+                       repository: "/p/repo", removedAt: nil),
+        WorktreeOrigin(worktree: "/p/repo-two", resolved: nil, repository: "/p/repo",
+                       removedAt: nil),
+    ], in: purgeLedger)
+    // Matched on the resolved spelling, which is the one teardown holds when git recorded the other.
+    WorktreeOrigins.removeAll(matching: ["/private/p/repo-one"], in: purgeLedger)
+    let afterPurge = WorktreeOrigins.load(from: purgeLedger)
+    check("removing a note takes the record that answers for that directory in any spelling",
+          !afterPurge.contains { $0.worktree == "/p/repo-one" })
+    check("and leaves every other repository's notes alone",
+          afterPurge.contains { $0.worktree == "/p/repo-two" })
+
+    let purgeStamp = fileStamp(purgeLedger)
+    usleep(20_000)
+    WorktreeOrigins.removeAll(matching: ["/p/nothing-here"], in: purgeLedger)
+    check("removing a note that is not there does not rewrite the file",
+          fileStamp(purgeLedger) == purgeStamp)
+    WorktreeOrigins.removeAll(matching: [], in: purgeLedger)
+    check("and an empty removal is a no-op too", fileStamp(purgeLedger) == purgeStamp)
+
+    // A purge of a worktree from a machine that has no ledger at all must not conjure one, nor the
+    // lock file beside it: teardown's bookkeeping never creates the thing it is bookkeeping about.
+    let absent = URL(fileURLWithPath: tempDir()).appendingPathComponent("origins.json")
+    WorktreeOrigins.removeAll(matching: ["/a/repo-feat"], in: absent)
+    check("removing from a ledger that does not exist creates neither it nor its lock",
+          !FileManager.default.fileExists(atPath: absent.path)
+            && !FileManager.default.fileExists(atPath: WorktreeOrigins.lockURL(for: absent).path))
 
     // MARK: The launch side writes the same note
 

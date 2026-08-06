@@ -223,13 +223,22 @@ func performWorktreeRemove(name: String?, force: Bool, purgeTranscripts: Bool,
     // rebuilds attribution from the filesystem on every full rescan (a cache version bump forces
     // one), and by then this directory is gone, so the sessions that ran here would pool into Other
     // and the repository's own recorded history would shrink anyway - the very thing keeping them
-    // was for. `--purge-transcripts` writes nothing, because it leaves nothing to attribute.
+    // was for.
+    //
+    // `--purge-transcripts` does the opposite, and does have to act: it leaves nothing to
+    // attribute, and this worktree was very likely written down when it was OPENED (`tally claude
+    // -w`, or the app's scan folding it) rather than only here. That earlier note has to be taken
+    // out with the conversation it was pointing at, or the ledger goes on crediting a path whose
+    // transcripts are gone - to a repository that will be the wrong answer the day something else
+    // takes the directory's name.
     if !purgeTranscripts {
         WorktreeOrigins.record(WorktreeOrigin(
             worktree: target.recordedPath,
             resolved: target.realPath == target.recordedPath ? nil : target.realPath,
             repository: target.mainRepo,
             removedAt: ISO8601DateFormatter().string(from: Date())), in: originsFile)
+    } else {
+        WorktreeOrigins.removeAll(matching: [target.recordedPath, target.realPath], in: originsFile)
     }
 
     // The rescan is the same selection over a fresh scan: a supervisor that got a relaunch in

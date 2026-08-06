@@ -378,6 +378,8 @@ case "reload":
     exit(runReload(args: Array(arguments.dropFirst())))
 case "switch":
     exit(runSwitch(args: Array(arguments.dropFirst())))
+case "hook-switch":   // internal: the `/tally-switch` prompt hook (SwitchHook.swift)
+    exit(runHookSwitch())
 case resuperviseCommand:   // internal: a supervisor replacing itself after an app update
     runResupervise(args: Array(arguments.dropFirst()))
 case "update":
@@ -422,7 +424,9 @@ default:
                                 move happens when the current turn ends. One shot - it changes no
                                 pin and no project profile, and automatic handoff carries on from
                                 there. For "this project always runs there", use
-                                `tally project set --account`
+                                `tally project set --account`. Inside Claude Code, typing
+                                `/tally-switch <account>` does the same without waking a model
+                                (installed with the Claude Code skill integration)
       tally reload [--now]      restart every supervised session at its next idle moment, so edited
                                 hooks, skills, and instructions take effect everywhere without
                                 visiting each terminal (--now waits only for a 5s quiet gap, so it

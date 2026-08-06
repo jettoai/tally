@@ -128,7 +128,9 @@ final class IntegrationsStore {
     }
 
     /// The bundled CLI binary (Contents/Helpers/tally, embedded by the release pipeline).
-    private static var bundledCLIURL: URL {
+    /// Internal (not private): the `/tally-switch` hook is registered with an absolute path to it,
+    /// so it works whether or not the /usr/local/bin link was ever installed.
+    static var bundledCLIURL: URL {
         Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/tally")
     }
 
@@ -204,7 +206,8 @@ final class IntegrationsStore {
 
     /// One settings.json per discovered claude home, deduplicated by physical file (shared
     /// setups symlink the same settings everywhere - one edit must not be counted N times).
-    private static func claudeSettingsFiles() -> [URL] {
+    /// Internal (not private): the skill's prompt hook is registered in the same files.
+    static func claudeSettingsFiles() -> [URL] {
         var seen = Set<String>()
         return ClaudeAccounts.discover().compactMap { account -> URL? in
             guard let home = account.launchHome else { return nil }
@@ -256,32 +259,59 @@ final class IntegrationsStore {
         refresh()
     }
 
+    /// Reads settings.json, applies `edit`, and writes it back atomically. Returns true when the
+    /// file changed; an edit that returns nil is a no-op, which is how idempotence is expressed.
+    ///
+    /// The refusal is the point, and it is why every write into this file goes through here: a file
+    /// that EXISTS and does not parse is left exactly as it is and reported. Reading it as an empty
+    /// document instead (a `try?` and a `?? [:]`) would replace a user's whole harness
+    /// configuration with the one key being registered, and the file it would eat is precisely the
+    /// one already in trouble. Internal for the unit tests - a mis-write here eats user
+    /// configuration. JSON round-trip note: key order is not preserved (settings.json is
+    /// machine-managed JSON; Claude Code does the same).
+    static func editSettings(_ file: URL,
+                             _ edit: ([String: Any]) -> [String: Any]?) throws -> Bool {
+        var settings: [String: Any] = [:]
+        // An absent file, and an empty one, are a fresh document. Only bytes that are there and do
+        // not parse are the refusal below.
+        if let data = try? Data(contentsOf: file), !data.isEmpty {
+            guard let parsed = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            else {
+                throw NSError(domain: "tally", code: 5, userInfo: [
+                    NSLocalizedDescriptionKey: L("Could not read settings.json, so it was left untouched"),
+                ])
+            }
+            settings = parsed
+        }
+        guard let merged = edit(settings) else { return false }
+        let out = try JSONSerialization.data(withJSONObject: merged,
+                                             options: [.prettyPrinted, .sortedKeys])
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try out.write(to: file, options: .atomic)
+        return true
+    }
+
     /// Registers Tally's statusLine in one settings.json. A user's OWN status line is never
     /// clobbered: its command is carried inside ours as base64 (`--wrap <b64>` - no shell
     /// quoting minefield, exactly restorable), the CLI keeps running it and appends the
-    /// account. Returns true when the file changed. Internal for the unit tests - a mis-write
-    /// here eats user configuration. JSON round-trip note: key order is not preserved
-    /// (settings.json is machine-managed JSON; Claude Code does the same).
+    /// account. Returns true when the file changed.
     static func upsertStatusLine(in file: URL, command: String) throws -> Bool {
-        var settings = (try? JSONSerialization.jsonObject(
-            with: (try? Data(contentsOf: file)) ?? Data())) as? [String: Any] ?? [:]
-        let existing = (settings["statusLine"] as? [String: Any])?["command"] as? String
-        if existing?.hasPrefix(command) == true { return false }   // already ours - idempotent
-        var registered = command
-        if let existing, !existing.isEmpty {
-            // Self-healing: if the tally binary ever disappears WITHOUT a clean remove (app
-            // dragged to the trash), the shell fallback decodes and runs the user's original
-            // status line directly - their setup survives Tally's death untouched.
-            let b64 = Data(existing.utf8).base64EncodedString()
-            registered += " --wrap \(b64) 2>/dev/null || printf %s \(b64) | base64 -D | /bin/sh"
+        try editSettings(file) { settings in
+            let existing = (settings["statusLine"] as? [String: Any])?["command"] as? String
+            if existing?.hasPrefix(command) == true { return nil }   // already ours - idempotent
+            var registered = command
+            if let existing, !existing.isEmpty {
+                // Self-healing: if the tally binary ever disappears WITHOUT a clean remove (app
+                // dragged to the trash), the shell fallback decodes and runs the user's original
+                // status line directly - their setup survives Tally's death untouched.
+                let b64 = Data(existing.utf8).base64EncodedString()
+                registered += " --wrap \(b64) 2>/dev/null || printf %s \(b64) | base64 -D | /bin/sh"
+            }
+            var merged = settings
+            merged["statusLine"] = ["type": "command", "command": registered]
+            return merged
         }
-        settings["statusLine"] = ["type": "command", "command": registered]
-        let data = try JSONSerialization.data(withJSONObject: settings,
-                                              options: [.prettyPrinted, .sortedKeys])
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
-                                                withIntermediateDirectories: true)
-        try data.write(to: file, options: .atomic)
-        return true
     }
 
     /// Reverses `upsertStatusLine` exactly: a wrapped registration restores the user's original

@@ -480,5 +480,6 @@ runFollowChecks()
 runSwitchChecks()
 runSwitchRequestChecks()
 runSwitchSessionChecks()
+runSwitchHookChecks()
 
 exit(failures == 0 ? 0 : 1)

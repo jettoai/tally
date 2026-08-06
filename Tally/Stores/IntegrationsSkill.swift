@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 7
+    nonisolated static let skillVersion = 8
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -133,7 +133,35 @@ extension IntegrationsStore {
         ```
 
         The name is matched against the account labels and config-dir names `tally status`
-        shows, case-insensitively. What happens next, and what to tell the user:
+        shows, case-insensitively.
+
+        THE USER HAS A CHEAPER WAY, and it is worth telling them about the first time they
+        ask you to move accounts. Tally installs a `/tally-switch` command with this skill,
+        and a prompt hook answers it before any model is woken:
+
+        ```
+        /tally-switch Claude 4       # zero turns: the hook queues the move and stops there
+        ! tally switch "Claude 4"    # zero turns too, under respondToBashCommands: false
+        ```
+
+        The second one is the fallback worth naming when the command is not installed: a
+        `!` line runs in their shell, and with `respondToBashCommands: false` in settings
+        its output never goes to a model at all.
+
+        Prefer that phrasing when they ask "how do I switch accounts": a move that costs a
+        turn to ask for is a move that costs part of what it saves. You cannot type a slash
+        command yourself, so when THEY ask YOU to move the session, run `tally switch` as
+        the tool call above.
+
+        When the user asks to switch WITHOUT naming an account ("move me to whichever has
+        room", "switch accounts"), read the fleet and let them choose rather than choosing
+        for them: run `tally status`, then ask with AskUserQuestion, one option per Claude
+        account, the account's label as the option and its remaining session, weekly and
+        model windows as the description, the account with the most headroom first and
+        marked Recommended. Then run `tally switch` on the one they picked. (Typing
+        `/tally-switch` with no account named arrives at exactly this, one turn later.)
+
+        What happens next, and what to tell the user:
 
         - THE MOVE HAPPENS WHEN THE CURRENT TURN ENDS, not while you are running the
           command: the request waits for the session to stop writing, which includes the
@@ -269,31 +297,42 @@ extension IntegrationsStore {
         if foreign > 0 { return .broken(L("A different skill occupies skills/tally")) }
         if older > 0 { return .broken(L("Older version installed")) }
         if ours == 0 { return .notInstalled }
-        return ours == files.count ? .installed : .broken(L("Not installed for every account"))
+        guard ours == files.count else { return .broken(L("Not installed for every account")) }
+        // The `/tally-switch` command and its prompt hook ship WITH the skill, so an install
+        // carrying only the SKILL.md is an install from an older app: the same "bring it up to
+        // date" answer the version marker gets, and `autoUpdateSkill()` does exactly that at the
+        // next launch.
+        return Self.switchCommandIsCurrent(forSkillFiles: files)
+            ? .installed : .broken(L("Older version installed"))
     }
 
     func installSkill() {
         guard guardNotDev() else { return }
         lastError = nil
+        let files = Self.claudeSkillFiles()
         do {
-            let files = Self.claudeSkillFiles()
             for file in files { _ = try Self.upsertSkill(in: file) }
             recordManifest("claudeSkill", paths: files.isEmpty ? nil : files.map(\.path))
         } catch {
             lastError = error.localizedDescription
         }
+        // Outside the do/catch above on purpose: a skills folder that refused the SKILL.md says
+        // nothing about the commands folder next to it, and this call reports its own failures.
+        syncSwitchCommand(forSkillFiles: files)
         refresh()
     }
 
     func removeSkill() {
         guard guardNotDev() else { return }
         lastError = nil
+        let files = Self.installedSkillFiles()
         do {
-            for file in Self.installedSkillFiles() { try Self.removeSkill(in: file) }
+            for file in files { try Self.removeSkill(in: file) }
             recordManifest("claudeSkill", paths: nil)
         } catch {
             lastError = error.localizedDescription
         }
+        removeSwitchCommand(forSkillFiles: files)
         refresh()
     }
 
@@ -310,7 +349,12 @@ extension IntegrationsStore {
         // Before the early return: when EVERY update failed (an unwritable skills folder) there is
         // nothing to record, but the failure is exactly what Settings must be able to show.
         if let error = result.error { lastError = error }
-        guard result.updated > 0 else { return }
+        // The command file and its hook follow the SKILL.md's PRESENCE, not their own: an install
+        // from an app that predates them has neither, and "an absent file stays absent" would keep
+        // it that way forever. Run whether or not the skill itself needed rewriting, because a hook
+        // can also go stale on its own (the app moved, so its binary path did).
+        let switchChanged = result.ours.isEmpty ? false : syncSwitchCommand(forSkillFiles: result.ours)
+        guard result.updated > 0 || switchChanged else { return }
         recordManifest("claudeSkill", paths: result.ours.map(\.path))
         refresh()
     }

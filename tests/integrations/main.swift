@@ -104,6 +104,28 @@ try MainActor.assumeIsolated {
     try IntegrationsStore.removeStatusLine(in: settings, command: ours)
     check("removing over a foreign command leaves it untouched", statusCommand() == custom)
 
+    // The write that would cost a user their whole harness. Registering a status line into a
+    // settings.json that does not parse (a truncated write, a hand edit gone wrong) must REFUSE:
+    // reading it as an empty document and writing our one key over it replaces everything they
+    // have, and the file it would eat is precisely the one already in trouble. Truncated rather
+    // than trailing-comma on purpose - Foundation's parser accepts a trailing comma (verified
+    // 2026-08-06), so that fixture would have asserted nothing.
+    let brokenStatus = tmp.appendingPathComponent("broken-status.json")
+    let brokenStatusText = "{\n  \"model\": \"opusplan\",\n  \"statusLine\": {\n"
+    try brokenStatusText.write(to: brokenStatus, atomically: true, encoding: .utf8)
+    var refusedStatus = false
+    do { _ = try IntegrationsStore.upsertStatusLine(in: brokenStatus, command: ours) } catch {
+        refusedStatus = true
+    }
+    let afterBrokenStatus = try String(contentsOf: brokenStatus, encoding: .utf8)
+    check("an unparseable settings.json is refused, not restarted from an empty document",
+          refusedStatus && afterBrokenStatus == brokenStatusText)
+    // Removal was already safe (its guard simply finds nothing to restore), asserted here so the
+    // pair is pinned together: neither direction may rewrite a file it could not read.
+    try IntegrationsStore.removeStatusLine(in: brokenStatus, command: ours)
+    check("…and uninstalling leaves it alone too",
+          try String(contentsOf: brokenStatus, encoding: .utf8) == brokenStatusText)
+
     // MARK: Claude Code skill surgery - install, refuse foreign files, remove cleanly.
     let skillFile = tmp.appendingPathComponent("skills/tally/SKILL.md")
     check("fresh skill install writes the file",
@@ -152,7 +174,7 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 7", IntegrationsStore.skillVersion == 7)
+    check("skill is at version 8", IntegrationsStore.skillVersion == 8)
     check("skill teaches the advisor field", currentSkill.contains("advisor.<provider>"))
     check("skill spells out every verdict",
           currentSkill.contains("`collecting`") && currentSkill.contains("`addAccount`")
@@ -225,6 +247,29 @@ try MainActor.assumeIsolated {
           skillProse.contains("launched bare, with `--no-handoff`, or with an `--account` pin"))
     check("…and tells the agent not to re-run a move that is merely waiting",
           skillProse.contains("Relay that rather than running the command again"))
+
+    // The zero-turn paths. The skill's job here is not to teach the agent a new tool (it cannot
+    // type a slash command) but to make it hand the cheap route to the USER: a move that costs a
+    // turn to ask for spends part of what it saves, and the whole point of the hook is that asking
+    // is free. Spelled exactly as the user must type them, because a paraphrase is not runnable.
+    check("skill hands the user the zero-turn slash command",
+          currentSkill.contains("/tally-switch Claude 4"))
+    check("…names the bang path and the setting that makes it free too",
+          currentSkill.contains("! tally switch \"Claude 4\"")
+              && skillProse.contains("respondToBashCommands: false"))
+    check("…and says why it is preferred, so the agent volunteers it",
+          skillProse.contains("Prefer that phrasing when they ask \"how do I switch accounts\""))
+    check("…while keeping the agent's own route unambiguous",
+          skillProse.contains("You cannot type a slash command yourself"))
+    // Unnamed account = a choice, and a choice is the user's. The picker spec is written in both
+    // places an agent can arrive from (this skill, and the command file), so the two are asserted
+    // against the same four requirements.
+    check("skill sends an unnamed switch through the account picker",
+          skillProse.contains("read the fleet and let them choose rather than choosing")
+              && skillProse.contains("ask with AskUserQuestion, one option per Claude"))
+    check("…with headroom on every option and the best one recommended first",
+          skillProse.contains("remaining session, weekly and model windows as the description")
+              && skillProse.contains("most headroom first and marked Recommended"))
 
     // The worktree section. `remove` is the one command in this file that destroys work, and the
     // agent reading it is the one who will be asked to run it ("we merged it, clean it up"), so
@@ -320,6 +365,10 @@ try MainActor.assumeIsolated {
     check("a missing manifest yields no paths",
           IntegrationsStore.manifestPaths("claudeSkill",
                                           manifest: tmp.appendingPathComponent("nope.json")).isEmpty)
+
+    // The other half of the skill integration: the `/tally-switch` command file and the prompt hook
+    // that answers it without a model turn (switchcommandchecks.swift).
+    try runSwitchCommandChecks(tmp: tmp, skill: currentSkill)
 
     try? FileManager.default.removeItem(at: tmp)
 }

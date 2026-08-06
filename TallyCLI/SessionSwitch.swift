@@ -334,29 +334,56 @@ private func applyPinSwitch(plan: inout RelaunchPlan?, state: ManualMoveState,
     plan = RelaunchPlan(target: target, reason: "pin", countsFuse: false)
 }
 
-// MARK: - CLI entry
+// MARK: - Asking for the move
 
-/// `tally switch <account>`: move the session this command was run in onto the named account, at the
-/// end of the turn that asked for it.
+/// What asking to move this session came to, decided but not yet said.
 ///
-/// Unconfirmed, like `tally reload`: typing the command IS the intent. It writes a request and
-/// returns at once - the supervisor performs the move - so it never blocks the turn it was run in,
-/// which matters because that turn has to END before the move can happen.
-func runSwitch(args: [String]) -> Int32 {
-    guard args.count == 1, let name = args.first, !name.hasPrefix("-") else {
-        warn("usage: tally switch <account>   (label or config-dir name, as `tally status` lists " +
-             "them). Moves THIS session to that account at the end of the current turn; to make a " +
-             "project always launch there, use `tally project set --account`")
-        return 2
+/// Split out of the command because there are now two surfaces asking the same question and they
+/// must get the same answer: `tally switch` typed (or run as a tool call) inside the session, and
+/// the `/tally-switch` prompt hook, which reports back without a model turn ever running
+/// (SwitchHook.swift). One decision, one wording, two printers.
+struct SwitchAttempt: Equatable {
+    enum Result: Equatable {
+        /// A request is on disk; the supervisor performs the move at the next quiet moment.
+        case queued
+        /// The session is on that account already, which is not a failure and not a move.
+        case alreadyThere
+        /// Nothing was queued, and `message` says why.
+        case refused
     }
+
+    let result: Result
+    /// The one sentence answering "what happened", written to stand ALONE: a surface with a single
+    /// line to spend (the hook's stderr) shows this and nothing else.
+    let message: String
+    /// Worth saying alongside it, never instead of it: a snapshot problem, a drained target, a
+    /// supervisor that has to replace itself before it can act.
+    var notes: [String] = []
+
+    var exitCode: Int32 { result == .refused ? 1 : 0 }
+
+    /// Named because most of the ways `attemptSwitch` can end are this one: nothing was queued, and
+    /// the sentence handed in says why.
+    static func refusal(_ message: String, notes: [String]) -> SwitchAttempt {
+        SwitchAttempt(result: .refused, message: message, notes: notes)
+    }
+}
+
+/// Resolve the account, find the session, and write the request. Everything the command does except
+/// print, so both surfaces share it.
+///
+/// Unconfirmed, like `tally reload`: asking IS the intent. It returns as soon as the request is
+/// written - the supervisor performs the move - so it never blocks the turn it was run in, which
+/// matters because that turn has to END before the move can happen.
+func attemptSwitch(name: String) -> SwitchAttempt {
     let (snapshot, problem) = loadSnapshot()
-    if let problem { warn(problem) }
+    var notes: [String] = []
+    if let problem { notes.append(problem) }
     // Claude only for now, exactly as the supervisor is: codex launches are a plain exec with
     // nothing resident to act on a request.
     let provider = providers[0]
     guard let target = accountMatching(name, provider: provider.id, in: snapshot) else {
-        warn("no claude account matches \"\(name)\" - try `tally status`")
-        return 1
+        return .refusal("no claude account matches \"\(name)\" - try `tally status`", notes: notes)
     }
     let sessionKey: String
     let marker = liveSessionMarker()
@@ -365,15 +392,18 @@ func runSwitch(args: [String]) -> Int32 {
     case .session(let key):
         sessionKey = key
     case .none:
-        warn("this session is not supervised, so there is nothing here to move it: it was launched "
-            + "bare, with --no-handoff, or with an --account pin. Sessions started with "
-            + "`tally claude` can be switched.")
-        return 1
+        return .refusal(
+            "this session is not supervised, so there is nothing here to move it: it was launched "
+                + "bare, with --no-handoff, or with an --account pin. Sessions started with "
+                + "`tally claude` can be switched.",
+            notes: notes)
     case .ambiguous(let pids):
-        warn("\(pids.count) supervised sessions are running in this directory, so this command "
-            + "cannot tell which one you mean (pids \(pids.joined(separator: ", "))). Run it "
-            + "inside the session you want to move - or ask the agent in that session to run it.")
-        return 1
+        return .refusal(
+            "\(pids.count) supervised sessions are running in this directory, so this command "
+                + "cannot tell which one you mean (pids \(pids.joined(separator: ", "))). Run it "
+                + "inside the session you want to move - or ask the agent in that session to run "
+                + "it.",
+            notes: notes)
     }
     // Already there? Asked of the SESSION being moved, not of this shell. The two are the same
     // process tree only on the main path; through the directory fallback the shell is somebody
@@ -382,8 +412,8 @@ func runSwitch(args: [String]) -> Int32 {
     // for a session running somewhere else entirely).
     if sessionAccountID(sessionKey: sessionKey, isThisSession: marker == sessionKey,
                         provider: provider, accounts: snapshot?.accounts ?? []) == target.id {
-        print("already on \(target.label)")
-        return 0
+        return SwitchAttempt(result: .alreadyThere, message: "already on \(target.label)",
+                             notes: notes)
     }
     // Whether anything will read the request, asked only when the session named ITSELF: the
     // environment carries that session's supervisor build, and a directory match carries nothing.
@@ -392,33 +422,56 @@ func runSwitch(args: [String]) -> Int32 {
                                 ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_VERSION"],
                               installedVersion: supervisorBuildVersion())
     if honourability == .tooOld {
-        warn("this session's supervisor predates `tally switch` and would never read the request, "
-            + "so nothing was queued. Restart this session once (exit, then launch again with "
-            + "`tally claude`) and it can be switched from then on.")
-        return 1
+        return .refusal(
+            "this session's supervisor predates `tally switch` and would never read the request, "
+                + "so nothing was queued. Restart this session once (exit, then launch again with "
+                + "`tally claude`) and it can be switched from then on.",
+            notes: notes)
     }
     // Said, not refused: naming an account is an instruction, and its quota is the user's business
     // (the same reading a pin gets - `tally claude` launches a pinned account that is out too).
     if headroom(target) <= 0 {
-        warn("\(target.label) is out of quota - switching anyway (you asked)")
+        notes.append("\(target.label) is out of quota - switching anyway (you asked)")
     }
     sweepDeadSwitchRequests()
     do {
         try writeSwitchRequest(accountID: target.id, sessionKey: sessionKey)
     } catch {
-        warn("cannot write \(switchRequestFile(sessionKey: sessionKey).path): " +
-             "\(error.localizedDescription)")
-        return 1
+        return .refusal("cannot write \(switchRequestFile(sessionKey: sessionKey).path): "
+                            + "\(error.localizedDescription)",
+                        notes: notes)
+    }
+    if honourability == .afterSelfUpdate {
+        notes.append("this session runs a supervisor from another build: it replaces itself with "
+            + "the installed one at the next idle moment, and the switch happens after that")
     }
     // The timing, spelled out, because the caller is usually an agent that has to relay it: the
     // move waits for the turn making this tool call to finish (OpenTurn.swift), so the session
     // stays exactly where it is until the answer is delivered, and comes back on the other account
     // with the conversation intact.
-    print("switch queued: this session moves to \(target.label) when the current turn ends, "
-        + "and the conversation continues there")
-    if honourability == .afterSelfUpdate {
-        warn("this session runs a supervisor from another build: it replaces itself with the "
-            + "installed one at the next idle moment, and the switch happens after that")
+    return SwitchAttempt(
+        result: .queued,
+        message: "switch queued: this session moves to \(target.label) when the current turn ends, "
+            + "and the conversation continues there",
+        notes: notes)
+}
+
+// MARK: - CLI entry
+
+/// `tally switch <account>`: move the session this command was run in onto the named account, at the
+/// end of the turn that asked for it.
+func runSwitch(args: [String]) -> Int32 {
+    guard args.count == 1, let name = args.first, !name.hasPrefix("-") else {
+        warn("usage: tally switch <account>   (label or config-dir name, as `tally status` lists " +
+             "them). Moves THIS session to that account at the end of the current turn; to make a " +
+             "project always launch there, use `tally project set --account`")
+        return 2
     }
-    return 0
+    let attempt = attemptSwitch(name: name)
+    // The one line that answers the command goes to stdout when it worked, so a script can read it;
+    // a refusal is stderr, like every other failure here. The notes are always stderr: they qualify
+    // the answer rather than being it.
+    if attempt.result == .refused { warn(attempt.message) } else { print(attempt.message) }
+    for note in attempt.notes { warn(note) }
+    return attempt.exitCode
 }

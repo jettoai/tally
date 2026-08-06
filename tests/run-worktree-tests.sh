@@ -18,6 +18,7 @@ swiftc -o "$out" \
   tests/worktree/teardownchecks.swift \
   tests/worktree/treechecks.swift \
   tests/worktree/killchecks.swift \
+  tests/worktree/originschecks.swift \
   TallyCLI/Worktree.swift \
   TallyCLI/GitRepoRoot.swift \
   TallyCLI/WorktreeTeardown.swift \

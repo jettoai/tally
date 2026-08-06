@@ -55,26 +55,57 @@ enum WorktreeOrigins {
         return document.entries
     }
 
-    /// Add one record, replacing any earlier record for the same worktree path (a directory name is
-    /// reusable, and the repository it belonged to last is the one that answers for it), dropping
-    /// records whose repository is no longer on disk, and keeping the newest `limit`.
+    /// The advisory lock writers hold, `<file>.lock` beside the file itself.
     ///
-    /// Written atomically, because the app reads this file on a background scan while the CLI is
-    /// writing it: a reader that caught a half-written file would drop every origin at once.
-    /// Failure is silent by design - teardown must never fail over its own bookkeeping.
+    /// Readers never take it: the write below is atomic, so a reader either sees the whole previous
+    /// file or the whole new one, and taking a lock on the app's background scan would let a stuck
+    /// CLI stall the table. Writers need more than atomicity, because each one reads the file,
+    /// changes it and writes it back: an atomic write stops a reader from seeing half a file, it
+    /// does not stop the second writer from overwriting what the first one added. Tearing down a
+    /// fleet of parallel lines at once is exactly the case that does it.
+    static func lockURL(for url: URL) -> URL {
+        url.appendingPathExtension("lock")
+    }
+
+    /// Add one record, replacing any earlier record for the same worktree path (a directory name is
+    /// reusable, and the repository it belonged to last is the one that answers for it), and keeping
+    /// the newest `limit`.
+    ///
+    /// Nothing here prunes records whose repository is no longer on disk, deliberately. A repository
+    /// can be missing for a moment (an external disk unmounted, a stale symlink, a checkout being
+    /// moved) while its notes are still the only record of where those sessions worked, and a note
+    /// is unrecoverable once dropped, while the reader already ignores repositories it cannot place
+    /// and `limit` already bounds the file. Pruning would buy nothing and could delete another
+    /// repository's history on an unrelated teardown.
+    ///
+    /// Serialised across processes by `lockURL`, then written atomically for the sake of the app
+    /// reading it on a background scan. Failure is silent by design, including failure to take the
+    /// lock: teardown must never fail over its own bookkeeping, so an unlockable ledger is written
+    /// unserialised rather than not written at all.
     static func record(_ origin: WorktreeOrigin, in url: URL = fileURL()) {
-        var entries = load(from: url).filter { existing in
-            existing.worktree != origin.worktree
-                && FileManager.default.fileExists(atPath: existing.repository)
-        }
-        entries.append(origin)
-        entries = Array(entries.suffix(limit))
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(Document(version: 1, entries: entries)) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
+        withWriteLock(for: url) {
+            var entries = load(from: url).filter { $0.worktree != origin.worktree }
+            entries.append(origin)
+            entries = Array(entries.suffix(limit))
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            guard let data = try? encoder.encode(Document(version: 1, entries: entries)) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    /// Run `body` holding an exclusive `flock` on the ledger's lock file, so that a read-modify-write
+    /// of the ledger cannot interleave with another process's. Fail-open in both directions: if the
+    /// lock cannot be opened or taken, `body` still runs (see `record`).
+    private static func withWriteLock(for url: URL, _ body: () -> Void) {
+        let descriptor = open(lockURL(for: url).path, O_CREAT | O_RDWR | O_CLOEXEC, 0o644)
+        guard descriptor >= 0 else { return body() }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else { return body() }
+        defer { flock(descriptor, LOCK_UN) }
+        body()
     }
 
     /// The file itself. `version` is written, never gated on: the contract is additive, so a reader

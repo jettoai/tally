@@ -478,4 +478,10 @@ func runTeardownChecks() {
           !WorktreeOrigins.load(from: originsFile).contains { $0.paths.contains(purgeWt.path) })
     check("while the teardown that kept its transcripts did leave one",
           WorktreeOrigins.load(from: originsFile).contains { $0.paths.contains(idleWt.path) })
+
+    // MARK: - 21. The origins ledger itself (what every teardown above writes through)
+
+    // Split into tests/worktree/originschecks.swift for file size; same arrangement as the groups
+    // main.swift splits out.
+    runOriginsChecks()
 }

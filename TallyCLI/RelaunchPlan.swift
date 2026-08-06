@@ -5,6 +5,21 @@ import Foundation
 // everything here is about the single respawn a tick may perform, and nothing here knows how a tick
 // decides to want one.
 
+/// The pair a session is pinned to, or the empty pin that means it follows the layers below it.
+///
+/// A value type because the two axes travel together everywhere: into the request
+/// (ModelRequest.swift), into the relaunch plan below, across the self-update exec
+/// (ResuperviseContract.swift), and out again. It lives HERE, with the plan that consumes it, rather
+/// than with the request that first parses one: this is the file every relaunch's args pass
+/// through, and it carries no dependencies of its own, so the suites that compile the relaunch
+/// rewrite do not have to compile a request parser to get at a two-field struct.
+struct SessionModelPin: Equatable {
+    var model: String?
+    var effort: String?
+
+    var isEmpty: Bool { model == nil && effort == nil }
+}
+
 /// The relaunch a single poll tick decided. The loop folds every reason that fired this tick into
 /// ONE plan so the child is killed and respawned exactly once: a cap handoff and a Settings Apply
 /// landing together used to fire two SIGTERMs and relaunch twice (2026-07-24). The account move is
@@ -85,7 +100,28 @@ struct TickPlan {
 /// cap handoff, a pin switch, a reload) leaves the args exactly as the resume path produced them.
 /// One function rather than an inline rewrite because a self-update folded into the plan execs with
 /// these same args: the new build must receive what the child would have been given.
-func planLaunchArgs(_ args: [String], plan: RelaunchPlan) -> [String] {
+func planLaunchArgs(_ args: [String], plan: RelaunchPlan,
+                    sessionPin: SessionModelPin = SessionModelPin()) -> [String] {
+    var plan = plan
+    // A SESSION PIN THAT NEVER REACHED THE COMMAND LINE. A `tally model` rewrites the argv on its
+    // way past, so its pin is on every later relaunch for free; a native `/model` adopted from the
+    // transcript deliberately does NOT relaunch (the session already serves it), so the argv still
+    // says what the session was launched with. Any later plan carrying no axes of its own - a
+    // reload, a switch, a cap handoff, a self-update - would then respawn the child on the old pair
+    // while `sessionPrimaryModel` went on reporting the new one, and the two would disagree until
+    // something noticed (caught in review of c914b41).
+    //
+    // HERE rather than in each mover, because "each mover learns to carry one more thing" is the
+    // shape of the flag family this feature spent a package collapsing. Every relaunch's args pass
+    // through this function; a pin that reaches it reaches all of them.
+    //
+    // Only when the plan names NEITHER axis: one that names them is more specific and wins, and a
+    // release (`clearsAxes`) is an instruction to take them off. The other axis is re-named from the
+    // args because everything below strips both before injecting.
+    if plan.model == nil, plan.effort == nil, !plan.clearsAxes, !sessionPin.isEmpty {
+        plan.model = sessionPin.model ?? flagValue(args, "--model")
+        plan.effort = sessionPin.effort ?? flagValue(args, "--effort")
+    }
     guard plan.model != nil || plan.effort != nil || !plan.extraArgs.isEmpty || plan.clearsAxes
     else { return args }
     // Gathered first, then placed where they will be READ (`injectingOptions`, Snapshot.swift).

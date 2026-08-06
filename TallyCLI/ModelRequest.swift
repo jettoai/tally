@@ -32,7 +32,9 @@ let modelRequestDir = FileManager.default.homeDirectoryForCurrentUser
 /// refuses anything starting with a dash, which is what the parser below requires of a real one.
 let modelAutoRequest = "--auto"
 
-/// A parsed model request: when it was made, and the pair it asks for.
+/// A parsed model request: when it was made, and the pair it asks for. (`SessionModelPin`, the pair
+/// itself, lives in RelaunchPlan.swift: it is consumed by the relaunch rewrite, which is compiled by
+/// suites that have no business knowing how a request file is parsed.)
 struct ModelRequest: Equatable {
     /// MILLISECONDS since the unix epoch, like the switch stamp and unlike the reload one. The
     /// supervisor acts only on a stamp strictly newer than the one it has served, and these are
@@ -56,16 +58,6 @@ struct ModelRequest: Equatable {
     var pin: SessionModelPin {
         isRelease ? SessionModelPin() : SessionModelPin(model: model, effort: effort)
     }
-}
-
-/// The pair a session is pinned to, or the empty pin that means it follows the layers below it.
-/// A value type because the two axes travel together everywhere: into the request, into the
-/// relaunch plan, across the self-update exec (ResuperviseContract.swift), and out again.
-struct SessionModelPin: Equatable {
-    var model: String?
-    var effort: String?
-
-    var isEmpty: Bool { model == nil && effort == nil }
 }
 
 /// Parse the file body: the stamp on line 1, the model on line 2, the effort on line 3 (an empty
@@ -140,6 +132,19 @@ struct SessionModelState {
     /// The pair this session is pinned to, empty when it follows the layers below (where every
     /// session starts, and where `tally model --auto` puts it back).
     var pin: SessionModelPin
+    /// The `/model` event this session has already acted on (SessionModel.swift).
+    ///
+    /// Without it the adoption is not a decision but a STANDING RULE: `lastModelCommandAt` lives as
+    /// long as the child, so every later disagreement between the serving model and the pin still
+    /// satisfied "a /model happened, and the observation is newer than it" - including a genuine
+    /// quota fallback, which was then adopted as though the user had asked for it. The degradation
+    /// rescue would never fire again for the rest of that child (caught in review of c914b41).
+    ///
+    /// The same shape `servedEpoch` above has, and for the same reason: an instruction is served
+    /// once, and the next one has to be NEWER. Not carried across the self-update exec, unlike the
+    /// pin: that exec starts a new child, and the new watcher's `since` already filters out every
+    /// `/model` from before it.
+    var servedModelCommandAt: Date?
     /// Why a request is being held rather than served, for the status line's badge; nil when
     /// nothing is being held. Re-derived every tick from live state, like every other badge
     /// (PendingNotice.swift), so it disappears the moment the reason does.

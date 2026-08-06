@@ -459,7 +459,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                              attempted: selfUpdateAttempted,
                                              home: plan.target.launchHome)
                 performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse)
-                launchArgs = planLaunchArgs(launchArgs, plan: plan)
+                launchArgs = planLaunchArgs(launchArgs, plan: plan,
+                                            sessionPin: sessionModelState.pin)
                 // Republish the account this conversation now runs on, and the pair the next child
                 // will run, rather than leaving either to a later tick that reads a token figure: a
                 // `tally switch` or a `tally model` from a shell outside this session has only that

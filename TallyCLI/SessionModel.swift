@@ -65,19 +65,33 @@ func sessionPrimaryModel(pin: SessionModelPin, launchArgs: [String], providerID:
 func adoptNativeModelChoice(state: inout SessionModelState, follow: inout FollowState,
                             watcher: TranscriptWatcher, primaryModel: String?,
                             launchArgs: [String]) -> Bool {
-    guard let commandAt = watcher.lastModelCommandAt, let observed = watcher.lastModel,
-          let observedAt = watcher.lastMainChainEventAt, observedAt >= commandAt,
-          !modelsAgree(primaryModel, observed),
-          // Already this session's pin: adopting again every tick would re-announce a choice the
-          // user made once, and re-point the follow baseline for nothing.
-          !modelsAgree(state.pin.model, observed) else { return false }
-    state.pin.model = observed
-    if let effort = watcher.lastModelCommandEffort { state.pin.effort = effort }
-    follow.adopt(model: observed,
+    guard let commandAt = watcher.lastModelCommandAt,
+          // ONE EVENT, ONE ADOPTION. The marker lives as long as the child, so without this the
+          // condition below stays true for every later disagreement - a real quota fallback
+          // included, which would then be adopted as the user's choice and the rescue would never
+          // fire again. The next adoption needs a NEWER `/model`, exactly as the next request needs
+          // a newer stamp.
+          commandAt > (state.servedModelCommandAt ?? .distantPast),
+          let observed = watcher.lastModel,
+          let observedAt = watcher.lastMainChainEventAt, observedAt >= commandAt
+    else { return false }
+    // TWO AXES, JUDGED SEPARATELY. The picker can keep the model and move only the depth, and that
+    // is a real thing to do: reading "the model still agrees" as "nothing happened" threw the parsed
+    // effort away, so the child ran xhigh and the next relaunch put high back (caught in review of
+    // c914b41). Judged, but adopted TOGETHER - one command is one choice, and it is consumed once.
+    let movedModel = !modelsAgree(primaryModel, observed) && !modelsAgree(state.pin.model, observed)
+    let chosenEffort = watcher.lastModelCommandEffort
+    let runningEffort = state.pin.effort ?? flagValue(launchArgs, "--effort")
+    let movedEffort = chosenEffort.map { $0.lowercased() != runningEffort?.lowercased() } ?? false
+    guard movedModel || movedEffort else { return false }
+    state.servedModelCommandAt = commandAt
+    if movedModel { state.pin.model = observed }
+    if movedEffort { state.pin.effort = chosenEffort }
+    follow.adopt(model: state.pin.model ?? flagValue(launchArgs, "--model"),
                  effort: state.pin.effort ?? flagValue(launchArgs, "--effort"))
-    warn("adopted the model you chose with `/model` as this session's pin: it runs \(observed)"
-        + (state.pin.effort.map { "/\($0)" } ?? "")
-        + " until `tally model auto` releases it, and is no longer read as a degradation")
+    let pinned = [state.pin.model, state.pin.effort].compactMap { $0 }.joined(separator: "/")
+    warn("adopted what you chose with `/model` as this session's pin: it runs \(pinned) until "
+        + "`tally model auto` releases it, and is no longer read as a degradation")
     return true
 }
 

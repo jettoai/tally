@@ -175,6 +175,65 @@ func runNativeModelChecks() {
     check("…and the baseline keeps the effort the command line still carries",
           effortlessFollow.followedEffort == "max")
 
+    // MARK: - 35c2. One command, one adoption
+
+    // WITHOUT THIS THE ADOPTION IS A STANDING RULE, not a decision. The `/model` marker lives as
+    // long as the child, so every later disagreement between the serving model and the pin still
+    // satisfied "a /model happened, and this observation is newer than it" - a genuine quota
+    // fallback included. It would be adopted as the user's choice, and the degradation rescue would
+    // never fire again for the rest of that child (review of c914b41).
+    var consumed = freshState()
+    var consumedFollow = FollowState(launchArgs: ["--model", "fable"])
+    check("the first adoption is served",
+          adoptNativeModelChoice(state: &consumed, follow: &consumedFollow, watcher: typed,
+                                 primaryModel: "fable", launchArgs: ["--model", "fable"])
+              && consumed.servedModelCommandAt == launch.addingTimeInterval(30))
+    // Now a REAL degradation, on the same child: the serving model moves again, and no new /model
+    // was typed. This is the rescue's case and it must stay the rescue's case.
+    let laterDegradation = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
+        + [servedLine("claude-opus-4-8", at: 60), servedLine("claude-haiku-4-5", at: 90)])
+    check("a later degradation under the SAME /model is not adopted as a second choice",
+          !adoptNativeModelChoice(state: &consumed, follow: &consumedFollow,
+                                  watcher: laterDegradation, primaryModel: "claude-opus-4-8",
+                                  launchArgs: ["--model", "fable"]))
+    check("…so the pin still names what the user actually chose",
+          consumed.pin.model == "claude-opus-4-8")
+    // A genuinely new /model is a new instruction, and is adopted.
+    let typedAgain = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
+        + [servedLine("claude-opus-4-8", at: 60)] + modelCommandLines(at: 90, effort: nil)
+        + [servedLine("claude-haiku-4-5", at: 120)])
+    check("a NEWER /model is a new instruction",
+          adoptNativeModelChoice(state: &consumed, follow: &consumedFollow, watcher: typedAgain,
+                                 primaryModel: "claude-opus-4-8", launchArgs: ["--model", "fable"])
+              && consumed.pin.model == "claude-haiku-4-5")
+
+    // MARK: - 35c3. Keeping the model and moving only the depth
+
+    // The picker can leave the model alone and change the effort, and reading "the model still
+    // agrees" as "nothing happened" threw the parsed effort away: the child ran xhigh while the
+    // next relaunch would put high back (review of c914b41).
+    let depthOnly = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
+        + [servedLine("claude-fable-5", at: 60)])
+    var depth = freshState()
+    var depthFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "high"])
+    check("a /model that kept the model but moved the depth is still adopted",
+          adoptNativeModelChoice(state: &depth, follow: &depthFollow, watcher: depthOnly,
+                                 primaryModel: "fable",
+                                 launchArgs: ["--model", "fable", "--effort", "high"]))
+    check("…pinning the effort, and leaving the model alone because it did not move",
+          depth.pin == SessionModelPin(model: nil, effort: "xhigh"))
+    check("…and it is consumed once, so the same event cannot be adopted again",
+          !adoptNativeModelChoice(state: &depth, follow: &depthFollow, watcher: depthOnly,
+                                  primaryModel: "fable",
+                                  launchArgs: ["--model", "fable", "--effort", "high"]))
+    // Choosing the depth already running is not a change either.
+    var sameDepth = freshState()
+    var sameDepthFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "xhigh"])
+    check("choosing the depth already running adopts nothing",
+          !adoptNativeModelChoice(state: &sameDepth, follow: &sameDepthFollow, watcher: depthOnly,
+                                  primaryModel: "fable",
+                                  launchArgs: ["--model", "fable", "--effort", "xhigh"]))
+
     // MARK: - 35d. What the rest of the tick then believes
 
     // The pin leads, and that is what stops the rescue: the session runs what was chosen, so the
@@ -229,6 +288,45 @@ func runNativeModelChecks() {
                                                              policy: LaunchPolicy()),
                            quarantine: [:], fuseAllows: true)
     check("and the degradation rescue no longer has anything to cure", plan == nil)
+
+    // MARK: - 35d2. The pin reaches the next relaunch's command line
+
+    // The adoption deliberately does not relaunch, which leaves the argv saying what the session
+    // was LAUNCHED with. So any later plan carrying no axes of its own - a reload, a switch, a cap
+    // handoff, a self-update - would respawn the child on the old pair while `sessionPrimaryModel`
+    // reported the new one, and the two would disagree until something noticed (review of c914b41).
+    // Closed at the one place every relaunch's args pass through, rather than in each mover.
+    let adopted = SessionModelPin(model: "claude-opus-4-8", effort: "xhigh")
+    let reload = RelaunchPlan(target: switchAccount("A"), reason: "reload", countsFuse: false)
+    check("a plan naming no axes carries the adopted pair onto the new command line",
+          planLaunchArgs(["--model", "fable", "--effort", "high", "--continue"], plan: reload,
+                         sessionPin: adopted)
+              == ["--continue", "--model", "claude-opus-4-8", "--effort", "xhigh"])
+    check("…and with no pin at all it leaves the args exactly as they were",
+          planLaunchArgs(["--model", "fable", "--continue"], plan: reload)
+              == ["--model", "fable", "--continue"])
+    // An effort-only pin keeps the model the args already carry: everything below strips both
+    // flags before injecting, so the axis nobody pinned has to be re-named from the args.
+    check("an effort-only pin keeps the model the command line already had",
+          planLaunchArgs(["--model", "fable", "--effort", "high"], plan: reload,
+                         sessionPin: SessionModelPin(effort: "xhigh"))
+              == ["--model", "fable", "--effort", "xhigh"])
+    check("…and the injected pair lands where a flag is READ, before any bare marker",
+          planLaunchArgs(["--model", "fable", "--", "write a haiku"], plan: reload,
+                         sessionPin: adopted)
+              == ["--model", "claude-opus-4-8", "--effort", "xhigh", "--", "write a haiku"])
+    // A plan that names its own axes is the more specific instruction and wins; a release is an
+    // instruction to take them off, and the pin must not put them back.
+    let follows = RelaunchPlan(target: switchAccount("A"), reason: "follow", countsFuse: false,
+                               model: "haiku", effort: "low")
+    check("a plan that names its own pair outranks the pin",
+          planLaunchArgs(["--model", "fable"], plan: follows, sessionPin: adopted)
+              == ["--model", "haiku", "--effort", "low"])
+    var release = RelaunchPlan(target: switchAccount("A"), reason: "model", countsFuse: false)
+    release.clearsAxes = true
+    check("a release takes the axes off rather than having the pin put them back",
+          planLaunchArgs(["--model", "fable", "--continue"], plan: release, sessionPin: adopted)
+              == ["--continue"])
 
     // A REAL DEGRADATION IS UNTOUCHED. No /model event, so nothing is adopted, the primary stays
     // what it was, and the difference the rescue acts on is still there.

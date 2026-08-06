@@ -48,83 +48,8 @@ try MainActor.assumeIsolated {
     c = try String(contentsOf: f, encoding: .utf8)
     check("mid-file block strips cleanly", c == "line1\nline2\n")
 
-    // MARK: statusLine surgery (settings.json) - wrap a custom command, restore it exactly.
-    let ours = IntegrationsStore.statusLineCommand
-    let settings = tmp.appendingPathComponent("settings.json")
-    func readSettings() -> [String: Any] {
-        (try? JSONSerialization.jsonObject(with: Data(contentsOf: settings))) as? [String: Any] ?? [:]
-    }
-    func statusCommand() -> String? {
-        (readSettings()["statusLine"] as? [String: Any])?["command"] as? String
-    }
-
-    check("missing settings gets the plain registration",
-          try IntegrationsStore.upsertStatusLine(in: settings, command: ours)
-              && statusCommand() == ours)
-    check("re-install is idempotent",
-          try IntegrationsStore.upsertStatusLine(in: settings, command: ours) == false)
-    try IntegrationsStore.removeStatusLine(in: settings, command: ours)
-    check("removing the plain registration deletes the entry", statusCommand() == nil)
-
-    let custom = "~/.claude/my-status.sh --fancy 'quoted arg'"
-    let foreign: [String: Any] = ["model": "opusplan",
-                                  "statusLine": ["type": "command", "command": custom]]
-    try JSONSerialization.data(withJSONObject: foreign).write(to: settings)
-    _ = try IntegrationsStore.upsertStatusLine(in: settings, command: ours)
-    check("a custom status line is wrapped, not clobbered",
-          statusCommand()?.hasPrefix("\(ours) --wrap ") == true)
-    check("the wrap carries a self-heal fallback",
-          statusCommand()?.contains("|| printf %s") == true)
-
-    // Self-heal end to end: with the tally binary GONE (app trashed without a clean remove),
-    // the registered shell line must still run the user's original status line.
-    let echoOriginal: [String: Any] = ["statusLine": ["type": "command", "command": "echo healed"]]
-    let healFile = tmp.appendingPathComponent("heal-settings.json")
-    try JSONSerialization.data(withJSONObject: echoOriginal).write(to: healFile)
-    _ = try IntegrationsStore.upsertStatusLine(in: healFile, command: "/nonexistent/tally statusline claude")
-    let healCommand = ((try? JSONSerialization.jsonObject(with: Data(contentsOf: healFile)))
-        as? [String: Any])
-        .flatMap { ($0["statusLine"] as? [String: Any])?["command"] as? String } ?? ""
-    let sh = Process()
-    sh.executableURL = URL(fileURLWithPath: "/bin/sh")
-    sh.arguments = ["-c", healCommand]
-    let healOut = Pipe()
-    sh.standardOutput = healOut
-    sh.standardError = FileHandle.nullDevice
-    try sh.run()
-    let healed = String(data: healOut.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
-    sh.waitUntilExit()
-    check("without tally the fallback runs the original status line",
-          healed?.trimmingCharacters(in: .whitespacesAndNewlines) == "healed")
-    check("unrelated settings keys survive the wrap", readSettings()["model"] as? String == "opusplan")
-    try IntegrationsStore.removeStatusLine(in: settings, command: ours)
-    check("removal restores the custom command exactly", statusCommand() == custom)
-    check("unrelated settings keys survive the restore", readSettings()["model"] as? String == "opusplan")
-
-    try IntegrationsStore.removeStatusLine(in: settings, command: ours)
-    check("removing over a foreign command leaves it untouched", statusCommand() == custom)
-
-    // The write that would cost a user their whole harness. Registering a status line into a
-    // settings.json that does not parse (a truncated write, a hand edit gone wrong) must REFUSE:
-    // reading it as an empty document and writing our one key over it replaces everything they
-    // have, and the file it would eat is precisely the one already in trouble. Truncated rather
-    // than trailing-comma on purpose - Foundation's parser accepts a trailing comma (verified
-    // 2026-08-06), so that fixture would have asserted nothing.
-    let brokenStatus = tmp.appendingPathComponent("broken-status.json")
-    let brokenStatusText = "{\n  \"model\": \"opusplan\",\n  \"statusLine\": {\n"
-    try brokenStatusText.write(to: brokenStatus, atomically: true, encoding: .utf8)
-    var refusedStatus = false
-    do { _ = try IntegrationsStore.upsertStatusLine(in: brokenStatus, command: ours) } catch {
-        refusedStatus = true
-    }
-    let afterBrokenStatus = try String(contentsOf: brokenStatus, encoding: .utf8)
-    check("an unparseable settings.json is refused, not restarted from an empty document",
-          refusedStatus && afterBrokenStatus == brokenStatusText)
-    // Removal was already safe (its guard simply finds nothing to restore), asserted here so the
-    // pair is pinned together: neither direction may rewrite a file it could not read.
-    try IntegrationsStore.removeStatusLine(in: brokenStatus, command: ours)
-    check("…and uninstalling leaves it alone too",
-          try String(contentsOf: brokenStatus, encoding: .utf8) == brokenStatusText)
+    // The status line registration and its settings.json surgery (statuslinechecks.swift).
+    try runStatusLineChecks(tmp: tmp)
 
     // MARK: Claude Code skill surgery - install, refuse foreign files, remove cleanly.
     let skillFile = tmp.appendingPathComponent("skills/tally/SKILL.md")

@@ -315,6 +315,30 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     check("a look-alike file on its own has nothing of ours to remove",
           IntegrationsStore.settingsWithoutSwitchHook(lookalikes) == nil)
 
+    // MARK: sharing one ENTRY - a user's hook beside ours, under the same matcher.
+    //
+    // Claude Code runs every hook in an entry's list, so putting one next to Tally's is a normal
+    // thing to do. Ownership therefore has to stop at the single hook: owning the ENTRY (which is
+    // what this did) overwrote the neighbour on every update and deleted it on uninstall, with
+    // nothing anywhere to say where it went.
+    let sharedEntry: [String: Any] = ["hooks": ["UserPromptExpansion": [
+        ["matcher": "tally-switch", "hooks": [
+            ["type": "command", "command": hookCommand],
+            ["type": "command", "command": "log-my-switches.sh"],
+        ]],
+    ]]]
+    guard let updatedEntry = IntegrationsStore.settingsRegisteringSwitchHook(sharedEntry,
+                                                                            command: moved)
+    else { fatalError("a stale path inside a shared entry must still be rewritten") }
+    check("an update rewrites our hook in place and leaves the neighbour where it was",
+          commands(updatedEntry) == [moved, "log-my-switches.sh"])
+    check("…without splitting the entry in two", expansion(updatedEntry).count == 1)
+    let strippedEntry = IntegrationsStore.settingsWithoutSwitchHook(sharedEntry)
+    check("uninstalling takes out our hook and nothing else",
+          strippedEntry.map(commands) == ["log-my-switches.sh"])
+    check("…and keeps the entry the neighbour lives in",
+          strippedEntry.map(expansion)?.count == 1)
+
     // MARK: one home at a time - and the order that keeps a user's own command file running.
     //
     // The hook exits 2, which STOPS the expansion. Registering it next to a commands/tally-switch.md
@@ -325,10 +349,10 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     try FileManager.default.createDirectory(at: ownedCommand.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
     try userCommand.write(to: ownedCommand, atomically: true, encoding: .utf8)
-    let refusedHome = IntegrationsStore.syncSwitchCommand(inHome: ownedHome,
+    let refusedHome = IntegrationsStore.syncSwitchCommand(inHomes: [ownedHome],
                                                           hookCommand: hookCommand)
     check("a foreign command file stops the hook being registered",
-          refusedHome.error != nil && refusedHome.settings == nil && refusedHome.command == nil)
+          refusedHome.error != nil && refusedHome.settings == nil && refusedHome.commands.isEmpty)
     check("…so that home's settings.json is never even created",
           !FileManager.default.fileExists(
             atPath: ownedHome.appendingPathComponent("settings.json").path))
@@ -336,13 +360,65 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
           try String(contentsOf: ownedCommand, encoding: .utf8) == userCommand)
 
     let cleanHome = tmp.appendingPathComponent("clean-home")
-    let installed = IntegrationsStore.syncSwitchCommand(inHome: cleanHome,
+    let installed = IntegrationsStore.syncSwitchCommand(inHomes: [cleanHome],
                                                         hookCommand: hookCommand)
     check("a clean home gets both halves, and says so",
           installed.error == nil && installed.changed
-              && installed.command == IntegrationsStore.switchCommandFile(inHome: cleanHome)
+              && installed.commands == [IntegrationsStore.switchCommandFile(inHome: cleanHome)]
               && installed.settings == cleanHome.appendingPathComponent("settings.json"))
     check("…and a second pass changes nothing",
-          IntegrationsStore.syncSwitchCommand(inHome: cleanHome,
+          IntegrationsStore.syncSwitchCommand(inHomes: [cleanHome],
                                               hookCommand: hookCommand).changed == false)
+
+    // MARK: the group, which is what a shared settings.json makes the homes into.
+    //
+    // Home A keeps its own commands/tally-switch.md; home B is clean; both read ONE settings.json
+    // through a symlink. The hook lives in that file, so registering it "for B" registers it for A
+    // as well and takes A's command away. The group is therefore judged whole.
+    let groupSettings = tmp.appendingPathComponent("group-shared/settings.json")
+    try FileManager.default.createDirectory(at: groupSettings.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try JSONSerialization.data(withJSONObject: ["model": "opusplan"]).write(to: groupSettings)
+    func groupHome(_ name: String, ownsCommand: Bool) throws -> URL {
+        let home = tmp.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: home.appendingPathComponent("settings.json"), withDestinationURL: groupSettings)
+        if ownsCommand {
+            let file = IntegrationsStore.switchCommandFile(inHome: home)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try userCommand.write(to: file, atomically: true, encoding: .utf8)
+        }
+        return home
+    }
+    let ownerHome = try groupHome("group-owner", ownsCommand: true)
+    let neighbourHome = try groupHome("group-neighbour", ownsCommand: false)
+    let group = IntegrationsStore.syncSwitchCommand(inHomes: [neighbourHome, ownerHome],
+                                                    hookCommand: hookCommand)
+    check("one home's own command file keeps the hook out of the settings they share",
+          group.settings == nil && group.error != nil
+              && !IntegrationsStore.settingsCarrySwitchHook(groupSettings))
+    // The other half of the answer, and the deliberate one: the clean home still gets a working
+    // /tally-switch, just the model-turn one. Withholding it would punish it for its neighbour.
+    check("…while the clean home still gets its command file",
+          group.commands == [IntegrationsStore.switchCommandFile(inHome: neighbourHome)])
+    check("…and the owner's file is untouched",
+          try String(contentsOf: IntegrationsStore.switchCommandFile(inHome: ownerHome),
+                     encoding: .utf8) == userCommand)
+    check("…and their shared settings file is untouched",
+          ((try? JSONSerialization.jsonObject(with: Data(contentsOf: groupSettings)))
+            as? [String: Any])?.count == 1)
+    // With nobody's own command in it, the same group installs once for all of them.
+    let cleanGroup = IntegrationsStore.syncSwitchCommand(
+        inHomes: [try groupHome("group-a", ownsCommand: false),
+                  try groupHome("group-b", ownsCommand: false)],
+        hookCommand: hookCommand)
+    check("a group with no foreign command gets one registration for all of it",
+          cleanGroup.error == nil && cleanGroup.commands.count == 2
+              && IntegrationsStore.settingsCarrySwitchHook(groupSettings))
+    check("…written to the shared file, with the link still a link",
+          (try? FileManager.default.destinationOfSymbolicLink(
+            atPath: tmp.appendingPathComponent("group-a/settings.json").path))
+              == groupSettings.path)
 }

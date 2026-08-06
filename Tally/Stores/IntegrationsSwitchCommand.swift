@@ -159,15 +159,20 @@ extension IntegrationsStore {
     /// and treating it as ours would silently replace their hook with a Tally registration and
     /// delete it on uninstall. Two conditions cost one line and mean an accident has to be
     /// deliberate.
-    private static func isSwitchHookEntry(_ entry: [String: Any]) -> Bool {
-        guard entry["matcher"] as? String == switchHookMatcher else { return false }
-        let hooks = entry["hooks"] as? [[String: Any]] ?? []
-        return hooks.contains { ($0["command"] as? String)?.hasSuffix(" \(switchHookMarker)") == true }
+    private static func isSwitchHook(_ hook: [String: Any]) -> Bool {
+        ((hook["command"] as? String)?.hasSuffix(" \(switchHookMarker)")) == true
     }
 
-    private static func switchHookEntry(command: String) -> [String: Any] {
-        ["matcher": switchHookMatcher,
-         "hooks": [["type": "command", "command": command]]]
+    /// An entry that HOLDS our hook. Ownership stops here: what may be rewritten or deleted is the
+    /// single hook above, never the entry around it.
+    ///
+    /// The distinction is the whole point. One entry's `hooks` array can hold several commands, all
+    /// firing for the same slash command, and a user is free to put their own beside Tally's.
+    /// Replacing the ENTRY (which is what this did) took the neighbours with it: overwritten on an
+    /// update, deleted on uninstall, with nothing anywhere to say where they went.
+    private static func holdsSwitchHook(_ entry: [String: Any]) -> Bool {
+        guard entry["matcher"] as? String == switchHookMatcher else { return false }
+        return (entry["hooks"] as? [[String: Any]] ?? []).contains(where: isSwitchHook)
     }
 
     /// The settings document with our hook registered, or nil when nothing needs to change.
@@ -190,12 +195,19 @@ extension IntegrationsStore {
         case let existing as [[String: Any]]: entries = existing
         default: return nil
         }
-        let ours = switchHookEntry(command: command)
-        if let index = entries.firstIndex(where: isSwitchHookEntry) {
-            if NSDictionary(dictionary: entries[index]).isEqual(to: ours) { return nil }
-            entries[index] = ours
+        let ours: [String: Any] = ["type": "command", "command": command]
+        if let index = entries.firstIndex(where: holdsSwitchHook) {
+            // Our hook, in place, with whatever else the user put in that entry left exactly where
+            // it is and in the order they had it.
+            var hooks = entries[index]["hooks"] as? [[String: Any]] ?? []
+            guard let slot = hooks.firstIndex(where: isSwitchHook) else { return nil }
+            if NSDictionary(dictionary: hooks[slot]).isEqual(to: ours) { return nil }
+            hooks[slot] = ours
+            entries[index]["hooks"] = hooks
         } else {
-            entries.append(ours)
+            // A fresh entry holding only ours. Deliberately not merged into a `tally-switch` entry
+            // the user wrote themselves: that entry is theirs, and adding to it is still editing it.
+            entries.append(["matcher": switchHookMatcher, "hooks": [ours]])
         }
         hooks[switchHookEvent] = entries
         var merged = settings
@@ -203,13 +215,25 @@ extension IntegrationsStore {
         return merged
     }
 
-    /// The settings document without our hook, or nil when there was none. Removal takes the keys
-    /// it added back out when they are left empty, so uninstalling returns the file to its shape.
+    /// The settings document without our hook, or nil when there was none. It takes out the one
+    /// hook, then every container that is left empty by its going: the entry, the event, the
+    /// `hooks` block. Anything a user put beside it survives at every level.
     static func settingsWithoutSwitchHook(_ settings: [String: Any]) -> [String: Any]? {
         guard var hooks = settings["hooks"] as? [String: Any],
               let entries = hooks[switchHookEvent] as? [[String: Any]] else { return nil }
-        let kept = entries.filter { !isSwitchHookEntry($0) }
-        guard kept.count != entries.count else { return nil }
+        var kept: [[String: Any]] = []
+        var removed = false
+        for entry in entries {
+            guard holdsSwitchHook(entry) else { kept.append(entry); continue }
+            removed = true
+            let remaining = (entry["hooks"] as? [[String: Any]] ?? []).filter { !isSwitchHook($0) }
+            // An entry that was ours alone goes; one the user shared with us keeps its own hooks.
+            guard !remaining.isEmpty else { continue }
+            var trimmed = entry
+            trimmed["hooks"] = remaining
+            kept.append(trimmed)
+        }
+        guard removed else { return nil }
         if kept.isEmpty { hooks.removeValue(forKey: switchHookEvent) } else { hooks[switchHookEvent] = kept }
         var merged = settings
         if hooks.isEmpty { merged.removeValue(forKey: "hooks") } else { merged["hooks"] = hooks }
@@ -233,7 +257,7 @@ extension IntegrationsStore {
               let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let entries = (settings["hooks"] as? [String: Any])?[switchHookEvent]
                 as? [[String: Any]] else { return false }
-        return entries.contains(where: isSwitchHookEntry)
+        return entries.contains(where: holdsSwitchHook)
     }
 
     // MARK: - Installed as one unit with the skill
@@ -247,44 +271,68 @@ extension IntegrationsStore {
         }
     }
 
-    /// What one home's sync came to: what changed, what is now installed there, and what went
-    /// wrong. A result rather than a throw, because a home that fails must not stop the next one.
+    /// What one group's sync came to: what changed, what is now installed, and what went wrong.
+    /// A result rather than a throw, because a group that fails must not stop the next one.
     struct SwitchCommandSync {
         var changed = false
-        /// The command file, when it is ours.
-        var command: URL?
-        /// The settings file, when the hook was registered in it. Nil when the hook was skipped,
-        /// which is a state the caller must be able to see: it means this home is untouched.
+        /// The command files that are ours now, one per home that accepted one.
+        var commands: [URL] = []
+        /// The settings file the hook went into. Nil when the hook was SKIPPED, which is a state
+        /// the caller must be able to see: it means no session reading that file is intercepted.
         var settings: URL?
         var error: String?
     }
 
-    /// One home's half of the sync, in the order that matters. Static and file-driven so it is
-    /// testable without the singleton, whose manifest lives in the real `~/.tally`.
+    /// The homes sharing ONE physical settings.json, synced together. Static and file-driven so it
+    /// is testable without the singleton, whose manifest lives in the real `~/.tally`.
     ///
-    /// THE ORDER IS THE POINT. The hook is registered only when the command file is ours, because
-    /// the two are one instruction: the hook intercepts `/tally-switch` and exits 2, which STOPS
-    /// the expansion. Registering it beside a `commands/tally-switch.md` that belongs to the user
-    /// would take their command away from them - it would never run again, and nothing would say
-    /// why. Neither half, or both.
-    static func syncSwitchCommand(inHome home: URL, hookCommand: String) -> SwitchCommandSync {
+    /// THE GROUP IS THE UNIT, and that is the whole reason this takes a list. The hook lives in the
+    /// settings file, and it intercepts `/tally-switch` and exits 2, which STOPS the expansion. A
+    /// shared settings.json therefore speaks for EVERY home pointing at it: registering the hook
+    /// because home B is clean would take home A's own `commands/tally-switch.md` away from them,
+    /// since A's sessions read the same hook. So the hook goes in only when every home in the group
+    /// has a command file Tally may manage.
+    ///
+    /// The command files themselves are still installed wherever they can be. That is the honest
+    /// half of the answer: a home with no command of its own gains a working `/tally-switch` (the
+    /// model-turn path, one turn slower), and the home that has its own keeps running it. Skipping
+    /// those too would punish the clean homes for their neighbour's file without protecting anyone.
+    static func syncSwitchCommand(inHomes homes: [URL], hookCommand: String) -> SwitchCommandSync {
         var result = SwitchCommandSync()
-        let file = switchCommandFile(inHome: home)
-        do {
-            result.changed = try upsertSwitchCommand(in: file)
-            result.command = file
-        } catch {
-            return SwitchCommandSync(error: error.localizedDescription)
+        var manageable = true
+        for home in homes {
+            let file = switchCommandFile(inHome: home)
+            do {
+                result.changed = try upsertSwitchCommand(in: file) || result.changed
+                result.commands.append(file)
+            } catch {
+                result.error = result.error ?? error.localizedDescription
+                manageable = false
+            }
         }
-        let settings = home.appendingPathComponent("settings.json")
+        guard manageable, let settings = homes.first?.appendingPathComponent("settings.json")
+        else { return result }
         do {
             result.changed = try upsertSwitchHook(in: settings, command: hookCommand)
                 || result.changed
             result.settings = settings
         } catch {
-            result.error = error.localizedDescription
+            result.error = result.error ?? error.localizedDescription
         }
         return result
+    }
+
+    /// The homes the skill is installed in, grouped by the physical settings.json they share, in a
+    /// stable order. A group is what the hook decision is made for (above).
+    private static func settingsGroups(ofSkillFiles files: [URL]) -> [[URL]] {
+        var groups: [String: [URL]] = [:]
+        var order: [String] = []
+        for home in homes(ofSkillFiles: files) {
+            let key = home.appendingPathComponent("settings.json").resolvingSymlinksInPath().path
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(home)
+        }
+        return order.compactMap { groups[$0] }
     }
 
     /// Bring the command file and the hook up to date for every home the skill is installed in.
@@ -298,20 +346,15 @@ extension IntegrationsStore {
         var changed = false
         var commands: [String] = []
         var settingsFiles: [String] = []
-        var seenSettings = Set<String>()
         let command = Self.switchHookCommand(Self.bundledCLIURL)
-        for home in Self.homes(ofSkillFiles: files) {
-            let result = Self.syncSwitchCommand(inHome: home, hookCommand: command)
+        // One pass per PHYSICAL settings file. The manifest therefore records each shared file
+        // once, which is also what it means: one registration, however many homes read it.
+        for group in Self.settingsGroups(ofSkillFiles: files) {
+            let result = Self.syncSwitchCommand(inHomes: group, hookCommand: command)
             changed = result.changed || changed
             if let error = result.error { lastError = error }
-            if let file = result.command { commands.append(file.path) }
-            // Recorded once per PHYSICAL file: two homes can share one settings.json by symlink
-            // while their commands folders are their own, and a manifest listing the same file
-            // twice would read as two installs.
-            if let file = result.settings,
-               seenSettings.insert(file.resolvingSymlinksInPath().path).inserted {
-                settingsFiles.append(file.path)
-            }
+            commands.append(contentsOf: result.commands.map(\.path))
+            if let file = result.settings { settingsFiles.append(file.path) }
         }
         recordManifest("claudeSwitchCommand", paths: commands.isEmpty ? nil : commands)
         recordManifest("claudeSwitchHook", paths: settingsFiles.isEmpty ? nil : settingsFiles)

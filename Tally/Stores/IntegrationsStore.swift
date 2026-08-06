@@ -332,24 +332,29 @@ final class IntegrationsStore {
 
     /// Reverses `upsertStatusLine` exactly: a wrapped registration restores the user's original
     /// command; a plain one removes the entry. Anything not ours is left untouched.
-    static func removeStatusLine(in file: URL, command: String) throws {
-        guard var settings = (try? JSONSerialization.jsonObject(
-                  with: (try? Data(contentsOf: file)) ?? Data())) as? [String: Any],
-              let registered = (settings["statusLine"] as? [String: Any])?["command"] as? String,
-              registered.hasPrefix(command)
-        else { return }
-        let marker = " --wrap "
-        if let range = registered.range(of: marker),
-           let token = registered[range.upperBound...].split(separator: " ").first,
-           let data = Data(base64Encoded: String(token)),
-           let original = String(data: data, encoding: .utf8) {
-            settings["statusLine"] = ["type": "command", "command": original]
-        } else {
-            settings.removeValue(forKey: "statusLine")
+    ///
+    /// Through `editSettings` like every other write into this file, which is what makes removal
+    /// symlink-safe: it used to write the path it was handed, so uninstalling from a shared setup
+    /// severed the link the install had just been careful to keep. Returns true when the file
+    /// changed; a file that cannot be read now throws here as it does on install, rather than
+    /// reporting a removal that never happened.
+    @discardableResult
+    static func removeStatusLine(in file: URL, command: String) throws -> Bool {
+        try editSettings(file) { settings in
+            guard let registered = (settings["statusLine"] as? [String: Any])?["command"] as? String,
+                  registered.hasPrefix(command) else { return nil }
+            var merged = settings
+            let marker = " --wrap "
+            if let range = registered.range(of: marker),
+               let token = registered[range.upperBound...].split(separator: " ").first,
+               let data = Data(base64Encoded: String(token)),
+               let original = String(data: data, encoding: .utf8) {
+                merged["statusLine"] = ["type": "command", "command": original]
+            } else {
+                merged.removeValue(forKey: "statusLine")
+            }
+            return merged
         }
-        let out = try JSONSerialization.data(withJSONObject: settings,
-                                             options: [.prettyPrinted, .sortedKeys])
-        try out.write(to: file, options: .atomic)
     }
 
     // MARK: Marked shell-file block

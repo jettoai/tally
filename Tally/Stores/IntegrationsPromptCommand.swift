@@ -351,6 +351,10 @@ extension IntegrationsStore {
             recordManifest(command.commandManifest, paths: commands.isEmpty ? nil : commands)
             recordManifest(command.hookManifest, paths: settingsFiles.isEmpty ? nil : settingsFiles)
         }
+        // The manifest just moved, and it is what says where to watch: an install performed in a
+        // running app has to be watched from now, not from the next launch (IntegrationsSelfHeal).
+        // A no-op whenever the set is unchanged, which is every heal.
+        refreshSettingsWatcher()
         return changed
     }
 
@@ -384,6 +388,9 @@ extension IntegrationsStore {
             recordManifest(command.commandManifest, paths: nil)
             recordManifest(command.hookManifest, paths: nil)
         }
+        // Nothing left to watch: the same call stops the stream rather than leaving one running
+        // over a directory this app has no business in any more.
+        refreshSettingsWatcher()
     }
 
     /// Whether every home with the skill also has a current file and a registered hook for EVERY

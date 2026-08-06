@@ -91,12 +91,20 @@ final class AccountDirWatcher {
     /// calls are safe from any thread, which is what makes the unchecked conformance honest.
     private final class StreamBox: @unchecked Sendable {
         var stream: FSEventStreamRef?
-        deinit {
+
+        /// Tear the stream down and forget it. Idempotent, and the ONE place the three calls are
+        /// spelled: `deinit` cannot hop actors, and `stop()` below has to do exactly the same thing
+        /// from the main actor, so a second copy of the sequence would be a second chance to leak a
+        /// stream or release one twice.
+        func teardown() {
             guard let stream else { return }
             FSEventStreamStop(stream)
             FSEventStreamInvalidate(stream)
             FSEventStreamRelease(stream)
+            self.stream = nil
         }
+
+        deinit { teardown() }
     }
 
     private let box = StreamBox()
@@ -159,6 +167,15 @@ final class AccountDirWatcher {
             return
         }
         box.stream = created
+    }
+
+    /// Stop watching, and cancel anything this watcher had queued. Safe to call twice, and safe to
+    /// call on a watcher that never started; `start()` afterwards is a fresh stream, which is what
+    /// makes re-pointing one at a different set of roots a stop-then-start rather than a leak.
+    func stop() {
+        debounceTask?.cancel()
+        debounceTask = nil
+        box.teardown()
     }
 
     private func handle(_ paths: [String]) {

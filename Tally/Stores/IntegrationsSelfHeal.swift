@@ -66,8 +66,14 @@ extension IntegrationsStore {
         var seen = Set<String>()
         return promptCommands
             .flatMap { manifestPaths($0.hookManifest, manifest: url) }
-            .map { URL(fileURLWithPath: $0).deletingLastPathComponent() }
-            .filter { seen.insert($0.resolvingSymlinksInPath().path).inserted }
+            // RESOLVED WHOLE, THEN the parent taken, and the order is the entire point. The manifest
+            // records the path a registration was made THROUGH, which on a shared setup is a symlink
+            // (`~/.claude2/settings.json` pointing at `~/.claude/settings.json`). Taking the parent
+            // first watches `.claude2`, and FSEvents reports writes where a file PHYSICALLY is - so
+            // the directory being watched would never see the write that matters, and the self-heal
+            // would be deaf on exactly the machines it was written for (review of 212e25d).
+            .map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().deletingLastPathComponent() }
+            .filter { seen.insert($0.path).inserted }
     }
 
     /// Put back whatever is missing, or do nothing. Returns whether anything on disk changed.
@@ -83,6 +89,21 @@ extension IntegrationsStore {
         return syncPromptCommands(forSkillFiles: Self.oursAmong(files))
     }
 
+    /// Whether the watcher has to be rebuilt, given what it is watching and what it should be.
+    ///
+    /// Pure, because the failure it prevents is invisible: on a machine with nothing installed yet
+    /// the manifest names no directories, so the watcher is never created - and an Install pressed
+    /// in Settings then left the user with no self-heal at all until the next launch. First-time
+    /// users are the ones most likely to need it and the least likely to know it is missing (review
+    /// of 212e25d). A new account's config dir arriving mid-session is the same event.
+    ///
+    /// Compared as SETS: the manifest's order is not a promise, and rebuilding a live FSEvents
+    /// stream because two paths swapped places would be churn for nothing. Nothing to watch is a
+    /// real answer - it means stop, not "leave the old one running".
+    static func settingsWatcherNeedsRestart(current: [URL], desired: [URL]) -> Bool {
+        Set(current.map(\.path)) != Set(desired.map(\.path))
+    }
+
     /// Watch the settings files the hooks live in, and repair one that loses them.
     ///
     /// The watcher's own gate is the heal's decision (`hooksNeedHealing`), so an event that changed
@@ -92,9 +113,20 @@ extension IntegrationsStore {
     ///
     /// Fail-open at every step, like the account watcher it shares its machinery with: no manifest
     /// entries means nothing to watch and the launch-time sync behaves exactly as it did before.
-    func startSettingsWatcher() {
-        guard settingsWatcher == nil, !BuildVariant.isDev else { return }
+    /// Called at launch AND whenever the prompt-hook manifest changes, so an install performed in a
+    /// running app is watched from that moment rather than from the next launch. A no-op when the
+    /// set is unchanged, which is what keeps the repair's own manifest write from rebuilding the
+    /// stream that noticed the damage.
+    func refreshSettingsWatcher() {
+        guard !BuildVariant.isDev else { return }
         let directories = Self.watchedSettingsDirectories()
+        guard Self.settingsWatcherNeedsRestart(current: settingsWatcherRoots,
+                                               desired: directories) else { return }
+        // Stop before starting: two streams over the same directories would answer every event
+        // twice, and the old one's roots are by definition the wrong ones now.
+        settingsWatcher?.stop()
+        settingsWatcher = nil
+        settingsWatcherRoots = directories
         guard !directories.isEmpty else { return }
         let paths = directories.map(\.path)
         let watcher = AccountDirWatcher(

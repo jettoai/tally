@@ -95,6 +95,64 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
           IntegrationsStore.watchedSettingsDirectories(
             manifest: tmp.appendingPathComponent("heal-absent.json")).isEmpty)
 
+    // MARK: - The manifest path is the one it was REGISTERED THROUGH, not where the file lives
+
+    // On a shared setup one physical settings.json stands behind several homes by symlink, and the
+    // manifest records the path the registration was made through. FSEvents reports a write where
+    // the file PHYSICALLY is, so watching the symlink's own directory is watching a place the write
+    // never appears: the self-heal would be deaf on exactly the machines it was written for
+    // (review of 212e25d).
+    let physical = tmp.appendingPathComponent("heal-physical")
+    let linked = tmp.appendingPathComponent("heal-linked")
+    try FileManager.default.createDirectory(at: physical, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
+    try "{}".write(to: physical.appendingPathComponent("settings.json"), atomically: true,
+                   encoding: .utf8)
+    try? FileManager.default.removeItem(at: linked.appendingPathComponent("settings.json"))
+    try FileManager.default.createSymbolicLink(
+        at: linked.appendingPathComponent("settings.json"),
+        withDestinationURL: physical.appendingPathComponent("settings.json"))
+    let linkManifest = tmp.appendingPathComponent("heal-link-manifest.json")
+    try JSONSerialization.data(withJSONObject: [
+        "claudeSwitchHook": ["paths": [linked.appendingPathComponent("settings.json").path]],
+    ]).write(to: linkManifest)
+    let resolved = IntegrationsStore.watchedSettingsDirectories(manifest: linkManifest).map(\.path)
+    check("a settings path recorded through a symlink is watched where the file really is",
+          resolved == [physical.resolvingSymlinksInPath().path])
+    check("…and not where the link that names it sits",
+          !resolved.contains(linked.resolvingSymlinksInPath().path))
+    // Two homes, one physical file: one directory to watch, not two.
+    try JSONSerialization.data(withJSONObject: [
+        "claudeSwitchHook": ["paths": [linked.appendingPathComponent("settings.json").path]],
+        "claudeModelHook": ["paths": [physical.appendingPathComponent("settings.json").path]],
+    ]).write(to: linkManifest)
+    check("two homes sharing one physical file are watched once",
+          IntegrationsStore.watchedSettingsDirectories(manifest: linkManifest).count == 1)
+
+    // MARK: - Re-pointing the watcher when the manifest moves
+
+    // WITHOUT THIS, A FIRST INSTALL HAS NO SELF-HEAL. At launch the manifest names no directories,
+    // so nothing is watched; the user then presses Install in Settings and the repair does not
+    // exist until the app is next started. First-time users are the ones most likely to need it and
+    // the least likely to know it is missing (review of 212e25d).
+    let dirA = URL(fileURLWithPath: "/Users/u/.claude")
+    let dirB = URL(fileURLWithPath: "/Users/u/.claude2")
+    check("an install, which is nothing becoming something, restarts the watcher",
+          IntegrationsStore.settingsWatcherNeedsRestart(current: [], desired: [dirA]))
+    check("an uninstall, which is the reverse, stops it",
+          IntegrationsStore.settingsWatcherNeedsRestart(current: [dirA], desired: []))
+    check("a new account's config dir arriving is the same event",
+          IntegrationsStore.settingsWatcherNeedsRestart(current: [dirA], desired: [dirA, dirB]))
+    // A live FSEvents stream is not free to rebuild, and the repair's OWN manifest write goes
+    // through the same call: an unchanged set has to be a no-op or every heal churns the stream
+    // that noticed the damage.
+    check("an unchanged set changes nothing",
+          !IntegrationsStore.settingsWatcherNeedsRestart(current: [dirA, dirB],
+                                                         desired: [dirA, dirB]))
+    check("…and neither does the same set in another order, the manifest promising none",
+          !IntegrationsStore.settingsWatcherNeedsRestart(current: [dirA, dirB],
+                                                         desired: [dirB, dirA]))
+
     // MARK: - THE TERMINATION GUARD
 
     let healthy = try makeHome("healthy", skill: currentSkill)

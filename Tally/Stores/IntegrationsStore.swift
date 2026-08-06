@@ -21,6 +21,9 @@ final class IntegrationsStore {
     /// Stored here because an extension cannot hold one, and ignored by observation because nothing
     /// renders it: its whole output is a repair and the refresh that follows one.
     @ObservationIgnored var settingsWatcher: AccountDirWatcher?
+    /// What that watcher is currently pointed at, so a manifest change can tell whether the stream
+    /// has to be rebuilt or left alone (`settingsWatcherNeedsRestart`).
+    @ObservationIgnored var settingsWatcherRoots: [URL] = []
 
     enum Status: Equatable {
         case installed

@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         IntegrationsStore.shared.autoUpdateSkill()
         // And keep them there: the sync above runs once, while the file it writes into is the
         // user's and can be rewritten by anything (IntegrationsSelfHeal.swift).
-        IntegrationsStore.shared.startSettingsWatcher()
+        IntegrationsStore.shared.refreshSettingsWatcher()
         // Volatile launch flag (argument domain): post one sample low-tier notification so the
         // permission prompt and the alert's look can be verified without waiting for a real
         // tripwire. No state is persisted, so a normal launch is unaffected.

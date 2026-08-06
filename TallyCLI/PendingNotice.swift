@@ -102,17 +102,22 @@ struct PendingBadge: Equatable {
 /// underneath simply wait their turn (each is re-derived from live state every tick, so a badge
 /// that was covered appears the moment the one above it clears).
 ///
-/// The order is by how much the user is being kept from: a reload they asked for outranks a model
-/// change that Settings will re-apply on its own, a follow with nowhere to land outranks one that
-/// is merely queued, and a capped session waiting for a sibling is last because the transcript
-/// already told them the turn failed.
+/// The order is by how much the user is being kept from: a `tally switch` that cannot be carried out
+/// leads, because it is the most specific instruction anyone has given this session and the command
+/// that queued it has already returned, so this badge is the only thing left to say it is stuck;
+/// then a reload they asked for; then a model change that Settings will re-apply on its own, where a
+/// follow with nowhere to land outranks one that is merely queued; and a capped session waiting for
+/// a sibling is last because the transcript already told them the turn failed.
 struct PendingBadges: Equatable {
+    var manualMove: PendingBadge?
     var reload: PendingBadge?
     var followDeadEnd: PendingBadge?
     var followQueued: PendingBadge?
     var capWaiting: PendingBadge?
 
-    var chosen: PendingBadge? { reload ?? followDeadEnd ?? followQueued ?? capWaiting }
+    var chosen: PendingBadge? {
+        manualMove ?? reload ?? followDeadEnd ?? followQueued ?? capWaiting
+    }
 }
 
 /// One tick's worth of "what is this session waiting to do", written to the status line.
@@ -120,23 +125,26 @@ struct PendingBadges: Equatable {
 /// The whole of it lives here rather than in the poll loop because Supervisor.swift is over its size
 /// cap: the loop hands over the four pieces of state it already holds, and everything else (ranking,
 /// wording, deciding whether the file needs touching at all) happens on this side.
-func syncPendingNotice(_ writer: inout PendingNoticeWriter, pid: String, reload: PendingBadge?,
+func syncPendingNotice(_ writer: inout PendingNoticeWriter, pid: String,
+                       manualMove: PendingBadge?, reload: PendingBadge?,
                        followDeadEnd: Bool, followQueued: Bool, policy: LaunchPolicy,
                        capReason: String?, dir: URL = supervisorStateDir, now: Date = Date()) {
-    writer.sync(supervisorPendingBadges(reload: reload, followDeadEnd: followDeadEnd,
-                                        followQueued: followQueued, policy: policy,
-                                        capReason: capReason).chosen,
+    writer.sync(supervisorPendingBadges(manualMove: manualMove, reload: reload,
+                                        followDeadEnd: followDeadEnd, followQueued: followQueued,
+                                        policy: policy, capReason: capReason).chosen,
                 pid: pid, dir: dir, now: now)
 }
 
 /// Everything the poll loop knows about what it is deferring, turned into badges. The long forms are
 /// the sentences these used to print on the terminal, kept verbatim so nothing is lost by moving
 /// them off it.
-func supervisorPendingBadges(reload: PendingBadge?, followDeadEnd: Bool, followQueued: Bool,
+func supervisorPendingBadges(manualMove: PendingBadge? = nil, reload: PendingBadge?,
+                             followDeadEnd: Bool, followQueued: Bool,
                              policy: LaunchPolicy, capReason: String?) -> PendingBadges {
     let model = policy.model ?? "default"
     let effort = policy.effort ?? "default"
     return PendingBadges(
+        manualMove: manualMove,
         reload: reload,
         followDeadEnd: followDeadEnd
             ? PendingBadge("no account for \(shortModelName(model))",

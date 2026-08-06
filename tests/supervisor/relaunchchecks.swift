@@ -179,12 +179,13 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     // trip: what one version writes, the next version's parser must read back unchanged. `dropFirst`
     // removes the binary path and the subcommand, which main.swift consumes before parsing.
     func roundTrip(id: String, label: String, home: String, follow: Bool,
-                   recoveries: [Date] = [],
+                   recoveries: [Date] = [], pinOverride: String? = nil,
                    args: [String]) -> (id: String, label: String, home: String, follow: Bool,
-                                       recoveries: [Date], childArgs: [String]) {
+                                       recoveries: [Date], pinOverride: String?,
+                                       childArgs: [String]) {
         parseResuperviseArgs(Array(selfUpdateArgv(binary: "/usr/local/bin/tally", id: id,
                                                   label: label, home: home, follow: follow,
-                                                  recoveries: recoveries,
+                                                  recoveries: recoveries, pinOverride: pinOverride,
                                                   args: args).dropFirst(2)))
     }
     let trip = roundTrip(id: "acct-2", label: "Claude 2", home: "/Users/x/.claude2", follow: true,
@@ -204,6 +205,45 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     check("a label that looks like a flag is still a label", flagLabel.label == "--home")
     check("and it does not hijack the home", flagLabel.home == "/real/home")
     check("nor swallow the child args", flagLabel.childArgs == ["--model", "fable"])
+    // The pin a `tally switch` took this session off rides across the same way the fuse does, and
+    // for the same reason: it is a promise about the SESSION, held in memory only, and a new image
+    // that started without it would hand the conversation straight back to the pin its user had
+    // just moved it away from - minutes later, for no reason they could see (SessionSwitch.swift).
+    let overridden = roundTrip(id: "a", label: "A", home: "/h", follow: true,
+                               pinOverride: "acct-pinned", args: ["--resume", "abc"])
+    check("an overridden pin survives the round trip", overridden.pinOverride == "acct-pinned")
+    check("and does not disturb what rode with it",
+          overridden.home == "/h" && overridden.childArgs == ["--resume", "abc"])
+    check("the flag is only written when there is an override",
+          !selfUpdateArgv(binary: "/usr/local/bin/tally", id: "a", label: "A", home: "/h",
+                          follow: true, args: []).contains(resupervisePinOverrideFlag))
+    check("a session that never overrode a pin reads back as none",
+          roundTrip(id: "a", label: "A", home: "/h", follow: true, args: []).pinOverride == nil)
+    // The contract is between BUILDS: an older one never writes this flag, and the parser has to
+    // keep meaning "no override" when it is absent rather than inventing one.
+    check("an argv from a build predating the flag parses as no override",
+          parseResuperviseArgs(["--id", "a", "--label", "A", "--home", "/h", "--follow",
+                                "--", "--resume", "abc"]).pinOverride == nil)
+    check("and everything that build DID write still arrives",
+          parseResuperviseArgs(["--id", "a", "--label", "A", "--home", "/h", "--follow",
+                                "--", "--resume", "abc"]).childArgs == ["--resume", "abc"])
+    // An empty value is a disagreement about the format, not an override of "": read it the way a
+    // build that never wrote the flag would be read.
+    check("an empty override value is no override",
+          parseResuperviseArgs(["--home", "/h", resupervisePinOverrideFlag, ""]).pinOverride == nil)
+    // Positional, like the label: an override that looks like a flag cannot redirect anything.
+    let flagOverride = roundTrip(id: "a", label: "A", home: "/real/home", follow: true,
+                                 pinOverride: "--home", args: [])
+    check("an override that looks like a flag is still an override",
+          flagOverride.pinOverride == "--home" && flagOverride.home == "/real/home")
+    // Both optional flags at once, since they are written in sequence and a run-on would eat one.
+    let both = roundTrip(id: "a", label: "A", home: "/h", follow: true,
+                         recoveries: [Date(timeIntervalSince1970: 1_800_000_000)],
+                         pinOverride: "acct-pinned", args: ["--resume", "abc"])
+    check("the fuse and the override ride together",
+          both.recoveries == [Date(timeIntervalSince1970: 1_800_000_000)]
+              && both.pinOverride == "acct-pinned" && both.childArgs == ["--resume", "abc"])
+
     // Malformed input from a build that wrote a different shape: parse what is there, resume with
     // no child args, and let the supervisor's own --home guard decide whether it can run at all.
     check("a missing separator yields no child args",

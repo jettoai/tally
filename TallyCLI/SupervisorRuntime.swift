@@ -44,7 +44,7 @@ func spawnChild(_ argv: [String], environment: [String: String],
 ///     current build (a session launched before an app update runs stale logic).
 ///   - `TALLY_SUPERVISOR_PID` addresses the session. The status line reads the drift badge and the
 ///     pending notice under that pid, and `tally switch` writes its request there
-///     (SessionSwitch.swift) - it reaches the agent's own shell because every process the child
+///     (SwitchRequest.swift) - it reaches the agent's own shell because every process the child
 ///     spawns inherits this.
 ///
 /// The provider's own home variable is cleared first and then set from the account, so a home

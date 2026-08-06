@@ -41,6 +41,6 @@ swiftc -o "$out" \
   TallyCLI/ReloadRequest.swift \
   TallyCLI/PendingNotice.swift \
   TallyCLI/SessionContext.swift \
-  TallyCLI/SessionSwitch.swift \
+  TallyCLI/SessionSwitch.swift TallyCLI/SwitchRequest.swift \
   TallyCLI/Reload.swift
 "$out"

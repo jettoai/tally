@@ -1,8 +1,8 @@
 import Foundation
 
-// `tally switch <account>` (SessionSwitch.swift): the request file, the session it addresses, the
-// tick decision, and the one rule that makes the command usable at all - an explicit switch outranks
-// the pin, and keeps outranking it.
+// `tally switch <account>`: the request file and the session it addresses (SwitchRequest.swift),
+// the tick decision and the wiring around it (SessionSwitch.swift), and the one rule that makes the
+// command usable at all - an explicit switch outranks the pin, and keeps outranking it.
 //
 // The scenario every assertion here is written against: the agent INSIDE the session is asked to
 // move to another account and runs the command itself, as a tool call. So at the moment the request
@@ -131,8 +131,51 @@ func runSwitchChecks() {
     check("the supervisor source is readable from the switch checks", !loopSource.isEmpty)
     check("and the loop really makes that distinction",
           loopSource.contains("ManualMoveState(sessionKey: supervisorPID, servedEpoch: "
-                              + "resumed ? 0 : nil)"))
+                              + "resumed ? 0 : nil,"))
+    // The other half of the same promise: the override rides the exec rather than being re-derived.
+    check("and it hands the overridden pin across the self-update exec",
+          loopSource.contains("pinOverride: manualMoves.overriddenPin"))
     try? FileManager.default.removeItem(at: seedDir)
+
+    // MARK: - 31b3. Which account the session being moved is actually on
+
+    // "already on X" has to be asked of the SESSION, not of the shell asking. Through the directory
+    // fallback that shell is somebody else's terminal, and its `CLAUDE_CONFIG_DIR` describes
+    // whatever launched IT - usually nothing, which reads as the default home and would announce
+    // "already on <the default account>" for a session running somewhere else entirely.
+    let ctxDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-switch-ctx-\(UUID().uuidString)")
+    let claude = providers[0]
+    let defaultHomeAccount = switchAccount("D1", home: defaultHome(claude))
+    let otherHomeAccount = switchAccount("H2", home: "/tmp/home2")
+    let fleetHomes = [defaultHomeAccount, otherHomeAccount]
+    writeSessionContext(SupervisedSession(accountID: "H2", contextTokens: 5_000, updatedAt: Date()),
+                        pid: "4242", dir: ctxDir)
+    check("the account its supervisor published wins",
+          sessionAccountID(sessionKey: "4242", isThisSession: false, provider: claude,
+                           accounts: fleetHomes, dir: ctxDir, environment: [:]) == "H2")
+    check("…even when this shell's own environment says otherwise",
+          sessionAccountID(sessionKey: "4242", isThisSession: true, provider: claude,
+                           accounts: fleetHomes, dir: ctxDir,
+                           environment: [claude.envKey: defaultHome(claude)]) == "H2")
+    // Before that session has had a turn worth publishing, the environment is the only evidence -
+    // and only when this process IS that session.
+    check("a session with nothing published falls back to this shell, inside the session",
+          sessionAccountID(sessionKey: "9999", isThisSession: true, provider: claude,
+                           accounts: fleetHomes, dir: ctxDir,
+                           environment: [claude.envKey: "/tmp/home2"]) == "H2")
+    check("an unset config home reads as the provider's default home",
+          sessionAccountID(sessionKey: "9999", isThisSession: true, provider: claude,
+                           accounts: fleetHomes, dir: ctxDir, environment: [:]) == "D1")
+    check("but a shell OUTSIDE the session is evidence about nothing",
+          sessionAccountID(sessionKey: "9999", isThisSession: false, provider: claude,
+                           accounts: fleetHomes, dir: ctxDir,
+                           environment: [claude.envKey: "/tmp/home2"]) == nil)
+    check("and an unknown home names no account",
+          sessionAccountID(sessionKey: "9999", isThisSession: true, provider: claude,
+                           accounts: fleetHomes, dir: ctxDir,
+                           environment: [claude.envKey: "/tmp/nobody"]) == nil)
+    try? FileManager.default.removeItem(at: ctxDir)
 
     // MARK: - 31c. The tick decision
 
@@ -149,11 +192,15 @@ func runSwitchChecks() {
     check("a session mid-turn holds the request rather than losing it",
           switchDecision(served: 100, request: fresh, targetFound: true, onTarget: false,
                          isQuiet: false) == .queued)
-    // Asked BEFORE quiet on purpose: waiting cannot bring a signed-out account back, and a request
-    // nobody can serve would sit in the directory for the life of the session.
-    check("an account that is gone is dropped without waiting for quiet",
+    // Asked BEFORE quiet on purpose: the two waits are different things and the badge has to name
+    // the right one. An account that is missing or signed out is HELD, not dropped - the user asked
+    // for this by hand, the badge says it is stuck, and the move happens if the account comes back.
+    check("an account that is gone is held, whatever the session is doing",
           switchDecision(served: 100, request: fresh, targetFound: false, onTarget: false,
-                         isQuiet: false) == .gone)
+                         isQuiet: false) == .unavailable)
+    check("and is still held on a quiet session, rather than reading as a move",
+          switchDecision(served: 100, request: fresh, targetFound: false, onTarget: false,
+                         isQuiet: true) == .unavailable)
     check("a session already on the named account just consumes the request",
           switchDecision(served: 100, request: fresh, targetFound: true, onTarget: true,
                          isQuiet: true) == .alreadyThere)
@@ -217,6 +264,13 @@ func runSwitchChecks() {
     var pinnedNowhere = LaunchPolicy()
     pinnedNowhere.mode = "auto"
 
+    /// A stamp strictly newer than `epoch`, in the millisecond units the request file uses. The
+    /// scenarios below run in sequence against one `state`, so each has to be newer than everything
+    /// served before it; deriving that from the served stamp rather than from the wall clock is what
+    /// keeps them independent of how long the machine takes to run them.
+    func stampAfter(_ epoch: Int) -> Date { Date(timeIntervalSince1970: Double(epoch + 1) / 1000) }
+    func afterServed() -> Date { stampAfter(state.servedEpoch) }
+
     /// One poll tick's manual-move handling, with everything the loop would read injected.
     func tick(_ watcher: inout TranscriptWatcher, request: SwitchRequest?,
               policy: LaunchPolicy = pinnedNowhere, keyboardIdle: Bool = true,
@@ -267,27 +321,68 @@ func runSwitchChecks() {
     check("and unlinks the request", readSwitchRequest(sessionKey: session, dir: tickDir) == nil)
     check("so the very next tick plans nothing", tick(&idle, request: pendingRequest).plan == nil)
 
+    // Two switches in quick succession, which is what the millisecond stamps exist for: the second
+    // one is typed while the first is being carried out (the child is terminated, the transcript
+    // located and shared, a process spawned - not an instant), so it overwrites the same file
+    // between the plan and the commit. An unconditional unlink at commit time would delete an
+    // instruction nobody had carried out, silently.
+    var racing = idleWatcher("race")
+    try! writeSwitchRequest(accountID: "B", sessionKey: session, now: afterServed(), dir: tickDir)
+    let first = readSwitchRequest(sessionKey: session, dir: tickDir)!
+    let racingPlan = tick(&racing, request: first)
+    check("the first switch is planned", racingPlan.plan?.target.id == "B")
+    // The user changes their mind mid-relaunch: a second request lands on the same path.
+    try! writeSwitchRequest(accountID: "D", sessionKey: session,
+                            now: stampAfter(first.epoch), dir: tickDir)
+    let second = readSwitchRequest(sessionKey: session, dir: tickDir)!
+    check("the second request really is a newer stamp", second.epoch > first.epoch)
+    racingPlan.record?.commit(&state)
+    check("committing the first one does not delete the second",
+          readSwitchRequest(sessionKey: session, dir: tickDir) == second)
+    check("and it records only the epoch it served", state.servedEpoch == first.epoch)
+    let secondServed = tick(&racing, request: second)
+    check("so the next tick carries out the second switch", secondServed.plan?.target.id == "D")
+    secondServed.record?.commit(&state)
+    check("which then consumes its own request",
+          state.servedEpoch == second.epoch
+              && readSwitchRequest(sessionKey: session, dir: tickDir) == nil)
+
     // A prompt being typed holds it too, on the same bar as everything else non-urgent.
     var typing = idleWatcher("typing")
-    let later = SwitchRequest(epoch: pendingRequest.epoch + 1, accountID: "B")
+    let later = SwitchRequest(epoch: state.servedEpoch + 1, accountID: "B")
     check("a busy keyboard queues the switch",
           tick(&typing, request: later, keyboardIdle: false).plan == nil)
-    check("without consuming it", state.servedEpoch == pendingRequest.epoch)
+    check("without consuming it", state.servedEpoch < later.epoch)
 
     // An account that signed out (or a snapshot that no longer lists it) between the command and
-    // the tick: the request is dropped, with a word on the terminal, rather than relaunching the
-    // session into a config dir with no login in it.
+    // the tick: nothing is relaunched into a config dir with no login in it, and nothing is said on
+    // the terminal either - the child is alive and drawing there, so the wait goes to the status
+    // line's badge (PendingNotice.swift's whole rule).
     var vanished = idleWatcher("gone")
-    try! writeSwitchRequest(accountID: "Z", sessionKey: session, dir: tickDir)
+    try! writeSwitchRequest(accountID: "Z", sessionKey: session, now: afterServed(), dir: tickDir)
     let goneRequest = readSwitchRequest(sessionKey: session, dir: tickDir)!
     let dropped = tick(&vanished, request: goneRequest)
     check("a request naming an account that is gone plans nothing", dropped.plan == nil)
-    check("and is consumed rather than retried forever", state.servedEpoch == goneRequest.epoch)
-    check("with its file removed", readSwitchRequest(sessionKey: session, dir: tickDir) == nil)
+    check("it raises a badge instead of a line on the shared terminal",
+          state.waiting?.badge == "switch: account is gone")
+    check("with the long form kept for a surface that has room",
+          state.waiting?.detail?.contains("missing from the snapshot or signed out") == true)
+    check("the badge fits a status line beside the quota meters",
+          (state.waiting?.badge.count ?? 99) <= 24)
+    check("and the request is held, not consumed", state.servedEpoch < goneRequest.epoch)
+    check("so its file is still there for the tick that can serve it",
+          readSwitchRequest(sessionKey: session, dir: tickDir) == goneRequest)
+    // The account comes back (a renewed login, a snapshot that lists it again): the held request
+    // moves the session on its own, and the badge goes with it.
+    let returned = tick(&vanished, request: goneRequest,
+                        accounts: fleet + [switchAccount("Z", label: "Claude 9")])
+    check("a held request fires once its account is back", returned.plan?.target.id == "Z")
+    returned.record?.commit(&state)
+    check("and the badge comes down with it", state.waiting == nil)
 
     // The session got there on its own (a cap handoff landed on the named account first).
     var arrived = idleWatcher("arrived")
-    let onTarget = SwitchRequest(epoch: goneRequest.epoch + 1, accountID: "A")
+    let onTarget = SwitchRequest(epoch: state.servedEpoch + 1, accountID: "A")
     let alreadyThere = tick(&arrived, request: onTarget)
     check("a switch to the account we are already on restarts nothing",
           alreadyThere.plan == nil)
@@ -303,7 +398,7 @@ func runSwitchChecks() {
     pinnedToB.mode = "manual"
     pinnedToB.pinnedAccountID = "B"
     var pinned = idleWatcher("pinned")
-    let awayFromPin = SwitchRequest(epoch: onTarget.epoch + 1, accountID: "D")
+    let awayFromPin = SwitchRequest(epoch: state.servedEpoch + 1, accountID: "D")
     let overriding = tick(&pinned, request: awayFromPin, policy: pinnedToB)
     check("an explicit switch outranks the pin", overriding.plan?.target.id == "D")
     check("and is planned as a switch, not as a pin", overriding.plan?.reason == "switch")

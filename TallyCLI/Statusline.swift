@@ -240,19 +240,21 @@ func poolLabel(_ poolName: String?) -> String {
     poolName.map { "\($0.lowercased()) pool" } ?? "pool"
 }
 
-/// The figure the status line shows for a pool: how much of the WHOLE pool is still unspent, as a
-/// percent, rounded to a whole number.
+/// The figure the CLI shows for a pool, in the status line and in `tally status` alike: how much of
+/// the WHOLE pool is still unspent, as a percent, rounded to a whole number.
 ///
-/// The pool's own units are accounts' worth (one account's full weekly window = 100), which is what
-/// the panel gauge and `tally status` show and what the capacity is expressed in. On a status line
-/// that reading needed its denominator carried with it ("0.6/5") to mean anything, and sat beside
-/// three windows already quoted in percent - so the one slot in the row that was not a percentage
-/// was also the one nobody could read at a glance. The same number as a share of capacity says the
-/// thing the row is for (how much is left), in the row's own vocabulary. How many accounts that is
-/// stays one `tally status` away, where there is room for the units.
+/// The pool's own units are accounts' worth (one account's full weekly window = 100), which is how
+/// `capacity` is expressed and what the app's own gauge draws. Reading that out as "0.6/5" needed
+/// its denominator carried along to mean anything, and sat beside windows already quoted in percent
+/// - so the one figure in the row that was not a percentage was also the one nobody could read at a
+/// glance. The share of capacity says the thing the row is for (how much is left) in the row's own
+/// vocabulary, and the app is where the accounts' worth is shown with the space to explain it.
 ///
-/// The bar beside it already draws this exact ratio, so the two now agree by construction rather
+/// The status line's bar beside it draws this exact ratio, so the two agree by construction rather
 /// than by coincidence.
+///
+/// `status --json` keeps the raw `remaining`/`capacity` untouched: that is a versioned, additive
+/// contract read by scripts, and the units are part of it. This is the human reading.
 ///
 /// A pool with no capacity cannot have a share and is filtered out before this is called; it is
 /// guarded rather than trusted because the division would otherwise produce an infinity, and

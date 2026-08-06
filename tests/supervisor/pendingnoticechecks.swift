@@ -116,8 +116,15 @@ func runPendingNoticeChecks() {
     let deadEnd = PendingBadge("no account for fable")
     let queuedFollow = PendingBadge("model change at idle")
     let cap = PendingBadge("cap: waiting for a sibling")
+    let manual = PendingBadge("switch: account is gone")
     check("nothing pending chooses nothing", PendingBadges().chosen == nil)
-    check("a reload the user asked for outranks everything",
+    // A `tally switch` that cannot be carried out leads: it is the most specific instruction anyone
+    // has given this session, and the command that queued it has already returned, so this badge is
+    // the only thing left that can say it is stuck.
+    check("a switch that cannot be carried out outranks even a reload",
+          PendingBadges(manualMove: manual, reload: reload, followDeadEnd: deadEnd,
+                        followQueued: queuedFollow, capWaiting: cap).chosen == manual)
+    check("a reload the user asked for outranks the rest",
           PendingBadges(reload: reload, followDeadEnd: deadEnd, followQueued: queuedFollow,
                         capWaiting: cap).chosen == reload)
     check("a follow with nowhere to land outranks one merely queued",
@@ -158,7 +165,8 @@ func runPendingNoticeChecks() {
           supervisorPendingBadges(reload: nil, followDeadEnd: false, followQueued: false,
                                   policy: policy, capReason: nil).chosen == nil)
     // A badge shares its row with the quota meters, so length is a real constraint, not a style.
-    for badge in [reload, deadEnd, queuedFollow, deadEndBadges.chosen, queuedBadges.chosen] {
+    for badge in [reload, deadEnd, queuedFollow, manual, deadEndBadges.chosen,
+                  queuedBadges.chosen] {
         guard let badge else { continue }
         check("the badge \"\(badge.badge)\" fits a status line", badge.badge.count <= 24)
     }
@@ -250,8 +258,12 @@ func runPendingNoticeChecks() {
                                         encoding: .utf8)) ?? ""
     check("the manual-move source is readable from the pending-notice checks",
           !manualMoveSource.isEmpty)
-    if let queuedSwitch = section(manualMoveSource, from: "case .none, .queued:", to: "case .gone:") {
+    if let queuedSwitch = section(manualMoveSource, from: "case .none, .queued:",
+                                  to: "case .alreadyThere:") {
         check("a queued switch says nothing on the terminal", !queuedSwitch.contains("warn("))
+        // The branch that CAN outlast the turn says it in the one place a live child allows.
+        check("a switch held for an unavailable account raises a badge instead",
+              queuedSwitch.contains("state.waiting = PendingBadge("))
     } else {
         check("the queued switch branch was found", false)
     }

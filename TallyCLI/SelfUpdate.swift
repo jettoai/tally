@@ -101,6 +101,17 @@ func selfUpdateTarget(captured: String?, installed: String?, isQuiet: Bool, rela
 /// empty fuse writes no flag at all, which is also what every build predating it wrote.
 let resuperviseFuseFlag = "--fuse"
 
+/// The flag carrying the pin a `tally switch` took this session OFF (SessionSwitch.swift), for the
+/// same reason the fuse rides along: it is a promise about the user's session, not about this
+/// process. Without it the new image starts with no override, and the first quiet tick after an
+/// upgrade hands the session straight back to the pin it was deliberately moved away from - undoing
+/// an instruction the user gave by hand, minutes later, for no reason they can see.
+///
+/// Optional by construction, like the fuse: a session that never overrode a pin writes no flag, and
+/// so does every build predating this one. An absent flag means "no override", which is exactly the
+/// behaviour those builds had.
+let resupervisePinOverrideFlag = "--pin-override"
+
 /// The fuse's recoveries as a flag value: absolute epoch seconds, comma separated. Absolute, not
 /// "N seconds ago", because the exec takes real time (and can be delayed by a slow disk mid-install)
 /// and durations re-based on arrival would silently stretch the window they are measured in.
@@ -129,10 +140,14 @@ func decodeRecoveryFuse(_ raw: String) -> [Date] {
 /// bare `--continue` into whatever conversation happens to be newest there. `recoveries` is the
 /// recovery fuse's live record (already pruned by `RecoveryFuse.carried`).
 func selfUpdateArgv(binary: String, id: String, label: String, home: String, follow: Bool,
-                    recoveries: [Date] = [], args: [String]) -> [String] {
+                    recoveries: [Date] = [], pinOverride: String? = nil,
+                    args: [String]) -> [String] {
     var argv = [binary, resuperviseCommand, "--id", id, "--label", label, "--home", home,
                 follow ? "--follow" : "--no-follow"]
     if !recoveries.isEmpty { argv += [resuperviseFuseFlag, encodeRecoveryFuse(recoveries)] }
+    if let pinOverride, !pinOverride.isEmpty {
+        argv += [resupervisePinOverrideFlag, pinOverride]
+    }
     return argv + ["--"] + args
 }
 
@@ -161,13 +176,13 @@ func consumeSelfUpdateAttempt() -> String? {
 /// the life of the session; on success nothing after the execv runs. Announced first: an app update
 /// silently restarting a session is exactly the surprise the dialogs elsewhere exist to avoid.
 func execSelfUpdate(to target: String, id: String, label: String, home: String, follow: Bool,
-                    recoveries: [Date] = [], args: [String],
+                    recoveries: [Date] = [], pinOverride: String? = nil, args: [String],
                     binary: String? = Bundle.main.executableURL?.path) {
     guard let binary else { return }
     warn("tally updated to \(target), restarting this session on the new build")
     setenv(selfUpdateTargetEnvKey, target, 1)
-    let argv = selfUpdateArgv(binary: binary, id: id, label: label, home: home,
-                              follow: follow, recoveries: recoveries, args: args)
+    let argv = selfUpdateArgv(binary: binary, id: id, label: label, home: home, follow: follow,
+                              recoveries: recoveries, pinOverride: pinOverride, args: args)
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)
     execv(binary, &cargs)
@@ -215,15 +230,19 @@ func selfUpdateDue(captured: String?, attempted: String?, isQuiet: Bool, relaunc
 /// the session would chase the same unreachable build on every relaunch for the rest of its life.
 /// The account named is the one the plan MOVED TO (the exec must resume where the handoff put the
 /// conversation, not on the account it left), and the fuse rides along - an upgrade spends no
-/// recovery budget, but it must not refund what the session has already spent either. Returns
-/// normally only when there was nothing to do or the exec failed, leaving the caller to respawn.
+/// recovery budget, but it must not refund what the session has already spent either. So does the
+/// overridden pin, for the same reason: both are promises about the session, and both are in memory
+/// only. Returns normally only when there was nothing to do or the exec failed, leaving the caller
+/// to respawn.
 func execPlannedSelfUpdate(_ upgrade: (target: String, binary: String, home: String)?,
                            attempted: inout String?, target: Snapshot.Account,
-                           follow: Bool, recoveries: [Date], args: [String]) {
+                           follow: Bool, recoveries: [Date], pinOverride: String? = nil,
+                           args: [String]) {
     guard let upgrade else { return }
     attempted = upgrade.target
     execSelfUpdate(to: upgrade.target, id: target.id, label: target.label, home: upgrade.home,
-                   follow: follow, recoveries: recoveries, args: args, binary: upgrade.binary)
+                   follow: follow, recoveries: recoveries, pinOverride: pinOverride, args: args,
+                   binary: upgrade.binary)
 }
 
 /// The upgrade a relaunch ALREADY happening this tick should carry, or nil to come back on the build
@@ -257,13 +276,16 @@ func selfUpdateFold(captured: String?, attempted: String?, home: String?, capCar
 /// label that looks like a flag (`--label --home`) is still a label; a missing or trailing `--`
 /// yields no child args rather than an error, because the supervisor can still resume without them.
 /// An absent `--fuse` (every build before it, and any supervisor whose fuse was empty) means no
-/// recoveries, which is the fresh-fuse behaviour this contract had all along.
+/// recoveries, which is the fresh-fuse behaviour this contract had all along; an absent
+/// `--pin-override` means the session never overrode a pin, which is what every build before that
+/// flag effectively said too.
 func parseResuperviseArgs(_ args: [String]) -> (id: String, label: String, home: String,
                                                 follow: Bool, recoveries: [Date],
-                                                childArgs: [String]) {
+                                                pinOverride: String?, childArgs: [String]) {
     var id = "", label = "", home = ""
     var follow = true
     var recoveries: [Date] = []
+    var pinOverride: String?
     var childArgs: [String] = []
     var index = 0
     while index < args.count {
@@ -276,6 +298,12 @@ func parseResuperviseArgs(_ args: [String]) -> (id: String, label: String, home:
         case "--label": label = value(); index += 2
         case "--home": home = value(); index += 2
         case resuperviseFuseFlag: recoveries = decodeRecoveryFuse(value()); index += 2
+        // An empty value is no override rather than an override of "": the flag is only written
+        // with a real account id, so an empty one is a disagreement about the format, and the safe
+        // reading of it is the behaviour of every build that never wrote the flag at all.
+        case resupervisePinOverrideFlag:
+            pinOverride = value().isEmpty ? nil : value()
+            index += 2
         case "--follow": follow = true; index += 1
         case "--no-follow": follow = false; index += 1
         case "--":
@@ -284,18 +312,18 @@ func parseResuperviseArgs(_ args: [String]) -> (id: String, label: String, home:
         default: index += 1
         }
     }
-    return (id, label, home, follow, recoveries, childArgs)
+    return (id, label, home, follow, recoveries, pinOverride, childArgs)
 }
 
 /// `tally __resupervise --id <id> --label <label> --home <path> --follow|--no-follow
-/// [--fuse <epochs>] -- <args...>`: the other side of the exec. Rebuilds the account from what the
-/// previous supervisor passed rather than from the snapshot (which may be stale, or missing the
-/// account entirely at that instant) and resumes supervision, with the recovery fuse continuing
-/// where that supervisor left off. Only the id, label, and home are ever read from an account by
-/// the loop; the quota fields are always re-read from the live snapshot, so leaving them empty here
-/// is safe.
+/// [--fuse <epochs>] [--pin-override <accountID>] -- <args...>`: the other side of the exec.
+/// Rebuilds the account from what the previous supervisor passed rather than from the snapshot
+/// (which may be stale, or missing the account entirely at that instant) and resumes supervision,
+/// with the recovery fuse and the overridden pin continuing where that supervisor left off. Only
+/// the id, label, and home are ever read from an account by the loop; the quota fields are always
+/// re-read from the live snapshot, so leaving them empty here is safe.
 func runResupervise(args: [String]) -> Never {
-    let (id, label, home, follow, recoveries, childArgs) = parseResuperviseArgs(args)
+    let (id, label, home, follow, recoveries, pinOverride, childArgs) = parseResuperviseArgs(args)
     guard !home.isEmpty else {
         warn("\(resuperviseCommand) needs --home; this is an internal command")
         exit(2)
@@ -310,5 +338,5 @@ func runResupervise(args: [String]) -> Never {
     // `resumed`: this process replaced a supervisor whose child was already terminated, so the very
     // first spawn below continues a running conversation rather than starting the user's session.
     runSupervised(provider, account: account, args: childArgs, follow: follow,
-                  recoveries: recoveries, resumed: true)
+                  recoveries: recoveries, resumed: true, pinOverride: pinOverride)
 }

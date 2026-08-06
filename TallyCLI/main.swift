@@ -250,8 +250,7 @@ func runStatus(json: Bool = false) {
             let now = Date()
             let pieces = pools.map { pool -> String in
                 var text = "\(poolLabel(pool.poolName)) "
-                    + String(format: "%.1f/%d", pool.remaining / 100,
-                             Int((pool.capacity / 100).rounded()))
+                    + poolRemainingFigure(remaining: pool.remaining, capacity: pool.capacity)
                 if let dryAt = pool.dryAt, dryAt > now {
                     text += " (~\(shortETA(dryAt.timeIntervalSince(now))) left)"
                 } else if pool.sustainable {

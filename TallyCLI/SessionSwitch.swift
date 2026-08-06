@@ -11,190 +11,14 @@ import Foundation
 // `tally claude --account` and `tally project set --account` already share (AccountPick.swift). What
 // is new is only the addressing: a reload speaks to EVERY session, this speaks to ONE.
 //
-// The session it speaks to is the one that ran the command. Its supervisor stamps its own pid into
-// the child's environment (`TALLY_SUPERVISOR_PID`, Supervisor.swift), and every process the child
-// spawns inherits it - the agent's own shell included, which is the point: the main use is Claude
-// being asked mid-conversation to move to another account and running `tally switch` itself. A shell
-// opened separately in the same directory has no such marker and falls back to the registry.
+// How a request reaches ONE session (the file, and the two ways a session is identified) is next
+// door in SwitchRequest.swift; what a supervisor DOES about one is here.
 //
 // ONE-SHOT, deliberately. It moves this conversation now and changes nothing else: no pin is
 // written, no project profile is touched, and once the session is over there, automatic handoff
 // carries on exactly as before (a cap still moves it, a nearly dry account still rebalances it).
 // "This project always runs on that account" is a different instruction with a home of its own,
 // `tally project set --account`.
-
-// MARK: - The request file
-
-/// One request file per supervised session, named for the supervisor pid that will read it.
-/// A directory rather than a single file because these are addressed: two sessions can each have one
-/// pending, and neither may read the other's.
-let switchRequestDir = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent(".tally/switch")
-
-/// A parsed switch request: when it was made, and the account it names.
-struct SwitchRequest: Equatable {
-    /// MILLISECONDS since the unix epoch, unlike the reload stamp's seconds. The supervisor acts
-    /// only on a stamp strictly newer than the one it has served, and this request is typed by hand
-    /// INSIDE the session it moves: "switch to A" and, on seeing the wrong account, "switch to B" a
-    /// moment later are one sequence a person really performs, and at second resolution the second
-    /// one reads as already served and vanishes silently.
-    let epoch: Int
-    /// The account id the snapshot lists, not the name that was typed: the CLI resolves the name
-    /// against the live fleet at write time (the same rule `tally project set --account` follows),
-    /// so a label renamed while the request sat here still moves the session to the right account.
-    let accountID: String
-}
-
-/// Parse the file body: the stamp on line 1, the account id on line 2. Pure, so the format is
-/// testable without a home directory. Anything unparseable is nil - no request - rather than a
-/// partial one: a truncated write must never read as a switch to an account nobody named.
-func parseSwitchRequest(_ raw: String) -> SwitchRequest? {
-    let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
-        .map { $0.trimmingCharacters(in: .whitespaces) }
-    guard let epoch = lines.first.flatMap({ Int($0) }),
-          let accountID = lines.dropFirst().first, !accountID.isEmpty else { return nil }
-    return SwitchRequest(epoch: epoch, accountID: accountID)
-}
-
-func switchRequestFile(sessionKey: String, dir: URL = switchRequestDir) -> URL {
-    dir.appendingPathComponent(sessionKey)
-}
-
-/// This session's pending request, or nil when there is none (or it cannot be read).
-func readSwitchRequest(sessionKey: String, dir: URL = switchRequestDir) -> SwitchRequest? {
-    guard let raw = try? String(contentsOf: switchRequestFile(sessionKey: sessionKey, dir: dir),
-                                encoding: .utf8) else { return nil }
-    return parseSwitchRequest(raw)
-}
-
-/// Stamp a request for one session. Atomic (Foundation writes temp + rename), so a supervisor
-/// polling mid-write reads either the previous request or this one, never half of either.
-func writeSwitchRequest(accountID: String, sessionKey: String, now: Date = Date(),
-                        dir: URL = switchRequestDir) throws {
-    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    try "\(Int(now.timeIntervalSince1970 * 1000))\n\(accountID)\n"
-        .write(to: switchRequestFile(sessionKey: sessionKey, dir: dir), atomically: true,
-               encoding: .utf8)
-}
-
-/// The request is served (or found to be about nothing): unlink it. The served stamp in memory is
-/// what makes the decision idempotent; this only keeps the directory from collecting husks.
-func clearSwitchRequest(sessionKey: String, dir: URL = switchRequestDir) {
-    try? FileManager.default.removeItem(at: switchRequestFile(sessionKey: sessionKey, dir: dir))
-}
-
-/// Drop requests addressed to supervisors that are gone: a session can exit with one still pending
-/// (it was queued behind a turn that never ended), and the OS reuses pids. Swept by the CLI as it
-/// writes, which is the only moment anything here grows.
-///
-/// Its own function rather than `sweepDeadSupervisorState` pointed at this directory, though the
-/// two loops look alike: that one reads names through `supervisorStatePid`, which accepts the
-/// suffixed documents the state directory holds, and NOTHING here is ever suffixed. Sharing it would
-/// make this directory's naming contract the other one's, so a document added there could start
-/// being deleted from here.
-func sweepDeadSwitchRequests(dir: URL = switchRequestDir) {
-    let files = (try? FileManager.default.contentsOfDirectory(at: dir,
-        includingPropertiesForKeys: nil)) ?? []
-    for file in files {
-        guard let pid = pid_t(file.lastPathComponent), !supervisorAlive(pid) else { continue }
-        try? FileManager.default.removeItem(at: file)
-    }
-}
-
-// MARK: - Which session is asking
-
-/// The suffix under which a supervisor publishes the directory its session runs in, beside its
-/// presence entry in `supervisorStateDir` (the track the drift badge and the pending notice share).
-///
-/// It exists only for the fallback below - a shell opened separately in a project directory, with no
-/// session marker in its environment. The supervisor's own cwd cannot change while it runs, so this
-/// is written once at startup and never again.
-let supervisorCwdSuffix = ".cwd"
-
-func supervisorCwdFile(pid: String, dir: URL = supervisorStateDir) -> URL {
-    dir.appendingPathComponent(pid + supervisorCwdSuffix)
-}
-
-/// Publish this supervisor's working directory. Best-effort, like everything else on this track:
-/// failing to write it costs the fallback, never the session.
-func writeSupervisorCwd(_ cwd: String, pid: String, dir: URL = supervisorStateDir) {
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    try? realpathString(cwd).write(to: supervisorCwdFile(pid: pid, dir: dir), atomically: true,
-                                   encoding: .utf8)
-}
-
-func readSupervisorCwd(pid: String, dir: URL = supervisorStateDir) -> String? {
-    guard let raw = try? String(contentsOf: supervisorCwdFile(pid: pid, dir: dir), encoding: .utf8)
-    else { return nil }
-    let path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    return path.isEmpty ? nil : path
-}
-
-/// The live supervisors running in `cwd`, sorted so the answer is stable. Fully resolved on both
-/// sides (/tmp -> /private/tmp), which is how the supervisor wrote it.
-func supervisorsInDirectory(_ cwd: String, dir: URL = supervisorStateDir) -> [String] {
-    let target = realpathString(cwd)
-    return liveSupervisorPids(dir: dir)
-        .filter { readSupervisorCwd(pid: String($0), dir: dir) == target }
-        .map(String.init)
-        .sorted()
-}
-
-/// Which session a `tally switch` belongs to.
-enum SessionLookup: Equatable {
-    /// The supervisor pid to address the request to.
-    case session(String)
-    /// Nothing supervised is running here: an unsupervised launch (`--no-handoff`, an `--account`
-    /// pin, a piped run) or a bare `claude`, neither of which anything can move.
-    case none
-    /// Several sessions share this directory and the command came from outside all of them, so
-    /// there is no way to tell which one was meant.
-    case ambiguous([String])
-}
-
-/// The choice itself, pure. `envPid` is the marker the supervisor stamped into this session's
-/// environment, already checked for liveness by the caller; `here` is every live supervisor in this
-/// directory. The environment wins whenever it is present, and that is the whole design: it names
-/// the session the command was actually run in, while the directory can only ever name candidates.
-func sessionLookup(envPid: String?, here: [String]) -> SessionLookup {
-    if let envPid { return .session(envPid) }
-    if here.count == 1, let only = here.first { return .session(only) }
-    return here.isEmpty ? .none : .ambiguous(here)
-}
-
-/// The session marker in this process's environment, or nil when there is none (or its supervisor
-/// has died, which a marker inherited by something long-lived could outlive).
-func liveSessionMarker(_ env: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-    guard let value = env["TALLY_SUPERVISOR_PID"], let pid = pid_t(value),
-          supervisorAlive(pid) else { return nil }
-    return value
-}
-
-/// Whether the supervisor watching this session will act on a request at all, judged from the build
-/// it stamped into the environment against the installed one - the same two values the status line's
-/// supervision note compares (SupervisorRuntime.swift).
-///
-/// It exists because the failure it prevents is SILENT. A supervisor from a build without this
-/// feature registers, stamps its pid, and polls nothing here: the request would be written, read by
-/// nobody, and the session would sit where it was while the command reported success.
-enum SwitchHonourability: Equatable {
-    /// The supervisor is the current build and reads these requests.
-    case honoured
-    /// A different build, which replaces itself at the next idle moment (since 0.26.0) and reads the
-    /// request when it comes back. Worth saying, because that wait is the whole delay.
-    case afterSelfUpdate
-    /// No version stamp at all: a supervisor too old to self-update, so nothing will ever read it.
-    case tooOld
-}
-
-func switchHonourability(supervisorVersion: String?, installedVersion: String?)
-    -> SwitchHonourability {
-    guard let supervisorVersion else { return .tooOld }
-    // No installed version to compare against (a standalone or dev build of this CLI): assume it
-    // works, exactly as the status line's note does rather than asserting a problem it cannot see.
-    guard let installedVersion else { return .honoured }
-    return supervisorVersion == installedVersion ? .honoured : .afterSelfUpdate
-}
 
 // MARK: - Supervisor-side decision
 
@@ -215,7 +39,7 @@ let manualMoveIdleSeconds = reloadNowIdleSeconds
 /// What one poll tick does about the switch request it just read.
 enum SwitchDecision: Equatable {
     case none          // no request, or one this supervisor has already served
-    case gone          // the account it names is no longer listed or has signed out: drop it
+    case unavailable   // the account it names is not launchable right now: hold it, and say so
     case alreadyThere  // the session is on that account already (a handoff got there first)
     case relaunch      // move now
     case queued        // the session is mid-turn: hold the request until it goes quiet
@@ -226,13 +50,17 @@ enum SwitchDecision: Equatable {
 /// leftover file addressed to a REUSED pid from moving an unrelated session), and a busy session
 /// holds it rather than losing it.
 ///
-/// ORDER IS PART OF THE CONTRACT: whether the target still exists is asked BEFORE whether the
-/// session is quiet. A request naming an account that has signed out is not going to become
-/// actionable by waiting, and holding it would leave the file pending for the life of the session.
+/// ORDER IS PART OF THE CONTRACT: whether the target is launchable is asked BEFORE whether the
+/// session is quiet, because the two waits are not the same thing and the badge has to name the
+/// right one. An account that is missing from the snapshot or signed out is HELD rather than
+/// dropped: the wait is visible (the status line badge below), the target coming back is a state
+/// the next tick simply reads, and a session that ends with one pending leaves a file the CLI's
+/// own sweep collects. Dropping it would be a decision made on the user's behalf about an
+/// instruction they gave by hand.
 func switchDecision(served: Int, request: SwitchRequest, targetFound: Bool, onTarget: Bool,
                     isQuiet: Bool) -> SwitchDecision {
     guard request.epoch > served else { return .none }
-    guard targetFound else { return .gone }
+    guard targetFound else { return .unavailable }
     if onTarget { return .alreadyThere }
     return isQuiet ? .relaunch : .queued
 }
@@ -248,6 +76,10 @@ struct ManualMoveState {
     /// back. Scoped to that exact pin: moving the pin somewhere NEW in the panel afterwards is a
     /// fresh instruction and takes effect as it always did.
     var overriddenPin: String?
+    /// Why a request is being held rather than served, for the status line's badge; nil when nothing
+    /// is being held for a reason worth showing. Re-derived every tick from live state, like every
+    /// other badge (PendingNotice.swift), so it disappears the moment the reason does.
+    var waiting: PendingBadge?
 
     /// `servedEpoch` defaults to whatever is pending right now, so a request written before this
     /// supervisor existed is never replayed (the file is addressed by pid, and pids come round
@@ -255,10 +87,16 @@ struct ManualMoveState {
     /// wrong: a self-update exec keeps the pid and IS the same session, so a request written
     /// moments before it was written for this conversation and would be swallowed by the seed
     /// (`resumed`, Supervisor.swift).
-    init(sessionKey: String, servedEpoch: Int? = nil, dir: URL = switchRequestDir) {
+    ///
+    /// `overriddenPin` is likewise handed over across that exec (`--pin-override`, SelfUpdate.swift):
+    /// in memory only, and a new image that started without it would hand the session back to the
+    /// pin its user had just moved it off.
+    init(sessionKey: String, servedEpoch: Int? = nil, overriddenPin: String? = nil,
+         dir: URL = switchRequestDir) {
         self.sessionKey = sessionKey
         self.servedEpoch = servedEpoch
             ?? (readSwitchRequest(sessionKey: sessionKey, dir: dir)?.epoch ?? 0)
+        self.overriddenPin = overriddenPin
     }
 
     func pinOverridden(_ pinnedAccountID: String) -> Bool { pinnedAccountID == overriddenPin }
@@ -276,10 +114,24 @@ struct PendingSwitchConsumption {
     let pinOverride: String?
     let dir: URL
 
+    /// The file is unlinked only when it still holds the request that was SERVED. Between planning
+    /// and here the child is terminated, and a second `tally switch` typed in that window overwrites
+    /// the same path with a newer stamp: an unconditional unlink would delete an instruction nobody
+    /// has carried out, and the millisecond stamps exist precisely so that two switches in quick
+    /// succession are two switches. A newer stamp left on disk fires on the next tick, because
+    /// `servedEpoch` records the epoch this consumption served rather than "whatever is pending".
+    ///
+    /// Not airtight, and knowingly so: a write landing between the read and the unlink is still
+    /// lost. Closing that needs an atomic compare-and-unlink the filesystem does not offer for this
+    /// shape, and the window shrinks from "the whole relaunch" (a child terminated, a transcript
+    /// located and shared, a process spawned) to two syscalls.
     func commit(_ state: inout ManualMoveState) {
         state.servedEpoch = epoch
         state.overriddenPin = pinOverride
-        clearSwitchRequest(sessionKey: state.sessionKey, dir: dir)
+        state.waiting = nil
+        if readSwitchRequest(sessionKey: state.sessionKey, dir: dir)?.epoch == epoch {
+            clearSwitchRequest(sessionKey: state.sessionKey, dir: dir)
+        }
     }
 }
 
@@ -361,13 +213,20 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
     switch switchDecision(served: state.servedEpoch, request: request, targetFound: target != nil,
                           onTarget: target?.id == account.id, isQuiet: quiet) {
     case .none, .queued:
-        // Queued says nothing here: the child is drawing on this terminal and is not about to be
-        // terminated, and the wait is at most the rest of the turn that asked for the switch. What
-        // the person who typed it needs to know was printed by the command itself.
-        break
-    case .gone:
-        warn("the account `tally switch` named is not available - staying on \(account.label)")
-        consume()
+        // Queued raises nothing at all: the wait is at most the rest of the turn that asked for the
+        // switch, and what the person who typed it needs to know was printed by the command itself.
+        // Nothing may be said on the TERMINAL either - the child is drawing this very turn there
+        // (PendingNotice.swift: only a message that precedes a tear-down may use it).
+        state.waiting = nil
+    case .unavailable:
+        // The one wait worth a badge: it can outlast the turn, and nobody has been told. Held rather
+        // than announced for the same reason - the child is alive, so a line here would land in the
+        // input box it is drawing. The badge is re-derived every tick, so it goes when the account
+        // comes back, and the switch then happens on its own.
+        state.waiting = PendingBadge(
+            "switch: account is gone",
+            detail: "the account `tally switch` named is missing from the snapshot or signed out; "
+                + "staying on \(account.label) until it is back")
     case .alreadyThere:
         consume()
     case .relaunch:
@@ -424,14 +283,6 @@ func runSwitch(args: [String]) -> Int32 {
         warn("no claude account matches \"\(name)\" - try `tally status`")
         return 1
     }
-    // The account this session is on, read from the config home it was launched with - the same
-    // signal the status line uses to name it, and the only one that is true before the session has
-    // written anything.
-    let home = ProcessInfo.processInfo.environment[provider.envKey] ?? defaultHome(provider)
-    if target.launchHome == home {
-        print("already on \(target.label)")
-        return 0
-    }
     let sessionKey: String
     let marker = liveSessionMarker()
     switch sessionLookup(envPid: marker,
@@ -448,6 +299,16 @@ func runSwitch(args: [String]) -> Int32 {
             + "cannot tell which one you mean (pids \(pids.joined(separator: ", "))). Run it "
             + "inside the session you want to move - or ask the agent in that session to run it.")
         return 1
+    }
+    // Already there? Asked of the SESSION being moved, not of this shell. The two are the same
+    // process tree only on the main path; through the directory fallback the shell is somebody
+    // else's terminal, and its `CLAUDE_CONFIG_DIR` describes whatever launched IT (often nothing at
+    // all, which reads as the default home and would announce "already on <the default account>"
+    // for a session running somewhere else entirely).
+    if sessionAccountID(sessionKey: sessionKey, isThisSession: marker == sessionKey,
+                        provider: provider, accounts: snapshot?.accounts ?? []) == target.id {
+        print("already on \(target.label)")
+        return 0
     }
     // Whether anything will read the request, asked only when the session named ITSELF: the
     // environment carries that session's supervisor build, and a directory match carries nothing.

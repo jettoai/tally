@@ -12,7 +12,7 @@ swiftc -o "$out" tests/statusline/main.swift \
   TallyCLI/Statusline.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountComfort.swift TallyCLI/SupervisorRuntime.swift TallyCLI/ReloadRequest.swift \
   TallyCLI/DriftMonitor.swift TallyCLI/PendingNotice.swift TallyCLI/SessionContext.swift \
-  TallyCLI/SessionSwitch.swift TallyCLI/GitRepoRoot.swift TallyCLI/Reload.swift \
+  TallyCLI/SessionSwitch.swift TallyCLI/SwitchRequest.swift TallyCLI/GitRepoRoot.swift TallyCLI/Reload.swift \
   TallyCLI/LaunchFlags.swift TallyCLI/ProviderExecutable.swift TallyCLI/ResumePrompt.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptFork.swift TallyCLI/OpenTurn.swift \
   TallyCLI/KeyboardIdle.swift TallyCLI/Quarantine.swift TallyCLI/SafeguardDrift.swift

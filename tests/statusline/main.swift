@@ -63,4 +63,30 @@ check("an empty pool shows none", filledCells(0, 200) == 0)
 check("the figure agrees with the bar it sits beside",
       poolRemainingFigure(remaining: 100, capacity: 200) == "50%" && filledCells(100, 200) == 3)
 
+// MARK: - One figure for every human surface
+
+// `tally status`'s fleet line reads the same way as the status line's pool slot, because the app is
+// where the accounts'-worth reading belongs (with the room to say what the units are). Neither
+// surface can be asked for its output here - one prints and exits, the other prints and returns
+// nothing - so the source carries the invariant, the same technique the supervisor suite uses for
+// its call-site rules. Run from the repo root (run-statusline-tests.sh cds there), and a missing
+// file FAILS rather than quietly passing.
+let statusSource = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
+check("the status source is readable from the status line checks", !statusSource.isEmpty)
+check("`tally status` prints the same pool figure",
+      statusSource.contains("poolRemainingFigure(remaining: pool.remaining, capacity: pool.capacity)"))
+check("and the same pool label", statusSource.contains("poolLabel(pool.poolName)"))
+check("with no accounts'-worth formatting left in either human surface",
+      !statusSource.contains("%.1f/%d")
+          && !((try? String(contentsOfFile: "TallyCLI/Statusline.swift", encoding: .utf8)) ?? "")
+              .contains("%.1f/%d"))
+// The machine-readable side is deliberately untouched: `status --json` carries the pool's raw
+// `remaining` and `capacity` in account-week units, which is a versioned additive contract scripts
+// read (pinned in tests/statusjson). A display change must never reach through to it.
+let reportSource = (try? String(contentsOfFile: "TallyCLI/StatusReport.swift",
+                                encoding: .utf8)) ?? ""
+check("the report source is readable from the status line checks", !reportSource.isEmpty)
+check("the JSON report formats no percentages of its own",
+      !reportSource.contains("poolRemainingFigure"))
+
 exit(failures == 0 ? 0 : 1)

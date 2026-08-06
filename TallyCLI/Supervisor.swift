@@ -18,10 +18,15 @@ import Foundation
 /// this process replaced in a self-update. Empty for every normal launch.
 ///
 /// `resumed`: this process took over a session that was ALREADY running (the self-update exec), so
-/// even its first spawn is a relaunch. It decides one thing only, the resume-prompt suppression in
-/// ResumePrompt.swift: nobody is at the keyboard for a restart Tally performed on its own.
+/// even its first spawn is a relaunch. Two things read it: the resume-prompt suppression in
+/// ResumePrompt.swift (nobody is at the keyboard for a restart Tally performed on its own), and the
+/// switch request's served stamp, which must not be seeded from a request this same session made.
+///
+/// `pinOverride`: the pin a `tally switch` took this session off, handed over by the supervisor this
+/// process replaced (SessionSwitch.swift). nil for every normal launch.
 func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args: [String],
-                   follow: Bool = false, recoveries: [Date] = [], resumed: Bool = false) -> Never {
+                   follow: Bool = false, recoveries: [Date] = [], resumed: Bool = false,
+                   pinOverride: String? = nil) -> Never {
     let slug = projectSlug(forCwd: FileManager.default.currentDirectoryPath)
     /// This session's project launch profile (ProjectPolicy.swift), read ONCE: the cwd cannot change
     /// under a running supervisor, and the git probe behind the key must not run on every 2s tick.
@@ -77,21 +82,19 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// IS that exec, and written again when this process attempts one of its own.
     var selfUpdateAttempted = consumeSelfUpdateAttempt()
     let supervisorPID = String(getpid())
-    /// What the user has asked for by hand about the account this session runs on: the served
-    /// `tally switch` stamp and the pin a switch overrode (SessionSwitch.swift). Seeded from
-    /// whatever is addressed to this pid right now, so a request left by the session that held the
-    /// pid before never fires - except when this process IS that session carrying on through a
-    /// self-update exec, where the same file is a request somebody made seconds ago. Held across
-    /// relaunches, like the fuse and the quarantine.
-    var manualMoves = ManualMoveState(sessionKey: supervisorPID, servedEpoch: resumed ? 0 : nil)
+    /// What the user has asked for by hand about the account this session runs on, held across
+    /// relaunches and across a self-update exec like the fuse (SessionSwitch.swift owns the rules;
+    /// `resumed` is what stops a request this same session just made from being seeded away).
+    var manualMoves = ManualMoveState(sessionKey: supervisorPID, servedEpoch: resumed ? 0 : nil,
+                                      overriddenPin: pinOverride)
     // Reap drift-state files left by dead supervisors (a SIGKILL skips the clear path) before this
     // one starts writing its own; also shrinks the pid-reuse window for a stale badge.
     sweepDeadSupervisorState()
     // Register in the same directory as a live supervisor (an empty file; a drift episode fills it
     // in later): `tally reload` counts these to say how many sessions its request will restart.
     markSupervisorLive(pid: supervisorPID)
-    // Where this session runs, for a `tally switch` typed in a shell that carries no session marker
-    // (SessionSwitch.swift). Written once: a supervisor's cwd cannot change under it.
+    // Where this session runs, for a `tally switch` typed in a shell with no session marker; written
+    // once, because a supervisor's cwd cannot change under it (SwitchRequest.swift).
     writeSupervisorCwd(FileManager.default.currentDirectoryPath, pid: supervisorPID)
 
     while true {
@@ -224,9 +227,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // if the relaunch happens (SafeguardDrift.swift). Tick-local like the plan it belongs
             // to: a stand-down drops it by going out of scope, with nothing to undo.
             var safeguardRecord: PendingSafeguardRecord?
-            /// A served `tally switch`, for the same reason and on the same terms: the stamp and
-            /// the pin it overrides are written only if the relaunch happens (SessionSwitch.swift),
-            /// so a stand-down leaves the request pending instead of swallowing it.
+            /// A served `tally switch`, on the same terms: written only if the relaunch happens, so
+            /// a stand-down leaves the request pending (SessionSwitch.swift).
             var switchRecord: PendingSwitchConsumption?
 
             // Cap recovery has top priority: scan for the cap BEFORE any relaunch path (pin,
@@ -279,10 +281,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // quota-degradation paths below with `drift.isActive` (DriftMonitor.swift).
             observeDrift(&drift, watcher: &watcher, primary: effectivePrimary, pid: supervisorPID)
 
-            // The moves the user asked for by hand - a `tally switch` typed inside this session,
-            // and the panel pin they moved - decided first, so every automatic reason below yields
-            // to them. The whole rule lives in SessionSwitch.swift; `switchRecord` is this tick's
-            // unwritten bookkeeping, committed at the execution point like the safeguard's.
+            // The moves the user asked for by hand (a `tally switch` typed inside this session, the
+            // panel pin they moved), decided first so every automatic reason below yields to them.
+            // The rule lives in SessionSwitch.swift; `switchRecord` is this tick's unwritten
+            // bookkeeping, committed at the execution point like the safeguard's.
             applyManualMoves(plan: &plan, state: &manualMoves, record: &switchRecord,
                              account: account, providerID: provider.id, policy: policy,
                              watcher: &watcher, childAge: Date().timeIntervalSince(launchedAt),
@@ -434,7 +436,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                 pid: supervisorPID)
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
-            syncPendingNotice(&pendingNotice, pid: supervisorPID, reload: reloadNotice.pending,
+            syncPendingNotice(&pendingNotice, pid: supervisorPID,
+                              manualMove: manualMoves.waiting, reload: reloadNotice.pending,
                               followDeadEnd: followState.deadEnd, followQueued: followState.queuedNotice,
                               policy: policy, capReason: pendingCap?.reason)
 
@@ -480,7 +483,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // Last, so an exec that fails falls through to the respawn below with this plan
                 // fully applied: a failed upgrade can cost the new build, never the account switch.
                 execPlannedSelfUpdate(upgrade, attempted: &selfUpdateAttempted, target: plan.target,
-                                      follow: follow, recoveries: fuse.carried(), args: launchArgs)
+                                      follow: follow, recoveries: fuse.carried(),
+                                      pinOverride: manualMoves.overriddenPin, args: launchArgs)
                 break
             }
         }

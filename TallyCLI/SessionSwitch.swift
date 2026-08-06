@@ -36,10 +36,54 @@ import Foundation
 /// was going to say, and the move happens in the gap after it.
 let manualMoveIdleSeconds = reloadNowIdleSeconds
 
+/// What the fleet says about the account a request names, read at the tick that could act on it.
+///
+/// The distinction between the last two is the same one `pinnedAccountIsSignedOut` draws for a pin
+/// (AccountPick.swift), and for a sharper reason here. An account id is derived from its config
+/// home's name, so a removed `~/.claude3` that is recreated and logged into IS `claude:.claude3`
+/// again (AccountRemovals.swift says so, and builds its tombstone expiry on it). A request held
+/// against an id that has left the fleet is therefore not waiting for its account to come back: it
+/// is waiting for ANY account to claim that name, and it would then resume the conversation onto a
+/// login the user never named.
+enum SwitchTargetState: Equatable {
+    /// There and logged in.
+    case launchable(Snapshot.Account)
+    /// Listed with no launch home: Tally is publishing "this one is dormant", so the login is gone
+    /// and the account is not. Waiting is exactly right - renewing it makes the switch happen.
+    case signedOut
+    /// This snapshot does not list the account at all. Tally publishes every account it discovers,
+    /// so an id missing from a snapshot we can read is one that has left the fleet.
+    case removed
+    /// No snapshot to judge by (the app has not run, or the file is unreadable). Says nothing about
+    /// the account, so it can only mean wait - reading it as "removed" would cancel every pending
+    /// switch on the machine the moment the snapshot went missing.
+    case unreadable
+
+    /// The account to launch, when there is one. Both readers below want the same thing out of the
+    /// launchable case, and neither wants to spell the pattern match to get it.
+    var account: Snapshot.Account? {
+        guard case .launchable(let account) = self else { return nil }
+        return account
+    }
+}
+
+/// Pure classification, so the three ways an account can fail to be launchable stay testable and
+/// stay distinct. `accounts` is nil when there is no readable snapshot, which is NOT the same as an
+/// empty one: an empty snapshot really does list no accounts.
+func switchTargetState(_ accountID: String, provider: String,
+                       accounts: [Snapshot.Account]?) -> SwitchTargetState {
+    guard let accounts else { return .unreadable }
+    let named = accounts.filter { $0.id == accountID && $0.provider == provider }
+    guard !named.isEmpty else { return .removed }
+    guard let launchable = named.first(where: { $0.launchHome != nil }) else { return .signedOut }
+    return .launchable(launchable)
+}
+
 /// What one poll tick does about the switch request it just read.
 enum SwitchDecision: Equatable {
     case none          // no request, or one this supervisor has already served
-    case unavailable   // the account it names is not launchable right now: hold it, and say so
+    case unavailable   // the account it names cannot be launched right now: hold it, and say so
+    case cancelled     // the account it names has left the fleet: drop the request, and say why
     case alreadyThere  // the session is on that account already (a handoff got there first)
     case relaunch      // move now
     case queued        // the session is mid-turn: hold the request until it goes quiet
@@ -50,19 +94,25 @@ enum SwitchDecision: Equatable {
 /// leftover file addressed to a REUSED pid from moving an unrelated session), and a busy session
 /// holds it rather than losing it.
 ///
-/// ORDER IS PART OF THE CONTRACT: whether the target is launchable is asked BEFORE whether the
-/// session is quiet, because the two waits are not the same thing and the badge has to name the
-/// right one. An account that is missing from the snapshot or signed out is HELD rather than
-/// dropped: the wait is visible (the status line badge below), the target coming back is a state
-/// the next tick simply reads, and a session that ends with one pending leaves a file the CLI's
-/// own sweep collects. Dropping it would be a decision made on the user's behalf about an
-/// instruction they gave by hand.
-func switchDecision(served: Int, request: SwitchRequest, targetFound: Bool, onTarget: Bool,
+/// ORDER IS PART OF THE CONTRACT: what the target IS gets asked before whether the session is
+/// quiet, because those are different waits and the badge has to name the right one.
+///
+/// A dormant or unknowable target is HELD: the wait is visible (the status line badge below), the
+/// account coming back is a state the next tick simply reads, and dropping it would be a decision
+/// made on the user's behalf about an instruction they gave by hand. A REMOVED one is cancelled
+/// instead, and that is not a change of heart about holding: the id can be re-earned by a different
+/// login (`SwitchTargetState`), so holding stops meaning "wait for that account" and starts meaning
+/// "resume this conversation onto whoever takes the name next".
+func switchDecision(served: Int, request: SwitchRequest, target: SwitchTargetState, onTarget: Bool,
                     isQuiet: Bool) -> SwitchDecision {
     guard request.epoch > served else { return .none }
-    guard targetFound else { return .unavailable }
-    if onTarget { return .alreadyThere }
-    return isQuiet ? .relaunch : .queued
+    switch target {
+    case .removed: return .cancelled
+    case .signedOut, .unreadable: return .unavailable
+    case .launchable:
+        if onTarget { return .alreadyThere }
+        return isQuiet ? .relaunch : .queued
+    }
 }
 
 /// What the supervisor remembers about the moves its user has asked for by hand. Held across
@@ -80,6 +130,15 @@ struct ManualMoveState {
     /// is being held for a reason worth showing. Re-derived every tick from live state, like every
     /// other badge (PendingNotice.swift), so it disappears the moment the reason does.
     var waiting: PendingBadge?
+    /// A request this supervisor CANCELLED, which is news rather than a state: the thing it
+    /// describes is gone by the time it is read, so nothing re-derives it and it has to be held
+    /// until something about switching happens again. Cleared by the next request (below) and
+    /// carried no further than that.
+    var cancelled: PendingBadge?
+
+    /// The one badge the status line gets from this session's manual moves: a live wait outranks
+    /// old news, because it is the thing that is still true.
+    var badge: PendingBadge? { waiting ?? cancelled }
 
     /// `servedEpoch` defaults to whatever is pending right now, so a request written before this
     /// supervisor existed is never replayed (the file is addressed by pid, and pids come round
@@ -161,8 +220,8 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                       request: (String) -> SwitchRequest? = {
                           readSwitchRequest(sessionKey: $0)
                       },
-                      accounts: @escaping () -> [Snapshot.Account] = {
-                          loadSnapshot().0?.accounts ?? []
+                      accounts: @escaping () -> [Snapshot.Account]? = {
+                          loadSnapshot().0?.accounts
                       }) {
     applySwitchRequest(plan: &plan, state: &state, record: &record, account: account,
                        providerID: providerID, policy: policy, watcher: &watcher,
@@ -174,13 +233,14 @@ func applyManualMoves(plan: inout RelaunchPlan?, state: inout ManualMoveState,
                    accounts: accounts)
 }
 
-/// The account an id names, when it is one this session could actually be launched on: the right
-/// provider, still listed, still logged in. Both moves below ask it of their own target, and a nil
-/// means the same thing to each - the instruction has nothing to act on any more.
+/// The account an id names, when it is one this session could actually be launched on. Through the
+/// same classifier the switch decision uses, so "launchable" means one thing here: the pin has no
+/// use for WHY a target is unusable (it simply waits, as it always has), and asking the one question
+/// twice in two shapes is how the two would come to disagree about it.
 private func launchableAccount(_ id: String?, provider: String,
-                               in accounts: () -> [Snapshot.Account]) -> Snapshot.Account? {
+                               in accounts: () -> [Snapshot.Account]?) -> Snapshot.Account? {
     guard let id else { return nil }
-    return accounts().first { $0.id == id && $0.provider == provider && $0.launchHome != nil }
+    return switchTargetState(id, provider: provider, accounts: accounts()).account
 }
 
 /// The `tally switch` half. Consumes nothing on the branch that plans a relaunch (see
@@ -194,7 +254,7 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
                                 watcher: inout TranscriptWatcher, childAge: TimeInterval,
                                 keyboardIdle: (TimeInterval) -> Bool,
                                 dir: URL, request: SwitchRequest?,
-                                accounts: () -> [Snapshot.Account]) {
+                                accounts: () -> [Snapshot.Account]?) {
     // No request, or one this supervisor has already served. The staleness rule is answered here as
     // well as inside the decision below, because everything between costs a snapshot read and a
     // transcript tail: `isQuiet` locates and tails the file, which is not free per tick.
@@ -205,13 +265,18 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
         PendingSwitchConsumption(epoch: request.epoch, pinOverride: state.overriddenPin, dir: dir)
             .commit(&state)
     }
-    let target = launchableAccount(request.accountID, provider: providerID, in: accounts)
+    // A request this supervisor has not served yet supersedes whatever was said about the last one:
+    // the cancellation badge describes a request that no longer exists, and this is the moment it
+    // stops being the news.
+    state.cancelled = nil
+    let target = switchTargetState(request.accountID, provider: providerID, accounts: accounts())
+    let named = target.account
     let quiet = reloadQuiet(transcriptQuiet: watcher.isQuiet(manualMoveIdleSeconds),
                             hasTranscript: watcher.file != nil, childAge: childAge,
                             bar: manualMoveIdleSeconds,
                             keyboardQuiet: keyboardIdle(manualMoveIdleSeconds))
-    switch switchDecision(served: state.servedEpoch, request: request, targetFound: target != nil,
-                          onTarget: target?.id == account.id, isQuiet: quiet) {
+    switch switchDecision(served: state.servedEpoch, request: request, target: target,
+                          onTarget: named?.id == account.id, isQuiet: quiet) {
     case .none, .queued:
         // Queued raises nothing at all: the wait is at most the rest of the turn that asked for the
         // switch, and what the person who typed it needs to know was printed by the command itself.
@@ -221,18 +286,28 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
     case .unavailable:
         // The one wait worth a badge: it can outlast the turn, and nobody has been told. Held rather
         // than announced for the same reason - the child is alive, so a line here would land in the
-        // input box it is drawing. The badge is re-derived every tick, so it goes when the account
+        // input box it is drawing. The badge is re-derived every tick, so it goes when the login
         // comes back, and the switch then happens on its own.
         state.waiting = PendingBadge(
-            "switch: account is gone",
-            detail: "the account `tally switch` named is missing from the snapshot or signed out; "
-                + "staying on \(account.label) until it is back")
+            "switch: signed out",
+            detail: "the account `tally switch` named has no login right now; staying on "
+                + "\(account.label) until it is renewed")
+    case .cancelled:
+        // Not a wait, so not a `waiting` badge: there is nothing left to happen. An account id is
+        // its config home's name, so holding this would eventually resume the conversation onto
+        // whatever new login claims that name (`SwitchTargetState`).
+        state.waiting = nil
+        consume()
+        state.cancelled = PendingBadge(
+            "switch: account removed",
+            detail: "the account `tally switch` named is no longer in the fleet, so the move was "
+                + "cancelled rather than held for a different login with the same name")
     case .alreadyThere:
         consume()
     case .relaunch:
-        guard let target else { return }
-        warn("switching to \(target.label) as asked")
-        plan = RelaunchPlan(target: target, reason: "switch", countsFuse: false)
+        guard let named else { return }
+        warn("switching to \(named.label) as asked")
+        plan = RelaunchPlan(target: named, reason: "switch", countsFuse: false)
         record = PendingSwitchConsumption(epoch: request.epoch,
                                           pinOverride: policy.pinnedAccountID, dir: dir)
     }
@@ -249,7 +324,7 @@ private func applyPinSwitch(plan: inout RelaunchPlan?, state: ManualMoveState,
                             account: Snapshot.Account, providerID: String, policy: LaunchPolicy,
                             watcher: inout TranscriptWatcher,
                             keyboardIdle: (TimeInterval) -> Bool,
-                            accounts: () -> [Snapshot.Account]) {
+                            accounts: () -> [Snapshot.Account]?) {
     guard policy.mode == "manual", let pinnedID = policy.pinnedAccountID, pinnedID != account.id,
           !state.pinOverridden(pinnedID), watcher.isQuiet(manualMoveIdleSeconds),
           keyboardIdle(manualMoveIdleSeconds),

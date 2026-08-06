@@ -274,7 +274,7 @@ func runPendingNoticeChecks() {
                          "nearly dry, moving to",
                          "model fell back to",
                          "pinned in Tally → switching to",
-                         "switching to \\(target.label) as asked"] {
+                         "switching to \\(named.label) as asked"] {
         let source = announcement.hasPrefix("reload") ? reloadSource
             : announcement.hasPrefix("launch default") ? followSource
             : announcement.hasPrefix("model fell back") ? degradationSource

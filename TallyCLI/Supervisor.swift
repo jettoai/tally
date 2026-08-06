@@ -40,7 +40,15 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var account = initial
     // Tally's own flags, dropped from the OPTIONS only: past a `--` the same word is the user's
     // prompt, and filtering the whole vector edited what they said (Snapshot.swift).
+    //
+    // A RESUMED process (the self-update exec) drops the positionals as well, and that is the
+    // existing-damage half of the fossil fix (`withoutPositionals`, LaunchFlags.swift): the argv it
+    // inherited was written by the OLD build, which copied the prompt forward, so a session already
+    // carrying terminal noise cleans itself at its next upgrade instead of needing a human. Never on
+    // a first launch: there the positional is the prompt the user just typed, and this process is
+    // about to hand it to their first child.
     var launchArgs = removingOption(removingOption(args, "--no-handoff"), "--no-follow")
+    if resumed { launchArgs = withoutPositionals(launchArgs) }
     /// The fallback profile fires at most once per session.
     var fallbackApplied = false
     /// Everything the launch-default follow remembers between ticks, seeded from this session's own
@@ -231,51 +239,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             /// a stand-down leaves the request pending (SessionSwitch.swift).
             var switchRecord: PendingSwitchConsumption?
 
-            // Cap recovery has top priority: scan for the cap BEFORE any relaunch path (pin,
-            // follow, rescue, fallback), because a relaunch resets the watcher's `since` and would
-            // filter the cap event as old history and lose it (2026-07-24). The scan also refreshes
-            // the model-degradation signal the rescue/fallback blocks below read.
-            let sawCap = watcher.sawCapHit()
-            // The session came back on its own - a real assistant turn on the main chain, newer
-            // than the cap (the account's window refilled, or the user waited the cooldown out) -
-            // so a later genuine cap starts fresh. Unannounced: the cap badge disappearing is the
-            // news, and the turn that just succeeded already told them.
-            //
-            // Or nobody typed and the window simply reset underneath the session, which that first
-            // arm can never see: it needs an assistant turn, and an idle session produces none, so
-            // the badge hung there naming an account that was back at 100%. The boundary it
-            // compares against was fixed when the cap happened, so this reads no files at all
-            // (SupervisorRuntime.swift explains why it cannot be recomputed here).
-            if let pending = pendingCap,
-               watcher.lastMainChainEventAt.map({ $0 > pending.cappedAt }) == true
-                   || capRecoveredByReset(pending) {
-                pendingCap = nil
-            }
-            if sawCap, pendingCap == nil {
-                // The window that capped is the one this session was running in, which is the same
-                // question `effectivePrimary` above already answered.
-                let capModel = effectivePrimary
-                // The cap's own instant, not the moment this 2s poll noticed it. The recovery
-                // boundary is measured against this once and never recomputed, so the poll delay
-                // would otherwise be enough to read a reset landing inside it as a stale stamp and
-                // strand the session with no reset path at all (00:59:59 cap, 01:00:00 tick,
-                // 01:00:00 reset). Falls back to now for a cap event carrying no timestamp.
-                let cappedAt = watcher.capHitAt ?? Date()
-                // The one snapshot read this path costs, taken while the evidence still exists: a
-                // cap is rare, and the next refresh puts the window that capped back at 100%.
-                pendingCap = PendingCapRecovery(
-                    cappedAccountID: account.id, cappedAt: cappedAt, primaryModel: capModel,
-                    recoveryResetsAt: capRecoveryDeadline(
-                        accounts: loadSnapshot().0?.accounts ?? [], cappedAccountID: account.id,
-                        primaryModel: capModel, cappedAt: cappedAt),
-                    nextRetry: .distantPast, reason: "")
-                // Keep every session (this one and any launching now) off the account for the model
-                // window that just capped until its snapshot catches up - a different model the
-                // account still serves is not blocked.
-                let until = Date().addingTimeInterval(capQuarantineTTL)
-                quarantine[account.id] = (model: capModel, until: until)
-                quarantineAccount(account.id, model: capModel, until: until)
-            }
+            // Cap recovery has top priority: the transcript is scanned BEFORE any relaunch path
+            // (pin, switch, follow, rescue, fallback), because a relaunch resets the watcher's
+            // `since` and would filter the cap event as old history and lose it (2026-07-24). The
+            // whole rule lives in CapDetection.swift; the window that capped is the one this session
+            // runs, which `effectivePrimary` above already answered.
+            observeCapHit(pendingCap: &pendingCap, quarantine: &quarantine, watcher: &watcher,
+                          account: account, primaryModel: effectivePrimary)
 
             // Model-drift observation: surface a Fable safeguard fallback and gate the
             // quota-degradation paths below with `drift.isActive` (DriftMonitor.swift).
@@ -437,7 +407,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID,
-                              manualMove: manualMoves.waiting, reload: reloadNotice.pending,
+                              manualMove: manualMoves.badge, reload: reloadNotice.pending,
                               followDeadEnd: followState.deadEnd, followQueued: followState.queuedNotice,
                               policy: policy, capReason: pendingCap?.reason)
 
@@ -479,6 +449,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                              home: plan.target.launchHome,
                                              capCarried: carriedCap != nil)
                 performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse)
+                // Republish the account this conversation now runs on, rather than leaving it to
+                // the next tick that reads a token figure: a `tally switch` from a shell outside
+                // this session has only that file to go on (SessionContext.swift).
+                sessionContext.accountChanged(to: account.id, pid: supervisorPID)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan)
                 // Last, so an exec that fails falls through to the respawn below with this plan
                 // fully applied: a failed upgrade can cost the new build, never the account switch.

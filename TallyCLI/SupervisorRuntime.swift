@@ -422,6 +422,13 @@ func planLaunchArgs(_ args: [String], plan: RelaunchPlan) -> [String] {
     var injected: [String] = []
     if let model = plan.model { injected += ["--model", model] }
     if let effort = plan.effort { injected += ["--effort", effort] }
+    // The extra flags go through the positional strip as well, because they are the ONE way a word
+    // can still enter a relaunch's args after `relaunchArgs` has cleaned them: `fallbackArgs` is
+    // free text the user configured and it is split on spaces (ModelDegradation.swift), so
+    // `--append-system-prompt be brief` arrives here as a flag, a value, and a stray word - and a
+    // stray word in a child's args is an initial prompt, submitted again at every restart
+    // (`withoutPositionals`, LaunchFlags.swift). Truncating a configured sentence is the lesser
+    // failure of the two, and the real defect is the space split rather than this.
     return injectingOptions(removingFlagPairs(args, ["--model", "--effort"]),
-                            injected + plan.extraArgs)
+                            injected + withoutPositionals(plan.extraArgs))
 }

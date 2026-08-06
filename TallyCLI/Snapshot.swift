@@ -12,7 +12,10 @@ import Foundation
 
 /// Mirror of the app's `UsageSnapshot` (kept dependency-free).
 struct Snapshot: Decodable {
-    struct Account: Decodable {
+    /// Equatable so a value that CARRIES an account can be compared as a whole (the switch target
+    /// state, and the assertions about it). Every stored property is already Equatable, so this is
+    /// the synthesized member-by-member comparison and nothing more.
+    struct Account: Decodable, Equatable {
         var id: String
         var provider: String
         var label: String

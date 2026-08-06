@@ -34,29 +34,71 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
           relaunchArgs(["--resume", "old", "--verbose"], sessionID: nil, sameAccount: true)
           == ["--verbose"])
 
-    // MARK: - 20b. The prompt is not an argument vector
+    // MARK: - 20b. A relaunch carries no prompt
 
-    // Everything from a bare `--` onward is what the USER SAID, and a relaunch rewrites arguments,
-    // not sentences. A prompt containing `-c` is the case that bites: the old rewrite stripped it
-    // wherever it appeared, so the session came back having quietly lost a word of its own
-    // instruction - a conversation edited by the thing meant to preserve it.
-    check("a continue flag inside the prompt is passed through untouched",
-          relaunchArgs(["--", "run", "-c", "twice"], sessionID: nil, sameAccount: false)
-          == ["--", "run", "-c", "twice"])
-    check("and it is not read as a request to continue either",
-          relaunchArgs(["--", "-c"], sessionID: nil, sameAccount: true) == ["--", "-c"])
+    // A positional handed to claude IS the initial prompt: the CLI types it in and submits it. That
+    // is right on the launch the user typed and wrong on every relaunch after it, because the
+    // conversation being resumed already contains it - so carrying it means submitting it again at
+    // every cap handoff, switch, reload and self-update. Measured on 2026-08-06: two live sessions
+    // had terminal noise in their argv from before the input drain existed (`tj3裡`, `u0v49`) and
+    // had been re-typing it into every child since, across self-updates, with nothing on the TTY
+    // side able to reach it.
+    check("the prompt does not ride along on a relaunch",
+          relaunchArgs(["--", "run", "-c", "twice"], sessionID: nil, sameAccount: false) == [])
+    check("a bare positional is a prompt too, marker or no marker",
+          relaunchArgs(["--model", "fable", "tj3裡"], sessionID: "abc", sameAccount: true)
+          == ["--resume", "abc", "--model", "fable"])
+    // The exact fossil, in the order it was found in: a value, then the stray word, then more flags.
+    check("a word wedged between two option pairs goes, and only it",
+          relaunchArgs(["--dangerously-skip-permissions", "--fallback-model", "opus", "tj3裡",
+                        "--model", "fable", "--effort", "high"],
+                       sessionID: "abc", sameAccount: true)
+          == ["--resume", "abc", "--dangerously-skip-permissions", "--fallback-model", "opus",
+              "--model", "fable", "--effort", "high"])
+    // The lesson the old shape was written for still holds, and now holds trivially: a `-c` the
+    // user SAID is not a request to continue. It used to have to survive as a word in the prompt;
+    // now the prompt is not carried at all, so it cannot be read as an instruction either.
+    check("a -c inside the prompt never resurrects --continue",
+          relaunchArgs(["--", "-c"], sessionID: nil, sameAccount: true) == [])
     check("while a real one before the marker still is",
-          relaunchArgs(["-c", "--", "-c"], sessionID: nil, sameAccount: true)
-          == ["--continue", "--", "-c"])
-    // A resume pair in the prompt must not eat the word after it, which the value-skipping rewrite
-    // would have done.
-    check("a resume word in the prompt does not swallow the next one",
-          relaunchArgs(["--", "--resume", "yesterday"], sessionID: nil, sameAccount: false)
-          == ["--", "--resume", "yesterday"])
-    // The located-id path rebuilds the front of the vector and must still leave the prompt alone.
-    check("resuming by id keeps the prompt behind the marker",
+          relaunchArgs(["-c", "--", "-c"], sessionID: nil, sameAccount: true) == ["--continue"])
+    check("a resume word in the prompt does not swallow the next one, or anything else",
+          relaunchArgs(["--", "--resume", "yesterday"], sessionID: nil, sameAccount: false) == [])
+    check("resuming by id rebuilds the options and leaves no prompt behind",
           relaunchArgs(["--continue", "--", "-c"], sessionID: "abc", sameAccount: true)
-          == ["--resume", "abc", "--", "-c"])
+          == ["--resume", "abc"])
+
+    // MARK: - 20b2. The rule itself
+
+    // Positional-stripping, on its own, because everything above only sees it through one caller.
+    check("options and their values are kept",
+          withoutPositionals(["--model", "fable", "--effort", "high"])
+          == ["--model", "fable", "--effort", "high"])
+    check("a valueless flag does not eat the word after it",
+          withoutPositionals(["--continue", "hello"]) == ["--continue"])
+    check("nor does the -c spelling of it", withoutPositionals(["-c", "hello"]) == ["-c"])
+    check("and neither does the permission flag Tally injects",
+          withoutPositionals(["--dangerously-skip-permissions", "hello", "--model", "fable"])
+          == ["--dangerously-skip-permissions", "--model", "fable"])
+    check("a value that is itself a flag is not consumed as one",
+          withoutPositionals(["--model", "--effort", "high"]) == ["--model", "--effort", "high"])
+    check("everything past a bare -- goes, marker included",
+          withoutPositionals(["--model", "fable", "--", "write", "--model", "notes"])
+          == ["--model", "fable"])
+    check("a vector that is nothing but a prompt comes back empty",
+          withoutPositionals(["summarise", "this"]) == [])
+    check("a bare - is a name, not an option", withoutPositionals(["-"]) == [])
+    check("an empty vector stays empty", withoutPositionals([]) == [])
+    // Order is not assumed: a prompt can sit before the flags as easily as after them.
+    check("a prompt in front of the options is stripped just the same",
+          withoutPositionals(["do the thing", "--model", "fable"]) == ["--model", "fable"])
+    check("several strays go, and every option pair survives",
+          withoutPositionals(["a", "--model", "fable", "b", "--effort", "high", "c"])
+          == ["--model", "fable", "--effort", "high"])
+    // An unknown flag is assumed to take a value, which is the safe direction: a stray word may
+    // survive one relaunch, but an argument a launch needs is never deleted.
+    check("an unknown option keeps the word after it",
+          withoutPositionals(["--unknown-to-tally", "value"]) == ["--unknown-to-tally", "value"])
 
     // The same boundary, for the two readers next door. `flagValue` answers with the flag the user
     // ASKED for, not one they mentioned.
@@ -205,6 +247,55 @@ func runRelaunchChecks(account tickAccount: Snapshot.Account,
     check("a label that looks like a flag is still a label", flagLabel.label == "--home")
     check("and it does not hijack the home", flagLabel.home == "/real/home")
     check("nor swallow the child args", flagLabel.childArgs == ["--model", "fable"])
+    // MARK: - 24f2. No relaunch path carries a prompt
+
+    // The structural claim, walked end to end rather than asserted of one function: whatever a
+    // poisoned session was launched with, nothing downstream of the relaunch can hand a positional
+    // to a child - not the args the respawn uses, and not the argv a self-update execs into the new
+    // build, which is how the two live fossils survived their upgrades in the first place.
+    //
+    // The fossil words are checked by NAME. A vector comparison would pass just as well, but this
+    // says what the test is for, and it keeps passing when the surrounding flags are rearranged.
+    let poisoned = ["--dangerously-skip-permissions", "--fallback-model", "opus", "tj3裡",
+                    "--model", "fable", "--", "u0v49"]
+    let cleaned = relaunchArgs(poisoned, sessionID: "abc", sameAccount: true)
+    for fossil in ["tj3裡", "u0v49"] {
+        check("the relaunch args drop \"\(fossil)\"", !cleaned.contains(fossil))
+    }
+    check("while everything the launch needs survives",
+          cleaned == ["--resume", "abc", "--dangerously-skip-permissions", "--fallback-model",
+                      "opus", "--model", "fable"])
+    // Through a plan that rewrites the pairing and appends its own configured flags, which is the
+    // one place a word can still enter after the strip above (a space-split `fallbackArgs`).
+    let planned = planLaunchArgs(cleaned,
+                                 plan: RelaunchPlan(target: tickAccount, reason: "fallback",
+                                                    countsFuse: false, model: "sonnet",
+                                                    effort: "medium",
+                                                    extraArgs: ["--append-system-prompt", "be",
+                                                                "brief"]))
+    check("a stray word in the configured fallback flags does not reach the child",
+          !planned.contains("brief"))
+    check("and the flag it belongs to still does",
+          planned.contains("--append-system-prompt") && planned.contains("be"))
+    for fossil in ["tj3裡", "u0v49"] {
+        check("the planned args are still free of \"\(fossil)\"", !planned.contains(fossil))
+    }
+    // And across the exec, where the argv is written by one build and read by the next.
+    let execArgv = selfUpdateArgv(binary: "/usr/local/bin/tally", id: "a", label: "A", home: "/h",
+                                  follow: true, args: planned)
+    let execChildArgs = parseResuperviseArgs(Array(execArgv.dropFirst(2))).childArgs
+    check("the argv a self-update execs carries the cleaned args", execChildArgs == planned)
+    for fossil in ["tj3裡", "u0v49", "brief"] {
+        check("so the new build never sees \"\(fossil)\" either", !execChildArgs.contains(fossil))
+    }
+    // The existing-damage half: the new image strips what the OLD build handed it, so a session
+    // already carrying a fossil cleans itself at its next upgrade rather than needing a human. Only
+    // on a RESUMED start - a first launch's positional is the prompt the user just typed.
+    check("a resumed supervisor strips the argv it inherited",
+          loopSource.contains("if resumed { launchArgs = withoutPositionals(launchArgs) }"))
+    check("and a first launch hands its child what the user typed",
+          !loopSource.contains("launchArgs = withoutPositionals(removingOption("))
+
     // The pin a `tally switch` took this session off rides across the same way the fuse does, and
     // for the same reason: it is a promise about the SESSION, held in memory only, and a new image
     // that started without it would hand the conversation straight back to the pin its user had

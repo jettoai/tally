@@ -159,21 +159,37 @@ func sessionLookup(envPid: String?, here: [String]) -> SessionLookup {
 /// about rather than the shell doing the asking. It appears once that session has had a turn with a
 /// usage reading in it, so a conversation that has not said anything yet has none.
 ///
-/// The environment is the fallback and only where it means something: `isThisSession` says the
-/// command was run INSIDE the session it is moving, and the config home a session was launched with
-/// is then this process's own. Through the directory fallback that shell belongs to somebody else,
-/// so its home is evidence about nothing here.
+/// TWO TRACKS, each asking the authority that is actually fresh for it.
+///
+/// Run INSIDE the session (`isThisSession`, the main path): this process's own `CLAUDE_CONFIG_DIR`
+/// is the answer, because it IS that session's environment - the supervisor exported it when it
+/// spawned the child this shell descends from, so it changes exactly when the session moves and can
+/// never be behind. The published file can be: it is written on a poll tick, so a `tally switch A`
+/// typed in the seconds after a handoff moved the session A -> B would read the pre-handoff account
+/// and answer "already on A" for a session that has just left it, dropping a request the user made
+/// deliberately.
+///
+/// Run from another shell in the project directory: there is no session environment to read (that
+/// shell's own config home describes whatever launched IT), so the published reading is the only
+/// evidence there is. Its staleness window is stated rather than hidden: from a handoff until the
+/// supervisor next publishes, this can name the previous account. The supervisor narrows it by
+/// republishing at the relaunch itself (`SessionContextWriter.accountChanged`), which leaves the
+/// window at the handoff's own duration; a request that slips through it is dropped as already-on,
+/// which the user sees at once because the session does not move.
+///
+/// nil when neither track can say, which the caller reads as "do not decide" rather than as "not
+/// there": the request is written, and the supervisor's own `alreadyThere` branch settles it
+/// against the account the session is really on at that moment.
 func sessionAccountID(sessionKey: String, isThisSession: Bool, provider: Provider,
                       accounts: [Snapshot.Account],
                       dir: URL = supervisorStateDir,
                       environment: [String: String] = ProcessInfo.processInfo.environment)
     -> String? {
-    if let published = readSessionContext(pid: sessionKey, dir: dir)?.accountID {
-        return published
+    if isThisSession {
+        let home = environment[provider.envKey] ?? defaultHome(provider)
+        return accounts.first { $0.provider == provider.id && $0.launchHome == home }?.id
     }
-    guard isThisSession else { return nil }
-    let home = environment[provider.envKey] ?? defaultHome(provider)
-    return accounts.first { $0.provider == provider.id && $0.launchHome == home }?.id
+    return readSessionContext(pid: sessionKey, dir: dir)?.accountID
 }
 
 /// The session marker in this process's environment, or nil when there is none (or its supervisor

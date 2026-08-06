@@ -132,12 +132,39 @@ let sessionContextWriteDelta = 1_000
 struct SessionContextWriter {
     private var current: SupervisedSession?
 
+    /// Republish the same conversation under the account a relaunch has just moved it to, without
+    /// waiting for the next poll to read a token figure.
+    ///
+    /// The reading itself is unchanged (the conversation is the same one; a handoff moves where it
+    /// runs, not how big it is), so this is only about the account attribution, and about a reader
+    /// that has no other way to ask: `tally switch` run from a shell OUTSIDE the session it moves
+    /// has nothing but this file to say which account that session is on (SwitchRequest.swift), and
+    /// between a handoff and the next published tick it would name the account the session just
+    /// left. The new child has no transcript yet, so `sync` below cannot answer for it at all until
+    /// it writes a turn.
+    ///
+    /// Nothing to move before the first reading is published: a session that has never had a turn
+    /// has no file, and inventing one with a token count nobody measured would be worse than the
+    /// silence the reader already handles.
+    mutating func accountChanged(to accountID: String, pid: String,
+                                 dir: URL = supervisorStateDir, now: Date = Date()) {
+        guard let current, current.accountID != accountID else { return }
+        publish(SupervisedSession(accountID: accountID, contextTokens: current.contextTokens,
+                                  updatedAt: now), pid: pid, dir: dir)
+    }
+
     mutating func sync(tokens: Int?, accountID: String, pid: String,
                        dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let tokens else { return }   // nothing read yet: leave whatever stands
         if let current, current.accountID == accountID,
            abs(current.contextTokens - tokens) < sessionContextWriteDelta { return }
-        let session = SupervisedSession(accountID: accountID, contextTokens: tokens, updatedAt: now)
+        publish(SupervisedSession(accountID: accountID, contextTokens: tokens, updatedAt: now),
+                pid: pid, dir: dir)
+    }
+
+    /// The one way either of the above reaches the file, so the in-memory copy both of them judge
+    /// the next write against can never be left describing an older one.
+    private mutating func publish(_ session: SupervisedSession, pid: String, dir: URL) {
         writeSessionContext(session, pid: pid, dir: dir)
         current = session
     }

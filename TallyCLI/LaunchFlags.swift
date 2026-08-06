@@ -36,6 +36,59 @@ func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
     return out + args[options.count...]
 }
 
+// MARK: - Positionals, and why a relaunch must not carry them
+
+/// The options a claude child takes that consume NO value, so the word after one is a POSITIONAL
+/// rather than its value. Everything else that starts with a dash is assumed to take a value, which
+/// is the safe assumption in the one place this is used (`withoutPositionals`): guessing "value"
+/// wrongly leaves a stray word in the args, guessing "no value" wrongly DELETES a real one.
+///
+/// Deliberately small and evidence-based: every entry is a flag this repo already handles as
+/// valueless somewhere else (`printFlags` and `continueFlags` are reused rather than respelled - the
+/// latter is what `relaunchArgs` below skips without consuming a following word - and
+/// `--dangerously-skip-permissions` is what `applyLaunchDefaults` injects on its own). A flag whose
+/// arity we have not established is left out on purpose - it degrades to a positional surviving one
+/// relaunch, never to a launch losing an argument it needed.
+let valuelessChildFlags: Set<String> = printFlags.union(continueFlags)
+    .union(["--dangerously-skip-permissions"])
+
+/// `args` with every POSITIONAL argument removed, keeping the options and the values they take.
+///
+/// A positional handed to `claude` is the session's INITIAL PROMPT: the CLI types it into the input
+/// box and submits it. That is right exactly once, on the launch the user typed. Every relaunch
+/// after it resumes a conversation that already contains that prompt (and its answer), so carrying
+/// the word along means submitting it again, and again, at every cap handoff, switch, reload and
+/// self-update for the life of the session - which is what two live sessions were found doing on
+/// 2026-08-06, re-typing `tj3裡` and `u0v49` (terminal noise that had landed in their argv before
+/// the input drain existed) into every child since. The drain (TerminalHandover.swift) cleans the
+/// TTY; nothing cleaned the argv, and the argv is copied forward across the self-update exec, so
+/// those two would have carried their fossil indefinitely.
+///
+/// The parse follows the convention every other reader here uses (`flagValue`, `optionsOnly`,
+/// `launchPrimaryModel`): a word after an option is that option's value, a word that is itself a
+/// flag never is, and a bare `--` ends the options. Past that marker EVERYTHING is positional (that
+/// is what the marker means), so the whole tail goes, marker included.
+func withoutPositionals(_ args: [String]) -> [String] {
+    let options = optionsOnly(args)
+    var kept: [String] = []
+    var index = 0
+    while index < options.count {
+        let token = options[index]
+        index += 1
+        // A bare "-" is not an option (it is the conventional name for stdin), and anything not
+        // starting with a dash is the prompt.
+        guard token.hasPrefix("-"), token != "-" else { continue }
+        kept.append(token)
+        // The word behind it is its value, unless the flag takes none or that word is a flag itself.
+        if !valuelessChildFlags.contains(token), index < options.count,
+           !options[index].hasPrefix("-") {
+            kept.append(options[index])
+            index += 1
+        }
+    }
+    return kept
+}
+
 /// The launch args a relaunch runs with. A known session id resumes that conversation. With no id
 /// (the child has not written a transcript yet, so the watcher located nothing) it depends on where
 /// the relaunch lands: a move to ANOTHER account drops `--continue`/`--resume` so it cannot pull up
@@ -43,25 +96,22 @@ func removingFlagPairs(_ args: [String], _ flags: Set<String>) -> [String] {
 /// `--continue` - stripping it would open an EMPTY session instead of the one the user resumed
 /// (`tally claude --continue` restarted before its first turn, 2026-07-25). On the same home
 /// `--continue` can only reach that same latest conversation.
+///
+/// EVERY relaunch loses the positionals, which is where the initial prompt lives (see
+/// `withoutPositionals` above): the conversation being resumed already contains it, and re-passing
+/// it submits it a second time. The one case that changes anything a user would want is a session
+/// killed before it wrote a transcript at all, whose prompt then has to be retyped instead of being
+/// silently sent again - a visible, one-off cost against a fossil that re-types itself forever.
 func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [String] {
-    // Only the OPTIONS are rewritten. Everything from a bare `--` onward is the prompt, and a prompt
-    // that happens to contain `-c` is a sentence, not a request to continue: stripping it edits what
-    // the user said, and the session comes back having quietly lost a word of its own instruction.
-    let options = optionsOnly(args)
-    let prompt = Array(args[options.count...])
-    var next: [String] = []
-    var skip = false
-    for argument in options {
-        if skip { skip = false; continue }
-        switch argument {
-        case "--continue", "-c": continue
-        case "--resume", "-r": skip = true; continue
-        default: next.append(argument)
-        }
-    }
-    next += prompt
+    // The prompt goes first, so a `-c` the user SAID can no longer be read as a request to
+    // continue: the rewriting below only ever meant to touch the options, and what is left is
+    // options and their values (`withoutPositionals`). The old start mode goes with it - `--resume`
+    // through the value-dropping helper next door, `--continue` by name, since it carries none.
+    let options = withoutPositionals(args)
+    let next = removingFlagPairs(options, ["--resume", "-r"])
+        .filter { !continueFlags.contains($0) }
     if let sessionID { return ["--resume", sessionID] + next }
-    guard sameAccount, options.contains(where: { $0 == "--continue" || $0 == "-c" })
+    guard sameAccount, options.contains(where: { continueFlags.contains($0) })
     else { return next }
     return ["--continue"] + next
 }
@@ -70,6 +120,12 @@ func relaunchArgs(_ args: [String], sessionID: String?, sameAccount: Bool) -> [S
 /// added there lands in one of them instead of being silently uncovered here.
 let printFlags: Set<String> = ["--print", "-p"]
 let resumeFlags = sessionFlags.subtracting(printFlags)
+
+/// The two spellings of "continue the latest conversation", named because three readers above share
+/// them (what takes no value, what a relaunch strips, what a same-account relaunch re-adds) and
+/// three literal copies of a pair is how they would come to disagree. A named subset of
+/// `resumeFlags` rather than a partition of it: the other half is `--resume`, which takes a value.
+let continueFlags: Set<String> = ["--continue", "-c"]
 
 /// Whether this session may be moved to another account, which is two questions wearing one name:
 /// can the work be CARRIED, and is re-running it safe. A launch answers to one of three classes.

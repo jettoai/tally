@@ -151,59 +151,114 @@ func runSwitchChecks() {
     let fleetHomes = [defaultHomeAccount, otherHomeAccount]
     writeSessionContext(SupervisedSession(accountID: "H2", contextTokens: 5_000, updatedAt: Date()),
                         pid: "4242", dir: ctxDir)
-    check("the account its supervisor published wins",
+    // Outside the session there is no session environment to read, so the published file is the
+    // only evidence there is.
+    check("a shell in the project directory reads the published account",
           sessionAccountID(sessionKey: "4242", isThisSession: false, provider: claude,
                            accounts: fleetHomes, dir: ctxDir, environment: [:]) == "H2")
-    check("…even when this shell's own environment says otherwise",
+    check("and nothing at all when that session has published nothing",
+          sessionAccountID(sessionKey: "9999", isThisSession: false, provider: claude,
+                           accounts: fleetHomes, dir: ctxDir,
+                           environment: [claude.envKey: "/tmp/home2"]) == nil)
+    // INSIDE the session the environment wins, and this is the case that matters: the file is
+    // written on a poll tick, so in the seconds after a handoff moved the session H2 -> D1 it still
+    // says H2. A `tally switch H2` typed right then is a deliberate move BACK, and reading the
+    // stale file would answer "already on it" and drop the request.
+    check("inside the session, its own config home wins over a file that has not caught up",
           sessionAccountID(sessionKey: "4242", isThisSession: true, provider: claude,
                            accounts: fleetHomes, dir: ctxDir,
-                           environment: [claude.envKey: defaultHome(claude)]) == "H2")
-    // Before that session has had a turn worth publishing, the environment is the only evidence -
-    // and only when this process IS that session.
-    check("a session with nothing published falls back to this shell, inside the session",
+                           environment: [claude.envKey: defaultHome(claude)]) == "D1")
+    check("a session with nothing published still answers from its own environment",
           sessionAccountID(sessionKey: "9999", isThisSession: true, provider: claude,
                            accounts: fleetHomes, dir: ctxDir,
                            environment: [claude.envKey: "/tmp/home2"]) == "H2")
     check("an unset config home reads as the provider's default home",
           sessionAccountID(sessionKey: "9999", isThisSession: true, provider: claude,
                            accounts: fleetHomes, dir: ctxDir, environment: [:]) == "D1")
-    check("but a shell OUTSIDE the session is evidence about nothing",
-          sessionAccountID(sessionKey: "9999", isThisSession: false, provider: claude,
-                           accounts: fleetHomes, dir: ctxDir,
-                           environment: [claude.envKey: "/tmp/home2"]) == nil)
     check("and an unknown home names no account",
           sessionAccountID(sessionKey: "9999", isThisSession: true, provider: claude,
                            accounts: fleetHomes, dir: ctxDir,
                            environment: [claude.envKey: "/tmp/nobody"]) == nil)
+    // The supervisor narrows the fallback's staleness window by republishing at the relaunch
+    // itself, rather than waiting for a tick that has a token figure to report.
+    var moved = SessionContextWriter()
+    moved.sync(tokens: 12_000, accountID: "H2", pid: "5150", dir: ctxDir)
+    moved.accountChanged(to: "D1", pid: "5150", dir: ctxDir)
+    check("a handoff republishes the conversation under the account it moved to",
+          readSessionContext(pid: "5150", dir: ctxDir)?.accountID == "D1")
+    check("carrying the reading it already had, since the conversation is the same one",
+          readSessionContext(pid: "5150", dir: ctxDir)?.contextTokens == 12_000)
+    var neverPublished = SessionContextWriter()
+    neverPublished.accountChanged(to: "D1", pid: "5151", dir: ctxDir)
+    check("a session that never published a reading invents nothing",
+          readSessionContext(pid: "5151", dir: ctxDir) == nil)
     try? FileManager.default.removeItem(at: ctxDir)
 
     // MARK: - 31c. The tick decision
 
     let fresh = SwitchRequest(epoch: 200, accountID: "B")
+    let namedAccount = switchAccount("B", label: "Claude 2")
+    let there = SwitchTargetState.launchable(namedAccount)
     check("a stamp this supervisor already served does nothing",
-          switchDecision(served: 200, request: fresh, targetFound: true, onTarget: false,
+          switchDecision(served: 200, request: fresh, target: there, onTarget: false,
                          isQuiet: true) == .none)
     check("an older stamp does nothing either",
-          switchDecision(served: 300, request: fresh, targetFound: true, onTarget: false,
+          switchDecision(served: 300, request: fresh, target: there, onTarget: false,
                          isQuiet: true) == .none)
     check("a newer stamp on a quiet session moves it",
-          switchDecision(served: 100, request: fresh, targetFound: true, onTarget: false,
+          switchDecision(served: 100, request: fresh, target: there, onTarget: false,
                          isQuiet: true) == .relaunch)
     check("a session mid-turn holds the request rather than losing it",
-          switchDecision(served: 100, request: fresh, targetFound: true, onTarget: false,
+          switchDecision(served: 100, request: fresh, target: there, onTarget: false,
                          isQuiet: false) == .queued)
-    // Asked BEFORE quiet on purpose: the two waits are different things and the badge has to name
-    // the right one. An account that is missing or signed out is HELD, not dropped - the user asked
-    // for this by hand, the badge says it is stuck, and the move happens if the account comes back.
-    check("an account that is gone is held, whatever the session is doing",
-          switchDecision(served: 100, request: fresh, targetFound: false, onTarget: false,
+    check("a session already on the named account just consumes the request",
+          switchDecision(served: 100, request: fresh, target: there, onTarget: true,
+                         isQuiet: true) == .alreadyThere)
+    // What the target IS gets asked before whether the session is quiet: those are different waits
+    // and the badge has to name the right one.
+    check("an account that is merely signed out is held, whatever the session is doing",
+          switchDecision(served: 100, request: fresh, target: .signedOut, onTarget: false,
                          isQuiet: false) == .unavailable)
     check("and is still held on a quiet session, rather than reading as a move",
-          switchDecision(served: 100, request: fresh, targetFound: false, onTarget: false,
+          switchDecision(served: 100, request: fresh, target: .signedOut, onTarget: false,
                          isQuiet: true) == .unavailable)
-    check("a session already on the named account just consumes the request",
-          switchDecision(served: 100, request: fresh, targetFound: true, onTarget: true,
-                         isQuiet: true) == .alreadyThere)
+    // No snapshot to judge by says nothing about the account, so it can only mean wait: reading it
+    // as "removed" would cancel every pending switch on the machine the moment the file went away.
+    check("an unreadable snapshot is a wait, not a verdict",
+          switchDecision(served: 100, request: fresh, target: .unreadable, onTarget: false,
+                         isQuiet: true) == .unavailable)
+    // The one target that is NOT held: an id absent from a snapshot we can read has left the fleet,
+    // and ids are re-earned by whatever config home takes the name next (AccountRemovals.swift), so
+    // holding would eventually resume this conversation onto a login nobody named.
+    check("an account that has left the fleet cancels the request",
+          switchDecision(served: 100, request: fresh, target: .removed, onTarget: false,
+                         isQuiet: true) == .cancelled)
+    check("and cancels it just the same mid-turn - there is nothing left to wait for",
+          switchDecision(served: 100, request: fresh, target: .removed, onTarget: false,
+                         isQuiet: false) == .cancelled)
+
+    // MARK: - 31c2. Which of those three a fleet actually shows
+
+    let listedIn = [namedAccount,
+                    Snapshot.Account(id: "S", provider: "claude", label: "Signed out",
+                                     launchHome: nil, sessionRemaining: nil, weeklyRemaining: nil,
+                                     modelRemaining: nil, sessionResetsAt: nil, weeklyResetsAt: nil,
+                                     modelResetsAt: nil, modelWindowName: nil,
+                                     resetCreditsAvailable: nil, isStale: false, error: nil)]
+    check("an account with a launch home is launchable",
+          switchTargetState("B", provider: "claude", accounts: listedIn) == there)
+    // Tally publishes a dormant account WITHOUT a launch home, which is it saying "the login is
+    // gone and the account is not" - the same distinction the pin resolution draws.
+    check("listed with no launch home is signed out, not removed",
+          switchTargetState("S", provider: "claude", accounts: listedIn) == .signedOut)
+    check("an id this snapshot does not list at all has left the fleet",
+          switchTargetState("Z", provider: "claude", accounts: listedIn) == .removed)
+    check("an empty snapshot really does list nobody",
+          switchTargetState("B", provider: "claude", accounts: []) == .removed)
+    check("but no snapshot at all is unreadable, which is a different thing entirely",
+          switchTargetState("B", provider: "claude", accounts: nil) == .unreadable)
+    check("another provider's account of the same name is not this one",
+          switchTargetState("B", provider: "codex", accounts: listedIn) == .removed)
 
     // MARK: - 31d. Which session is asking
 
@@ -354,31 +409,74 @@ func runSwitchChecks() {
           tick(&typing, request: later, keyboardIdle: false).plan == nil)
     check("without consuming it", state.servedEpoch < later.epoch)
 
-    // An account that signed out (or a snapshot that no longer lists it) between the command and
-    // the tick: nothing is relaunched into a config dir with no login in it, and nothing is said on
-    // the terminal either - the child is alive and drawing there, so the wait goes to the status
-    // line's badge (PendingNotice.swift's whole rule).
+    // The account SIGNED OUT between the command and the tick: nothing is relaunched into a config
+    // dir with no login in it, and nothing is said on the terminal either - the child is alive and
+    // drawing there, so the wait goes to the status line's badge (PendingNotice.swift's whole rule).
+    let dormantZ = Snapshot.Account(id: "Z", provider: "claude", label: "Claude 9",
+                                    launchHome: nil, sessionRemaining: nil, weeklyRemaining: nil,
+                                    modelRemaining: nil, sessionResetsAt: nil, weeklyResetsAt: nil,
+                                    modelResetsAt: nil, modelWindowName: nil,
+                                    resetCreditsAvailable: nil, isStale: false, error: nil)
     var vanished = idleWatcher("gone")
     try! writeSwitchRequest(accountID: "Z", sessionKey: session, now: afterServed(), dir: tickDir)
     let goneRequest = readSwitchRequest(sessionKey: session, dir: tickDir)!
-    let dropped = tick(&vanished, request: goneRequest)
-    check("a request naming an account that is gone plans nothing", dropped.plan == nil)
+    let dropped = tick(&vanished, request: goneRequest, accounts: fleet + [dormantZ])
+    check("a request naming a signed-out account plans nothing", dropped.plan == nil)
     check("it raises a badge instead of a line on the shared terminal",
-          state.waiting?.badge == "switch: account is gone")
+          state.waiting?.badge == "switch: signed out")
     check("with the long form kept for a surface that has room",
-          state.waiting?.detail?.contains("missing from the snapshot or signed out") == true)
+          state.waiting?.detail?.contains("no login right now") == true)
     check("the badge fits a status line beside the quota meters",
           (state.waiting?.badge.count ?? 99) <= 24)
     check("and the request is held, not consumed", state.servedEpoch < goneRequest.epoch)
     check("so its file is still there for the tick that can serve it",
           readSwitchRequest(sessionKey: session, dir: tickDir) == goneRequest)
-    // The account comes back (a renewed login, a snapshot that lists it again): the held request
-    // moves the session on its own, and the badge goes with it.
+    // The login is renewed: the held request moves the session on its own, and the badge goes.
     let returned = tick(&vanished, request: goneRequest,
                         accounts: fleet + [switchAccount("Z", label: "Claude 9")])
     check("a held request fires once its account is back", returned.plan?.target.id == "Z")
     returned.record?.commit(&state)
-    check("and the badge comes down with it", state.waiting == nil)
+    check("and the badge comes down with it", state.badge == nil)
+
+    // The account was REMOVED, which is a different thing and must not be waited on: an id is its
+    // config home's name, so a recreated `~/.claude3` is the same id with a different login behind
+    // it (AccountRemovals.swift), and a request held against that name would resume this
+    // conversation onto whoever claims it next.
+    var deleted = idleWatcher("removed")
+    try! writeSwitchRequest(accountID: "Q", sessionKey: session, now: afterServed(), dir: tickDir)
+    let removedRequest = readSwitchRequest(sessionKey: session, dir: tickDir)!
+    let cancelled = tick(&deleted, request: removedRequest)
+    check("a request naming an account that has left the fleet plans nothing",
+          cancelled.plan == nil)
+    check("and is cancelled rather than held", state.servedEpoch == removedRequest.epoch)
+    check("with its file removed", readSwitchRequest(sessionKey: session, dir: tickDir) == nil)
+    check("the badge says the move was cancelled, not that it is waiting",
+          state.badge?.badge == "switch: account removed" && state.waiting == nil)
+    check("and says why at length", state.badge?.detail?.contains("no longer in the fleet") == true)
+    check("that badge fits the row too", (state.badge?.badge.count ?? 99) <= 24)
+    // The cancellation is news about a request that no longer exists, so it is held rather than
+    // re-derived - and the next request the user makes is what supersedes it.
+    check("a later tick with nothing pending keeps the notice up",
+          tick(&deleted, request: nil).plan == nil && state.badge?.badge == "switch: account removed")
+    let afterCancel = SwitchRequest(epoch: state.servedEpoch + 1, accountID: "B")
+    _ = tick(&deleted, request: afterCancel, keyboardIdle: false)
+    check("but a fresh request takes it down", state.badge == nil)
+    // An unreadable snapshot says nothing about the account, so it waits rather than cancelling:
+    // otherwise a missing snapshot file would drop every pending switch on the machine.
+    var blind = idleWatcher("blind")
+    try! writeSwitchRequest(accountID: "B", sessionKey: session, now: afterServed(), dir: tickDir)
+    let blindRequest = readSwitchRequest(sessionKey: session, dir: tickDir)!
+    var blindPlan: RelaunchPlan?
+    var blindRecord: PendingSwitchConsumption?
+    applyManualMoves(plan: &blindPlan, state: &state, record: &blindRecord, account: onA,
+                     providerID: "claude", policy: pinnedNowhere, watcher: &blind, childAge: 9999,
+                     keyboardIdle: { _ in true }, dir: tickDir, request: { _ in blindRequest },
+                     accounts: { nil })
+    check("no snapshot at all holds the request", blindPlan == nil)
+    check("without cancelling it", state.servedEpoch < blindRequest.epoch
+              && readSwitchRequest(sessionKey: session, dir: tickDir) == blindRequest)
+    check("and badges it as a wait", state.waiting?.badge == "switch: signed out")
+    clearSwitchRequest(sessionKey: session, dir: tickDir)
 
     // The session got there on its own (a cap handoff landed on the named account first).
     var arrived = idleWatcher("arrived")

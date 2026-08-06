@@ -186,27 +186,42 @@ func runCapResetChecks() {
     // MARK: - 27c. The loop wiring
 
     // The decision is reachable in a test; its placement in the tick is not, so the source carries
-    // it (the technique the rebalance, the follow dead end and the self-update fold all use).
+    // it (the technique the rebalance, the follow dead end and the self-update fold all use). The
+    // observation itself moved to CapDetection.swift when Supervisor.swift hit its size cap, so the
+    // assertions follow the code rather than the file it used to live in; the tick's own half is
+    // that it still runs BEFORE any planner, which is the part only the loop can show.
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
-    check("the supervisor source is readable from the cap reset checks", !loop.isEmpty)
+    let capSource = (try? String(contentsOfFile: "TallyCLI/CapDetection.swift",
+                                 encoding: .utf8)) ?? ""
+    check("the supervisor and cap sources are readable from the cap reset checks",
+          !loop.isEmpty && !capSource.isEmpty)
     check("the tick asks whether the reset it was waiting for has arrived",
-          loop.contains("capRecoveredByReset(pending)"))
+          capSource.contains("capRecoveredByReset(pending, now: now)"))
     // OR, not instead of: a session whose user came back mid-window still clears on the turn.
     check("the assistant-turn arm is still there",
-          loop.contains("watcher.lastMainChainEventAt.map({ $0 > pending.cappedAt }) == true"))
+          capSource.contains("watcher.lastMainChainEventAt.map({ $0 > pending.cappedAt }) == true"))
     check("and the reset arm is an alternative to it, not a replacement",
-          loop.contains("|| capRecoveredByReset(pending)"))
+          capSource.contains("|| capRecoveredByReset(pending, now: now)"))
     // The boundary is taken where the cap is RECORDED, against the same instant the cap is stamped
     // with. Deriving it anywhere later is the race this shape closes, so the tick must not be
     // handing this function a snapshot at all.
     check("the boundary is fixed where the pending cap is created",
-          loop.contains("recoveryResetsAt: capRecoveryDeadline("))
+          capSource.contains("recoveryResetsAt: capRecoveryDeadline("))
     check("against the moment the cap itself was stamped with",
-          loop.contains("primaryModel: capModel, cappedAt: cappedAt)"))
+          capSource.contains("primaryModel: primaryModel, cappedAt: cappedAt)"))
     check("and the clearing tick re-derives nothing from the live snapshot",
-          !loop.contains("capRecoveredByReset(pending, accounts:"))
+          !capSource.contains("capRecoveredByReset(pending, accounts:"))
     // Measured from the cap event, not from the tick that noticed it: one poll interval of resets
     // sits between those two answers, and the boundary is only ever decided once.
     check("the cap is stamped with its own instant, not the poll's",
-          loop.contains("let cappedAt = watcher.capHitAt ?? Date()"))
+          capSource.contains("let cappedAt = watcher.capHitAt ?? now"))
+    // The placement that made all of it work: the scan happens before anything can plan a relaunch,
+    // because a relaunch resets the watcher's `since` and the cap event would be read as history.
+    if let observe = loop.range(of: "observeCapHit("),
+       let firstPlanner = loop.range(of: "applyManualMoves(") {
+        check("the cap scan runs before the first planner in the tick",
+              observe.lowerBound < firstPlanner.lowerBound)
+    } else {
+        check("the cap scan and the first planner are both in the tick", false)
+    }
 }

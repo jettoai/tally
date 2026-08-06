@@ -41,6 +41,13 @@ extension PopoverRootView {
                 // read as two Ts. The header is the product's line; the jetto credit lives quietly
                 // in the footer's empty centre instead of trailing the wordmark like a byline.
                 TallyWordmarkView(glyphHeight: 13)
+                // Against the wordmark, which is the whole point of it being here rather than in
+                // the footer: trailing the jetto byline it read as the BYLINE's version, and no
+                // amount of reordering that line fixed whose number it was. Beside the product's
+                // own name it can only be read one way. Not localized: a dotted version is a token.
+                if let version = BuildVariant.version {
+                    Text(version).font(.caption2).foregroundStyle(.tertiary)
+                }
                 // The dev variant tags every surface (menu bar strip + panel header), so a test
                 // instance can never be mistaken for the installed app.
                 if BuildVariant.isDev {
@@ -78,11 +85,26 @@ extension PopoverRootView {
             .frame(maxHeight: .infinity)
             .background(WindowDragArea())
             .background { widthProbe { headerWidths.brand = $0 } }
-            // Straight after the wordmark, the way a product names its own screens. Every surface
-            // carries it: the pinned panel is where someone watches usage all day, and making them
-            // open a different window to see where the tokens went broke that. Not in the footer
-            // with the view controls - this switches WHAT the surface is showing, not how it looks.
+            // The slack on the switch's leading side, which is new: the row used to give all of it
+            // to the clock, so the switch sat against the wordmark. Backed by the drag area like
+            // the slack on the other side, or the pinned panel would lose half the grab strip it
+            // has always had.
+            Spacer(minLength: Self.gap)
+                .frame(maxHeight: .infinity)
+                .background(WindowDragArea())
+            // Every surface carries it: the pinned panel is where someone watches usage all day,
+            // and making them open a different window to see where the tokens went broke that. Not
+            // in the footer with the view controls - this switches WHAT the surface is showing, not
+            // how it looks.
+            //
+            // CENTRED ON THE HEADER, not between its neighbours, which are different points because
+            // the two end clusters are never the same width. Two equal spacers would centre it
+            // between them and it would drift with every change to either end - the mark that has
+            // missed its mark the footer credit was moved for. The offset below pays the difference
+            // to whichever side is short.
             surfaceTabPicker
+                .padding(.leading, centreOffset.leading)
+                .padding(.trailing, centreOffset.trailing)
             HStack(spacing: Self.gap) {
                 Spacer(minLength: Self.clockLead)
                 // TimelineView re-evaluates every second so the countdown ticks live (a plain
@@ -103,6 +125,10 @@ extension PopoverRootView {
                     }
                 }
             }
+            // Held at its ideal width, for the reason the brand cluster is: a cluster free to
+            // compress absorbs whatever the row over-committed elsewhere, and what it absorbs it
+            // pays for by wrapping - which is the one thing this header may never do.
+            .fixedSize(horizontal: true, vertical: false)
             .frame(maxHeight: .infinity)
             .background(WindowDragArea())
             // One refresh for both tabs, because the header frames both: on Tokens it rescans the
@@ -156,6 +182,44 @@ extension PopoverRootView {
             .background { widthProbe { headerWidths.picker = $0 } }
     }
 
+    /// What the switch has to be padded by to sit at the ROW's centre rather than at the midpoint
+    /// between its neighbours: the difference between the two end clusters, paid to the short side.
+    ///
+    /// Zero when the row cannot afford it, and that is the trimming order the header already ranks
+    /// by: the ends are identity and the only controls, so a centred switch is the first thing to
+    /// go. Giving it up costs a switch that sits off-centre; taking the space anyway would cost an
+    /// overlap, and at these widths an overlap is a switch drawn on top of the clock.
+    ///
+    /// Unmeasured parts read 0, which pays nothing - a switch one frame off-centre beats a header
+    /// that jumps while its own measurements settle.
+    private var centreOffset: (leading: CGFloat, trailing: CGFloat) {
+        let parts = headerWidths
+        guard parts.brand > 0, parts.picker > 0, parts.refresh > 0 else { return (0, 0) }
+        let leftEnd = parts.brand
+        let rightEnd = parts.refresh + clockZoneWidth
+        // Centring costs the WIDER end twice over, plus the switch and the minimum slack either
+        // side of it. Asked of the same numbers the layout uses, so the two cannot disagree about
+        // whether it fits.
+        // CLAMPED TO THE SLACK THAT ACTUALLY EXISTS, which the first version was not: it asked
+        // whether the centred row would fit and then took the whole difference, and the row has no
+        // way to refuse. The spacers collapse to their minimums and the overflow lands on the only
+        // child that can absorb it - the clock, which wrapped onto three lines (seen in the first
+        // capture). An off-centre switch is a compromise; a wrapped header is a broken one.
+        let slack = popoverWidth - (leftEnd + parts.picker + rightEnd + Self.gap + Self.clockLead)
+        let owed = min(abs(leftEnd - rightEnd), max(0, slack))
+        return (rightEnd > leftEnd ? owed : 0, leftEnd > rightEnd ? owed : 0)
+    }
+
+    /// How much of the row the clock cluster is occupying right now, which is what the trimming
+    /// below has already decided. Read by the centring above so it measures the row as drawn.
+    private var clockZoneWidth: CGFloat {
+        switch clockDetail {
+        case .full: return Self.clockLead + headerWidths.clock + Self.gap + headerWidths.counter
+        case .clockOnly: return Self.clockLead + headerWidths.clock
+        case .hidden: return 0
+        }
+    }
+
     /// What fits beside the switch. A 380pt single column, an update badge and a language whose two
     /// tab words are long (Japanese) together want more than the row has, and the clock is the only
     /// part that may give: unmeasured parts read 0, which trims everything, because a clock one frame
@@ -165,8 +229,10 @@ extension PopoverRootView {
         guard parts.brand > 0, parts.picker > 0, parts.refresh > 0,
               parts.clock > 0, parts.counter > 0 else { return .hidden }
         // What the row owes before the clock: both end clusters (each measured with its own outer
-        // padding), the switch, and the three gaps between the four children.
-        let rigid = parts.brand + parts.picker + parts.refresh + 3 * Self.gap
+        // padding), the switch, the gaps between the children, and the slack the switch's own
+        // leading spacer never gives up (new with the centred switch, and the clock is measured
+        // against the row it is actually in).
+        let rigid = parts.brand + parts.picker + parts.refresh + 3 * Self.gap + Self.gap
         let withClock = rigid + Self.clockLead + Self.gap + parts.clock
         if withClock + Self.gap + parts.counter <= popoverWidth { return .full }
         if withClock <= popoverWidth { return .clockOnly }

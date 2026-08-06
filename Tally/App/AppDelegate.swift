@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         applyPreviewAppearance()
+        openPanelForCapture()
         // Notification delegate first: a response can arrive the instant the app is up (the user
         // clicked a banked-reset hint that launched it), and the action button only exists if its
         // category was registered before the alert landed.
@@ -77,6 +78,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the desktop away from them" rule that put the other capture flags here
     /// (~/.claude/docs/patterns/macos-app-verification.md). Same family as `-TallyDemoData`,
     /// `-TallyUpdateChip` and `-TallyTooltipPreview`.
+    /// `-TallyPanelCapture YES`: open the pinned usage panel at launch, so the surface can be
+    /// photographed without touching the desktop.
+    ///
+    /// It exists because a menu-bar popover has no non-synthetic way in: it opens by clicking the
+    /// status item, and a synthesized click takes the pointer and the frontmost app away from
+    /// whoever is using the machine - the rule the other capture flags here were all added under
+    /// (~/.claude/docs/patterns/macos-app-verification.md). The pinned panel draws the same
+    /// PopoverRootView in a real window, which `screencapture -o -l <windowID>` can take from the
+    /// background.
+    ///
+    /// Gated on the demo data or a dev build, like `-TallyAppearance`: it must never be reachable in
+    /// a release instance somebody is actually using, and it deliberately does NOT go through
+    /// `setPinned`, which would write the pin into the shared defaults domain and change the real
+    /// app's state.
+    private func openPanelForCapture() {
+        guard DemoUsage.isActive || BuildVariant.isDev,
+              UserDefaults.standard.bool(forKey: "TallyPanelCapture") else { return }
+        PinnedPanelController.shared.show(atTopLeft: CGPoint(x: 120, y: 160))
+    }
+
     private func applyPreviewAppearance() {
         guard DemoUsage.isActive || BuildVariant.isDev,
               let raw = UserDefaults.standard.string(forKey: "TallyAppearance")?.lowercased()

@@ -35,11 +35,18 @@ extension PopoverRootView {
                     VStack(alignment: .leading, spacing: 6) {
                         // One provider needs no heading: a label over the only section names what
                         // nothing else could be, so it is pure noise.
-                        if headed { groupHeader(group) }
                         // A folded section keeps its heading exactly where it was and drops only
-                        // its cards - that heading IS the way back. Taking it away with the cards
-                        // left the fleet strip's chevron as the only way to unfold: a control at
-                        // the top of the panel for something that vanished from the middle of it.
+                        // its cards - that heading IS the way back, and taking it away with the
+                        // cards once left the fleet strip's chevron as the only way to unfold.
+                        //
+                        // EXCEPT IN GAUGES-ONLY, where the same heading is two things it should not
+                        // be. The pool it is folded behind already says `Claude x5`, so the row
+                        // repeats it verbatim; and the mode's whole promise is that the account
+                        // list is not on screen, so a chevron offering to unfold one section is an
+                        // affordance against the mode the user just chose. A section still showing
+                        // cards keeps its heading - it has no pool saying its name for it, which is
+                        // why it is not folded in the first place.
+                        if headed, !(isGaugesOnly && group.isFolded) { groupHeader(group) }
                         if !group.isFolded { accountBlock(group.items) }
                     }
                 }
@@ -54,7 +61,11 @@ extension PopoverRootView {
     /// exists for then. When there is nothing at all it is skipped entirely - its 12pt padding read
     /// as a hollow band between two dividers.
     var showsAccountRegion: Bool {
-        !visibleAccounts.isEmpty || (settings.groupByProvider
+        // Gauges-only suppresses the folded sections' headings, so a region holding nothing else
+        // would draw its 12pt padding around nothing at all - the hollow band between two dividers
+        // this rule exists to prevent, reached by the one route that used to be safe.
+        if isGaugesOnly { return !visibleAccounts.isEmpty }
+        return !visibleAccounts.isEmpty || (settings.groupByProvider
             && PanelSections.showsHeadings(sectionCount: accountGroups.count))
     }
 

@@ -84,26 +84,14 @@ extension PopoverRootView {
 
     /// Quiet, on every surface, and off the header so the product wordmark stands alone.
     ///
-    /// The build's own version rides here: during a day of shipping several builds the question "is
-    /// this window the one I just installed" has to be answerable without opening Settings, and the
-    /// footer is the band that can afford an extra fact. Rendered as part of the credit rather than
-    /// beside it so it is inside what `showsCredit` measures - the width probe below sizes an
-    /// unrendered copy of THIS view, so a version that is wider on one machine than another is
-    /// already accounted for, and the row drops the whole credit rather than letting it reach the
-    /// icons.
-    ///
-    /// FIRST, NOT LAST, and the order is the whole of what it means. Trailing the wordmark it read
-    /// as "Jetto 0.38.3" - a version number belonging to the author rather than to this app, which
-    /// is the one thing it must not say. Leading it is the ordinary "X by Y" of a byline, where the
-    /// version binds to the product and `by` binds to whoever made it.
+    /// A byline and nothing else. The build's version passed through here for two releases and has
+    /// gone to the header, against the product's own wordmark: beside a byline it could only ever
+    /// read as the BYLINE's version, and reordering the line moved the ambiguity rather than
+    /// removing it. It appears in one place now, which is also why this view is back to the width it
+    /// was - `showsCredit` measures an unrendered copy of it, and the row's decision about whether
+    /// the credit fits is once again about the credit alone.
     private var jettoCredit: some View {
         HStack(spacing: 4) {
-            // Not localized on purpose: a dotted version number is a token, not prose. Absent on a
-            // bundle that carries none - and the separator goes with it, since a byline opening on
-            // a dangling interpunct is worse than one that simply says less.
-            if let version = BuildVariant.version {
-                Text("\(version) ·").font(.caption2).foregroundStyle(.tertiary)
-            }
             Text("by").font(.caption2).foregroundStyle(.tertiary)
             ProviderIconShape(pathData: ProviderMarks.jettoWordmark, inset: 0)
                 .fill(Color.secondary, style: FillStyle(eoFill: true))
@@ -263,10 +251,7 @@ extension PopoverRootView {
             // "Gauges only" is the one-click version of collapsing every pooled provider; clicking
             // a single gauge row stays the granular tool.
             Toggle(L("Gauges only"), isOn: Binding(
-                get: {
-                    let pooled = pooledProviderIDs
-                    return !pooled.isEmpty && pooled.isSubset(of: settings.collapsedProviders)
-                },
+                get: { isGaugesOnly },
                 set: { on in
                     let pooled = pooledProviderIDs
                     if on { settings.collapsedProviders.formUnion(pooled) }

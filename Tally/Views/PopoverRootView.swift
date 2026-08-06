@@ -378,6 +378,15 @@ struct PopoverRootView: View {
     /// cards come straight back. Cards can never be hidden with nothing summarizing them. The rule
     /// itself lives in `PanelSections`, which the grouped sections read too - one fact, so a folded
     /// section and a hidden card can never disagree about what is folded.
+    /// The "Gauges only" mode: every pooled provider folded behind its gauge. Named once because
+    /// two places now answer to it - the footer switch that turns it on, and the account headings
+    /// that go quiet under it - and a second spelling of "is this mode on" would let the panel be in
+    /// it according to one of them and not the other.
+    var isGaugesOnly: Bool {
+        let pooled = pooledProviderIDs
+        return !pooled.isEmpty && pooled.isSubset(of: settings.collapsedProviders)
+    }
+
     var visibleAccounts: [AccountUsage] {
         let pooled = pooledProviderIDs
         let collapsed = settings.collapsedProviders

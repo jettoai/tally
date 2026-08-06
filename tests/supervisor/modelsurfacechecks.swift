@@ -47,10 +47,11 @@ func runModelSurfaceChecks() {
     // someone would type this command to find out (smoke-tested against the real binary,
     // 2026-08-07). The layers still answer their own question - where `auto` lands - one line down.
     let running = modelStatus(session: SessionModelPin(), project: project, projectKey: "/repo",
-                              fleet: fleet, running: SessionModelPin(model: "opus", effort: "high"))
+                              fleet: fleet, declared: SessionModelPin(model: "opus", effort: "high"),
+                              observedModel: "opus")
     let lines = modelStatusLines(running, efforts: ["low", "high"])
-    check("it leads with what the session is RUNNING",
-          lines.first == "this session runs opus/high")
+    check("it leads with the model that actually SERVED the last turn",
+          lines.first == "this session is served by opus")
     check("…and the layers keep their own heading below it",
           lines.contains("what the layers say:"))
     check("…each axis still named with the layer that decided it",
@@ -67,14 +68,60 @@ func runModelSurfaceChecks() {
     // one of them is wrong.
     let moved = modelStatusLines(modelStatus(session: SessionModelPin(), project: project,
                                              projectKey: "/repo", fleet: fleet,
-                                             running: SessionModelPin(model: "sonnet",
-                                                                      effort: "high")))
+                                             declared: SessionModelPin(model: "sonnet",
+                                                                       effort: "high"),
+                                             observedModel: "sonnet"))
     check("running a pair the layers do not resolve to says the running one first",
-          moved.first == "this session runs sonnet/high")
+          moved.first == "this session is served by sonnet")
     check("…and says the layers disagree, without guessing at who moved it",
           moved.contains { $0.contains("the layers below resolve to opus/high") })
     check("agreement raises no such line",
           !lines.contains { $0.contains("the layers below resolve to") })
+    // TWO FACTS, TWO VOICES. The model is a reading; the effort is not, because nothing reports it
+    // back. Saying them in one indicative sentence is the mistake this command has now made twice,
+    // so the difference lives in the wording.
+    check("the effort is reported as the request it is, never as a reading",
+          lines.contains { $0.contains("effort high, as asked on the command line")
+              && $0.contains("this is the request rather than a reading") })
+
+    // MARK: - 34b2. Argv is an intent; the transcript is the observation
+
+    // THE DEFECT THIS SECTION EXISTS FOR. The command line does not move when a safeguard falls the
+    // session back, when quota degrades the model mid-turn, or when the user types Claude Code's own
+    // `/model` - so a reading taken from argv reports the launch model, confidently, at the exact
+    // moment it has stopped being true (caught in review of f17fb2c, whose own message called that
+    // the case that mattered most while reading argv).
+    let degraded = modelStatusLines(modelStatus(
+        session: SessionModelPin(), project: ProjectPolicy(), projectKey: "/repo", fleet: fleet,
+        declared: SessionModelPin(model: "opus", effort: "xhigh"), observedModel: "sonnet"))
+    check("what was SEEN wins over what the command line asked for",
+          degraded.first == "this session is served by sonnet")
+    check("…and the stale command line is named as the fact it is, without diagnosing who moved it",
+          degraded.contains { $0.contains("the command line still says opus")
+              && $0.contains("moved this session onto sonnet") })
+    // The observation is a full model id and every layer speaks in aliases, so the comparison goes
+    // through `modelsAgree`: a divergence note raised over a spelling would be worse than none.
+    let sameModel = modelStatusLines(modelStatus(
+        session: SessionModelPin(), project: ProjectPolicy(), projectKey: "/repo", fleet: fleet,
+        declared: SessionModelPin(model: "fable", effort: "high"),
+        observedModel: "claude-fable-5-20260101"))
+    check("a full model id and the alias that names it are not a divergence",
+          !sameModel.contains { $0.contains("the command line still says") })
+    check("…and the id that was actually seen is what gets reported",
+          sameModel.first == "this session is served by claude-fable-5-20260101")
+    // Nothing served yet is its own state: the argv is all there is, and it is reported as the
+    // request it is rather than as a reading nobody took.
+    let unserved = modelStatusLines(modelStatus(
+        session: SessionModelPin(), project: ProjectPolicy(), projectKey: "/repo", fleet: fleet,
+        declared: SessionModelPin(model: "opus", effort: "xhigh")))
+    check("with nothing served yet, the command line is the fallback",
+          unserved.first?.contains("was launched on opus") == true)
+    check("…and it says so rather than claiming the model was seen",
+          unserved.first?.contains("nothing it has served has been read back yet") == true
+              && unserved.first?.hasPrefix("this session is served by") != true)
+    check("…with no divergence line, there being no observation to disagree with anything",
+          !unserved.contains { $0.contains("the command line still says") })
+
     // Nothing published is a real state, and the layers are NOT a substitute for a reading: a
     // command whose job is to report what a session runs may not answer in the indicative when it
     // cannot read it.
@@ -94,10 +141,10 @@ func runModelSurfaceChecks() {
     // only in the request, what the session is running, and what it had pinned, so that is all each
     // one spells out.
     func queuedLines(_ request: ModelRequest, session: SessionModelPin = SessionModelPin(),
-                     running: SessionModelPin? = nil) -> [String] {
+                     declared: SessionModelPin? = nil) -> [String] {
         modelStatusLines(modelStatus(session: session, project: ProjectPolicy(),
                                      projectKey: "/repo", fleet: fleet, pending: request,
-                                     running: running))
+                                     declared: declared))
     }
     check("a request not yet served is shown as queued",
           queuedLines(ModelRequest(epoch: 1, model: "opus", effort: "xhigh"))
@@ -107,7 +154,7 @@ func runModelSurfaceChecks() {
     // here printed `queued: opus/default` - a reset the mechanism was never going to perform
     // (raised in review, 2026-08-07).
     let partial = queuedLines(ModelRequest(epoch: 1, model: "opus", effort: nil),
-                              running: SessionModelPin(model: "fable", effort: "xhigh"))
+                              declared: SessionModelPin(model: "fable", effort: "xhigh"))
     check("a model-only request shows the effort it will actually keep",
           partial.contains { $0.contains("queued: opus/xhigh") })
     check("…never the word default, which would promise a reset",
@@ -148,14 +195,24 @@ func runModelSurfaceChecks() {
     // The pin is empty for most sessions while the command line is the truth of whoever wrote it
     // last - the launcher's injection, a typed flag, a quota fallback, a safeguard restore.
     let published = publishedSessionAxes(pin: SessionModelPin(model: "opus"),
-                                         launchArgs: ["--model", "sonnet", "--effort", "low"])
-    check("the published running pair is read off the args",
+                                         launchArgs: ["--model", "sonnet", "--effort", "low"],
+                                         observed: nil)
+    check("the published asked-for pair is read off the args",
           published.runningModel == "sonnet" && published.runningEffort == "low")
+    // The observation travels in a field of its own rather than overwriting the request, so a reader
+    // can tell which kind of answer it is holding.
+    let seen = publishedSessionAxes(pin: SessionModelPin(model: "opus"),
+                                    launchArgs: ["--model", "opus", "--effort", "xhigh"],
+                                    observed: "claude-sonnet-4-5-20260101")
+    check("what was seen serving is published beside what was asked for, not instead of it",
+          seen.observedModel == "claude-sonnet-4-5-20260101" && seen.runningModel == "opus")
+    check("nothing seen yet publishes no observation, rather than borrowing the args",
+          published.observedModel == nil)
     check("…and the pinned pair is still the pin, unchanged by it",
           published.pinnedModel == "opus" && published.pinnedEffort == nil)
     check("args carrying no pair publish none, rather than borrowing the pin's",
           publishedSessionAxes(pin: SessionModelPin(model: "opus", effort: "xhigh"),
-                               launchArgs: ["--continue"]).runningModel == nil)
+                               launchArgs: ["--continue"], observed: nil).runningModel == nil)
 
     // MARK: - 34c. The hook: always an answer, never a turn
 

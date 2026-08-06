@@ -407,7 +407,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                })
             // How much context a resume of this conversation would reload, for the surfaces outside
             // this terminal (SessionContext.swift). Read off the scan the tick already ran.
-            let axes = publishedSessionAxes(pin: sessionModelState.pin, launchArgs: launchArgs)
+            // `lastModel` is the tick's own scan (the cap check above ran it), so this costs
+            // nothing extra: the model that actually answered the newest turn, beside the one the
+            // command line asked for.
+            let axes = publishedSessionAxes(pin: sessionModelState.pin, launchArgs: launchArgs,
+                                            observed: watcher.lastModel)
             sessionContext.sync(tokens: watcher.lastContextTokens, accountID: account.id,
                                 pin: manualMoves.sessionPin, axes: axes, pid: supervisorPID)
             // The one thing this session is WAITING to do, for the status line: a deferral must
@@ -463,8 +467,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // file to go on (SessionContext.swift). AFTER the args are rewritten above, because
                 // what it publishes is what the child about to be spawned actually runs - before
                 // it, this would republish the pair the session is leaving.
+                // No observation to carry across: the child that produced the old one is gone, and
+                // the one about to start has served nothing. Publishing the dead child's reading
+                // here would name a model this session is provably no longer on - the same mistake
+                // one restart later.
                 let nextAxes = publishedSessionAxes(pin: sessionModelState.pin,
-                                                    launchArgs: launchArgs)
+                                                    launchArgs: launchArgs, observed: nil)
                 sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
                                               axes: nextAxes, pid: supervisorPID)
                 // Last, so an exec that fails falls through to the respawn below with this plan

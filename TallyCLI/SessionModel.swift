@@ -132,17 +132,22 @@ func applySessionModel(plan: inout TickPlan, state: inout SessionModelState,
     serve(consumingNow: false)
 }
 
-/// What the supervisor publishes about this session's two axes: what the user PINNED, and what the
-/// child is actually RUNNING.
+/// What the supervisor publishes about this session's axes: what the user PINNED, what the command
+/// line ASKS FOR, and what has actually been SEEN serving it.
 ///
-/// The running pair is read off the launch args rather than off the pin, and that is the whole point
-/// of it: the pin is empty for most sessions, while `--model` on the command line is the truth
-/// whoever last wrote it - the launcher's own injection, a flag the user typed, a quota fallback, a
-/// safeguard restore. Publishing the pin as though it were the running pair made `tally model` state
-/// the LAYER RESOLUTION in the indicative ("this session runs fable/high") for a session that had
-/// been moved off it minutes earlier (smoke-tested against the real binary, 2026-08-07).
-func publishedSessionAxes(pin: SessionModelPin, launchArgs: [String]) -> SessionAxes {
-    SessionAxes(pinnedModel: pin.model, pinnedEffort: pin.effort,
+/// THREE READINGS, NOT ONE, because they answer three different questions and come apart in normal
+/// use. The pin is empty for most sessions. The command line is what was asked for - the launcher's
+/// injection, a flag the user typed, a quota fallback's rewrite - and it is an INTENT: it does not
+/// move when a safeguard falls the session back, when the server degrades the model mid-turn, or
+/// when the user types Claude Code's own `/model`, all of which change what answers the next turn
+/// while every argv word stays put. `observed` is the only one of the three that is a measurement.
+///
+/// Two rounds of this feature got it wrong in the same direction and it is worth naming the shape:
+/// first the layers were reported as though they were the session (fixed in f17fb2c), then the argv
+/// was (this). Both times the value at hand was easier to reach than the value being asked about.
+func publishedSessionAxes(pin: SessionModelPin, launchArgs: [String],
+                          observed: String?) -> SessionAxes {
+    SessionAxes(pinnedModel: pin.model, pinnedEffort: pin.effort, observedModel: observed,
                 runningModel: flagValue(launchArgs, "--model"),
                 runningEffort: flagValue(launchArgs, "--effort"))
 }

@@ -100,8 +100,24 @@ struct SupervisedSession: Equatable, Codable {
     /// terms as `sessionPin`.
     var sessionModel: String?
     var sessionEffort: String?
-    /// What the session is ACTUALLY RUNNING: the `--model` and `--effort` on the command line its
-    /// child was spawned with.
+    /// The model actually SEEN serving this session's most recent turn: the newest assistant
+    /// event's model id, with the three guards `TranscriptWatcher.lastModel` applies (a real model
+    /// id, on the main chain, later than this child's launch). nil until one has been read.
+    ///
+    /// AN OBSERVATION, WHERE THE PAIR BELOW IS A REQUEST, and the difference is the whole reason
+    /// both are published. The command line is what was ASKED FOR, and it does not move when the
+    /// answer does: a safeguard fallback, a quota degradation, or the user typing Claude Code's own
+    /// `/model` all change which model serves the next turn without touching a single argv word. A
+    /// reader with only the argv reports the model the session was launched on, confidently, at the
+    /// exact moment it has stopped being true (raised in review of f17fb2c - whose own commit
+    /// message called that the case that mattered most, while reading argv).
+    ///
+    /// The rule this file failed to apply is older than this feature and lives outside this repo:
+    /// read the actual runtime result rather than predicting behaviour from a setting, whenever
+    /// there is an actual result to read. There was.
+    var observedModel: String?
+    /// What the session ASKED FOR: the `--model` and `--effort` on the command line its child was
+    /// spawned with.
     ///
     /// A SEPARATE PAIR FROM THE ONE ABOVE, and the distinction is the whole reason these exist. The
     /// pin is what the user asked for; this is what is on screen. They come apart routinely and
@@ -124,6 +140,9 @@ struct SupervisedSession: Equatable, Codable {
 struct SessionAxes: Equatable {
     var pinnedModel: String?
     var pinnedEffort: String?
+    /// The model seen serving the last turn, when one has been. Kept apart from the pair below
+    /// rather than folded into it, so neither reader has to guess which kind of answer it holds.
+    var observedModel: String?
     var runningModel: String?
     var runningEffort: String?
 }
@@ -132,6 +151,7 @@ extension SupervisedSession {
     /// This reading already describes those axes, so nothing has to be rewritten for them.
     func matches(_ axes: SessionAxes) -> Bool {
         sessionModel == axes.pinnedModel && sessionEffort == axes.pinnedEffort
+            && observedModel == axes.observedModel
             && runningModel == axes.runningModel && runningEffort == axes.runningEffort
     }
 
@@ -140,8 +160,8 @@ extension SupervisedSession {
          axes: SessionAxes) {
         self.init(accountID: accountID, contextTokens: contextTokens, updatedAt: updatedAt,
                   sessionPin: sessionPin, sessionModel: axes.pinnedModel,
-                  sessionEffort: axes.pinnedEffort, runningModel: axes.runningModel,
-                  runningEffort: axes.runningEffort)
+                  sessionEffort: axes.pinnedEffort, observedModel: axes.observedModel,
+                  runningModel: axes.runningModel, runningEffort: axes.runningEffort)
     }
 }
 

@@ -201,13 +201,24 @@ func runSessionContextChecks() {
     // restore, a flag typed at launch). A reader with only the pin can compute what SHOULD be
     // running and has no way at all to learn what is.
     let moved = SessionAxes(pinnedModel: "opus", pinnedEffort: nil,
+                            observedModel: "claude-sonnet-4-5-20260101",
                             runningModel: "sonnet", runningEffort: "low")
     writer.sync(tokens: 200_000, accountID: "claude:.claude2", pin: nil, axes: moved,
                 pid: livePid, dir: dir, now: at)
     let readBack = readSessionContext(pid: livePid, dir: dir)
-    check("both pairs round-trip through the published file",
+    check("all three readings round-trip through the published file",
           readBack?.sessionModel == "opus" && readBack?.sessionEffort == nil
-              && readBack?.runningModel == "sonnet" && readBack?.runningEffort == "low")
+              && readBack?.runningModel == "sonnet" && readBack?.runningEffort == "low"
+              && readBack?.observedModel == "claude-sonnet-4-5-20260101")
+    // The observation is a reason to write on its own, and the sharpest one: a server-side fallback
+    // changes what is answering without touching the token count, the account, or a single argv
+    // word - which is exactly the state a reader is asking about when it does.
+    writer.sync(tokens: 200_000, accountID: "claude:.claude2", pin: nil,
+                axes: SessionAxes(pinnedModel: "opus", observedModel: "claude-haiku-4-5",
+                                  runningModel: "sonnet", runningEffort: "low"),
+                pid: livePid, dir: dir, now: at)
+    check("a changed observation is published even when nothing else moved",
+          readSessionContext(pid: livePid, dir: dir)?.observedModel == "claude-haiku-4-5")
     // The running pair is a reason to write on its own: a quota fallback changes what is running
     // without changing the token count or anything the user asked for, and a reading that waited for
     // the next thousand tokens would name a model the session had already left.
@@ -227,7 +238,8 @@ func runSessionContextChecks() {
         .write(to: sessionContextFile(pid: "4242", dir: dir), atomically: true, encoding: .utf8)
     let legacy = readSessionContext(pid: "4242", dir: dir)
     check("a document from a build before these fields still decodes", legacy?.contextTokens == 1234)
-    check("…with no running pair, rather than a made-up one",
-          legacy?.runningModel == nil && legacy?.runningEffort == nil)
+    check("…with no running pair and no observation, rather than made-up ones",
+          legacy?.runningModel == nil && legacy?.runningEffort == nil
+              && legacy?.observedModel == nil)
     try? FileManager.default.removeItem(at: dir)
 }

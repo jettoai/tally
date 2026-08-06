@@ -66,13 +66,27 @@ extension IntegrationsStore {
         var seen = Set<String>()
         return promptCommands
             .flatMap { manifestPaths($0.hookManifest, manifest: url) }
-            // RESOLVED WHOLE, THEN the parent taken, and the order is the entire point. The manifest
-            // records the path a registration was made THROUGH, which on a shared setup is a symlink
-            // (`~/.claude2/settings.json` pointing at `~/.claude/settings.json`). Taking the parent
-            // first watches `.claude2`, and FSEvents reports writes where a file PHYSICALLY is - so
-            // the directory being watched would never see the write that matters, and the self-heal
-            // would be deaf on exactly the machines it was written for (review of 212e25d).
-            .map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().deletingLastPathComponent() }
+            // BOTH PARENTS, because the file can be written in two different places and only one
+            // of them is where it lives. The manifest records the path a registration was made
+            // THROUGH, which on a shared setup is a symlink (`~/.claude2/settings.json` pointing at
+            // `~/.claude/settings.json`), and FSEvents reports a write where the bytes land:
+            //
+            //   - Something rewriting the CONTENT writes through the link, so the event names the
+            //     RESOLVED parent (`.claude`). Watching only the logical one was deaf to it, which
+            //     is what the first fix corrected (review of 212e25d).
+            //   - Something replacing the FILE writes a temporary and renames it over the path it
+            //     was given - which replaces the SYMLINK, not its target - so the event names the
+            //     LOGICAL parent (`.claude2`) and the resolved one never hears it. That is the
+            //     ordinary atomic-save an editor or a dotfiles tool performs (review of 3af8d67).
+            //
+            // Neither is a special case of the other, so both are watched. Each is resolved in
+            // itself, because the DIRECTORY may be a link even when the file is not, and they
+            // collapse to one entry on the ordinary machine where nothing is linked at all.
+            .flatMap { path -> [URL] in
+                let file = URL(fileURLWithPath: path)
+                return [file.deletingLastPathComponent().resolvingSymlinksInPath(),
+                        file.resolvingSymlinksInPath().deletingLastPathComponent()]
+            }
             .filter { seen.insert($0.path).inserted }
     }
 

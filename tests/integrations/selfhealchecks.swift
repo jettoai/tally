@@ -118,16 +118,34 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     ]).write(to: linkManifest)
     let resolved = IntegrationsStore.watchedSettingsDirectories(manifest: linkManifest).map(\.path)
     check("a settings path recorded through a symlink is watched where the file really is",
-          resolved == [physical.resolvingSymlinksInPath().path])
-    check("…and not where the link that names it sits",
-          !resolved.contains(linked.resolvingSymlinksInPath().path))
-    // Two homes, one physical file: one directory to watch, not two.
+          resolved.contains(physical.resolvingSymlinksInPath().path))
+    // AND WHERE THE LINK ITSELF SITS, which is not the same event and not a special case of it.
+    // Rewriting the CONTENT writes through the link and lands in the resolved parent; REPLACING the
+    // file writes a temporary and renames it over the path it was given, which replaces the symlink
+    // and lands in the logical one. That second shape is the ordinary atomic save an editor or a
+    // dotfiles tool performs, and watching only the resolved parent was deaf to it
+    // (review of 3af8d67).
+    check("…and where the link that names it sits, because an atomic replace lands there",
+          resolved.contains(linked.resolvingSymlinksInPath().path))
+    check("…which is two directories for one recorded path, not one", resolved.count == 2)
+    // Two homes, one physical file: the shared target is watched once, and each home's own
+    // directory once, so nothing is watched twice.
     try JSONSerialization.data(withJSONObject: [
         "claudeSwitchHook": ["paths": [linked.appendingPathComponent("settings.json").path]],
         "claudeModelHook": ["paths": [physical.appendingPathComponent("settings.json").path]],
     ]).write(to: linkManifest)
-    check("two homes sharing one physical file are watched once",
-          IntegrationsStore.watchedSettingsDirectories(manifest: linkManifest).count == 1)
+    check("two homes sharing one physical file add no duplicate directories",
+          Set(IntegrationsStore.watchedSettingsDirectories(manifest: linkManifest).map(\.path))
+              == Set([physical.resolvingSymlinksInPath().path,
+                      linked.resolvingSymlinksInPath().path]))
+    // On an ordinary machine, where nothing is linked, the two collapse to one.
+    let plainManifest = tmp.appendingPathComponent("heal-plain-manifest.json")
+    try JSONSerialization.data(withJSONObject: [
+        "claudeSwitchHook": ["paths": [physical.appendingPathComponent("settings.json").path]],
+    ]).write(to: plainManifest)
+    check("with nothing linked at all, the two parents are one directory",
+          IntegrationsStore.watchedSettingsDirectories(manifest: plainManifest).map(\.path)
+              == [physical.resolvingSymlinksInPath().path])
 
     // MARK: - Re-pointing the watcher when the manifest moves
 

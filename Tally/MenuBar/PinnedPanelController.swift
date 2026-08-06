@@ -78,11 +78,14 @@ struct DragOrTapArea: NSViewRepresentable {
                     return
                 }
                 if intent == .drag {
-                    // Handed the CURRENT event rather than the mouse-down: `performDrag` moves the
-                    // window with the pointer from the position the event it is given carries, and
-                    // starting it from a point the pointer has already left jumps the panel by the
-                    // slop distance on the first frame.
-                    panel.performDrag(with: next)
+                    // Handed the MOUSE-DOWN, which is what `performDrag` is documented to take: it
+                    // reads the gesture's origin off that event and tracks the pointer from there.
+                    // Passing the drag event that happened to cross the threshold instead does move
+                    // the window on this system, but on an undocumented reading of an event type
+                    // the contract does not name - and the price of the documented one is only that
+                    // the panel takes up the slop travelled so far on the first frame, a few points
+                    // at the moment a hand has already committed to moving something.
+                    panel.performDrag(with: event)
                     return
                 }
             }

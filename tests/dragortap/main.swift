@@ -96,8 +96,8 @@ let upBranch: String = {
 check("a mouse-up ends the gesture whichever way it was read",
       upBranch.contains("if intent == .tap { onTap() }") && upBranch.contains("return"))
 check("and starting a drag ends it too",
-      handle.contains("panel.performDrag(with: next)")
-          && handle.range(of: "performDrag(with: next)\n                    return") != nil)
+      handle.contains("panel.performDrag(with: event)")
+          && handle.range(of: "performDrag(with: event)\n                    return") != nil)
 check("the only two things a press can do are the drag and the tap",
       handle.components(separatedBy: "onTap()").count == 2
           && handle.components(separatedBy: "performDrag").count == 2)

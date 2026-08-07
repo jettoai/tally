@@ -161,7 +161,7 @@ let switchCancelledBadge = "switch: account removed"
 /// sentence tying the two halves of that decision together (the move happened, the pin is gone), and
 /// a copy of it drifting in a test would assert nothing.
 let sessionPinClearedByCapNotice =
-    "session pin cleared (cap hit); re-pin with `tally switch <account>` once quota is back"
+    "session pin cleared (cap hit); re-pin with `tally account <account>` once quota is back"
 
 /// The bookkeeping a PLANNED switch owes, carried from the decision to the execution point and
 /// written only once the relaunch is certain.

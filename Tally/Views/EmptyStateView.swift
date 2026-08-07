@@ -9,43 +9,85 @@ struct EmptyStateView: View {
         if state == .loading {
             // Skeleton cards, not a spinner: the placeholder mirrors the real card layout, so the
             // first data paint replaces grey shapes in place instead of swapping a whole screen.
+            // Nothing in them is clickable, so the whole placeholder is a grab area: a panel that
+            // was pinned while it is still fetching is otherwise held by its header alone.
             SkeletonCardsView()
+                .windowDragSurface()
         } else {
             message
         }
     }
 
+    /// The empty panel is nearly all quiet space, and on the pinned panel that space has to be
+    /// somewhere a hand can hold: with no cards on screen the header was the only handle on the
+    /// whole window (found reviewing 2ee0ebb). So the run of mark, glyph and copy IS the grab area
+    /// (`windowDragSurface`), and the one control down here stays out from under that overlay and
+    /// takes the drag-or-tap variant instead - it can be pressed AND pulled.
     private var message: some View {
         VStack(spacing: 8) {
-            // An empty panel is the one place with room to spare, so it leads with the app's own
-            // mark rather than a stock glyph: the first thing a new user sees is what Tally is
-            // about (quota passing between accounts) before there is a single number to show.
-            TallyMarkView(glyphHeight: 26)
-                .padding(.bottom, 6)
-            Image(systemName: symbol)
-                .font(.title3)
-                .foregroundStyle(.tertiary)
-            Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            if let detail {
-                Text(detail)
-                    .font(.caption2)
+            VStack(spacing: 8) {
+                // An empty panel is the one place with room to spare, so it leads with the app's own
+                // mark rather than a stock glyph: the first thing a new user sees is what Tally is
+                // about (quota passing between accounts) before there is a single number to show.
+                TallyMarkView(glyphHeight: 26)
+                    .padding(.bottom, 6)
+                Image(systemName: symbol)
+                    .font(.title3)
                     .foregroundStyle(.tertiary)
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                if let detail {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                }
             }
-            if state == .allProvidersOff {
-                Button(L("Open Settings")) { SettingsWindowController.shared.show() }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .padding(.top, 2)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 28)
+            .padding(.horizontal, 16)
+            // The bottom inset belongs to whichever of the two blocks is last, so the grab area
+            // reaches the foot of the panel in the states that have no button at all.
+            .padding(.bottom, hasAction ? 0 : 28)
+            .windowDragSurface()
+            if hasAction {
+                HStack(spacing: 0) {
+                    dragSlack
+                    Button(L("Open Settings")) { openSettings() }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                        // Its own overlay, so the press decides between the click and the carry
+                        // instead of the plain surface swallowing it (see `windowDragOrTap`).
+                        .windowDragOrTap { openSettings() }
+                    dragSlack
+                }
+                // The fillers are greedy on both axes (they have to be, to take whatever is left
+                // beside the button); this keeps that greed to the horizontal, so the row is still
+                // exactly as tall as the button - the same pairing the launch strip uses.
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 2)
+                .padding(.bottom, 28)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
-        .padding(.horizontal, 16)
     }
+
+    /// Whether this state has a control in it, which is what decides where the bottom inset goes.
+    private var hasAction: Bool { state == .allProvidersOff }
+
+    /// The quiet space either side of that one control. Flexible on both sides, so the button stays
+    /// centred exactly where it was, and grabbable, so the row is not a dead band across the panel.
+    private var dragSlack: some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .windowDragSurface()
+    }
+
+    /// One implementation for the button's two entrances, so a press that turned out to be a click
+    /// cannot do something other than what the button does.
+    private func openSettings() { SettingsWindowController.shared.show() }
 
     private var symbol: String {
         switch state {

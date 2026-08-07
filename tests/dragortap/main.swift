@@ -69,6 +69,19 @@ func code(of path: String) -> String {
     }.joined(separator: "\n")
 }
 
+/// Every Swift file in the app, RECURSIVELY: the two sweeps below both ask "and nowhere else",
+/// which a listing of one directory's own files cannot answer - it would go green on the thing it
+/// forbids reappearing in any folder that did not exist when it was written. The floor on the count
+/// is what says the sweep is reaching the tree at all: an enumerator that returned nothing would
+/// otherwise pass every "nowhere else" check by having nowhere to look.
+let allSources = (FileManager.default.enumerator(atPath: "Tally")?
+    .compactMap { $0 as? String }.filter { $0.hasSuffix(".swift") }.map { "Tally/\($0)" } ?? []).sorted()
+check("the sweep reaches the whole source tree (\(allSources.count) files)",
+      allSources.count >= 100
+          && allSources.contains("Tally/MenuBar/PinnedPanelController.swift")
+          && allSources.contains("Tally/Views/PopoverRootView.swift")
+          && allSources.contains("Tally/Core/PointerIntent.swift"))
+
 let panelSource = code(of: "Tally/MenuBar/PinnedPanelController.swift")
 guard let classStart = panelSource.range(of: "final class HandleView"),
       let handleStart = panelSource.range(of: "override func mouseDown(with event: NSEvent) {",
@@ -130,10 +143,9 @@ let pickerSource = code(of: "Tally/Views/NeutralSegmentedPicker.swift")
 check("the segmented control offers the behaviour, off by default",
       pickerSource.contains("var dragsWindow = false")
           && pickerSource.contains(".windowDragOrTap(enabled: dragsWindow) { selection = option }"))
-let askers = ((try? FileManager.default.contentsOfDirectory(atPath: "Tally/Views")) ?? [])
-    .filter { $0.hasSuffix(".swift") && code(of: "Tally/Views/\($0)").contains("dragsWindow: true") }
+let askers = allSources.filter { code(of: $0).contains("dragsWindow: true") }
 check("only the panel header's switch asks for it (found: \(askers))",
-      askers == ["PopoverHeaderView.swift"])
+      askers == ["Tally/Views/PopoverHeaderView.swift"])
 
 // 8. The refresh button, the other control standing in the strip. Its two entrances run the one
 //    implementation, so the press that turned out to be a click cannot refresh a different tab than
@@ -151,16 +163,15 @@ check("…and that action carries the disabled guard itself",
 //    empty run and the panel background all carried one and all four were dead; the tab switch,
 //    which carried the same view on TOP, moved every time). The old background-mounted view is gone
 //    rather than left beside this one, so no surface can be given the dead half by mistake.
-let viewSources = ((try? FileManager.default.contentsOfDirectory(atPath: "Tally/Views")) ?? [])
-    .filter { $0.hasSuffix(".swift") }.map { "Tally/Views/\($0)" }
-    + ["Tally/MenuBar/PinnedPanelController.swift"]
-for path in viewSources {
-    let text = code(of: path)
-    check("no surface mounts a drag layer behind its content (\(path))",
-          !text.contains("background(WindowDragArea") && !text.contains("background(DragOrTapArea"))
-    check("…and the retired background-only view is not still around (\(path))",
-          !text.contains("struct WindowDragArea"))
+//    Over the whole tree (`allSources`), not the view folder: the mounting being forbidden is a
+//    line anyone can write in any file, so "nowhere else" has to be asked of everywhere.
+let mounted = allSources.filter {
+    let text = code(of: $0)
+    return text.contains("background(WindowDragArea") || text.contains("background(DragOrTapArea")
 }
+check("no surface mounts a drag layer behind its content (found: \(mounted))", mounted.isEmpty)
+let retired = allSources.filter { code(of: $0).contains("struct WindowDragArea") }
+check("…and the retired background-only view is not still around (found: \(retired))", retired.isEmpty)
 let panelFile = code(of: "Tally/MenuBar/PinnedPanelController.swift")
 for surface in ["func windowDragSurface() -> some View {\n        overlay(DragOrTapArea(onTap: nil))",
                 "func windowDragOrTap(enabled: Bool = true, _ onTap: @escaping () -> Void) -> some View {\n        overlay {"] {
@@ -215,6 +226,21 @@ check("the release watcher stops itself rather than running on",
       panelSource.contains("release?.invalidate()") && panelSource.contains("release = nil"))
 check("and the flag itself defers to the pure predicate",
       panelSource.contains("PanelCarry.inProgress(started: carrying,"))
+
+// 13. The empty panel, which is the layout with no cards to name regions between: the first-fetch
+//     skeletons, "no accounts" and "all providers off" each draw a screenful of quiet space, and
+//     none of it answered a press - a panel pinned in one of those states was held by its header
+//     alone (found reviewing 2ee0ebb). Both halves are asserted, because covering the copy while
+//     leaving the button under the same plain overlay would trade one dead region for a dead
+//     control.
+let emptySource = code(of: "Tally/Views/EmptyStateView.swift")
+check("the empty panel's quiet space is a grab area",
+      emptySource.components(separatedBy: ".windowDragSurface()").count == 4)
+check("…including the first-fetch skeletons, which have nothing to click at all",
+      emptySource.range(of: "SkeletonCardsView()\n                .windowDragSurface()") != nil)
+check("…and its one button keeps its click while joining the grab",
+      emptySource.contains(".windowDragOrTap { openSettings() }")
+          && emptySource.components(separatedBy: "openSettings()").count == 4)
 
 print(failures == 0 ? "\nAll drag-or-tap tests passed." : "\n\(failures) drag-or-tap test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

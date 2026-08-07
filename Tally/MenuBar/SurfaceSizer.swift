@@ -174,6 +174,19 @@ final class SurfaceSizer {
     // MARK: - Bookkeeping
 
     private func observe(_ window: NSWindow) {
+        // DELIBERATELY NOT GUARDED BY `PanelDrag.isActive`, unlike the other per-move work in this
+        // app (`PopoverRootView.refreshScreenCap`). That guard is not about the notification storm,
+        // it is about what the work DOES: the cap feeds SwiftUI state, which re-lays the surface out
+        // and resizes the window, so a carried panel was resized dozens of times on the way. The
+        // whole of this closure is one struct store, and `resizeEdges` is three reads off
+        // `window.frame` (`ResizeAnchor.Edges.init`) - no frame write, no layout, no observable
+        // state, nothing posted. Falsifiable exactly there: a statement in here that touches the
+        // window or any @Observable has to bring the guard with it.
+        //
+        // The value cannot go stale either, in either direction: each move overwrites the last (no
+        // accumulation), so a carry ends with the position it ended at. Guarding it would be the
+        // bug, not the fix - a resize arriving mid-carry (fresh data, a folded provider) would then
+        // anchor the panel to where the hand PICKED IT UP and yank it back mid-drag.
         NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: window, queue: .main
         ) { [weak self, weak window] _ in

@@ -75,10 +75,13 @@ extension IntegrationsStore {
           model-degradation rescue, a pin moved in the Tally panel) stops moving it. That is the
           difference between this and asking again in ten minutes, so say it.
         - The pin is theirs to release (`tally account --auto`), and a hard cap no longer takes it
-          from them: hitting one drops the session to the declared fallback model ON THIS ACCOUNT
-          and the pin stands. Only an account that can serve none of those models hands the
-          session on, and that handoff is the one thing that clears the pin, which it says on the
-          terminal. So "I hit a cap" is not a reason to re-pin - the pin is still there.
+          from them: hitting one keeps the account and drops the session to the fallback model
+          declared in Settings, and the pin stands. It is handed on (clearing the pin, and saying
+          so on the terminal) only when this account can serve none of those, when `tally model`
+          has pinned the model too (that pin wins, so the model is kept and the account is not),
+          or when no reading of the account fresh enough to decide on arrives within a couple of
+          minutes. So "I hit a cap" is not a reason to re-pin: unless the terminal said the
+          session was handed on, the pin is still there.
         - No project profile is touched either way, and the pin dies with the session.
         - A non-zero exit means nothing was queued: no such account, a name that fits SEVERAL
           accounts (the message lists them - type one of those exactly), or a session nothing is

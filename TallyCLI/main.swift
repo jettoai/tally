@@ -453,9 +453,12 @@ default:
                                 selection stops moving this session - until `tally account --auto`
                                 releases it. A hard cap is answered inside that decision where it
                                 can be: the session keeps the account and drops to the fallback
-                                model declared in Settings. Only when this account can serve none of
-                                those is it handed on, which clears the pin and says so. No project
-                                profile is touched: for "this project always runs
+                                model declared in Settings. It is handed on (which clears the pin
+                                and says so) only when this account can serve none of those, when
+                                `tally model` has pinned the model too (that pin wins, so the model
+                                is kept and the account is not), or when no reading of the account
+                                fresh enough to decide on arrives within a couple of minutes. No
+                                project profile is touched: for "this project always runs
                                 there", use `tally project set --account`. Inside Claude Code,
                                 typing `/tally-account <account>` does the same without waking a
                                 model (installed with the Claude Code skill integration). Also

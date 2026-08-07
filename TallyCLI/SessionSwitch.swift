@@ -180,11 +180,11 @@ func switchWaitBadge(_ target: SwitchTargetState, staying: String) -> PendingBad
     switch target {
     case .signedOut:
         return PendingBadge("switch: signed out",
-                            detail: "the account `tally switch` named has no login right now; "
+                            detail: "the account `tally account` named has no login right now; "
                                 + "staying on \(staying) until it is renewed")
     case .unlisted:
         return PendingBadge("switch: not listed",
-                            detail: "the account `tally switch` named is not in the current fleet "
+                            detail: "the account `tally account` named is not in the current fleet "
                                 + "snapshot, though its config home is still on disk; staying on "
                                 + "\(staying) until Tally lists it again")
     case .unreadable:
@@ -259,7 +259,7 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
         state.cancelledAt = now
         state.cancelled = PendingBadge(
             switchCancelledBadge,
-            detail: "the account `tally switch` named is no longer in the fleet, so the move was "
+            detail: "the account `tally account` named is no longer in the fleet, so the move was "
                 + "cancelled rather than held for a different login with the same name",
             kind: cancellationNoticeKind)
     case .alreadyThere:

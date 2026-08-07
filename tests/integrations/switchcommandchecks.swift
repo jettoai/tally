@@ -110,11 +110,21 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     // the account is kept, so the pin survives every cap an account can still answer through.
     check("command says the pin is the user's to release, and a cap does not take it",
           commandProse.contains("`tally account --auto`")
-              && commandProse.contains("drops the session to the declared fallback model ON THIS ACCOUNT")
+              && commandProse.contains("keeps the account and drops the session to the fallback "
+                                       + "model declared in Settings")
               && commandProse.contains("the pin stands"))
-    check("…and names the one handoff that does clear it",
-          commandProse.contains("serve none of those models hands the")
-              && commandProse.contains("that handoff is the one thing that clears the pin"))
+    // ALL THREE exceptions, because a file naming one of them reads as naming the only one. The
+    // model pin is the one an agent would never guess (it is a different command's pin deciding
+    // this command's outcome), and the stale-reading case is the one that looks like a bug when it
+    // is not: the session moves without any cap being proven, because nothing arrived to prove it.
+    check("…and names all three handoffs that do clear it",
+          commandProse.contains("can serve none of those")
+              && commandProse.contains("`tally model` has pinned the model too")
+              && commandProse.contains("fresh enough to decide on arrives within a couple of "
+                                       + "minutes"))
+    check("…and that the pin survives every cap that was not one of those three",
+          commandProse.contains("unless the terminal said the session was handed on, the pin is "
+                                + "still there"))
     check("…and what the pin does not touch, and how long it lives",
           commandProse.contains("No project profile is touched either way, and the pin dies with "
                                 + "the session"))
@@ -420,51 +430,9 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     check("…and keeps the entry the neighbour lives in",
           strippedEntry.map(expansion)?.count == 1)
 
-    // MARK: THE RENAME - a home that was set up when this command was called `/tally-switch`.
-    //
-    // A rename is the one change that leaves a working install of OURS pointing at a name nobody is
-    // offered any more: the old command file still answers if it is typed, and the old hook entry
-    // still intercepts it. Nothing else in this machinery will ever clear them, because every other
-    // question it asks is about the CURRENT name. So the sync carries the former names and takes
-    // them out, and this is the fixture that proves a home comes out the other side holding exactly
-    // one of each.
-    let oldHome = tmp.appendingPathComponent("renamed-home")
-    let oldCommandFile = IntegrationsStore.promptCommandFile(inHome: oldHome, named: "tally-switch")
-    try FileManager.default.createDirectory(at: oldCommandFile.deletingLastPathComponent(),
-                                            withIntermediateDirectories: true)
-    // Written the way the old app wrote it: our marker, our subcommand, the old name.
-    try IntegrationsStore.switchCommandMarkdown()
-        .write(to: oldCommandFile, atomically: true, encoding: .utf8)
-    let oldSettings = oldHome.appendingPathComponent("settings.json")
-    let oldRegistration: [String: Any] = ["hooks": ["UserPromptExpansion": [
-        ["matcher": "tally-switch", "hooks": [["type": "command", "command": hookCommand]]],
-        ["matcher": "someone-elses", "hooks": [["type": "command", "command": "their-hook.sh"]]],
-    ]]]
-    try JSONSerialization.data(withJSONObject: oldRegistration).write(to: oldSettings)
-
-    let renamed = IntegrationsStore.syncSwitchCommand(inHomes: [oldHome], hookCommand: hookCommand)
-    check("the rename sync reports that something changed", renamed.changed && renamed.error == nil)
-    check("the file under the old name is gone",
-          !FileManager.default.fileExists(atPath: oldCommandFile.path))
-    check("…and the new one is in its place",
-          (try? String(contentsOf: IntegrationsStore.switchCommandFile(inHome: oldHome),
-                       encoding: .utf8))?.contains(IntegrationsStore.switchCommandMarker) == true)
-    let migrated = (try? JSONSerialization.jsonObject(with: Data(contentsOf: oldSettings)))
-        as? [String: Any] ?? [:]
-    let matchers = expansion(migrated).compactMap { $0["matcher"] as? String }
-    check("the hook entry under the old name is gone, the new one is there, once",
-          matchers.filter { $0 == "tally-switch" }.isEmpty
-              && matchers.filter { $0 == "tally-account" }.count == 1)
-    check("…and the user's own entry beside it is untouched",
-          matchers.contains("someone-elses") && commands(migrated).contains("their-hook.sh"))
-    check("no orphan is left in the commands folder",
-          (try? FileManager.default.contentsOfDirectory(
-              atPath: oldCommandFile.deletingLastPathComponent().path)) == ["tally-account.md"])
-    // Idempotent: the second launch has nothing left to migrate, so it must not report a change
-    // (which is what would make every launch rewrite settings.json for nobody).
-    check("a second sync over the migrated home changes nothing",
-          !IntegrationsStore.syncSwitchCommand(inHomes: [oldHome],
-                                               hookCommand: hookCommand).changed)
+    // A rename, and a rename whose cleanup failed: what an install already on disk comes
+    // out holding (renamechecks.swift).
+    try runRenameChecks(tmp: tmp, hookCommand: hookCommand)
 
     // The group semantics - which homes a settings.json speaks for, and what happens when the
     // answer changes (switchgroupchecks.swift).

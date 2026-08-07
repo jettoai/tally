@@ -220,10 +220,16 @@ try MainActor.assumeIsolated {
     // cap always moved the session and cleared the pin), which would have the agent telling users
     // to re-pin after every cap - advice for a system that no longer exists.
     check("…and states that a cap drops the model rather than taking the pin",
-          skillProse.contains("drops the session to the declared fallback model ON")
+          skillProse.contains("keeps the account and drops the session to the fallback model "
+                              + "declared in Settings")
               && skillProse.contains("the pin stands"))
-    check("…and that only an account which can serve none of them hands the session on",
-          skillProse.contains("serve none of those models")
+    // All three exceptions, named. An agent that knows only the first would call the other two a
+    // bug: the model pin is another command's pin deciding this one's outcome, and the stale
+    // reading moves a session with no cap ever proven, because nothing arrived to prove it.
+    check("…and names all three handoffs that hand the session on and clear the pin",
+          skillProse.contains("can serve none of those")
+              && skillProse.contains("`tally model` has pinned the model too")
+              && skillProse.contains("within a couple of minutes")
               && skillProse.contains("Do not tell them to re-pin after a cap"))
     check("skill states the three scopes in order, so the agent can answer which wins",
           skillProse.contains("a session pin beats")

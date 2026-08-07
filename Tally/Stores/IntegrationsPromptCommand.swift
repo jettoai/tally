@@ -114,154 +114,27 @@ extension IntegrationsStore {
         }
     }
 
-    // MARK: - The prompt hook
-
-    /// The hook event Claude Code fires when a slash command is typed, before a model runs.
-    nonisolated static let promptHookEvent = "UserPromptExpansion"
-
-    /// Quoted, because the release app lives at a fixed path but a dev build does not, and app
-    /// bundle paths may contain spaces.
-    nonisolated static func promptHookCommand(_ binary: URL, command: PromptCommand) -> String {
-        "\"\(binary.path)\" \(command.hookMarker)"
-    }
-
-    /// Provenance, and the ONLY entry this code may rewrite or delete: it fires for OUR command and
-    /// ends in our subcommand as its own word.
+    /// The same removal applied to every name this command has ever answered to: the file in front
+    /// of it, then the sibling each former name would have written in the same folder.
     ///
-    /// Both halves are load-bearing, and the second is why this is a suffix rather than a substring
-    /// (which is what it was): a user's `/usr/local/bin/my-hook-switcher` contains "hook-switch",
-    /// and treating it as ours would silently replace their hook with a Tally registration and
-    /// delete it on uninstall. Two conditions cost one line and mean an accident has to be
-    /// deliberate.
-    private static func isOurHook(_ hook: [String: Any], command: PromptCommand) -> Bool {
-        ((hook["command"] as? String)?.hasSuffix(" \(command.hookMarker)")) == true
-    }
-
-    /// An entry that HOLDS our hook. Ownership stops here: what may be rewritten or deleted is the
-    /// single hook above, never the entry around it.
+    /// The UNINSTALL needs this, and the sync cannot cover it. A rename cleanup that failed at sync
+    /// time (an immutable file, an ACL, a folder read-only for a minute) leaves the old file on
+    /// disk while the install carries on under the new name, and the manifest is keyed by component
+    /// rather than by name, so what it records afterwards is the new path alone. An uninstall that
+    /// knows only the current name therefore walks straight past a file Tally wrote, and once the
+    /// app is gone nothing is ever coming back for it - not even the user fixing the permission,
+    /// which is the moment it finally could be removed.
     ///
-    /// The distinction is the whole point. One entry's `hooks` array can hold several commands, all
-    /// firing for the same slash command, and a user is free to put their own beside Tally's.
-    /// Replacing the ENTRY (which is what this did) took the neighbours with it: overwritten on an
-    /// update, deleted on uninstall, with nothing anywhere to say where they went.
-    private static func holdsOurHook(_ entry: [String: Any], command: PromptCommand,
-                                     matcher: String? = nil) -> Bool {
-        guard entry["matcher"] as? String == (matcher ?? command.name) else { return false }
-        return (entry["hooks"] as? [[String: Any]] ?? []).contains { isOurHook($0, command: command) }
-    }
-
-    /// The settings document with our hook registered, or nil when nothing needs to change.
-    ///
-    /// Pure, so the one property that matters can be tested without a home directory: everything
-    /// that is not our entry comes out the other side untouched. Conservative in both directions -
-    /// a `hooks` value, or an event list, of an unexpected SHAPE also returns nil, because the only
-    /// safe edit to a document we cannot read is none.
-    static func settingsRegisteringPromptHook(_ settings: [String: Any], command hookCommand: String,
-                                              hook: PromptCommand) -> [String: Any]? {
-        var hooks: [String: Any]
-        switch settings["hooks"] {
-        case nil: hooks = [:]
-        case let existing as [String: Any]: hooks = existing
-        default: return nil
+    /// Every name is tried before the first failure is rethrown: one file that will not go must not
+    /// shelter the next.
+    static func removePromptCommandEveryName(in file: URL, command: PromptCommand) throws {
+        var failure: Error?
+        let home = file.deletingLastPathComponent().deletingLastPathComponent()
+        for candidate in [file] + command.formerNames.map({ promptCommandFile(inHome: home,
+                                                                              named: $0) }) {
+            do { try removePromptCommand(in: candidate) } catch { failure = failure ?? error }
         }
-        var entries: [[String: Any]]
-        switch hooks[promptHookEvent] {
-        case nil: entries = []
-        case let existing as [[String: Any]]: entries = existing
-        default: return nil
-        }
-        let ours: [String: Any] = ["type": "command", "command": hookCommand]
-        if let index = entries.firstIndex(where: { holdsOurHook($0, command: hook) }) {
-            // Our hook, in place, with whatever else the user put in that entry left exactly where
-            // it is and in the order they had it.
-            var inner = entries[index]["hooks"] as? [[String: Any]] ?? []
-            guard let slot = inner.firstIndex(where: { isOurHook($0, command: hook) }) else {
-                return nil
-            }
-            if NSDictionary(dictionary: inner[slot]).isEqual(to: ours) { return nil }
-            inner[slot] = ours
-            entries[index]["hooks"] = inner
-        } else {
-            // A fresh entry holding only ours. Deliberately not merged into an entry the user wrote
-            // themselves: that entry is theirs, and adding to it is still editing it.
-            entries.append(["matcher": hook.name, "hooks": [ours]])
-        }
-        hooks[promptHookEvent] = entries
-        var merged = settings
-        merged["hooks"] = hooks
-        return merged
-    }
-
-    /// The settings document without our hook, or nil when there was none. It takes out the one
-    /// hook, then every container that is left empty by its going: the entry, the event, the
-    /// `hooks` block. Anything a user put beside it survives at every level.
-    /// - Parameter matcher: which name to take out, defaulting to the one the command answers to
-    ///   now. A former name is passed here by the rename cleanup, and it is the ONLY difference
-    ///   between the two: an entry under either name is ours by the same test, because the
-    ///   subcommand behind it never changed.
-    static func settingsWithoutPromptHook(_ settings: [String: Any], hook: PromptCommand,
-                                          matcher: String? = nil) -> [String: Any]? {
-        guard var hooks = settings["hooks"] as? [String: Any],
-              let entries = hooks[promptHookEvent] as? [[String: Any]] else { return nil }
-        var kept: [[String: Any]] = []
-        var removed = false
-        for entry in entries {
-            guard holdsOurHook(entry, command: hook, matcher: matcher) else { kept.append(entry); continue }
-            removed = true
-            let remaining = (entry["hooks"] as? [[String: Any]] ?? [])
-                .filter { !isOurHook($0, command: hook) }
-            // An entry that was ours alone goes; one the user shared with us keeps its own hooks.
-            guard !remaining.isEmpty else { continue }
-            var trimmed = entry
-            trimmed["hooks"] = remaining
-            kept.append(trimmed)
-        }
-        guard removed else { return nil }
-        if kept.isEmpty { hooks.removeValue(forKey: promptHookEvent) } else {
-            hooks[promptHookEvent] = kept
-        }
-        var merged = settings
-        if hooks.isEmpty { merged.removeValue(forKey: "hooks") } else { merged["hooks"] = hooks }
-        return merged
-    }
-
-    static func upsertPromptHook(in file: URL, command: String, hook: PromptCommand) throws -> Bool {
-        try editSettings(file) { settingsRegisteringPromptHook($0, command: command, hook: hook) }
-    }
-
-    static func removePromptHook(in file: URL, hook: PromptCommand,
-                                 matcher: String? = nil) throws -> Bool {
-        try editSettings(file) { settingsWithoutPromptHook($0, hook: hook, matcher: matcher) }
-    }
-
-    /// Whether a settings.json carries our hook at all, regardless of the path it points at. What
-    /// detection asks (an entry that is stale is still installed; the launch sync repairs the path
-    /// silently), which is also what keeps a dev build from reporting the release app's install as
-    /// broken because the two bundles sit in different places.
-    static func settingsCarryPromptHook(_ file: URL, hook: PromptCommand) -> Bool {
-        guard let data = try? Data(contentsOf: file),
-              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let entries = (settings["hooks"] as? [String: Any])?[promptHookEvent]
-                as? [[String: Any]] else { return false }
-        return entries.contains { holdsOurHook($0, command: hook) }
-    }
-
-    /// The command line our hook in this file actually runs, or nil when ours is not in it.
-    ///
-    /// The question `settingsCarryPromptHook` deliberately does not ask, and it has to be asked
-    /// somewhere: an entry can be present and point at a binary that is not there any more, which
-    /// on a user's machine is not a subtle failure - every `/tally-account` answers "No such file or
-    /// directory" and falls through to a model turn, spending exactly the tokens the hook exists to
-    /// save.
-    static func registeredPromptHookCommand(_ file: URL, hook: PromptCommand) -> String? {
-        guard let data = try? Data(contentsOf: file),
-              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let entries = (settings["hooks"] as? [String: Any])?[promptHookEvent]
-                as? [[String: Any]],
-              let entry = entries.first(where: { holdsOurHook($0, command: hook) }) else { return nil }
-        return (entry["hooks"] as? [[String: Any]] ?? [])
-            .compactMap { $0["command"] as? String }
-            .first { $0.hasSuffix(" \(hook.hookMarker)") }
+        if let failure { throw failure }
     }
 
     // MARK: - Installed as one unit with the skill
@@ -434,13 +307,13 @@ extension IntegrationsStore {
             for file in Self.installedFiles(homes.map {
                 Self.promptCommandFile(inHome: $0, command: command)
             }, manifest: command.commandManifest) {
-                do { try Self.removePromptCommand(in: file) } catch {
+                do { try Self.removePromptCommandEveryName(in: file, command: command) } catch {
                     lastError = error.localizedDescription
                 }
             }
             for file in Self.installedFiles(homes.map { $0.appendingPathComponent("settings.json") },
                                             manifest: command.hookManifest) {
-                do { _ = try Self.removePromptHook(in: file, hook: command) } catch {
+                do { _ = try Self.removePromptHookEveryName(in: file, hook: command) } catch {
                     lastError = error.localizedDescription
                 }
             }

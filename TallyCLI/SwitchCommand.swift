@@ -152,7 +152,7 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
     let honourability = liveRequestHonourability(marker: marker)
     if honourability == .tooOld {
         return .refusal(
-            "this session's supervisor predates `tally switch` and would never read the request, "
+            "this session's supervisor predates `tally account` and would never read the request, "
                 + "so nothing was queued. Restart this session once (exit, then launch again with "
                 + "`tally claude`) and it can be switched from then on.",
             notes: notes)
@@ -162,7 +162,8 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
     if let target, headroom(target) <= 0 {
         notes.append("\(target.label) is out of quota - pinning anyway (you asked). A hard cap "
             + "drops the session to the declared fallback model there, and hands it on (clearing "
-            + "the pin) only if this account can serve none of those")
+            + "the pin) when this account can serve none of those, when a `tally model` pin "
+            + "outranks the change, or when no fresh reading arrives to decide on")
     }
     sweepDeadSessionRequests(dir: switchRequestDir)
     do {
@@ -188,7 +189,7 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
         return SwitchAttempt(
             result: .alreadyThere,
             message: "already on \(target.label), and now pinned to it for this session - "
-                + "automatic selection will not move it away. `tally switch --auto` to follow "
+                + "automatic selection will not move it away. `tally account --auto` to follow "
                 + "again",
             notes: notes)
     }
@@ -201,7 +202,7 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
         result: .queued,
         message: "pinned this session to \(target.label), overriding automatic selection: it moves "
             + "there when the current turn ends and the conversation continues. It stays there "
-            + "until a hard cap forces a move; `tally switch --auto` to follow automatic picks "
+            + "until a hard cap forces a move; `tally account --auto` to follow automatic picks "
             + "again",
         notes: notes)
 }
@@ -285,13 +286,16 @@ func runSwitch(args: [String]) -> Int32 {
     }
     guard let intent = chosen else {
         warn("""
-        usage: tally switch <account>   (label or config-dir name, as `tally status` lists them)
-               tally switch --auto
+        usage: tally account <account>   (label or config-dir name, as `tally status` lists them)
+               tally account --auto
 
         <account> pins THIS session there: it moves at the end of the current turn and STAYS,
         overriding automatic account selection for the rest of the session. A hard cap keeps the
-        account and drops the session to the fallback model declared in Settings; only when this
-        account can serve none of those is the session handed on, which clears the pin and says so.
+        account and drops the session to the fallback model declared in Settings; it is handed on
+        (clearing the pin, and saying so) only when this account can serve none of those, when
+        `tally model` has pinned the model too (that pin wins, so the model is kept and the account
+        is not), or when no reading of the account fresh enough to decide on arrives within a
+        couple of minutes.
         --auto releases the pin, handing the session back to automatic selection (this project's
         profile, then the app's pin or smart pick). It takes no account name.
         Run it bare in a terminal and it lists the fleet to pick from with the arrow keys; in a pipe

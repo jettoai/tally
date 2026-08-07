@@ -170,13 +170,14 @@ struct PopoverRootView: View {
                 footer
             }
             .frame(width: popoverWidth)
-            // The whole surface as a grab area, BEHIND the content: every control sits in front and
-            // keeps its clicks, so what reaches this layer is by definition space nothing else
-            // claimed - the gaps between cards, the margins, the band under a short fleet. It costs
-            // nothing on the popover, where `WindowDragArea` is inert by construction (it drags only
-            // a `PinnedUsagePanel`), which is also why this needs no NSPanel property changed: the
-            // pinned panel's sizing authority is a documented crash surface and is left untouched.
-            .background(WindowDragArea())
+            // NO WHOLE-SURFACE GRAB AREA, and the reason is worth keeping: a drag layer mounted
+            // behind this content was measured on 2026-08-07 to receive no press at all (four such
+            // regions tested, zero movement - the hosting view answers the hit test for its own
+            // SwiftUI content and never consults what is below it). Laying one OVER the surface
+            // instead is not the fix, it is the opposite bug: it would sit above every card, every
+            // gauge and every menu on the panel. So the grab areas are named one by one, on the
+            // regions that have nothing to click (see `windowDragSurface`), and the gaps between
+            // cards are honestly not among them.
             .background(sizeReporter)
             // The floating copy of the dragged card, above everything, tracking the pointer.
             if let cardLift {
@@ -196,6 +197,11 @@ struct PopoverRootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didChangeScreenParametersNotification)) { _ in refreshScreenCap() }
+        // And the end of a carry, which is the move notification the guard above skipped: the panel
+        // has arrived somewhere, and this is where it finds out what that somewhere allows.
+        .onReceive(NotificationCenter.default.publisher(for: PanelDrag.ended)) { _ in
+            refreshScreenCap()
+        }
         .trackingScrollerGutter($scrollerGutter)
         // And the moment neither notification covers: the surface is laid out, and appears, while
         // its host is still assembling itself - a window has no `screen` until it is ordered onto
@@ -339,6 +345,13 @@ struct PopoverRootView: View {
     }
 
     private func refreshScreenCap() {
+        // NOT WHILE THE PANEL IS BEING CARRIED. The cap depends on the surface's own top edge, so
+        // every frame of a drag produces a new answer and the surface was resized dozens of times
+        // on the way to where it was being put (measured: 532 -> 320 over one downward drag, while
+        // the window server was moving the window). The answer is re-read the moment the hand lets
+        // go (`PanelDrag`), so a panel set down low still gets the height that position allows -
+        // once, when it is standing still.
+        guard !PanelDrag.isActive else { return }
         let height = ScreenFitStack.maxHeight(on: hostScreen(), topEdge: hostTopEdge())
         if screenCap != height { screenCap = height }
         let width = ScreenFitStack.maxWidth(on: hostScreen())

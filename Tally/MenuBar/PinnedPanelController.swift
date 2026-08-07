@@ -8,50 +8,92 @@ final class PinnedUsagePanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// The pinned panel's window-move handle: an AppKit view that hands its mouse-down to
-/// `NSWindow.performDrag`, giving the header strip (and nothing else) window-moving duty. This is the
-/// counterpart to `isMovableByWindowBackground = false` - an explicit drag region can never collide
-/// with the cards' reorder gesture. Inert inside the transient popover (that window must stay anchored).
-struct WindowDragArea: NSViewRepresentable {
-    final class DragView: NSView {
-        // Titled windows get background-drag for free; a borderless panel's custom drag region must
-        // accept the first mouse, or a click while the panel is unfocused is consumed by focus
-        // handling and the user needs a wake-up click before the header will drag.
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+/// Whether a panel is being carried by hand right this moment, and the moment it is set down.
+///
+/// The surface re-reads its own height cap on every move notification, because that cap depends on
+/// where its top edge is (`PopoverRootView.refreshScreenCap`) - which is the right answer to ask,
+/// at the wrong rate: `performDrag` posts a move for every frame of the gesture, so a panel carried
+/// down its display, or across to one of another size, was resized under the hand dozens of times
+/// on the way (measured 2026-08-07: 532 -> 476 -> 417 -> 347 -> 320 in a single downward drag). The
+/// window server is moving the window while the layout is changing its size, and what a hand feels
+/// is the two of them arguing.
+///
+/// So the cap is not re-read during the carry, and is re-read once when it ends. `performDrag` runs
+/// its own event loop and returns when the mouse comes up, which is what makes "the carry" a span
+/// this code can name at all - no timer, no guessing, and no notification AppKit does not have.
+@MainActor
+enum PanelDrag {
+    /// Whether the panel is being carried RIGHT NOW. Both halves are load-bearing: the flag says a
+    /// drag was started, and the button says the hand has not let go yet. The second one is what
+    /// makes this safe to read - if the watcher below were ever lost, the cap would resume the
+    /// moment the button came up rather than staying frozen for the life of the process.
+    static var isActive: Bool {
+        PanelCarry.inProgress(started: carrying, buttonsDown: NSEvent.pressedMouseButtons)
+    }
 
-        override func mouseDown(with event: NSEvent) {
-            if window is PinnedUsagePanel {
-                window?.performDrag(with: event)
-            } else {
-                super.mouseDown(with: event)
+    /// Posted once, when the hand lets go.
+    static let ended = Notification.Name("TallyPanelDragEnded")
+
+    private static var carrying = false
+    private static var release: Timer?
+
+    /// Runs a drag, with everything that watches window moves told to wait until it is over.
+    ///
+    /// `performDrag` RETURNS AT ONCE - it hands the window to AppKit, which carries it from there
+    /// (measured 2026-08-07: the call's entry and exit share a timestamp, which is why a span
+    /// written around the call alone covered none of the drag). AppKit posts no notification for
+    /// the moment a hand lets go either, so the release is watched for directly, at a rate that is
+    /// nothing beside the drag it runs during and that stops the moment it answers.
+    static func carry(_ drag: () -> Void) {
+        carrying = true
+        drag()
+        release?.invalidate()
+        release = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
+                release?.invalidate()
+                release = nil
+                carrying = false
+                NotificationCenter.default.post(name: ended, object: nil)
             }
         }
     }
-
-    func makeNSView(context: Context) -> DragView { DragView() }
-    func updateNSView(_ nsView: DragView, context: Context) {}
 }
 
-/// The same window-move duty for a spot that is ALREADY a control: the tab switch and the refresh
-/// button, the two things sitting in the middle of the header's grab strip. `WindowDragArea` cannot
-/// be laid over them, because a view that hands every mouse-down to `performDrag` eats the click as
-/// well - so this one keeps the press to itself only long enough to find out which it was, and then
-/// commits to exactly one (`PointerIntent`).
+/// The pinned panel's window-move handle: an AppKit view that hands a press to `NSWindow.performDrag`
+/// so a borderless panel can be moved by the parts of itself that are not controls. This is the
+/// counterpart to `isMovableByWindowBackground = false` - an explicit drag region can never collide
+/// with the cards' reorder gesture. Inert inside the transient popover (that window must stay
+/// anchored).
 ///
-/// The two outcomes are exclusive BY STRUCTURE, not by a flag: the loop below returns on the pass
-/// that decides, so there is no path on which a window moves and the tab under it also changes.
+/// LAID OVER THE CONTENT, NEVER BEHIND IT, and that is the whole lesson of 2026-08-07: mounted as a
+/// `.background` this view is never sent a mouse-down at all. The hosting view answers the hit test
+/// for its own SwiftUI content and nothing below it is consulted, so a wordmark, a clock and a whole
+/// panel background that all "had" a drag layer behind them were dead to the pointer (measured on the dev
+/// instance: four such regions, zero movement; the one region with this view on TOP moved every
+/// time). Reading the code, or the docs, said the opposite.
 ///
-/// Inert everywhere but the pinned panel, by the same rule `WindowDragArea` follows and for the same
-/// reason: nothing about the transient popover may change, and a window that is anchored to a status
-/// item cannot be moved anyway. `hitTest` answering nil there leaves the control underneath with the
-/// plain SwiftUI behaviour it has always had, pointer tracking included.
+/// Two shapes, one class:
+///
+/// - `onTap == nil` - the region has no click of its own (the wordmark, the clock, the empty run
+///   beside a strip). A press moves the window at once, which is the whole of the feel: nothing is
+///   waiting to find out what the press meant.
+/// - `onTap != nil` - the region IS a control (a tab, the refresh, the update badge). The press is
+///   held just long enough to tell a click from a move, and then commits to exactly one
+///   (`PointerIntent`). The two outcomes are exclusive BY STRUCTURE, not by a flag: the loop returns
+///   on the pass that decides, so no press can move the window and also fire the control under it.
+///
+/// Inert everywhere but the pinned panel: nothing about the transient popover may change, and a
+/// window anchored to a status item cannot be moved anyway. `hitTest` answering nil there leaves
+/// whatever is underneath with the plain SwiftUI behaviour it has always had, pointer tracking
+/// included.
 struct DragOrTapArea: NSViewRepresentable {
-    /// What a press that never travelled should do: the control's own action, stated by the caller
-    /// so this view knows nothing about tabs or refreshing.
-    let onTap: () -> Void
+    /// What a press that never travelled should do, or nil when this region has no click to protect.
+    /// Stated by the caller, so this view knows nothing about tabs, refreshing or wordmarks.
+    let onTap: (() -> Void)?
 
     final class HandleView: NSView {
-        var onTap: () -> Void = {}
+        var onTap: (() -> Void)?
 
         // As on the plain drag area: a borderless panel that is not focused would otherwise spend
         // the first click on focus handling, and this one sits on controls that people click.
@@ -67,6 +109,10 @@ struct DragOrTapArea: NSViewRepresentable {
             guard let panel = window as? PinnedUsagePanel else {
                 return super.mouseDown(with: event)
             }
+            // Nothing here to click, so nothing to wait for: the press is a move from its first
+            // frame. A region that had to prove itself over a few points first would feel like a
+            // window that starts late, which is what every titlebar in the system does not do.
+            guard let onTap else { return PanelDrag.carry { panel.performDrag(with: event) } }
             let start = event.locationInWindow
             // Peek at the press as it unfolds. No deadline and no timer: the loop only ever waits
             // for the pointer to move or the button to come up, so a press that does neither is
@@ -77,6 +123,7 @@ struct DragOrTapArea: NSViewRepresentable {
                     if intent == .tap { onTap() }
                     return
                 }
+
                 if intent == .drag {
                     // Handed the MOUSE-DOWN, which is what `performDrag` is documented to take: it
                     // reads the gesture's origin off that event and tracks the pointer from there.
@@ -85,7 +132,7 @@ struct DragOrTapArea: NSViewRepresentable {
                     // the contract does not name - and the price of the documented one is only that
                     // the panel takes up the slop travelled so far on the first frame, a few points
                     // at the moment a hand has already committed to moving something.
-                    panel.performDrag(with: event)
+                    PanelDrag.carry { panel.performDrag(with: event) }
                     return
                 }
             }
@@ -102,9 +149,18 @@ struct DragOrTapArea: NSViewRepresentable {
 }
 
 extension View {
-    /// Let this control move the pinned panel when the press travels, and do `onTap` when it does
-    /// not. An overlay rather than a background: the press has to be intercepted before the control
-    /// under it sees it, which is the opposite of what `WindowDragArea` is for.
+    /// This region moves the pinned panel, from the first frame of the press. For the parts of the
+    /// surface that are not controls: the wordmark and its badges, the clock, the empty run beside a
+    /// strip. An OVERLAY, because a drag layer mounted behind SwiftUI content is never sent the
+    /// press at all (see `DragOrTapArea`) - which is exactly how four regions came to be advertised
+    /// as draggable while being dead to the pointer.
+    func windowDragSurface() -> some View {
+        overlay(DragOrTapArea(onTap: nil))
+    }
+
+    /// This control moves the pinned panel when the press travels, and does `onTap` when it does
+    /// not. For the regions that have a click worth protecting: the tab switch, the refresh, the
+    /// update badge.
     ///
     /// - Parameter enabled: off leaves the view exactly as it was, for the copies of a shared
     ///   control that are not sitting in a drag strip.
@@ -228,7 +284,7 @@ final class PinnedPanelController {
         panel.isMovable = true
         // NOT movable-by-background: SwiftUI drag gestures don't opt a region out of AppKit's
         // background window drag, so dragging a card to reorder also dragged the whole panel.
-        // Moving the panel is the header strip's job instead (`WindowDragArea`).
+        // Moving the panel is the named grab areas' job instead (`DragOrTapArea`).
         panel.isMovableByWindowBackground = false
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none

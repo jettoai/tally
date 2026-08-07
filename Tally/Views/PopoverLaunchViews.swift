@@ -81,8 +81,7 @@ extension PopoverRootView {
                 .layoutPriority(1)
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .background(WindowDragArea())
+                    .windowDragSurface()
             }
             .fixedSize(horizontal: false, vertical: true)
             Divider()

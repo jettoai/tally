@@ -28,15 +28,32 @@ extension PopoverRootView {
     /// The clear space the clock cluster's leading spacer never gives up, so the switch and the clock
     /// read as two things rather than one run-on strip.
     private static let clockLead: CGFloat = 8
+    /// How far the wordmark's INK reaches left of the frame it is laid out in. The glyph is given a
+    /// height and left to find its own width, and it draws the letterform larger than the box that
+    /// ends up around it - measured off a window capture, the mark's first ink sat 1.5pt from the
+    /// panel edge while the frame it belongs to started at 12.
+    private static let brandInkOverhang: CGFloat = 10.5
+    /// Where the brand cluster's frame starts, so that its INK starts on the panel's content line -
+    /// the same x the session strip, the fleet rows, the cards and the footer controls all begin at.
+    /// Padding the frame to that line instead is what left the logo reading as pinned to the edge
+    /// with everything below it beginning 12pt in, which is the whole of the complaint: nothing about
+    /// the header moved, the tab switch merely took away the thing the eye used to measure it by.
+    private static let brandLead = PanelGeometry.contentPadding + brandInkOverhang
 
     var header: some View {
         HStack(spacing: Self.gap) {
-            // Everything except the refresh button and the tab picker doubles as the pinned panel's
-            // window-move handle (an AppKit background view would steal their clicks, so both sit
-            // outside it). The handle comes in two pieces for that reason, and each fills the
-            // header's full height - backing only the text line left a thin ~17pt grab strip that
-            // was easy to miss.
+            // EVERY part of this row moves the panel, and each part says how: the runs with nothing
+            // to click move it from the first frame of the press, the controls (the update badge,
+            // the tab switch, the refresh) move it only once the press has travelled far enough to
+            // not be a click. Laid OVER each region rather than behind it, which is the correction
+            // of 2026-08-07: mounted behind, the drag layer was never sent a press at all and this
+            // row's wordmark, badges and clock were dead to the pointer while reading as handles.
+            //
+            // The brand cluster is split for that reason: the wordmark, the version and the DEV tag
+            // are one continuous grab area (its own internal gaps included), and the update badge
+            // sits beside them keeping its click.
             HStack(spacing: 6) {
+                HStack(spacing: 6) {
                 // The logotype (brand T as the initial) - a bare glyph next to the word "Tally"
                 // read as two Ts. The header is the product's line; the jetto credit lives quietly
                 // in the footer's empty centre instead of trailing the wordmark like a byline.
@@ -57,6 +74,13 @@ extension PopoverRootView {
                         .padding(.horizontal, 4).padding(.vertical, 1)
                         .overlay(Capsule().stroke(TallyColor.warning.opacity(0.6), lineWidth: 1))
                 }
+                }
+                // The leading padding is inside the grab area on purpose: the margin that seats the
+                // wordmark on the panel's content line is space nothing else claims, so it may as
+                // well be somewhere to take hold of.
+                .padding(.leading, Self.brandLead)
+                .frame(maxHeight: .infinity)
+                .windowDragSurface()
                 // Docker-style nudge, two states: detected (accent ↑, click walks the install
                 // flow) and downloaded (green ↻, the Ghostty semantic - the payload is on disk,
                 // a click just restarts into the new version).
@@ -72,6 +96,9 @@ extension PopoverRootView {
                             .background(Capsule().fill(ready ? TallyColor.normal : TallyColor.ai))
                     }
                     .buttonStyle(.plain)
+                    // A control, so it takes the travelling form: the badge still installs on a
+                    // click and the panel still moves if the hand meant to move it.
+                    .windowDragOrTap { UpdaterController.shared.checkForUpdates() }
                     .tallyTooltip(ready ? L("Update downloaded - click to restart")
                                 : L("Update available - click to install"))
                 }
@@ -81,17 +108,14 @@ extension PopoverRootView {
             // true: a cluster free to compress reports the width it was squeezed into, so the row
             // would read "the clock still fits" from a number the clock itself caused.
             .fixedSize(horizontal: true, vertical: false)
-            .padding(.leading, 12)
             .frame(maxHeight: .infinity)
-            .background(WindowDragArea())
             .background { widthProbe { headerWidths.brand = $0 } }
             // The slack on the switch's leading side, which is new: the row used to give all of it
-            // to the clock, so the switch sat against the wordmark. Backed by the drag area like
-            // the slack on the other side, or the pinned panel would lose half the grab strip it
-            // has always had.
+            // to the clock, so the switch sat against the wordmark. A grab area like the slack on
+            // the other side, or the pinned panel would lose half the strip it has always had.
             Spacer(minLength: Self.gap)
                 .frame(maxHeight: .infinity)
-                .background(WindowDragArea())
+                .windowDragSurface()
             // Every surface carries it: the pinned panel is where someone watches usage all day,
             // and making them open a different window to see where the tokens went broke that. Not
             // in the footer with the view controls - this switches WHAT the surface is showing, not
@@ -105,6 +129,13 @@ extension PopoverRootView {
             surfaceTabPicker
                 .padding(.leading, centreOffset.leading)
                 .padding(.trailing, centreOffset.trailing)
+                // The centring pad is the last unclaimed space in the row, and it is not small: it
+                // is whatever the wider end of the header owes the switch. Grabbed by a strip the
+                // exact width of the pad, at the edge the pad is on, so the switch itself is never
+                // covered by it (an overlay over the padded whole would sit on the segments and
+                // take their clicks - which is the mistake this row is being repaired from).
+                .overlay(alignment: .leading) { dragPad(centreOffset.leading) }
+                .overlay(alignment: .trailing) { dragPad(centreOffset.trailing) }
             HStack(spacing: Self.gap) {
                 Spacer(minLength: Self.clockLead)
                 // TimelineView re-evaluates every second so the countdown ticks live (a plain
@@ -130,7 +161,7 @@ extension PopoverRootView {
             // pays for by wrapping - which is the one thing this header may never do.
             .fixedSize(horizontal: true, vertical: false)
             .frame(maxHeight: .infinity)
-            .background(WindowDragArea())
+            .windowDragSurface()
             // One refresh for both tabs, because the header frames both: on Tokens it rescans the
             // transcripts rather than re-polling the quota. A button that silently drove the other
             // tab's store would look broken - the numbers under it would not move.
@@ -178,6 +209,15 @@ extension PopoverRootView {
         case .usage: Task { await store.refresh(userInitiated: true) }
         case .tokens: tokens.refresh()
         }
+    }
+
+    /// A grab area exactly as wide as one side's centring pad, full height. Zero-width when that
+    /// side owes nothing, which is most rows.
+    private func dragPad(_ width: CGFloat) -> some View {
+        Color.clear
+            .frame(width: width)
+            .frame(maxHeight: .infinity)
+            .windowDragSurface()
     }
 
     /// Whichever store the visible tab reads from, so the spinner and the disabled state describe

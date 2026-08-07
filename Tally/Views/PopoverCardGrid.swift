@@ -177,6 +177,7 @@ extension PopoverRootView {
     /// it (`PanelSections`), so the two entry points cannot drift.
     private func groupHeader(_ group: AccountGroup) -> some View {
         let foldable = pooledProviderIDs.contains(group.providerID)
+        let toggle = { if foldable { settings.toggleCollapsed(group.providerID) } }
         return HStack(spacing: 5) {
             providerLabel(group.providerID, count: group.items.count)
                 .font(.caption)
@@ -184,7 +185,12 @@ extension PopoverRootView {
             Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
-        .onTapGesture { if foldable { settings.toggleCollapsed(group.providerID) } }
+        // The widest run of empty space below the header strip, and on the pinned panel it moves
+        // the window: this row is mostly the space after a provider's name, and the cards under it
+        // cannot be grab areas without sitting on their own reorder gesture. Same action either
+        // way, so a press that stays put still folds the section exactly as a click does.
+        .windowDragOrTap(toggle)
+        .onTapGesture(perform: toggle)
     }
 
     private struct AccountRow: Identifiable {

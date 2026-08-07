@@ -96,11 +96,19 @@ let upBranch: String = {
 check("a mouse-up ends the gesture whichever way it was read",
       upBranch.contains("if intent == .tap { onTap() }") && upBranch.contains("return"))
 check("and starting a drag ends it too",
-      handle.contains("panel.performDrag(with: event)")
-          && handle.range(of: "performDrag(with: event)\n                    return") != nil)
+      handle.contains("PanelDrag.carry { panel.performDrag(with: event) }")
+          && handle.range(of: "performDrag(with: event) }\n                    return") != nil)
 check("the only two things a press can do are the drag and the tap",
       handle.components(separatedBy: "onTap()").count == 2
-          && handle.components(separatedBy: "performDrag").count == 2)
+          && handle.components(separatedBy: "performDrag").count == 3)
+
+// 6b2. And the region with NO click to protect does not wait to find out: it moves the window on
+//      the mouse-down itself. A threshold there would be a handle that starts late, which is the
+//      one thing a titlebar never does.
+check("a region with nothing to click moves the window at once",
+      handle.contains("guard let onTap else { return PanelDrag.carry { panel.performDrag(with: event) } }"))
+check("…and both entrances hand `performDrag` the event that started the gesture",
+      handle.components(separatedBy: "performDrag(with: event)").count == 3)
 
 // 6c. No clock anywhere in it. A press-and-hold reading would make every click on the tab switch
 //     wait to find out whether it was one, which is the requirement this whole overlay was built
@@ -137,6 +145,76 @@ check("the refresh button and its drag overlay share one action",
           && headerSource.components(separatedBy: "startRefresh()").count == 4)
 check("…and that action carries the disabled guard itself",
       headerSource.range(of: "func startRefresh() {\n        guard !isRefreshing else { return }") != nil)
+
+// 9. THE MECHANISM IS AN OVERLAY, EVERYWHERE. A drag layer mounted behind SwiftUI content is never
+//    sent the press (measured 2026-08-07 on the dev instance: the wordmark, the clock, the strip's
+//    empty run and the panel background all carried one and all four were dead; the tab switch,
+//    which carried the same view on TOP, moved every time). The old background-mounted view is gone
+//    rather than left beside this one, so no surface can be given the dead half by mistake.
+let viewSources = ((try? FileManager.default.contentsOfDirectory(atPath: "Tally/Views")) ?? [])
+    .filter { $0.hasSuffix(".swift") }.map { "Tally/Views/\($0)" }
+    + ["Tally/MenuBar/PinnedPanelController.swift"]
+for path in viewSources {
+    let text = code(of: path)
+    check("no surface mounts a drag layer behind its content (\(path))",
+          !text.contains("background(WindowDragArea") && !text.contains("background(DragOrTapArea"))
+    check("…and the retired background-only view is not still around (\(path))",
+          !text.contains("struct WindowDragArea"))
+}
+let panelFile = code(of: "Tally/MenuBar/PinnedPanelController.swift")
+for surface in ["func windowDragSurface() -> some View {\n        overlay(DragOrTapArea(onTap: nil))",
+                "func windowDragOrTap(enabled: Bool = true, _ onTap: @escaping () -> Void) -> some View {\n        overlay {"] {
+    check("the grab areas are applied as overlays", panelFile.contains(surface))
+}
+
+// 10. The header names its grab areas one region at a time: the wordmark run, the slack beside the
+//     switch, the clock cluster. Counted, because the failure this replaces was a row that read as
+//     one continuous handle and answered on none of it.
+// Four of them: the brand run, the slack before the switch, the clock cluster, and the strip that
+// covers whichever centring pad the switch is owed (`dragPad`). The count is the assertion because
+// the failure being repaired was a row that looked like one continuous handle and answered on none
+// of it - a region dropped from this set is exactly that failure coming back.
+check("the header gives every non-interactive run of the row a grab area",
+      headerSource.components(separatedBy: ".windowDragSurface()").count == 5
+          && headerSource.contains("private func dragPad(_ width: CGFloat) -> some View")
+          && headerSource.contains(".overlay(alignment: .leading) { dragPad(centreOffset.leading) }"))
+check("…and the update badge keeps its click while joining them",
+      headerSource.contains(".windowDragOrTap { UpdaterController.shared.checkForUpdates() }"))
+
+// 11. A drag that is under way, and the reason it cannot be answered by a flag alone: AppKit carries
+//     the window after `performDrag` returns (measured: the call's entry and exit share a
+//     timestamp), so the release has to be watched for. A watcher that was ever lost would leave a
+//     bare flag saying "dragging" forever, and the surface would stop re-reading its height cap for
+//     the life of the process - so the button is asked too, which makes the wrong answer expire.
+check("a started drag with the button still down is under way",
+      PanelCarry.inProgress(started: true, buttonsDown: 1))
+check("…and the same drag is over the moment the button is up",
+      !PanelCarry.inProgress(started: true, buttonsDown: 0))
+check("nothing started is never under way, whatever the pointer is doing",
+      !PanelCarry.inProgress(started: false, buttonsDown: 1)
+          && !PanelCarry.inProgress(started: false, buttonsDown: 0))
+check("a right-button press is not this gesture",
+      !PanelCarry.inProgress(started: true, buttonsDown: 2))
+check("…while the left one held with others still is",
+      PanelCarry.inProgress(started: true, buttonsDown: 3))
+
+// 12. What the span is FOR: the surface re-reads its own height cap from its own top edge on every
+//     move, so a panel carried down its display was resized under the hand on the way (measured
+//     2026-08-07: 532 -> 476 -> 417 -> 347 -> 320 in one drag, while the window server was moving
+//     the window). The cap is skipped during the carry and re-read once at the end - BOTH halves,
+//     because skipping without the re-read is a panel that keeps a cap its new position never had.
+let rootSource = code(of: "Tally/Views/PopoverRootView.swift")
+check("the height cap is not re-read while the panel is being carried",
+      rootSource.contains("guard !PanelDrag.isActive else { return }"))
+check("…and is re-read once when the hand lets go",
+      rootSource.contains("for: PanelDrag.ended)) { _ in")
+          && rootSource.contains("refreshScreenCap()"))
+check("both ways into a drag announce the carry",
+      panelSource.components(separatedBy: "PanelDrag.carry { panel.performDrag(with: event) }").count == 3)
+check("the release watcher stops itself rather than running on",
+      panelSource.contains("release?.invalidate()") && panelSource.contains("release = nil"))
+check("and the flag itself defers to the pure predicate",
+      panelSource.contains("PanelCarry.inProgress(started: carrying,"))
 
 print(failures == 0 ? "\nAll drag-or-tap tests passed." : "\n\(failures) drag-or-tap test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

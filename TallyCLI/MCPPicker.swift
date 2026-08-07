@@ -155,8 +155,9 @@ struct MCPPickerWorld {
     var applyModel: (ModelIntent, MCPHookInput) -> ModelAttempt = {
         attemptModel($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)
     }
-    var fleetRows: (MCPHookInput) -> (rows: [SwitchFleetRow]?, problem: String?) = {
-        liveSwitchFleetRows(cwd: $0.sessionDirectory, marker: $0.sessionMarker)
+    var fleetRows: (MCPHookInput) -> (accounts: [Snapshot.Account], rows: [SwitchFleetRow]?,
+                                     problem: String?) = {
+        liveSwitchFleet(cwd: $0.sessionDirectory, marker: $0.sessionMarker)
     }
     var applyAccount: (SwitchIntent, MCPHookInput) -> SwitchAttempt = {
         attemptSwitch($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)
@@ -282,18 +283,62 @@ func mcpModelPrompt(_ status: ModelStatus) -> String {
 
 // MARK: - The accounts a bare `/tally-account` offers
 
-/// The rows of the account dialog, from the same ranked reading the hook's text listing prints.
+/// The rows of the account dialog, drawn to MIRROR TALLY'S OWN PANEL.
+///
+/// A dialog raised over the menu bar sits inches from the panel listing the same fleet, and a person
+/// reads them together: the third row here has to be the third row there, and the numbers have to
+/// come in the order their eye already learned. So two things are taken from the panel rather than
+/// from the listing this used to share:
+///
+///   - THE ORDER IS THE SNAPSHOT'S, which is what the panel renders (Claude, Claude 2, …). The
+///     ranked order the text listing and the arrow-key menu use is deliberately not applied here.
+///     Nothing is lost by it: the recommendation was never carried by the position, it is a TAG,
+///     and it still is.
+///   - THE FIELDS ARE THE PANEL'S: flagship window, then 5-hour, then weekly (measured against the
+///     app 2026-08-07 - a row reading 54/86/47 is fable/session/weekly). The old
+///     `session · weekly · flagship` order was the listing's, and reading a dialog whose columns
+///     are shuffled against the window beside it is worse than reading either alone.
+///
+/// The ranked rows still come in, for the two things only they know: which accounts may be switched
+/// to at all (a listed account with no launch home is not one), and which has the most headroom.
+/// Accounts the ranking left out are left out here too.
 ///
 /// THE VALUE IS THE ID. An account label can be a prefix of another one, and matching by label is
 /// how a pick lands on the wrong account (SwitchMenu.swift); the row already knows exactly which
 /// account it is, so it hands that over and `attemptSwitch(.pinAccount:)` skips the matcher
 /// entirely (SwitchCommand.swift states why that is not merely a convenience).
-func mcpAccountOptions(_ rows: [SwitchFleetRow]) -> [MCPPickOption] {
-    rows.map { row in
-        MCPPickOption(value: row.id, label: "\(row.label)  \(row.windows)"
-            + (row.tags.isEmpty ? "" : "  (\(row.tags.joined(separator: ", ")))"))
+func mcpAccountOptions(accounts: [Snapshot.Account], ranked rows: [SwitchFleetRow])
+    -> [MCPPickOption] {
+    let tags = Dictionary(rows.map { ($0.id, $0.tags) }, uniquingKeysWith: { first, _ in first })
+    return accounts.compactMap { account -> MCPPickOption? in
+        guard let tags = tags[account.id] else { return nil }
+        let flagship = account.modelWindowName?.lowercased() ?? "model"
+        let windows = ["\(flagship) \(fmt(account.modelRemaining))",
+                       "session \(fmt(account.sessionRemaining))",
+                       "weekly \(fmt(account.weeklyRemaining))"].joined(separator: " · ")
+        return MCPPickOption(value: account.id, label: "\(account.label)  \(windows)"
+            + (tags.isEmpty ? "" : "  (\(tags.joined(separator: ", ")))"))
     } + [MCPPickOption(value: switchAutoRequest,
                        label: "automatic selection  (release this session's pin)")]
+}
+
+/// The line above those rows: which pool is being chosen from, and what choosing does.
+///
+/// Every account in this dialog belongs to one provider (the pickers speak for `providers[0]`), so
+/// naming it and counting it is the whole of the grouping: "Claude ×5" is what the panel's own
+/// heading says, and it tells a person at a glance that the five rows below are the machine's whole
+/// Claude fleet rather than a filtered view of it. A snapshot carries no pool NAME to use instead,
+/// so the provider is the name.
+///
+/// SEVERAL POOLS ARE NOT GROUPED HERE, deliberately: nothing on this path can produce a dialog
+/// holding two of them today, and a grouping with no second case to test against is a shape that
+/// would go wrong the first time it met one.
+func mcpAccountPrompt(offering count: Int, provider: String, problem: String?) -> String {
+    let pool = "\(provider.prefix(1).uppercased())\(provider.dropFirst()) ×\(count)"
+    // The snapshot's own complaint leads, exactly as it does in the listing: every percentage in
+    // the rows below is a reading of a file that old, and so is the recommendation drawn from them.
+    return [problem, "\(pool) · Move this conversation to another account"]
+        .compactMap { $0 }.joined(separator: "\n")
 }
 
 // MARK: - The tools themselves
@@ -346,7 +391,7 @@ func mcpPickAccount(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> 
         let value = input.commandArgs.trimmingCharacters(in: .whitespacesAndNewlines)
         return queue(value == switchAutoRequest ? .auto : .pin(value))
     }
-    let (rows, problem) = world.fleetRows(input)
+    let (accounts, rows, problem) = world.fleetRows(input)
     // Nothing to choose from is not a dialog with no rows: the text listing already says which of
     // the two reasons it is (no snapshot at all, or no account signed in) and what to do about it.
     guard let rows, !rows.isEmpty else {
@@ -354,13 +399,13 @@ func mcpPickAccount(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> 
             hookSwitchListing(rows: rows, provider: providers[0].id, problem: problem)
                 .joined(separator: "\n"))
     }
+    let options = mcpAccountOptions(accounts: accounts, ranked: rows)
     let schema = mcpEnumSchema(field: mcpAccountField, title: "Account",
                                description: "Where this conversation continues, from the end of "
-                                   + "this turn", options: mcpAccountOptions(rows))
-    // The snapshot's own complaint leads, exactly as it does in the listing: every percentage in
-    // the rows below is a reading of a file that old, and so is the recommendation drawn from them.
-    let prompt = [problem, "Move this conversation to another account"]
-        .compactMap { $0 }.joined(separator: "\n")
+                                   + "this turn", options: options)
+    // Counting the ROWS rather than the accounts: the release is one of the options and is not an
+    // account, and an account the ranking excluded is not in the pool being offered.
+    let prompt = mcpAccountPrompt(offering: rows.count, provider: providers[0].id, problem: problem)
     guard case .accepted(let content) = ask(prompt, schema),
           let account = content[mcpAccountField] else {
         return mcpBlockDecision(mcpNothingChanged)

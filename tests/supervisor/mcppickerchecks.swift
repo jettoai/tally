@@ -141,24 +141,69 @@ func runMCPPickerChecks() {
     check("a field whose labels are its values carries no second column",
           (properties[mcpEffortField] as? [String: Any])?["enumNames"] == nil)
 
-    // MARK: - The accounts, whose value is the id
+    // MARK: - The accounts, which mirror Tally's own panel
+    //
+    // The dialog is raised inches from the panel listing the same fleet and a person reads them
+    // together, so both the ORDER of the rows and the ORDER of the numbers inside them are the
+    // panel's rather than the text listing's (Albert, release UX pass 2026-08-07).
 
-    let rows = [
-        SwitchFleetRow(id: "claude:.claude2", label: "Claude", windows: "session 84% · weekly 61%",
-                       tags: [switchRecommendedTag]),
-        SwitchFleetRow(id: "claude:.claude", label: "Claude 2", windows: "session 12% · weekly 40%",
-                       tags: [switchCurrentSessionTag]),
-    ]
-    let accountOptions = mcpAccountOptions(rows)
+    /// The snapshot order, which is what the panel renders: Claude, then Claude 2.
+    var first = switchAccount("claude:.claude", label: "Claude", home: "/tmp/a")
+    first.modelRemaining = 54
+    first.sessionRemaining = 86
+    first.weeklyRemaining = 47
+    first.modelWindowName = "Fable"
+    // Given MORE headroom than the first, so the ranked order and the snapshot order genuinely
+    // disagree: without that, every assertion below would pass whichever order the code used.
+    var second = switchAccount("claude:.claude2", label: "Claude 2", home: "/tmp/b")
+    second.modelRemaining = 90
+    second.sessionRemaining = 95
+    second.weeklyRemaining = 80
+    second.modelWindowName = "Fable"
+    // …and the RANKED reading of the same two, which is the other way round: the second account has
+    // the most headroom, so the listing and the arrow-key menu put it first.
+    let rows = switchFleetRows(accounts: [first, second], provider: "claude",
+                               current: "claude:.claude")
+    check("the ranking really does reorder these two, so the assertions below mean something",
+          rows.map(\.id) == ["claude:.claude2", "claude:.claude"])
+    let accountOptions = mcpAccountOptions(accounts: [first, second], ranked: rows)
+    // THE ORDER IS THE PANEL'S. Not the ranking's - a person looking at both windows expects row
+    // one here to be row one there.
+    check("the dialog lists the accounts in the order the panel does",
+          accountOptions.map(\.value) == ["claude:.claude", "claude:.claude2", switchAutoRequest])
+    // …and nothing was lost by dropping the ranking: the recommendation was always a TAG.
+    check("the recommendation is still marked, on whichever row earned it",
+          accountOptions[1].label.contains(switchRecommendedTag)
+              && accountOptions[0].label.contains(switchCurrentSessionTag))
+    // THE FIELDS ARE THE PANEL'S TOO: flagship, then 5-hour, then weekly.
+    check("each row reads flagship, then session, then weekly, as the panel does",
+          accountOptions[0].label.contains("fable 54% · session 86% · weekly 47%"))
+    check("…and the flagship window is named by the account rather than assumed",
+          accountOptions[1].label.contains("fable 90% · session 95% · weekly 80%"))
     // THE FAILURE THIS PREVENTS: "Claude" is a prefix of "Claude 2", so a picker that handed back
     // the label would resolve through the matcher and could land on the wrong account. The row
     // already knows exactly which one it is.
     check("the value of a row is its account id, never its label",
-          accountOptions.map(\.value) == ["claude:.claude2", "claude:.claude", switchAutoRequest])
-    check("the label carries the windows and the tags a person chooses by",
-          accountOptions[0].label.contains("session 84%")
-              && accountOptions[0].label.contains(switchRecommendedTag))
+          accountOptions[0].value == "claude:.claude")
     check("and the release is offered last", accountOptions.last?.value == switchAutoRequest)
+    // An account the ranking excluded (no launch home, so nothing could move a session there) is
+    // excluded here too, however the snapshot orders it.
+    var loggedOut = switchAccount("claude:.claude3", label: "Claude 3")
+    loggedOut.launchHome = nil
+    check("an account that cannot be moved to is not offered, wherever it sits",
+          mcpAccountOptions(accounts: [loggedOut, first, second],
+                            ranked: switchFleetRows(accounts: [loggedOut, first, second],
+                                                    provider: "claude", current: nil))
+              .map(\.value) == ["claude:.claude", "claude:.claude2", switchAutoRequest])
+
+    // THE POOL IN THE HEADING, so the rows read as "the whole Claude fleet" rather than a filtered
+    // view of it.
+    check("the heading names the pool and counts it",
+          mcpAccountPrompt(offering: 5, provider: "claude", problem: nil)
+              == "Claude ×5 · Move this conversation to another account")
+    check("…and a stale snapshot still says so first, above everything drawn from it",
+          mcpAccountPrompt(offering: 2, provider: "claude", problem: "the snapshot is 74m old")
+              == "the snapshot is 74m old\nClaude ×2 · Move this conversation to another account")
 
     // MARK: - What an answer does
 
@@ -169,6 +214,8 @@ func runMCPPickerChecks() {
         var asked = 0
         var status = ModelStatus()
         var rows: [SwitchFleetRow]? = []
+        /// The same fleet in the order the snapshot lists it, which is what the dialog draws.
+        var fleet: [Snapshot.Account] = []
         var problem: String?
 
         var world: MCPPickerWorld {
@@ -178,7 +225,7 @@ func runMCPPickerChecks() {
                 models.append(intent)
                 return ModelAttempt(result: .queued, message: "queued the pair")
             }
-            world.fleetRows = { [self] _ in (rows, problem) }
+            world.fleetRows = { [self] _ in (fleet, rows, problem) }
             world.applyAccount = { [self] intent, _ in
                 accounts.append(intent)
                 return SwitchAttempt(result: .queued, message: "queued the move",
@@ -594,7 +641,7 @@ func runMCPAddressingChecks() {
     check("the addressing lock reads the file it is about", picker.contains("struct MCPPickerWorld"))
     for wiring in ["liveModelStatus(cwd: $0.sessionDirectory, marker: $0.sessionMarker)",
                    "attemptModel($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)",
-                   "liveSwitchFleetRows(cwd: $0.sessionDirectory, marker: $0.sessionMarker)",
+                   "liveSwitchFleet(cwd: $0.sessionDirectory, marker: $0.sessionMarker)",
                    "attemptSwitch($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)"] {
         check("the picker addresses the session the HOOK described: \(wiring)",
               picker.contains(wiring))
@@ -694,7 +741,11 @@ func runMCPTransportChecks() {
     ])
     var moved: [SwitchIntent] = []
     var quiet = MCPPickerWorld()
-    quiet.fleetRows = { _ in ([SwitchFleetRow(id: "a", label: "A", windows: "", tags: [])], nil) }
+    let onlyAccount = switchAccount("a", label: "A")
+    quiet.fleetRows = { _ in
+        ([onlyAccount],
+         switchFleetRows(accounts: [onlyAccount], provider: "claude", current: nil), nil)
+    }
     quiet.applyAccount = { intent, _ in
         moved.append(intent)
         return SwitchAttempt(result: .queued, message: "moved")

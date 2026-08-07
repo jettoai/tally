@@ -221,9 +221,25 @@ func currentSessionAccount(_ accounts: [Snapshot.Account],
 func liveSwitchFleetRows(cwd: String = FileManager.default.currentDirectoryPath,
                          marker: SessionMarkerTrust = .trusted(liveSessionMarker()))
     -> (rows: [SwitchFleetRow]?, problem: String?) {
+    let fleet = liveSwitchFleet(cwd: cwd, marker: marker)
+    return (fleet.rows, fleet.problem)
+}
+
+/// The same reading with the ACCOUNTS it was ranked from, in the order the snapshot lists them.
+///
+/// Two orders out of one read, because two surfaces want different ones and neither may re-read the
+/// disk for itself. The text listing and the arrow-key menu are RANKED, best first, which is what
+/// someone reading a list of percentages wants. The native dialog is not: it sits beside Tally's own
+/// panel, and a person looking at both expects row three to be row three (`mcpAccountOptions`,
+/// MCPPicker.swift). The recommendation still comes from the ranking, carried as a tag, so the two
+/// surfaces never disagree about WHICH account has the most headroom - only about where it sits.
+func liveSwitchFleet(cwd: String = FileManager.default.currentDirectoryPath,
+                     marker: SessionMarkerTrust = .trusted(liveSessionMarker()))
+    -> (accounts: [Snapshot.Account], rows: [SwitchFleetRow]?, problem: String?) {
     let (snapshot, problem) = loadSnapshot()
-    guard let accounts = snapshot?.accounts else { return (nil, problem) }
-    return (switchFleetRows(accounts: accounts, provider: providers[0].id,
+    guard let accounts = snapshot?.accounts else { return ([], nil, problem) }
+    return (accounts,
+            switchFleetRows(accounts: accounts, provider: providers[0].id,
                             current: currentSessionAccount(accounts, cwd: cwd, marker: marker)),
             problem)
 }

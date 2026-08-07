@@ -60,20 +60,25 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                             },
                             switchRequest: (String) -> SwitchRequest? = {
                                 readSwitchRequest(sessionKey: $0)
-                            }) {
+                            },
+                            log: URL = handoffLog) {
     // Claude Code's own `/model`, read out of the transcript and taken as the instruction it is.
     // FIRST, because it changes what this session is understood to run, and everything after it -
     // including the degradation rescue one call further down the tick - has to be judged against
     // that rather than against the command line the session was launched with. It plans no
     // relaunch, so it cannot compete with the two below for the tick's one restart.
+    adoptNativeModelChoice(state: &model, follow: &follow, watcher: watcher,
+                           primaryModel: primaryModel, launchArgs: launchArgs, log: log)
     // The notice it leaves is NEWS on the status line rather than a line on the terminal (that
     // adoption is the one model-axis event with no relaunch behind it), so something that runs every
     // tick has to take it down again - the same shape, and the same reason, as the cancelled switch
-    // one axis over (`expireCancellation`, SessionSwitch.swift). Before the adoption, so a notice
-    // raised on THIS tick is never expired by a prompt older than it.
+    // one axis over (`expireCancellation`, SessionSwitch.swift).
+    //
+    // AFTER the adoption, not before. The stamp is the event that confirmed the choice, so a prompt
+    // the user has ALREADY sent is newer than it and takes the notice down on this very tick; asking
+    // first meant asking about a badge that did not exist yet, and the answer arrived a whole turn
+    // late (review, 2026-08-07).
     model.expireAdoption(lastUserTurnAt: watcher.lastUserTurnAt)
-    adoptNativeModelChoice(state: &model, follow: &follow, watcher: watcher,
-                           primaryModel: primaryModel, launchArgs: launchArgs)
     // Re-derived HERE rather than by the caller, exactly as `policy` is and for the same reason:
     // this call can change the pin, and every reader after it - the degradation rescue above all -
     // must judge the session by what it runs now.

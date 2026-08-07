@@ -47,9 +47,15 @@ struct PendingNotice: Equatable, Codable {
     var kind: String?
 }
 
-/// The one `PendingNotice.kind` that means anything so far: a `tally switch` this supervisor
-/// cancelled (SessionSwitch.swift).
+/// The `PendingNotice.kind`s that mean anything: the two notices that are NEWS rather than live
+/// waits, and therefore the two a supervisor has to be able to recognise in a file it did not write
+/// itself - its own, from before a self-update replaced the image behind the pid. Every other badge
+/// on this track is re-derived from state within a tick or two of the new image starting.
 let cancellationNoticeKind = "switch-cancelled"
+
+/// A `/model` choice taken as this session's pin (SessionModel.swift): news on the model axis
+/// exactly as the cancellation is on the account axis.
+let modelAdoptionNoticeKind = "model-adopted"
 
 /// The file a supervisor's pending notice lives in.
 func pendingNoticeFile(pid: String, dir: URL = supervisorStateDir) -> URL {

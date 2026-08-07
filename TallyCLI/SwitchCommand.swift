@@ -162,9 +162,10 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
     if let target, headroom(target) <= 0 {
         notes.append("\(target.label) is out of quota - pinning anyway (you asked). A hard cap "
             + "drops the session to the declared fallback model there, and hands it on (clearing "
-            + "the pin) when this account cannot comfortably serve any of them, when a `tally "
-            + "model` pin outranks the change, or when no fresh reading of it arrives in a couple "
-            + "of minutes")
+            + "the pin) when this account cannot comfortably serve any of them, or when a `tally "
+            + "model` pin outranks the change. Short of that it waits: about two minutes for a "
+            + "fresh reading of this account, and for as long as it takes if Tally has stopped "
+            + "publishing the snapshot or its own pin leaves this session nowhere to go")
     }
     sweepDeadSessionRequests(dir: switchRequestDir)
     do {

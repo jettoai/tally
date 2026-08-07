@@ -147,7 +147,7 @@ func runStandDownChecks() {
                               watcher: &safeguardWatcher, account: standDownAccount,
                               policy: safeguardPolicy, launchArgs: ["--model", "claude-fable-5"],
                               fuseAllows: true, pid: "1", keyboardIdle: { _ in true },
-                              dir: recordDir, stateDir: stateDir)
+                              dir: recordDir, stateDir: stateDir, log: testAuditLog)
         return (plan, record)
     }
     let (plannedRestore, pendingRecord) = safeguardTick(drift: &drift)

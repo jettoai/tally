@@ -237,9 +237,9 @@ func handoffLogLine(sessionID: String?, from: String, to: String, reason: String
 /// where was it running" had no answer at all, and the account a conversation ended up on could not
 /// be traced back to the decision that put it there (2026-08-06).
 func logHandoff(sessionID: String?, from: String, to: String, reason: String, pid: String,
-                cwd: String, now: Date = Date()) {
+                cwd: String, now: Date = Date(), log: URL = handoffLog) {
     appendHandoffLine(handoffLogLine(sessionID: sessionID, from: from, to: to, reason: reason,
-                                     pid: pid, cwd: cwd, now: now))
+                                     pid: pid, cwd: cwd, now: now), to: log)
 }
 
 /// The line a relaunch HELD by an unresolved fork leaves (grep `hold=unresolved-fork`): the tick
@@ -265,10 +265,16 @@ func forkAmbiguityLine(boundID: String, now: Date = Date()) -> String {
 /// Append one whole line to the shared handoff log, O_APPEND so concurrent supervisors interleave
 /// without a lock. Best-effort: a logging failure must never disturb the caller. Internal, not
 /// private: the drift writers in DriftMonitor.swift share it.
-func appendHandoffLine(_ line: String) {
-    try? FileManager.default.createDirectory(at: handoffLog.deletingLastPathComponent(),
+///
+/// `log` is injectable for the reason every directory on this track is (`switchRequestDir`,
+/// `supervisorStateDir`, `quarantineDir`): a test that reaches a code path which logs must not write
+/// into the user's own audit history. It did - a suite run put 62 invented `model-pin=adopted` lines
+/// and 7 fork reports into a real `~/.tally/handoff.log` before this parameter existed (2026-08-07),
+/// which is the same rule the suites already keep for every other home-directory file.
+func appendHandoffLine(_ line: String, to log: URL = handoffLog) {
+    try? FileManager.default.createDirectory(at: log.deletingLastPathComponent(),
                                              withIntermediateDirectories: true)
-    let fd = open(handoffLog.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+    let fd = open(log.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
     guard fd >= 0 else { return }
     _ = line.withCString { write(fd, $0, strlen($0)) }
     close(fd)

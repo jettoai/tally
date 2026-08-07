@@ -15,6 +15,22 @@ let launch = Date(timeIntervalSince1970: 1_800_000_000)
 let iso = ISO8601DateFormatter()
 func stamp(_ offset: TimeInterval) -> String { iso.string(from: launch.addingTimeInterval(offset)) }
 
+/// Where every audit line this suite provokes is sent. The supervisor's own default is
+/// `~/.tally/handoff.log`, the USER's history, and a run that reached a logging path wrote invented
+/// records straight into it (62 `model-pin=adopted` lines and 7 fork reports before this existed,
+/// 2026-08-07). Same discipline as every other home-directory file the suites touch: injected,
+/// under a per-run temporary path, and asserted at the end (`runAuditSinkChecks`).
+let testAuditLog = FileManager.default.temporaryDirectory
+    .appendingPathComponent("tally-audit-test-\(UUID().uuidString).log")
+
+/// The one line the real log must never gain from a test run: every fixture in this suite that logs
+/// writes this pair, and no real session runs it.
+let testAuditFixtureMarker = "pair=claude-opus-4-8/xhigh"
+
+/// The user's own audit log, asked about rather than written to.
+let realAuditLog = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".tally/handoff.log")
+
 func watcherAfterScanning(_ lines: [String]) -> TranscriptWatcher {
     let dir = FileManager.default.temporaryDirectory
         .appendingPathComponent("tally-watcher-test-\(UUID().uuidString)")
@@ -488,5 +504,25 @@ runModelRequestChecks()
 runModelTickChecks()
 runModelSurfaceChecks()
 runNativeModelChecks()
+runAuditSinkChecks()
 
 exit(failures == 0 ? 0 : 1)
+
+/// THE SUITE'S OWN FOOTPRINT, asserted last because it is about everything above it: a test that
+/// reaches a code path which logs must write into its injected sink and nowhere else. Read from
+/// disk rather than trusted, because the failure this closes was invisible for exactly as long as
+/// nobody looked at the file.
+func runAuditSinkChecks() {
+    let written = (try? String(contentsOf: testAuditLog, encoding: .utf8)) ?? ""
+    check("the suite's audit lines land in its own sink",
+          written.contains(testAuditFixtureMarker) && written.contains("model-pin=adopted"))
+    check("…and the fork report with them", written.contains("fork=ambiguous"))
+    // The real file is READ, never opened for writing: if the sink is not honoured, the fixture pair
+    // above appears in the user's history, which is the whole defect.
+    let real = (try? String(contentsOf: realAuditLog, encoding: .utf8)) ?? ""
+    check("and nothing this suite invented reaches the user's own audit log",
+          !real.contains(testAuditFixtureMarker))
+    check("…including the fork report, whose session id no real conversation can have",
+          !real.contains("session=parent fork=ambiguous"))
+    try? FileManager.default.removeItem(at: testAuditLog)
+}

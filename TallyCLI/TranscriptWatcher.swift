@@ -153,6 +153,10 @@ struct TranscriptWatcher {
     /// (TranscriptFork.swift). Holds `isQuiet` false, so every non-urgent relaunch waits instead of
     /// resuming an id the conversation may have just left.
     var hasUnresolvedFork = false
+    /// Where this watcher's own audit lines go (the ambiguous-fork report, TranscriptFork.swift).
+    /// Injectable for the reason `appendHandoffLine` is: a suite that exercises the tie must not
+    /// write invented reports into the user's history.
+    var auditLog: URL = handoffLog
     /// True once the ambiguity warning has been said, so it is said once rather than every scan.
     var forkAmbiguityWarned = false
     /// The last open-turn scan, keyed by the file it read and the mtime it read it at.

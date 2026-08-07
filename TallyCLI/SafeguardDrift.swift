@@ -325,10 +325,11 @@ func safeguardRestoreCancelledLine(sessionID: String?, event: String, now: Date 
         + "safeguard-restore=cancelled event=\(event)\n"
 }
 
-func logSafeguardRestore(sessionID: String?, flag: SafeguardFlag, restore: SafeguardRestore,
+func logSafeguardRestore(log: URL = handoffLog,
+                         sessionID: String?, flag: SafeguardFlag, restore: SafeguardRestore,
                          transcript: URL?, now: Date = Date()) {
     appendHandoffLine(safeguardRestoreLine(sessionID: sessionID, flag: flag, restore: restore,
-                                           transcript: transcript, now: now) + "\n")
+                                           transcript: transcript, now: now) + "\n", to: log)
 }
 
 // MARK: - Poll-loop wiring
@@ -362,7 +363,8 @@ func applySafeguardRestore(plan: inout RelaunchPlan?, drift: inout DriftMonitor,
                            policy: LaunchPolicy, launchArgs: [String], fuseAllows: Bool,
                            pid: String, keyboardIdle: (TimeInterval) -> Bool,
                            dir: URL = safeguardRestoreDir,
-                           stateDir: URL = supervisorStateDir) {
+                           stateDir: URL = supervisorStateDir,
+                           log: URL = handoffLog) {
     guard plan == nil, drift.isActive, let flag = watcher.lastFlag else { return }
     let session = watcher.file?.deletingPathExtension().lastPathComponent
     let event = safeguardEventKey(flag)
@@ -387,7 +389,7 @@ func applySafeguardRestore(plan: inout RelaunchPlan?, drift: inout DriftMonitor,
         // Nothing is lost by dropping it - the status line already renders exactly this wait, the
         // drift badge carrying its "restoring" tail from the state written two lines down
         // (Statusline.swift), and the log keeps the full profile.
-        logSafeguardRestore(sessionID: session, flag: flag, restore: restore,
+        logSafeguardRestore(log: log, sessionID: session, flag: flag, restore: restore,
                             transcript: watcher.file)
         writeDriftState(flag, pid: pid, restorePending: true, dir: stateDir)
         drift.markRestoreQueued()
@@ -396,7 +398,7 @@ func applySafeguardRestore(plan: inout RelaunchPlan?, drift: inout DriftMonitor,
         // saying so); only the promise of a restart is withdrawn, which the badge shows by losing
         // its "restoring" tail. To the LOG rather than the terminal for the same reason as the
         // announcement above: no relaunch follows this line, so the child is drawing over it.
-        appendHandoffLine(safeguardRestoreCancelledLine(sessionID: session, event: event))
+        appendHandoffLine(safeguardRestoreCancelledLine(sessionID: session, event: event), to: log)
         writeDriftState(flag, pid: pid, restorePending: false, dir: stateDir)
         drift.clearRestoreQueued()
     }

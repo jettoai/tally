@@ -108,7 +108,11 @@ struct ForkFixture {
     }
 
     func watcher(pinnedTo id: String) -> TranscriptWatcher {
-        TranscriptWatcher(projectDir: dir, since: launchedAt, resumeID: id)
+        var watcher = TranscriptWatcher(projectDir: dir, since: launchedAt, resumeID: id)
+        // Every audit line this fixture provokes goes to the suite's own sink, never to the user's
+        // history (tests/supervisor/main.swift states the rule).
+        watcher.auditLog = testAuditLog
+        return watcher
     }
 }
 

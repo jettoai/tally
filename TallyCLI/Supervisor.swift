@@ -119,7 +119,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     // take it down on the first tick, as the honest answer to "this session has nothing pending".
     // Adopted back only on that path (`resumed`): on a normal launch the pid is this process's own
     // and any notice under it belongs to a dead session, which the sweep below removes.
-    if resumed { manualMoves.adoptCancellation(readPendingNotice(pid: supervisorPID)) }
+    // Both axes are offered the same file, and each takes it only if the kind is its own: the
+    // notice track holds one badge at a time, so at most one of these adopts anything.
+    if resumed {
+        let carried = readPendingNotice(pid: supervisorPID)
+        manualMoves.adoptCancellation(carried)
+        sessionModelState.adoptAdoption(carried)
+    }
     // Reap drift-state files left by dead supervisors (a SIGKILL skips the clear path) before this
     // one starts writing its own; also shrinks the pid-reuse window for a stale badge.
     sweepDeadSupervisorState()

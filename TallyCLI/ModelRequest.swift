@@ -181,6 +181,23 @@ struct SessionModelState {
         self.adoptedAt = nil
     }
 
+    /// Pick the adoption notice back up off disk, which is how it survives a self-update.
+    ///
+    /// The exec keeps the pid and starts this state from nothing, so a notice the replaced image had
+    /// just raised exists only in `<pid>.notice` - and the seeded writer's first honest "nothing is
+    /// pending" would unlink it. The file carries WHEN it was raised (`since`), so the expiry still
+    /// measures from the turn that confirmed the choice rather than from the upgrade.
+    ///
+    /// A whitelist by kind, like `adoptCancellation`: a live wait is not news and is re-derived
+    /// within a tick or two of the new image starting, so adopting one would pick up a value that is
+    /// about to be recomputed - or a stale one if its condition has since cleared. No legacy arm
+    /// here, unlike the cancellation's: this notice has carried its kind since the day it existed.
+    mutating func adoptAdoption(_ notice: PendingNotice?) {
+        guard let notice, notice.kind == modelAdoptionNoticeKind else { return }
+        adopted = PendingBadge(notice.badge, detail: notice.detail, kind: modelAdoptionNoticeKind)
+        adoptedAt = notice.since
+    }
+
     /// Whether this session's own pin is in force, which is the one question the rest of the loop
     /// asks: while it is, the launch-default follow stands down (SessionModel.swift).
     var isPinned: Bool { !pin.isEmpty }

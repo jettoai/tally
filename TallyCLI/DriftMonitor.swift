@@ -113,19 +113,21 @@ func sanitizeExcerpt(_ raw: String?, limit: Int = 160) -> String? {
 
 /// Append a drift episode to the handoff log (grep `drift=`). The excerpt is sanitized and never
 /// carries a token; a user prompt is trimmed to a snippet, not stored whole.
-func logDrift(sessionID: String?, flag: SafeguardFlag, excerpt: String?, now: Date = Date()) {
+func logDrift(sessionID: String?, flag: SafeguardFlag, excerpt: String?, now: Date = Date(),
+              log: URL = handoffLog) {
     let sid = sessionID.map { String($0.prefix(8)) } ?? "unknown"
     var line = "\(ISO8601DateFormatter().string(from: now)) session=\(sid) " +
         "drift=\(flag.from)->\(flag.to) category=\(flag.category)"
     if let excerpt = sanitizeExcerpt(excerpt) { line += " excerpt=\"\(excerpt)\"" }
-    appendHandoffLine(line + "\n")
+    appendHandoffLine(line + "\n", to: log)
 }
 
 /// Append a drift-cleared line (grep `drift-cleared`) with the episode's duration in whole minutes.
-func logDriftCleared(sessionID: String?, duration: TimeInterval, now: Date = Date()) {
+func logDriftCleared(sessionID: String?, duration: TimeInterval, now: Date = Date(),
+                     log: URL = handoffLog) {
     let sid = sessionID.map { String($0.prefix(8)) } ?? "unknown"
     appendHandoffLine("\(ISO8601DateFormatter().string(from: now)) session=\(sid) " +
-        "drift-cleared after=\(Int(duration / 60))m\n")
+        "drift-cleared after=\(Int(duration / 60))m\n", to: log)
 }
 
 // The per-supervisor state file itself (~/.tally/supervisor-state/<supervisorPID>) is declared in
@@ -237,15 +239,15 @@ func sweepDeadSupervisorState(dir: URL = supervisorStateDir) {
 /// Fail-open by construction: every branch writes best-effort state, so a drift episode can never
 /// block a handoff, a reload, or an exit.
 func observeDrift(_ drift: inout DriftMonitor, watcher: inout TranscriptWatcher,
-                  primary: String?, pid: String) {
+                  primary: String?, pid: String, log: URL = handoffLog) {
     switch drift.tick(flag: watcher.lastFlag, actualModel: watcher.lastModel, primary: primary) {
     case .started(let flag)?:
         logDrift(sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
-                 flag: flag, excerpt: watcher.driftTriggerExcerpt)
+                 flag: flag, excerpt: watcher.driftTriggerExcerpt, log: log)
         writeDriftState(flag, pid: pid)
     case .cleared(let duration)?:
         logDriftCleared(sessionID: watcher.file?.deletingPathExtension().lastPathComponent,
-                        duration: duration)
+                        duration: duration, log: log)
         clearDriftState(pid: pid)
     case nil:
         break

@@ -105,7 +105,7 @@ func runNativeModelChecks() {
     check("the choice becomes this session's pin",
           adoptNativeModelChoice(state: &state, follow: &follow, watcher: typed,
                                  primaryModel: "fable",
-                                 launchArgs: ["--model", "fable", "--effort", "high"]))
+                                 launchArgs: ["--model", "fable", "--effort", "high"], log: testAuditLog))
     check("…as the OBSERVED id, never the display name the line showed",
           state.pin.model == "claude-opus-4-8")
     check("…with the effort that line named", state.pin.effort == "xhigh")
@@ -116,7 +116,7 @@ func runNativeModelChecks() {
     check("a second tick does not adopt it again",
           !adoptNativeModelChoice(state: &state, follow: &follow, watcher: typed,
                                   primaryModel: "claude-opus-4-8",
-                                  launchArgs: ["--model", "fable"]))
+                                  launchArgs: ["--model", "fable"], log: testAuditLog))
 
     // MARK: - 35c2. It is told to the STATUS LINE, never to the terminal
 
@@ -126,10 +126,16 @@ func runNativeModelChecks() {
     // ("is the child about to die?", PendingNotice.swift); this was the adoption that is not.
     var announced = freshState()
     var announcedFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "high"])
-    let raisedAt = Date(timeIntervalSince1970: 1_800_000_000)
     _ = adoptNativeModelChoice(state: &announced, follow: &announcedFollow, watcher: typed,
                                primaryModel: "fable",
-                               launchArgs: ["--model", "fable", "--effort", "high"], now: raisedAt)
+                               launchArgs: ["--model", "fable", "--effort", "high"],
+                               now: Date(timeIntervalSince1970: 1_800_000_000), log: testAuditLog)
+    // The stamp is the event that CONFIRMED the choice, not the poll that noticed it: a poll
+    // timestamp is later than a prompt the user has already sent, so the badge outlived its turn by
+    // one (review, 2026-08-07). Everything below measures the expiry from this.
+    let raisedAt = typed.lastMainChainEventAt ?? .distantPast
+    check("the notice is stamped with the turn that confirmed the choice",
+          announced.adoptedAt == raisedAt)
     check("the adoption raises a status-line badge", announced.adopted != nil)
     check("…short, because it shares the line with the quota meters",
           (announced.adopted?.badge.count ?? 99) <= 20)
@@ -160,6 +166,32 @@ func runNativeModelChecks() {
     expiring.expireAdoption(lastUserTurnAt: raisedAt.addingTimeInterval(10))
     check("the user's next prompt does", expiring.adopted == nil && expiring.adoptedAt == nil)
 
+    // SURVIVING THE SELF-UPDATE EXEC. It keeps the pid and rebuilds this state from nothing, so a
+    // notice raised moments before lives only in `<pid>.notice` - where the new image's first honest
+    // "nothing is pending" unlinks it, and the badge is gone before the user ever looked (review,
+    // 2026-08-07). Recognised by its own kind, exactly as the cancelled switch is one axis over.
+    let noticeDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-model-notice-\(UUID().uuidString)")
+    writePendingNotice(PendingNotice(badge: "/model pinned", detail: "…", since: raisedAt,
+                                     kind: modelAdoptionNoticeKind), pid: "7171", dir: noticeDir)
+    var afterUpgrade = SessionModelState(sessionKey: "7171", servedEpoch: 0, dir: noticeDir)
+    afterUpgrade.adoptAdoption(readPendingNotice(pid: "7171", dir: noticeDir))
+    check("a session that came back from an upgrade still has its notice",
+          afterUpgrade.adopted?.badge == "/model pinned")
+    check("…stamped from when it was raised, so the expiry is unchanged by the upgrade",
+          afterUpgrade.adoptedAt == raisedAt)
+    check("…and still recognisable, so the next image can adopt it too",
+          afterUpgrade.adopted?.kind == modelAdoptionNoticeKind)
+    // A whitelist: the account axis's news, and every live wait, belong to somebody else.
+    var refusing = SessionModelState(sessionKey: "7272", servedEpoch: 0, dir: noticeDir)
+    refusing.adoptAdoption(PendingNotice(badge: switchCancelledBadge, detail: nil, since: raisedAt,
+                                         kind: cancellationNoticeKind))
+    check("another axis's news is not adopted", refusing.adopted == nil)
+    refusing.adoptAdoption(PendingNotice(badge: "model at idle", detail: nil, since: raisedAt,
+                                         kind: nil))
+    check("nor is a live wait, which the new image re-derives anyway", refusing.adopted == nil)
+    try? FileManager.default.removeItem(at: noticeDir)
+
     // The badge is gone the moment they type, so the only durable record of an event that changes
     // what a session runs and restarts nothing is the log line.
     let logged = sessionModelAdoptionLine(pair: "claude-opus-4-8/xhigh",
@@ -168,6 +200,18 @@ func runNativeModelChecks() {
           logged.contains(" session=abcdefgh ") && logged.contains(" model-pin=adopted ")
               && logged.contains(" pair=claude-opus-4-8/xhigh ") && logged.hasSuffix("\n"))
     check("…and it is one line", logged.filter { $0 == "\n" }.count == 1)
+
+    // AND THE ORDER IN THE TICK IS THE OTHER HALF of that stamp: the expiry has to be asked AFTER
+    // the adoption, or it asks about a badge that does not exist yet and the prompt already sitting
+    // in the transcript takes a whole extra turn to be noticed (review, 2026-08-07).
+    let directivesSource = (try? String(contentsOfFile: "TallyCLI/SessionDirectives.swift",
+                                        encoding: .utf8)) ?? ""
+    check("the directives source is readable from the suite", !directivesSource.isEmpty)
+    check("the tick expires the notice after raising it, never before", {
+        guard let adopt = directivesSource.range(of: "adoptNativeModelChoice(state:"),
+              let expire = directivesSource.range(of: "model.expireAdoption(") else { return false }
+        return expire.lowerBound > adopt.upperBound
+    }())
 
     // AND THE FUNCTION ITSELF MUST NOT REACH THE TERMINAL. Asserted against the source, because the
     // behaviour above stays green if a `warn` is added BESIDE the badge - and a `warn` beside the
@@ -202,7 +246,7 @@ func runNativeModelChecks() {
     check("a /model with no answer served since it is not adopted yet",
           !adoptNativeModelChoice(state: &waiting, follow: &waitingFollow,
                                   watcher: degradedThenTyped, primaryModel: "fable",
-                                  launchArgs: ["--model", "fable"]))
+                                  launchArgs: ["--model", "fable"], log: testAuditLog))
     check("…so a degradation the user was reacting TO is never pinned as their choice",
           !waiting.isPinned)
     // Once an answer does come back, it is that answer that is adopted - which may be neither the
@@ -214,7 +258,7 @@ func runNativeModelChecks() {
     var settledFollow = FollowState(launchArgs: ["--model", "fable"])
     check("the answer that arrives after the command is the one adopted",
           adoptNativeModelChoice(state: &settled, follow: &settledFollow, watcher: confirmed,
-                                 primaryModel: "fable", launchArgs: ["--model", "fable"])
+                                 primaryModel: "fable", launchArgs: ["--model", "fable"], log: testAuditLog)
               && settled.pin.model == "claude-haiku-4-5")
 
     // A /model that chose what the session was already running changes nothing, so there is nothing
@@ -226,7 +270,7 @@ func runNativeModelChecks() {
                                   watcher: watcherAfterScanning(
                                       modelCommandLines(at: 30, effort: nil)
                                           + [servedLine("claude-fable-5", at: 60)]),
-                                  primaryModel: "fable", launchArgs: ["--model", "fable"]))
+                                  primaryModel: "fable", launchArgs: ["--model", "fable"], log: testAuditLog))
     // An effort the line did not name leaves that axis alone rather than resetting it - the same
     // thing `tally model <model>` with no effort means.
     var effortless = freshState()
@@ -236,7 +280,7 @@ func runNativeModelChecks() {
                                    modelCommandLines(at: 30, effort: nil)
                                        + [servedLine("claude-opus-4-8", at: 60)]),
                                primaryModel: "fable",
-                               launchArgs: ["--model", "fable", "--effort", "max"])
+                               launchArgs: ["--model", "fable", "--effort", "max"], log: testAuditLog)
     check("a choice that named no effort pins only the model",
           effortless.pin == SessionModelPin(model: "claude-opus-4-8", effort: nil))
     check("…and the baseline keeps the effort the command line still carries",
@@ -253,7 +297,7 @@ func runNativeModelChecks() {
     var consumedFollow = FollowState(launchArgs: ["--model", "fable"])
     check("the first adoption is served",
           adoptNativeModelChoice(state: &consumed, follow: &consumedFollow, watcher: typed,
-                                 primaryModel: "fable", launchArgs: ["--model", "fable"])
+                                 primaryModel: "fable", launchArgs: ["--model", "fable"], log: testAuditLog)
               && consumed.servedModelCommandAt == launch.addingTimeInterval(30))
     // Now a REAL degradation, on the same child: the serving model moves again, and no new /model
     // was typed. This is the rescue's case and it must stay the rescue's case.
@@ -262,7 +306,7 @@ func runNativeModelChecks() {
     check("a later degradation under the SAME /model is not adopted as a second choice",
           !adoptNativeModelChoice(state: &consumed, follow: &consumedFollow,
                                   watcher: laterDegradation, primaryModel: "claude-opus-4-8",
-                                  launchArgs: ["--model", "fable"]))
+                                  launchArgs: ["--model", "fable"], log: testAuditLog))
     check("…so the pin still names what the user actually chose",
           consumed.pin.model == "claude-opus-4-8")
     // A genuinely new /model is a new instruction, and is adopted.
@@ -271,7 +315,7 @@ func runNativeModelChecks() {
         + [servedLine("claude-haiku-4-5", at: 120)])
     check("a NEWER /model is a new instruction",
           adoptNativeModelChoice(state: &consumed, follow: &consumedFollow, watcher: typedAgain,
-                                 primaryModel: "claude-opus-4-8", launchArgs: ["--model", "fable"])
+                                 primaryModel: "claude-opus-4-8", launchArgs: ["--model", "fable"], log: testAuditLog)
               && consumed.pin.model == "claude-haiku-4-5")
 
     // A /model that re-picked what was already running changed nothing, but it WAS served, and the
@@ -284,14 +328,14 @@ func runNativeModelChecks() {
         + [servedLine("claude-fable-5", at: 60)])
     check("re-picking the model already running adopts nothing",
           !adoptNativeModelChoice(state: &noop, follow: &noopFollow, watcher: repicked,
-                                  primaryModel: "fable", launchArgs: ["--model", "fable"]))
+                                  primaryModel: "fable", launchArgs: ["--model", "fable"], log: testAuditLog))
     check("…but the event is still consumed, because it was still served",
           noop.servedModelCommandAt == launch.addingTimeInterval(30))
     let fallbackAfterNoop = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
         + [servedLine("claude-fable-5", at: 60), servedLine("claude-haiku-4-5", at: 90)])
     check("…so a real fallback after it is left to the rescue, not read as that choice",
           !adoptNativeModelChoice(state: &noop, follow: &noopFollow, watcher: fallbackAfterNoop,
-                                  primaryModel: "fable", launchArgs: ["--model", "fable"])
+                                  primaryModel: "fable", launchArgs: ["--model", "fable"], log: testAuditLog)
               && !noop.isPinned)
 
     // MARK: - 35c3. Keeping the model and moving only the depth
@@ -306,20 +350,20 @@ func runNativeModelChecks() {
     check("a /model that kept the model but moved the depth is still adopted",
           adoptNativeModelChoice(state: &depth, follow: &depthFollow, watcher: depthOnly,
                                  primaryModel: "fable",
-                                 launchArgs: ["--model", "fable", "--effort", "high"]))
+                                 launchArgs: ["--model", "fable", "--effort", "high"], log: testAuditLog))
     check("…pinning the effort, and leaving the model alone because it did not move",
           depth.pin == SessionModelPin(model: nil, effort: "xhigh"))
     check("…and it is consumed once, so the same event cannot be adopted again",
           !adoptNativeModelChoice(state: &depth, follow: &depthFollow, watcher: depthOnly,
                                   primaryModel: "fable",
-                                  launchArgs: ["--model", "fable", "--effort", "high"]))
+                                  launchArgs: ["--model", "fable", "--effort", "high"], log: testAuditLog))
     // Choosing the depth already running is not a change either.
     var sameDepth = freshState()
     var sameDepthFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "xhigh"])
     check("choosing the depth already running adopts nothing",
           !adoptNativeModelChoice(state: &sameDepth, follow: &sameDepthFollow, watcher: depthOnly,
                                   primaryModel: "fable",
-                                  launchArgs: ["--model", "fable", "--effort", "xhigh"]))
+                                  launchArgs: ["--model", "fable", "--effort", "xhigh"], log: testAuditLog))
 
     // MARK: - 35d. What the rest of the tick then believes
 
@@ -357,7 +401,7 @@ func runNativeModelChecks() {
                            launchArgs: ["--model", "fable"], primaryModel: &tickPrimary,
                            quarantine: [:], watcher: &tickWatcher, childAge: 600,
                            keyboardIdle: { _ in true }, modelRequest: { _ in nil },
-                           switchRequest: { _ in nil })
+                           switchRequest: { _ in nil }, log: testAuditLog)
     check("the tick adopts the choice", replanState.pin.model == "claude-opus-4-8")
     check("…and plans NO relaunch for it: the session already serves that model",
           plan == nil && modelRecord == nil)
@@ -422,7 +466,7 @@ func runNativeModelChecks() {
     var untouchedFollow = FollowState(launchArgs: ["--model", "fable"])
     check("a serving model nobody asked for is not adopted",
           !adoptNativeModelChoice(state: &untouched, follow: &untouchedFollow, watcher: degraded,
-                                  primaryModel: "fable", launchArgs: ["--model", "fable"]))
+                                  primaryModel: "fable", launchArgs: ["--model", "fable"], log: testAuditLog))
     check("…so the session is still understood to run what it was launched with",
           !untouched.isPinned
               && sessionPrimaryModel(pin: untouched.pin, launchArgs: ["--model", "fable"],

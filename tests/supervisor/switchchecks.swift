@@ -470,8 +470,18 @@ func runSwitchChecks() {
     // launch any notice under this pid belongs to a dead session, and the sweep removes it).
     let loopSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     check("the supervisor source is readable from the switch checks", !loopSource.isEmpty)
-    check("a supervisor that took over a running session adopts the notice it left behind",
-          loopSource.contains("if resumed { manualMoves.adoptCancellation(readPendingNotice("))
+    check("a supervisor that took over a running session adopts the notice it left behind", {
+        guard let start = loopSource.range(of: "if resumed {"),
+              let end = loopSource.range(of: "sweepDeadSupervisorState()",
+                                         range: start.upperBound ..< loopSource.endIndex)
+        else { return false }
+        let block = String(loopSource[start.upperBound ..< end.lowerBound])
+        // Both axes are offered the same read, and each takes only its own kind: the model axis has
+        // news of its own now (`adoptAdoption`, SessionModel.swift), and it was being dropped by the
+        // upgrade exactly as this one was (review, 2026-08-07).
+        return block.contains("readPendingNotice(") && block.contains("adoptCancellation(")
+            && block.contains("adoptAdoption(")
+    }())
     // The upgrade this has to survive FIRST is out of the build that shipped the notice without the
     // `kind` field (0.38.0 → 0.38.1): those files carry no kind at all, and the structural test
     // alone would refuse them - unlinking, on the very next sync, exactly the notice being kept.

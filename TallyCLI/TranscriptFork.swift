@@ -166,7 +166,7 @@ extension TranscriptWatcher {
             if !forkAmbiguityWarned {
                 // To the log, not the terminal: this is a scan result in the middle of a tick that
                 // relaunches nothing, and the child is drawing (PendingNotice.swift's rule).
-                appendHandoffLine(forkAmbiguityLine(boundID: boundID))
+                appendHandoffLine(forkAmbiguityLine(boundID: boundID), to: auditLog)
                 forkAmbiguityWarned = true
             }
             return

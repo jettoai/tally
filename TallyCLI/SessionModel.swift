@@ -64,7 +64,8 @@ func sessionPrimaryModel(pin: SessionModelPin, launchArgs: [String], providerID:
 @discardableResult
 func adoptNativeModelChoice(state: inout SessionModelState, follow: inout FollowState,
                             watcher: TranscriptWatcher, primaryModel: String?,
-                            launchArgs: [String], now: Date = Date()) -> Bool {
+                            launchArgs: [String], now: Date = Date(),
+                            log: URL = handoffLog) -> Bool {
     guard let commandAt = watcher.lastModelCommandAt,
           // ONE EVENT, ONE ADOPTION. The marker lives as long as the child, so without this the
           // condition below stays true for every later disagreement - a real quota fallback
@@ -107,14 +108,22 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
     // pair: the status line renders what the session runs already. What the user cannot see anywhere
     // else is that this is a PIN rather than a degradation, and how to undo it - which is what the
     // badge names and the detail spells out.
+    // Stamped with its kind so the image on the other side of a self-update can recognise it: the
+    // exec keeps the pid and starts this state from nothing, so a notice raised moments earlier
+    // lives only in `<pid>.notice` and the new process's first honest "nothing is pending" would
+    // unlink it - the badge gone before the user ever looked (review, 2026-08-07). Same shape, same
+    // reason, as the cancelled switch one axis over (`adoptCancellation`).
     state.adopted = PendingBadge("/model pinned", detail: "adopted what you chose with `/model` as "
         + "this session's pin: it runs \(pinned) until `tally model auto` releases it, and is no "
-        + "longer read as a degradation")
-    state.adoptedAt = now
+        + "longer read as a degradation", kind: modelAdoptionNoticeKind)
+    // Stamped with the event that CONFIRMED the choice, never with the poll that noticed it. The
+    // expiry asks whether the user has typed since; a poll timestamp is later than the prompt they
+    // have already sent, so the badge outlived the turn it belonged to by one (review, 2026-08-07).
+    state.adoptedAt = observedAt
     // And a durable line, because the badge is gone the moment the user types: without it the one
     // event that changes what a session runs without restarting it would leave no trace at all.
     logSessionModelAdoption(pair: pinned, sessionID: watcher.file?.deletingPathExtension()
-        .lastPathComponent, now: now)
+        .lastPathComponent, now: now, log: log)
     return true
 }
 
@@ -128,8 +137,9 @@ func sessionModelAdoptionLine(pair: String, sessionID: String?, now: Date) -> St
         + "pair=\(pair) source=/model\n"
 }
 
-func logSessionModelAdoption(pair: String, sessionID: String?, now: Date) {
-    appendHandoffLine(sessionModelAdoptionLine(pair: pair, sessionID: sessionID, now: now))
+func logSessionModelAdoption(pair: String, sessionID: String?, now: Date,
+                             log: URL = handoffLog) {
+    appendHandoffLine(sessionModelAdoptionLine(pair: pair, sessionID: sessionID, now: now), to: log)
 }
 
 /// One poll tick's handling of a `tally model` request. Deliberate, so no fuse - the user asked for

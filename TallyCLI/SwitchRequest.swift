@@ -153,15 +153,33 @@ func supervisorChildFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 /// Best-effort like everything else on this track: failing to write it costs the fallback witnesses,
 /// never the session.
 func writeSupervisorChild(_ child: pid_t, pid: String, dir: URL = supervisorStateDir) {
+    let file = supervisorChildFile(pid: pid, dir: dir)
+    // TAKEN AWAY FIRST, and the order is the guard. A publish that fails at a relaunch (a full
+    // disk, a permission that changed under us) used to leave the PREVIOUS child's pid in place,
+    // and a stale pid here is worse than no pid at all: it reads as a confident "not this session",
+    // which removes the only real candidate and skips the fallbacks with it - so every `/tally-*`
+    // in that session fails until it restarts (codex review of bc606c4). Removing first turns that
+    // failure into an ABSENT file, which every witness reads as "cannot say" and passes on.
+    try? FileManager.default.removeItem(at: file)
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    try? String(child).write(to: supervisorChildFile(pid: pid, dir: dir), atomically: true,
-                             encoding: .utf8)
+    try? String(child).write(to: file, atomically: true, encoding: .utf8)
 }
 
+/// The Claude Code that supervisor is running, or nil when there is no answer to be had.
+///
+/// A DEAD PID IS NO ANSWER. The removal above cannot cover every way a publish fails - a directory
+/// that has become unwritable defeats both halves of it - so the reading refuses one more thing:
+/// a pid nothing is running. The child a relaunch replaced was terminated before the new one was
+/// spawned, so a stale value names a process that has exited, and treating it as a denial is
+/// exactly the failure the removal exists to prevent. Together they leave one residue, stated
+/// rather than hidden: a stale pid the OS has since REUSED reads as live. That window is bounded by
+/// the same sweep every document on this track relies on.
 func readSupervisorChild(pid: String, dir: URL = supervisorStateDir) -> Int? {
     guard let raw = try? String(contentsOf: supervisorChildFile(pid: pid, dir: dir),
-                                encoding: .utf8) else { return nil }
-    return Int(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+                                encoding: .utf8),
+          let child = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+          let running = pid_t(exactly: child), supervisorAlive(running) else { return nil }
+    return child
 }
 
 func readSupervisorCwd(pid: String, dir: URL = supervisorStateDir) -> String? {

@@ -239,16 +239,79 @@ func runSessionContextChecks() {
     // (codex review of 49dcdcd).
     let fresh = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-child-witness-\(UUID().uuidString)")
-    writeSupervisorChild(4242, pid: "5150", dir: fresh)
+    // Live pids throughout, because the reading refuses a dead one (see below): this process and
+    // the one that started it are both running for as long as this suite is.
+    let liveChild = getpid()
+    writeSupervisorChild(liveChild, pid: "5150", dir: fresh)
     check("the Claude Code a supervisor spawned is readable with no reading published at all",
-          readSupervisorChild(pid: "5150", dir: fresh) == 4242
+          readSupervisorChild(pid: "5150", dir: fresh) == Int(liveChild)
               && readSessionContext(pid: "5150", dir: fresh) == nil)
     // A relaunch spawns a new child, and the witness has to follow it or every later prompt is
     // matched against a process that has exited.
-    writeSupervisorChild(4343, pid: "5150", dir: fresh)
-    check("…and a relaunch replaces it", readSupervisorChild(pid: "5150", dir: fresh) == 4343)
+    writeSupervisorChild(getppid(), pid: "5150", dir: fresh)
+    check("…and a relaunch replaces it",
+          readSupervisorChild(pid: "5150", dir: fresh) == Int(getppid()))
     check("a supervisor that never published one answers nothing, not zero",
           readSupervisorChild(pid: "9999", dir: fresh) == nil)
+
+    // A PID NOTHING IS RUNNING IS NO ANSWER. A relaunch terminates the old child before spawning
+    // the new one, so a value left behind by a publish that failed names a process that has
+    // exited - and reading it as a fact makes the one real candidate look "provably not it",
+    // which removes it AND skips the fallbacks behind it (codex review of bc606c4).
+    let reaped = Process()
+    reaped.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+    try! reaped.run()
+    reaped.waitUntilExit()
+    writeSupervisorChild(reaped.processIdentifier, pid: "5151", dir: fresh)
+    check("a witness naming a process that has exited reads as no witness at all",
+          readSupervisorChild(pid: "5151", dir: fresh) == nil)
+    // …which is what lets the fallbacks behind it run: the candidate is SILENT rather than denied.
+    check("…so that candidate is carried on rather than ruled out",
+          sessionsRunning(9_999_999, among: ["5151"],
+                          published: { readSupervisorChild(pid: $0, dir: fresh) })
+              == WitnessReading(identified: false, candidates: ["5151"]))
+
+    // A RELAUNCH WHOSE PUBLISH CANNOT LAND, which is the case the whole guard is for. The directory
+    // is made unwritable, so neither half of the publish can happen and the previous child's pid
+    // stays on disk - and the session still has to keep working.
+    let jammed = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-child-jammed-\(UUID().uuidString)")
+    writeSupervisorChild(reaped.processIdentifier, pid: "5152", dir: jammed)
+    try! FileManager.default.setAttributes([.posixPermissions: 0o500],
+                                           ofItemAtPath: jammed.path)
+    writeSupervisorChild(liveChild, pid: "5152", dir: jammed)
+    check("a publish that cannot land leaves the old value on disk",
+          (try? String(contentsOf: supervisorChildFile(pid: "5152", dir: jammed), encoding: .utf8))?
+              .trimmingCharacters(in: .whitespacesAndNewlines)
+              == String(reaped.processIdentifier))
+    check("…which the reading refuses, because that child is gone",
+          readSupervisorChild(pid: "5152", dir: jammed) == nil)
+    check("…so the session is SILENT to this witness rather than denied by it",
+          sessionsRunning(liveChild, among: ["5152"],
+                          published: { readSupervisorChild(pid: $0, dir: jammed) })
+              == WitnessReading(identified: false, candidates: ["5152"]))
+    try! FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: jammed.path)
+    try? FileManager.default.removeItem(at: jammed)
+
+    // AND THE ORDER OF THE TWO HALVES, pinned by shape because it cannot be observed from here.
+    // `write(atomically:)` renames a temporary over the destination, so ANY failure of the write
+    // leaves the old file exactly where it was; removing first turns that into an absent file. The
+    // failures that reach it (a full disk, a quota, an I/O error) are not ones this suite can
+    // produce, and the reading's liveness check above covers the same ground for every stale value
+    // whose child has exited - so this is the belt rather than the braces, and it is locked here
+    // rather than claimed in a comment.
+    let requestSource = (try? String(contentsOfFile: "TallyCLI/SwitchRequest.swift",
+                                     encoding: .utf8)) ?? ""
+    // The whole function, comment block included, so the window cannot fall short of the two lines
+    // being compared.
+    let publishBody = requestSource.range(of: "func writeSupervisorChild").map {
+        String(requestSource[$0.lowerBound...].prefix(1_400))
+    } ?? ""
+    check("the publish removes the previous value before it writes the new one",
+          publishBody.range(of: "removeItem").map { removal in
+              publishBody.range(of: "atomically", range: removal.upperBound ..< publishBody.endIndex)
+                  != nil
+          } == true)
     // On the swept track like every other document beside a supervisor, or a dead session's copy
     // outlives it and answers for a pid the OS has since handed to somebody else.
     check("the witness is swept with the rest of a dead supervisor's state",

@@ -128,8 +128,22 @@ extension IntegrationsStore {
     /// which is precisely the case this feature exists for.
     static func watchedSettingsDirectories(manifest url: URL = manifestURL) -> [URL] {
         var seen = Set<String>()
-        return promptCommands
-            .flatMap { manifestPaths($0.hookManifest, manifest: url) }
+        // THE SERVER'S OWN FILE JOINS THE HOOKS'. A registration lives in two places now, and only
+        // one of them was watched: the hooks are in `<home>/settings.json` while the MCP server is
+        // in that home's `.claude.json` - which for the DEFAULT account is one level up, in the
+        // user's home directory, so nothing was watching it at all. That account fell back to a
+        // text listing (or a model turn) until the next launch, silently, while every numbered
+        // account healed within seconds (codex review of 512303b).
+        //
+        // MEASURED BEFORE ADDING IT, because the directory it brings in is the busiest one on the
+        // machine (2026-08-07, this repo's scratchpad): at directory granularity `$HOME` woke 2 of
+        // 12 debounce windows over 24 seconds, and the only thing moving in it was `.claude.json`
+        // itself. One heal check reads and parses every home's state document - 657 KB across six
+        // of them here - and takes 3 ms, so the continuous cost is 0.02% of a core. It is also not
+        // a new CLASS of noise: `~/.claude/.claude.json` is inside a directory this watcher has
+        // always watched, and its writes have always woken it.
+        return (promptCommands.flatMap { manifestPaths($0.hookManifest, manifest: url) }
+            + manifestPaths(mcpServerManifest, manifest: url))
             // BOTH PARENTS, because the file can be written in two different places and only one
             // of them is where it lives. The manifest records the path a registration was made
             // THROUGH, which on a shared setup is a symlink (`~/.claude2/settings.json` pointing at

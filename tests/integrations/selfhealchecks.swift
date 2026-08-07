@@ -107,6 +107,29 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
           IntegrationsStore.watchedSettingsDirectories(
             manifest: tmp.appendingPathComponent("heal-absent.json")).isEmpty)
 
+    // THE SERVER'S OWN FILE IS WATCHED TOO, and the default account is the reason. A registration
+    // lives in two documents: the hooks in `<home>/settings.json`, and the MCP server in that
+    // home's `.claude.json` - which for `~/.claude` is one level UP, in the user's home directory.
+    // Deriving the watch set from the hook manifest alone left that file unwatched, so the default
+    // account fell back to a text listing until the next launch while every numbered account
+    // healed within seconds (codex review of 512303b).
+    let bothHalves = tmp.appendingPathComponent("heal-manifest-mcp.json")
+    try JSONSerialization.data(withJSONObject: [
+        "claudeSwitchHook": ["paths": ["/Users/u/.claude/settings.json"]],
+        "claudeMCPServer": ["paths": ["/Users/u/.claude.json", "/Users/u/.claude2/.claude.json"]],
+    ]).write(to: bothHalves)
+    let watchedBoth = Set(IntegrationsStore.watchedSettingsDirectories(manifest: bothHalves)
+        .map(\.path))
+    check("the directory holding the default account's state file is watched",
+          watchedBoth.contains("/Users/u"))
+    check("…as is a numbered account's, which is its own config home",
+          watchedBoth.contains("/Users/u/.claude2"))
+    check("…and the hook half is still watched beside them",
+          watchedBoth.contains("/Users/u/.claude"))
+    check("a machine with no server registered watches exactly what it always did",
+          Set(IntegrationsStore.watchedSettingsDirectories(manifest: manifest).map(\.path))
+              == Set(["/Users/u/.claude", "/Users/u/.claude2"]))
+
     // MARK: - The manifest path is the one it was REGISTERED THROUGH, not where the file lives
 
     // On a shared setup one physical settings.json stands behind several homes by symlink, and the

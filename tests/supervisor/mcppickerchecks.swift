@@ -321,25 +321,71 @@ func runMCPAddressingChecks() {
     check("a marker still outranks the directory, which is what the typed surfaces need",
           sessionLookup(envPid: "9", here: ["4242"]) == .session("9"))
 
-    // THE CORROBORATION RULE ITSELF, which is now the one answer every second-hand surface uses.
+    // THE CONVERSATION WITNESS, which is what corroboration alone could not supply.
+    //
+    // Corroboration asks "is that marker's supervisor running here", and in the nested case the
+    // answer is yes: a `claude` started from inside another supervised session in the SAME
+    // directory inherits a marker the directory happily confirms, so the inner session's prompts
+    // were resolved onto the outer conversation (codex review of 512303b). Only an id that names
+    // the conversation itself can separate them.
+    let watching = ["outer": "conv-OUTER", "inner": "conv-INNER"]
+    check("a candidate watching exactly this conversation is it, and alone",
+          sessionsWatching("conv-INNER", among: ["outer", "inner"],
+                           published: { watching[$0] }) == ["inner"])
+    check("…a candidate watching a different conversation is provably not it, and is dropped",
+          sessionsWatching("conv-INNER", among: ["outer"], published: { watching[$0] }) == [])
+    // Silence means "cannot say", here as everywhere else on this track: a supervisor from a build
+    // before this field existed keeps its place in the queue rather than being disqualified.
+    check("…and a candidate publishing nothing is kept, so an older supervisor still works",
+          sessionsWatching("conv-INNER", among: ["outer", "quiet"],
+                           published: { watching[$0] }) == ["quiet"])
+    check("with no conversation id to compare, every candidate stands",
+          sessionsWatching(nil, among: ["outer", "inner"], published: { watching[$0] })
+              == ["outer", "inner"]
+              && sessionsWatching("", among: ["outer"], published: { watching[$0] }) == ["outer"])
+
+    // THE WHOLE RULE, composed: the nested case QA could not reach and codex found by reading.
+    let nested = SessionMarkerTrust.corroborated(marker: "outer", promptSession: "conv-INNER")
+    check("the inner session's prompt does not reach the outer conversation",
+          nested.resolve(here: ["outer"], published: { watching[$0] }) == SessionLookup.none)
+    check("…and where the inner session IS supervised, its own prompt finds it",
+          nested.resolve(here: ["outer", "inner"], published: { watching[$0] })
+              == .session("inner"))
+    // Corroboration still does its own job for everything the witness cannot answer.
+    let plain = SessionMarkerTrust.corroborated(marker: "7", promptSession: nil)
     check("a marker the directory confirms names the session, even among several",
-          SessionMarkerTrust.corroborated("7").resolve(here: ["7", "8"]) == .session("7"))
+          plain.resolve(here: ["7", "8"], published: { _ in nil }) == .session("7"))
     check("…a marker the directory has never heard of is DROPPED, not argued with",
-          SessionMarkerTrust.corroborated("9").resolve(here: ["7"]) == .session("7"))
+          SessionMarkerTrust.corroborated(marker: "9", promptSession: nil)
+              .resolve(here: ["7"], published: { _ in nil }) == .session("7"))
     check("…and dropping it leaves the directory's own answer, refusals included",
-          SessionMarkerTrust.corroborated("9").resolve(here: []) == SessionLookup.none
-              && SessionMarkerTrust.corroborated("9").resolve(here: ["7", "8"])
-                  == .ambiguous(["7", "8"]))
+          SessionMarkerTrust.corroborated(marker: "9", promptSession: nil)
+              .resolve(here: [], published: { _ in nil }) == SessionLookup.none
+              && SessionMarkerTrust.corroborated(marker: "9", promptSession: nil)
+                  .resolve(here: ["7", "8"], published: { _ in nil }) == .ambiguous(["7", "8"]))
     check("no marker at all is the same directory-only answer",
-          SessionMarkerTrust.corroborated(nil).resolve(here: ["7"]) == .session("7")
-              && SessionMarkerTrust.corroborated(nil).resolve(here: []) == SessionLookup.none)
+          SessionMarkerTrust.corroborated(marker: nil, promptSession: nil)
+              .resolve(here: ["7"], published: { _ in nil }) == .session("7"))
     // The other half of the pair, unchanged and deliberately so: a person's shell DESCENDS from the
-    // session, so its marker is good even from a subdirectory the supervisor never published.
+    // session, so its marker is good even from a subdirectory the supervisor never published, and
+    // no witness is asked for.
     check("a trusted marker still needs no corroboration, which is what typed commands rely on",
-          SessionMarkerTrust.trusted("9").resolve(here: []) == .session("9"))
+          SessionMarkerTrust.trusted("9").resolve(here: [], published: { _ in "anything" })
+              == .session("9"))
     check("…and its value is readable whether or not a resolution used it",
-          SessionMarkerTrust.corroborated("9").value == "9"
+          SessionMarkerTrust.corroborated(marker: "9", promptSession: nil).value == "9"
               && SessionMarkerTrust.trusted(nil).value == nil)
+
+    // The witness is PUBLISHED from the transcript the supervisor is tailing, and follows a
+    // `/clear` because it is derived rather than remembered.
+    var tailing = TranscriptWatcher(projectDir: URL(fileURLWithPath: "/tmp"),
+                                    file: URL(fileURLWithPath: "/t/conv-A.jsonl"), since: Date())
+    check("the published witness is the transcript's own name, which is the session id",
+          tailing.transcriptSessionID == "conv-A")
+    tailing.file = URL(fileURLWithPath: "/t/conv-B.jsonl")
+    check("…and it moves when the conversation does", tailing.transcriptSessionID == "conv-B")
+    tailing.file = nil
+    check("…and is absent before one is bound", tailing.transcriptSessionID == nil)
 
     // THE DISAMBIGUATION THE FIRST FIX GAVE AWAY, bought back: two sessions in one directory, and
     // the corroborated marker names the one that is asking. A directory-only rule can only refuse
@@ -357,17 +403,48 @@ func runMCPAddressingChecks() {
     }
     check("two supervisors really do share that directory",
           supervisorsInDirectory(shared.path, dir: twoDir).count == 2)
+    // Neither supervisor here publishes a conversation (nothing wrote a `.session` file into this
+    // temporary state directory), so this is the older-supervisor path: no witness, corroboration
+    // alone, and the marker still names the session that is asking.
     check("a corroborated marker picks the session that is asking",
           currentSessionLookup(cwd: shared.path, dir: twoDir,
-                               marker: .corroborated(mine))?.key == mine)
+                               marker: .corroborated(marker: mine, promptSession: nil))?.key
+              == mine)
     check("…and knows it is that session, so the reading describes it",
           currentSessionLookup(cwd: shared.path, dir: twoDir,
-                               marker: .corroborated(mine))?.isThisSession == true)
+                               marker: .corroborated(marker: mine,
+                                                     promptSession: nil))?.isThisSession == true)
     // The leak, in the same directory shape: a marker from a session that is NOT here is dropped,
     // and what is left is ambiguous rather than a confident answer about the wrong conversation.
     check("a marker from somewhere else is dropped, leaving the honest refusal",
-          currentSessionLookup(cwd: shared.path, dir: twoDir, marker: .corroborated("424242"))
-              == nil)
+          currentSessionLookup(cwd: shared.path, dir: twoDir,
+                               marker: .corroborated(marker: "424242", promptSession: nil)) == nil)
+    // THE NESTED CASE, end to end through the real reader: both supervisors publish, and the one
+    // watching another conversation is ruled out even though the marker names it and the directory
+    // confirms it. This is the shape codex found and QA could not reach without a second Claude
+    // Code; a published `.session` file is all it takes to assert.
+    writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 1_000,
+                                          updatedAt: Date(), sessionPin: nil,
+                                          axes: SessionAxes(), transcript: "conv-OUTER"),
+                        pid: theirs, dir: twoDir)
+    writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 1_000,
+                                          updatedAt: Date(), sessionPin: nil,
+                                          axes: SessionAxes(), transcript: "conv-INNER"),
+                        pid: mine, dir: twoDir)
+    check("the published witness round-trips through the file",
+          readSessionContext(pid: mine, dir: twoDir)?.transcriptSessionID == "conv-INNER")
+    check("an inner session's prompt is not answered by the outer session it was launched from",
+          currentSessionLookup(cwd: shared.path, dir: twoDir,
+                               marker: .corroborated(marker: theirs,
+                                                     promptSession: "conv-INNER"))?.key == mine)
+    check("…and the outer session's own prompt still finds the outer session",
+          currentSessionLookup(cwd: shared.path, dir: twoDir,
+                               marker: .corroborated(marker: theirs,
+                                                     promptSession: "conv-OUTER"))?.key == theirs)
+    check("…while a conversation neither of them is watching is refused outright",
+          currentSessionLookup(cwd: shared.path, dir: twoDir,
+                               marker: .corroborated(marker: theirs,
+                                                     promptSession: "conv-GONE")) == nil)
     try? FileManager.default.removeItem(at: twoDir)
     try? FileManager.default.removeItem(at: shared)
 
@@ -386,13 +463,19 @@ func runMCPAddressingChecks() {
                   == FileManager.default.currentDirectoryPath)
     check("…and an unreadable payload is not a crash either", hookCommandCwd("not json") == nil)
     check("a hook never takes its marker on trust, whatever the payload says",
-          promptHookSession(payload).marker == .corroborated(liveSessionMarker()))
+          promptHookSession(payload).marker
+              == .corroborated(marker: liveSessionMarker(), promptSession: "fabricated"))
+    check("…and it carries the conversation the prompt came from, which is the witness",
+          hookCommandSessionID(payload) == "fabricated"
+              && hookCommandSessionID(#"{"command_args":"","session_id":""}"#) == nil)
     // The reading itself, against a directory nothing supervises and a marker that names a live
     // process which is not a supervisor of it. Read-only: this is the listing branch.
     let lonely = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-hook-lonely-\(UUID().uuidString)")
     try? FileManager.default.createDirectory(at: lonely, withIntermediateDirectories: true)
-    let stranded = liveModelStatus(cwd: lonely.path, marker: .corroborated(String(getpid())))
+    let stranded = liveModelStatus(
+        cwd: lonely.path,
+        marker: .corroborated(marker: String(getpid()), promptSession: "fabricated"))
     check("a prompt from a directory nothing supervises reads as nothing published",
           stranded.running == nil && stranded.observedModel == nil)
     check("…and says so, rather than describing the session whose marker leaked in",
@@ -411,11 +494,11 @@ func runMCPAddressingChecks() {
     // suite does not write there.
     let picker = (try? String(contentsOfFile: "TallyCLI/MCPPicker.swift", encoding: .utf8)) ?? ""
     check("the addressing lock reads the file it is about", picker.contains("struct MCPPickerWorld"))
-    for wiring in ["liveModelStatus(cwd: $0, marker: .corroborated(liveSessionMarker()))",
-                   "attemptModel($0, cwd: $1, marker: .corroborated(liveSessionMarker()))",
-                   "liveSwitchFleetRows(cwd: $0, marker: .corroborated(liveSessionMarker()))",
-                   "attemptSwitch($0, cwd: $1, marker: .corroborated(liveSessionMarker()))"] {
-        check("the picker corroborates before it believes a marker: \(wiring)",
+    for wiring in ["liveModelStatus(cwd: $0.sessionDirectory, marker: $0.sessionMarker)",
+                   "attemptModel($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)",
+                   "liveSwitchFleetRows(cwd: $0.sessionDirectory, marker: $0.sessionMarker)",
+                   "attemptSwitch($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)"] {
+        check("the picker addresses the session the HOOK described: \(wiring)",
               picker.contains(wiring))
     }
     // …and the other direction, which a fifth wiring would trip: nothing on this path may take a
@@ -438,7 +521,7 @@ func runMCPTransportChecks() {
         ["jsonrpc": "2.0", "id": 3, "method": "tools/call",
          "params": ["name": "pick_model",
                     "arguments": ["command_name": "tally-model", "command_args": "",
-                                  "cwd": "/tmp/work"]]],
+                                  "cwd": "/tmp/work", "session_id": "conv-7"]]],
         // THE STRUCTURAL RULE, on the wire: the client keeps talking while the dialog is open. A
         // server that read only for its own reply would leave this unanswered and both sides would
         // wait for each other with a picker on screen.
@@ -449,9 +532,12 @@ func runMCPTransportChecks() {
     var applied: [ModelIntent] = []
     var world = MCPPickerWorld()
     world.modelStatus = { _ in ModelStatus() }
-    world.applyModel = { intent, cwd in
+    world.applyModel = { intent, input in
         applied.append(intent)
-        return ModelAttempt(result: .queued, message: "queued in \(cwd)")
+        // The whole hook input reaches the write, not just its directory: the conversation id
+        // travels with it, which is what the addressing rule needs (SessionMarkerTrust).
+        return ModelAttempt(result: .queued,
+                            message: "queued in \(input.sessionDirectory) for \(input.sessionID)")
     }
     MCPServer(connection: script.connection, world: world).serve()
 
@@ -479,7 +565,7 @@ func runMCPTransportChecks() {
     let carried = (mcpDecisionText(answer ?? [:])?.data(using: .utf8))
         .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: String]
     check("the tool call is answered with a hook decision",
-          carried == ["decision": "block", "reason": "queued in /tmp/work"])
+          carried == ["decision": "block", "reason": "queued in /tmp/work for conv-7"])
     check("…and the whole conversation is one line per message",
           script.outbox.allSatisfy { !$0.contains("\n") })
 

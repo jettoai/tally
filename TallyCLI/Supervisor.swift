@@ -418,8 +418,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // command line asked for.
             let axes = publishedSessionAxes(pin: sessionModelState.pin, launchArgs: launchArgs,
                                             observed: watcher.lastModel)
+            // The conversation this supervisor is watching, from the file the tick just tailed:
+            // the witness that lets a prompt hook tell this session from another one running in
+            // the same directory (SessionContext.swift). Read here rather than remembered, so a
+            // `/clear` or a fork republishes the new transcript with everything else.
             sessionContext.sync(tokens: watcher.lastContextTokens, accountID: account.id,
-                                pin: manualMoves.sessionPin, axes: axes, pid: supervisorPID)
+                                pin: manualMoves.sessionPin, axes: axes,
+                                transcript: watcher.transcriptSessionID, pid: supervisorPID)
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID,
@@ -484,7 +489,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 let nextAxes = publishedSessionAxes(pin: sessionModelState.pin,
                                                     launchArgs: launchArgs, observed: nil)
                 sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
-                                              axes: nextAxes, pid: supervisorPID)
+                                              axes: nextAxes,
+                                              transcript: watcher.transcriptSessionID,
+                                              pid: supervisorPID)
                 // Last, so an exec that fails falls through to the respawn below with this plan
                 // fully applied: a failed upgrade can cost the new build, never the account switch.
                 execPlannedSelfUpdate(upgrade, attempted: &selfUpdateAttempted, target: plan.target,

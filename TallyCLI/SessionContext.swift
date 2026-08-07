@@ -132,6 +132,23 @@ struct SupervisedSession: Equatable, Codable {
     /// with nil, which reads as "cannot say" rather than as "running nothing".
     var runningModel: String?
     var runningEffort: String?
+    /// Claude Code's own id for the conversation this supervisor is watching: the stem of the
+    /// transcript file it is tailing, which IS that id (measured 2026-08-07: a hook's `session_id`
+    /// and the basename of its `transcript_path` are the same string).
+    ///
+    /// THE ONLY WITNESS THAT BINDS A PROMPT TO A SESSION. Everything else a second-hand caller
+    /// holds is circumstantial: the environment marker is inherited by every descendant, and the
+    /// working directory is shared by every session opened in a project. Neither separates a
+    /// `claude` launched from INSIDE another supervised session in the same directory, where the
+    /// inner session's prompts were resolved onto the outer conversation (codex review of 512303b).
+    /// This does: the hook says which conversation its prompt came from, and this says which one
+    /// each candidate supervisor is actually watching.
+    ///
+    /// Additive on the same terms as the pair above: nil from a supervisor too old to publish it,
+    /// which the resolution reads as "no witness" rather than as "not this one"
+    /// (SwitchRequest.swift). It follows a `/clear` and a fork, because it is republished from the
+    /// watcher's CURRENT file whenever anything here moves.
+    var transcriptSessionID: String?
 }
 
 /// The four axis readings one publish carries. Grouped so the writer's two entry points take one
@@ -148,20 +165,27 @@ struct SessionAxes: Equatable {
 }
 
 extension SupervisedSession {
-    /// This reading already describes those axes, so nothing has to be rewritten for them.
-    func matches(_ axes: SessionAxes) -> Bool {
+    /// This reading already describes those axes and that conversation, so nothing has to be
+    /// rewritten. The transcript id JOINS the comparison rather than riding along: a `/clear`
+    /// starts a new conversation inside the same session, and a reading that kept the old id would
+    /// name a transcript this supervisor is no longer watching - which is exactly the witness
+    /// another session's prompt would then be matched against.
+    func matches(_ axes: SessionAxes, transcript: String?) -> Bool {
         sessionModel == axes.pinnedModel && sessionEffort == axes.pinnedEffort
             && observedModel == axes.observedModel
             && runningModel == axes.runningModel && runningEffort == axes.runningEffort
+            && transcriptSessionID == transcript
     }
 
-    /// The four axis fields, spelled once, so a new publish cannot fill three of them.
+    /// The axis fields and the conversation id, spelled once, so a new publish cannot fill three of
+    /// them.
     init(accountID: String, contextTokens: Int, updatedAt: Date, sessionPin: String?,
-         axes: SessionAxes) {
+         axes: SessionAxes, transcript: String?) {
         self.init(accountID: accountID, contextTokens: contextTokens, updatedAt: updatedAt,
                   sessionPin: sessionPin, sessionModel: axes.pinnedModel,
                   sessionEffort: axes.pinnedEffort, observedModel: axes.observedModel,
-                  runningModel: axes.runningModel, runningEffort: axes.runningEffort)
+                  runningModel: axes.runningModel, runningEffort: axes.runningEffort,
+                  transcriptSessionID: transcript)
     }
 }
 
@@ -223,12 +247,13 @@ struct SessionContextWriter {
     /// has no file, and inventing one with a token count nobody measured would be worse than the
     /// silence the reader already handles.
     mutating func accountChanged(to accountID: String, pin: String?,
-                                 axes: SessionAxes = SessionAxes(), pid: String,
-                                 dir: URL = supervisorStateDir, now: Date = Date()) {
+                                 axes: SessionAxes = SessionAxes(), transcript: String? = nil,
+                                 pid: String, dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let current, current.accountID != accountID || current.sessionPin != pin
-            || !current.matches(axes) else { return }
+            || !current.matches(axes, transcript: transcript) else { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: current.contextTokens,
-                                  updatedAt: now, sessionPin: pin, axes: axes), pid: pid, dir: dir)
+                                  updatedAt: now, sessionPin: pin, axes: axes,
+                                  transcript: transcript), pid: pid, dir: dir)
     }
 
     /// The pin joins the account as a reason to write even when the number has not moved: it
@@ -237,14 +262,15 @@ struct SessionContextWriter {
     /// The axes join it on identical terms - `tally model --auto` also moves nothing, and a quota
     /// fallback changes what is RUNNING without changing anything the user asked for.
     mutating func sync(tokens: Int?, accountID: String, pin: String?,
-                       axes: SessionAxes = SessionAxes(), pid: String,
+                       axes: SessionAxes = SessionAxes(), transcript: String? = nil, pid: String,
                        dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let tokens else { return }   // nothing read yet: leave whatever stands
         if let current, current.accountID == accountID, current.sessionPin == pin,
-           current.matches(axes),
+           current.matches(axes, transcript: transcript),
            abs(current.contextTokens - tokens) < sessionContextWriteDelta { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: tokens, updatedAt: now,
-                                  sessionPin: pin, axes: axes), pid: pid, dir: dir)
+                                  sessionPin: pin, axes: axes, transcript: transcript),
+                pid: pid, dir: dir)
     }
 
     /// The one way either of the above reaches the file, so the in-memory copy both of them judge

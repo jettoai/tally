@@ -61,6 +61,18 @@ struct MCPHookInput: Equatable {
     /// The typed line split the way the command-type hook splits it: on whitespace, for a command
     /// whose two values cannot contain any (`hookModelAction`, ModelHook.swift).
     var words: [String] { commandArgs.split(whereSeparator: \.isWhitespace).map(String.init) }
+
+    /// How far this server may trust what it holds about which session asked.
+    ///
+    /// NEVER OUTRIGHT. This process is a long-lived child of Claude Code, which inherited its own
+    /// environment from whatever launched it, so the marker can name a conversation this prompt has
+    /// nothing to do with. `.corroborated` weighs it against the directory the hook reported AND
+    /// against the conversation id it reported, which is the only pair that separates a session
+    /// nested inside another one in the same directory (SessionMarkerTrust, SwitchRequest.swift).
+    var sessionMarker: SessionMarkerTrust {
+        .corroborated(marker: liveSessionMarker(),
+                      promptSession: sessionID.isEmpty ? nil : sessionID)
+    }
 }
 
 // MARK: - The answer that goes back
@@ -118,23 +130,27 @@ typealias MCPAsk = (_ message: String, _ schema: [String: Any]) -> MCPPickReply
 /// IS this session's (the server is spawned by the very Claude Code the prompt was typed into), so
 /// the disambiguation is back and the leak is still closed.
 ///
-/// What remains refused: a directory nothing supervises, and several sessions in one directory with
-/// no marker to tell them apart. The second cannot be narrowed by the hook's `session_id` either,
-/// because nothing publishes a Claude Code session id to compare it against (`SupervisedSession`,
-/// SessionContext.swift, carries the account, the token count, the pinned pair and the observed
-/// model, and no conversation id). Narrowing it needs that field to exist first.
+/// The hook's `session_id` narrows what corroboration alone cannot: a `claude` launched from inside
+/// another supervised session IN THE SAME DIRECTORY inherits a marker the directory happily
+/// confirms, so the inner session's prompts were resolved onto the outer conversation (codex review
+/// of 512303b). Each supervisor publishes the conversation it is watching (`SupervisedSession`,
+/// SessionContext.swift), so a candidate watching a different one is ruled out outright - which is
+/// why the whole hook input travels to each of the four rather than only its directory.
+///
+/// What remains refused: a directory nothing supervises, and several sessions in one directory that
+/// no marker and no published conversation can tell apart.
 struct MCPPickerWorld {
-    var modelStatus: (String) -> ModelStatus = {
-        liveModelStatus(cwd: $0, marker: .corroborated(liveSessionMarker()))
+    var modelStatus: (MCPHookInput) -> ModelStatus = {
+        liveModelStatus(cwd: $0.sessionDirectory, marker: $0.sessionMarker)
     }
-    var applyModel: (ModelIntent, String) -> ModelAttempt = {
-        attemptModel($0, cwd: $1, marker: .corroborated(liveSessionMarker()))
+    var applyModel: (ModelIntent, MCPHookInput) -> ModelAttempt = {
+        attemptModel($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)
     }
-    var fleetRows: (String) -> (rows: [SwitchFleetRow]?, problem: String?) = {
-        liveSwitchFleetRows(cwd: $0, marker: .corroborated(liveSessionMarker()))
+    var fleetRows: (MCPHookInput) -> (rows: [SwitchFleetRow]?, problem: String?) = {
+        liveSwitchFleetRows(cwd: $0.sessionDirectory, marker: $0.sessionMarker)
     }
-    var applyAccount: (SwitchIntent, String) -> SwitchAttempt = {
-        attemptSwitch($0, cwd: $1, marker: .corroborated(liveSessionMarker()))
+    var applyAccount: (SwitchIntent, MCPHookInput) -> SwitchAttempt = {
+        attemptSwitch($0, cwd: $1.sessionDirectory, marker: $1.sessionMarker)
     }
 }
 
@@ -275,9 +291,8 @@ func mcpAccountOptions(_ rows: [SwitchFleetRow]) -> [MCPPickOption] {
 
 /// `pick_model`: queue what was named, or ask.
 func mcpPickModel(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> String {
-    let cwd = input.sessionDirectory
     func queue(_ intent: ModelIntent) -> String {
-        let attempt = world.applyModel(intent, cwd)
+        let attempt = world.applyModel(intent, input)
         return mcpBlockDecision(mcpAttemptText(attempt.message, notes: attempt.notes))
     }
     if !input.isBare {
@@ -288,7 +303,7 @@ func mcpPickModel(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> St
         }
         return queue(intent)
     }
-    let status = world.modelStatus(cwd)
+    let status = world.modelStatus(input)
     let schema = mcpModelSchema(models: mcpModelOptions(status), efforts: claudeEffortNames())
     guard case .accepted(let content) = ask(mcpModelPrompt(status), schema),
           let model = content[mcpModelField] else {
@@ -311,9 +326,8 @@ func mcpPickModel(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> St
 
 /// `pick_account`: queue the move that was named, or ask.
 func mcpPickAccount(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> String {
-    let cwd = input.sessionDirectory
     func queue(_ intent: SwitchIntent) -> String {
-        let attempt = world.applyAccount(intent, cwd)
+        let attempt = world.applyAccount(intent, input)
         return mcpBlockDecision(mcpAttemptText(attempt.message, notes: attempt.notes))
     }
     if !input.isBare {
@@ -323,7 +337,7 @@ func mcpPickAccount(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> 
         let value = input.commandArgs.trimmingCharacters(in: .whitespacesAndNewlines)
         return queue(value == switchAutoRequest ? .auto : .pin(value))
     }
-    let (rows, problem) = world.fleetRows(cwd)
+    let (rows, problem) = world.fleetRows(input)
     // Nothing to choose from is not a dialog with no rows: the text listing already says which of
     // the two reasons it is (no snapshot at all, or no account signed in) and what to do about it.
     guard let rows, !rows.isEmpty else {

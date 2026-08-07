@@ -202,14 +202,21 @@ func sessionLookup(envPid: String?, here: [String]) -> SessionLookup {
 enum SessionMarkerTrust: Equatable {
     /// This process descends from the session, so the marker names it outright.
     case trusted(String?)
-    /// The marker arrived from somewhere that may not be this session: it counts only where the
-    /// directory agrees.
-    case corroborated(String?)
+    /// The marker arrived from somewhere that may not be this session at all. It counts only where
+    /// the directory agrees AND no candidate is provably another conversation.
+    ///
+    /// `promptSession` is Claude Code's own id for the conversation the prompt came from, which
+    /// every hook payload carries. It is what closes the case corroboration alone cannot: a
+    /// `claude` started from inside another supervised session IN THE SAME DIRECTORY inherits a
+    /// marker that the directory happily confirms, so the inner session's prompts were resolved
+    /// onto the outer conversation (codex review of 512303b). nil where a caller has no such id,
+    /// which falls back to corroboration exactly as before.
+    case corroborated(marker: String?, promptSession: String?)
 
     /// The marker itself, whether or not a resolution will end up using it.
     var value: String? {
         switch self {
-        case .trusted(let marker), .corroborated(let marker): return marker
+        case .trusted(let marker), .corroborated(let marker, _): return marker
         }
     }
 
@@ -223,21 +230,56 @@ enum SessionMarkerTrust: Equatable {
     }
 
     /// Which session this is, given every live supervisor in the directory the prompt came from.
-    /// Pure, so the three states of the corroborated case are asserted directly.
-    func resolve(here: [String]) -> SessionLookup {
+    ///
+    /// `published` answers "which conversation is that supervisor watching", and is injected so the
+    /// whole rule is assertable without a supervisor on the machine. The default reads the track
+    /// everything else on this path reads.
+    func resolve(here: [String],
+                 published: (String) -> String? = {
+                     readSessionContext(pid: $0)?.transcriptSessionID
+                 }) -> SessionLookup {
         switch self {
         case .trusted(let marker):
             return sessionLookup(envPid: marker, here: here)
-        case .corroborated(let marker):
-            // Not in the directory means it is somebody else's marker, and it is DROPPED rather
-            // than argued with: what is left is the same directory-only answer a shell outside
+        case .corroborated(let marker, let promptSession):
+            // The conversation witness FIRST, because it can rule a candidate out outright where
+            // the marker and the directory can only ever agree with each other.
+            let candidates = sessionsWatching(promptSession, among: here, published: published)
+            // Not in what is left means it is somebody else's marker, and it is DROPPED rather
+            // than argued with: what remains is the same directory-only answer a shell outside
             // every session gets, refusals included.
-            guard let marker, here.contains(marker) else {
-                return sessionLookup(envPid: nil, here: here)
+            guard let marker, candidates.contains(marker) else {
+                return sessionLookup(envPid: nil, here: candidates)
             }
             return .session(marker)
         }
     }
+}
+
+/// The supervisors in `here` that could be watching the conversation a prompt came from.
+///
+/// Three answers, and the third is the one that keeps this safe to ship:
+///
+///   - A candidate publishing EXACTLY that conversation is it, and nothing else can be: the answer
+///     is that one alone, which is also what disambiguates several sessions in one directory.
+///   - A candidate publishing a DIFFERENT conversation is provably not it, and is dropped. This is
+///     the nested case: the outer session publishes its own transcript id, the inner session's
+///     prompt carries another, and the outer stops being a candidate at all.
+///   - A candidate publishing NOTHING is kept. A supervisor from a build before this field existed
+///     has no witness, and treating silence as a denial would take `/tally-model` away from every
+///     session running an older supervisor until it restarted. Silence means "cannot say", here as
+///     everywhere else on this track.
+///
+/// Pure over an injected reader, so all three are asserted without a supervisor on the machine.
+func sessionsWatching(_ promptSession: String?, among here: [String],
+                      published: (String) -> String?) -> [String] {
+    guard let wanted = promptSession, !wanted.isEmpty else { return here }
+    var kept: [String] = []
+    for candidate in here {
+        guard let watching = published(candidate) else { kept.append(candidate); continue }
+        if watching == wanted { return [candidate] }
+    }
+    return kept
 }
 
 /// The session a command typed HERE belongs to, asked of the live world: the supervisor pid to
@@ -271,7 +313,9 @@ func currentSessionLookup(cwd: String = FileManager.default.currentDirectoryPath
                           dir: URL = supervisorStateDir,
                           marker: SessionMarkerTrust = .trusted(liveSessionMarker()))
     -> (key: String, isThisSession: Bool)? {
-    guard case .session(let key) = marker.resolve(here: supervisorsInDirectory(cwd, dir: dir))
+    guard case .session(let key) = marker.resolve(
+        here: supervisorsInDirectory(cwd, dir: dir),
+        published: { readSessionContext(pid: $0, dir: dir)?.transcriptSessionID })
     else { return nil }
     // Only a marker the resolution ACTUALLY used describes this process; one that was dropped for
     // want of corroboration says nothing about where this command is running.

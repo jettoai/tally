@@ -485,6 +485,17 @@ struct TranscriptWatcher {
         return newest
     }
 
+    /// Claude Code's own id for the conversation being tailed, which is the transcript's basename
+    /// (measured 2026-08-07: a hook's `session_id` equals the stem of its `transcript_path`).
+    ///
+    /// Published by the supervisor so a prompt hook can tell THIS session from another one running
+    /// in the same directory - the case neither the environment marker nor the working directory
+    /// can separate (SessionContext.swift, SwitchRequest.swift). Derived rather than stored, so a
+    /// `/clear` or a fork that rebinds `file` changes this with it.
+    var transcriptSessionID: String? {
+        file.map { $0.deletingPathExtension().lastPathComponent }
+    }
+
     /// The transcript this child is writing: bound once, then kept pointing at the live file.
     ///
     /// `forceForkCheck` skips the cost gates below. The relaunch path uses it: the id it resumes

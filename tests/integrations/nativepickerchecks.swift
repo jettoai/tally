@@ -183,8 +183,98 @@ func runNativePickerChecks(tmp: URL, skill currentSkill: String) throws {
           refused && brokenAfter == "{ not json")
     // And a shape inside it we cannot read is the same answer, decided without touching the disk.
     check("an mcpServers value of an unexpected shape is left alone",
-          IntegrationsStore.stateRegisteringMCPServer(["mcpServers": "yes"],
-                                                      entry: ["a": "b"]) == nil)
+          try IntegrationsStore.stateRegisteringMCPServer(["mcpServers": "yes"],
+                                                          entry: ["a": "b"]) == nil)
+
+    // MARK: - A server of the USER's, under the name ours needs
+    //
+    // Every other half of this integration proves ownership before it touches anything: a foreign
+    // `skills/tally` is never overwritten, a command file is ours only if it carries the marker, a
+    // hook only if it runs our subcommand. This one matched on the KEY alone, so a user's own
+    // server called `tally` would have been silently overwritten on install and DELETED on
+    // uninstall or on a Claude Code downgrade (codex review of 512303b).
+    let ours = IntegrationsStore.mcpServerEntry(binary)
+    check("an entry with our subcommand and a binary called tally is ours",
+          IntegrationsStore.isOurMCPServer(ours))
+    // Deliberately NOT the exact path: an app that moved leaves an entry naming the old bundle, and
+    // that entry is ours and is exactly the one the sync repairs.
+    check("…including one left behind at a path the app has moved away from",
+          IntegrationsStore.isOurMCPServer(IntegrationsStore.mcpServerEntry(moved)))
+    check("a server running something else entirely is not ours",
+          !IntegrationsStore.isOurMCPServer(["type": "stdio", "command": "/usr/local/bin/tally",
+                                             "args": ["serve", "--port", "9000"]]))
+    check("…nor is one that runs our subcommand through somebody else's binary",
+          !IntegrationsStore.isOurMCPServer(["command": "/opt/homebrew/bin/my-wrapper",
+                                             "args": [mcpServeCommand]]))
+    check("…nor a shape this code cannot read at all",
+          !IntegrationsStore.isOurMCPServer("a string")
+              && !IntegrationsStore.isOurMCPServer(nil))
+
+    let occupied = tmp.appendingPathComponent("native-occupied/.claude.json")
+    let theirs: [String: Any] = ["type": "stdio", "command": "/usr/local/bin/their-tally",
+                                 "args": ["--serve"]]
+    try FileManager.default.createDirectory(at: occupied.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try JSONSerialization.data(withJSONObject: ["mcpServers": ["tally": theirs]]).write(to: occupied)
+    var refusedForeign = false
+    do { _ = try IntegrationsStore.upsertMCPServer(in: occupied, binary: binary) } catch {
+        refusedForeign = true
+    }
+    let afterRefusal = (try? JSONSerialization.jsonObject(with: Data(contentsOf: occupied)))
+        as? [String: Any] ?? [:]
+    check("a foreign server under our name refuses the install rather than replacing it",
+          refusedForeign)
+    check("…leaving their configuration exactly as it was",
+          NSDictionary(dictionary: (afterRefusal["mcpServers"] as? [String: Any] ?? [:])["tally"]
+            as? [String: Any] ?? [:]).isEqual(to: theirs))
+    // The uninstall path is the sharper half: it runs on a Claude Code downgrade too, so a
+    // key-name deletion would take their server away from a user who never installed ours.
+    check("…and an uninstall does not delete what an install refused to write",
+          try IntegrationsStore.removeMCPServer(in: occupied) == false)
+    check("…which the detector reports rather than leaving as a silent no-op",
+          IntegrationsStore.mcpServerNameIsTaken(occupied)
+              && !IntegrationsStore.mcpServerIsRegistered(occupied, binary: binary))
+    let blocked = IntegrationsStore.syncMCPServer(inHomes: [occupied.deletingLastPathComponent()],
+                                                  binary: binary, nativePicker: true)
+    check("…and the sync carries the reason back for Settings to show",
+          blocked.error == IntegrationsStore.mcpServerNameTaken)
+    check("…without recording a file it never wrote", blocked.files.isEmpty)
+
+    // MARK: - A write that would land on top of somebody else's
+    //
+    // `.claude.json` belongs to Claude Code, every running session rewrites it, and it carries the
+    // account identity. An atomic write prevents half a file, not a lost update: between the read
+    // and the rename, a session can add state that our older snapshot then erases (codex review of
+    // 512303b). The guard re-reads when the file moved under it, so the edit is applied to what
+    // they left.
+    let racy = tmp.appendingPathComponent("native-racy/.claude.json")
+    try FileManager.default.createDirectory(at: racy.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try JSONSerialization.data(withJSONObject: ["projects": ["/a": ["trusted": true]]])
+        .write(to: racy)
+    var wroteBehindUs = false
+    let merged = try IntegrationsStore.editClaudeState(racy) { state in
+        // Exactly the window this guards: another writer lands after the read and before the write.
+        if !wroteBehindUs {
+            wroteBehindUs = true
+            var theirState = state
+            theirState["oauthAccount"] = ["emailAddress": "them@example.com"]
+            try? JSONSerialization.data(withJSONObject: theirState).write(to: racy)
+            // The stat has one-second granularity on some volumes, so the SIZE has to differ too;
+            // adding a key does that, and the fixture asserts the merge rather than the mechanism.
+        }
+        var mine = state
+        mine["tallyRan"] = true
+        return mine
+    }
+    let afterRace = (try? JSONSerialization.jsonObject(with: Data(contentsOf: racy)))
+        as? [String: Any] ?? [:]
+    check("a write that raced is retried rather than landing on a stale snapshot", merged)
+    check("…so the other writer's key survives",
+          (afterRace["oauthAccount"] as? [String: Any])?["emailAddress"] as? String
+              == "them@example.com")
+    check("…and ours is applied on top of theirs", afterRace["tallyRan"] as? Bool == true)
+    check("…and the edit really did run twice, which is what re-reading means", wroteBehindUs)
 
     // MARK: - The gate in front of all of it
 

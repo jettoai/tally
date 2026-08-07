@@ -48,7 +48,7 @@ func hookCommandArguments(_ raw: String) -> String? {
 }
 
 /// The payload itself, or nil for anything that is not one. One parse, one answer to "was this
-/// readable", shared by the two fields below it.
+/// readable", shared by the three field readings around it.
 func promptHookPayload(_ raw: String) -> [String: Any]? {
     guard let data = raw.data(using: .utf8) else { return nil }
     return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -68,6 +68,18 @@ func hookCommandCwd(_ raw: String) -> String? {
     return cwd
 }
 
+/// Claude Code's own id for the conversation the prompt came from, off the same payload.
+///
+/// THE WITNESS THAT SEPARATES NESTED SESSIONS. A `claude` launched from inside another supervised
+/// session in the same directory inherits a marker the directory confirms, so nothing else in the
+/// payload can tell the two apart - and the inner session's `/tally-model` acted on the outer
+/// conversation (codex review of 512303b). This is compared against what each candidate supervisor
+/// publishes it is watching (SessionContext.swift).
+func hookCommandSessionID(_ raw: String) -> String? {
+    guard let id = promptHookPayload(raw)?["session_id"] as? String, !id.isEmpty else { return nil }
+    return id
+}
+
 /// What a prompt hook knows about which session it is answering for: the directory the prompt came
 /// from, and a marker that is only worth anything where that directory confirms it.
 ///
@@ -78,7 +90,7 @@ func hookCommandCwd(_ raw: String) -> String? {
 /// since it was written.
 func promptHookSession(_ raw: String) -> (cwd: String, marker: SessionMarkerTrust) {
     (hookCommandCwd(raw) ?? FileManager.default.currentDirectoryPath,
-     .corroborated(liveSessionMarker()))
+     .corroborated(marker: liveSessionMarker(), promptSession: hookCommandSessionID(raw)))
 }
 
 /// The decision, pure: everything about the payload, nothing about the world. The value IS the

@@ -400,25 +400,25 @@ func runSwitchChecks() {
     // Not every system-injected prompt is a task notification (the corpus has plain ones too), and
     // those can only be refused by the structural marker - which is why the two guards are not
     // interchangeable and are asserted apart.
-    var systemInjected = scannedWatcher("systeminjected", lines: [
+    let systemInjected = scannedWatcher("systeminjected", lines: [
         stampedLine(#""type":"user","promptSource":"system","message":{"content":"continue"}"#, at: -96),
     ])
     check("anything Claude Code injects as a system prompt is not the user typing",
           systemInjected.lastUserTurnAt == nil)
     // Transcripts written before that field existed carry the same events without it; the content
     // shape is the fallback that covers them, and the only fragile guard of the four.
-    var legacyNotify = scannedWatcher("legacynotify", lines: [
+    let legacyNotify = scannedWatcher("legacynotify", lines: [
         stampedLine(#""type":"user","message":{"content":"<task-notification>\n<task-name>x</task-name>"}"#, at: -94),
     ])
     check("…and one from before that field existed is caught by its shape",
           legacyNotify.lastUserTurnAt == nil)
     // The other direction, which the refusal must not break: a prompt with NO promptSource is what
     // every older transcript's typed prompts look like, so "absent" has to keep meaning "a person".
-    var oldStyle = scannedWatcher("oldstyle", lines: [
+    let oldStyle = scannedWatcher("oldstyle", lines: [
         stampedLine(#""type":"user","message":{"content":"do the thing"}"#, at: -93),
     ])
     check("a prompt carrying no promptSource still counts as one", oldStyle.lastUserTurnAt != nil)
-    var typedPrompt = scannedWatcher("typedprompt", lines: [
+    let typedPrompt = scannedWatcher("typedprompt", lines: [
         stampedLine(#""type":"user","promptSource":"typed","message":{"content":"do the thing"}"#, at: -92),
     ])
     check("and a typed one certainly does", typedPrompt.lastUserTurnAt != nil)

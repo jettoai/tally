@@ -93,66 +93,99 @@ func capFallbackKeptPinNotice(account: String, capped: String?, to: String) -> S
         "(release with `tally model auto` once quota is back)"
 }
 
-/// The fallback pairing that lets a capped session keep the account it is on, or nil when this
-/// account can serve none of the models the fleet declares.
+/// What the status line says while a cap on a hand-pinned session waits to find out whether it can
+/// be answered without leaving that account. A wait with an end (`capStayEvidenceGrace`), so the
+/// badge describes a question being settled rather than a session parked.
+let capStayEvidenceNote = "waiting for a fresh reading before deciding whether to stay put"
+
+/// How long a cap on a hand-pinned session waits for a reading taken after it, before giving up on
+/// staying and handing the session on.
 ///
-/// The list is the same comma-separated `fallbackModel` the quota fallback profile and the
-/// safeguard restore read, and the first entry this account can still serve wins. Two things
-/// disqualify an entry:
+/// Two of the app's default refresh cycles (`refreshIntervalMinutes`, one minute). One is not
+/// enough: a refresh landing moments BEFORE the cap consumes the cycle the cap falls in, so the
+/// first reading that can answer is the one after that. Beyond two, the wait stops being a bonus
+/// and starts being the capped session sitting still while a sibling has room.
 ///
-///  - It names the model the session already runs. Relaunching a session onto the pair it is
-///    already on answers nothing, and the next cap would ask the identical question - which is what
-///    turns one cap into a restart loop.
-///  - This account cannot serve it, by exactly the gates every account pick applies: `eligible`
-///    for the windows that model spends, and comfortably above the nearly-dry line rather than
-///    merely non-zero (AccountComfort.swift). A cap answered by moving onto a window with 1% left
-///    is a second cap minutes later, and the restart was spent for nothing.
+/// The wait can only ever be a bonus, which is what makes a fixed number safe on a fleet whose
+/// refresh interval the user can raise: when it expires, this does exactly what the code did before
+/// the stay-put branch existed - hand the session on and clear the pin. A user on a ten-minute
+/// refresh loses the chance to keep their account, not the session.
+let capStayEvidenceGrace: TimeInterval = 2 * 60
+
+/// Whether this account's numbers were FETCHED after the cap, and are therefore about the situation
+/// the cap left behind.
 ///
-/// The window that just capped does not veto anything here, and that is the point rather than an
-/// oversight: `eligible` and the comfort gate count only the windows the model being judged
-/// actually spends (`ratedWindows`), so a drained fable window says nothing about an opus fallback,
-/// while a drained SESSION or WEEKLY window - which every model spends - correctly leaves this
-/// account with no fallback at all and sends the caller to the move.
+/// The file's own `generatedAt` cannot answer this, which is the defect this replaced (review,
+/// 2026-08-07): the app rewrites the whole document from its cached accounts whenever a setting
+/// changes (`republishSnapshot`), so a display toggle produces a file stamped seconds ago whose
+/// every reading predates the cap. `refreshedAt` is carried per account from the fetch itself, and a
+/// republish copies it along with the numbers it belongs to, so nothing can forge it.
 ///
-/// Unlike the fallback profile (ModelDegradation.swift) this does not insist that a depth or extra
-/// flags are declared too. There, the model has ALREADY changed server-side and a relaunch that
-/// changed nothing else would be an interruption for nothing; here the model change is the whole
-/// answer, and a fleet that declares only `fallbackModel` has still said what to run.
-/// Whether the exhaustion behind this cap is provably the MODEL window rather than one every model
-/// draws on, judged from the numbers in hand.
+/// A stale account is refused whatever its stamp says: those numbers are the last-good copy kept
+/// while the fetch is failing (`applyLastGood`, UsageStore.swift), so they describe an earlier state
+/// of the world by construction.
 ///
-/// The question only exists because a snapshot can PREDATE the cap: the app refreshes about once a
-/// minute, so the reading a cap lands next to is usually one taken before it, and its lag runs one
-/// way - a window reads no emptier than it really is. A model window already at the line in such a
-/// reading is therefore genuinely spent, which is evidence about WHICH wall was hit; shared windows
-/// that look healthy in it are not evidence of anything, because that is also what a window drained
-/// in the last minute looks like.
-///
-/// Raw remaining, not the comfort gate's effective remaining, and for the reason
-/// `capRecoveryDeadline` states one file over: a window minutes from resetting counts as full for
-/// "can this account take work" and says nothing about which window just ended a turn.
-///
-/// False whenever the account reports no model window, or reports one this session does not spend
-/// (`ratedWindows` leaves that one out): a wall this session cannot hit is no explanation of one it
-/// just did.
-func capIsOnModelWindow(_ account: Snapshot.Account, primaryModel: String?,
-                        now: Date = Date()) -> Bool {
-    guard let windowName = account.modelWindowName else { return false }
-    return ratedWindows(account, primaryModel: primaryModel, now: now)
-        .contains { $0.name == windowName && $0.remaining <= nearlyDryPercent }
+/// STRICTLY AFTER, on a stamp floored to the second by the writer's encoding while the cap keeps its
+/// milliseconds (`Snapshot.Account.refreshedAt` states why the writer is left alone). Within one
+/// second of each other the answer is therefore no, and the caller waits - a reading that MIGHT
+/// predate the cap is treated as one that does.
+func accountReadingPostdatesCap(_ account: Snapshot.Account, cappedAt: Date) -> Bool {
+    !account.isStale && account.refreshedAt.map { $0 > cappedAt } == true
 }
 
+/// The models this fleet declares for a session whose model has just hit a wall, in the order the
+/// user wrote them.
+///
+/// CONFIGURATION ONLY: no quota is read here, so the answer is the same before and after a refresh.
+/// That is what lets the caller tell "there is nothing to stay for" (answer empty, hand the session
+/// on now) apart from "there might be, but this reading cannot say" (answer non-empty, wait for one
+/// that can) without pretending the second is the first.
+///
+/// The list is the same comma-separated `fallbackModel` the quota fallback profile and the safeguard
+/// restore read. An entry naming the model the session already runs is dropped: relaunching onto the
+/// pair it is already on answers nothing, and the next cap would ask the identical question.
+func declaredCapFallbacks(_ policy: LaunchPolicy, primaryModel: String?) -> [String] {
+    (policy.fallbackModel ?? "").split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        .filter { !$0.isEmpty && !modelsAgree($0, primaryModel) }
+}
+
+/// The fallback pairing that lets a capped session keep the account it is on, or nil when this
+/// account can serve none of the declared models.
+///
+/// The first declared model this account can still serve wins, by exactly the gates every account
+/// pick applies: `eligible` for the windows that model spends, and comfortably above the nearly-dry
+/// line rather than merely non-zero (AccountComfort.swift). A cap answered by dropping onto a window
+/// with 1% left is a second cap minutes later, and the restart was spent for nothing.
+///
+/// The window that just capped does not veto anything here, and that is the point rather than an
+/// oversight: `eligible` and the comfort gate count only the windows the model being judged actually
+/// spends (`ratedWindows`), so a drained fable window says nothing about an opus fallback, while a
+/// drained SESSION or WEEKLY window - which every model spends, the fallback included - correctly
+/// leaves this account with nothing to stay for and sends the caller to the move. That last case is
+/// the whole reason the caller must hand these gates a reading taken AFTER the cap: judged on older
+/// numbers, a shared window emptied in the same turn still reads healthy and the session is walked
+/// into the same wall once per declared model.
+///
+/// NO ONE-SHOT LATCH, unlike the fallback profile's (`applied`, ModelDegradation.swift), and the
+/// difference is what triggers each. That one fires off a transcript condition which persists, so
+/// without a latch it would re-fire on every tick; this one fires off a CAP EVENT, which takes a
+/// user turn that actually hits a wall. Each stay-put therefore costs a fresh wall, and each is
+/// allowed only by a post-cap reading showing the chosen model's windows comfortable - so a chain of
+/// them is bounded by the declared models whose windows are genuinely healthy at that moment, and a
+/// model already spent cannot be chosen twice. The refutable form: if a session ever falls back onto
+/// a model whose window was already dry, then a reading fetched after that cap called it
+/// comfortable, and `refreshedAt` in the snapshot at that moment says which reading it was.
+///
+/// Unlike the fallback profile this does not insist that a depth or extra flags are declared too.
+/// There, the model has ALREADY changed server-side and a relaunch that changed nothing else would
+/// be an interruption for nothing; here the model change is the whole answer, and a fleet that
+/// declares only `fallbackModel` has still said what to run.
 func capFallbackInPlace(policy: LaunchPolicy, account: Snapshot.Account, primaryModel: String?,
                         now: Date = Date()) -> (model: String, effort: String?, args: [String])? {
-    guard let model = policy.fallbackModel?
-        .split(separator: ",")
-        .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() })
-        .first(where: {
-            !$0.isEmpty && !modelsAgree($0, primaryModel)
-                && eligible(account, primaryModel: $0)
-                && accountIsComfortable(account, primaryModel: $0, now: now)
-        })
-    else { return nil }
+    guard let model = declaredCapFallbacks(policy, primaryModel: primaryModel).first(where: {
+        eligible(account, primaryModel: $0) && accountIsComfortable(account, primaryModel: $0, now: now)
+    }) else { return nil }
     return (model, policy.fallbackEffort, declaredFallbackArgs(policy.fallbackArgs))
 }
 
@@ -252,26 +285,44 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
     // here - the relaunch drops it (`capCarriedAcrossRelaunch`), and a tick that stands the
     // relaunch down must still be waiting for it.
     //
-    // AND THE NUMBERS HAVE TO BE ABOUT THIS CAP. Staying put is a bet that the wall was the model
-    // window; if it was a SHARED one (session, weekly - every model spends those, the fallback
-    // included) then no pairing can be run here at all, and a pre-cap snapshot showing them healthy
-    // would send the session round the same wall again, one restart per declared fallback, while
-    // the sibling handoff it needed never ran (review, 2026-08-07). Two ways to know, and either
-    // suffices: the snapshot was TAKEN after the cap, so its shared windows describe the situation
-    // the cap left behind; or it already shows the model window spent, which is evidence about the
-    // wall no lag can manufacture (`capIsOnModelWindow`). Neither, and this falls through to the
-    // handoff and the wait below, where a `waitStale`/`waitNoTarget` tick costs nothing and the
-    // next refresh answers the question.
+    // AND THE NUMBERS HAVE TO BE ABOUT THIS CAP, which is why there are THREE answers here and not
+    // two. Staying put is a bet that the wall was the model window; if it was a SHARED one (session,
+    // weekly - every model spends those, the fallback included) then nothing can be run here at all,
+    // and older numbers showing them healthy would send the session round the same wall again, once
+    // per declared model, while the sibling handoff it needed never ran (review, 2026-08-07). The
+    // evidence is the ACCOUNT's own fetch stamp, never the file's - a republish stamps a fresh
+    // `generatedAt` on cached readings, so the file can be seconds old and every number in it
+    // minutes old (`accountReadingPostdatesCap`).
+    //
+    //   - reading taken after the cap, and something declared this account can serve: stay.
+    //   - reading taken after the cap, and nothing it can serve: hand on, which costs the pin. The
+    //     account really is out of answers, so waiting would only delay the move.
+    //   - cannot tell yet: WAIT for a reading that can, up to `capStayEvidenceGrace`. Handing on
+    //     here is the failure this whole branch exists to stop, and the wait costs a capped session
+    //     a couple of minutes it was not working anyway. Past the grace it hands on regardless,
+    //     which is exactly what this code did before the branch existed.
+    //
+    // The wait is entered only when there is something to wait FOR: `declaredCapFallbacks` asks the
+    // configuration, not the numbers, so a fleet declaring nothing (or nothing but the model that
+    // just capped) hands the session on immediately, as it always did.
     let current = snapshot?.accounts.first { $0.id == account.id } ?? account
-    let capExplained = (snapshot?.generatedAt).map { $0 > pending.cappedAt } == true
-        || capIsOnModelWindow(current, primaryModel: primary, now: now)
-    if sessionPin != nil, !modelPinned, snapshotProblem == nil, capExplained,
-       let stay = capFallbackInPlace(policy: fleet, account: current, primaryModel: primary,
-                                     now: now) {
-        warn(capFallbackKeptPinNotice(account: current.label, capped: primary, to: stay.model))
-        plan = RelaunchPlan(target: current, reason: "cap-fallback", countsFuse: false,
-                            model: stay.model, effort: stay.effort, extraArgs: stay.args)
-        return
+    if sessionPin != nil, !modelPinned, snapshotProblem == nil,
+       !declaredCapFallbacks(fleet, primaryModel: primary).isEmpty {
+        if accountReadingPostdatesCap(current, cappedAt: pending.cappedAt) {
+            if let stay = capFallbackInPlace(policy: fleet, account: current, primaryModel: primary,
+                                             now: now) {
+                warn(capFallbackKeptPinNotice(account: current.label, capped: primary,
+                                              to: stay.model))
+                plan = RelaunchPlan(target: current, reason: "cap-fallback", countsFuse: false,
+                                    model: stay.model, effort: stay.effort, extraArgs: stay.args)
+                return
+            }
+        } else if now < pending.cappedAt.addingTimeInterval(capStayEvidenceGrace) {
+            pending.reason = capStayEvidenceNote
+            pending.nextRetry = now.addingTimeInterval(capRetryBackoff)
+            pendingCap = pending
+            return
+        }
     }
     let excluded = quarantinedAccounts(forPrimary: primary, sessionLocal: quarantine, now: now)
     // The candidates this cap considers usable at all: signed in, able to serve the model, not the

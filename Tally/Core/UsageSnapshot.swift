@@ -33,6 +33,20 @@ struct UsageSnapshot: Codable {
         var resetCreditsAvailable: Int?
         var isStale: Bool
         var error: String?
+        /// When THESE NUMBERS were fetched, which is not when the file was written: a republish
+        /// rebuilds the document from the cached accounts and stamps `generatedAt` with the moment
+        /// of the rewrite, so a settings toggle produces a brand-new file full of old readings
+        /// (`republishSnapshot`, UsageStorePublishing.swift). A supervisor deciding whether a
+        /// reading describes the wall its session just hit has to ask the account, not the file
+        /// (`accountReadingPostdatesCap`, TallyCLI/CapDetection.swift).
+        ///
+        /// Carried straight off `AccountUsage.refreshedAt`, so it means the LAST SUCCESSFUL fetch:
+        /// a failed poll keeps the last-good copy untouched (`applyLastGood`, UsageStore.swift),
+        /// which is exactly the reading it dates.
+        ///
+        /// Optional because the schema only ever gains fields: a snapshot written by an older app
+        /// decodes with nil, and a reader that needs the stamp treats nil as "cannot tell".
+        var refreshedAt: Date?
     }
 
     var version = 2
@@ -94,7 +108,8 @@ struct UsageSnapshot: Codable {
                     modelWindowName: usage.headline.flatMap { $0.isModelScoped ? $0.modelName : nil },
                     resetCreditsAvailable: usage.resetCreditsAvailable,
                     isStale: usage.isStale,
-                    error: usage.error
+                    error: usage.error,
+                    refreshedAt: usage.refreshedAt
                 )
             },
             statuslineFullQuota: statuslineFullQuota,

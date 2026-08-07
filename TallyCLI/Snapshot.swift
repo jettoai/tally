@@ -35,6 +35,22 @@ struct Snapshot: Decodable {
         var resetCreditsAvailable: Int?
         var isStale: Bool
         var error: String?
+        /// When THIS ACCOUNT's numbers were fetched, which is a different question from when the
+        /// file was written: the app rebuilds the whole document from its cached accounts whenever
+        /// a setting changes, so `generatedAt` can be seconds old while every reading in it is
+        /// minutes old (`republishSnapshot`, Tally/Stores/UsageStorePublishing.swift). Only this
+        /// stamp can tell a supervisor whether a reading describes the wall its session just hit.
+        ///
+        /// SECOND GRANULARITY, deliberately: the writer encodes dates with `.iso8601` and no
+        /// fractional seconds, so this arrives floored to the second while the cap's own instant
+        /// comes from a transcript line that keeps its milliseconds. Every comparison against it is
+        /// therefore biased toward "cannot tell", which is the safe direction here and the reason
+        /// the writer is left alone - turning fractional seconds on there would change the encoding
+        /// of every date in the file for supervisors from earlier builds that are still running.
+        ///
+        /// nil in a snapshot from an app that predates the field (the schema only ever gains
+        /// fields), and readers must treat that as "cannot tell" rather than as "fresh".
+        var refreshedAt: Date?
     }
 
     var version: Int

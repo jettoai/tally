@@ -16,14 +16,18 @@ func runCapSessionPinChecks() {
     var auto0 = LaunchPolicy()
     auto0.mode = "auto"
     let dyingNow = Date(timeIntervalSince1970: 1_800_000_000)
-    func account(_ id: String, model: Double) -> Snapshot.Account {
+    /// `refreshedAt` defaults to one second AFTER the cap these sections are written around, which
+    /// is the ordinary case: the app fetched, then the session hit the wall, then a tick read it.
+    /// The cases that turn on the stamp hand in their own.
+    func account(_ id: String, model: Double,
+                 refreshedAt: Date? = dyingNow.addingTimeInterval(1)) -> Snapshot.Account {
         Snapshot.Account(id: id, provider: "claude", label: id, launchHome: "/tmp/\(id)",
                          sessionRemaining: 90, weeklyRemaining: 90, modelRemaining: model,
                          sessionResetsAt: dyingNow.addingTimeInterval(4 * 3600),
                          weeklyResetsAt: dyingNow.addingTimeInterval(100 * 3600),
                          modelResetsAt: dyingNow.addingTimeInterval(100 * 3600),
                          modelWindowName: "fable", resetCreditsAvailable: nil, isStale: false,
-                         error: nil)
+                         error: nil, refreshedAt: refreshedAt)
     }
 
     // MARK: - 31k. The cap is the one way out that nobody asked for
@@ -39,7 +43,7 @@ func runCapSessionPinChecks() {
     check("an unpinned session's cap handoff is not a pin clearance",
           !unpinned.pinClearedByCap("cap"))
     check("the user is told how to get the pin back",
-          sessionPinClearedByCapNotice.contains("tally switch")
+          sessionPinClearedByCapNotice.contains("tally account")
               && sessionPinClearedByCapNotice.contains("cap"))
 
     // …and the cap has to be able to REACH that clearance, which is the hole this section is really
@@ -60,7 +64,7 @@ func runCapSessionPinChecks() {
     func capTick(fleet: LaunchPolicy, sessionPin: String?, modelPinned: Bool = false,
                  primary: String? = "fable", on: Snapshot.Account = capped0,
                  accounts: [Snapshot.Account] = [capped0, fleetPinned, sibling],
-                 problem: String? = nil, generatedAt: Date = capNow)
+                 problem: String? = nil, generatedAt: Date = capNow, now: Date = capNow)
         -> (plan: RelaunchPlan?, pending: PendingCapRecovery?) {
         var plan: RelaunchPlan?
         var pending: PendingCapRecovery? = PendingCapRecovery(
@@ -68,7 +72,7 @@ func runCapSessionPinChecks() {
             recoveryResetsAt: nil, nextRetry: .distantPast, reason: "")
         applyCapHandoff(plan: &plan, pendingCap: &pending, account: on, providerID: "claude",
                         fleet: fleet, sessionPin: sessionPin, modelPinned: modelPinned,
-                        quarantine: [:], fuseAllows: true, now: capNow,
+                        quarantine: [:], fuseAllows: true, now: now,
                         loaded: (Snapshot(version: 2, generatedAt: generatedAt, accounts: accounts),
                                  problem))
         return (plan, pending)
@@ -199,8 +203,10 @@ func runCapSessionPinChecks() {
     let noDeclaration = capTick(fleet: auto0, sessionPin: "D")
     check("a fleet declaring no fallback moves the session as it always did",
           noDeclaration.plan?.target.id == "S" && noDeclaration.plan?.reason == "cap")
-    // Session and weekly are spent by EVERY model, so no pairing can be run here: the account has
-    // nothing left to offer and the move is the only answer.
+    // BOTH WALLS IN ONE TURN, on numbers fetched after the cap: the model window and the windows
+    // every model shares are all spent, so there is nothing here to fall back to. The account really
+    // is out of answers, so this hands on rather than waiting for a reading that could only say the
+    // same thing.
     let noRoomForIt = capTick(fleet: fallbackFleet, sessionPin: "D", on: allWindowsDry,
                               accounts: [allWindowsDry, sibling])
     check("a fallback whose windows are dry on this account too is no way to stay",
@@ -225,31 +231,76 @@ func runCapSessionPinChecks() {
     check("…and the session waits for a fresh snapshot",
           stale.pending?.reason.contains("fresh snapshot") == true)
 
-    // A snapshot that is FRESH ENOUGH TO USE and still predates the cap, with nothing in it spent:
-    // whatever ended that turn was a window every model draws on, this reading simply has not caught
-    // up with it, and staying would walk the session into the same wall once per declared fallback
-    // while the sibling that could take it never gets asked (review, 2026-08-07).
-    let unexplained = account("D", model: 80)   // no window here explains the cap
-    let beforeTheCap = capNow.addingTimeInterval(-60)
-    let noEvidence = capTick(fleet: fallbackFleet, sessionPin: "D", on: unexplained,
-                             accounts: [unexplained, sibling], generatedAt: beforeTheCap)
-    check("a cap no window in the snapshot explains does not keep the session where it is",
-          noEvidence.plan?.target.id == "S" && noEvidence.plan?.reason == "cap")
-    // The control, so the refusal above is the evidence gate rather than anything else in the tick:
-    // one second's difference in when the same snapshot was taken.
-    let afterTheCap = capTick(fleet: fallbackFleet, sessionPin: "D", on: unexplained,
-                              accounts: [unexplained, sibling],
-                              generatedAt: capNow.addingTimeInterval(1))
-    check("…while a snapshot taken after it describes the wall, and the account is kept",
-          afterTheCap.plan?.target.id == "D" && afterTheCap.plan?.reason == "cap-fallback")
-    // The rule on its own: the model window at the line is evidence no lag can manufacture, since a
-    // stale reading only ever overstates what is left.
-    check("a spent model window explains the cap",
-          capIsOnModelWindow(capped0, primaryModel: "fable", now: capNow))
-    check("a healthy one explains nothing",
-          !capIsOnModelWindow(unexplained, primaryModel: "fable", now: capNow))
-    check("nor does a spent window this session does not even spend",
-          !capIsOnModelWindow(capped0, primaryModel: "opus", now: capNow))
+    // MARK: - 31k2b. Staying put is only allowed on numbers fetched AFTER the cap
+
+    // THE FILE'S OWN STAMP PROVES NOTHING. A republish rebuilds the document from the app's cached
+    // accounts and stamps `generatedAt` with the moment of the rewrite, so a display toggle after
+    // the cap produces a brand-new file in which every reading still predates it (Sol review,
+    // 2026-08-07). Judged on those numbers the shared windows look healthy, the session stays, and
+    // it walks into the same wall once per declared model.
+    let staleNumbers = account("D", model: 80, refreshedAt: capNow.addingTimeInterval(-60))
+    let republished = capTick(fleet: fallbackFleet, sessionPin: "D", on: staleNumbers,
+                              accounts: [staleNumbers, sibling],
+                              generatedAt: capNow.addingTimeInterval(30))
+    check("a file rewritten after the cap does not make its readings post-cap",
+          republished.plan?.reason != "cap-fallback")
+    // …and it does not hand the session on either, which is the third answer: the numbers cannot
+    // say yet, so it waits for ones that can rather than spending the pin on a guess.
+    check("…so the tick decides nothing at all", republished.plan == nil)
+    check("…and says what it is waiting for",
+          republished.pending?.reason == capStayEvidenceNote)
+    check("…while asking again shortly, not on every 2s tick",
+          republished.pending?.nextRetry == capNow.addingTimeInterval(capRetryBackoff))
+
+    // The writer encodes dates without fractional seconds, so a fetch inside the same second as the
+    // cap arrives floored to it. Equal is not after: the reading MIGHT predate the cap, so it is
+    // treated as one that does.
+    let sameSecond = account("D", model: 80, refreshedAt: capNow)
+    let tied = capTick(fleet: fallbackFleet, sessionPin: "D", on: sameSecond,
+                       accounts: [sameSecond, sibling])
+    check("a reading stamped in the same second as the cap is not evidence", tied.plan == nil)
+    check("…so that tick waits too", tied.pending?.reason == capStayEvidenceNote)
+
+    // THE CONTROL, so the refusals above are the evidence gate and not something else in the tick:
+    // the same account, one second later on the fetch clock.
+    let freshNumbers = account("D", model: 80, refreshedAt: capNow.addingTimeInterval(1))
+    let evidenced = capTick(fleet: fallbackFleet, sessionPin: "D", on: freshNumbers,
+                            accounts: [freshNumbers, sibling])
+    check("a reading fetched after the cap is what lets the session keep its account",
+          evidenced.plan?.target.id == "D" && evidenced.plan?.reason == "cap-fallback")
+
+    // The wait has an end. Past it the session is handed on, which is exactly what this code did
+    // before the stay-put branch existed - the wait can only ever be a bonus.
+    let waitedTooLong = capTick(fleet: fallbackFleet, sessionPin: "D", on: staleNumbers,
+                                accounts: [staleNumbers, sibling],
+                                now: capNow.addingTimeInterval(capStayEvidenceGrace + 1))
+    check("a session cannot wait for evidence for ever",
+          waitedTooLong.plan?.target.id == "S" && waitedTooLong.plan?.reason == "cap")
+    // …and nothing waits when there is nothing to wait FOR: whether a fallback is declared is a
+    // question about configuration, which no refresh can change.
+    let nothingDeclared = capTick(fleet: auto0, sessionPin: "D", on: staleNumbers,
+                                  accounts: [staleNumbers, sibling])
+    check("a fleet declaring nothing hands the session on at once, evidence or not",
+          nothingDeclared.plan?.target.id == "S" && nothingDeclared.plan?.reason == "cap")
+
+    // The two rules on their own.
+    check("an account's own fetch stamp is what decides whether a reading is about the cap",
+          accountReadingPostdatesCap(freshNumbers, cappedAt: capNow)
+              && !accountReadingPostdatesCap(staleNumbers, cappedAt: capNow)
+              && !accountReadingPostdatesCap(sameSecond, cappedAt: capNow))
+    check("a reading from an app too old to publish one is not evidence either",
+          !accountReadingPostdatesCap(account("D", model: 80, refreshedAt: nil), cappedAt: capNow))
+    // Last-good numbers kept while the fetch keeps failing describe an earlier world by
+    // construction, whatever stamp rides with them.
+    check("nor are last-good numbers, however they are stamped", {
+        var outdated = freshNumbers
+        outdated.isStale = true
+        return !accountReadingPostdatesCap(outdated, cappedAt: capNow)
+    }())
+    check("the declared list is read from configuration alone, so a refresh cannot change it",
+          declaredCapFallbacks(fallbackFleet, primaryModel: "fable") == ["opus"]
+              && declaredCapFallbacks(fallbackFleet, primaryModel: "claude-opus-4-8") == ["fable"]
+              && declaredCapFallbacks(auto0, primaryModel: "fable").isEmpty)
 
     // The rule the four cases come from, on its own.
     check("the first declared fallback this account can serve is the one it stays on",
@@ -260,9 +311,13 @@ func runCapSessionPinChecks() {
     check("a list naming only the model already running is no fallback at all",
           capFallbackInPlace(policy: fallbackFleet, account: capped0,
                              primaryModel: "claude-opus-4-8", now: capNow) == nil)
-    check("nor is one this account cannot serve",
+    // The double wall the evidence gate exists for: the model window AND the windows every model
+    // shares, all spent, on numbers fetched after the cap. There is nothing here to fall back to,
+    // and no later reading could say otherwise.
+    check("nor is one this account cannot serve, which is the double wall in one turn",
           capFallbackInPlace(policy: fallbackFleet, account: allWindowsDry, primaryModel: "fable",
-                             now: capNow) == nil)
+                             now: capNow) == nil
+              && accountReadingPostdatesCap(allWindowsDry, cappedAt: capNow))
     check("and a fleet that declares none has none",
           capFallbackInPlace(policy: auto0, account: capped0, primaryModel: "fable",
                              now: capNow) == nil)

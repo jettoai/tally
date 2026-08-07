@@ -77,6 +77,61 @@ func observeCapHit(pendingCap: inout PendingCapRecovery?,
     quarantineAccount(account.id, model: primaryModel, until: until)
 }
 
+// MARK: - Answering a cap without leaving the account
+
+/// What the user is told when a cap is answered on the spot: the account they pinned by hand is
+/// kept, and the conversation runs the configured fallback pairing from here on.
+///
+/// A function rather than a constant because the account and the model ARE the news, and the way
+/// back is not obvious from either: the pairing arrives on the relaunch's command line, so the
+/// release is the model axis's own (`tally model auto`) rather than anything to do with the pin
+/// that was just kept. The sentence lives here, next to the branch that says it, so a test can
+/// assert what it promises instead of a copy of the words.
+func capFallbackKeptPinNotice(account: String, capped: String?, to: String) -> String {
+    let wall = capped.map { "\($0) capped" } ?? "cap hit"
+    return "\(wall) → staying on \(account), falling back to \(to) " +
+        "(release with `tally model auto` once quota is back)"
+}
+
+/// The fallback pairing that lets a capped session keep the account it is on, or nil when this
+/// account can serve none of the models the fleet declares.
+///
+/// The list is the same comma-separated `fallbackModel` the quota fallback profile and the
+/// safeguard restore read, and the first entry this account can still serve wins. Two things
+/// disqualify an entry:
+///
+///  - It names the model the session already runs. Relaunching a session onto the pair it is
+///    already on answers nothing, and the next cap would ask the identical question - which is what
+///    turns one cap into a restart loop.
+///  - This account cannot serve it, by exactly the gates every account pick applies: `eligible`
+///    for the windows that model spends, and comfortably above the nearly-dry line rather than
+///    merely non-zero (AccountComfort.swift). A cap answered by moving onto a window with 1% left
+///    is a second cap minutes later, and the restart was spent for nothing.
+///
+/// The window that just capped does not veto anything here, and that is the point rather than an
+/// oversight: `eligible` and the comfort gate count only the windows the model being judged
+/// actually spends (`ratedWindows`), so a drained fable window says nothing about an opus fallback,
+/// while a drained SESSION or WEEKLY window - which every model spends - correctly leaves this
+/// account with no fallback at all and sends the caller to the move.
+///
+/// Unlike the fallback profile (ModelDegradation.swift) this does not insist that a depth or extra
+/// flags are declared too. There, the model has ALREADY changed server-side and a relaunch that
+/// changed nothing else would be an interruption for nothing; here the model change is the whole
+/// answer, and a fleet that declares only `fallbackModel` has still said what to run.
+func capFallbackInPlace(policy: LaunchPolicy, account: Snapshot.Account, primaryModel: String?,
+                        now: Date = Date()) -> (model: String, effort: String?, args: [String])? {
+    guard let model = policy.fallbackModel?
+        .split(separator: ",")
+        .map({ $0.trimmingCharacters(in: .whitespaces).lowercased() })
+        .first(where: {
+            !$0.isEmpty && !modelsAgree($0, primaryModel)
+                && eligible(account, primaryModel: $0)
+                && accountIsComfortable(account, primaryModel: $0, now: now)
+        })
+    else { return nil }
+    return (model, policy.fallbackEffort, declaredFallbackArgs(policy.fallbackArgs))
+}
+
 // MARK: - The move a cap leads to
 
 /// How a CAP handoff reads a session that carries a pin of its own: the mode the decision is judged
@@ -133,9 +188,13 @@ func capReading(fleet: LaunchPolicy, sessionPin: String?, candidates: [Snapshot.
 /// (`capReading` states the whole rule). `loaded` is the tick's snapshot read, injectable like the
 /// rebalance's so the decision is testable without a home directory, and deferred so that ticks with
 /// nothing to do do not pay for it (see the guard).
+///
+/// `modelPinned` is whether a `tally model` pin stands on this session, and it is asked for one
+/// branch only: the stay-put fallback below may not overwrite a pair the user chose by hand.
 func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapRecovery?,
                      account: Snapshot.Account, providerID: String, fleet: LaunchPolicy,
-                     sessionPin: String?, quarantine: [String: (model: String?, until: Date)],
+                     sessionPin: String?, modelPinned: Bool = false,
+                     quarantine: [String: (model: String?, until: Date)],
                      fuseAllows: Bool, now: Date = Date(),
                      loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot()) {
     guard plan == nil, var pending = pendingCap, now >= pending.nextRetry else { return }
@@ -146,6 +205,37 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
     // passes a value, and the compiler wraps it.
     let (snapshot, snapshotProblem) = loaded()
     let primary = pending.primaryModel
+    // A HAND-PINNED SESSION IS ASKED A DIFFERENT QUESTION FIRST. `tally switch` is the user saying
+    // which ACCOUNT this conversation belongs on, so a cap that can be answered without leaving it
+    // must be: relaunch on the fleet's declared fallback pairing, same account, pin untouched. Only
+    // when this account can serve none of those does the move below happen, and that one costs the
+    // pin (`pinClearedByCap`). The rule the handoff was written under - a cap means the user wants
+    // the MODEL kept and will accept another account - is exactly the wrong way round for a session
+    // they pinned by hand minutes earlier (owner report, 2026-08-07).
+    //
+    // NOT WHILE A `tally model` PIN STANDS, which is the precedence the follow adoption already
+    // obeys one axis over (SessionDirectives.swift): the pairing here is fleet CONFIGURATION and
+    // the pin is an INSTRUCTION, and a relaunch carrying this pairing would put a `--model` on the
+    // command line that the session's own pin contradicts for the rest of its life. Such a session
+    // takes the move below instead, which keeps the model it was told to run.
+    //
+    // The account comes from the snapshot rather than from the launch, because everything asked of
+    // it is a quota reading and the launch's copy is as old as the session; a snapshot too stale to
+    // trust is left to the wait the action below already answers with.
+    //
+    // A same-account relaunch, so no fuse: it cannot burn through logins, exactly as the fallback
+    // profile cannot (ModelDegradation.swift). The pending cap is left standing rather than cleared
+    // here - the relaunch drops it (`capCarriedAcrossRelaunch`), and a tick that stands the
+    // relaunch down must still be waiting for it.
+    let current = snapshot?.accounts.first { $0.id == account.id } ?? account
+    if sessionPin != nil, !modelPinned, snapshotProblem == nil,
+       let stay = capFallbackInPlace(policy: fleet, account: current, primaryModel: primary,
+                                     now: now) {
+        warn(capFallbackKeptPinNotice(account: current.label, capped: primary, to: stay.model))
+        plan = RelaunchPlan(target: current, reason: "cap-fallback", countsFuse: false,
+                            model: stay.model, effort: stay.effort, extraArgs: stay.args)
+        return
+    }
     let excluded = quarantinedAccounts(forPrimary: primary, sessionLocal: quarantine, now: now)
     // The candidates this cap considers usable at all: signed in, able to serve the model, not the
     // account that just capped, and not one quarantined for capping on it recently.

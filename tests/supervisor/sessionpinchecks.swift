@@ -196,16 +196,23 @@ func runSessionPinChecks() {
     pinnedToP.mode = "manual"
     pinnedToP.pinnedAccountID = "P"
 
-    func capTick(fleet: LaunchPolicy, sessionPin: String?,
-                 accounts: [Snapshot.Account] = [capped0, fleetPinned, sibling])
+    /// The defaulted arguments are the case this section opened with; 31k2 below varies them (the
+    /// session's model pin, what it runs, the account it capped on, a snapshot that says it is too
+    /// old to judge by) rather than keeping a second tick of its own.
+    func capTick(fleet: LaunchPolicy, sessionPin: String?, modelPinned: Bool = false,
+                 primary: String? = "fable", on: Snapshot.Account = capped0,
+                 accounts: [Snapshot.Account] = [capped0, fleetPinned, sibling],
+                 problem: String? = nil)
         -> (plan: RelaunchPlan?, pending: PendingCapRecovery?) {
         var plan: RelaunchPlan?
         var pending: PendingCapRecovery? = PendingCapRecovery(
-            cappedAccountID: "D", cappedAt: capNow, primaryModel: "fable",
+            cappedAccountID: on.id, cappedAt: capNow, primaryModel: primary,
             recoveryResetsAt: nil, nextRetry: .distantPast, reason: "")
-        applyCapHandoff(plan: &plan, pendingCap: &pending, account: capped0, providerID: "claude",
-                        fleet: fleet, sessionPin: sessionPin, quarantine: [:], fuseAllows: true,
-                        now: capNow, loaded: (Snapshot(version: 2, generatedAt: capNow, accounts: accounts), nil))
+        applyCapHandoff(plan: &plan, pendingCap: &pending, account: on, providerID: "claude",
+                        fleet: fleet, sessionPin: sessionPin, modelPinned: modelPinned,
+                        quarantine: [:], fuseAllows: true, now: capNow,
+                        loaded: (Snapshot(version: 2, generatedAt: capNow, accounts: accounts),
+                                 problem))
         return (plan, pending)
     }
 
@@ -281,6 +288,129 @@ func runSessionPinChecks() {
         let reading = capReading(fleet: pinnedToP, sessionPin: "D", candidates: [sibling])
         return reading.mode == "manual" && reading.preferred == nil
     }())
+
+    // MARK: - 31k2. A cap on a hand-pinned session tries to stay before it moves
+
+    // The owner report this section is about (2026-08-07): a session moved onto an account by hand
+    // capped there, and the handoff above cleared the pin and moved it away. Pinning the account IS
+    // the instruction, so the first thing a cap asks now is whether it can be answered inside that
+    // decision - same account, the fleet's declared fallback pairing - and only a fleet that
+    // declares nothing this account can serve gets the move (and the pin clearance) it always had.
+    var fallbackFleet = LaunchPolicy()
+    fallbackFleet.model = "fable"
+    // First entry names the model the session is already on, so this asserts the list is split AND
+    // that an entry naming the running pair is skipped rather than relaunched onto.
+    fallbackFleet.fallbackModel = "fable,opus"
+    fallbackFleet.fallbackEffort = "ultracode"
+
+    /// The account the session capped on with EVERY window spent, not just the flagship one: what a
+    /// cap looks like when no pairing can be run here, because session and weekly are windows every
+    /// model draws on.
+    var allWindowsDry = capped0
+    allWindowsDry.sessionRemaining = 0.5
+    allWindowsDry.weeklyRemaining = 0.5
+
+    let stayed = capTick(fleet: fallbackFleet, sessionPin: "D")
+    check("a cap on a hand-pinned session keeps the account the user pinned",
+          stayed.plan?.target.id == "D")
+    check("…running the first declared fallback the account can still serve",
+          stayed.plan?.model == "opus" && stayed.plan?.effort == "ultracode")
+    check("…under a reason of its own, so nothing reads it as the move that spends the pin",
+          stayed.plan?.reason == "cap-fallback")
+    var keptPin = ManualMoveState(sessionKey: "capped", servedEpoch: 0, sessionPin: "D")
+    check("and the pin is still there afterwards, which is the whole point",
+          !keptPin.pinClearedByCap(stayed.plan?.reason ?? "") && keptPin.sessionPin == "D")
+    // Same account, so nothing here can burn through logins - the rule the fallback profile already
+    // follows (ModelDegradation.swift).
+    check("a stay-put relaunch never spends the recovery fuse", stayed.plan?.countsFuse == false)
+    // As urgent as the handoff, and held by exactly as little: a session with no turn in it cannot
+    // have capped, so the conversation this belongs to is the bound file (StandDown.swift).
+    check("an unresolved fork does not hold it either",
+          !relaunchHeldByUnresolvedFork(reason: "cap-fallback", unresolvedFork: true))
+    // The relaunch IS the answer to the cap, so the next child starts clean rather than waiting out
+    // a wall it is no longer behind.
+    check("and the cap is not carried into the child it starts",
+          capCarriedAcrossRelaunch(stayed.pending, reason: "cap-fallback") == nil)
+    check("the user is told where the session stayed, what it runs, and how to undo it", {
+        let said = capFallbackKeptPinNotice(account: "Claude 4", capped: "fable", to: "opus")
+        return said.contains("Claude 4") && said.contains("opus")
+            && said.contains("fable capped") && said.contains("tally model auto")
+    }())
+
+    // The other three ways out, all of them the behaviour that was already there.
+    let noDeclaration = capTick(fleet: auto0, sessionPin: "D")
+    check("a fleet declaring no fallback moves the session as it always did",
+          noDeclaration.plan?.target.id == "S" && noDeclaration.plan?.reason == "cap")
+    // Session and weekly are spent by EVERY model, so no pairing can be run here: the account has
+    // nothing left to offer and the move is the only answer.
+    let noRoomForIt = capTick(fleet: fallbackFleet, sessionPin: "D", on: allWindowsDry,
+                              accounts: [allWindowsDry, sibling])
+    check("a fallback whose windows are dry on this account too is no way to stay",
+          noRoomForIt.plan?.target.id == "S")
+    check("…so the pin is spent on the move, exactly as before",
+          noRoomForIt.plan?.reason == "cap")
+    // The user pinned the PAIR by hand as well: fleet configuration may not overwrite that, so this
+    // session takes the move, which keeps the model it was told to run. Same precedence the follow
+    // adoption obeys one axis over.
+    let handPinnedPair = capTick(fleet: fallbackFleet, sessionPin: "D", modelPinned: true)
+    check("a `tally model` pin stands the re-pairing down",
+          handPinnedPair.plan?.target.id == "S" && handPinnedPair.plan?.reason == "cap")
+
+    // THE HARD CONSTRAINT: a session nobody pinned is untouched by any of this.
+    let neverPinned = capTick(fleet: fallbackFleet, sessionPin: nil)
+    check("an unpinned session is handed to a sibling, fallback declared or not",
+          neverPinned.plan?.target.id == "S" && neverPinned.plan?.reason == "cap")
+    // Everything the stay-put branch asks is a quota reading, so a snapshot it has already declared
+    // untrustworthy decides nothing: it waits, which is what the move does with the same snapshot.
+    let stale = capTick(fleet: fallbackFleet, sessionPin: "D", problem: "snapshot is 9m old")
+    check("numbers too stale to trust re-pair nothing", stale.plan == nil)
+    check("…and the session waits for a fresh snapshot",
+          stale.pending?.reason.contains("fresh snapshot") == true)
+
+    // The rule the four cases come from, on its own.
+    check("the first declared fallback this account can serve is the one it stays on",
+          capFallbackInPlace(policy: fallbackFleet, account: capped0, primaryModel: "fable",
+                             now: capNow)?.model == "opus")
+    // A cap on the fallback itself: relaunching onto the pair the session is already running
+    // answers nothing and would ask the same question again at the next cap.
+    check("a list naming only the model already running is no fallback at all",
+          capFallbackInPlace(policy: fallbackFleet, account: capped0,
+                             primaryModel: "claude-opus-4-8", now: capNow) == nil)
+    check("nor is one this account cannot serve",
+          capFallbackInPlace(policy: fallbackFleet, account: allWindowsDry, primaryModel: "fable",
+                             now: capNow) == nil)
+    check("and a fleet that declares none has none",
+          capFallbackInPlace(policy: auto0, account: capped0, primaryModel: "fable",
+                             now: capNow) == nil)
+    // A model alone is a complete declaration here, unlike the fallback profile's: there the model
+    // has already changed server-side, so a relaunch adding nothing is an interruption for nothing;
+    // here the model change IS the answer.
+    var modelOnlyFleet = LaunchPolicy()
+    modelOnlyFleet.fallbackModel = "opus"
+    check("a declared model with no depth beside it is still a way to stay", {
+        let stay = capFallbackInPlace(policy: modelOnlyFleet, account: capped0,
+                                      primaryModel: "fable", now: capNow)
+        return stay?.model == "opus" && stay?.effort == nil && stay?.args.isEmpty == true
+    }())
+
+    // MARK: - 31k3. Pinning the MODEL first is what stops the cap arising at all
+
+    // The order this feature does not change, asserted because it is the existing promise the new
+    // branch stands next to: a session told to run opus is judged by the opus windows, so the
+    // flagship window the fleet default would have spent cannot cap it and none of the machinery
+    // above ever runs.
+    check("a model pin outranks the command line for what the session runs",
+          sessionPrimaryModel(pin: SessionModelPin(model: "opus"),
+                              launchArgs: ["--model", "fable"], providerID: "claude",
+                              policy: fallbackFleet) == "opus")
+    check("so a drained flagship window leaves the account serviceable for that session",
+          eligible(capped0, primaryModel: "opus")
+              && accountIsComfortable(capped0, primaryModel: "opus", now: capNow))
+    check("…while the same account reads as spent for the session running the flagship",
+          !accountIsComfortable(capped0, primaryModel: "fable", now: capNow))
+    check("and a cap quarantines the account for the window that capped, not for the account",
+          !quarantineBlocks(quarantineModel: "fable", pickModel: "opus")
+              && quarantineBlocks(quarantineModel: "fable", pickModel: "fable"))
 
     // MARK: - 31l. What the audit log says
 

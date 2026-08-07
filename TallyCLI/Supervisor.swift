@@ -299,13 +299,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                    childAge: Date().timeIntervalSince(launchedAt),
                                    keyboardIdle: { keyboard.idle($0) })
 
-            // Cap handoff / wait: a pending cap outranks follow, rescue, and fallback for the
-            // account MOVE (the pin switch above still wins), and it is the only mover a session pin
-            // does not stop. The whole rule, including what a fleet pin under that session pin does
-            // to it, lives in CapDetection.swift; rescue/fallback stay gated by `plan == nil`.
+            // Cap handoff / wait: a pending cap outranks follow, rescue and fallback for the account
+            // MOVE (the pin switch above still wins), and it is the only mover a session pin does
+            // not stop - though a hand-pinned session is first offered the fallback pairing on the
+            // account it is on. CapDetection.swift; rescue/fallback stay gated by `plan == nil`.
             applyCapHandoff(plan: &plan, pendingCap: &pendingCap, account: account,
                             providerID: provider.id, fleet: fleetPolicy,
-                            sessionPin: manualMoves.sessionPin, quarantine: quarantine,
+                            sessionPin: manualMoves.sessionPin,
+                            modelPinned: sessionModelState.isPinned, quarantine: quarantine,
                             fuseAllows: fuse.allows())
 
             // The session's ACTUAL model is no longer the one it was launched for (claude fell back

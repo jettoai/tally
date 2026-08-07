@@ -65,10 +65,15 @@ struct TickCommitments {
 /// Whether a relaunch this tick has already planned must stand down, asked at the execution point
 /// against a FORCED fork scan - the sub-tick residue described above.
 ///
-/// A cap handoff is exempt, for the same reason it never waits for quiet: a session with no turn in
+/// A cap answer is exempt, for the same reason it never waits for quiet: a session with no turn in
 /// it cannot have hit a cap, so the conversation the cap belongs to is the bound file, and that is
-/// what the handoff has to resume. Holding it back would strand a capped session on a dry account
+/// what the relaunch has to resume. Holding it back would strand a capped session on a dry account
 /// for as long as somebody leaves a fresh tab open.
+///
+/// BOTH of the cap's answers, which is what the prefix says: the handoff to a sibling (`cap`) and
+/// the fallback pairing that keeps a hand-pinned session where it is (`cap-fallback`,
+/// CapDetection.swift). They differ in what they change about the session and not at all in the
+/// urgency of changing it.
 func relaunchHeldByUnresolvedFork(reason: String, unresolvedFork: Bool) -> Bool {
-    unresolvedFork && reason != "cap"
+    unresolvedFork && !reason.hasPrefix("cap")
 }

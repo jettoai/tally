@@ -130,13 +130,13 @@ final class IntegrationsStore {
     /// UI-level disabling backs this up; this is the hard gate.
     /// Internal (not private): the skill extension file uses it too.
     func guardNotDev() -> Bool {
-        guard BuildVariant.isDev else { return true }
+        guard BuildVariant.isUnshipped else { return true }
         lastError = L("Integrations are managed by the installed release app.")
         return false
     }
 
     /// The bundled CLI binary (Contents/Helpers/tally, embedded by the release pipeline).
-    /// Internal (not private): the `/tally-switch` hook is registered with an absolute path to it,
+    /// Internal (not private): the `/tally-account` hook is registered with an absolute path to it,
     /// so it works whether or not the /usr/local/bin link was ever installed.
     static var bundledCLIURL: URL {
         Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/tally")

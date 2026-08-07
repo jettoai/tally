@@ -403,9 +403,11 @@ extension IntegrationsStore {
     /// user first: an absent file stays absent (not having the skill is a choice), a foreign
     /// skills/tally is never touched, and a failure only lands in `lastError`.
     func autoUpdateSkill() {
-        // Shared state belongs to the release app; not `guardNotDev()`, whose user-facing error
-        // has no place in a task that runs silently at launch.
-        guard !BuildVariant.isDev else { return }
+        // Shared state belongs to the INSTALLED release app; not `guardNotDev()`, whose user-facing
+        // error has no place in a task that runs silently at launch. A locally built Release is
+        // caught here too (`isUnshipped`): it wears the release bundle id, so nothing else about it
+        // says it must not write, and what it wrote was a hook path inside a build tree.
+        guard !BuildVariant.isUnshipped else { return }
         let result = Self.autoUpdateSkills(in: Self.installedSkillFiles())
         // Before the early return: when EVERY update failed (an unwritable skills folder) there is
         // nothing to record, but the failure is exactly what Settings must be able to show.

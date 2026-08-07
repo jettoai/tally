@@ -6,7 +6,7 @@ import Foundation
 // configuration, it is edited by hand, and on shared setups one physical file stands behind several
 // config homes. Anything that rewrites it wholesale - another tool's config sync, a restore from a
 // dotfiles repo, an editor saving a stale buffer - takes our entry with it, silently. The user then
-// types `/tally-switch` or `/tally-model` and gets a model turn instead of a free answer, with
+// types `/tally-account` or `/tally-model` and gets a model turn instead of a free answer, with
 // nothing anywhere saying why. Until now the only repair was relaunching the app, because the sync
 // runs once at launch (`autoUpdateSkill`, AppDelegate).
 //
@@ -52,10 +52,30 @@ extension IntegrationsStore {
     /// The order matters only for cost - the uninstall check is a file read per home, the currency
     /// check is that plus a settings parse - but the SECOND is the one that ends the write-event-
     /// write cycle, so it can never be skipped for a machine where the first passes.
-    static func hooksNeedHealing(skillFiles: [URL], population: [URL]) -> Bool {
+    /// - Parameter binary: the helper the entries are expected to name, defaulting to this app's.
+    ///   Injected so a test can state a path without owning an app bundle.
+    static func hooksNeedHealing(skillFiles: [URL], population: [URL],
+                                 binary: URL? = nil) -> Bool {
+        let helper = binary ?? bundledCLIURL
         let ours = oursAmong(skillFiles)
         guard !ours.isEmpty else { return false }
-        return !promptCommandsAreCurrent(forSkillFiles: ours, population: population)
+        guard promptCommandsAreCurrent(forSkillFiles: ours, population: population) else { return true }
+        // AND THE ENTRY HAS TO RUN THIS APP. Presence was the only question this asked, and an
+        // entry that is present can still name a binary that is not there: a locally built Release
+        // registered every hook at a path inside its build tree, which holds no bundled CLI, and
+        // from then on every `/tally-account` answered "No such file or directory" and fell through
+        // to a model turn. The watcher was watching, found nothing missing, and healed nothing.
+        //
+        // A path that is merely OLD is the same repair, and it always was: the launch sync rewrites
+        // it silently whenever the app moves (`syncPromptCommands`). This only makes the watcher
+        // able to see the same thing between launches.
+        return homesCarrying(ours, population: population).contains { home in
+            let settings = home.appendingPathComponent("settings.json")
+            return promptCommands.contains { command in
+                registeredPromptHookCommand(settings, hook: command)
+                    != promptHookCommand(helper, command: command)
+            }
+        }
     }
 
     /// The physical settings files a registration was recorded in. The manifest is the right source
@@ -93,9 +113,10 @@ extension IntegrationsStore {
     /// Put back whatever is missing, or do nothing. Returns whether anything on disk changed.
     @discardableResult
     func healPromptHooks() -> Bool {
-        // Shared state belongs to the release app, the same rule `autoUpdateSkill` follows: a dev
-        // build must never write into the config homes the release app manages.
-        guard !BuildVariant.isDev else { return false }
+        // Shared state belongs to the INSTALLED release app, the same rule `autoUpdateSkill`
+        // follows: a build nobody installed - the dev variant, or any bundle running out of a build
+        // products tree - must never write into the config homes.
+        guard !BuildVariant.isUnshipped else { return false }
         let files = Self.installedSkillFiles()
         guard Self.hooksNeedHealing(skillFiles: files, population: Self.claudeHomes()) else {
             return false

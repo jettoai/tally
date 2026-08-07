@@ -220,6 +220,24 @@ extension IntegrationsStore {
         return entries.contains { holdsOurHook($0, command: hook) }
     }
 
+    /// The command line our hook in this file actually runs, or nil when ours is not in it.
+    ///
+    /// The question `settingsCarryPromptHook` deliberately does not ask, and it has to be asked
+    /// somewhere: an entry can be present and point at a binary that is not there any more, which
+    /// on a user's machine is not a subtle failure - every `/tally-account` answers "No such file or
+    /// directory" and falls through to a model turn, spending exactly the tokens the hook exists to
+    /// save.
+    static func registeredPromptHookCommand(_ file: URL, hook: PromptCommand) -> String? {
+        guard let data = try? Data(contentsOf: file),
+              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let entries = (settings["hooks"] as? [String: Any])?[promptHookEvent]
+                as? [[String: Any]],
+              let entry = entries.first(where: { holdsOurHook($0, command: hook) }) else { return nil }
+        return (entry["hooks"] as? [[String: Any]] ?? [])
+            .compactMap { $0["command"] as? String }
+            .first { $0.hasSuffix(" \(hook.hookMarker)") }
+    }
+
     // MARK: - Installed as one unit with the skill
 
     /// What one group's sync came to: what changed, what is now installed, and what went wrong.

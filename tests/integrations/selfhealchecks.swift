@@ -5,7 +5,7 @@ import Foundation
 // The hooks live in settings.json, which is the user's whole harness configuration and is rewritten
 // by things that know nothing about Tally: another tool's config sync, a restore from a dotfiles
 // repo, an editor saving a stale buffer. Until the app watched that file the only repair was
-// relaunching it, because the sync runs once at launch - and in between, `/tally-switch` and
+// relaunching it, because the sync runs once at launch - and in between, `/tally-account` and
 // `/tally-model` silently start costing a model turn each.
 //
 // TWO GUARDS CARRY THE WHOLE FEATURE, and both are asserted here rather than trusted:
@@ -178,7 +178,7 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     let healthySkill = [IntegrationsStore.claudeSkillFile(inHome: healthy)]
     check("a freshly synced home really does carry both hooks", hooksPresent(healthy))
     check("…and needs no healing, which is what ends the write-event-write cycle",
-          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy]))
+          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy], binary: binary))
 
     // Now the failure this feature exists for: something rewrites settings.json and our entry goes
     // with it. The command files are untouched - they live elsewhere - so nothing else notices.
@@ -186,14 +186,14 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
                    encoding: .utf8)
     check("a wiped settings.json is noticed", !hooksPresent(healthy)
               && IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill,
-                                                    population: [healthy]))
+                                                    population: [healthy], binary: binary))
     check("…and re-running the sync puts the hooks back",
           installAll(healthy) && hooksPresent(healthy))
     // THE PROPERTY THAT MATTERS: the repair's own write must not buy another repair. Asserted twice
     // over, because they are two different claims - the gate says no, and the sync itself reports
     // that it changed nothing.
     check("the repair's own write does not ask for another repair",
-          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy]))
+          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy], binary: binary))
     check("…and a sync run anyway reports no change, so a chain has nothing to carry",
           !installAll(healthy))
 
@@ -219,21 +219,70 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     let removedSkill = [IntegrationsStore.claudeSkillFile(inHome: removed)]
     check("a home with no skill has no hooks either, by construction", !hooksPresent(removed))
     check("…and is left that way: an uninstall is an instruction, not a fault to repair",
-          !IntegrationsStore.hooksNeedHealing(skillFiles: removedSkill, population: [removed]))
+          !IntegrationsStore.hooksNeedHealing(skillFiles: removedSkill, population: [removed], binary: binary))
     // A skills/tally that belongs to somebody else is the same answer for a different reason: it was
     // never ours, so there is nothing of ours to put back.
     let foreign = try makeHome("foreign", skill: "---\nname: someone-elses\n---\nnot ours")
     check("a foreign skills/tally is not read as an install of ours",
           !IntegrationsStore.hooksNeedHealing(
             skillFiles: [IntegrationsStore.claudeSkillFile(inHome: foreign)],
-            population: [foreign]))
+            population: [foreign], binary: binary))
     // And the two guards do not shadow each other: a home that IS ours, next to one that is not,
     // still gets its own hooks back.
     check("an installed home beside an uninstalled one is still healed",
           IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill + removedSkill,
-                                             population: [healthy, removed]) == false)
+                                             population: [healthy, removed],
+                                             binary: binary) == false)
     try "{}".write(to: settingsFile, atomically: true, encoding: .utf8)
     check("…and once ITS hooks go, the pair is healed on the installed one's account",
           IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill + removedSkill,
-                                             population: [healthy, removed]))
+                                             population: [healthy, removed], binary: binary))
+
+    // MARK: - A HOOK THAT IS PRESENT AND POINTS AT THE WRONG BINARY
+    //
+    // The failure the presence check could not see, and the one that actually reached a user: a
+    // Release build running out of a build tree synced itself into the shared config homes and
+    // registered every hook at a path inside DerivedData, where no bundled CLI exists. Every entry
+    // was present, so nothing needed healing; every `/tally-account` answered "No such file or
+    // directory" and fell through to a model turn - which is exactly the cost the hook exists to
+    // avoid, paid on every prompt, silently.
+    _ = installAll(healthy)
+    let stray = URL(fileURLWithPath: "/Users/someone/Library/Developer/Xcode/DerivedData/"
+                    + "Tally-abc/Build/Products/Release/Tally.app/Contents/Helpers/tally")
+    for command in IntegrationsStore.promptCommands {
+        _ = try IntegrationsStore.upsertPromptHook(
+            in: healthy.appendingPathComponent("settings.json"),
+            command: IntegrationsStore.promptHookCommand(stray, command: command), hook: command)
+    }
+    check("an entry naming another app's binary is still PRESENT", hooksPresent(healthy))
+    check("…and is nonetheless in need of healing",
+          IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
+                                             binary: binary))
+    check("…which the sync repairs by rewriting the path",
+          installAll(healthy)
+              && IntegrationsStore.registeredPromptHookCommand(
+                  healthy.appendingPathComponent("settings.json"),
+                  hook: IntegrationsStore.promptCommands[0])
+                  == IntegrationsStore.promptHookCommand(binary,
+                                                         command: IntegrationsStore.promptCommands[0]))
+    // The repair must settle, exactly like the presence one: this gate runs on every settings write,
+    // and a repair that still reads as damaged is a write-event-write loop by another name.
+    check("…and once repaired asks for nothing further",
+          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
+                                              binary: binary))
+
+    // MARK: - THE GATE IN FRONT OF ALL OF IT
+    //
+    // None of the above may run at all from a build tree. The dev variant was the only build that
+    // knew to keep its hands off shared state, and a locally built RELEASE carries the release
+    // bundle id, so nothing about it said so - which is how the stray path above got written.
+    check("a Release built into DerivedData is a build tree",
+          BuildVariant.isBuildProductsPath(
+            "/Users/someone/Library/Developer/Xcode/DerivedData/Tally-abc/Build/Products/Release/Tally.app"))
+    check("…and so is one under a custom derived-data location",
+          BuildVariant.isBuildProductsPath("/tmp/ci-out/Build/Products/Debug/Tally.app"))
+    check("an installed app is not",
+          !BuildVariant.isBuildProductsPath("/Applications/Tally.app"))
+    check("…nor is one a user keeps somewhere of their own",
+          !BuildVariant.isBuildProductsPath("/Users/someone/Applications/Tally.app"))
 }

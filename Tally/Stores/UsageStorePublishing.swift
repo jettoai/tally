@@ -6,10 +6,13 @@ import Foundation
 // already use - the refresh loop and the settings writes call in here, and nothing here fetches.
 
 extension UsageStore {
-    /// Rewrite the snapshot from the cached accounts + current settings. No-op for the dev
-    /// variant and demo mode (neither may publish), or before the first successful refresh.
+    /// Rewrite the snapshot from the cached accounts + current settings. No-op for a build nobody
+    /// installed and for demo mode (neither may publish), or before the first successful refresh.
+    /// `isUnshipped` rather than `isDev` because the settings writes reach here directly: gating only
+    /// the refresh loop would leave a locally built Release republishing on every toggle.
     func republishSnapshot() {
-        guard !BuildVariant.isDev, !DemoUsage.isActive, !lastPublishedAccounts.isEmpty else { return }
+        guard !BuildVariant.isUnshipped, !DemoUsage.isActive,
+              !lastPublishedAccounts.isEmpty else { return }
         let (fleet, fleetPools) = fleetForSnapshot()
         UsageSnapshot.make(accounts: lastPublishedAccounts, launchHomes: lastLaunchHomes,
                            statuslineFullQuota: SettingsStore.shared.statuslineFullQuota,

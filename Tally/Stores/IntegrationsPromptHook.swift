@@ -66,21 +66,37 @@ extension IntegrationsStore {
         default: return nil
         }
         let ours: [String: Any] = ["type": "command", "command": hookCommand]
-        if let index = entries.firstIndex(where: { holdsOurHook($0, command: hook) }) {
+        // EVERY registration of ours in the file, not the first one found. Our own writes make at
+        // most one (a fresh entry is appended only when none is there), but the file this edits is
+        // rewritten by things that know nothing about Tally - a dotfiles merge, two config homes
+        // folded into one, a hand edit - and any of them can leave a second copy. Claude Code runs
+        // ALL the hooks that match, so a stale duplicate goes on answering `/tally-account` with
+        // "No such file or directory" while the repaired one beside it works.
+        //
+        // The check face reads the same way (`registeredPromptHookCommands`), and they have to move
+        // together: detection that sees every copy while the repair fixes one would report damage
+        // that no amount of repairing settles.
+        var changed = false
+        var found = false
+        for index in entries.indices where holdsOurHook(entries[index], command: hook) {
+            found = true
             // Our hook, in place, with whatever else the user put in that entry left exactly where
             // it is and in the order they had it.
             var inner = entries[index]["hooks"] as? [[String: Any]] ?? []
-            guard let slot = inner.firstIndex(where: { isOurHook($0, command: hook) }) else {
-                return nil
+            for slot in inner.indices where isOurHook(inner[slot], command: hook) {
+                if NSDictionary(dictionary: inner[slot]).isEqual(to: ours) { continue }
+                inner[slot] = ours
+                changed = true
             }
-            if NSDictionary(dictionary: inner[slot]).isEqual(to: ours) { return nil }
-            inner[slot] = ours
             entries[index]["hooks"] = inner
-        } else {
+        }
+        if !found {
             // A fresh entry holding only ours. Deliberately not merged into an entry the user wrote
             // themselves: that entry is theirs, and adding to it is still editing it.
             entries.append(["matcher": hook.name, "hooks": [ours]])
+            changed = true
         }
+        guard changed else { return nil }
         hooks[promptHookEvent] = entries
         var merged = settings
         merged["hooks"] = hooks
@@ -155,21 +171,25 @@ extension IntegrationsStore {
         return entries.contains { holdsOurHook($0, command: hook) }
     }
 
-    /// The command line our hook in this file actually runs, or nil when ours is not in it.
+    /// EVERY command line our hooks in this file actually run, in the order the file holds them.
     ///
     /// The question `settingsCarryPromptHook` deliberately does not ask, and it has to be asked
     /// somewhere: an entry can be present and point at a binary that is not there any more, which
     /// on a user's machine is not a subtle failure - every `/tally-account` answers "No such file or
     /// directory" and falls through to a model turn, spending exactly the tokens the hook exists to
     /// save.
-    static func registeredPromptHookCommand(_ file: URL, hook: PromptCommand) -> String? {
+    ///
+    /// Plural because one file can hold more than one registration of ours (see the upsert), and the
+    /// stale one is the one that costs the turn. Reading only the first says "all is well" while the
+    /// second copy is doing the damage.
+    static func registeredPromptHookCommands(_ file: URL, hook: PromptCommand) -> [String] {
         guard let data = try? Data(contentsOf: file),
               let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let entries = (settings["hooks"] as? [String: Any])?[promptHookEvent]
-                as? [[String: Any]],
-              let entry = entries.first(where: { holdsOurHook($0, command: hook) }) else { return nil }
-        return (entry["hooks"] as? [[String: Any]] ?? [])
+                as? [[String: Any]] else { return [] }
+        return entries.filter { holdsOurHook($0, command: hook) }
+            .flatMap { ($0["hooks"] as? [[String: Any]] ?? []) }
             .compactMap { $0["command"] as? String }
-            .first { $0.hasSuffix(" \(hook.hookMarker)") }
+            .filter { $0.hasSuffix(" \(hook.hookMarker)") }
     }
 }

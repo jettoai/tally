@@ -547,8 +547,11 @@ expect(storeSource.contains("accountID == Self.demoExpiredAccountID"),
 expect(storeSource.contains("isProbing = true") && storeSource.contains("defer { isProbing = false }"),
        "…because two rounds racing would each read the dedup state before either wrote it, "
            + "and announce the same outage twice")
-expect(storeSource.contains("guard !BuildVariant.isDev else { return }"),
-       "the dev variant never speaks on the shared surfaces, so it posts no notification")
+// `isUnshipped`, not `isDev`: a Release built locally carries the release bundle id, so it shares
+// this alert's dedup state as well as its notification centre - it would say the outage twice and
+// then mark it announced on the installed app's behalf.
+expect(storeSource.contains("guard !BuildVariant.isUnshipped else { return }"),
+       "a build nobody installed never speaks on the shared surfaces, so it posts no notification")
 expect(storeSource.contains("LoginProbeGate.decide(state: gate, isProbing: isProbing,"),
        "the probe throttles itself through the one gate, rather than a guard of its own")
 

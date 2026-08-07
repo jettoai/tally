@@ -339,16 +339,18 @@ final class UsageStore {
                                                                   fallback: usage.accountLabel)
             return copy
         }
-        // The dev variant (side-by-side testing) never publishes: one poller owns the shared
-        // ~/.tally files, and it is the installed release app.
-        if !BuildVariant.isDev {
+        // A build nobody installed never publishes: one poller owns the shared ~/.tally files, and
+        // it is the installed release app. The dev variant is the obvious case; a locally built
+        // Release is the one that hurt, because it wears the release bundle id and so wrote a second,
+        // older set of numbers into the same snapshot the CLI picks accounts from (`isUnshipped`).
+        if !BuildVariant.isUnshipped {
             lastPublishedAccounts = labeled
             lastLaunchHomes = launchHomes
             republishSnapshot()
             // Sample fresh results into the burn-rate history (change-only, off-main-queue).
             UsageHistory.shared.record(results)
-            // Alert when the claude flagship fleet pool crosses the low/dry tripwire. Release
-            // variant only: the dev variant never owns the shared surfaces, so it never alerts.
+            // Alert when the claude flagship fleet pool crosses the low/dry tripwire. Installed
+            // app only: a build nobody installed never owns the shared surfaces, so it never alerts.
             notifyFlagshipDryness(accounts: labeled)
             // And when a banked reset is worth spending: the user has to REMEMBER to look at a
             // credit otherwise. Same rule as every other surface here - it names the account, it

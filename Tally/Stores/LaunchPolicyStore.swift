@@ -192,10 +192,12 @@ final class LaunchPolicyStore {
     }
 
     private func persist() {
-        // The dev variant edits its policies in memory only (the UI stays testable) but never
-        // publishes: ~/.tally/state.json is what the CLI steers real launches by, and that
-        // contract belongs to the installed release app alone.
-        guard !BuildVariant.isDev else { return }
+        // A build nobody installed edits its policies in memory only (the UI stays testable) but
+        // never publishes: ~/.tally/state.json is what the CLI steers real launches by, and that
+        // contract belongs to the installed release app alone. The dev variant is one such build; a
+        // locally built Release is the other, and it would pin the user's real launches to whichever
+        // account a test window happened to select (`isUnshipped`).
+        guard !BuildVariant.isUnshipped else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         guard let data = try? encoder.encode(StateFile(launch: policies)) else { return }

@@ -263,9 +263,13 @@ final class LoginStatusStore {
 
     private func announce(verdicts: [String: LoginStatusCommand.Verdict],
                           accounts: [ProviderAccount], known: Set<String>) {
-        // The dev variant never owns the shared surfaces, and two apps watching the same accounts
-        // would say everything twice. The chip is per-window and stays.
-        guard !BuildVariant.isDev else { return }
+        // A build nobody installed never owns the shared surfaces, and two apps watching the same
+        // accounts would say everything twice. The chip is per-window and stays.
+        //
+        // `isUnshipped`, so a locally built Release is caught too: it carries the release bundle id,
+        // which means it also shares the defaults domain this alert's dedup state lives in - it would
+        // both duplicate the notification and mark the outage announced on the real app's behalf.
+        guard !BuildVariant.isUnshipped else { return }
         // Pruned against every account that still EXISTS, not against the ones probed this round.
         // The probe list is filtered by enablement, so an account switched off for longer than a
         // probe interval would be dropped from the state as though its outage had ended - and

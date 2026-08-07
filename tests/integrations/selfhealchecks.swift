@@ -260,16 +260,88 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
                                              binary: binary))
     check("…which the sync repairs by rewriting the path",
           installAll(healthy)
-              && IntegrationsStore.registeredPromptHookCommand(
+              && IntegrationsStore.registeredPromptHookCommands(
                   healthy.appendingPathComponent("settings.json"),
                   hook: IntegrationsStore.promptCommands[0])
-                  == IntegrationsStore.promptHookCommand(binary,
-                                                         command: IntegrationsStore.promptCommands[0]))
+                  == [IntegrationsStore.promptHookCommand(binary,
+                                                          command: IntegrationsStore.promptCommands[0])])
     // The repair must settle, exactly like the presence one: this gate runs on every settings write,
     // and a repair that still reads as damaged is a write-event-write loop by another name.
     check("…and once repaired asks for nothing further",
           !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
                                               binary: binary))
+
+    // MARK: - A SECOND REGISTRATION OF OURS IN THE SAME FILE
+    //
+    // Our own writes make at most one, but this file is rewritten by things that know nothing about
+    // Tally, and a dotfiles merge or two config homes folded into one leaves a duplicate. Claude Code
+    // runs EVERY hook that matches, so a stale copy beside a good one keeps answering
+    // `/tally-account` with "No such file or directory" - the failure looking exactly like the one
+    // above, while a check that reads the first entry only reports the file in good order.
+    let duplicated = healthy.appendingPathComponent("settings.json")
+    let firstCommand = IntegrationsStore.promptCommands[0]
+    var withDuplicate = (try? JSONSerialization.jsonObject(with: Data(contentsOf: duplicated)))
+        as? [String: Any] ?? [:]
+    var hookBlock = withDuplicate["hooks"] as? [String: Any] ?? [:]
+    var promptEntries = hookBlock[IntegrationsStore.promptHookEvent] as? [[String: Any]] ?? []
+    promptEntries.append([
+        "matcher": firstCommand.name,
+        "hooks": [["type": "command",
+                   "command": IntegrationsStore.promptHookCommand(stray, command: firstCommand)]],
+    ])
+    hookBlock[IntegrationsStore.promptHookEvent] = promptEntries
+    withDuplicate["hooks"] = hookBlock
+    try JSONSerialization.data(withJSONObject: withDuplicate).write(to: duplicated)
+    check("both registrations are read, not just the first",
+          IntegrationsStore.registeredPromptHookCommands(duplicated, hook: firstCommand).count == 2)
+    check("…so a stale one beside a good one is damage",
+          IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
+                                             binary: binary))
+    _ = installAll(healthy)
+    check("…which the sync repairs in every copy, not just the one it found first",
+          IntegrationsStore.registeredPromptHookCommands(duplicated, hook: firstCommand)
+              .allSatisfy { $0 == IntegrationsStore.promptHookCommand(binary,
+                                                                     command: firstCommand) })
+    // The pair that has to move together: detection reading every copy while the repair fixed one
+    // would report damage no amount of repairing settles.
+    check("…and settles, the check face and the write face covering the same entries",
+          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
+                                              binary: binary) && !installAll(healthy))
+
+    // MARK: - ASKED PER HOME, WRITTEN PER GROUP
+    //
+    // On a shared setup several homes stand in front of one physical settings.json. The sync groups
+    // them by that file and writes the FIRST home's path; the heal check asks every home separately.
+    // The two are the same question only because the write resolves the link before landing
+    // (`editSettings`), so the second home reads back exactly what the group's one write wrote. If it
+    // did not, a shared pair would answer "needs healing" on every filesystem event, forever.
+    let shareA = try makeHome("share-a", skill: currentSkill)
+    let shareB = try makeHome("share-b", skill: currentSkill)
+    try "{}".write(to: shareA.appendingPathComponent("settings.json"), atomically: true,
+                   encoding: .utf8)
+    try FileManager.default.createSymbolicLink(
+        at: shareB.appendingPathComponent("settings.json"),
+        withDestinationURL: shareA.appendingPathComponent("settings.json"))
+    // The LINKED home first, because that is the order a discovery pass can hand over and it is the
+    // one that can go wrong: the group's single write is aimed at a symlink, and an atomic save
+    // aimed at a symlink replaces the LINK unless the path is resolved first. The physical home
+    // would then never receive the hook while reading a file that no longer stands for it.
+    for command in IntegrationsStore.promptCommands {
+        _ = IntegrationsStore.syncPromptCommand(
+            inHomes: [shareB, shareA],
+            hookCommand: IntegrationsStore.promptHookCommand(binary, command: command),
+            command: command)
+    }
+    let sharedSkills = [IntegrationsStore.claudeSkillFile(inHome: shareA),
+                        IntegrationsStore.claudeSkillFile(inHome: shareB)]
+    check("the other home of a shared pair reads the hook the group's one write put there",
+          hooksPresent(shareA) && hooksPresent(shareB))
+    check("…because the write resolved the link instead of landing on top of it",
+          (try? FileManager.default.destinationOfSymbolicLink(
+            atPath: shareB.appendingPathComponent("settings.json").path)) != nil)
+    check("…so the pair settles instead of asking for a repair on every event",
+          !IntegrationsStore.hooksNeedHealing(skillFiles: sharedSkills,
+                                              population: [shareA, shareB], binary: binary))
 
     // MARK: - THE GATE IN FRONT OF ALL OF IT
     //
@@ -285,4 +357,77 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
           !BuildVariant.isBuildProductsPath("/Applications/Tally.app"))
     check("…nor is one a user keeps somewhere of their own",
           !BuildVariant.isBuildProductsPath("/Users/someone/Applications/Tally.app"))
+    // THE ARCHIVE, which the release pipeline makes on every version and Xcode's Organizer launches
+    // with a double click. It holds neither tail above - `build` is lowercase and there is no
+    // `Build/Products` pair - so it read as an installed app while being a Release build with no
+    // embedded CLI, one directory over from the failure this whole gate was written for.
+    check("the archive the release pipeline builds is a build tree",
+          BuildVariant.isBuildProductsPath(
+            "/Users/someone/workspace/tally/build/Tally.xcarchive/Products/Applications/Tally.app"))
+    check("…and so is one Xcode filed away in the Organizer",
+          BuildVariant.isBuildProductsPath("/Users/someone/Library/Developer/Xcode/Archives/"
+            + "2026-08-07/Tally 8-7-26, 10.02.xcarchive/Products/Applications/Tally.app"))
+    // Case, because the tails are directory names a build setting can respell and the volume this
+    // is built on is case-insensitive anyway: `build/products` names the same directory.
+    check("…and a build products tail in another case is the same directory",
+          BuildVariant.isBuildProductsPath("/tmp/out/build/products/Release/Tally.app"))
+    check("while a folder that merely says products is not a build tree",
+          !BuildVariant.isBuildProductsPath("/Users/someone/Products/Tally.app"))
+    // The one a USER reaches rather than a developer: an app run straight out of the downloaded DMG,
+    // never dragged to /Applications, is launched from a read-only translocated copy that exists for
+    // that launch alone. It is a complete shipped bundle, embedded CLI included, so nothing else here
+    // catches it - and the hooks it registers name a path that is gone by the next boot.
+    check("a translocated launch, which is the DMG never dragged anywhere, is not an install",
+          BuildVariant.isBuildProductsPath("/private/var/folders/qx/8k2m0000gn/T/AppTranslocation/"
+            + "3F2A9C1E-4B7D-4E55-9A10-2C6D8B0F1E33/d/Tally.app"))
+
+    // MARK: - THE MECHANISM BEHIND THE PATH TEST
+    //
+    // The paths above are the layouts somebody has already been bitten by, and `CONFIGURATION_BUILD_DIR`
+    // alone can put a Release build anywhere at all - so the thing that actually distinguishes a
+    // shipped app is asserted directly: the CLI is embedded by scripts/build-release.sh AFTER the
+    // export, so a bundle without it never came out of the release pipeline, whatever its path says.
+    let shipped = tmp.appendingPathComponent("bundle-shipped/Tally.app")
+    try FileManager.default.createDirectory(
+        at: shipped.appendingPathComponent("Contents/Helpers"), withIntermediateDirectories: true)
+    try Data().write(to: shipped.appendingPathComponent(BuildVariant.bundledCLIRelativePath))
+    check("a bundle carrying the embedded CLI is one the release pipeline finished",
+          BuildVariant.bundleCarriesCLI(shipped))
+    let unfinished = tmp.appendingPathComponent("bundle-archive/Tally.app")
+    try FileManager.default.createDirectory(
+        at: unfinished.appendingPathComponent("Contents/MacOS"), withIntermediateDirectories: true)
+    check("…and one that stopped at the export is not, however it is named or placed",
+          !BuildVariant.bundleCarriesCLI(unfinished))
+    // The check and the binary the hooks are registered with must name the SAME file, or the check
+    // is about something else entirely.
+    check("the embedded CLI the check looks for is the one the hooks are registered with",
+          IntegrationsStore.bundledCLIURL.path.hasSuffix("/" + BuildVariant.bundledCLIRelativePath))
+    // And the pipeline step the whole judgment leans on. Drop this from the release script and every
+    // installed app quietly reads as unshipped, which is the one way this gate can misfire.
+    let releaseScript = (try? String(contentsOfFile: "scripts/build-release.sh", encoding: .utf8)) ?? ""
+    check("the release pipeline still embeds it, which is what makes absence mean anything",
+          releaseScript.contains("$APP/" + BuildVariant.bundledCLIRelativePath))
+    // The composition, on this very process: a bare executable in a temp directory is not the dev
+    // app and not under a build products path, and is unshipped for the third reason alone.
+    check("a process that is no finished app bundle at all is unshipped on that ground",
+          !BuildVariant.isDev && !BuildVariant.bundlesCLI && BuildVariant.isUnshipped)
+
+    // MARK: - THE GATE IN FRONT OF THE REST OF THE SHARED STATE
+    //
+    // The hooks were never the only thing a build tree could write. A Release built locally polls
+    // the same accounts as the installed app and publishes over the same ~/.tally files, so the CLI
+    // picks launch accounts from whichever of the two wrote last - and the dev flag, which is what
+    // those writes were gated on, says nothing about a build wearing the release bundle id.
+    func gateSource(_ path: String) -> String {
+        (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+    }
+    for file in ["Tally/Stores/UsageStore.swift", "Tally/Stores/UsageStorePublishing.swift",
+                 "Tally/Stores/LaunchPolicyStore.swift", "Tally/Stores/IntegrationsSelfHeal.swift"] {
+        let source = gateSource(file)
+        check("\(file) gates its shared-state writes on the unshipped judgment",
+              !source.isEmpty && source.contains("BuildVariant.isUnshipped")
+                  && !source.contains("BuildVariant.isDev"))
+    }
+    // (The login alert's own gate is pinned the same way in tests/logincheck, beside the state
+    // machine it dedups with.)
 }

@@ -139,7 +139,7 @@ final class IntegrationsStore {
     /// Internal (not private): the `/tally-account` hook is registered with an absolute path to it,
     /// so it works whether or not the /usr/local/bin link was ever installed.
     static var bundledCLIURL: URL {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/tally")
+        Bundle.main.bundleURL.appendingPathComponent(BuildVariant.bundledCLIRelativePath)
     }
 
     func installCLITool() {

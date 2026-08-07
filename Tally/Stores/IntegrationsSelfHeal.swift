@@ -69,11 +69,25 @@ extension IntegrationsStore {
         // A path that is merely OLD is the same repair, and it always was: the launch sync rewrites
         // it silently whenever the app moves (`syncPromptCommands`). This only makes the watcher
         // able to see the same thing between launches.
+        //
+        // ASKED PER HOME WHILE THE REPAIR WRITES PER GROUP, and the two are the same question, by
+        // construction rather than by luck: `settingsGroups` keys a group on the home's settings.json
+        // RESOLVED path, `syncPromptCommand` writes `homes.first`'s, and `editSettings` resolves
+        // before writing - so the write lands exactly at the group key, which is the physical file
+        // every home in that group reads through. Homes whose settings resolve elsewhere form another
+        // group with a write of its own, so no home is left unwritten. Break any of those three and
+        // the second home of a shared pair asks about a file nothing writes and answers "needs
+        // healing" forever, which is a write-event-write cycle with the write left out.
+        //
+        // EVERY registration in the file, not the first: a duplicate entry left by something else
+        // rewriting settings.json still fires, so a stale copy beside a good one is damage
+        // (`registeredPromptHookCommands`).
         return homesCarrying(ours, population: population).contains { home in
             let settings = home.appendingPathComponent("settings.json")
             return promptCommands.contains { command in
-                registeredPromptHookCommand(settings, hook: command)
-                    != promptHookCommand(helper, command: command)
+                let registered = registeredPromptHookCommands(settings, hook: command)
+                let expected = promptHookCommand(helper, command: command)
+                return registered.isEmpty || registered.contains { $0 != expected }
             }
         }
     }
@@ -153,7 +167,12 @@ extension IntegrationsStore {
     /// set is unchanged, which is what keeps the repair's own manifest write from rebuilding the
     /// stream that noticed the damage.
     func refreshSettingsWatcher() {
-        guard !BuildVariant.isDev else { return }
+        // The same gate as the repair it exists to run (`healPromptHooks`), and it has to be the
+        // same one: a watcher whose only action can never fire is an FSEvents stream over the busiest
+        // directories on the machine, woken by every session write, to decide nothing. Two gates
+        // spelt differently here also read as a claim that a build tree may watch but not write,
+        // which is not a distinction anything wants.
+        guard !BuildVariant.isUnshipped else { return }
         let directories = Self.watchedSettingsDirectories()
         guard Self.settingsWatcherNeedsRestart(current: settingsWatcherRoots,
                                                desired: directories) else { return }

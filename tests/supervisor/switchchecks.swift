@@ -552,6 +552,14 @@ func runSwitchChecks() {
           state.waiting?.badge == "switch: no snapshot")
     check("…naming what is actually missing", state.waiting?.detail?.contains("Tally.app") == true)
     check("that badge fits the row too", (state.waiting?.badge.count ?? 99) <= 24)
+    // AND WHEN THE REQUEST ITSELF VANISHES, the badge goes with it. Same defect and same mechanism
+    // as the model axis (reported there, QA 2026-08-07): with no request left, the early return at
+    // the top of this station was the only path a tick took, so a wait raised for an instruction
+    // that no longer exists stayed on the status line for the rest of the conversation. The badge
+    // is only re-derived on ticks that get past that guard.
+    var strandedWatcher = idleWatcher("switch-stranded")
+    _ = tick(&strandedWatcher, request: nil)
+    check("a tick with no request left clears the wait that described one", state.waiting == nil)
     clearSwitchRequest(sessionKey: session, dir: tickDir)
 
     // The session got there on its own (a cap handoff landed on the named account first).

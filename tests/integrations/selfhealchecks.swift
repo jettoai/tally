@@ -32,13 +32,20 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
         return home
     }
     /// Install every slash command Tally manages into one home, the way a launch does.
+    ///
+    /// WITHOUT THE NATIVE PICKER throughout this file, and deliberately so: what is asserted here
+    /// is the self-heal's own two guards (it must terminate, and it must not undo an uninstall),
+    /// which are the same guards whichever registration shape is being repaired. The pair, and the
+    /// MCP server beside it, are healed in nativepickerchecks.swift. Injected rather than read off
+    /// this machine, so the suite's answer does not depend on which Claude Code is installed on it.
     @discardableResult
     func installAll(_ home: URL) -> Bool {
         var changed = false
         for command in IntegrationsStore.promptCommands {
             let result = IntegrationsStore.syncPromptCommand(
                 inHomes: [home],
-                hookCommand: IntegrationsStore.promptHookCommand(binary, command: command),
+                hooks: IntegrationsStore.promptHookEntries(binary, command: command,
+                                                           nativePicker: false),
                 command: command)
             changed = result.changed || changed
         }
@@ -49,6 +56,11 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
         return IntegrationsStore.promptCommands.allSatisfy {
             IntegrationsStore.settingsCarryPromptHook(settings, hook: $0)
         }
+    }
+    /// The heal question, asked the way `installAll` writes: this app's binary, no native picker.
+    func needsHealing(_ skillFiles: [URL], _ population: [URL]) -> Bool {
+        IntegrationsStore.hooksNeedHealing(skillFiles: skillFiles, population: population,
+                                           binary: binary, nativePicker: false)
     }
 
     // MARK: - The filter: exactly the config homes, never anything under them
@@ -178,22 +190,21 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     let healthySkill = [IntegrationsStore.claudeSkillFile(inHome: healthy)]
     check("a freshly synced home really does carry both hooks", hooksPresent(healthy))
     check("…and needs no healing, which is what ends the write-event-write cycle",
-          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy], binary: binary))
+          !needsHealing(healthySkill, [healthy]))
 
     // Now the failure this feature exists for: something rewrites settings.json and our entry goes
     // with it. The command files are untouched - they live elsewhere - so nothing else notices.
     try "{}".write(to: healthy.appendingPathComponent("settings.json"), atomically: true,
                    encoding: .utf8)
-    check("a wiped settings.json is noticed", !hooksPresent(healthy)
-              && IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill,
-                                                    population: [healthy], binary: binary))
+    check("a wiped settings.json is noticed",
+          !hooksPresent(healthy) && needsHealing(healthySkill, [healthy]))
     check("…and re-running the sync puts the hooks back",
           installAll(healthy) && hooksPresent(healthy))
     // THE PROPERTY THAT MATTERS: the repair's own write must not buy another repair. Asserted twice
     // over, because they are two different claims - the gate says no, and the sync itself reports
     // that it changed nothing.
     check("the repair's own write does not ask for another repair",
-          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy], binary: binary))
+          !needsHealing(healthySkill, [healthy]))
     check("…and a sync run anyway reports no change, so a chain has nothing to carry",
           !installAll(healthy))
 
@@ -219,24 +230,19 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     let removedSkill = [IntegrationsStore.claudeSkillFile(inHome: removed)]
     check("a home with no skill has no hooks either, by construction", !hooksPresent(removed))
     check("…and is left that way: an uninstall is an instruction, not a fault to repair",
-          !IntegrationsStore.hooksNeedHealing(skillFiles: removedSkill, population: [removed], binary: binary))
+          !needsHealing(removedSkill, [removed]))
     // A skills/tally that belongs to somebody else is the same answer for a different reason: it was
     // never ours, so there is nothing of ours to put back.
     let foreign = try makeHome("foreign", skill: "---\nname: someone-elses\n---\nnot ours")
     check("a foreign skills/tally is not read as an install of ours",
-          !IntegrationsStore.hooksNeedHealing(
-            skillFiles: [IntegrationsStore.claudeSkillFile(inHome: foreign)],
-            population: [foreign], binary: binary))
+          !needsHealing([IntegrationsStore.claudeSkillFile(inHome: foreign)], [foreign]))
     // And the two guards do not shadow each other: a home that IS ours, next to one that is not,
     // still gets its own hooks back.
     check("an installed home beside an uninstalled one is still healed",
-          IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill + removedSkill,
-                                             population: [healthy, removed],
-                                             binary: binary) == false)
+          !needsHealing(healthySkill + removedSkill, [healthy, removed]))
     try "{}".write(to: settingsFile, atomically: true, encoding: .utf8)
     check("…and once ITS hooks go, the pair is healed on the installed one's account",
-          IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill + removedSkill,
-                                             population: [healthy, removed], binary: binary))
+          needsHealing(healthySkill + removedSkill, [healthy, removed]))
 
     // MARK: - A HOOK THAT IS PRESENT AND POINTS AT THE WRONG BINARY
     //
@@ -252,12 +258,11 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     for command in IntegrationsStore.promptCommands {
         _ = try IntegrationsStore.upsertPromptHook(
             in: healthy.appendingPathComponent("settings.json"),
-            command: IntegrationsStore.promptHookCommand(stray, command: command), hook: command)
+            hooks: IntegrationsStore.plainHook(
+                IntegrationsStore.promptHookCommand(stray, command: command)), hook: command)
     }
     check("an entry naming another app's binary is still PRESENT", hooksPresent(healthy))
-    check("…and is nonetheless in need of healing",
-          IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
-                                             binary: binary))
+    check("…and is nonetheless in need of healing", needsHealing(healthySkill, [healthy]))
     check("…which the sync repairs by rewriting the path",
           installAll(healthy)
               && IntegrationsStore.registeredPromptHookCommands(
@@ -267,9 +272,7 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
                                                           command: IntegrationsStore.promptCommands[0])])
     // The repair must settle, exactly like the presence one: this gate runs on every settings write,
     // and a repair that still reads as damaged is a write-event-write loop by another name.
-    check("…and once repaired asks for nothing further",
-          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
-                                              binary: binary))
+    check("…and once repaired asks for nothing further", !needsHealing(healthySkill, [healthy]))
 
     // MARK: - A SECOND REGISTRATION OF OURS IN THE SAME FILE
     //
@@ -298,9 +301,7 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     try JSONSerialization.data(withJSONObject: withDuplicate).write(to: duplicated)
     check("both registrations are read, not just the first",
           IntegrationsStore.registeredPromptHookCommands(duplicated, hook: firstCommand).count == 2)
-    check("…so a stale one beside a good one is damage",
-          IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
-                                             binary: binary))
+    check("…so a stale one beside a good one is damage", needsHealing(healthySkill, [healthy]))
     _ = installAll(healthy)
     // ONE, not two both spelled correctly. Claude Code runs every hook that matches, so a repair
     // that fixed the duplicate instead of collapsing it would run the command twice on every
@@ -319,8 +320,7 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     // The pair that has to move together: detection reading every copy while the repair left them
     // all in place would report a file in good order that answers everything twice.
     check("…and settles, with nothing left for a second heal to do",
-          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
-                                              binary: binary) && !installAll(healthy))
+          !needsHealing(healthySkill, [healthy]) && !installAll(healthy))
 
     // THE DUPLICATE THAT IS NOT STALE, which is the one a "does any of them name the wrong binary"
     // check calls healthy: a dotfiles merge or two config homes folded into one leaves two entries
@@ -342,14 +342,12 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
           IntegrationsStore.registeredPromptHookCommands(duplicated, hook: firstCommand)
               == [current, current])
     check("…which is damage, though not one of them names anything wrong",
-          IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
-                                             binary: binary))
+          needsHealing(healthySkill, [healthy]))
     _ = installAll(healthy)
     check("…and the repair leaves exactly one of them",
           IntegrationsStore.registeredPromptHookCommands(duplicated, hook: firstCommand) == [current])
     check("…after which there is nothing left to ask about",
-          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
-                                              binary: binary) && !installAll(healthy))
+          !needsHealing(healthySkill, [healthy]) && !installAll(healthy))
 
     // MARK: - ASKED PER HOME, WRITTEN PER GROUP
     //
@@ -372,7 +370,8 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     for command in IntegrationsStore.promptCommands {
         _ = IntegrationsStore.syncPromptCommand(
             inHomes: [shareB, shareA],
-            hookCommand: IntegrationsStore.promptHookCommand(binary, command: command),
+            hooks: IntegrationsStore.promptHookEntries(binary, command: command,
+                                                       nativePicker: false),
             command: command)
     }
     let sharedSkills = [IntegrationsStore.claudeSkillFile(inHome: shareA),
@@ -383,8 +382,7 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
           (try? FileManager.default.destinationOfSymbolicLink(
             atPath: shareB.appendingPathComponent("settings.json").path)) != nil)
     check("…so the pair settles instead of asking for a repair on every event",
-          !IntegrationsStore.hooksNeedHealing(skillFiles: sharedSkills,
-                                              population: [shareA, shareB], binary: binary))
+          !needsHealing(sharedSkills, [shareA, shareB]))
 
     // MARK: - THE GATE IN FRONT OF ALL OF IT
     //

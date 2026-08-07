@@ -688,6 +688,8 @@ func runAuditSinkChecks() {
 }
 
 runNativeModelChecks()
+runMCPPickerChecks()
+runBackstopChecks()
 runLanguageChecks()
 runAuditSinkChecks()
 

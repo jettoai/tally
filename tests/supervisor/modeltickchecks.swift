@@ -323,5 +323,34 @@ func runModelTickChecks() {
           ModelRequest(epoch: 1, model: "opus", effort: nil).pin == SessionModelPin(model: "opus")
               && ModelRequest(epoch: 1, model: modelAutoRequest, effort: nil).pin.isEmpty)
 
+    // MARK: - 33g. A request that VANISHES takes its badge with it
+
+    // The badge is documented as re-derived every tick from live state, and it was not: with the
+    // request file gone, the early return at the top of the tick was the only path left, so "model:
+    // waiting for turn end" stayed on the status line for the rest of the conversation, describing
+    // an instruction that no longer existed anywhere (QA, 2026-08-07: still on screen an hour after
+    // the file was removed). The ways a request disappears without being served are ordinary - a
+    // sweep of a session whose pid the OS reused, a user clearing `~/.tally`, a build rolled back.
+    var strandedState = SessionModelState(sessionKey: "5590", servedEpoch: 100, dir: tickDir)
+    strandedState.waiting = PendingBadge(sessionModelWaitingBadge, detail: "asked for opus")
+    var strandedFollow = FollowState(launchArgs: [])
+    var strandedWatcher = idleWatcher("model-stranded")
+    _ = tick(&strandedState, follow: &strandedFollow, request: nil, policy: fleetDefault,
+             launchArgs: [], watcher: &strandedWatcher)
+    check("a tick with no request left clears the badge that described one",
+          strandedState.waiting == nil)
+    // Narrowly: a request that EXISTS and was already served is not this case. Its badge was
+    // cleared by the serve that served it, and clearing it again here would be a second answer to
+    // one question - and would wipe a badge a later station had just raised.
+    var staleRequestState = SessionModelState(sessionKey: "5591", servedEpoch: 300, dir: tickDir)
+    staleRequestState.waiting = PendingBadge(sessionModelWaitingBadge, detail: "asked for opus")
+    var staleRequestFollow = FollowState(launchArgs: [])
+    var staleRequestWatcher = idleWatcher("model-served")
+    _ = tick(&staleRequestState, follow: &staleRequestFollow,
+             request: ModelRequest(epoch: 200, model: "opus", effort: nil), policy: fleetDefault,
+             launchArgs: [], watcher: &staleRequestWatcher)
+    check("…while an already-served request leaves the badge alone",
+          staleRequestState.waiting != nil)
+
     try? FileManager.default.removeItem(at: tickDir)
 }

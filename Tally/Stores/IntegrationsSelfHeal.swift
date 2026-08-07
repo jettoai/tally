@@ -54,9 +54,16 @@ extension IntegrationsStore {
     /// write cycle, so it can never be skipped for a machine where the first passes.
     /// - Parameter binary: the helper the entries are expected to name, defaulting to this app's.
     ///   Injected so a test can state a path without owning an app bundle.
+    /// - Parameter nativePicker: whether the registration is the tool-plus-backstop pair or the
+    ///   plain command hook, which is the installed Claude Code's answer (IntegrationsMCPServer)
+    ///   and is injected here for the same reason the binary is: a test states it rather than
+    ///   depending on which Claude Code the machine running the suite happens to have. Resolved in
+    ///   the body rather than as a default argument, which is evaluated outside this actor.
     static func hooksNeedHealing(skillFiles: [URL], population: [URL],
-                                 binary: URL? = nil) -> Bool {
+                                 binary: URL? = nil,
+                                 nativePicker: Bool? = nil) -> Bool {
         let helper = binary ?? bundledCLIURL
+        let nativePicker = nativePicker ?? nativePickerIsSupported
         let ours = oursAmong(skillFiles)
         guard !ours.isEmpty else { return false }
         guard promptCommandsAreCurrent(forSkillFiles: ours, population: population) else { return true }
@@ -89,11 +96,28 @@ extension IntegrationsStore {
         // A set comparison rather than a scan, because the repair's contract is now exactly this
         // list (`settingsRegisteringPromptHook` collapses to one), so the check face and the write
         // face state the same sentence: absent, stale, or duplicated are one answer, and it is "fix".
+        //
+        // THE WHOLE ENTRY, not the command lines it happens to contain. Half of a registration is a
+        // tool hook with no command in it at all, so a comparison of command lines would read a
+        // file whose tool hook names the wrong server (or is missing entirely, leaving the backstop
+        // to answer every prompt as text) as being in perfect order. It also covers the shape
+        // change itself: an install made by the previous version holds the single plain command,
+        // which is exactly "not the expected list" and is repaired on the first launch after the
+        // update.
+        //
+        // AND THE SERVER THOSE HOOKS CALL. It lives in another file, per home rather than per
+        // settings group, and its absence is invisible from settings.json: every hook is present
+        // and correct, the tool call finds no server, and the backstop answers as text on that one
+        // account while the others show a picker.
         return homesCarrying(ours, population: population).contains { home in
             let settings = home.appendingPathComponent("settings.json")
+            let registered = mcpServerIsRegistered(claudeStateFile(forConfigDir: home),
+                                                   binary: helper)
+            guard registered == nativePicker else { return true }
             return promptCommands.contains { command in
-                registeredPromptHookCommands(settings, hook: command)
-                    != [promptHookCommand(helper, command: command)]
+                !promptHooksMatch(registeredPromptHooks(settings, hook: command),
+                                  promptHookEntries(helper, command: command,
+                                                    nativePicker: nativePicker))
             }
         }
     }

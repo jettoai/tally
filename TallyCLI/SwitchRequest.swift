@@ -170,6 +170,76 @@ func sessionLookup(envPid: String?, here: [String]) -> SessionLookup {
     return here.isEmpty ? .none : .ambiguous(here)
 }
 
+/// How far a surface may trust the session marker it is holding. THE ONE RULE for "which session
+/// does this belong to", stated once because it has now been got wrong twice in two different
+/// places.
+///
+/// A marker is exported by a supervisor into the child it spawns, and it is inherited by everything
+/// that child ever starts. That makes it a perfect answer for a process that DESCENDS from the
+/// session, and a trap for a process that was merely told about a prompt:
+///
+///   - A person's shell descends from the session they are typing in, so `tally model` typed there
+///     is talking about that session even when it is run from a subdirectory the supervisor never
+///     published. The marker is the only witness there, and it is a good one.
+///   - The MCP server is a long-lived child of Claude Code, and Claude Code inherits its own
+///     environment from whatever launched it. Start one session's `claude` from a shell inside
+///     another session and the marker travels straight down into a conversation it has nothing to
+///     do with (QA, 2026-08-07: a bare `/tally-model` in an unsupervised scratch session pinned
+///     opus/xhigh onto pid 23743).
+///   - A prompt HOOK is the same story and has been shipping with it: the hook is a child of Claude
+///     Code, so a `claude` launched from a supervised shell answers `/tally-model` by describing the
+///     OUTER session. Found by QA on the backstop, and true of the plain command hook all along.
+///
+/// So a marker that reached us second-hand has to be CORROBORATED: the directory the prompt came
+/// from must actually be running that supervisor. Corroboration is what keeps the marker useful
+/// rather than merely discarding it - with several sessions in one directory it is the only thing
+/// that can say WHICH, and a directory-only answer would have to refuse them all.
+///
+/// The cost is stated rather than hidden: a session whose supervisor never managed to publish its
+/// directory (that write is best-effort, `writeSupervisorCwd`) has an uncorroborated marker, and
+/// its hooks now refuse with "this session is not supervised" instead of acting. Fail-closed is the
+/// right side to land on when the alternative is acting on somebody else's live conversation.
+enum SessionMarkerTrust: Equatable {
+    /// This process descends from the session, so the marker names it outright.
+    case trusted(String?)
+    /// The marker arrived from somewhere that may not be this session: it counts only where the
+    /// directory agrees.
+    case corroborated(String?)
+
+    /// The marker itself, whether or not a resolution will end up using it.
+    var value: String? {
+        switch self {
+        case .trusted(let marker), .corroborated(let marker): return marker
+        }
+    }
+
+    /// The marker as a resolution ACTUALLY used it, given the session it landed on: nil when the
+    /// directory answered instead. What separates "this command is running inside that session" from
+    /// "this command found that session by looking", which two callers have to tell apart - the
+    /// already-there reading, and the supervisor-version check that may only be made against a
+    /// version stamped beside a marker we believed.
+    func adopted(_ sessionKey: String) -> String? {
+        value == sessionKey ? sessionKey : nil
+    }
+
+    /// Which session this is, given every live supervisor in the directory the prompt came from.
+    /// Pure, so the three states of the corroborated case are asserted directly.
+    func resolve(here: [String]) -> SessionLookup {
+        switch self {
+        case .trusted(let marker):
+            return sessionLookup(envPid: marker, here: here)
+        case .corroborated(let marker):
+            // Not in the directory means it is somebody else's marker, and it is DROPPED rather
+            // than argued with: what is left is the same directory-only answer a shell outside
+            // every session gets, refusals included.
+            guard let marker, here.contains(marker) else {
+                return sessionLookup(envPid: nil, here: here)
+            }
+            return .session(marker)
+        }
+    }
+}
+
 /// The session a command typed HERE belongs to, asked of the live world: the supervisor pid to
 /// address, and whether the command was run from inside that session. nil when nothing supervised is
 /// running here, and nil when several are and the command came from outside all of them - the two
@@ -186,19 +256,26 @@ func sessionLookup(envPid: String?, here: [String]) -> SessionLookup {
 /// A refusal still belongs to the caller: `attemptSwitch` keeps its own `switch` because `.none` and
 /// `.ambiguous` need sentences of their own there. What is shared is the RULE, not the wording.
 ///
-/// `dir` and `environment` are injected for the reason every other file-touching helper here injects
+/// `dir` and `marker` are injected for the reason every other file-touching helper here injects
 /// them: a test of the fallback must not read the machine's own `~/.tally` or its own shell's
 /// variables. The defaults are the real ones, so every caller reads unchanged.
+///
+/// `marker` IS THE MARKER TO TRUST, and nil means THERE IS NONE rather than "go and read the
+/// environment". The difference is the whole of a live defect (QA, 2026-08-07): the MCP server
+/// behind the native pickers inherits its environment from whatever launched Claude Code, which on
+/// a machine where one session's shell started another's is a DIFFERENT session's supervisor pid -
+/// and a marker outranks the directory unconditionally, so the picker pinned a model onto somebody
+/// else's live conversation. Every surface a person types into passes `liveSessionMarker()` and
+/// reads exactly as before; the MCP path passes nil and is resolved by directory alone.
 func currentSessionLookup(cwd: String = FileManager.default.currentDirectoryPath,
                           dir: URL = supervisorStateDir,
-                          environment: [String: String] = ProcessInfo.processInfo.environment)
+                          marker: SessionMarkerTrust = .trusted(liveSessionMarker()))
     -> (key: String, isThisSession: Bool)? {
-    let marker = liveSessionMarker(environment)
-    guard case .session(let key) = sessionLookup(envPid: marker,
-                                                 here: supervisorsInDirectory(cwd, dir: dir)) else {
-        return nil
-    }
-    return (key, marker == key)
+    guard case .session(let key) = marker.resolve(here: supervisorsInDirectory(cwd, dir: dir))
+    else { return nil }
+    // Only a marker the resolution ACTUALLY used describes this process; one that was dropped for
+    // want of corroboration says nothing about where this command is running.
+    return (key, marker.value == key)
 }
 
 /// The account a supervised session is running on RIGHT NOW, or nil when nothing can say.

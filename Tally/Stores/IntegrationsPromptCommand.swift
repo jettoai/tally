@@ -33,6 +33,10 @@ struct PromptCommand: Sendable {
     let name: String
     /// The `tally` subcommand the hook runs, and the word an entry is recognised as ours by.
     let hookMarker: String
+    /// The tool on Tally's MCP server that answers this command natively (MCPServe.swift). The
+    /// second half of the same registration: the hook calls this tool, and a tool hook naming it is
+    /// recognised as ours by it.
+    let mcpTool: PromptHookTool
     /// The file's contents, marker line included.
     let markdown: String
     /// Where an install records the command files it wrote, and the settings files it registered in.
@@ -173,7 +177,7 @@ extension IntegrationsStore {
     /// manageable and is not any more, and the hook left behind goes on intercepting the command
     /// they just took back. So the unmanageable branch stands the registration down rather than
     /// returning early, which is the same instruction as never registering, applied late.
-    static func syncPromptCommand(inHomes homes: [URL], hookCommand: String,
+    static func syncPromptCommand(inHomes homes: [URL], hooks: [[String: Any]],
                                   command: PromptCommand) -> PromptCommandSync {
         var result = PromptCommandSync()
         var manageable = true
@@ -205,7 +209,7 @@ extension IntegrationsStore {
                                                       matcher: former) || result.changed
             }
             if manageable {
-                result.changed = try upsertPromptHook(in: settings, command: hookCommand,
+                result.changed = try upsertPromptHook(in: settings, hooks: hooks,
                                                       hook: command) || result.changed
                 result.settings = settings
             } else if try removePromptHook(in: settings, hook: command) {
@@ -265,16 +269,21 @@ extension IntegrationsStore {
     @discardableResult
     func syncPromptCommands(forSkillFiles files: [URL]) -> Bool {
         var changed = false
-        let groups = Self.settingsGroups(ofSkillFiles: files, population: Self.claudeHomes())
+        let population = Self.claudeHomes()
+        let groups = Self.settingsGroups(ofSkillFiles: files, population: population)
+        // Asked ONCE per sync, and the same answer is what the self-heal gate reads: a sync that
+        // registered the native pair while the heal expected the plain command would repair a file
+        // that was already correct, on every filesystem event, forever.
+        let nativePicker = Self.nativePickerIsSupported
         for command in Self.promptCommands {
             var commands: [String] = []
             var settingsFiles: [String] = []
-            let hookCommand = Self.promptHookCommand(Self.bundledCLIURL, command: command)
+            let hooks = Self.promptHookEntries(Self.bundledCLIURL, command: command,
+                                               nativePicker: nativePicker)
             // One pass per PHYSICAL settings file. The manifest therefore records each shared file
             // once, which is also what it means: one registration, however many homes read it.
             for group in groups {
-                let result = Self.syncPromptCommand(inHomes: group, hookCommand: hookCommand,
-                                                    command: command)
+                let result = Self.syncPromptCommand(inHomes: group, hooks: hooks, command: command)
                 changed = result.changed || changed
                 if let error = result.error { lastError = error }
                 commands.append(contentsOf: result.commands.map(\.path))
@@ -283,6 +292,15 @@ extension IntegrationsStore {
             recordManifest(command.commandManifest, paths: commands.isEmpty ? nil : commands)
             recordManifest(command.hookManifest, paths: settingsFiles.isEmpty ? nil : settingsFiles)
         }
+        // PER HOME, not per settings group: `.claude.json` is the one file a shared setup does NOT
+        // share (IntegrationsMCPServer.swift). A home missed here has hooks that call a server
+        // nobody started, which the user meets as "it asks on one account and not on the other".
+        let servers = Self.syncMCPServer(inHomes: Self.homesCarrying(files, population: population),
+                                         binary: Self.bundledCLIURL, nativePicker: nativePicker)
+        changed = servers.changed || changed
+        if let error = servers.error { lastError = error }
+        recordManifest(Self.mcpServerManifest,
+                       paths: servers.files.isEmpty ? nil : servers.files.map(\.path))
         // The manifest just moved, and it is what says where to watch: an install performed in a
         // running app has to be watched from now, not from the next launch (IntegrationsSelfHeal).
         // A no-op whenever the set is unchanged, which is every heal.
@@ -320,6 +338,17 @@ extension IntegrationsStore {
             recordManifest(command.commandManifest, paths: nil)
             recordManifest(command.hookManifest, paths: nil)
         }
+        // The server the hooks called, from every state file an install could have reached. Through
+        // the same manifest union as the halves above, and for the same reason: an account that
+        // logged out since install is no longer discovered, and its registration is still on disk
+        // naming a bundle that is about to be gone.
+        for file in Self.installedFiles(homes.map { claudeStateFile(forConfigDir: $0) },
+                                        manifest: Self.mcpServerManifest) {
+            do { try Self.removeMCPServer(in: file) } catch {
+                lastError = error.localizedDescription
+            }
+        }
+        recordManifest(Self.mcpServerManifest, paths: nil)
         // Nothing left to watch: the same call stops the stream rather than leaving one running
         // over a directory this app has no business in any more.
         refreshSettingsWatcher()

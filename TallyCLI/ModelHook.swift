@@ -224,9 +224,14 @@ func sessionModelMatchesLayers(running: SessionModelPin, layers: SessionModelPin
 /// they describe the SESSION being asked about rather than the process doing the asking - and a
 /// request this shell wrote a moment ago is shown as queued rather than being invisible until the
 /// turn ends.
-func liveModelStatus() -> ModelStatus {
+/// `cwd` names the session being reported on, and defaults to this process's own directory - the
+/// right answer everywhere a person types. The MCP server behind the native picker passes the
+/// directory its hook reported instead (MCPServe.swift), because that process outlives the prompt
+/// and does not sit where the prompt came from.
+func liveModelStatus(cwd: String = FileManager.default.currentDirectoryPath,
+                     marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> ModelStatus {
     let provider = providers[0]
-    let session = currentSessionLookup()
+    let session = currentSessionLookup(cwd: cwd, marker: marker)
     let published = session.flatMap { readSessionContext(pid: $0.key) }
     // An empty declared pair is "cannot say", not "asked for nothing": a document written by a
     // build before these fields existed decodes with them all nil, and reporting that as a fact
@@ -272,22 +277,35 @@ func hookModelAction(_ raw: String) -> HookModelAction {
 /// NEVER A MENU on this path, whatever the terminal looks like. The hook runs as a child of Claude
 /// Code, whose TUI owns the screen; a raw-mode picker drawn under it would fight the thing already
 /// drawing there (the same rule SwitchMenu.swift states for its own four ways in).
-func runHookModel() -> Int32 {
+///
+/// `--backstop` is the same work under a condition: it is registered BESIDE an `mcp_tool` hook that
+/// raises the native picker, and it answers only when that picker is not there to
+/// (PromptHookBackstop.swift states why it may not simply always answer).
+func runHookModel(args: [String] = []) -> Int32 {
+    let backstop = promptHookIsBackstop(args)
+    if backstop, promptHookBackstopAction(pickerIsServing: nativePickerIsServing()) == .standDown {
+        return 0
+    }
     let raw = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+    // Which session this prompt belongs to, read off the payload rather than off this process
+    // (`promptHookSession`, SwitchHook.swift, states why the two differ).
+    let (cwd, marker) = promptHookSession(raw)
+    let lines: [String]
     switch hookModelAction(raw) {
     case .queue(let words):
         guard let intent = modelIntent(words) else {
-            warn("`/tally-model` takes a model and an optional effort, or `auto`; "
-                + "\"\(words.joined(separator: " "))\" is neither")
-            warn(modelStatusLines(liveModelStatus()).joined(separator: "\n"))
-            return 2
+            lines = ["`/tally-model` takes a model and an optional effort, or `auto`; "
+                        + "\"\(words.joined(separator: " "))\" is neither",
+                     modelStatusLines(liveModelStatus(cwd: cwd, marker: marker))
+                         .joined(separator: "\n")]
+            break
         }
-        let attempt = attemptModel(intent)
-        warn(attempt.message)
-        for note in attempt.notes { warn(note) }
+        let attempt = attemptModel(intent, cwd: cwd, marker: marker)
+        lines = [attempt.message] + attempt.notes
     case .list:
-        // One call, so the lines print as a block under a single tag rather than one tag per line.
-        warn(modelStatusLines(liveModelStatus()).joined(separator: "\n"))
+        // One element, so the lines print as a block under a single tag rather than one tag per
+        // line - and as one `reason` rather than a decision per line on the other channel.
+        lines = [modelStatusLines(liveModelStatus(cwd: cwd, marker: marker)).joined(separator: "\n")]
     }
-    return 2
+    return emitPromptHookOutput(promptHookOutput(lines, backstop: backstop))
 }

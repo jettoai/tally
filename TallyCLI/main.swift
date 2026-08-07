@@ -405,9 +405,11 @@ case "account", "switch":
 case "model":
     exit(runModel(args: Array(arguments.dropFirst())))
 case "hook-switch":   // internal: the `/tally-account` prompt hook (SwitchHook.swift)
-    exit(runHookSwitch())
+    exit(runHookSwitch(args: Array(arguments.dropFirst())))
 case "hook-model":    // internal: the `/tally-model` prompt hook (ModelHook.swift)
-    exit(runHookModel())
+    exit(runHookModel(args: Array(arguments.dropFirst())))
+case mcpServeCommand:   // internal: the MCP server behind the native pickers (MCPServe.swift)
+    exit(runMCPServe())
 case resuperviseCommand:   // internal: a supervisor replacing itself after an app update
     runResupervise(args: Array(arguments.dropFirst()))
 case "update":

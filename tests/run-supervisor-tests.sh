@@ -32,6 +32,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/capsessionpinchecks.swift \
   tests/supervisor/modelrequestchecks.swift tests/supervisor/modeltickchecks.swift \
   tests/supervisor/modelsurfacechecks.swift tests/supervisor/nativemodelchecks.swift \
+  tests/supervisor/mcppickerchecks.swift tests/supervisor/backstopchecks.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift TallyCLI/Reload.swift \
   TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AccountComfort.swift \
@@ -45,5 +46,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/ChildReaper.swift \
   TallyCLI/SessionDirectives.swift TallyCLI/ModelCommand.swift TallyCLI/ModelHook.swift \
   TallyCLI/ModelMenu.swift Tally/Core/LaunchAxisNames.swift \
+  TallyCLI/MCPServe.swift TallyCLI/MCPPicker.swift TallyCLI/PromptHookBackstop.swift \
+  Tally/Core/PromptHookInput.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift
 "$out"

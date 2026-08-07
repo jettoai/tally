@@ -20,16 +20,72 @@ extension IntegrationsStore {
         "\"\(binary.path)\" \(command.hookMarker)"
     }
 
-    /// Provenance, and the ONLY entry this code may rewrite or delete: it fires for OUR command and
-    /// ends in our subcommand as its own word.
+    /// The same command line as the BACKSTOP beside a tool call: it answers only when the native
+    /// picker is not there to (PromptHookBackstop.swift makes the judgement).
+    nonisolated static func promptBackstopCommand(_ binary: URL, command: PromptCommand) -> String {
+        "\(promptHookCommand(binary, command: command)) \(promptHookBackstopFlag)"
+    }
+
+    /// How long a tool hook may take. A dialog waits on a PERSON, so the number is a person's
+    /// patience rather than a program's: the default would cancel the picker while they were still
+    /// reading it.
+    nonisolated static let mcpHookTimeout = 300
+
+    /// The hooks one command's entry must hold, in order.
     ///
-    /// Both halves are load-bearing, and the second is why this is a suffix rather than a substring
-    /// (which is what it was): a user's `/usr/local/bin/my-hook-switcher` contains "hook-switch",
-    /// and treating it as ours would silently replace their hook with a Tally registration and
-    /// delete it on uninstall. Two conditions cost one line and mean an accident has to be
-    /// deliberate.
+    /// TWO OF THEM WHEN THE NATIVE PICKER IS AVAILABLE, and the pair is the design rather than a
+    /// belt-and-braces habit. The `mcp_tool` hook raises the dialog; the command hook is the
+    /// fallback for every machine and moment the dialog cannot happen - a session older than the
+    /// registration, a server that failed to start, a Claude Code that skipped the tool. It is
+    /// CONDITIONAL for a measured reason (probe C2, 2026-08-07): hooks run in parallel and the
+    /// first decision wins, so an unconditional second hook beats the dialog every time and leaves
+    /// it drawn over an answered prompt.
+    ///
+    /// Without the picker it is the single plain command, byte for byte what every install has had
+    /// since the hooks shipped: the gate's whole promise is that those machines do not change.
+    nonisolated static func promptHookEntries(_ binary: URL, command: PromptCommand,
+                                              nativePicker: Bool) -> [[String: Any]] {
+        guard nativePicker else {
+            return [["type": "command", "command": promptHookCommand(binary, command: command)]]
+        }
+        return [
+            ["type": mcpHookTypeToken, "server": tallyMCPServerName,
+             "tool": command.mcpTool.rawValue, "input": promptHookInputBlock(),
+             "timeout": mcpHookTimeout],
+            ["type": "command", "command": promptBackstopCommand(binary, command: command)],
+        ]
+    }
+
+    /// Whether two lists of hooks are the same, entry by entry and field by field.
+    nonisolated static func promptHooksMatch(_ one: [[String: Any]],
+                                             _ other: [[String: Any]]) -> Bool {
+        one.count == other.count
+            && zip(one, other).allSatisfy { NSDictionary(dictionary: $0).isEqual(to: $1) }
+    }
+
+    /// Provenance, and the ONLY hook this code may rewrite or delete.
+    ///
+    /// TWO SHAPES ANSWER TO IT, because one registration now has two of them. A tool hook is ours
+    /// when it calls OUR server's tool for THIS command; a command hook is ours when it ends in our
+    /// subcommand as its own word, with or without the backstop flag after it.
+    ///
+    /// The command half is a suffix rather than a substring, and that half is load-bearing: a
+    /// user's `/usr/local/bin/my-hook-switcher` contains "hook-switch", and treating it as ours
+    /// would silently replace their hook with a Tally registration and delete it on uninstall. The
+    /// tool half is exact on both fields for the same reason - somebody else's MCP server may
+    /// perfectly well offer a tool called `pick_model`.
     private static func isOurHook(_ hook: [String: Any], command: PromptCommand) -> Bool {
-        ((hook["command"] as? String)?.hasSuffix(" \(command.hookMarker)")) == true
+        if hook["type"] as? String == mcpHookTypeToken {
+            return hook["server"] as? String == tallyMCPServerName
+                && hook["tool"] as? String == command.mcpTool.rawValue
+        }
+        guard let line = hook["command"] as? String else { return false }
+        // The flag is stripped before the marker is looked for, so one rule covers both command
+        // shapes: a backstop entry left by a newer app is still ours to an older one, and an entry
+        // written before the flag existed is still ours to this one.
+        let bare = line.hasSuffix(" \(promptHookBackstopFlag)")
+            ? String(line.dropLast(promptHookBackstopFlag.count + 1)) : line
+        return bare.hasSuffix(" \(command.hookMarker)")
     }
 
     /// An entry that HOLDS our hook. Ownership stops here: what may be rewritten or deleted is the
@@ -51,7 +107,7 @@ extension IntegrationsStore {
     /// that is not our entry comes out the other side untouched. Conservative in both directions -
     /// a `hooks` value, or an event list, of an unexpected SHAPE also returns nil, because the only
     /// safe edit to a document we cannot read is none.
-    static func settingsRegisteringPromptHook(_ settings: [String: Any], command hookCommand: String,
+    static func settingsRegisteringPromptHook(_ settings: [String: Any], hooks ours: [[String: Any]],
                                               hook: PromptCommand) -> [String: Any]? {
         var hooks: [String: Any]
         switch settings["hooks"] {
@@ -65,7 +121,6 @@ extension IntegrationsStore {
         case let existing as [[String: Any]]: entries = existing
         default: return nil
         }
-        let ours: [String: Any] = ["type": "command", "command": hookCommand]
         // EXACTLY ONE REGISTRATION OF OURS COMES OUT OF THIS, wherever the file had them. Our own
         // writes make at most one (a fresh entry is appended only when none is there), but the file
         // this edits is rewritten by things that know nothing about Tally - a dotfiles merge, two
@@ -81,20 +136,26 @@ extension IntegrationsStore {
         // What is NOT collapsed is anything that is not ours: a hook a user put beside ours stays in
         // the entry it is in, in the order they had it. An entry left holding nothing but the
         // duplicate we took out goes, exactly as the uninstall treats one that was ours alone.
+        //
+        // "One registration" now means one SET rather than one hook (`promptHookEntries`), and the
+        // whole set lands where the first of ours was: a file holding the old single command hook
+        // gains the tool hook in its place, in the entry the user already had it in, rather than a
+        // second entry appearing beside the first.
         var changed = false
         var placed = false
         var kept: [[String: Any]] = []
         for entry in entries {
             guard holdsOurHook(entry, command: hook) else { kept.append(entry); continue }
+            let before = entry["hooks"] as? [[String: Any]] ?? []
             var rebuilt: [[String: Any]] = []
-            for slot in entry["hooks"] as? [[String: Any]] ?? [] {
+            for slot in before {
                 guard isOurHook(slot, command: hook) else { rebuilt.append(slot); continue }
-                guard !placed else { changed = true; continue }   // a second copy: it goes
+                guard !placed else { continue }   // a second copy of ours: it goes
                 placed = true
-                if !NSDictionary(dictionary: slot).isEqual(to: ours) { changed = true }
-                rebuilt.append(ours)
+                rebuilt.append(contentsOf: ours)
             }
-            guard !rebuilt.isEmpty else { changed = true; continue }
+            if !promptHooksMatch(rebuilt, before) { changed = true }
+            guard !rebuilt.isEmpty else { continue }
             var trimmed = entry
             trimmed["hooks"] = rebuilt
             kept.append(trimmed)
@@ -102,7 +163,7 @@ extension IntegrationsStore {
         if !placed {
             // A fresh entry holding only ours. Deliberately not merged into an entry the user wrote
             // themselves: that entry is theirs, and adding to it is still editing it.
-            kept.append(["matcher": hook.name, "hooks": [ours]])
+            kept.append(["matcher": hook.name, "hooks": ours])
             changed = true
         }
         guard changed else { return nil }
@@ -145,8 +206,9 @@ extension IntegrationsStore {
         return merged
     }
 
-    static func upsertPromptHook(in file: URL, command: String, hook: PromptCommand) throws -> Bool {
-        try editSettings(file) { settingsRegisteringPromptHook($0, command: command, hook: hook) }
+    static func upsertPromptHook(in file: URL, hooks: [[String: Any]],
+                                 hook: PromptCommand) throws -> Bool {
+        try editSettings(file) { settingsRegisteringPromptHook($0, hooks: hooks, hook: hook) }
     }
 
     static func removePromptHook(in file: URL, hook: PromptCommand,
@@ -180,7 +242,7 @@ extension IntegrationsStore {
         return entries.contains { holdsOurHook($0, command: hook) }
     }
 
-    /// EVERY command line our hooks in this file actually run, in the order the file holds them.
+    /// EVERY hook of ours this file actually holds, in the order the file holds them.
     ///
     /// The question `settingsCarryPromptHook` deliberately does not ask, and it has to be asked
     /// somewhere: an entry can be present and point at a binary that is not there any more, which
@@ -190,15 +252,22 @@ extension IntegrationsStore {
     ///
     /// Plural because one file can hold more than one registration of ours (see the upsert), and the
     /// stale one is the one that costs the turn. Reading only the first says "all is well" while the
-    /// second copy is doing the damage.
-    static func registeredPromptHookCommands(_ file: URL, hook: PromptCommand) -> [String] {
+    /// second copy is doing the damage. WHOLE HOOKS rather than command lines, because half of one
+    /// registration has no command line at all now: a tool hook that names the wrong server is
+    /// exactly as broken as a command hook naming a binary that moved, and only the full entry says
+    /// so.
+    static func registeredPromptHooks(_ file: URL, hook: PromptCommand) -> [[String: Any]] {
         guard let data = try? Data(contentsOf: file),
               let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let entries = (settings["hooks"] as? [String: Any])?[promptHookEvent]
                 as? [[String: Any]] else { return [] }
         return entries.filter { holdsOurHook($0, command: hook) }
             .flatMap { ($0["hooks"] as? [[String: Any]] ?? []) }
-            .compactMap { $0["command"] as? String }
-            .filter { $0.hasSuffix(" \(hook.hookMarker)") }
+            .filter { isOurHook($0, command: hook) }
+    }
+
+    /// The command lines among them, for the surfaces that ask what will actually be RUN.
+    static func registeredPromptHookCommands(_ file: URL, hook: PromptCommand) -> [String] {
+        registeredPromptHooks(file, hook: hook).compactMap { $0["command"] as? String }
     }
 }

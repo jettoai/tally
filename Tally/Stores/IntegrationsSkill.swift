@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 13
+    nonisolated static let skillVersion = 14
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -163,17 +163,19 @@ extension IntegrationsStore {
 
         ```
         /tally-account Claude 4       # zero turns: the hook queues the move and stops there
-        /tally-account                # zero turns: the hook PRINTS the fleet, they type a name
+        /tally-account                # zero turns: the hook OFFERS the fleet, they pick a row
         /tally-account --auto         # zero turns: releases the pin again
         ! tally account "Claude 4"    # zero turns too, under respondToBashCommands: false
         ```
 
         Note the second line: `/tally-account` with no account named does NOT reach a model.
-        The hook reads the snapshot itself and prints one line per account with its
-        remaining windows, marking the one with the most headroom, and they pick with a
-        second `/tally-account <name>`. Two commands, no turn. That matters because the
-        usual reason to move accounts is that this one has no model left to answer with,
-        and an escape hatch may not depend on the thing it is escaping.
+        The hook reads the snapshot itself and offers every account with its remaining
+        windows, marking the one with the most headroom: on a recent Claude Code that is a
+        native picker they answer with the arrow keys, and where one cannot be drawn it is
+        the same reading as text, answered with a second `/tally-account <name>`. Either
+        way, no turn. That matters because the usual reason to move accounts is that this
+        one has no model left to answer with, and an escape hatch may not depend on the
+        thing it is escaping.
 
         The `!` line is the fallback worth naming when the command is not installed: it
         runs in their shell, and with `respondToBashCommands: false` in settings its output

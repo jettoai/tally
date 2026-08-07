@@ -11,10 +11,12 @@ out=$(mktemp -d)/run
 swiftc -o "$out" tests/integrations/main.swift tests/integrations/switchcommandchecks.swift \
   tests/integrations/statuslinechecks.swift tests/integrations/switchgroupchecks.swift tests/integrations/selfhealchecks.swift \
   tests/integrations/localizationchecks.swift tests/integrations/renamechecks.swift \
+  tests/integrations/nativepickerchecks.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsSkill.swift \
   Tally/Stores/IntegrationsSwitchCommand.swift Tally/Stores/IntegrationsPromptCommand.swift \
-  Tally/Stores/IntegrationsPromptHook.swift \
+  Tally/Stores/IntegrationsPromptHook.swift Tally/Stores/IntegrationsMCPServer.swift \
   Tally/Stores/IntegrationsModelCommand.swift Tally/Stores/IntegrationsSelfHeal.swift \
+  Tally/Core/PromptHookInput.swift Tally/Core/CLIRunner.swift \
   Tally/Core/UsageSnapshot.swift \
   Tally/Core/AppLocale.swift Tally/Providers/ProviderModels.swift \
   Tally/Core/DemoUsage.swift Tally/Core/BuildVariant.swift Tally/Core/FleetForecast.swift Tally/Core/UsageHistory.swift \

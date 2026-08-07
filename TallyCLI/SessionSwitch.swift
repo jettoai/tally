@@ -212,7 +212,16 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
     // No request, or one this supervisor has already served. The staleness rule is answered here as
     // well as inside the decision below, because everything between costs a snapshot read and a
     // transcript tail: `isQuiet` locates and tails the file, which is not free per tick.
-    guard let request, request.epoch > state.servedEpoch else { return }
+    //
+    // A REQUEST THAT VANISHED TAKES ITS BADGE WITH IT, the same fix the model axis needed and for
+    // the same reason (SessionModel.swift states it in full). The defect was reported against that
+    // axis; it is one mechanism and this is the other half of it, so both are closed together
+    // rather than leaving the identical hole one function away.
+    guard let request else {
+        state.waiting = nil
+        return
+    }
+    guard request.epoch > state.servedEpoch else { return }
     /// Consume the request, leaving the session pin wherever `pin` puts it. The default is "leave
     /// it alone", which is what the branches that changed nothing about where this session runs
     /// want; the two that decided something about the pin say so.

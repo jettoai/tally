@@ -9594,6 +9594,35 @@
         }
       }
     },
+    "Could not read .claude.json, so it was left untouched": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取 .claude.json，因此未做任何更動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 .claude.json，因此未做任何更改"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".claude.json を読み取れなかったため、変更していません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".claude.json을 읽을 수 없어 아무것도 변경하지 않았습니다"
+          }
+        }
+      }
+    },
     "Could not read settings.json, so it was left untouched": {
       "extractionState": "manual",
       "localizations": {

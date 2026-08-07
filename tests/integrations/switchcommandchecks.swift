@@ -27,15 +27,23 @@ extension IntegrationsStore {
     static func switchHookCommand(_ binary: URL) -> String {
         promptHookCommand(binary, command: switchCommand)
     }
+    /// The plain single-command registration, which is what an install writes wherever the native
+    /// picker is not available (`promptHookEntries`, nativePicker false). These checks are about
+    /// the surgery around it - what survives a merge, what a shared settings file does - and that
+    /// is the same surgery whichever shape is being placed, so they keep asserting the simpler one
+    /// and the pair has checks of its own (nativepickerchecks.swift).
+    static func plainHook(_ command: String) -> [[String: Any]] {
+        [["type": "command", "command": command]]
+    }
     static func settingsRegisteringSwitchHook(_ settings: [String: Any],
                                               command: String) -> [String: Any]? {
-        settingsRegisteringPromptHook(settings, command: command, hook: switchCommand)
+        settingsRegisteringPromptHook(settings, hooks: plainHook(command), hook: switchCommand)
     }
     static func settingsWithoutSwitchHook(_ settings: [String: Any]) -> [String: Any]? {
         settingsWithoutPromptHook(settings, hook: switchCommand)
     }
     static func upsertSwitchHook(in file: URL, command: String) throws -> Bool {
-        try upsertPromptHook(in: file, command: command, hook: switchCommand)
+        try upsertPromptHook(in: file, hooks: plainHook(command), hook: switchCommand)
     }
     static func removeSwitchHook(in file: URL) throws -> Bool {
         try removePromptHook(in: file, hook: switchCommand)
@@ -48,7 +56,7 @@ extension IntegrationsStore {
     }
     static func syncSwitchCommand(inHomes homes: [URL],
                                   hookCommand: String) -> PromptCommandSync {
-        syncPromptCommand(inHomes: homes, hookCommand: hookCommand, command: switchCommand)
+        syncPromptCommand(inHomes: homes, hooks: plainHook(hookCommand), command: switchCommand)
     }
 }
 
@@ -67,78 +75,46 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     check("the command marker moves with the skill's version, since they ship together",
           IntegrationsStore.switchCommandMarker == "tally-command v\(IntegrationsStore.skillVersion)")
     check("command carries no em dash", !command.contains("\u{2014}"))
-    check("command declares its argument hint and the tools it needs",
+    check("command declares its argument hint and the tool it needs",
           command.contains("argument-hint: [account name | --auto]")
-              && command.contains("allowed-tools: Bash(tally:*), AskUserQuestion"))
+              && command.contains("allowed-tools: Bash(tally:*)"))
     // Spelled as it must be RUN. `$ARGUMENTS` is the whole rest of the typed line, quoted because
     // account labels contain spaces ("Claude 4").
     check("command queues the move with what the user typed",
           command.contains("tally account \"$ARGUMENTS\""))
-    check("command reads the fleet before offering a choice", command.contains("tally status"))
-    check("command asks with the picker rather than choosing",
-          commandProse.contains("Ask with AskUserQuestion, one option per Claude account")
-              && commandProse.contains("Do not pick for the user"))
-    check("…with headroom on every option and the best one recommended first",
-          commandProse.contains("its three remaining windows as the description")
-              && commandProse.contains("most headroom first and mark it Recommended"))
-    check("command explains the free path it is standing in for",
-          commandProse.contains("without waking a model at all"))
-    // The command file is now purely the fallback: the hook answers BOTH shapes, so an agent
-    // reading this one knows it is here because the hook is not installed, not because the user
-    // typed something the hook could not handle.
-    check("command knows it is the fallback and says which one",
-          commandProse.contains("YOU ARE THE FALLBACK")
-              && commandProse.contains("prints the fleet to pick from when one is not"))
-    check("…and names the two free paths it is standing in for",
-          commandProse.contains("`/tally-account` lists the accounts itself")
-              && commandProse.contains("`tally account` on its own opens an arrow-key picker"))
-    check("…and marks the picker it teaches as the degraded path",
-          commandProse.contains("this is the degraded path"))
+
+    // THE FILE IS A SHORT ANSWER NOW, NOT A SECOND IMPLEMENTATION, and that is the change the
+    // native picker made to it. Reaching it means neither the tool hook nor its backstop answered,
+    // so the turn it costs is exactly the turn this command exists to avoid: the only thing worth
+    // spending it on is telling the user how to stop paying it. The fleet reading, the
+    // AskUserQuestion picker and the cap contract it used to carry are the SKILL's to teach (each
+    // of them still asserted on `skillProse`, main.swift), and a second copy here bought a longer
+    // turn on the one path that exists because turns are expensive.
+    check("command says, first, that Tally did not answer",
+          commandProse.contains("READING THIS MEANS TALLY DID NOT ANSWER"))
+    check("…and that this turn is the cost the command exists to avoid",
+          commandProse.contains("SPEND IT ON ONE SHORT ANSWER"))
+    check("command tells an agent with nothing to act on to run nothing at all",
+          commandProse.contains("Do not run anything and do not open a picker"))
+    check("…and hands the user the two lines that work without any of it",
+          commandProse.contains("tally account \"<account>\"")
+              && commandProse.contains("tally account --auto"))
     check("command relays the timing, which is the thing a user gets wrong",
           commandProse.contains("The move happens when this turn ENDS"))
+    check("…and that the pin sticks rather than being a one-shot nudge",
+          commandProse.contains("the pin sticks for the rest of the session"))
+    check("…and never says the old one-shot promise", !commandProse.contains("It is one shot"))
     check("…and that a non-zero exit means nothing was queued",
           commandProse.contains("A non-zero exit means nothing was queued"))
-
-    // The move STICKS (0.38.0). A command file still promising "one shot" would have the agent
-    // relay the opposite of what the CLI now does: the user would be told automatic handoff carries
-    // on, and then watch their session refuse to move for the rest of the day.
-    check("command says the pin holds for the session",
-          commandProse.contains("IT STICKS FOR THE REST OF THE SESSION")
-              && commandProse.contains("stops moving it"))
-    check("…and never says the old one-shot promise", !commandProse.contains("It is one shot"))
-    // What a cap does to a pinned session, in the shape it has now: the model gives way first and
-    // the account is kept, so the pin survives every cap an account can still answer through.
-    check("command says the pin is the user's to release, and a cap does not take it",
-          commandProse.contains("`tally account --auto`")
-              && commandProse.contains("keeps the account and drops to the fallback model "
-                                       + "Settings declares"))
-    // The COMFORT bar, spelled out. "Can serve it" is the reading an agent arrives at on its own,
-    // and it is the wrong one: an account with a few percent of a window left can technically
-    // answer, and handing a pinned session that is not a kindness.
-    check("…and that keeping the account needs room to be comfortable, not merely non-zero",
-          commandProse.contains("still serve one COMFORTABLY")
-              && commandProse.contains("a window with a few percent left does not count"))
-    // Both limits on the other branch, because a file naming one of them reads as naming the only
-    // one. The model pin is the one nobody would guess (another command's pin deciding this
-    // command's outcome), and the wait is the one that looks like a hang when it is a decision:
-    // the session sits still because the numbers to decide on have not arrived.
-    check("…and names what overrides the handoff, and what makes it wait instead",
-          commandProse.contains("`tally model` has pinned the model too (that pin wins")
-              && commandProse.contains("about two minutes for a fresh reading of this account"))
-    check("…including the wait that has no deadline, and the two things that cause it",
-          commandProse.contains("for as long as it takes if Tally has stopped publishing the "
-                                + "snapshot or its own pin leaves this session nowhere to go"))
-    check("…and that the pin survives every cap that was answered in place",
-          commandProse.contains("unless the terminal said the session was handed on, the pin is "
-                                + "still there"))
-    check("…and what the pin does not touch, and how long it lives",
-          commandProse.contains("No project profile is touched either way, and the pin dies with "
-                                + "the session"))
     // The release path goes through the SAME line as a move, because the CLI reads the flag itself
     // (SwitchCommand.swift `switchIntent`). A command file that special-cased it here would be a
     // second mapping to keep in step.
     check("command says --auto rides the same line the hook hands over",
-          commandProse.contains("`--auto` needs no special case here"))
+          commandProse.contains("`--auto` needs no special case"))
+    // The property all of that shortening was FOR, asserted rather than assumed: a fallback long
+    // enough to need a plan is a fallback that costs several turns.
+    check("…and the whole file is short enough to answer inside one turn",
+          command.split(separator: "\n").count < 45)
 
     // Command-file surgery: the same rules the skill file gets, because it lands in the same
     // user-owned tree. A file that is not ours is never touched, in either direction.

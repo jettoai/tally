@@ -60,8 +60,9 @@ enum SwitchIntent: Equatable {
 /// here, so both surfaces answer `--auto` the same way and nobody has to keep two mappings in step -
 /// and no account can be shadowed by it, since a label is matched against what `tally status` prints
 /// and none of those starts with a dash.
-func attemptSwitch(name: String) -> SwitchAttempt {
-    attemptSwitch(name == switchAutoRequest ? .auto : .pin(name))
+func attemptSwitch(name: String, cwd: String = FileManager.default.currentDirectoryPath,
+                   marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> SwitchAttempt {
+    attemptSwitch(name == switchAutoRequest ? .auto : .pin(name), cwd: cwd, marker: marker)
 }
 
 /// Resolve the account, find the session, and write the request. Everything the command does except
@@ -74,7 +75,14 @@ func attemptSwitch(name: String) -> SwitchAttempt {
 /// `--auto` goes through every step here except the account resolution: it addresses the same
 /// session, needs the same supervisor to be listening, and is written to the same file (as the
 /// reserved id `switchAutoRequest`). What it does NOT do is wait for a turn - it moves nothing.
-func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
+///
+/// `cwd` identifies the session, and is this process's own directory for every surface a person
+/// types into. It is a parameter for the MCP server behind the native picker (MCPServe.swift),
+/// which is a long-lived child of Claude Code and so has to be told which directory the prompt came
+/// from rather than reading its own.
+func attemptSwitch(_ intent: SwitchIntent,
+                   cwd: String = FileManager.default.currentDirectoryPath,
+                   marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> SwitchAttempt {
     let (snapshot, problem) = loadSnapshot()
     var notes: [String] = []
     if let problem { notes.append(problem) }
@@ -115,9 +123,7 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
         target = match
     }
     let sessionKey: String
-    let marker = liveSessionMarker()
-    switch sessionLookup(envPid: marker,
-                         here: supervisorsInDirectory(FileManager.default.currentDirectoryPath)) {
+    switch marker.resolve(here: supervisorsInDirectory(cwd)) {
     case .session(let key):
         sessionKey = key
     case .none:
@@ -134,6 +140,11 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
                 + "it.",
             notes: notes)
     }
+    // The marker as the resolution ACTUALLY used it, nil when the directory answered instead. A
+    // corroborated marker that was dropped describes some other session, so neither the "am I
+    // inside it" question below nor the supervisor-version check may be answered from it
+    // (`SessionMarkerTrust.adopted`, SwitchRequest.swift).
+    let adopted = marker.adopted(sessionKey)
     // Already there? Asked of the SESSION being moved, not of this shell. The two are the same
     // process tree only on the main path; through the directory fallback the shell is somebody
     // else's terminal, and its `CLAUDE_CONFIG_DIR` describes whatever launched IT (often nothing at
@@ -145,11 +156,11 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
     // instruction that has not happened yet. Returning early here would make "pin me to the account
     // I am on" the one way to ask for a pin and not get one.
     let alreadyThere = target.map {
-        sessionAccountID(sessionKey: sessionKey, isThisSession: marker == sessionKey,
+        sessionAccountID(sessionKey: sessionKey, isThisSession: adopted != nil,
                          provider: provider, accounts: snapshot?.accounts ?? []) == $0.id
     } ?? false
     // Whether anything will read the request (SwitchRequest.swift states when it can be judged).
-    let honourability = liveRequestHonourability(marker: marker)
+    let honourability = liveRequestHonourability(marker: adopted)
     if honourability == .tooOld {
         return .refusal(
             "this session's supervisor predates `tally account` and would never read the request, "

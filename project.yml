@@ -79,6 +79,12 @@ targets:
       # one copy: a drifted second list would let the CLI write an `--effort` value the child does
       # not recognise (a session that will not start) while the app's picker still refused it.
       - path: Tally/Core/LaunchAxisNames.swift
+      # The prompt hook to MCP tool contract: the variables the app substitutes into a hook's
+      # `input` block and the keys the CLI reads them back under, plus the server and tool names
+      # the app registers and the CLI answers to. Both targets compile the one copy because a
+      # drifted spelling fails SILENTLY here: Claude Code substitutes an unknown variable with the
+      # empty string, which is indistinguishable from a command typed with no arguments.
+      - path: Tally/Core/PromptHookInput.swift
     settings:
       base:
         PRODUCT_NAME: tally

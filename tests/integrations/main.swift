@@ -99,7 +99,7 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 13", IntegrationsStore.skillVersion == 13)
+    check("skill is at version 14", IntegrationsStore.skillVersion == 14)
     // The native `/model` is adopted now, not overwritten. The command file used to teach the
     // opposite, which was true when it was written and became a lie the moment the supervisor
     // learned to read that event (geo session 7cfa11a4, 2026-08-06).
@@ -107,9 +107,11 @@ try MainActor.assumeIsolated {
           currentSkill.contains("Tally adopts Claude Code's own `/model`"))
     check("…and the command file no longer teaches that it gets put back",
           !IntegrationsStore.modelPromptCommand.markdown.contains("puts the original model back"))
-    check("…while both still name `auto` as the only way out of an adopted pin",
-          IntegrationsStore.modelPromptCommand.markdown.contains("including out of a pin Tally "
-              + "adopted") && currentSkill.contains("including out of an adopted one"))
+    // The skill carries that contract alone now: the command file behind it is a short answer for a
+    // machine where nothing else worked (IntegrationsModelCommand.swift), not a second copy of the
+    // model rules.
+    check("…and the skill still names `auto` as the only way out of an adopted pin",
+          currentSkill.contains("including out of an adopted one"))
     // A SECOND slash command ships with the skill now, and every surface that walks the commands
     // walks one list: a command added to the sync and forgotten by the uninstall (or by the "is
     // this install current" check) is exactly the failure the list exists to make impossible.
@@ -124,19 +126,29 @@ try MainActor.assumeIsolated {
               $0.markdown.contains(IntegrationsStore.promptCommandMarker)
           })
     let modelCommand = IntegrationsStore.modelPromptCommand.markdown
-    // The command file is the FALLBACK, so it has to be able to answer alone: it says what the free
-    // path is, what to run, and the two things a user would otherwise have to be told twice.
-    check("the model command says it is the fallback and names the free path",
-          modelCommand.contains("YOU ARE THE FALLBACK") && modelCommand.contains("/tally-model"))
+    // THE FALLBACK BEHIND A FALLBACK. Two hooks answer `/tally-model` now (the native picker and
+    // its backstop), so reaching this file means neither did, and the turn it costs is the one the
+    // whole command exists to avoid. It therefore spends that turn on ONE answer rather than on a
+    // second implementation of the picker.
+    check("the model command says, first, that Tally did not answer",
+          modelCommand.contains("READING THIS MEANS TALLY DID NOT ANSWER")
+              && modelCommand.contains("/tally-model"))
+    check("…and that this turn is the cost the command exists to avoid",
+          modelCommand.contains("SPEND IT ON ONE SHORT ANSWER"))
     check("…passes the arguments through rather than quoting them as one word",
           modelCommand.contains("tally model $ARGUMENTS"))
-    check("…says the native picker's choice is adopted rather than undone",
-          modelCommand.contains("Tally now ADOPTS"))
-    check("…and says what is left for this command to do that the picker cannot",
-          modelCommand.contains("naming a model without opening a")
-              && modelCommand.contains("name an EFFORT that Tally will hold on to"))
     check("…and says naming only a model leaves the effort alone",
           modelCommand.contains("leaves the effort exactly as it is"))
+    check("…tells an agent with nothing to act on to run nothing at all",
+          modelCommand.contains("Do not run anything and do not open a picker"))
+    check("…and hands the user the lines that work without any of it",
+          modelCommand.contains("tally model <model> [effort]")
+              && modelCommand.contains("tally model auto"))
+    // The property that shortening was FOR, asserted rather than assumed.
+    check("…and both command files are short enough to answer inside one turn",
+          IntegrationsStore.promptCommands.allSatisfy {
+              $0.markdown.split(separator: "\n").count < 45
+          })
     check("no slash command carries an em dash",
           IntegrationsStore.promptCommands.allSatisfy { !$0.markdown.contains("\u{2014}") })
     check("skill teaches the advisor field", currentSkill.contains("advisor.<provider>"))
@@ -255,9 +267,12 @@ try MainActor.assumeIsolated {
     // by the hook itself, from the snapshot, with no model in the loop. An agent that still
     // believed it costs a turn would talk the user out of the one command that still works when
     // their model quota is gone.
-    check("skill says the bare command prints the fleet without a turn",
-          currentSkill.contains("/tally-account                # zero turns: the hook PRINTS the "
-              + "fleet, they type a name"))
+    check("skill says the bare command offers the fleet without a turn",
+          currentSkill.contains("/tally-account                # zero turns: the hook OFFERS the "
+              + "fleet, they pick a row"))
+    check("…and says the picker is native where one can be drawn, and text where it cannot",
+          skillProse.contains("a native picker they answer with the arrow keys")
+              && skillProse.contains("answered with a second `/tally-account <name>`"))
     check("…and says why that matters",
           skillProse.contains("an escape hatch may not depend on the thing it is escaping"))
     check("…and keeps the terminal menu out of Claude Code",
@@ -377,6 +392,9 @@ try MainActor.assumeIsolated {
     try runSwitchCommandChecks(tmp: tmp, skill: currentSkill)
     // And keeping that hook there once something takes it out (selfhealchecks.swift).
     try runSelfHealChecks(tmp: tmp, skill: currentSkill)
+    // The registration those checks deliberately leave out: the native picker pair, the MCP server
+    // it calls, and the gate in front of both (nativepickerchecks.swift).
+    try runNativePickerChecks(tmp: tmp, skill: currentSkill)
     // Neither of which can be localized through a key it built for itself (localizationchecks.swift).
     runLocalizationKeyChecks()
 

@@ -111,14 +111,20 @@ func modelIntentProblem(_ intent: ModelIntent, efforts: [String] = claudeEffortN
 /// Unconfirmed, like `tally switch` and `tally reload`: asking IS the intent. It returns as soon as
 /// the request is written - the supervisor acts on it - so it never blocks the turn it was run in,
 /// which matters because that turn has to END before the change can happen.
-func attemptModel(_ intent: ModelIntent, now: Date = Date()) -> ModelAttempt {
+///
+/// `cwd` is the directory whose session is being addressed, which is this process's own for every
+/// surface a person types into. It is a parameter for the one surface where the two differ: the MCP
+/// server behind the native picker is a long-lived child of Claude Code (MCPServe.swift), so the
+/// directory that identifies the session is the one the HOOK reported, not the one this process
+/// happens to sit in.
+func attemptModel(_ intent: ModelIntent, now: Date = Date(),
+                  cwd: String = FileManager.default.currentDirectoryPath,
+                  marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> ModelAttempt {
     if let problem = modelIntentProblem(intent) { return .refusal(problem) }
     // Claude only, exactly as the supervisor is: a codex launch is a plain exec with nothing
     // resident to act on a request.
-    let marker = liveSessionMarker()
     let sessionKey: String
-    switch sessionLookup(envPid: marker,
-                         here: supervisorsInDirectory(FileManager.default.currentDirectoryPath)) {
+    switch marker.resolve(here: supervisorsInDirectory(cwd)) {
     case .session(let key):
         sessionKey = key
     case .none:
@@ -136,7 +142,11 @@ func attemptModel(_ intent: ModelIntent, now: Date = Date()) -> ModelAttempt {
     // Whether anything will read the request, through the same answer `tally switch` gets
     // (SwitchRequest.swift states when it can be judged at all).
     var notes: [String] = []
-    let honourability = liveRequestHonourability(marker: marker)
+    // Judged against a version stamped beside a marker we BELIEVED. A corroborated marker that was
+    // dropped describes somebody else's supervisor, and refusing this request over its build would
+    // turn away a session that is perfectly current (`liveRequestHonourability` asks only where the
+    // session named itself).
+    let honourability = liveRequestHonourability(marker: marker.adopted(sessionKey))
     if honourability == .tooOld {
         return .refusal(
             "this session's supervisor predates `tally model` and would never read the request, so "

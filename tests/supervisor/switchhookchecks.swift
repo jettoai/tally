@@ -271,27 +271,29 @@ func runSwitchHookChecks() {
     let livePid = String(getpid())
     markSupervisorLive(pid: livePid, dir: lookupDir)
     writeSupervisorCwd(here, pid: livePid, dir: lookupDir)
-    let fromOutside = currentSessionLookup(cwd: here, dir: lookupDir, environment: [:])
+    let fromOutside = currentSessionLookup(cwd: here, dir: lookupDir, marker: .trusted(nil))
     check("a shell with no marker still finds the one session in this directory",
           fromOutside?.key == livePid)
     check("…and knows it is not inside it, so the environment cannot answer for it",
           fromOutside?.isThisSession == false)
     let fromInside = currentSessionLookup(cwd: here, dir: lookupDir,
-                                          environment: ["TALLY_SUPERVISOR_PID": livePid])
+                                          marker: .trusted(liveSessionMarker(
+                                            ["TALLY_SUPERVISOR_PID": livePid])))
     check("a shell inside the session names it from the marker",
           fromInside?.key == livePid && fromInside?.isThisSession == true)
     check("a directory nothing is supervising answers nothing",
           currentSessionLookup(cwd: "/tmp/tally-lookup-empty", dir: lookupDir,
-                               environment: [:]) == nil)
+                               marker: .trusted(nil)) == nil)
     // Two sessions in one directory and the command from outside both: no way to tell which was
     // meant, so no surface may claim to describe either.
     markSupervisorLive(pid: "1", dir: lookupDir)
     writeSupervisorCwd(here, pid: "1", dir: lookupDir)
     check("two sessions in one directory answer nothing from outside",
-          currentSessionLookup(cwd: here, dir: lookupDir, environment: [:]) == nil)
+          currentSessionLookup(cwd: here, dir: lookupDir, marker: .trusted(nil)) == nil)
     check("…while a marker still names the one it was typed in",
           currentSessionLookup(cwd: here, dir: lookupDir,
-                               environment: ["TALLY_SUPERVISOR_PID": livePid])?.key == livePid)
+                               marker: .trusted(liveSessionMarker(
+                                 ["TALLY_SUPERVISOR_PID": livePid])))?.key == livePid)
     try? FileManager.default.removeItem(at: lookupDir)
 
     // MARK: - Which invocations may meet a menu at all

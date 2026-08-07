@@ -18,85 +18,48 @@ extension IntegrationsStore {
 
     /// `/tally-model`: run this conversation on a named model and effort, for the rest of its life.
     nonisolated static var modelPromptCommand: PromptCommand {
-        PromptCommand(name: "tally-model", hookMarker: "hook-model", markdown: """
+        PromptCommand(name: "tally-model", hookMarker: "hook-model", mcpTool: .pickModel,
+                      markdown: """
         ---
         description: Run this Claude Code session on a named model and effort, for the rest of it
         argument-hint: [model] [effort] | auto
-        allowed-tools: Bash(tally:*), AskUserQuestion
+        allowed-tools: Bash(tally:*)
         ---
 
         <!-- \(promptCommandMarker), managed by Tally.app (Settings -> Integrations); safe to delete -->
 
         # Run this conversation on a different model
 
-        YOU ARE THE FALLBACK. Tally normally answers `/tally-model` without waking a model at all,
-        in both of its shapes: a prompt hook queues the change when a model is named, and prints
-        what this session runs when one is not. Either way the prompt stops there and no turn is
-        spent, which is the point, because a common reason to reach for this command is that the
+        READING THIS MEANS TALLY DID NOT ANSWER, and that is the whole of what happened here.
+        `/tally-model` is normally answered before any model is woken: a prompt hook queues the pair
+        when one is named, and offers the models to pick from when one is not. Neither spends a
+        turn, which is the point, because a common reason to reach for this command is that the
         model this session is on has nothing left to answer with.
 
-        So reaching this file means the hook did not answer: it is not registered on this machine,
-        or shell execution is turned off by policy. Do the work here instead.
+        So this turn is the cost the command exists to avoid. SPEND IT ON ONE SHORT ANSWER.
 
-        ## What this command is for
+        ## If `$ARGUMENTS` names anything
 
-        Claude Code's own `/model` changes the model of the running process, and Tally now ADOPTS
-        that choice: the supervisor sees it in the transcript and pins the session to the model that
-        answered, so its own relaunches carry it instead of putting the launch model back. So if the
-        user has already typed `/model`, there is nothing to do here, and saying so is the answer.
-
-        This command is for the cases that one cannot reach: naming a model without opening a
-        picker, setting one from a script or a tool call, and releasing the pin again with `auto`.
-        It is also the only way to name an EFFORT that Tally will hold on to.
-
-        ## When a model is named
-
-        `$ARGUMENTS` carries whatever followed the command: a model, optionally an effort after it,
-        or the word `auto`. Pass it straight through:
+        Run it, once, and stop:
 
         ```
         tally model $ARGUMENTS
         ```
 
         Do not quote it as one word: this command takes up to two, and neither can contain a space.
-        `auto` needs no special case either - the CLI reads it itself, so the same line releases the
-        pin.
+        `auto` needs no special case either, the CLI reads it itself. Relay the one line it printed
+        and nothing more. The change happens when this turn ENDS, the conversation survives it, and
+        naming only a model leaves the effort exactly as it is. A non-zero exit means nothing was
+        queued and the message says why.
 
-        ## When nothing is named
+        ## If nothing is named
 
-        With the hook in place the user has already seen what the session runs, so this is the
-        degraded path: do by hand what the hook would have done for free.
+        Do not run anything and do not open a picker: with no hook to draw one, listing the models
+        here would spend a second turn on what should have cost none. Say this, in one line:
 
-        1. Run `tally model`. With no arguments and no terminal to draw a menu on, it prints what
-           this session runs, which layer decided each half of it, and the effort levels that exist.
-        2. Ask with AskUserQuestion which model they want, one option per model the output listed,
-           and mention that naming no effort leaves the current one alone.
-        3. Apply it: `tally model <model> [effort]`.
-
-        Mention, once, that the free path exists: with Tally's hook installed `/tally-model` answers
-        both shapes itself, and in a terminal `tally model` on its own opens an arrow-key picker.
-        Neither spends a turn.
-
-        ## What to tell them afterwards
-
-        Relay what the command printed, and the rest of what it means:
-
-        - THE CHANGE HAPPENS WHEN THIS TURN ENDS, not while the command runs. The session then
-          restarts on the new pair with the conversation intact, so the next thing they type is
-          answered from the same context.
-        - IT STICKS FOR THE REST OF THE SESSION. The launch default in Tally's Settings stops moving
-          this conversation, which is the difference between this and asking again in ten minutes.
-        - Naming only a model leaves the effort exactly as it is. Say so, because the alternative
-          reading (that it reset the depth) is the one that would worry them.
-        - `tally model auto` hands the session back to this project's profile and then the app's
-          default. It is the only way out, including out of a pin Tally adopted from the user's own
-          `/model`: choosing "default" in that picker is not something Tally can recognise.
-        - Changing the model can also move the session to another ACCOUNT, because a drained window
-          for one model does not rule an account out for another. If no account has room for the
-          model they named, it runs there anyway and says so rather than waiting.
-        - A non-zero exit means nothing was queued: an effort that is not a real level (the message
-          lists them), a model name with characters that cannot go on a command line, or a session
-          nothing is supervising. Read the message rather than assuming it worked.
+        > Tally's picker did not answer this session. Run `tally model <model> [effort]` from a
+        > terminal (or `tally model auto` to follow the launch defaults again), or restart the
+        > session so `/tally-model` answers for free.
 
         For "this project should ALWAYS run that model", the instruction is different and is written
         down instead: `tally project set --model <model> [--effort <effort>]`.

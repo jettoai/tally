@@ -44,10 +44,41 @@ enum HookSwitchAction: Equatable {
 /// not this command's: `/tally-model` is handed the same object by the same event (ModelHook.swift),
 /// and a second copy of the reading would be a second answer to what an unparseable payload means.
 func hookCommandArguments(_ raw: String) -> String? {
-    guard let data = raw.data(using: .utf8),
-          let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-    else { return nil }
-    return payload["command_args"] as? String
+    promptHookPayload(raw)?["command_args"] as? String
+}
+
+/// The payload itself, or nil for anything that is not one. One parse, one answer to "was this
+/// readable", shared by the two fields below it.
+func promptHookPayload(_ raw: String) -> [String: Any]? {
+    guard let data = raw.data(using: .utf8) else { return nil }
+    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+}
+
+/// The directory the prompt was typed in, as the same payload reports it (measured against Claude
+/// Code 2.1.224: the `UserPromptExpansion` object carries `cwd`, `session_id`, `transcript_path`
+/// and the command fields).
+///
+/// A HOOK MAY NOT ASK ITS OWN PROCESS. It is a child of Claude Code, and its working directory is
+/// whatever Claude Code's is - usually the same thing, and not always: the point of reading it here
+/// is that this field describes the PROMPT while the process describes the server. nil for a
+/// payload without it (an older Claude Code, a shape nobody here has measured), which the callers
+/// read as "fall back to this process's own" - the behaviour every version has had until now.
+func hookCommandCwd(_ raw: String) -> String? {
+    guard let cwd = promptHookPayload(raw)?["cwd"] as? String, !cwd.isEmpty else { return nil }
+    return cwd
+}
+
+/// What a prompt hook knows about which session it is answering for: the directory the prompt came
+/// from, and a marker that is only worth anything where that directory confirms it.
+///
+/// BOTH HALVES ARE THE FIX FOR ONE DEFECT, and it is not the picker's alone: a `claude` launched
+/// from a shell that was itself inside a supervised session inherits that session's marker, so
+/// `/tally-model` in the new session has always described and acted on the OLD one. Shipped
+/// behaviour until now, found by QA on the backstop (2026-08-07) and true of the plain command hook
+/// since it was written.
+func promptHookSession(_ raw: String) -> (cwd: String, marker: SessionMarkerTrust) {
+    (hookCommandCwd(raw) ?? FileManager.default.currentDirectoryPath,
+     .corroborated(liveSessionMarker()))
 }
 
 /// The decision, pure: everything about the payload, nothing about the world. The value IS the
@@ -151,8 +182,10 @@ func hookSwitchListing(rows: [SwitchFleetRow]?, provider: String,
 /// environment marker, and reading only that marker made this answer nil while `attemptSwitch` went
 /// on to move the single session running there. The row for the account it was already on then
 /// carried no "this session" mark and could be recommended as somewhere to go.
-func currentSessionAccount(_ accounts: [Snapshot.Account]) -> String? {
-    guard let session = currentSessionLookup() else { return nil }
+func currentSessionAccount(_ accounts: [Snapshot.Account],
+                           cwd: String = FileManager.default.currentDirectoryPath,
+                           marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> String? {
+    guard let session = currentSessionLookup(cwd: cwd, marker: marker) else { return nil }
     return sessionAccountID(sessionKey: session.key, isThisSession: session.isThisSession,
                             provider: providers[0], accounts: accounts)
 }
@@ -163,17 +196,26 @@ func currentSessionAccount(_ accounts: [Snapshot.Account]) -> String? {
 ///
 /// Both go through here rather than each reading for itself, because "which provider" and "which
 /// account is this session on" are the two answers they must never come to differ on.
-func liveSwitchFleetRows() -> (rows: [SwitchFleetRow]?, problem: String?) {
+///
+/// `cwd` names the session the "this session" mark belongs to, and defaults to this process's own
+/// directory. The MCP server behind the native picker passes the directory its hook reported
+/// (MCPServe.swift): it is a long-lived child of Claude Code, so its own directory says nothing
+/// about which session is asking.
+func liveSwitchFleetRows(cwd: String = FileManager.default.currentDirectoryPath,
+                         marker: SessionMarkerTrust = .trusted(liveSessionMarker()))
+    -> (rows: [SwitchFleetRow]?, problem: String?) {
     let (snapshot, problem) = loadSnapshot()
     guard let accounts = snapshot?.accounts else { return (nil, problem) }
     return (switchFleetRows(accounts: accounts, provider: providers[0].id,
-                            current: currentSessionAccount(accounts)), problem)
+                            current: currentSessionAccount(accounts, cwd: cwd, marker: marker)),
+            problem)
 }
 
 /// The same listing, read off this machine, with whatever the snapshot read had to say about
 /// itself carried into it rather than discarded.
-func switchFleetListing() -> [String] {
-    let (rows, problem) = liveSwitchFleetRows()
+func switchFleetListing(cwd: String = FileManager.default.currentDirectoryPath,
+                        marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> [String] {
+    let (rows, problem) = liveSwitchFleetRows(cwd: cwd, marker: marker)
     return hookSwitchListing(rows: rows, provider: providers[0].id, problem: problem)
 }
 
@@ -183,16 +225,28 @@ func switchFleetListing() -> [String] {
 /// Always exit 2: the answer is already on stderr, and letting the expansion run would spend a turn
 /// re-saying it. Stderr for all of it, because that is the only channel a blocked expansion shows
 /// the user, and stdout is discarded on exit 2.
-func runHookSwitch() -> Int32 {
+///
+/// `--backstop` is the same work under a condition: it is registered BESIDE an `mcp_tool` hook that
+/// raises the native picker, and it answers only when that picker is not there to
+/// (PromptHookBackstop.swift states why it may not simply always answer).
+func runHookSwitch(args: [String] = []) -> Int32 {
+    let backstop = promptHookIsBackstop(args)
+    if backstop, promptHookBackstopAction(pickerIsServing: nativePickerIsServing()) == .standDown {
+        return 0
+    }
     let raw = String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
+    // Which session this prompt belongs to, read off the payload rather than off this process
+    // (`promptHookSession` states why the two differ).
+    let (cwd, marker) = promptHookSession(raw)
+    let lines: [String]
     switch hookSwitchAction(raw) {
     case .queue(let name):
-        let attempt = attemptSwitch(name: name)
-        warn(attempt.message)
-        for note in attempt.notes { warn(note) }
+        let attempt = attemptSwitch(name: name, cwd: cwd, marker: marker)
+        lines = [attempt.message] + attempt.notes
     case .list:
-        // One call, so the rows print as a block under a single tag rather than one tag per line.
-        warn(switchFleetListing().joined(separator: "\n"))
+        // One element, so the rows print as a block under a single tag rather than one tag per
+        // line - and as one `reason` rather than a decision per line on the other channel.
+        lines = [switchFleetListing(cwd: cwd, marker: marker).joined(separator: "\n")]
     }
-    return 2
+    return emitPromptHookOutput(promptHookOutput(lines, backstop: backstop))
 }

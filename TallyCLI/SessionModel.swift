@@ -205,7 +205,20 @@ func applySessionModel(plan: inout TickPlan, state: inout SessionModelState,
                        snapshot loadSnapshotting: () -> (Snapshot?, String?) = loadSnapshot) {
     // No request, or one this supervisor has already served. Answered before anything else costs a
     // snapshot read or a transcript tail, the same reason `applySwitchRequest` answers it twice.
-    guard let request, request.epoch > state.servedEpoch else { return }
+    //
+    // A REQUEST THAT VANISHED TAKES ITS BADGE WITH IT. The badge is documented as re-derived every
+    // tick from live state, and it was not: this early return is the only path a tick takes once
+    // the file is gone, so a request removed by anything other than being served (a sweep of a
+    // session whose pid was reused, a user clearing `~/.tally`, a rolled-back build) left "model:
+    // waiting for turn end" on the status line for the rest of the conversation, describing an
+    // instruction that no longer exists anywhere (QA, 2026-08-07: still on screen an hour later).
+    // Only the ABSENT case clears it - an already-served request had its badge cleared by the serve
+    // that served it, and clearing again here would be a second answer to the same question.
+    guard let request else {
+        state.waiting = nil
+        return
+    }
+    guard request.epoch > state.servedEpoch else { return }
     let pair = sessionModelPair(request, policy: policy, launchArgs: launchArgs)
 
     /// Everything a served request owes whether or not it relaunches: the pin, the consumed stamp,

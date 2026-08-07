@@ -57,9 +57,9 @@ extension IntegrationsStore {
         Do not run anything and do not open a picker: with no hook to draw one, listing the models
         here would spend a second turn on what should have cost none. Say this, in one line:
 
-        > Tally's picker did not answer this session. Run `tally model <model> [effort]` from a
-        > terminal (or `tally model auto` to follow the launch defaults again), or restart the
-        > session so `/tally-model` answers for free.
+        > Tally's picker did not answer this prompt (it is not connected, or the dialog was left
+        > open past its deadline). Try `/tally-model` again, run `tally model <model> [effort]` from
+        > a terminal, or restart the session if it keeps happening.
 
         For "this project should ALWAYS run that model", the instruction is different and is written
         down instead: `tally project set --model <model> [--effort <effort>]`.

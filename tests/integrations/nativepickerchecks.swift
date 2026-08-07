@@ -33,9 +33,16 @@ func runNativePickerChecks(tmp: URL, skill currentSkill: String) throws {
                                                     "session_id": "${session_id}",
                                                     "cwd": "${cwd}",
                                                     "transcript_path": "${transcript_path}"])
-    // A dialog waits on a PERSON. The default would cancel the picker while they were reading it.
+    // A DIALOG WAITS ON A PERSON, and the number has to be past any plausible dwell rather than
+    // merely above the last one measured. At 300 seconds it was not: a dialog left open for 36
+    // minutes was cancelled, the expansion went through, and the command file reached a model at
+    // xhigh for ~1,700 output tokens (Albert, 2026-08-07). Claude Code's own default for this hook
+    // type is 600, so the old value had HALVED it while reading as generous.
     check("…and is given a person's patience rather than a program's",
-          pair[0]["timeout"] as? Int == 300)
+          pair[0]["timeout"] as? Int == 21_600)
+    check("…which is past any plausible dwell, and past Claude Code's own default for the type",
+          (pair[0]["timeout"] as? Int ?? 0) >= 3_600
+              && (pair[0]["timeout"] as? Int ?? 0) > 600)
     check("the backstop runs this command's own subcommand under the flag",
           pair[1]["command"] as? String
               == "\"\(binary.path)\" hook-model \(promptHookBackstopFlag)")

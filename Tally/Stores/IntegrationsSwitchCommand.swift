@@ -50,9 +50,9 @@ extension IntegrationsStore {
         Do not run anything and do not open a picker: with no hook to draw one, reading the fleet
         here would spend a second turn on what should have cost none. Say this, in one line:
 
-        > Tally's picker did not answer this session. Run `tally account "<account>"` from a
-        > terminal (or `tally account --auto` to follow automatic selection again), or restart the
-        > session so `/tally-account` answers for free.
+        > Tally's picker did not answer this prompt (it is not connected, or the dialog was left
+        > open past its deadline). Try `/tally-account` again, run `tally account "<account>"` from
+        > a terminal, or restart the session if it keeps happening.
 
         For "this project should ALWAYS run on that account", the instruction is different and is
         written down instead: `tally project set --account "<account>"`.

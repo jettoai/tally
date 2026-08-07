@@ -98,7 +98,13 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
           commandProse.contains("Do not run anything and do not open a picker"))
     check("…and hands the user the two lines that work without any of it",
           commandProse.contains("tally account \"<account>\"")
-              && commandProse.contains("tally account --auto"))
+              && commandProse.contains("Try `/tally-account` again"))
+    // Both reasons, neutrally: a dialog left open past the hook's deadline lets the expansion
+    // through with the server perfectly healthy, so "restart the session" alone is advice for a
+    // problem that user does not have (main.swift states the incident).
+    check("…and names both ways a prompt can reach it, without diagnosing the wrong one",
+          commandProse.contains("it is not connected, or the dialog was left")
+              && commandProse.contains("restart the session if it keeps happening"))
     check("command relays the timing, which is the thing a user gets wrong",
           commandProse.contains("The move happens when this turn ENDS"))
     check("…and that the pin sticks rather than being a one-shot nudge",

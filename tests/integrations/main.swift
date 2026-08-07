@@ -99,7 +99,7 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 14", IntegrationsStore.skillVersion == 14)
+    check("skill is at version 15", IntegrationsStore.skillVersion == 15)
     // The native `/model` is adopted now, not overwritten. The command file used to teach the
     // opposite, which was true when it was written and became a lie the moment the supervisor
     // learned to read that event (geo session 7cfa11a4, 2026-08-06).
@@ -143,7 +143,15 @@ try MainActor.assumeIsolated {
           modelCommand.contains("Do not run anything and do not open a picker"))
     check("…and hands the user the lines that work without any of it",
           modelCommand.contains("tally model <model> [effort]")
-              && modelCommand.contains("tally model auto"))
+              && modelCommand.contains("Try `/tally-model` again"))
+    // BOTH REASONS, NEUTRALLY. The body used to say the picker "did not answer this session" and
+    // send the user off to restart it - which is right when the server is not connected and wrong
+    // when it is: a dialog left open past the hook's deadline lets the expansion through with the
+    // server perfectly healthy, and telling that user to restart their session is advice for a
+    // problem they do not have (Albert, 2026-08-07: 36 minutes on an open dialog).
+    check("…and names both ways a prompt can reach it, without diagnosing the wrong one",
+          modelCommand.contains("it is not connected, or the dialog was left")
+              && modelCommand.contains("restart the session if it keeps happening"))
     // The property that shortening was FOR, asserted rather than assumed.
     check("…and both command files are short enough to answer inside one turn",
           IntegrationsStore.promptCommands.allSatisfy {

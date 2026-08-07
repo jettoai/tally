@@ -27,9 +27,23 @@ extension IntegrationsStore {
     }
 
     /// How long a tool hook may take. A dialog waits on a PERSON, so the number is a person's
-    /// patience rather than a program's: the default would cancel the picker while they were still
-    /// reading it.
-    nonisolated static let mcpHookTimeout = 300
+    /// patience rather than a program's.
+    ///
+    /// SIX HOURS, AND THE PREVIOUS VALUE WAS A CLIFF. This was 300 seconds, written to sound
+    /// generous and never measured against anyone actually using it - and Claude Code's own default
+    /// for an `mcp_tool` hook is 600, so the "generous" number HALVED it. Measured 2026-08-07:
+    /// Albert left the account dialog open for about 36 minutes while reading the figures and
+    /// taking screenshots; at 300 seconds the hook was cancelled, the expansion was let through,
+    /// and the command file reached a model running opus at xhigh, which spent roughly 1,700 output
+    /// tokens thinking about it. The whole feature exists to make that turn not happen.
+    ///
+    /// Reading a dialog and thinking about it is not a stall, so the number has to be past any
+    /// plausible dwell rather than merely above the last one measured. It is still bounded, and the
+    /// bound is the only thing on the other side: a tool call that wedges with no dialog on screen
+    /// holds the prompt until this expires. The person's own way out is the dialog's Escape, which
+    /// costs nothing and is instant (`mcpNothingChanged`, MCPPicker.swift) - the timeout was never
+    /// the exit and must not be treated as one.
+    nonisolated static let mcpHookTimeout = 21_600
 
     /// The hooks one command's entry must hold, in order.
     ///

@@ -18,6 +18,14 @@ let nativeModelCommandTag = "<command-name>/model</command-name>"
 /// so the reading itself is done on the decoded content.
 let nativeModelStdoutPrefix = "<local-command-stdout>Set model to"
 
+/// What the CONTENT of a slash-command invocation opens with, whichever command it is: Claude Code
+/// writes `<command-message>` and `<command-name>` in an order that has changed between versions, so
+/// only the family is asserted (`lineIsCommandRecord`, TranscriptSignals.swift).
+let nativeModelCommandOpening = "<command-"
+
+/// What the content of the picker's own echo opens with.
+let nativeModelStdoutOpening = "<local-command-stdout>"
+
 /// The effort Claude Code's own `/model` reported choosing, or nil when it reported none.
 ///
 /// A CLOSED SET, matched whole, and deliberately nothing more. The line is a display string

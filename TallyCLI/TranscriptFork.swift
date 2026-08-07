@@ -178,6 +178,18 @@ extension TranscriptWatcher {
         offset = 0
         forkScanOffsets.removeAll()
         forkMarked.removeAll()
+        // AND THE TURN MAP GOES WITH THE FILE. A uuid identifies an event inside ONE transcript, so
+        // carrying the map across a move leaves every new event's parent pointing at nothing (the
+        // fail-safe holds and the wait never ends) or, worse, at a collision. `lastModelCommandAt`
+        // deliberately survives - a `/model` chosen before a `/clear` still applies to the
+        // conversation that follows - and `modelConfirmation` is dropped with the map for the same
+        // fail-safe reason: an answer proved by events in a file this conversation has left is not
+        // proof about the one it is in now, and re-waiting costs a badge while re-using it risks
+        // pinning a model nobody chose here.
+        turnRoots = TurnRoots()
+        modelConfirmation = nil
+        unanchoredServed = 0
+        anchorLossReported = false
     }
 
     /// The join key, resolved once and then held: the id this child was launched with, or, on a

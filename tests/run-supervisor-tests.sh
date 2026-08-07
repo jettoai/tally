@@ -33,7 +33,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/modelrequestchecks.swift tests/supervisor/modeltickchecks.swift \
   tests/supervisor/modelsurfacechecks.swift tests/supervisor/nativemodelchecks.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
-  TallyCLI/TranscriptWatcher.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift TallyCLI/Reload.swift \
+  TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift TallyCLI/Reload.swift \
   TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AccountComfort.swift \
   TallyCLI/Rebalance.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift \
   TallyCLI/KeyboardIdle.swift TallyCLI/OpenTurn.swift TallyCLI/ProviderExecutable.swift \

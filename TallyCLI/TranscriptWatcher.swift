@@ -153,33 +153,29 @@ struct TranscriptWatcher {
     /// (TranscriptFork.swift). Holds `isQuiet` false, so every non-urgent relaunch waits instead of
     /// resuming an id the conversation may have just left.
     var hasUnresolvedFork = false
-    /// The first thing the PERSON said after the newest `/model`, which is what makes the answer to
-    /// that command identifiable at all.
+    /// Which turn each event belongs to (TranscriptSignals.swift), which is what makes the answer to
+    /// a `/model` identifiable without guessing anything about the user's side.
+    var turnRoots = TurnRoots()
+    /// The turn that ANSWERED the newest `/model`: the first main-chain event carrying a real model
+    /// id whose TURN began at or after the command.
     ///
-    /// A slash command produces no assistant turn of its own: the picker writes two user events and
-    /// nothing else happens until the user types again. So the reply that proves what the session
-    /// now runs is the one belonging to their NEXT prompt, and everything between the command and
-    /// that prompt is the tail of the exchange before it.
+    /// ANCHORED ON THE ASSISTANT SIDE, which is the fourth and last shape this rule has had. The
+    /// three before it all asked the user side which record would produce a model request - the last
+    /// of them, "the first prompt typed after the command", was refuted by `/effort`: its invocation
+    /// is indistinguishable from a prompt, so the tail of the turn already in flight cleared the bar
+    /// and was read as the answer (codex probe, 2026-08-07). A served model event is not a guess
+    /// about what will happen; asking which turn it belongs to is not a guess either.
     ///
-    /// The command's own two events are excluded by shape rather than by timestamp: they are user
-    /// events too, and the picker's stdout can carry a stamp a fraction later than the invocation,
-    /// which would make the command its own "next prompt" and hand the tail back as the answer.
-    var modelCommandUserTurnAt: Date?
-    /// The turn that ANSWERED the newest `/model`: the first main-chain model event at or after the
-    /// prompt above, and the only event this feature treats as a confirmation.
-    ///
-    /// TURN CORRELATION RATHER THAN "THE FIRST DIFFERENT MODEL", which is what this was and what a
-    /// review refuted (2026-08-07). That rule skipped every event serving the model already running,
-    /// so a user re-picking their current model made the NEXT different model - a quota fallback
-    /// minutes later, in the same chunk - the earliest differing event, and it was pinned as their
-    /// choice. A pin is what the session is expected to run, so the degradation rescue then read the
-    /// fallback as correct for the rest of the session. Correlating with the prompt instead is
-    /// indifferent to which model answers: it identifies the ANSWER, and reading it is a separate
-    /// question from judging it.
+    /// An in-flight tail is excluded by construction rather than by timing: its turn began before
+    /// the command, so no arrival time can make it eligible. The command's own two events need no
+    /// special case for the same reason - nothing is served from them, so they never root anything.
     ///
     /// Cleared by a newer `/model`, which asks the question again.
     var modelConfirmation: (model: String, at: Date)?
-    var modelConfirmations: [String: Date] = [:]
+    /// Real model events served since the newest `/model` without answering it, and whether the
+    /// canary has already been written for this command (`unanchoredConfirmationLimit`).
+    var unanchoredServed = 0
+    var anchorLossReported = false
     /// Where this watcher's own audit lines go (the ambiguous-fork report, TranscriptFork.swift).
     /// Injectable for the reason `appendHandoffLine` is: a suite that exercises the tie must not
     /// write invented reports into the user's history.
@@ -247,6 +243,42 @@ struct TranscriptWatcher {
 
     /// Store a user prompt under its uuid, evicting the oldest past the capacity. Re-seen uuids keep
     /// their place (the text does not change), so the FIFO tracks distinct recent messages.
+    /// Whether the turn that just answered was served by a model the API had ALREADY fallen this
+    /// session onto, rather than by the one the user picked.
+    ///
+    /// The hole this closes is the one the adoption's own comment admits: a `/model` choosing a
+    /// model whose window is spent gets its first fresh turn served by the fallback, the fallback is
+    /// what the transcript says, and adopting it makes the fallback the model this session is
+    /// EXPECTED to run - which is the one thing that stops the degradation rescue from ever seeing a
+    /// difference again. The three conditions together are what make it recognisable rather than
+    /// guessed: the API said so itself (`model_refusal_fallback`), it said so inside the window
+    /// between the command and this answer, and the model it named is the one now serving.
+    ///
+    /// Deferring is safe in the direction that matters: the answer is not thrown away, it is left to
+    /// the next turn, and a late adoption costs a badge while a wrong one costs the rescue.
+    func confirmationIsFallbackServed(model: String, at when: Date, commandAt: Date) -> Bool {
+        guard let flag = lastFlag, flag.at >= commandAt, flag.at <= when else { return false }
+        return modelsAgree(model, flag.to)
+    }
+
+    /// A request was served while a `/model` was still waiting for its answer. Counted, and said out
+    /// loud once when there have been too many.
+    ///
+    /// THE CANARY the design asked for. This feature now rests on `parentUuid` chains, which are
+    /// Claude Code's own private format: if their shape changes, roots stop resolving, the fail-safe
+    /// holds, nothing is adopted - and nothing is heard either. That is the failure mode this design
+    /// chose on purpose, and a silent one is exactly what a canary is for. To the audit log rather
+    /// than the terminal, because no relaunch follows it (PendingNotice.swift's rule).
+    mutating func noteUnanchoredService(commandAt: Date) {
+        unanchoredServed += 1
+        guard unanchoredServed > unanchoredConfirmationLimit, !anchorLossReported else { return }
+        anchorLossReported = true
+        appendHandoffLine(
+            modelAnchorLostLine(sessionID: file?.deletingPathExtension().lastPathComponent,
+                                served: unanchoredServed, commandAt: commandAt),
+            to: auditLog)
+    }
+
     mutating func rememberExcerpt(uuid: String, text: String) {
         guard recentUserExcerpts[uuid] == nil else { return }
         recentUserExcerpts[uuid] = String(text.prefix(160))
@@ -438,6 +470,17 @@ struct TranscriptWatcher {
         guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return false }
 
         for line in text.split(separator: "\n") {
+            // WHICH TURN THIS LINE BELONGS TO, before anything asks. Main-chain and post-launch
+            // only: a replayed history would fill the map with turns that ended before this session
+            // started, evicting the live ones, and an event whose root is missing is treated as
+            // unresolvable anyway - which is the correct answer for a turn that began before the
+            // watcher did (TranscriptSignals.swift states the model).
+            var turnRoot: Date?
+            if !line.contains("\"isSidechain\":true"), let uuid = lineUUID(line),
+               let ts = lineTimestamp(line), ts >= since {
+                turnRoot = turnRoots.record(uuid: uuid, parent: lineParentUUID(line),
+                                            startsTurn: lineStartsTurn(line), at: ts)
+            }
             // Track the ACTUAL serving model, with three guards learned from a live misfire
             // (2026-07-19: a continued session replays its whole history, whose old lines and
             // "<synthetic>" error turns poisoned lastModel and ping-ponged the rescue):
@@ -450,12 +493,18 @@ struct TranscriptWatcher {
                     let model = String(rest[..<quote])
                     lastModel = model
                     lastMainChainEventAt = ts
-                    // The answer to the newest `/model`: the first main-chain turn at or after the
-                    // prompt that followed it (`modelConfirmation` states the whole rule). Lines
-                    // arrive in file order, so first-seen is earliest.
-                    if let askedAt = modelCommandUserTurnAt, ts >= askedAt,
-                       modelConfirmation == nil {
-                        modelConfirmation = (model, ts)
+                    // The answer to the newest `/model`: this request was served, so the only
+                    // question left is whether the turn it belongs to began after the command
+                    // (`modelConfirmation` states the whole rule). A root that will not resolve is
+                    // not an answer: the wait continues, because a late adoption costs a badge and a
+                    // wrong one costs the degradation rescue for the rest of the session.
+                    if let commandAt = lastModelCommandAt, modelConfirmation == nil {
+                        if let turnRoot, turnRoot >= commandAt,
+                           !confirmationIsFallbackServed(model: model, at: ts, commandAt: commandAt) {
+                            modelConfirmation = (model, ts)
+                        } else {
+                            noteUnanchoredService(commandAt: commandAt)
+                        }
                     }
                 }
             }
@@ -481,17 +530,12 @@ struct TranscriptWatcher {
                !line.contains("\"tool_result\""), !line.contains("\"isMeta\":true"),
                !line.contains("\"promptSource\":\"system\""),
                !line.contains("<task-notification>"),
+               // An auto-compact writes its summary as a user event carrying no promptSource, so it
+               // read as somebody coming back and took down a badge nobody had seen. Nobody is in
+               // the room when a compaction happens; it is the session folding itself up.
+               !line.contains("\"isCompactSummary\":true"),
                let ts = lineTimestamp(line), ts >= since {
                 lastUserTurnAt = ts
-                // The prompt that a `/model` is waiting to be answered by. The command's own two
-                // events are user events as well, so they are excluded by their shape: a timestamp
-                // test cannot separate them, because the picker's stdout may be stamped a moment
-                // after the invocation it belongs to.
-                if let commandAt = lastModelCommandAt, ts >= commandAt,
-                   modelCommandUserTurnAt == nil,
-                   !line.contains(nativeModelCommandTag), !line.contains(nativeModelStdoutPrefix) {
-                    modelCommandUserTurnAt = ts
-                }
             }
             // Claude Code's own `/model`, in the two events it writes. The invocation is what
             // marks the moment; the line it printed carries the effort, and is JSON-parsed only
@@ -499,14 +543,22 @@ struct TranscriptWatcher {
             // line). Guarded like the model signal - post-launch, main-chain - because a resumed
             // session replays every earlier one.
             if line.contains(nativeModelCommandTag), !line.contains("\"isSidechain\":true"),
+               // …and IS the command rather than merely mentioning it. The tag is a substring, and
+               // a transcript carries it innocently more often than one would think: a tool_result
+               // holding this repo's own source, a prompt quoting a transcript. Read as a command,
+               // any of them resets a live anchor and spends the served stamp
+               // (`lineIsCommandRecord`, TranscriptSignals.swift).
+               lineIsCommandRecord(line, opening: nativeModelCommandOpening),
                let ts = lineTimestamp(line), ts >= since {
                 lastModelCommandAt = ts
-                // A new question: the prompt that will answer it has not been typed yet, and what
-                // answered the PREVIOUS one says nothing about this one.
-                modelCommandUserTurnAt = nil
+                // A new question: what answered the PREVIOUS one says nothing about this one, and
+                // the canary starts counting again.
                 modelConfirmation = nil
+                unanchoredServed = 0
+                anchorLossReported = false
             }
             if line.contains(nativeModelStdoutPrefix),
+               lineIsCommandRecord(line, opening: nativeModelStdoutOpening),
                let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))
                    as? [String: Any],
                (object["isSidechain"] as? Bool) != true,

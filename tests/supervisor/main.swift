@@ -93,13 +93,17 @@ func auditAdditionsAreClean(_ added: String, sentinel: String) -> Bool {
     !added.contains(sentinel) && !testFixtureSessionShapes.contains { added.contains($0) }
 }
 
-func watcherAfterScanning(_ lines: [String]) -> TranscriptWatcher {
+/// `sink` is set BEFORE the scan, which is the only order that works for a fixture whose scan
+/// itself writes an audit line (the anchor canary): assigning it afterwards leaves that line in the
+/// user's own log, which is what `runAuditSinkChecks` then catches.
+func watcherAfterScanning(_ lines: [String], sink: URL? = nil) -> TranscriptWatcher {
     let dir = FileManager.default.temporaryDirectory
         .appendingPathComponent("tally-watcher-test-\(UUID().uuidString)")
     try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     let file = dir.appendingPathComponent("\(testFixtureSessionID).jsonl")
     try! lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
     var watcher = TranscriptWatcher(projectDir: dir, file: file, since: launch)
+    if let sink { watcher.auditLog = sink }
     _ = watcher.sawCapHit()
     return watcher
 }

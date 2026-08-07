@@ -59,45 +59,54 @@ extension IntegrationsStore {
         case let existing as [String: Any]: hooks = existing
         default: return nil
         }
-        var entries: [[String: Any]]
+        let entries: [[String: Any]]
         switch hooks[promptHookEvent] {
         case nil: entries = []
         case let existing as [[String: Any]]: entries = existing
         default: return nil
         }
         let ours: [String: Any] = ["type": "command", "command": hookCommand]
-        // EVERY registration of ours in the file, not the first one found. Our own writes make at
-        // most one (a fresh entry is appended only when none is there), but the file this edits is
-        // rewritten by things that know nothing about Tally - a dotfiles merge, two config homes
-        // folded into one, a hand edit - and any of them can leave a second copy. Claude Code runs
-        // ALL the hooks that match, so a stale duplicate goes on answering `/tally-account` with
-        // "No such file or directory" while the repaired one beside it works.
+        // EXACTLY ONE REGISTRATION OF OURS COMES OUT OF THIS, wherever the file had them. Our own
+        // writes make at most one (a fresh entry is appended only when none is there), but the file
+        // this edits is rewritten by things that know nothing about Tally - a dotfiles merge, two
+        // config homes folded into one, a hand edit - and any of them can leave a second copy.
         //
-        // The check face reads the same way (`registeredPromptHookCommands`), and they have to move
-        // together: detection that sees every copy while the repair fixes one would report damage
-        // that no amount of repairing settles.
+        // Both halves of that matter, and the second is the one that is easy to miss. Claude Code
+        // runs ALL the hooks that match, so a STALE duplicate answers `/tally-account` with "No such
+        // file or directory" beside the good one; but rewriting each copy to the current command
+        // instead of merging them just makes the duplicate work, and then the command runs TWICE on
+        // every prompt - two answers, two writes - while the self-heal reads every copy as correct
+        // and never has anything left to say (codex review of e7fe1a0).
+        //
+        // What is NOT collapsed is anything that is not ours: a hook a user put beside ours stays in
+        // the entry it is in, in the order they had it. An entry left holding nothing but the
+        // duplicate we took out goes, exactly as the uninstall treats one that was ours alone.
         var changed = false
-        var found = false
-        for index in entries.indices where holdsOurHook(entries[index], command: hook) {
-            found = true
-            // Our hook, in place, with whatever else the user put in that entry left exactly where
-            // it is and in the order they had it.
-            var inner = entries[index]["hooks"] as? [[String: Any]] ?? []
-            for slot in inner.indices where isOurHook(inner[slot], command: hook) {
-                if NSDictionary(dictionary: inner[slot]).isEqual(to: ours) { continue }
-                inner[slot] = ours
-                changed = true
+        var placed = false
+        var kept: [[String: Any]] = []
+        for entry in entries {
+            guard holdsOurHook(entry, command: hook) else { kept.append(entry); continue }
+            var rebuilt: [[String: Any]] = []
+            for slot in entry["hooks"] as? [[String: Any]] ?? [] {
+                guard isOurHook(slot, command: hook) else { rebuilt.append(slot); continue }
+                guard !placed else { changed = true; continue }   // a second copy: it goes
+                placed = true
+                if !NSDictionary(dictionary: slot).isEqual(to: ours) { changed = true }
+                rebuilt.append(ours)
             }
-            entries[index]["hooks"] = inner
+            guard !rebuilt.isEmpty else { changed = true; continue }
+            var trimmed = entry
+            trimmed["hooks"] = rebuilt
+            kept.append(trimmed)
         }
-        if !found {
+        if !placed {
             // A fresh entry holding only ours. Deliberately not merged into an entry the user wrote
             // themselves: that entry is theirs, and adding to it is still editing it.
-            entries.append(["matcher": hook.name, "hooks": [ours]])
+            kept.append(["matcher": hook.name, "hooks": [ours]])
             changed = true
         }
         guard changed else { return nil }
-        hooks[promptHookEvent] = entries
+        hooks[promptHookEvent] = kept
         var merged = settings
         merged["hooks"] = hooks
         return merged

@@ -361,7 +361,11 @@ final class LoginStatusStore {
         return memory
     }
 
+    /// Remembered in memory by every build, written down only by the one that owns the state: the
+    /// defaults domain belongs to the release bundle id, which a locally built Release shares, and a
+    /// round it polled is not a round the installed app made.
     private func persistIdentities() {
+        guard !BuildVariant.isUnshipped else { return }
         guard let data = try? JSONEncoder().encode(identities) else { return }
         UserDefaults.standard.set(data, forKey: Self.identitiesKey)
     }

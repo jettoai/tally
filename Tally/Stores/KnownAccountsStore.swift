@@ -35,7 +35,16 @@ final class KnownAccountsStore {
         // itself: `tally add` execs the provider's login over its own process and never comes back.
         // A marker left behind would make this home look reusable again the day its login expires,
         // which is the bug the slot rule exists to close (Tally/Core/AddAccount.swift).
-        for account in discovered {
+        //
+        // A build nobody installed does none of it. Both calls below leave the app's own state and
+        // write into the USER's: the marker is a file in a provider config home, and the onboarding
+        // note is a key inside their `~/.claude.json`. This runs before anything else in a refresh
+        // round, so gating further down the round would have let a locally built Release edit the
+        // installed app's config homes on every poll while looking gated (`isUnshipped`, codex review
+        // of e7fe1a0). Gated HERE rather than at the caller because three paths reach this method -
+        // the refresh, the account watcher, and the launch-time `discoveredAccountsNow` - and a gate
+        // per caller is three chances to forget the fourth.
+        for account in discovered where !BuildVariant.isUnshipped {
             guard let home = account.launchableHome else { continue }
             // A marker that was still there is Tally's own note that it CREATED this home, and
             // clearing it now is this round saying the login has landed. That pair of facts is the
@@ -74,7 +83,12 @@ final class KnownAccountsStore {
         persist(next)
     }
 
+    /// In memory for everyone, on disk only for the app that owns the state. A build nobody
+    /// installed carries the release bundle id, so this defaults domain is the INSTALLED app's: a
+    /// test window polling beside it would otherwise teach the real app which accounts exist, and
+    /// dormancy is exactly the kind of answer that must not come from a second poller.
     private func persist(_ accounts: [KnownAccount]) {
+        guard !BuildVariant.isUnshipped else { return }
         if let data = try? JSONEncoder().encode(accounts) {
             UserDefaults.standard.set(data, forKey: Self.stateKey)
         }

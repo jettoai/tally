@@ -284,10 +284,14 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
         as? [String: Any] ?? [:]
     var hookBlock = withDuplicate["hooks"] as? [String: Any] ?? [:]
     var promptEntries = hookBlock[IntegrationsStore.promptHookEvent] as? [[String: Any]] ?? []
+    // The duplicate carries a hook of the USER's in the same entry, which is what says the entry
+    // must survive the collapse even though our copy in it does not.
+    let neighbour: [String: Any] = ["type": "command", "command": "/usr/local/bin/my-own-audit"]
     promptEntries.append([
         "matcher": firstCommand.name,
         "hooks": [["type": "command",
-                   "command": IntegrationsStore.promptHookCommand(stray, command: firstCommand)]],
+                   "command": IntegrationsStore.promptHookCommand(stray, command: firstCommand)],
+                  neighbour],
     ])
     hookBlock[IntegrationsStore.promptHookEvent] = promptEntries
     withDuplicate["hooks"] = hookBlock
@@ -298,13 +302,23 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
           IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
                                              binary: binary))
     _ = installAll(healthy)
-    check("…which the sync repairs in every copy, not just the one it found first",
+    // ONE, not two both spelled correctly. Claude Code runs every hook that matches, so a repair
+    // that fixed the duplicate instead of collapsing it would run the command twice on every
+    // prompt - two answers, two writes - while reading as perfectly healthy from both faces.
+    check("…which the repair collapses to exactly one registration",
           IntegrationsStore.registeredPromptHookCommands(duplicated, hook: firstCommand)
-              .allSatisfy { $0 == IntegrationsStore.promptHookCommand(binary,
-                                                                     command: firstCommand) })
-    // The pair that has to move together: detection reading every copy while the repair fixed one
-    // would report damage no amount of repairing settles.
-    check("…and settles, the check face and the write face covering the same entries",
+              == [IntegrationsStore.promptHookCommand(binary, command: firstCommand)])
+    // And the user's hook in the entry the duplicate lived in is still there: what is collapsed is
+    // ours, never the company it kept.
+    let afterCollapse = (try? JSONSerialization.jsonObject(with: Data(contentsOf: duplicated)))
+        as? [String: Any] ?? [:]
+    let survivingHooks = ((afterCollapse["hooks"] as? [String: Any])?[IntegrationsStore.promptHookEvent]
+        as? [[String: Any]] ?? []).flatMap { $0["hooks"] as? [[String: Any]] ?? [] }
+    check("…leaving a hook the user put beside it exactly where it was",
+          survivingHooks.contains { $0["command"] as? String == "/usr/local/bin/my-own-audit" })
+    // The pair that has to move together: detection reading every copy while the repair left them
+    // all in place would report a file in good order that answers everything twice.
+    check("…and settles, with nothing left for a second heal to do",
           !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
                                               binary: binary) && !installAll(healthy))
 
@@ -422,7 +436,8 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
         (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
     }
     for file in ["Tally/Stores/UsageStore.swift", "Tally/Stores/UsageStorePublishing.swift",
-                 "Tally/Stores/LaunchPolicyStore.swift", "Tally/Stores/IntegrationsSelfHeal.swift"] {
+                 "Tally/Stores/LaunchPolicyStore.swift", "Tally/Stores/IntegrationsSelfHeal.swift",
+                 "Tally/Stores/KnownAccountsStore.swift", "Tally/Stores/LoginStatusStore.swift"] {
         let source = gateSource(file)
         check("\(file) gates its shared-state writes on the unshipped judgment",
               !source.isEmpty && source.contains("BuildVariant.isUnshipped")
@@ -430,4 +445,21 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     }
     // (The login alert's own gate is pinned the same way in tests/logincheck, beside the state
     // machine it dedups with.)
+    //
+    // AND THE EARLIEST WRITES IN A ROUND, named one by one. A gate anywhere in this file was not
+    // enough: the reconciliation runs BEFORE the refresh loop's own gate and writes into the user's
+    // config homes (the pending-add marker) and their ~/.claude.json (the onboarding note), so an
+    // unshipped build had already edited the installed app's state by the time the round reached a
+    // guard (codex review of e7fe1a0). Pinned by shape rather than by presence, because a second
+    // gate elsewhere in the same file would satisfy the check above while this one was gone.
+    let knownAccounts = gateSource("Tally/Stores/KnownAccountsStore.swift")
+    check("the marker and onboarding writes are gated before the round can reach them",
+          knownAccounts.contains("for account in discovered where !BuildVariant.isUnshipped {"))
+    check("…and so is the memory of which accounts exist, whose defaults domain is the release app's",
+          knownAccounts.contains("private func persist(_ accounts: [KnownAccount]) {\n"
+            + "        guard !BuildVariant.isUnshipped else { return }"))
+    check("…as is the identity memory the same round writes",
+          gateSource("Tally/Stores/LoginStatusStore.swift").contains(
+            "private func persistIdentities() {\n"
+            + "        guard !BuildVariant.isUnshipped else { return }"))
 }

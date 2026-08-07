@@ -1,6 +1,6 @@
 import Foundation
 
-// `tally hook-switch`: the decision that makes `/tally-switch` cost nothing in either shape
+// `tally hook-switch`: the decision that makes `/tally-account` cost nothing in either shape
 // (SwitchHook.swift). Claude Code fires the hook before any model is woken and hands it the
 // invocation as JSON on stdin; exiting 2 stops the expansion there.
 //
@@ -27,7 +27,7 @@ func runSwitchHookChecks() {
     // and nothing else in the payload changes the answer.
     check("a named account is queued, from the real payload shape",
           hookSwitchAction(payload(["hook_event_name": "UserPromptExpansion",
-                                    "command_name": "tally-switch",
+                                    "command_name": "tally-account",
                                     "command_args": "Claude 4",
                                     "session_id": "abc",
                                     "cwd": "/Users/x/workspace/tally"]))
@@ -39,7 +39,7 @@ func runSwitchHookChecks() {
           hookSwitchAction(payload(["command_args": "  my other account  "]))
               == .queue("my other account"))
 
-    // Bare `/tally-switch`: the user wants to CHOOSE, and choosing is answered HERE, from the
+    // Bare `/tally-account`: the user wants to CHOOSE, and choosing is answered HERE, from the
     // snapshot, for nothing. It used to let the expansion through so a model could list the fleet -
     // which works until the moment it is needed, because the reason to move accounts is usually
     // that this account has no model left to answer with (field report, 2026-08-06: "You've reached
@@ -54,7 +54,7 @@ func runSwitchHookChecks() {
     // field that changed type, an empty stdin because nothing was piped at all. A list is useful
     // under every one of those, and it is free - which a turn that may not be sendable is not.
     check("a payload without the field lists too",
-          hookSwitchAction(payload(["command_name": "tally-switch"])) == .list)
+          hookSwitchAction(payload(["command_name": "tally-account"])) == .list)
     check("a field of the wrong type lists too",
           hookSwitchAction(payload(["command_args": 42])) == .list)
     check("stdin that is not JSON lists too", hookSwitchAction("not json at all") == .list)
@@ -111,7 +111,7 @@ func runSwitchHookChecks() {
           listing.count == 5 && listing[1].contains("Claude 2")
               && listing[1].contains("(this session)") && listing[2].contains("(most headroom)"))
     check("…and closes with both commands that act on it",
-          listing.last == "pick one with `/tally-switch <name>`, or `/tally-switch --auto` to "
+          listing.last == "pick one with `/tally-account <name>`, or `/tally-account --auto` to "
               + "follow automatic selection")
     // Nothing to choose from is still an answer, and both shapes of it are actionable.
     check("no snapshot names the thing to fix",

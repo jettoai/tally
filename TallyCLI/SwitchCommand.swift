@@ -6,7 +6,7 @@ import Foundation
 // what a poll tick does about one, and SwitchRequest.swift addresses it to a session.
 //
 // Two surfaces come through here and must get the same answer: `tally switch` typed (or run as a
-// tool call) inside the session, and the `/tally-switch` prompt hook, which reports back without a
+// tool call) inside the session, and the `/tally-account` prompt hook, which reports back without a
 // model turn ever running (SwitchHook.swift).
 
 /// What asking to move this session came to, decided but not yet said: one decision, one wording,
@@ -55,7 +55,7 @@ enum SwitchIntent: Equatable {
     case auto
 }
 
-/// The same attempt from a surface that has only a NAME to hand over: the `/tally-switch` hook
+/// The same attempt from a surface that has only a NAME to hand over: the `/tally-account` hook
 /// passes whatever followed the command straight through (SwitchHook.swift). The flag is recognised
 /// here, so both surfaces answer `--auto` the same way and nobody has to keep two mappings in step -
 /// and no account can be shadowed by it, since a label is matched against what `tally status` prints
@@ -161,7 +161,8 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
     // (the same reading a pin gets - `tally claude` launches a pinned account that is out too).
     if let target, headroom(target) <= 0 {
         notes.append("\(target.label) is out of quota - pinning anyway (you asked). A hard cap "
-            + "still hands the session on, and clears the pin when it does")
+            + "drops the session to the declared fallback model there, and hands it on (clearing "
+            + "the pin) only if this account can serve none of those")
     }
     sweepDeadSessionRequests(dir: switchRequestDir)
     do {
@@ -288,8 +289,9 @@ func runSwitch(args: [String]) -> Int32 {
                tally switch --auto
 
         <account> pins THIS session there: it moves at the end of the current turn and STAYS,
-        overriding automatic account selection for the rest of the session. Only a hard cap moves it
-        after that, and that handoff clears the pin and says so.
+        overriding automatic account selection for the rest of the session. A hard cap keeps the
+        account and drops the session to the fallback model declared in Settings; only when this
+        account can serve none of those is the session handed on, which clears the pin and says so.
         --auto releases the pin, handing the session back to automatic selection (this project's
         profile, then the app's pin or smart pick). It takes no account name.
         Run it bare in a terminal and it lists the fleet to pick from with the arrow keys; in a pipe

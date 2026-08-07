@@ -5507,31 +5507,31 @@
         }
       }
     },
-    "Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json, and adds a /tally-switch command that moves a session to another account without spending a turn. One skill file, one command file and one hook entry per Claude account; all removed just as cleanly.": {
+    "Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json, and adds two commands: /tally-account moves a session to another account, /tally-model runs it on a different model, both without spending a turn. One skill file, two command files and two hook entries per Claude account; all removed just as cleanly.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "讓 Claude Code 工作階段學會從 tally status --json 回答額度問題、挑選帳號，並加上 /tally-switch 指令，不花一輪對話就能把工作階段移到另一個帳號。每個 Claude 帳號放一個技能檔、一個指令檔與一筆 hook 設定；移除時同樣完整清除。"
+            "value": "讓 Claude Code 工作階段學會從 tally status --json 回答額度問題、挑選帳號，並加上兩個指令：/tally-account 把工作階段移到另一個帳號，/tally-model 讓它改用另一個模型，兩者都不花一輪對話。每個 Claude 帳號放一個技能檔、兩個指令檔與兩筆 hook 設定；移除時同樣完整清除。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "让 Claude Code 会话学会从 tally status --json 回答额度问题、挑选账号，并加上 /tally-switch 命令，不花一轮对话就能把会话移到另一个账号。每个 Claude 账号放一个技能文件、一个命令文件与一条 hook 配置；移除时同样完整清除。"
+            "value": "让 Claude Code 会话学会从 tally status --json 回答额度问题、挑选账号，并加上两个命令：/tally-account 把会话移到另一个账号，/tally-model 让它改用另一个模型，两者都不花一轮对话。每个 Claude 账号放一个技能文件、两个命令文件与两条 hook 配置；移除时同样完整清除。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code のセッションが tally status --json からクォータの質問に答え、アカウントを選べるようにし、さらにターンを消費せずにセッションを別のアカウントへ移す /tally-switch コマンドを追加します。各 Claude アカウントにスキルファイル 1 つ、コマンドファイル 1 つ、フック設定 1 件を置き、削除時は同じく完全に元へ戻ります。"
+            "value": "Claude Code のセッションが tally status --json からクォータの質問に答え、アカウントを選べるようにし、さらにコマンドを 2 つ追加します。/tally-account はセッションを別のアカウントへ移し、/tally-model は別のモデルで動かします。どちらもターンを消費しません。各 Claude アカウントにスキルファイル 1 つ、コマンドファイル 2 つ、フック設定 2 件を置き、削除時は同じく完全に元へ戻ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code 세션이 tally status --json으로 쿼터 질문에 답하고 계정을 고르도록 가르치며, 턴을 쓰지 않고 세션을 다른 계정으로 옮기는 /tally-switch 명령을 추가합니다. 각 Claude 계정에 스킬 파일 하나, 명령 파일 하나, 후크 항목 하나를 두며 제거 시 똑같이 완전히 정리됩니다."
+            "value": "Claude Code 세션이 tally status --json으로 쿼터 질문에 답하고 계정을 고르도록 가르치며, 명령 두 개를 추가합니다. /tally-account는 세션을 다른 계정으로 옮기고, /tally-model은 다른 모델에서 실행하게 하며, 둘 다 턴을 쓰지 않습니다. 각 Claude 계정에 스킬 파일 하나, 명령 파일 두 개, 후크 항목 두 개를 두며 제거 시 똑같이 완전히 정리됩니다."
           }
         }
       }
@@ -9565,31 +9565,31 @@
         }
       }
     },
-    "A different command occupies commands/tally-switch.md": {
+    "A different command occupies commands/%@": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "commands/tally-switch.md 已被其他指令占用"
+            "value": "commands/%@ 已被其他指令占用"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "commands/tally-switch.md 已被其他命令占用"
+            "value": "commands/%@ 已被其他命令占用"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "commands/tally-switch.md は別のコマンドが使用しています"
+            "value": "commands/%@ は別のコマンドが使用しています"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "commands/tally-switch.md를 다른 명령이 사용 중입니다"
+            "value": "다른 명령이 commands/%@ 파일을 사용 중입니다"
           }
         }
       }

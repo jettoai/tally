@@ -1,13 +1,13 @@
 import Foundation
 
-// `/tally-switch` and the prompt hook behind it: the command file's prose, the file surgery either
+// `/tally-account` and the prompt hook behind it: the command file's prose, the file surgery either
 // half needs, and the settings.json merge. Split from main.swift for file size.
 //
 // The hook is what makes the feature worth having (a named account moves without waking a model),
 // but the risk lives in the other half: the merge writes into settings.json, which is the user's
 // entire harness configuration and, on shared setups, one physical file behind several accounts.
 // So most of what is asserted below is what comes out UNCHANGED.
-// The `/tally-switch` descriptor applied to the shared machinery. The install, the hook surgery and
+// The `/tally-account` descriptor applied to the shared machinery. The install, the hook surgery and
 // the group decision moved to IntegrationsPromptCommand.swift when a second command arrived
 // (`/tally-model`); every property they had is this command's property still, so these checks name
 // them the way they always did and supply the descriptor here, once.
@@ -54,7 +54,7 @@ extension IntegrationsStore {
 
 @MainActor
 func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
-    // MARK: /tally-switch - the command file, which is the FALLBACK half of the feature.
+    // MARK: /tally-account - the command file, which is the FALLBACK half of the feature.
     //
     // The hook answers a named account without waking a model at all; this file is what runs when
     // it did not (not registered, shell execution off, or no account named). So it has to stand
@@ -73,7 +73,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     // Spelled as it must be RUN. `$ARGUMENTS` is the whole rest of the typed line, quoted because
     // account labels contain spaces ("Claude 4").
     check("command queues the move with what the user typed",
-          command.contains("tally switch \"$ARGUMENTS\""))
+          command.contains("tally account \"$ARGUMENTS\""))
     check("command reads the fleet before offering a choice", command.contains("tally status"))
     check("command asks with the picker rather than choosing",
           commandProse.contains("Ask with AskUserQuestion, one option per Claude account")
@@ -90,8 +90,8 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
           commandProse.contains("YOU ARE THE FALLBACK")
               && commandProse.contains("prints the fleet to pick from when one is not"))
     check("…and names the two free paths it is standing in for",
-          commandProse.contains("`/tally-switch` lists the accounts itself")
-              && commandProse.contains("`tally switch` on its own opens an arrow-key picker"))
+          commandProse.contains("`/tally-account` lists the accounts itself")
+              && commandProse.contains("`tally account` on its own opens an arrow-key picker"))
     check("…and marks the picker it teaches as the degraded path",
           commandProse.contains("this is the degraded path"))
     check("command relays the timing, which is the thing a user gets wrong",
@@ -106,10 +106,15 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
           commandProse.contains("IT STICKS FOR THE REST OF THE SESSION")
               && commandProse.contains("stops moving it"))
     check("…and never says the old one-shot promise", !commandProse.contains("It is one shot"))
-    check("command names both ways out, including the one that is not the user's",
-          commandProse.contains("`tally switch --auto` releases the pin")
-              && commandProse.contains("A HARD CAP hands it on anyway")
-              && commandProse.contains("clears the pin and says so"))
+    // What a cap does to a pinned session, in the shape it has now: the model gives way first and
+    // the account is kept, so the pin survives every cap an account can still answer through.
+    check("command says the pin is the user's to release, and a cap does not take it",
+          commandProse.contains("`tally account --auto`")
+              && commandProse.contains("drops the session to the declared fallback model ON THIS ACCOUNT")
+              && commandProse.contains("the pin stands"))
+    check("…and names the one handoff that does clear it",
+          commandProse.contains("serve none of those models hands the")
+              && commandProse.contains("that handoff is the one thing that clears the pin"))
     check("…and what the pin does not touch, and how long it lives",
           commandProse.contains("No project profile is touched either way, and the pin dies with "
                                 + "the session"))
@@ -124,7 +129,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     let commandHome = tmp.appendingPathComponent("home-a")
     let commandFile = IntegrationsStore.switchCommandFile(inHome: commandHome)
     check("the command file lands where Claude Code looks for it",
-          commandFile.path == commandHome.appendingPathComponent("commands/tally-switch.md").path)
+          commandFile.path == commandHome.appendingPathComponent("commands/tally-account.md").path)
     check("the home is read back off a skill path, which is what pairs the two",
           IntegrationsStore.claudeHome(
             ofSkillFile: commandHome.appendingPathComponent("skills/tally/SKILL.md")).path
@@ -155,7 +160,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
         refusedCommand = true
     }
     let afterCommandRefusal = try String(contentsOf: commandFile, encoding: .utf8)
-    check("a user's own tally-switch.md is never clobbered",
+    check("a user's own tally-account.md is never clobbered",
           refusedCommand && afterCommandRefusal == userCommand)
     try IntegrationsStore.removeSwitchCommand(in: commandFile)
     check("remove leaves a foreign command untouched",
@@ -181,7 +186,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     let registered = IntegrationsStore.settingsRegisteringSwitchHook([:], command: hookCommand)
     check("an empty settings file gets exactly one entry, matched on the command name",
           registered.map(expansion)?.count == 1
-              && expansion(registered ?? [:]).first?["matcher"] as? String == "tally-switch")
+              && expansion(registered ?? [:]).first?["matcher"] as? String == "tally-account")
     check("…running our subcommand", commands(registered ?? [:]) == [hookCommand])
     check("re-registering the same thing changes nothing",
           IntegrationsStore.settingsRegisteringSwitchHook(registered ?? [:],
@@ -370,7 +375,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     let lookalikes: [String: Any] = ["hooks": ["UserPromptExpansion": [
         ["matcher": "my-switcher",
          "hooks": [["type": "command", "command": "/usr/local/bin/my-hook-switcher"]]],
-        ["matcher": "tally-switch",
+        ["matcher": "tally-account",
          "hooks": [["type": "command", "command": "/usr/local/bin/their-own-wrapper.sh"]]],
     ]]]
     let lookalikeFile = tmp.appendingPathComponent("lookalike-home/settings.json")
@@ -398,7 +403,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     // what this did) overwrote the neighbour on every update and deleted it on uninstall, with
     // nothing anywhere to say where it went.
     let sharedEntry: [String: Any] = ["hooks": ["UserPromptExpansion": [
-        ["matcher": "tally-switch", "hooks": [
+        ["matcher": "tally-account", "hooks": [
             ["type": "command", "command": hookCommand],
             ["type": "command", "command": "log-my-switches.sh"],
         ]],
@@ -414,6 +419,52 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
           strippedEntry.map(commands) == ["log-my-switches.sh"])
     check("…and keeps the entry the neighbour lives in",
           strippedEntry.map(expansion)?.count == 1)
+
+    // MARK: THE RENAME - a home that was set up when this command was called `/tally-switch`.
+    //
+    // A rename is the one change that leaves a working install of OURS pointing at a name nobody is
+    // offered any more: the old command file still answers if it is typed, and the old hook entry
+    // still intercepts it. Nothing else in this machinery will ever clear them, because every other
+    // question it asks is about the CURRENT name. So the sync carries the former names and takes
+    // them out, and this is the fixture that proves a home comes out the other side holding exactly
+    // one of each.
+    let oldHome = tmp.appendingPathComponent("renamed-home")
+    let oldCommandFile = IntegrationsStore.promptCommandFile(inHome: oldHome, named: "tally-switch")
+    try FileManager.default.createDirectory(at: oldCommandFile.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    // Written the way the old app wrote it: our marker, our subcommand, the old name.
+    try IntegrationsStore.switchCommandMarkdown()
+        .write(to: oldCommandFile, atomically: true, encoding: .utf8)
+    let oldSettings = oldHome.appendingPathComponent("settings.json")
+    let oldRegistration: [String: Any] = ["hooks": ["UserPromptExpansion": [
+        ["matcher": "tally-switch", "hooks": [["type": "command", "command": hookCommand]]],
+        ["matcher": "someone-elses", "hooks": [["type": "command", "command": "their-hook.sh"]]],
+    ]]]
+    try JSONSerialization.data(withJSONObject: oldRegistration).write(to: oldSettings)
+
+    let renamed = IntegrationsStore.syncSwitchCommand(inHomes: [oldHome], hookCommand: hookCommand)
+    check("the rename sync reports that something changed", renamed.changed && renamed.error == nil)
+    check("the file under the old name is gone",
+          !FileManager.default.fileExists(atPath: oldCommandFile.path))
+    check("…and the new one is in its place",
+          (try? String(contentsOf: IntegrationsStore.switchCommandFile(inHome: oldHome),
+                       encoding: .utf8))?.contains(IntegrationsStore.switchCommandMarker) == true)
+    let migrated = (try? JSONSerialization.jsonObject(with: Data(contentsOf: oldSettings)))
+        as? [String: Any] ?? [:]
+    let matchers = expansion(migrated).compactMap { $0["matcher"] as? String }
+    check("the hook entry under the old name is gone, the new one is there, once",
+          matchers.filter { $0 == "tally-switch" }.isEmpty
+              && matchers.filter { $0 == "tally-account" }.count == 1)
+    check("…and the user's own entry beside it is untouched",
+          matchers.contains("someone-elses") && commands(migrated).contains("their-hook.sh"))
+    check("no orphan is left in the commands folder",
+          (try? FileManager.default.contentsOfDirectory(
+              atPath: oldCommandFile.deletingLastPathComponent().path)) == ["tally-account.md"])
+    // Idempotent: the second launch has nothing left to migrate, so it must not report a change
+    // (which is what would make every launch rewrite settings.json for nobody).
+    check("a second sync over the migrated home changes nothing",
+          !IntegrationsStore.syncSwitchCommand(inHomes: [oldHome],
+                                               hookCommand: hookCommand).changed)
 
     // The group semantics - which homes a settings.json speaks for, and what happens when the
     // answer changes (switchgroupchecks.swift).

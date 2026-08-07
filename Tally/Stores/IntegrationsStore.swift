@@ -218,7 +218,7 @@ final class IntegrationsStore {
     /// Deduplication is right when the question is "which FILE do I write", and wrong when it is
     /// "whose file is this". Homes that share one settings.json, or one skills tree, still have
     /// their own commands folder: asking about the survivor of a dedup and answering for all of
-    /// them is how a home's own `/tally-switch` gets taken over (IntegrationsSwitchCommand.swift).
+    /// them is how a home's own `/tally-account` gets taken over (IntegrationsSwitchCommand.swift).
     static func claudeHomes() -> [URL] {
         ClaudeAccounts.discover().compactMap { $0.launchHome.map { URL(fileURLWithPath: $0) } }
     }

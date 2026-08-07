@@ -1,6 +1,6 @@
 import Foundation
 
-// `/tally-switch` - the slash command that moves a session to another account. The machinery that
+// `/tally-account` - the slash command that moves a session to another account. The machinery that
 // installs it, and the prompt hook that makes it free, are shared with every command Tally ships and
 // lives in IntegrationsPromptCommand.swift; what is here is this command's own text.
 //
@@ -8,9 +8,11 @@ import Foundation
 // is turned off by policy, and it is also the ONLY half a user can read - so it says what the hook
 // does rather than assuming the hook is there.
 extension IntegrationsStore {
-    /// `/tally-switch`: move this conversation to another account, keeping the conversation.
+    /// `/tally-account`: move this conversation to another account, keeping the conversation.
+    /// Named for the axis it sets, like `/tally-model`: the pair reads as a set, and a list of
+    /// `/tally-` commands explains itself without anyone having to try one.
     nonisolated static var switchPromptCommand: PromptCommand {
-        PromptCommand(name: "tally-switch", hookMarker: "hook-switch", markdown: """
+        PromptCommand(name: "tally-account", hookMarker: "hook-switch", markdown: """
         ---
         description: Pin this Claude Code session to another account, keeping the conversation
         argument-hint: [account name | --auto]
@@ -21,7 +23,7 @@ extension IntegrationsStore {
 
         # Move this session to another account
 
-        YOU ARE THE FALLBACK. Tally normally answers `/tally-switch` without waking a model at all,
+        YOU ARE THE FALLBACK. Tally normally answers `/tally-account` without waking a model at all,
         in both of its shapes: a prompt hook queues the move when an account is named, and prints
         the fleet to pick from when one is not. Either way the prompt stops there and no turn is
         spent, which is the point, because the usual reason to move accounts is that this one has
@@ -36,7 +38,7 @@ extension IntegrationsStore {
         and stop:
 
         ```
-        tally switch "$ARGUMENTS"
+        tally account "$ARGUMENTS"
         ```
 
         `--auto` needs no special case here. It arrives as `$ARGUMENTS` like any other word and the
@@ -55,10 +57,10 @@ extension IntegrationsStore {
            option, its three remaining windows as the description. Put the account with the most
            headroom first and mark it Recommended. Do not pick for the user: the whole point of the
            bare command is that they want the choice.
-        3. Queue the move to the account they chose: `tally switch "<account>"`.
+        3. Queue the move to the account they chose: `tally account "<account>"`.
 
-        Mention, once, that the free path exists: with Tally's hook installed `/tally-switch` lists
-        the accounts itself, and in a terminal `tally switch` on its own opens an arrow-key picker.
+        Mention, once, that the free path exists: with Tally's hook installed `/tally-account` lists
+        the accounts itself, and in a terminal `tally account` on its own opens an arrow-key picker.
         Neither spends a turn.
 
         ## What to tell them afterwards
@@ -72,10 +74,11 @@ extension IntegrationsStore {
           stays: automatic account selection (the idle rebalance off a nearly dry account, the
           model-degradation rescue, a pin moved in the Tally panel) stops moving it. That is the
           difference between this and asking again in ten minutes, so say it.
-        - Two ways out, and one of them is not theirs. `tally switch --auto` releases the pin and
-          hands the session back to automatic selection. A HARD CAP hands it on anyway, because a
-          session pinned to an account that cannot answer is worse than one that moved: that
-          handoff clears the pin and says so, and they have to re-pin once quota returns.
+        - The pin is theirs to release (`tally account --auto`), and a hard cap no longer takes it
+          from them: hitting one drops the session to the declared fallback model ON THIS ACCOUNT
+          and the pin stands. Only an account that can serve none of those models hands the
+          session on, and that handoff is the one thing that clears the pin, which it says on the
+          terminal. So "I hit a cap" is not a reason to re-pin - the pin is still there.
         - No project profile is touched either way, and the pin dies with the session.
         - A non-zero exit means nothing was queued: no such account, a name that fits SEVERAL
           accounts (the message lists them - type one of those exactly), or a session nothing is
@@ -83,6 +86,7 @@ extension IntegrationsStore {
 
         For "this project should ALWAYS run on that account", the instruction is different and is
         written down instead: `tally project set --account "<account>"`.
-        """, commandManifest: "claudeSwitchCommand", hookManifest: "claudeSwitchHook")
+        """, commandManifest: "claudeSwitchCommand", hookManifest: "claudeSwitchHook",
+                      formerNames: ["tally-switch"])
     }
 }

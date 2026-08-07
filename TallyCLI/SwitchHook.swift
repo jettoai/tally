@@ -1,6 +1,6 @@
 import Foundation
 
-// `tally hook-switch` - what makes `/tally-switch` cost NOTHING, in either shape.
+// `tally hook-switch` - what makes `/tally-account` cost NOTHING, in either shape.
 //
 // Claude Code fires a `UserPromptExpansion` hook when a slash command is typed, BEFORE any model is
 // woken: the hook reads the invocation as JSON on stdin, and exiting 2 stops the expansion there,
@@ -9,7 +9,7 @@ import Foundation
 //
 // IT ALWAYS ANSWERS. There is no pass-through, and that is the design rather than an optimisation:
 // this command is an escape hatch, and an escape hatch may not depend on the thing it exists to
-// escape. A bare `/tally-switch` used to let the expansion run so a model could list the accounts
+// escape. A bare `/tally-account` used to let the expansion run so a model could list the accounts
 // and offer a picker - which works right up until the moment it is needed, because the reason to
 // move accounts is usually that this one has no model left to answer with. Observed in the field
 // (2026-08-06): "You've reached your Fable 5 limit", and the one command that could have moved the
@@ -17,8 +17,8 @@ import Foundation
 //
 // So both shapes are answered from the snapshot on disk:
 //
-//   /tally-switch <account>   queue the move (or say why it could not be queued)
-//   /tally-switch             print the fleet: who is available, how much is left, what to type
+//   /tally-account <account>   queue the move (or say why it could not be queued)
+//   /tally-account             print the fleet: who is available, how much is left, what to type
 //
 // and everything unrecognisable - stdin that is not JSON, a payload without the field, a shape from
 // a future Claude Code - takes the LISTING branch rather than a model turn. A list is useful under
@@ -138,7 +138,7 @@ func hookSwitchListing(rows: [SwitchFleetRow]?, provider: String,
             "  \($0.label)  \($0.windows)"
                 + ($0.tags.isEmpty ? "" : "  (\($0.tags.joined(separator: ", ")))")
         }
-        + ["pick one with `/tally-switch <name>`, or `/tally-switch --auto` to follow "
+        + ["pick one with `/tally-account <name>`, or `/tally-account --auto` to follow "
             + "automatic selection"]
 }
 

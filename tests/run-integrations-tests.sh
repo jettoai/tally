@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/integrations/main.swift tests/integrations/switchcommandchecks.swift \
   tests/integrations/statuslinechecks.swift tests/integrations/switchgroupchecks.swift tests/integrations/selfhealchecks.swift \
+  tests/integrations/localizationchecks.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsSkill.swift \
   Tally/Stores/IntegrationsSwitchCommand.swift Tally/Stores/IntegrationsPromptCommand.swift \
   Tally/Stores/IntegrationsModelCommand.swift Tally/Stores/IntegrationsSelfHeal.swift \

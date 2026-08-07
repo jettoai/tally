@@ -397,11 +397,14 @@ case "statusline":
     runStatusline(args: Array(arguments.dropFirst()))
 case "reload":
     exit(runReload(args: Array(arguments.dropFirst())))
-case "switch":
+// `account` is the name this is called by now, matching the slash command (`/tally-account`) and
+// the axis it sets, the way `model` does. `switch` still answers: it is in muscle memory, in the
+// skill files installed by older app versions, and in whatever anyone wrote down.
+case "account", "switch":
     exit(runSwitch(args: Array(arguments.dropFirst())))
 case "model":
     exit(runModel(args: Array(arguments.dropFirst())))
-case "hook-switch":   // internal: the `/tally-switch` prompt hook (SwitchHook.swift)
+case "hook-switch":   // internal: the `/tally-account` prompt hook (SwitchHook.swift)
     exit(runHookSwitch())
 case "hook-model":    // internal: the `/tally-model` prompt hook (ModelHook.swift)
     exit(runHookModel())
@@ -444,16 +447,20 @@ default:
                                 (CLAUDE.md/AGENTS.md, skills, hooks, agents, settings) and
                                 conversation record are symlinked in BY DEFAULT: one setup
                                 serves every account. Opt out with --no-share
-      tally switch <account>    pin THIS session to another account, keeping the conversation: run
+      tally account <account>   pin THIS session to another account, keeping the conversation: run
                                 it inside the session (the agent in it can run it too) and the move
                                 happens when the current turn ends. It STAYS there - automatic
-                                selection stops moving this session - until `tally switch --auto`
-                                releases it or a hard cap hands it on (which clears the pin and says
-                                so). No project profile is touched: for "this project always runs
+                                selection stops moving this session - until `tally account --auto`
+                                releases it. A hard cap is answered inside that decision where it
+                                can be: the session keeps the account and drops to the fallback
+                                model declared in Settings. Only when this account can serve none of
+                                those is it handed on, which clears the pin and says so. No project
+                                profile is touched: for "this project always runs
                                 there", use `tally project set --account`. Inside Claude Code,
-                                typing `/tally-switch <account>` does the same without waking a
-                                model (installed with the Claude Code skill integration)
-      tally switch --auto       release that pin: this session follows automatic account selection
+                                typing `/tally-account <account>` does the same without waking a
+                                model (installed with the Claude Code skill integration). Also
+                                answers to `tally switch`, the name it shipped under
+      tally account --auto      release that pin: this session follows automatic account selection
                                 again (the project profile, then the app's pin or smart pick)
       tally model <model> [effort]
                                 run THIS conversation on that model (and depth) for the rest of its

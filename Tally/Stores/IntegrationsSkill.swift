@@ -8,7 +8,7 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 12
+    nonisolated static let skillVersion = 13
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -150,41 +150,41 @@ extension IntegrationsStore {
         or "this one is nearly dry, hop over", run it from inside the session:
 
         ```
-        tally switch "Claude 4"      # pin this session there
-        tally switch --auto          # release the pin, follow automatic selection again
+        tally account "Claude 4"      # pin this session there
+        tally account --auto          # release the pin, follow automatic selection again
         ```
 
         The name is matched against the account labels and config-dir names `tally status`
         shows, case-insensitively.
 
         THE USER HAS A CHEAPER WAY, and it is worth telling them about the first time they
-        ask you to move accounts. Tally installs a `/tally-switch` command with this skill,
+        ask you to move accounts. Tally installs a `/tally-account` command with this skill,
         and a prompt hook answers it before any model is woken:
 
         ```
-        /tally-switch Claude 4       # zero turns: the hook queues the move and stops there
-        /tally-switch                # zero turns: the hook PRINTS the fleet, they type a name
-        /tally-switch --auto         # zero turns: releases the pin again
-        ! tally switch "Claude 4"    # zero turns too, under respondToBashCommands: false
+        /tally-account Claude 4       # zero turns: the hook queues the move and stops there
+        /tally-account                # zero turns: the hook PRINTS the fleet, they type a name
+        /tally-account --auto         # zero turns: releases the pin again
+        ! tally account "Claude 4"    # zero turns too, under respondToBashCommands: false
         ```
 
-        Note the second line: `/tally-switch` with no account named does NOT reach a model.
+        Note the second line: `/tally-account` with no account named does NOT reach a model.
         The hook reads the snapshot itself and prints one line per account with its
         remaining windows, marking the one with the most headroom, and they pick with a
-        second `/tally-switch <name>`. Two commands, no turn. That matters because the
+        second `/tally-account <name>`. Two commands, no turn. That matters because the
         usual reason to move accounts is that this one has no model left to answer with,
         and an escape hatch may not depend on the thing it is escaping.
 
         The `!` line is the fallback worth naming when the command is not installed: it
         runs in their shell, and with `respondToBashCommands: false` in settings its output
-        never goes to a model at all. In a terminal of their own, `tally switch` with no
+        never goes to a model at all. In a terminal of their own, `tally account` with no
         argument opens an arrow-key picker over the same fleet reading (that menu is for
         real terminals only: it never appears under Claude Code, whose screen it would
         fight).
 
         Prefer that phrasing when they ask "how do I switch accounts": a move that costs a
         turn to ask for is a move that costs part of what it saves. You cannot type a slash
-        command yourself, so when THEY ask YOU to move the session, run `tally switch` as
+        command yourself, so when THEY ask YOU to move the session, run `tally account` as
         the tool call above.
 
         When the user asks to switch WITHOUT naming an account ("move me to whichever has
@@ -192,9 +192,9 @@ extension IntegrationsStore {
         for them: run `tally status`, then ask with AskUserQuestion, one option per Claude
         account, the account's label as the option and its remaining session, weekly and
         model windows as the description, the account with the most headroom first and
-        marked Recommended. Then run `tally switch` on the one they picked. This is the
+        marked Recommended. Then run `tally account` on the one they picked. This is the
         path for a request made IN CONVERSATION, where a turn is already running and the
-        picker is the fastest way to answer it; `/tally-switch` typed by the user is the
+        picker is the fastest way to answer it; `/tally-account` typed by the user is the
         free path and needs nothing from you.
 
         What happens next, and what to tell the user:
@@ -209,11 +209,11 @@ extension IntegrationsStore {
           dry account, the model-degradation rescue, a pin moved in the Tally panel) stops
           moving it. Say so when you relay the move, because it is the difference between
           this and asking again in ten minutes.
-        - Two ways out, and one of them is not the user's. `tally switch --auto` releases the
-          pin and hands the session back to automatic selection. A HARD CAP hands it on
-          anyway, because a session pinned to an account that cannot answer is worse than one
-          that moved: that handoff clears the pin and says so on the terminal, so the user has
-          to re-pin if they want to go back once quota returns.
+        - The pin is the user's to release (`tally account --auto`), and a hard cap no longer
+          takes it from them: hitting one drops the session to the declared fallback model ON
+          THIS ACCOUNT and the pin stands. Only an account that can serve none of those models
+          hands the session on, and that handoff is the one thing that clears the pin, saying
+          so on the terminal. Do not tell them to re-pin after a cap: the pin is still there.
         - No project profile is touched either way, and the pin dies with the session.
         - It exits 0 having queued the move, or non-zero having changed nothing: no such
           account, a name that fits SEVERAL accounts (the message lists them - type one of those
@@ -294,7 +294,7 @@ extension IntegrationsStore {
         eligible account it says so and resumes on the account the session is already on.
         Suggest it when the current account's binding window is nearly drained and the
         conversation is worth keeping; a session launched through `tally claude` also hands
-        itself off automatically when it actually hits a cap. Use `tally switch` instead
+        itself off automatically when it actually hits a cap. Use `tally account` instead
         when the user names the account to move to: `resume` picks one by headroom.
         """
     }

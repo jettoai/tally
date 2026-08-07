@@ -9,7 +9,7 @@ import Foundation
 //   tally switch <account>   act, never ask. A named account is an instruction.
 //   tally switch (a tty)     the fleet as a menu, here, on the user's own terminal.
 //   tally switch (a pipe)    the usage text, exactly as before: a script must not meet a menu.
-//   /tally-switch            NEVER a menu. That path runs as a child of Claude Code, whose TUI owns
+//   /tally-account            NEVER a menu. That path runs as a child of Claude Code, whose TUI owns
 //                            the screen; a raw-mode menu drawn under it would fight the thing that
 //                            is already drawing there. It answers with a list and a name to type
 //                            (SwitchHook.swift), which needs no screen of its own.

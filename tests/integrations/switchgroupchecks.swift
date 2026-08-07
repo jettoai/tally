@@ -1,6 +1,6 @@
 import Foundation
 
-// Which homes one settings.json speaks for, and therefore whose `/tally-switch` a hook registered
+// Which homes one settings.json speaks for, and therefore whose `/tally-account` a hook registered
 // in it would intercept. Split from switchcommandchecks.swift for file size.
 //
 // Every assertion here is about a GROUP rather than a file: homes that share a settings.json by
@@ -15,7 +15,7 @@ func runSwitchGroupChecks(tmp: URL, skill currentSkill: String) throws {
 
     // MARK: one home at a time - and the order that keeps a user's own command file running.
     //
-    // The hook exits 2, which STOPS the expansion. Registering it next to a commands/tally-switch.md
+    // The hook exits 2, which STOPS the expansion. Registering it next to a commands/tally-account.md
     // that belongs to the user would take their command away: it would never run again, and nothing
     // would say why. So a home whose command file is not ours is left entirely alone.
     let ownedHome = tmp.appendingPathComponent("owned-home")
@@ -46,7 +46,7 @@ func runSwitchGroupChecks(tmp: URL, skill currentSkill: String) throws {
 
     // MARK: the group, which is what a shared settings.json makes the homes into.
     //
-    // Home A keeps its own commands/tally-switch.md; home B is clean; both read ONE settings.json
+    // Home A keeps its own commands/tally-account.md; home B is clean; both read ONE settings.json
     // through a symlink. The hook lives in that file, so registering it "for B" registers it for A
     // as well and takes A's command away. The group is therefore judged whole.
     let groupSettings = tmp.appendingPathComponent("group-shared/settings.json")
@@ -74,7 +74,7 @@ func runSwitchGroupChecks(tmp: URL, skill currentSkill: String) throws {
           group.settings == nil && group.error != nil
               && !IntegrationsStore.settingsCarrySwitchHook(groupSettings))
     // The other half of the answer, and the deliberate one: the clean home still gets a working
-    // /tally-switch, just the model-turn one. Withholding it would punish it for its neighbour.
+    // /tally-account, just the model-turn one. Withholding it would punish it for its neighbour.
     check("…while the clean home still gets its command file",
           group.commands == [IntegrationsStore.switchCommandFile(inHome: neighbourHome)])
     check("…and the owner's file is untouched",
@@ -99,7 +99,7 @@ func runSwitchGroupChecks(tmp: URL, skill currentSkill: String) throws {
     // MARK: the answer changing under a registration that is already there.
     //
     // A home Tally manages today can stop being one tomorrow: the user writes their own
-    // commands/tally-switch.md. The hook we left behind goes on intercepting the very command they
+    // commands/tally-account.md. The hook we left behind goes on intercepting the very command they
     // just took back, and nothing about a later sync would have noticed - it used to return early.
     let turnedHome = tmp.appendingPathComponent("turned-home")
     let turnedSettings = turnedHome.appendingPathComponent("settings.json")
@@ -148,7 +148,7 @@ func runSwitchGroupChecks(tmp: URL, skill currentSkill: String) throws {
     //
     // `claudeSkillFiles()` deduplicates by physical SKILL.md, so home B - whose skills tree is
     // symlinked at A's - never appears in it. B's commands folder is its own, though, and the
-    // `/tally-switch` in it is B's. Asking the ownership question about A alone answers it for
+    // `/tally-account` in it is B's. Asking the ownership question about A alone answers it for
     // both, and the hook lands in the settings they share.
     let popA = tmp.appendingPathComponent("pop-a")
     let popB = tmp.appendingPathComponent("pop-b")

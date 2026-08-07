@@ -99,7 +99,7 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 12", IntegrationsStore.skillVersion == 12)
+    check("skill is at version 13", IntegrationsStore.skillVersion == 13)
     // The native `/model` is adopted now, not overwritten. The command file used to teach the
     // opposite, which was true when it was written and became a lie the moment the supervisor
     // learned to read that event (geo session 7cfa11a4, 2026-08-06).
@@ -114,7 +114,7 @@ try MainActor.assumeIsolated {
     // walks one list: a command added to the sync and forgotten by the uninstall (or by the "is
     // this install current" check) is exactly the failure the list exists to make impossible.
     check("both slash commands are managed",
-          IntegrationsStore.promptCommands.map(\.name) == ["tally-switch", "tally-model"])
+          IntegrationsStore.promptCommands.map(\.name) == ["tally-account", "tally-model"])
     check("each has its own hook subcommand, file and manifest keys",
           Set(IntegrationsStore.promptCommands.map(\.hookMarker)).count == 2
               && Set(IntegrationsStore.promptCommands.map(\.commandManifest)).count == 2
@@ -191,12 +191,12 @@ try MainActor.assumeIsolated {
           skillProse.contains("picks the best OTHER eligible account")
               && skillProse.contains("copies the transcript over"))
 
-    // `tally switch` is the one command here whose main caller is the agent reading this file, run
+    // `tally account` is the one command here whose main caller is the agent reading this file, run
     // from inside the session it moves - so what the prose has to get right is the TIMING. An agent
     // that believes the move is immediate stops mid-answer waiting for a restart that is waiting
     // for it, and one that believes nothing happened says so to the user.
     check("skill teaches switching this session to a named account",
-          currentSkill.contains("tally switch \"Claude 4\""))
+          currentSkill.contains("tally account \"Claude 4\""))
     check("skill says the move waits for the turn the agent is in",
           skillProse.contains("THE MOVE HAPPENS WHEN THE CURRENT TURN ENDS"))
     check("…and tells the agent to finish answering rather than wait",
@@ -214,10 +214,17 @@ try MainActor.assumeIsolated {
           skillProse.contains("stops")
               && skillProse.contains("the idle rebalance off a nearly"))
     check("skill hands the user the way back to automatic selection",
-          currentSkill.contains("tally switch --auto"))
-    check("…and warns that a hard cap ends the pin without being asked",
-          skillProse.contains("A HARD CAP hands it on")
-              && skillProse.contains("clears the pin and says so"))
+          currentSkill.contains("tally account --auto"))
+    // The cap contract as it stands now: a cap drops the MODEL and keeps the account, and only an
+    // account that can serve nothing hands the session on. The old text promised the opposite (a
+    // cap always moved the session and cleared the pin), which would have the agent telling users
+    // to re-pin after every cap - advice for a system that no longer exists.
+    check("…and states that a cap drops the model rather than taking the pin",
+          skillProse.contains("drops the session to the declared fallback model ON")
+              && skillProse.contains("the pin stands"))
+    check("…and that only an account which can serve none of them hands the session on",
+          skillProse.contains("serve none of those models")
+              && skillProse.contains("Do not tell them to re-pin after a cap"))
     check("skill states the three scopes in order, so the agent can answer which wins",
           skillProse.contains("a session pin beats")
               && skillProse.contains("the project profile, which beats the app's own pin"))
@@ -233,16 +240,16 @@ try MainActor.assumeIsolated {
     // turn to ask for spends part of what it saves, and the whole point of the hook is that asking
     // is free. Spelled exactly as the user must type them, because a paraphrase is not runnable.
     check("skill hands the user the zero-turn slash command",
-          currentSkill.contains("/tally-switch Claude 4"))
+          currentSkill.contains("/tally-account Claude 4"))
     check("…names the bang path and the setting that makes it free too",
-          currentSkill.contains("! tally switch \"Claude 4\"")
+          currentSkill.contains("! tally account \"Claude 4\"")
               && skillProse.contains("respondToBashCommands: false"))
-    // The escape hatch may not depend on the thing it escapes: a bare `/tally-switch` is answered
+    // The escape hatch may not depend on the thing it escapes: a bare `/tally-account` is answered
     // by the hook itself, from the snapshot, with no model in the loop. An agent that still
     // believed it costs a turn would talk the user out of the one command that still works when
     // their model quota is gone.
     check("skill says the bare command prints the fleet without a turn",
-          currentSkill.contains("/tally-switch                # zero turns: the hook PRINTS the "
+          currentSkill.contains("/tally-account                # zero turns: the hook PRINTS the "
               + "fleet, they type a name"))
     check("…and says why that matters",
           skillProse.contains("an escape hatch may not depend on the thing it is escaping"))
@@ -358,11 +365,13 @@ try MainActor.assumeIsolated {
           IntegrationsStore.manifestPaths("claudeSkill",
                                           manifest: tmp.appendingPathComponent("nope.json")).isEmpty)
 
-    // The other half of the skill integration: the `/tally-switch` command file and the prompt hook
+    // The other half of the skill integration: the `/tally-account` command file and the prompt hook
     // that answers it without a model turn (switchcommandchecks.swift).
     try runSwitchCommandChecks(tmp: tmp, skill: currentSkill)
     // And keeping that hook there once something takes it out (selfhealchecks.swift).
     try runSelfHealChecks(tmp: tmp, skill: currentSkill)
+    // Neither of which can be localized through a key it built for itself (localizationchecks.swift).
+    runLocalizationKeyChecks()
 
     try? FileManager.default.removeItem(at: tmp)
 }

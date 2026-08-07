@@ -38,6 +38,15 @@ struct PromptCommand: Sendable {
     /// Where an install records the command files it wrote, and the settings files it registered in.
     let commandManifest: String
     let hookManifest: String
+    /// Names this command used to answer to. A rename is not a new command: the file and the hook
+    /// entry installed under the old name are OURS, they still intercept a slash command nobody is
+    /// offered any more, and nothing else will ever come to take them away. So the sync carries the
+    /// old names with it and clears them, which is what makes a rename a move rather than a fork.
+    ///
+    /// The subcommand behind the hook is deliberately NOT part of this: it is internal, never typed,
+    /// and keeping it steady is what lets an entry written by the old name still be recognised as
+    /// ours while its matcher is read from here.
+    var formerNames: [String] = []
 }
 
 extension IntegrationsStore {
@@ -45,7 +54,13 @@ extension IntegrationsStore {
 
     /// Where Claude Code looks for one of these in a config home.
     static func promptCommandFile(inHome home: URL, command: PromptCommand) -> URL {
-        home.appendingPathComponent("commands/\(command.name).md")
+        promptCommandFile(inHome: home, named: command.name)
+    }
+
+    /// The same path by NAME, which is what a rename needs: the file left behind under a name this
+    /// command no longer answers to is still at the place this spelling produces.
+    static func promptCommandFile(inHome home: URL, named name: String) -> URL {
+        home.appendingPathComponent("commands/\(name).md")
     }
 
     /// The config home a `<home>/skills/tally/SKILL.md` path belongs to. The commands follow the
@@ -70,8 +85,13 @@ extension IntegrationsStore {
             if existing == command.markdown { return false }   // already ours - idempotent
             guard existing.contains("tally-command v") else {
                 throw NSError(domain: "tally", code: 4, userInfo: [
+                    // The FILE NAME is an argument, never part of the key: interpolating it built
+                    // a key that only exists in the catalog for whatever the command was called
+                    // that day, so renaming the command silently dropped all four translations
+                    // back to English (which is exactly what the /tally-switch rename did).
                     NSLocalizedDescriptionKey:
-                        L("A different command occupies commands/\(command.name).md"),
+                        String(format: L("A different command occupies commands/%@"),
+                               file.lastPathComponent),
                 ])
             }
         }
@@ -124,8 +144,9 @@ extension IntegrationsStore {
     /// firing for the same slash command, and a user is free to put their own beside Tally's.
     /// Replacing the ENTRY (which is what this did) took the neighbours with it: overwritten on an
     /// update, deleted on uninstall, with nothing anywhere to say where they went.
-    private static func holdsOurHook(_ entry: [String: Any], command: PromptCommand) -> Bool {
-        guard entry["matcher"] as? String == command.name else { return false }
+    private static func holdsOurHook(_ entry: [String: Any], command: PromptCommand,
+                                     matcher: String? = nil) -> Bool {
+        guard entry["matcher"] as? String == (matcher ?? command.name) else { return false }
         return (entry["hooks"] as? [[String: Any]] ?? []).contains { isOurHook($0, command: command) }
     }
 
@@ -174,14 +195,18 @@ extension IntegrationsStore {
     /// The settings document without our hook, or nil when there was none. It takes out the one
     /// hook, then every container that is left empty by its going: the entry, the event, the
     /// `hooks` block. Anything a user put beside it survives at every level.
-    static func settingsWithoutPromptHook(_ settings: [String: Any],
-                                          hook: PromptCommand) -> [String: Any]? {
+    /// - Parameter matcher: which name to take out, defaulting to the one the command answers to
+    ///   now. A former name is passed here by the rename cleanup, and it is the ONLY difference
+    ///   between the two: an entry under either name is ours by the same test, because the
+    ///   subcommand behind it never changed.
+    static func settingsWithoutPromptHook(_ settings: [String: Any], hook: PromptCommand,
+                                          matcher: String? = nil) -> [String: Any]? {
         guard var hooks = settings["hooks"] as? [String: Any],
               let entries = hooks[promptHookEvent] as? [[String: Any]] else { return nil }
         var kept: [[String: Any]] = []
         var removed = false
         for entry in entries {
-            guard holdsOurHook(entry, command: hook) else { kept.append(entry); continue }
+            guard holdsOurHook(entry, command: hook, matcher: matcher) else { kept.append(entry); continue }
             removed = true
             let remaining = (entry["hooks"] as? [[String: Any]] ?? [])
                 .filter { !isOurHook($0, command: hook) }
@@ -204,8 +229,9 @@ extension IntegrationsStore {
         try editSettings(file) { settingsRegisteringPromptHook($0, command: command, hook: hook) }
     }
 
-    static func removePromptHook(in file: URL, hook: PromptCommand) throws -> Bool {
-        try editSettings(file) { settingsWithoutPromptHook($0, hook: hook) }
+    static func removePromptHook(in file: URL, hook: PromptCommand,
+                                 matcher: String? = nil) throws -> Bool {
+        try editSettings(file) { settingsWithoutPromptHook($0, hook: hook, matcher: matcher) }
     }
 
     /// Whether a settings.json carries our hook at all, regardless of the path it points at. What
@@ -279,6 +305,15 @@ extension IntegrationsStore {
         var result = PromptCommandSync()
         var manageable = true
         for home in homes {
+            // What this command used to be called goes first, so a home that had the old name ends
+            // this pass holding exactly one of them. Only a file that is OURS is taken (the same
+            // test as everywhere else), so a user who has since written their own keeps it. A
+            // failure here is reported but never held against the install: an orphan we could not
+            // delete is a smaller problem than a command that did not get written.
+            for former in command.formerNames {
+                do { try removePromptCommand(in: promptCommandFile(inHome: home, named: former)) }
+                catch { result.error = result.error ?? error.localizedDescription }
+            }
             let file = promptCommandFile(inHome: home, command: command)
             do {
                 result.changed = try upsertPromptCommand(in: file, command: command) || result.changed
@@ -290,6 +325,12 @@ extension IntegrationsStore {
         }
         guard let settings = homes.first?.appendingPathComponent("settings.json") else { return result }
         do {
+            // The old registration, for the same reason and in the same order: it fires for a slash
+            // command nobody is offered any more, and nothing else is ever coming to clear it.
+            for former in command.formerNames {
+                result.changed = try removePromptHook(in: settings, hook: command,
+                                                      matcher: former) || result.changed
+            }
             if manageable {
                 result.changed = try upsertPromptHook(in: settings, command: hookCommand,
                                                       hook: command) || result.changed

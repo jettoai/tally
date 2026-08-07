@@ -77,7 +77,21 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
           // (`modelConfirmation`, TranscriptWatcher.swift). Whatever model that reply carries is the
           // model the session now runs - reading the answer and judging it are separate questions,
           // and the judging happens below, after the stamp is consumed.
-          let confirmation = watcher.modelConfirmation, confirmation.at >= commandAt
+          //
+          // ASKED ONCE, THERE. This used to re-test `confirmation.at >= commandAt` here, which is
+          // the same question the watcher already answered - but answered again with a weaker
+          // instrument, since a transcript's stamps are not monotonic and the watcher decides on
+          // file POSITION (`TurnRoot.seq`). A command whose record is stamped late would pass the
+          // watcher and fail here, and the symptom is the quietest one this feature has: a
+          // confirmation that exists, an adoption that never happens, and a canary that sees nothing
+          // wrong because nothing failed to resolve (decision review, 2026-08-07).
+          //
+          // Two gates asking one question in two dialects is the defect, so there is one gate. What
+          // makes that safe is not trust but structure: `modelConfirmation` is set only by
+          // `settlePendingConfirmation`, only from a candidate the position check admitted, and both
+          // are cleared by a newer `/model` and by a move to another file - so a confirmation in
+          // hand always belongs to the command in hand.
+          let confirmation = watcher.modelConfirmation
     else { return false }
     // CONSUMED HERE, BEFORE ANYTHING IS JUDGED. "The event has been served" and "the service
     // changed something" are two questions, and the stamp belongs to the first: a `/model` that

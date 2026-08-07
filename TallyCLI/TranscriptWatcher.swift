@@ -180,7 +180,7 @@ struct TranscriptWatcher {
     /// assistant records FIRST and the `model_refusal_fallback` system record after them. Deciding
     /// at arrival therefore reads the fallback before the evidence that it was one, pins it as the
     /// user's choice, and blinds the degradation rescue for the rest of the session - the very hole
-    /// the fallback check was added to close, reached one record earlier (守門審, 2026-08-07).
+    /// the fallback check was added to close, reached one record earlier (gate review, 2026-08-07).
     ///
     /// So the candidate waits for its turn to be OVER. The signal is structural rather than timed:
     /// the next turn's root appearing means the previous turn has stopped writing, and by then any
@@ -197,7 +197,7 @@ struct TranscriptWatcher {
     var commandSeq: Int?
     /// Flags seen since that command, not just the newest: two fallbacks inside one command's window
     /// are possible, and comparing a candidate against only the last one lets the earlier turn
-    /// through (守門審, 2026-08-07). Bounded by the reset on every new command.
+    /// through (gate review, 2026-08-07). Bounded by the reset on every new command.
     var flagsSinceCommand: [SafeguardFlag] = []
     /// Whether an unresolved turn is EXPECTED right now rather than a symptom: the events at the top
     /// of a file this conversation has just moved to have parents that were never in this map.
@@ -291,6 +291,17 @@ struct TranscriptWatcher {
     ///
     /// EVERY flag since the command is considered, not the newest one: a window holding two
     /// fallbacks would otherwise clear a candidate the earlier one disqualifies.
+    /// Settle a held candidate because the transcript has gone quiet: the user chose a model, read
+    /// the answer, and stopped. Without this the candidate is held until they type again, and in the
+    /// meantime the session's expected model is still the old one - which the degradation rescue
+    /// reads as a session that has drifted and moves to another account to "fix"
+    /// (`pendingSettleQuietSeconds` states the argument and how to refute it).
+    mutating func settlePendingIfQuiet() {
+        guard pendingConfirmation != nil,
+              isBoundFileQuiet(pendingSettleQuietSeconds) else { return }
+        settlePendingConfirmation()
+    }
+
     mutating func settlePendingConfirmation() {
         guard let pending = pendingConfirmation, modelConfirmation == nil else { return }
         pendingConfirmation = nil
@@ -504,7 +515,14 @@ struct TranscriptWatcher {
         handle.seek(toFileOffset: offset)
         let data = handle.readDataToEndOfFile()
         offset += UInt64(data.count)
-        guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return false }
+        guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else {
+            // NOTHING NEW, so this is the moment a held candidate may be settled on silence rather
+            // than on the next turn opening (`pendingSettleQuietSeconds`). Only on this path: a
+            // chunk that HAS arrived may carry the very flag that disqualifies the candidate, and
+            // settling before reading it would decide on evidence still in the buffer.
+            settlePendingIfQuiet()
+            return false
+        }
 
         for line in text.split(separator: "\n") {
             // WHICH TURN THIS LINE BELONGS TO, before anything asks. Main-chain and post-launch
@@ -513,11 +531,15 @@ struct TranscriptWatcher {
             // unresolvable anyway - which is the correct answer for a turn that began before the
             // watcher did (TranscriptSignals.swift states the model).
             var turnRoot: TurnRoot?
+            /// The parent this line hangs off, kept so the canary can ask whether THAT is one the
+            /// cap dropped rather than whether anything ever was.
+            var lineParent: String?
             if !line.contains("\"isSidechain\":true"), let uuid = lineUUID(line),
                let ts = lineTimestamp(line), ts >= since {
                 let startsTurn = lineStartsTurn(line)
                 scanSeq += 1
-                turnRoot = turnRoots.record(uuid: uuid, parent: lineParentUUID(line),
+                lineParent = lineParentUUID(line)
+                turnRoot = turnRoots.record(uuid: uuid, parent: lineParent,
                                             startsTurn: startsTurn, at: ts, seq: scanSeq)
                 // The first turn placed in the new file ends the post-move grace: from here on an
                 // unresolved chain is a symptom rather than an expected consequence of the move.
@@ -554,16 +576,18 @@ struct TranscriptWatcher {
                             // HELD, not decided: what the API did to this turn may still be a
                             // record or two away (`pendingConfirmation`).
                             pendingConfirmation = (model, ts, turnRoot)
-                        } else if turnRoot == nil, !anchorGraceAfterMove, turnRoots.evicted == 0 {
+                        } else if turnRoot == nil, !anchorGraceAfterMove,
+                                  !turnRoots.wasEvicted(lineParent) {
                             // THE ONLY THING THE CANARY IS ABOUT: a chain that will not resolve
                             // when it should, which is what a format drift looks like. Three ways
                             // to fail to resolve are EXPECTED and excluded by the guard above, all
-                            // of them found by review (守門審, 2026-08-07): a turn longer than the
-                            // map's capacity has lost its own root (`evicted`), the first events
-                            // after a move have parents from a file this map no longer describes
-                            // (`anchorGraceAfterMove`), and a candidate deliberately held is not
-                            // unresolved at all (it never reaches here). What remains is a chain
-                            // that should have resolved and did not.
+                            // of them found by review: THIS parent is one the cap dropped
+                            // (`wasEvicted` - asked of the parent rather than of the session, so a
+                            // single eviction no longer silences the canary for the rest of it),
+                            // the first events after a move have parents from a file this map no
+                            // longer describes (`anchorGraceAfterMove`), and a candidate
+                            // deliberately held is not unresolved at all (it never reaches here).
+                            // What remains is a chain that should have resolved and did not.
                             noteUnanchoredService(commandAt: lastModelCommandAt ?? .distantPast)
                         }
                     }
@@ -650,7 +674,7 @@ struct TranscriptWatcher {
                 lastFlag = flag
                 // ALL of them since the command, not just the newest: two fallbacks inside one
                 // command's window are possible, and a candidate compared against only the last one
-                // walks through the earlier one (守門審, 2026-08-07). Bounded by the reset a new
+                // walks through the earlier one (gate review, 2026-08-07). Bounded by the reset a new
                 // command performs, and by the handful of refusals a session can produce between
                 // two turns.
                 if lastModelCommandAt != nil { flagsSinceCommand.append(flag) }

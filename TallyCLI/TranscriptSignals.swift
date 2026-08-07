@@ -65,10 +65,27 @@ struct TurnRoot: Equatable {
 struct TurnRoots {
     private(set) var roots: [String: TurnRoot] = [:]
     private var order: [String] = []
-    /// How many entries have been dropped to stay inside the cap. A turn longer than the cap loses
-    /// its own root and every later event in it then resolves to nothing - correct (nothing is
-    /// adopted) but EXPECTED, so the canary must not read it as a format drift.
+    /// How many entries have been dropped to stay inside the cap, and WHICH ones.
+    ///
+    /// The count alone was a mistake this replaced: it turned the canary off for the rest of a
+    /// session the moment any eviction happened, which on a long conversation is within the first
+    /// hour - so a real format drift after that point would never be reported (decision review,
+    /// 2026-08-07). What the exemption has to be about is THIS parent: an event whose parent was
+    /// evicted cannot resolve and that is expected; an event whose parent was never here at all is
+    /// the symptom the canary exists for.
+    ///
+    /// The set is bounded the same way the map is, and by the same eviction: a parent that fell out
+    /// of it left more than `turnRootCapacity` entries ago, which is a chain no live turn has.
     private(set) var evicted = 0
+    private(set) var evictedIDs: Set<String> = []
+    private var evictedOrder: [String] = []
+
+    /// Whether this uuid is one the cap dropped, which is the only reason an absent parent is
+    /// expected rather than a symptom.
+    func wasEvicted(_ uuid: String?) -> Bool {
+        guard let uuid else { return false }
+        return evictedIDs.contains(uuid)
+    }
 
     /// Record where `uuid` sits, and answer with the root it resolved to.
     ///
@@ -97,8 +114,14 @@ struct TurnRoots {
         if roots.updateValue(root, forKey: uuid) == nil {
             order.append(uuid)
             if order.count > turnRootCapacity {
-                roots.removeValue(forKey: order.removeFirst())
+                let dropped = order.removeFirst()
+                roots.removeValue(forKey: dropped)
                 evicted += 1
+                evictedIDs.insert(dropped)
+                evictedOrder.append(dropped)
+                if evictedOrder.count > turnRootCapacity {
+                    evictedIDs.remove(evictedOrder.removeFirst())
+                }
             }
         }
         return root
@@ -142,6 +165,31 @@ func lineIsCommandRecord(_ line: Substring, opening tag: String) -> Bool {
           let content = lineStringContent(line) else { return false }
     return content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix(tag)
 }
+
+/// How long the transcript must have been silent before a held candidate is settled without waiting
+/// for the next turn to open.
+///
+/// The next turn opening is the better signal and stays the primary one: something else starting is
+/// proof the previous turn stopped. But a user who chooses a model, reads the answer and then walks
+/// away never produces it - and a candidate held forever is not merely late, it is DANGEROUS: the
+/// session's expected model stays the old one while the transcript shows the new one, which is
+/// exactly the difference the degradation rescue acts on. It would move the conversation to another
+/// account to "restore" the model the user just chose to leave (decision review, 2026-08-07).
+///
+/// Silence carries the same structural claim as the next root, one step weaker: the records that
+/// explain a turn - a fallback flag above all - are written by the same client in the same breath as
+/// the records they explain, so a transcript that has not been appended to for this long has
+/// finished saying what happened in that turn. It is the repo's existing between-turns proxy
+/// (`isQuiet`), at the same 5 seconds, so this settles no later than the rescue's own gate opens -
+/// and the settlement runs earlier in the tick than the rescue does (`observeCapHit` precedes it in
+/// Supervisor.swift, asserted in the suite), so the pin is in place before anything reasons about a
+/// difference.
+///
+/// The refutable form: a record that disqualifies a turn is never written more than five seconds
+/// after the last record of that turn. To refute it, produce a transcript where a
+/// `model_refusal_fallback` lands that late; the cost would be one adoption of a model the API chose
+/// rather than the user, which is why the wait exists at all rather than being skipped outright.
+let pendingSettleQuietSeconds: TimeInterval = 5
 
 /// How many model requests may be served without any of them answering a pending `/model` before
 /// the supervisor says so out loud.

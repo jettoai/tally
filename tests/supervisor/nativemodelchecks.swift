@@ -480,7 +480,7 @@ func runNativeModelChecks() {
           t1.modelConfirmation?.model == "claude-opus-4-8")
     // …nor is it a LOST anchor. The canary is about a chain that will not resolve, which is what a
     // format drift looks like; a turn that resolved and simply began too early is the machinery
-    // working. Counting those reported drift on ordinary sessions (守門審, 2026-08-07).
+    // working. Counting those reported drift on ordinary sessions (gate review, 2026-08-07).
     check("T1 …and an old turn's tail is not reported as a lost anchor",
           t1.unanchoredServed == 0 && !t1.anchorLossReported)
 
@@ -591,7 +591,7 @@ func runNativeModelChecks() {
     // T11b - THE REAL WRITE ORDER, which is what T11's fixture got wrong: Claude Code writes the
     // assistant records of a fallback-served turn FIRST and the `model_refusal_fallback` system
     // record AFTER them. A candidate decided when it arrives therefore reads the fallback before the
-    // evidence that it was one (守門審, 2026-08-07). Holding it until the turn is over is what makes
+    // evidence that it was one (gate review, 2026-08-07). Holding it until the turn is over is what
     // both orders work.
     let lateFlag = #"{"parentUuid":"u-t11c","isSidechain":false,"type":"system","subtype":"model_refusal_fallback","originalModel":"claude-opus-4-8","fallbackModel":"claude-haiku-4-5","apiRefusalCategory":"cyber","uuid":"f-late","timestamp":"\#(stamp(55))"}"#
     let t11c = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
@@ -649,7 +649,7 @@ func runNativeModelChecks() {
 
     // T16 - two fallbacks inside one command's window. The newest flag names a model that has
     // nothing to do with the candidate, and comparing against only that one lets the candidate the
-    // EARLIER flag disqualifies straight through (守門審, 2026-08-07).
+    // EARLIER flag disqualifies straight through (gate review, 2026-08-07).
     func refusalLine(_ offset: TimeInterval, to model: String, uuid: String) -> String {
         #"{"isSidechain":false,"type":"system","subtype":"model_refusal_fallback","originalModel":"claude-opus-4-8","fallbackModel":"\#(model)","apiRefusalCategory":"cyber","uuid":"\#(uuid)","timestamp":"\#(stamp(offset))"}"#
     }
@@ -685,6 +685,83 @@ func runNativeModelChecks() {
     // branching case rather than the everyday one.
     check("T17a …without losing the anchor, and so without reporting one lost",
           longTurn.unanchoredServed == 0 && !longTurn.anchorLossReported)
+
+    // T18 - THE PAUSE. A user chooses a model, reads the answer, and stops. No next turn ever opens,
+    // so a candidate held for one waits forever - and while it waits the session's expected model is
+    // still the old one, which is exactly the difference the degradation rescue acts on: it would
+    // move the conversation to another account to restore the model the user just chose to leave
+    // (decision review, 2026-08-07). Silence settles it instead.
+    let paused = ForkFixture("model-pause")
+    func pausedLines() -> [String] {
+        [#"{"type":"user","isSidechain":false,"uuid":"u-p-cmd","timestamp":"\#(paused.stamp(5))","message":{"role":"user","content":"<command-message>model</command-message>\n<command-name>/model</command-name>"}}"#,
+         #"{"type":"user","isSidechain":false,"uuid":"u-p-ask","timestamp":"\#(paused.stamp(10))","message":{"role":"user","content":"go on"}}"#,
+         #"{"parentUuid":"u-p-ask","isSidechain":false,"type":"assistant","uuid":"a-p-ans","timestamp":"\#(paused.stamp(20))","message":{"model":"claude-opus-4-8"}}"#]
+    }
+    // Written as of ten minutes ago, which is what "they walked away" looks like on disk.
+    paused.write("only.jsonl", pausedLines(), born: -300, wrote: 0)
+    var pausedWatcher = paused.watcher(pinnedTo: "only")
+    _ = pausedWatcher.sawCapHit()
+    check("T18 the answer is held when it arrives, as always",
+          pausedWatcher.pendingConfirmation != nil && pausedWatcher.modelConfirmation == nil)
+    // The next tick reads nothing new, and the file has been silent well past the bar.
+    _ = pausedWatcher.sawCapHit()
+    check("T18 …and silence settles it, so a session nobody types into is still adopted",
+          pausedWatcher.modelConfirmation?.model == "claude-opus-4-8")
+    check("T18 …leaving nothing held", pausedWatcher.pendingConfirmation == nil)
+    try? FileManager.default.removeItem(at: paused.dir)
+
+    // …and the ordering that makes the settlement soon enough: the scan that settles runs at the top
+    // of the tick, before anything reasons about a difference between the expected model and the
+    // serving one. Asserted against the source, because it is the loop that guarantees it.
+    let loopOrder = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("T18 the supervisor source is readable from here", !loopOrder.isEmpty)
+    check("T18 …and the transcript scan runs before the degradation paths it protects", {
+        guard let scan = loopOrder.range(of: "observeCapHit("),
+              let rescue = loopOrder.range(of: "applyDegradationRescue("),
+              let fallback = loopOrder.range(of: "applyFallbackProfile(") else { return false }
+        return scan.upperBound < rescue.lowerBound && scan.upperBound < fallback.lowerBound
+    }())
+
+    // T20 - the downstream half of T15. The watcher decides on position, so a command record stamped
+    // LATER than the turn that answers it still gets an answer - and the adoption must not re-ask
+    // the question with the clock, which would leave a confirmation nobody ever adopts and a canary
+    // with nothing to report (decision review, 2026-08-07).
+    let lateStamp = watcherAfterScanning(modelCommandLines(at: 100, effort: nil)
+        + answeredTurn(askedAt: 30, servedAt: 40, by: "claude-opus-4-8", id: "t20")
+        + nextTurnOpens(at: 130, id: "t20end"))
+    check("T20 the watcher answers a command whose stamp is later than the turn that answers it",
+          lateStamp.modelConfirmation?.model == "claude-opus-4-8"
+              && lateStamp.modelConfirmation?.at == launch.addingTimeInterval(40))
+    var lateState = freshState()
+    var lateFollow = FollowState(launchArgs: ["--model", "fable"])
+    check("T20 …and the adoption takes it, rather than re-asking with the clock",
+          adoptNativeModelChoice(state: &lateState, follow: &lateFollow, watcher: lateStamp,
+                                 primaryModel: "fable", launchArgs: ["--model", "fable"],
+                                 now: launch.addingTimeInterval(200), log: testAuditLog)
+              && lateState.pin.model == "claude-opus-4-8")
+
+    // T19 - the canary's eviction exemption has to be about THIS parent. Counting a session as
+    // exempt for ever after its first eviction silences the canary on any long conversation, which
+    // is where a format drift is most likely to be noticed (decision review, 2026-08-07).
+    let afterEviction = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
+        + [userLine(40, uuid: "u-ev", text: "go on")]
+        // A turn long enough to push entries out of the map…
+        + (1 ... turnRootCapacity + 4).flatMap { i -> [String] in
+            let parent = i == 1 ? "u-ev" : "a-ev-\(i - 1)"
+            return
+            [#"{"parentUuid":"\#(parent)","type":"user","uuid":"t-ev-\#(i)","isSidechain":false,"timestamp":"\#(stamp(40 + Double(i) / 100))","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}"#,
+             servedLine("claude-opus-4-8", at: 40 + Double(i) / 100 + 0.005,
+                        uuid: "a-ev-\(i)", parent: "t-ev-\(i)")]
+        }
+        // …and then an event whose parent was never in it at all. That one is a symptom.
+        + [userLine(200, uuid: "u-ev2", text: "next"),
+           servedLine("claude-opus-4-8", at: 210, uuid: "a-ev2", parent: "u-ev2")]
+        + modelCommandLines(at: 220, effort: nil)
+        + [servedLine("claude-opus-4-8", at: 230, uuid: "a-ghost", parent: "u-never-existed")],
+        sink: testAuditLog)
+    check("T19 entries really were evicted", afterEviction.turnRoots.evicted > 0)
+    check("T19 …and an unrelated unresolved parent is still counted",
+          afterEviction.unanchoredServed == 1)
 
     // T12 - the chain cannot be resolved (the parent was never seen). Fail-safe: nothing is adopted,
     // and the wait continues rather than guessing.

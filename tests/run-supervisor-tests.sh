@@ -29,6 +29,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/standdownchecks.swift tests/supervisor/switchchecks.swift \
   tests/supervisor/switchrequestchecks.swift tests/supervisor/switchsessionchecks.swift \
   tests/supervisor/switchhookchecks.swift tests/supervisor/sessionpinchecks.swift \
+  tests/supervisor/capsessionpinchecks.swift \
   tests/supervisor/modelrequestchecks.swift tests/supervisor/modeltickchecks.swift \
   tests/supervisor/modelsurfacechecks.swift tests/supervisor/nativemodelchecks.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \

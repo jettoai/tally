@@ -118,6 +118,30 @@ func capFallbackKeptPinNotice(account: String, capped: String?, to: String) -> S
 /// flags are declared too. There, the model has ALREADY changed server-side and a relaunch that
 /// changed nothing else would be an interruption for nothing; here the model change is the whole
 /// answer, and a fleet that declares only `fallbackModel` has still said what to run.
+/// Whether the exhaustion behind this cap is provably the MODEL window rather than one every model
+/// draws on, judged from the numbers in hand.
+///
+/// The question only exists because a snapshot can PREDATE the cap: the app refreshes about once a
+/// minute, so the reading a cap lands next to is usually one taken before it, and its lag runs one
+/// way - a window reads no emptier than it really is. A model window already at the line in such a
+/// reading is therefore genuinely spent, which is evidence about WHICH wall was hit; shared windows
+/// that look healthy in it are not evidence of anything, because that is also what a window drained
+/// in the last minute looks like.
+///
+/// Raw remaining, not the comfort gate's effective remaining, and for the reason
+/// `capRecoveryDeadline` states one file over: a window minutes from resetting counts as full for
+/// "can this account take work" and says nothing about which window just ended a turn.
+///
+/// False whenever the account reports no model window, or reports one this session does not spend
+/// (`ratedWindows` leaves that one out): a wall this session cannot hit is no explanation of one it
+/// just did.
+func capIsOnModelWindow(_ account: Snapshot.Account, primaryModel: String?,
+                        now: Date = Date()) -> Bool {
+    guard let windowName = account.modelWindowName else { return false }
+    return ratedWindows(account, primaryModel: primaryModel, now: now)
+        .contains { $0.name == windowName && $0.remaining <= nearlyDryPercent }
+}
+
 func capFallbackInPlace(policy: LaunchPolicy, account: Snapshot.Account, primaryModel: String?,
                         now: Date = Date()) -> (model: String, effort: String?, args: [String])? {
     guard let model = policy.fallbackModel?
@@ -227,8 +251,21 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
     // profile cannot (ModelDegradation.swift). The pending cap is left standing rather than cleared
     // here - the relaunch drops it (`capCarriedAcrossRelaunch`), and a tick that stands the
     // relaunch down must still be waiting for it.
+    //
+    // AND THE NUMBERS HAVE TO BE ABOUT THIS CAP. Staying put is a bet that the wall was the model
+    // window; if it was a SHARED one (session, weekly - every model spends those, the fallback
+    // included) then no pairing can be run here at all, and a pre-cap snapshot showing them healthy
+    // would send the session round the same wall again, one restart per declared fallback, while
+    // the sibling handoff it needed never ran (review, 2026-08-07). Two ways to know, and either
+    // suffices: the snapshot was TAKEN after the cap, so its shared windows describe the situation
+    // the cap left behind; or it already shows the model window spent, which is evidence about the
+    // wall no lag can manufacture (`capIsOnModelWindow`). Neither, and this falls through to the
+    // handoff and the wait below, where a `waitStale`/`waitNoTarget` tick costs nothing and the
+    // next refresh answers the question.
     let current = snapshot?.accounts.first { $0.id == account.id } ?? account
-    if sessionPin != nil, !modelPinned, snapshotProblem == nil,
+    let capExplained = (snapshot?.generatedAt).map { $0 > pending.cappedAt } == true
+        || capIsOnModelWindow(current, primaryModel: primary, now: now)
+    if sessionPin != nil, !modelPinned, snapshotProblem == nil, capExplained,
        let stay = capFallbackInPlace(policy: fleet, account: current, primaryModel: primary,
                                      now: now) {
         warn(capFallbackKeptPinNotice(account: current.label, capped: primary, to: stay.model))

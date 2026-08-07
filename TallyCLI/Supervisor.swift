@@ -424,7 +424,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // `/clear` or a fork republishes the new transcript with everything else.
             sessionContext.sync(tokens: watcher.lastContextTokens, accountID: account.id,
                                 pin: manualMoves.sessionPin, axes: axes,
-                                transcript: watcher.transcriptSessionID, pid: supervisorPID)
+                                transcript: watcher.transcriptSessionID, child: Int(childPID),
+                                pid: supervisorPID)
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID,
@@ -491,7 +492,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
                                               axes: nextAxes,
                                               transcript: watcher.transcriptSessionID,
-                                              pid: supervisorPID)
+                                              child: Int(childPID), pid: supervisorPID)
                 // Last, so an exec that fails falls through to the respawn below with this plan
                 // fully applied: a failed upgrade can cost the new build, never the account switch.
                 execPlannedSelfUpdate(upgrade, attempted: &selfUpdateAttempted, target: plan.target,

@@ -202,21 +202,15 @@ func sessionLookup(envPid: String?, here: [String]) -> SessionLookup {
 enum SessionMarkerTrust: Equatable {
     /// This process descends from the session, so the marker names it outright.
     case trusted(String?)
-    /// The marker arrived from somewhere that may not be this session at all. It counts only where
-    /// the directory agrees AND no candidate is provably another conversation.
-    ///
-    /// `promptSession` is Claude Code's own id for the conversation the prompt came from, which
-    /// every hook payload carries. It is what closes the case corroboration alone cannot: a
-    /// `claude` started from inside another supervised session IN THE SAME DIRECTORY inherits a
-    /// marker that the directory happily confirms, so the inner session's prompts were resolved
-    /// onto the outer conversation (codex review of 512303b). nil where a caller has no such id,
-    /// which falls back to corroboration exactly as before.
-    case corroborated(marker: String?, promptSession: String?)
+    /// The marker arrived from somewhere that may not be this session at all. It counts only after
+    /// the witnesses in `PromptOrigin` have had their say.
+    case corroborated(PromptOrigin)
 
     /// The marker itself, whether or not a resolution will end up using it.
     var value: String? {
         switch self {
-        case .trusted(let marker), .corroborated(let marker, _): return marker
+        case .trusted(let marker): return marker
+        case .corroborated(let origin): return origin.marker
         }
     }
 
@@ -237,23 +231,73 @@ enum SessionMarkerTrust: Equatable {
     func resolve(here: [String],
                  published: (String) -> String? = {
                      readSessionContext(pid: $0)?.transcriptSessionID
-                 }) -> SessionLookup {
+                 },
+                 childOf: (String) -> Int? = { readSessionContext(pid: $0)?.childPID })
+        -> SessionLookup {
         switch self {
         case .trusted(let marker):
             return sessionLookup(envPid: marker, here: here)
-        case .corroborated(let marker, let promptSession):
-            // The conversation witness FIRST, because it can rule a candidate out outright where
-            // the marker and the directory can only ever agree with each other.
-            let candidates = sessionsWatching(promptSession, among: here, published: published)
-            // Not in what is left means it is somebody else's marker, and it is DROPPED rather
-            // than argued with: what remains is the same directory-only answer a shell outside
-            // every session gets, refusals included.
-            guard let marker, candidates.contains(marker) else {
-                return sessionLookup(envPid: nil, here: candidates)
+        case .corroborated(let origin):
+            /// What a narrowed candidate set comes to, with the marker allowed to choose INSIDE it
+            /// and nowhere else. A marker that is not among the candidates is DROPPED rather than
+            /// argued with: what remains is the same directory-only answer a shell outside every
+            /// session gets, refusals included.
+            func decide(_ candidates: [String]) -> SessionLookup {
+                sessionLookup(envPid: origin.marker.flatMap {
+                    candidates.contains($0) ? $0 : nil
+                }, here: candidates)
             }
-            return .session(marker)
+            // PROCESS ANCESTRY FIRST. It is the only witness here that cannot go stale under the
+            // session and cannot be shared by two of them, so where it can answer at all, it is the
+            // one that answers (`sessionsRunning`; nil means nobody could).
+            if let running = sessionsRunning(origin.claudeCodePID, among: here, published: childOf) {
+                return decide(running)
+            }
+            // The conversation witness next, for supervisors from a build that publishes no child
+            // pid. It can rule a candidate out where the marker and the directory can only ever
+            // agree with each other.
+            return decide(sessionsWatching(origin.promptSession, among: here, published: published))
         }
     }
+}
+
+/// Everything a second-hand caller knows about the session whose prompt it is answering.
+///
+/// A struct rather than three associated values, because this is the third time the answer to "how
+/// do we know which session this is" has needed another field, and each time it grew every
+/// signature it passes through. What a caller must not be able to do is supply one witness while
+/// silently omitting another, so they travel together.
+struct PromptOrigin: Equatable {
+    /// The supervisor pid in this process's environment, which may have been inherited from a
+    /// session that has nothing to do with this prompt.
+    var marker: String?
+    /// Claude Code's own id for the conversation, off the hook payload.
+    var promptSession: String?
+    /// The pid of the Claude Code process this prompt came from: for a hook, its own parent; for
+    /// the MCP server, the parent it recorded at start-up.
+    var claudeCodePID: pid_t?
+}
+
+/// The supervisors in `here` whose own child is the Claude Code that sent this prompt, or nil when
+/// no candidate publishes a child pid at all.
+///
+/// THE DISTINCTION nil CARRIES: "no candidate can answer this question" is not the same as "no
+/// candidate is it". The first falls through to the older witnesses, so a supervisor from a build
+/// before `childPID` existed keeps working; the second is a refusal.
+///
+/// Matched against the caller's DIRECT parent and nothing further up, which is the whole of its
+/// safety. The backstop next door tolerates a grandparent because its mistake costs one model turn
+/// (PromptHookBackstop.swift); the same tolerance here would cost a write into another
+/// conversation, because a `claude` started from inside another session has that session's Claude
+/// Code two levels up. Measured 2026-08-07: a hook's parent IS the Claude Code that ran it, and an
+/// MCP server's parent is the Claude Code that started it. If that ever stops being true, no
+/// candidate matches and the answer is a refusal rather than a wrong session.
+func sessionsRunning(_ claudeCodePID: pid_t?, among here: [String],
+                     published: (String) -> Int?) -> [String]? {
+    let publishing = here.filter { published($0) != nil }
+    guard !publishing.isEmpty else { return nil }
+    guard let wanted = claudeCodePID else { return nil }
+    return publishing.filter { published($0) == Int(wanted) }
 }
 
 /// The supervisors in `here` that could be watching the conversation a prompt came from.
@@ -274,12 +318,19 @@ enum SessionMarkerTrust: Equatable {
 func sessionsWatching(_ promptSession: String?, among here: [String],
                       published: (String) -> String?) -> [String] {
     guard let wanted = promptSession, !wanted.isEmpty else { return here }
-    var kept: [String] = []
+    var matches: [String] = []
+    var silent: [String] = []
     for candidate in here {
-        guard let watching = published(candidate) else { kept.append(candidate); continue }
-        if watching == wanted { return [candidate] }
+        guard let watching = published(candidate) else { silent.append(candidate); continue }
+        if watching == wanted { matches.append(candidate) }
     }
-    return kept
+    // EVERY exact match, not the first one. Two supervisors starting in one directory at once can
+    // bind the same transcript by the mtime heuristic (`bindFile`, TranscriptWatcher.swift) and so
+    // publish the same id; returning the first would hand the marker no chance to say which is
+    // which, and the caller would write into whichever happened to sort earlier (codex review of
+    // 0708b21). Several matches go back as several, and the marker disambiguates them exactly as it
+    // does any other ambiguous directory - and refuses when it cannot.
+    return matches.isEmpty ? silent : matches
 }
 
 /// The session a command typed HERE belongs to, asked of the live world: the supervisor pid to
@@ -315,7 +366,8 @@ func currentSessionLookup(cwd: String = FileManager.default.currentDirectoryPath
     -> (key: String, isThisSession: Bool)? {
     guard case .session(let key) = marker.resolve(
         here: supervisorsInDirectory(cwd, dir: dir),
-        published: { readSessionContext(pid: $0, dir: dir)?.transcriptSessionID })
+        published: { readSessionContext(pid: $0, dir: dir)?.transcriptSessionID },
+        childOf: { readSessionContext(pid: $0, dir: dir)?.childPID })
     else { return nil }
     // Only a marker the resolution ACTUALLY used describes this process; one that was dropped for
     // want of corroboration says nothing about where this command is running.

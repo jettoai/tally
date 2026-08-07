@@ -78,10 +78,20 @@ final class MCPServer {
     private let connection: MCPConnection
     private let world: MCPPickerWorld
     private var elicitations = 0
+    /// The Claude Code that started this server, recorded while the answer is still true.
+    ///
+    /// Read at START-UP rather than per request, and that is the whole point: this process outlives
+    /// individual prompts, and a Claude Code that exits while it is still running leaves it
+    /// reparented to launchd, where `getppid()` answers 1 and would match no session at all. It is
+    /// the witness that says which conversation a prompt belongs to (PromptOrigin,
+    /// SwitchRequest.swift).
+    private let claudeCodePID: pid_t?
 
-    init(connection: MCPConnection, world: MCPPickerWorld = MCPPickerWorld()) {
+    init(connection: MCPConnection, world: MCPPickerWorld = MCPPickerWorld(),
+         claudeCodePID: pid_t? = getppid()) {
         self.connection = connection
         self.world = world
+        self.claudeCodePID = claudeCodePID
     }
 
     /// Read until end of input. Returning IS the shutdown: the client closing the pipe is how an
@@ -158,7 +168,8 @@ final class MCPServer {
     /// prompt is answered rather than falling through to a model turn.
     private func call(_ message: [String: Any]) {
         let params = message["params"] as? [String: Any] ?? [:]
-        let input = MCPHookInput(arguments: params["arguments"] as? [String: Any] ?? [:])
+        let input = MCPHookInput(arguments: params["arguments"] as? [String: Any] ?? [:],
+                                 claudeCodePID: claudeCodePID)
         let text: String
         switch PromptHookTool(rawValue: params["name"] as? String ?? "") {
         case .pickModel:

@@ -149,6 +149,19 @@ struct SupervisedSession: Equatable, Codable {
     /// (SwitchRequest.swift). It follows a `/clear` and a fork, because it is republished from the
     /// watcher's CURRENT file whenever anything here moves.
     var transcriptSessionID: String?
+    /// The pid of the Claude Code process this supervisor spawned.
+    ///
+    /// THE WITNESS THAT DOES NOT MOVE. The transcript id above is a good answer and a fragile one:
+    /// it changes under the session (a `/clear` rebinds the file, and the `.session` document still
+    /// names the old conversation until the next publish), and two supervisors starting in one
+    /// directory at once can bind the same file by the mtime heuristic and publish the SAME id
+    /// (both raised in codex review of 0708b21). A process id has neither problem - it is unique
+    /// while it lives, and a `/clear` does not start a new process.
+    ///
+    /// Compared against the pid of the Claude Code that ran the hook, which is that process's own
+    /// PARENT (measured 2026-08-07). Additive like the rest: nil from a supervisor too old to
+    /// publish it, which falls back to the transcript witness and then to corroboration.
+    var childPID: Int?
 }
 
 /// The four axis readings one publish carries. Grouped so the writer's two entry points take one
@@ -170,22 +183,22 @@ extension SupervisedSession {
     /// starts a new conversation inside the same session, and a reading that kept the old id would
     /// name a transcript this supervisor is no longer watching - which is exactly the witness
     /// another session's prompt would then be matched against.
-    func matches(_ axes: SessionAxes, transcript: String?) -> Bool {
+    func matches(_ axes: SessionAxes, transcript: String?, child: Int?) -> Bool {
         sessionModel == axes.pinnedModel && sessionEffort == axes.pinnedEffort
             && observedModel == axes.observedModel
             && runningModel == axes.runningModel && runningEffort == axes.runningEffort
-            && transcriptSessionID == transcript
+            && transcriptSessionID == transcript && childPID == child
     }
 
     /// The axis fields and the conversation id, spelled once, so a new publish cannot fill three of
     /// them.
     init(accountID: String, contextTokens: Int, updatedAt: Date, sessionPin: String?,
-         axes: SessionAxes, transcript: String?) {
+         axes: SessionAxes, transcript: String?, child: Int? = nil) {
         self.init(accountID: accountID, contextTokens: contextTokens, updatedAt: updatedAt,
                   sessionPin: sessionPin, sessionModel: axes.pinnedModel,
                   sessionEffort: axes.pinnedEffort, observedModel: axes.observedModel,
                   runningModel: axes.runningModel, runningEffort: axes.runningEffort,
-                  transcriptSessionID: transcript)
+                  transcriptSessionID: transcript, childPID: child)
     }
 }
 
@@ -248,12 +261,13 @@ struct SessionContextWriter {
     /// silence the reader already handles.
     mutating func accountChanged(to accountID: String, pin: String?,
                                  axes: SessionAxes = SessionAxes(), transcript: String? = nil,
-                                 pid: String, dir: URL = supervisorStateDir, now: Date = Date()) {
+                                 child: Int? = nil, pid: String,
+                                 dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let current, current.accountID != accountID || current.sessionPin != pin
-            || !current.matches(axes, transcript: transcript) else { return }
+            || !current.matches(axes, transcript: transcript, child: child) else { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: current.contextTokens,
                                   updatedAt: now, sessionPin: pin, axes: axes,
-                                  transcript: transcript), pid: pid, dir: dir)
+                                  transcript: transcript, child: child), pid: pid, dir: dir)
     }
 
     /// The pin joins the account as a reason to write even when the number has not moved: it
@@ -262,15 +276,16 @@ struct SessionContextWriter {
     /// The axes join it on identical terms - `tally model --auto` also moves nothing, and a quota
     /// fallback changes what is RUNNING without changing anything the user asked for.
     mutating func sync(tokens: Int?, accountID: String, pin: String?,
-                       axes: SessionAxes = SessionAxes(), transcript: String? = nil, pid: String,
+                       axes: SessionAxes = SessionAxes(), transcript: String? = nil,
+                       child: Int? = nil, pid: String,
                        dir: URL = supervisorStateDir, now: Date = Date()) {
         guard let tokens else { return }   // nothing read yet: leave whatever stands
         if let current, current.accountID == accountID, current.sessionPin == pin,
-           current.matches(axes, transcript: transcript),
+           current.matches(axes, transcript: transcript, child: child),
            abs(current.contextTokens - tokens) < sessionContextWriteDelta { return }
         publish(SupervisedSession(accountID: accountID, contextTokens: tokens, updatedAt: now,
-                                  sessionPin: pin, axes: axes, transcript: transcript),
-                pid: pid, dir: dir)
+                                  sessionPin: pin, axes: axes, transcript: transcript,
+                                  child: child), pid: pid, dir: dir)
     }
 
     /// The one way either of the above reaches the file, so the in-memory copy both of them judge

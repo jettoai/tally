@@ -232,6 +232,20 @@ func runSessionContextChecks() {
                 pid: livePid, dir: dir, now: at)
     check("…and an unchanged one, under the delta, is not rewritten",
           readSessionContext(pid: livePid, dir: dir)?.contextTokens == 200_100)
+    // THE PROCESS WITNESS, published beside it and for the same readers. Unlike the transcript id
+    // it cannot go stale under the session (a `/clear` does not start a new process) and cannot be
+    // shared by two of them, which is why the resolution asks it first (SwitchRequest.swift).
+    writer.sync(tokens: 300_000, accountID: "claude:.claude2", pin: nil, axes: onHaiku,
+                transcript: "conv-FIRST", child: 4242, pid: livePid, dir: dir, now: at)
+    check("the Claude Code this supervisor spawned is published",
+          readSessionContext(pid: livePid, dir: dir)?.childPID == 4242)
+    // A relaunch spawns a new child, and the reading has to follow it or every later prompt is
+    // matched against a pid that has exited.
+    writer.sync(tokens: 300_100, accountID: "claude:.claude2", pin: nil, axes: onHaiku,
+                transcript: "conv-FIRST", child: 4343, pid: livePid, dir: dir, now: at)
+    check("…and a relaunch's new child replaces it, though nothing else moved",
+          readSessionContext(pid: livePid, dir: dir)?.childPID == 4343)
+
     // THE CONVERSATION WITNESS, which is a reason to write on its own: a `/clear` starts a new
     // conversation in the same session, and a published id that stayed behind would name a
     // transcript this supervisor is no longer watching - which is the very witness another
@@ -252,11 +266,12 @@ func runSessionContextChecks() {
     // from the watcher's current file, and a tick that published nil would leave every session
     // witnessless while every unit here still passed.
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
-    check("the poll tick publishes the transcript it is tailing",
-          loop.contains("transcript: watcher.transcriptSessionID, pid: supervisorPID"))
+    check("the poll tick publishes the transcript it is tailing, and the child running it",
+          loop.contains("transcript: watcher.transcriptSessionID, child: Int(childPID),"))
     check("…and so does the republish a handoff makes",
           loop.contains("transcript: watcher.transcriptSessionID,\n"
-              + "                                              pid: supervisorPID"))
+              + "                                              child: Int(childPID), "
+              + "pid: supervisorPID"))
 
     // Additive: a document written before these fields existed still decodes, with nil for both -
     // which every reader has to treat as "cannot say" rather than as "running nothing".
@@ -269,5 +284,7 @@ func runSessionContextChecks() {
               && legacy?.observedModel == nil)
     check("…and no conversation id, which the resolution reads as \"cannot say\"",
           legacy?.transcriptSessionID == nil)
+    check("…and no child pid either, which is what keeps an older supervisor working",
+          legacy?.childPID == nil)
     try? FileManager.default.removeItem(at: dir)
 }

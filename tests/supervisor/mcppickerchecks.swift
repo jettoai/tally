@@ -321,6 +321,68 @@ func runMCPAddressingChecks() {
     check("a marker still outranks the directory, which is what the typed surfaces need",
           sessionLookup(envPid: "9", here: ["4242"]) == .session("9"))
 
+    // THE PROCESS WITNESS, which now answers first because it is the only one that cannot go stale
+    // under the session and cannot be shared by two of them.
+    let children = ["outer": 100, "inner": 200]
+    check("the supervisor whose child sent this prompt is it",
+          sessionsRunning(200, among: ["outer", "inner"], published: { children[$0] })
+              == ["inner"])
+    check("…and one whose child is another process is not",
+          sessionsRunning(200, among: ["outer"], published: { children[$0] }) == [])
+    // nil is NOT "none of them": it is "nobody here can answer", which falls through to the older
+    // witnesses so a supervisor from a build before the field keeps working.
+    check("a directory where nobody publishes a child pid answers nothing at all",
+          sessionsRunning(200, among: ["quiet"], published: { _ in nil }) == nil)
+    check("…and a caller that cannot name its own Claude Code asks nothing of it",
+          sessionsRunning(nil, among: ["outer"], published: { children[$0] }) == nil)
+    // Only candidates that published are judged: the ones that cannot answer stay out of the
+    // result rather than being counted as mismatches.
+    check("a mixed directory answers for the ones that published",
+          sessionsRunning(100, among: ["outer", "quiet"], published: { children[$0] })
+              == ["outer"])
+
+    // THE TWO CASES codex found in the transcript witness, both closed by the process one.
+    //
+    // `/clear` rebinds the transcript, and the `.session` document still names the OLD conversation
+    // until the next publish. Judged on the transcript alone, the one correct supervisor is thrown
+    // away and the command refuses - while the hook blocks the turn, so the session cannot even
+    // send the ordinary prompt that would fix it.
+    let cleared = SessionMarkerTrust.corroborated(
+        PromptOrigin(marker: "inner", promptSession: "conv-AFTER-CLEAR", claudeCodePID: 200))
+    check("a session that just cleared is still found, though its published conversation is stale",
+          cleared.resolve(here: ["inner"], published: { _ in "conv-BEFORE-CLEAR" },
+                          childOf: { children[$0] }) == .session("inner"))
+    // Two supervisors that bound the same transcript by the mtime heuristic publish the SAME id.
+    // The process witness separates them outright; the transcript witness needs the marker.
+    check("two supervisors sharing a transcript id are separated by their processes",
+          SessionMarkerTrust.corroborated(
+            PromptOrigin(marker: "outer", promptSession: "conv-SAME", claudeCodePID: 200))
+              .resolve(here: ["outer", "inner"], published: { _ in "conv-SAME" },
+                       childOf: { children[$0] }) == .session("inner"))
+    // …and the nested case, which is what the whole witness exists for: the marker fits, the
+    // directory fits, and the process does not.
+    check("a nested session's prompt does not reach the session it was launched from",
+          SessionMarkerTrust.corroborated(
+            PromptOrigin(marker: "outer", promptSession: nil, claudeCodePID: 999))
+              .resolve(here: ["outer"], published: { _ in nil },
+                       childOf: { children[$0] }) == SessionLookup.none)
+
+    // P1 IN THE FALLBACK ITSELF, for the older builds that reach it: two candidates publishing the
+    // same conversation must not be answered by whichever sorts first.
+    check("every candidate watching that conversation comes back, not the first",
+          sessionsWatching("conv-SAME", among: ["outer", "inner"],
+                           published: { _ in "conv-SAME" }) == ["outer", "inner"])
+    check("…so the marker decides between them",
+          SessionMarkerTrust.corroborated(
+            PromptOrigin(marker: "inner", promptSession: "conv-SAME", claudeCodePID: nil))
+              .resolve(here: ["outer", "inner"], published: { _ in "conv-SAME" },
+                       childOf: { _ in nil }) == .session("inner"))
+    check("…and a marker that decides nothing is a refusal, not a coin toss",
+          SessionMarkerTrust.corroborated(
+            PromptOrigin(marker: nil, promptSession: "conv-SAME", claudeCodePID: nil))
+              .resolve(here: ["outer", "inner"], published: { _ in "conv-SAME" },
+                       childOf: { _ in nil }) == .ambiguous(["outer", "inner"]))
+
     // THE CONVERSATION WITNESS, which is what corroboration alone could not supply.
     //
     // Corroboration asks "is that marker's supervisor running here", and in the nested case the
@@ -345,35 +407,36 @@ func runMCPAddressingChecks() {
               && sessionsWatching("", among: ["outer"], published: { watching[$0] }) == ["outer"])
 
     // THE WHOLE RULE, composed: the nested case QA could not reach and codex found by reading.
-    let nested = SessionMarkerTrust.corroborated(marker: "outer", promptSession: "conv-INNER")
+    let nested = SessionMarkerTrust.corroborated(PromptOrigin(marker: "outer", promptSession: "conv-INNER"))
     check("the inner session's prompt does not reach the outer conversation",
-          nested.resolve(here: ["outer"], published: { watching[$0] }) == SessionLookup.none)
+          nested.resolve(here: ["outer"], published: { watching[$0] },
+                         childOf: { _ in nil }) == SessionLookup.none)
     check("…and where the inner session IS supervised, its own prompt finds it",
-          nested.resolve(here: ["outer", "inner"], published: { watching[$0] })
-              == .session("inner"))
+          nested.resolve(here: ["outer", "inner"], published: { watching[$0] },
+                         childOf: { _ in nil }) == .session("inner"))
     // Corroboration still does its own job for everything the witness cannot answer.
-    let plain = SessionMarkerTrust.corroborated(marker: "7", promptSession: nil)
+    let plain = SessionMarkerTrust.corroborated(PromptOrigin(marker: "7", promptSession: nil))
     check("a marker the directory confirms names the session, even among several",
-          plain.resolve(here: ["7", "8"], published: { _ in nil }) == .session("7"))
+          plain.resolve(here: ["7", "8"], published: { _ in nil }, childOf: { _ in nil }) == .session("7"))
     check("…a marker the directory has never heard of is DROPPED, not argued with",
-          SessionMarkerTrust.corroborated(marker: "9", promptSession: nil)
-              .resolve(here: ["7"], published: { _ in nil }) == .session("7"))
+          SessionMarkerTrust.corroborated(PromptOrigin(marker: "9", promptSession: nil))
+              .resolve(here: ["7"], published: { _ in nil }, childOf: { _ in nil }) == .session("7"))
     check("…and dropping it leaves the directory's own answer, refusals included",
-          SessionMarkerTrust.corroborated(marker: "9", promptSession: nil)
-              .resolve(here: [], published: { _ in nil }) == SessionLookup.none
-              && SessionMarkerTrust.corroborated(marker: "9", promptSession: nil)
-                  .resolve(here: ["7", "8"], published: { _ in nil }) == .ambiguous(["7", "8"]))
+          SessionMarkerTrust.corroborated(PromptOrigin(marker: "9", promptSession: nil))
+              .resolve(here: [], published: { _ in nil }, childOf: { _ in nil }) == SessionLookup.none
+              && SessionMarkerTrust.corroborated(PromptOrigin(marker: "9", promptSession: nil))
+                  .resolve(here: ["7", "8"], published: { _ in nil }, childOf: { _ in nil }) == .ambiguous(["7", "8"]))
     check("no marker at all is the same directory-only answer",
-          SessionMarkerTrust.corroborated(marker: nil, promptSession: nil)
-              .resolve(here: ["7"], published: { _ in nil }) == .session("7"))
+          SessionMarkerTrust.corroborated(PromptOrigin(marker: nil, promptSession: nil))
+              .resolve(here: ["7"], published: { _ in nil }, childOf: { _ in nil }) == .session("7"))
     // The other half of the pair, unchanged and deliberately so: a person's shell DESCENDS from the
     // session, so its marker is good even from a subdirectory the supervisor never published, and
     // no witness is asked for.
     check("a trusted marker still needs no corroboration, which is what typed commands rely on",
-          SessionMarkerTrust.trusted("9").resolve(here: [], published: { _ in "anything" })
+          SessionMarkerTrust.trusted("9").resolve(here: [], published: { _ in "anything" }, childOf: { _ in nil })
               == .session("9"))
     check("…and its value is readable whether or not a resolution used it",
-          SessionMarkerTrust.corroborated(marker: "9", promptSession: nil).value == "9"
+          SessionMarkerTrust.corroborated(PromptOrigin(marker: "9", promptSession: nil)).value == "9"
               && SessionMarkerTrust.trusted(nil).value == nil)
 
     // The witness is PUBLISHED from the transcript the supervisor is tailing, and follows a
@@ -408,17 +471,17 @@ func runMCPAddressingChecks() {
     // alone, and the marker still names the session that is asking.
     check("a corroborated marker picks the session that is asking",
           currentSessionLookup(cwd: shared.path, dir: twoDir,
-                               marker: .corroborated(marker: mine, promptSession: nil))?.key
+                               marker: .corroborated(PromptOrigin(marker: mine, promptSession: nil)))?.key
               == mine)
     check("…and knows it is that session, so the reading describes it",
           currentSessionLookup(cwd: shared.path, dir: twoDir,
-                               marker: .corroborated(marker: mine,
-                                                     promptSession: nil))?.isThisSession == true)
+                               marker: .corroborated(PromptOrigin(marker: mine,
+                                                       promptSession: nil)))?.isThisSession == true)
     // The leak, in the same directory shape: a marker from a session that is NOT here is dropped,
     // and what is left is ambiguous rather than a confident answer about the wrong conversation.
     check("a marker from somewhere else is dropped, leaving the honest refusal",
           currentSessionLookup(cwd: shared.path, dir: twoDir,
-                               marker: .corroborated(marker: "424242", promptSession: nil)) == nil)
+                               marker: .corroborated(PromptOrigin(marker: "424242", promptSession: nil))) == nil)
     // THE NESTED CASE, end to end through the real reader: both supervisors publish, and the one
     // watching another conversation is ruled out even though the marker names it and the directory
     // confirms it. This is the shape codex found and QA could not reach without a second Claude
@@ -435,16 +498,16 @@ func runMCPAddressingChecks() {
           readSessionContext(pid: mine, dir: twoDir)?.transcriptSessionID == "conv-INNER")
     check("an inner session's prompt is not answered by the outer session it was launched from",
           currentSessionLookup(cwd: shared.path, dir: twoDir,
-                               marker: .corroborated(marker: theirs,
-                                                     promptSession: "conv-INNER"))?.key == mine)
+                               marker: .corroborated(PromptOrigin(marker: theirs,
+                                                       promptSession: "conv-INNER")))?.key == mine)
     check("…and the outer session's own prompt still finds the outer session",
           currentSessionLookup(cwd: shared.path, dir: twoDir,
-                               marker: .corroborated(marker: theirs,
-                                                     promptSession: "conv-OUTER"))?.key == theirs)
+                               marker: .corroborated(PromptOrigin(marker: theirs,
+                                                       promptSession: "conv-OUTER")))?.key == theirs)
     check("…while a conversation neither of them is watching is refused outright",
           currentSessionLookup(cwd: shared.path, dir: twoDir,
-                               marker: .corroborated(marker: theirs,
-                                                     promptSession: "conv-GONE")) == nil)
+                               marker: .corroborated(PromptOrigin(marker: theirs,
+                                                       promptSession: "conv-GONE"))) == nil)
     try? FileManager.default.removeItem(at: twoDir)
     try? FileManager.default.removeItem(at: shared)
 
@@ -464,7 +527,17 @@ func runMCPAddressingChecks() {
     check("…and an unreadable payload is not a crash either", hookCommandCwd("not json") == nil)
     check("a hook never takes its marker on trust, whatever the payload says",
           promptHookSession(payload).marker
-              == .corroborated(marker: liveSessionMarker(), promptSession: "fabricated"))
+              == .corroborated(PromptOrigin(marker: liveSessionMarker(),
+                                            promptSession: "fabricated",
+                                            claudeCodePID: getppid())))
+    // The pid it carries is its OWN parent, which is the Claude Code that ran it - not the
+    // supervisor, and not anything further up.
+    check("…and the process it names is the Claude Code that ran it",
+          promptHookSession(payload).marker
+              == .corroborated(PromptOrigin(marker: liveSessionMarker(),
+                                            promptSession: "fabricated",
+                                            claudeCodePID: getppid()))
+              && String(getppid()) != liveSessionMarker())
     check("…and it carries the conversation the prompt came from, which is the witness",
           hookCommandSessionID(payload) == "fabricated"
               && hookCommandSessionID(#"{"command_args":"","session_id":""}"#) == nil)
@@ -475,7 +548,7 @@ func runMCPAddressingChecks() {
     try? FileManager.default.createDirectory(at: lonely, withIntermediateDirectories: true)
     let stranded = liveModelStatus(
         cwd: lonely.path,
-        marker: .corroborated(marker: String(getpid()), promptSession: "fabricated"))
+        marker: .corroborated(PromptOrigin(marker: String(getpid()), promptSession: "fabricated")))
     check("a prompt from a directory nothing supervises reads as nothing published",
           stranded.running == nil && stranded.observedModel == nil)
     check("…and says so, rather than describing the session whose marker leaked in",

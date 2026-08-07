@@ -89,8 +89,13 @@ func hookCommandSessionID(_ raw: String) -> String? {
 /// behaviour until now, found by QA on the backstop (2026-08-07) and true of the plain command hook
 /// since it was written.
 func promptHookSession(_ raw: String) -> (cwd: String, marker: SessionMarkerTrust) {
+    // `getppid()` IS the Claude Code that ran this hook, measured 2026-08-07 and asserted by the
+    // backstop's own process-table checks. A short-lived child can read it at the moment it needs
+    // it; the MCP server cannot, and records it at start-up instead (MCPServe.swift).
     (hookCommandCwd(raw) ?? FileManager.default.currentDirectoryPath,
-     .corroborated(marker: liveSessionMarker(), promptSession: hookCommandSessionID(raw)))
+     .corroborated(PromptOrigin(marker: liveSessionMarker(),
+                                promptSession: hookCommandSessionID(raw),
+                                claudeCodePID: getppid())))
 }
 
 /// The decision, pure: everything about the payload, nothing about the world. The value IS the

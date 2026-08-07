@@ -30,10 +30,18 @@ struct MCPHookInput: Equatable {
     var sessionID = ""
     var cwd = ""
     var transcriptPath = ""
+    /// The Claude Code this server belongs to, recorded rather than asked for.
+    ///
+    /// A hook can call `getppid()` when it needs it; this process cannot. It outlives individual
+    /// requests, and a Claude Code that exits while it is still up leaves it reparented to launchd
+    /// - so asking at request time would answer 1 and match nothing. Captured once, when the server
+    /// starts (MCPServe.swift), while the answer is still true.
+    var claudeCodePID: pid_t?
 
     init() {}
 
-    init(arguments: [String: Any]) {
+    init(arguments: [String: Any], claudeCodePID: pid_t? = nil) {
+        self.claudeCodePID = claudeCodePID
         func read(_ field: PromptHookInputField) -> String {
             arguments[field.rawValue] as? String ?? ""
         }
@@ -70,8 +78,9 @@ struct MCPHookInput: Equatable {
     /// against the conversation id it reported, which is the only pair that separates a session
     /// nested inside another one in the same directory (SessionMarkerTrust, SwitchRequest.swift).
     var sessionMarker: SessionMarkerTrust {
-        .corroborated(marker: liveSessionMarker(),
-                      promptSession: sessionID.isEmpty ? nil : sessionID)
+        .corroborated(PromptOrigin(marker: liveSessionMarker(),
+                                   promptSession: sessionID.isEmpty ? nil : sessionID,
+                                   claudeCodePID: claudeCodePID))
     }
 }
 

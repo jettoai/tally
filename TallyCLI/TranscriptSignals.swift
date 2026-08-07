@@ -80,11 +80,21 @@ struct TurnRoots {
     private(set) var evictedIDs: Set<String> = []
     private var evictedOrder: [String] = []
 
-    /// Whether this uuid is one the cap dropped, which is the only reason an absent parent is
-    /// expected rather than a symptom.
+    /// Whether this uuid is one the cap dropped - or one whose own lineage it dropped, which is the
+    /// same thing to anything hanging off it. The only reason an absent parent is expected rather
+    /// than a symptom.
     func wasEvicted(_ uuid: String?) -> Bool {
         guard let uuid else { return false }
         return evictedIDs.contains(uuid)
+    }
+
+    /// Remember an id as gone, under the same bound as the map itself.
+    private mutating func markEvicted(_ uuid: String) {
+        guard evictedIDs.insert(uuid).inserted else { return }
+        evictedOrder.append(uuid)
+        if evictedOrder.count > turnRootCapacity {
+            evictedIDs.remove(evictedOrder.removeFirst())
+        }
     }
 
     /// Record where `uuid` sits, and answer with the root it resolved to.
@@ -110,18 +120,26 @@ struct TurnRoots {
                          seq: Int) -> TurnRoot? {
         let root: TurnRoot? = startsTurn ? TurnRoot(at: when, seq: seq)
             : parent.flatMap { roots[$0] }
-        guard let root else { return nil }
+        guard let root else {
+            // UNRESOLVED BECAUSE THE PARENT WAS EVICTED is a property that has to travel down the
+            // chain. Recording nothing left the grandchild's parent - this event - unknown to
+            // `wasEvicted`, so the next event in the same turn read as a genuine mystery: six normal
+            // descendants of one evicted entry were enough to report a format drift that had not
+            // happened (review, 2026-08-07). Marking this uuid as evicted too says what is true of
+            // it - its lineage is gone - and carries that fact to everything hanging off it.
+            //
+            // A parent that was never here at all is left alone, which is the case the canary is
+            // for: nothing about it is expected.
+            if wasEvicted(parent) { markEvicted(uuid) }
+            return nil
+        }
         if roots.updateValue(root, forKey: uuid) == nil {
             order.append(uuid)
             if order.count > turnRootCapacity {
                 let dropped = order.removeFirst()
                 roots.removeValue(forKey: dropped)
                 evicted += 1
-                evictedIDs.insert(dropped)
-                evictedOrder.append(dropped)
-                if evictedOrder.count > turnRootCapacity {
-                    evictedIDs.remove(evictedOrder.removeFirst())
-                }
+                markEvicted(dropped)
             }
         }
         return root

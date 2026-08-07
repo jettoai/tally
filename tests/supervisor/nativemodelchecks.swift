@@ -671,10 +671,10 @@ func runNativeModelChecks() {
         + [userLine(40, uuid: "u-long", text: "go on")]
         + (1 ... turnRootCapacity + 8).flatMap { i -> [String] in
             let parent = i == 1 ? "u-long" : "a-long-\(i - 1)"
-            return
-            [#"{"parentUuid":"\#(parent)","type":"user","uuid":"t-long-\#(i)","isSidechain":false,"timestamp":"\#(stamp(40 + Double(i) / 100))","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}"#,
+            let lines = [#"{"parentUuid":"\#(parent)","type":"user","uuid":"t-long-\#(i)","isSidechain":false,"timestamp":"\#(stamp(40 + Double(i) / 100))","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}"#,
              servedLine("claude-opus-4-8", at: 40 + Double(i) / 100 + 0.005,
                         uuid: "a-long-\(i)", parent: "t-long-\(i)")]
+            return lines
         }, sink: testAuditLog)
     check("T17a a turn longer than the map evicts entries",
           longTurn.turnRoots.evicted > 0)
@@ -740,6 +740,63 @@ func runNativeModelChecks() {
                                  now: launch.addingTimeInterval(200), log: testAuditLog)
               && lateState.pin.model == "claude-opus-4-8")
 
+    // T21 - THE PAUSE, INTERRUPTED BY A `/clear`. The answer arrives, the user clears, and the new
+    // transcript has no turn in it yet - so the watcher is still bound to the old file, that file is
+    // quiet by definition, and settling there pins a choice from a conversation that no longer
+    // exists. The move itself drops the candidate; the silence must not beat it to the punch
+    // (review, 2026-08-07).
+    let cleared = ForkFixture("model-cleared")
+    cleared.write("only.jsonl", [
+        #"{"type":"user","isSidechain":false,"uuid":"u-c-cmd","timestamp":"\#(cleared.stamp(5))","message":{"role":"user","content":"<command-message>model</command-message>\n<command-name>/model</command-name>"}}"#,
+        #"{"type":"user","isSidechain":false,"uuid":"u-c-ask","timestamp":"\#(cleared.stamp(10))","message":{"role":"user","content":"go on"}}"#,
+        #"{"parentUuid":"u-c-ask","isSidechain":false,"type":"assistant","uuid":"a-c-ans","timestamp":"\#(cleared.stamp(20))","message":{"model":"claude-opus-4-8"}}"#,
+    ], born: -300, wrote: 0)
+    var clearedWatcher = cleared.watcher(pinnedTo: "only")
+    _ = clearedWatcher.sawCapHit()
+    check("T21 the answer is held, as it is on any pause",
+          clearedWatcher.pendingConfirmation != nil && clearedWatcher.modelConfirmation == nil)
+    // `/clear`: a newer transcript with nothing in it yet, so nothing can say whether the
+    // conversation moved there. That is exactly what the fork hold is.
+    cleared.write("fresh.jsonl", cleared.clearedLines(own: "fresh"), born: 1, wrote: 2)
+    _ = clearedWatcher.sawCapHit()
+    check("T21 …and the fork is unresolved", clearedWatcher.hasUnresolvedFork)
+    check("T21 …so silence settles nothing while it is",
+          clearedWatcher.modelConfirmation == nil && clearedWatcher.pendingConfirmation != nil)
+    try? FileManager.default.removeItem(at: cleared.dir)
+
+    // T22 - eviction is a property of a LINEAGE, not of one entry. An event that cannot resolve
+    // because its parent was evicted leaves its own children unable to resolve too, and reading
+    // those as mysteries reported a drift that had not happened: six ordinary descendants of one
+    // evicted entry were enough to write the canary line (review, 2026-08-07).
+    var lineage = TurnRoots()
+    var seq = 0
+    func place(_ uuid: String, parent: String?, startsTurn: Bool = false) -> TurnRoot? {
+        seq += 1
+        return lineage.record(uuid: uuid, parent: parent, startsTurn: startsTurn,
+                              at: launch.addingTimeInterval(Double(seq)), seq: seq)
+    }
+    _ = place("root", parent: nil, startsTurn: true)
+    // Fill past the cap so the root itself is dropped, each entry hanging off the one before it.
+    var previous = "root"
+    for i in 1 ... turnRootCapacity + 1 {
+        let id = "fill-\(i)"
+        _ = place(id, parent: previous)
+        previous = id
+    }
+    check("T22 the root really was evicted", lineage.wasEvicted("root"))
+    // A child of the evicted root cannot resolve - expected - and its own child inherits that.
+    check("T22 …a child of it cannot resolve", place("child", parent: "root") == nil)
+    check("T22 …and is itself marked gone, so the grandchild is expected too",
+          lineage.wasEvicted("child") && lineage.wasEvicted("grandchild") == false)
+    check("T22 …which the grandchild then inherits in turn", {
+        _ = place("grandchild", parent: "child")
+        return lineage.wasEvicted("grandchild")
+    }())
+    // A parent that was never here at all stays a mystery, which is what the canary is for.
+    check("T22 …while a parent nobody ever saw is not excused",
+          place("stranger", parent: "never-existed") == nil
+              && !lineage.wasEvicted("stranger"))
+
     // T19 - the canary's eviction exemption has to be about THIS parent. Counting a session as
     // exempt for ever after its first eviction silences the canary on any long conversation, which
     // is where a format drift is most likely to be noticed (decision review, 2026-08-07).
@@ -748,10 +805,10 @@ func runNativeModelChecks() {
         // A turn long enough to push entries out of the map…
         + (1 ... turnRootCapacity + 4).flatMap { i -> [String] in
             let parent = i == 1 ? "u-ev" : "a-ev-\(i - 1)"
-            return
-            [#"{"parentUuid":"\#(parent)","type":"user","uuid":"t-ev-\#(i)","isSidechain":false,"timestamp":"\#(stamp(40 + Double(i) / 100))","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}"#,
+            let lines = [#"{"parentUuid":"\#(parent)","type":"user","uuid":"t-ev-\#(i)","isSidechain":false,"timestamp":"\#(stamp(40 + Double(i) / 100))","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}"#,
              servedLine("claude-opus-4-8", at: 40 + Double(i) / 100 + 0.005,
                         uuid: "a-ev-\(i)", parent: "t-ev-\(i)")]
+            return lines
         }
         // …and then an event whose parent was never in it at all. That one is a symptom.
         + [userLine(200, uuid: "u-ev2", text: "next"),

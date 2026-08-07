@@ -569,6 +569,83 @@ runCapSessionPinChecks()
 runModelRequestChecks()
 runModelTickChecks()
 runModelSurfaceChecks()
+/// The CJK characters that MAY appear in a shipped source file, per file and verbatim.
+///
+/// Exact rather than by directory, because the point is that each one was looked at: a directory
+/// exemption would have swallowed the next accident silently, and this check exists because exactly
+/// that happened - a batch of review notes in Chinese reached production comments and a whole
+/// package of self-checks did not see them (2026-08-07).
+///
+/// Two kinds, and both are deliberate. `SettingsView` names languages in their own script, which is
+/// what a language picker is for. The rest quote something: an incident's terminal noise, a
+/// requirement, a line of NORTH_STAR. They are grandfathered, not endorsed - prose in a shipped
+/// comment should be English, and the four quoting ones are worth a pass of their own.
+let cjkAllowances: [String: [String]] = [
+    "TallyCLI/LaunchFlags.swift": ["tj3裡"],
+    "Tally/Core/AppLocale.swift": ["預設當地 locale"],
+    "Tally/Providers/Claude/ClaudeProvider.swift": ["不在範圍"],
+    "Tally/Providers/ProviderModels.swift": ["預設顯示最高級模型"],
+    "Tally/Views/SettingsView.swift": ["繁體中文", "简体中文", "日本語", "한국어"],
+    "Tally/Views/TokenActivityHeatmapView.swift": ["週一"],
+]
+
+/// Whether a string carries a Han, kana or Hangul character.
+func carriesCJK(_ text: String) -> Bool {
+    text.unicodeScalars.contains { scalar in
+        (0x3040 ... 0x30FF).contains(scalar.value)       // kana
+            || (0x3400 ... 0x4DBF).contains(scalar.value)   // Han, extension A
+            || (0x4E00 ... 0x9FFF).contains(scalar.value)   // Han
+            || (0xAC00 ... 0xD7AF).contains(scalar.value)   // Hangul
+    }
+}
+
+/// EVERY SHIPPED SOURCE FILE IS ENGLISH, asserted rather than remembered.
+///
+/// The rule is the repo's (AGENTS.md: everything that enters git is English), and it was broken by
+/// the one thing a personal checklist cannot catch - the language of the conversation the work was
+/// briefed in leaking into the comments written during it. A commit message claimed a scan had been
+/// added to the closing checks; what had actually been added was an intention. This is the scan.
+///
+/// Sources only: `.xcstrings` catalogues are translations by definition, and the tests keep fixtures
+/// of real terminal noise that must stay byte-for-byte what the incident produced.
+func runLanguageChecks() {
+    var scanned = 0
+    var offenders: [String] = []
+    for root in ["TallyCLI", "Tally"] {
+        guard let walk = FileManager.default.enumerator(atPath: root) else { continue }
+        for case let name as String in walk where name.hasSuffix(".swift") {
+            let path = "\(root)/\(name)"
+            guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+            scanned += 1
+            let allowed = cjkAllowances[path] ?? []
+            for (number, line) in text.split(separator: "\n", omittingEmptySubsequences: false)
+                .enumerated() {
+                var rest = String(line)
+                for allowance in allowed { rest = rest.replacingOccurrences(of: allowance, with: "") }
+                if carriesCJK(rest) { offenders.append("\(path):\(number + 1)") }
+            }
+        }
+    }
+    // The corpus itself is asserted: a scan that walked nothing would otherwise pass loudest of all.
+    check("the language scan reads the whole shipped source tree", scanned > 60)
+    check("and every shipped source file is written in English",
+          offenders.isEmpty || {
+              print("   CJK outside the allowances: \(offenders.joined(separator: ", "))")
+              return false
+          }())
+    // The allowances are exact, so one that stops being needed has to be noticed rather than left
+    // to rot: every file named here still has to carry the text it is excused for.
+    let stale = cjkAllowances.filter { path, allowances in
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return true }
+        return !allowances.allSatisfy { text.contains($0) }
+    }
+    check("and no allowance outlives the line it was written for",
+          stale.isEmpty || {
+              print("   stale allowances: \(stale.keys.joined(separator: ", "))")
+              return false
+          }())
+}
+
 /// THE SUITE'S OWN FOOTPRINT, asserted last because it is about everything above it: a test that
 /// reaches a code path which logs must write into its injected sink and nowhere else. Read from
 /// disk rather than trusted, because the failure this closes was invisible for exactly as long as
@@ -611,6 +688,7 @@ func runAuditSinkChecks() {
 }
 
 runNativeModelChecks()
+runLanguageChecks()
 runAuditSinkChecks()
 
 exit(failures == 0 ? 0 : 1)

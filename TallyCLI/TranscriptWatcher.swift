@@ -297,8 +297,18 @@ struct TranscriptWatcher {
     /// reads as a session that has drifted and moves to another account to "fix"
     /// (`pendingSettleQuietSeconds` states the argument and how to refute it).
     mutating func settlePendingIfQuiet() {
+        // `isQuiet` rather than the bound file's mtime alone, and that is the whole fix: silence
+        // means "this turn is finished" only while it is still THIS conversation's silence. A
+        // `/clear` right after the answer leaves a new transcript with no turn in it yet, so the
+        // watcher is still bound to the old file and that file is, of course, quiet - and settling
+        // there pins a choice from a conversation the user has left, walking straight past the drop
+        // the move itself performs (`followFork`, TranscriptFork.swift; review, 2026-08-07).
+        //
+        // The hold already exists and already means this: an unresolved fork keeps `isQuiet` false
+        // so that every non-urgent relaunch waits. Asking through it is what stops this settlement
+        // from being a second, weaker definition of the same idea.
         guard pendingConfirmation != nil,
-              isBoundFileQuiet(pendingSettleQuietSeconds) else { return }
+              isQuiet(pendingSettleQuietSeconds) else { return }
         settlePendingConfirmation()
     }
 

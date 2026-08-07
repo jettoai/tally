@@ -23,19 +23,35 @@ func stamp(_ offset: TimeInterval) -> String { iso.string(from: launch.addingTim
 let testAuditLog = FileManager.default.temporaryDirectory
     .appendingPathComponent("tally-audit-test-\(UUID().uuidString).log")
 
-/// The one line the real log must never gain from a test run: every fixture in this suite that logs
-/// writes this pair, and no real session runs it.
-let testAuditFixtureMarker = "pair=claude-opus-4-8/xhigh"
+/// The transcript name this suite's logging fixtures run under, unique per RUN.
+///
+/// It used to be `session`, and the marker asserted against was a model pair - both of which a real
+/// conversation can legitimately produce, so the check could go red on an honest log and, worse,
+/// could not see a leak that happened to carry neither string (review, 2026-08-07). A pid and a
+/// clock make it something no real session can be, which is what a sentinel has to be to mean
+/// anything. Long enough that `String(prefix(8))` - what the log lines carry - is still unique.
+let testFixtureSessionID = "tf\(getpid())x\(UInt32(Date().timeIntervalSince1970) % 100_000)"
+
+/// The 8 characters of it that reach a log line, which is what the assertions grep for.
+let testAuditFixtureMarker = "session=\(testFixtureSessionID.prefix(8))"
 
 /// The user's own audit log, asked about rather than written to.
 let realAuditLog = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent(".tally/handoff.log")
 
+/// Its size and line count BEFORE anything in this suite runs. The primary judgement is this pair
+/// being unchanged at the end: a sentinel string can only catch a leak that carries it, while a
+/// byte count catches every write there is, including one from a path nobody thought about.
+let realAuditBaseline: (bytes: Int, lines: Int) = {
+    let text = (try? String(contentsOf: realAuditLog, encoding: .utf8)) ?? ""
+    return (text.utf8.count, text.split(separator: "\n", omittingEmptySubsequences: false).count)
+}()
+
 func watcherAfterScanning(_ lines: [String]) -> TranscriptWatcher {
     let dir = FileManager.default.temporaryDirectory
         .appendingPathComponent("tally-watcher-test-\(UUID().uuidString)")
     try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let file = dir.appendingPathComponent("session.jsonl")
+    let file = dir.appendingPathComponent("\(testFixtureSessionID).jsonl")
     try! lines.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
     var watcher = TranscriptWatcher(projectDir: dir, file: file, since: launch)
     _ = watcher.sawCapHit()
@@ -503,11 +519,6 @@ runCapSessionPinChecks()
 runModelRequestChecks()
 runModelTickChecks()
 runModelSurfaceChecks()
-runNativeModelChecks()
-runAuditSinkChecks()
-
-exit(failures == 0 ? 0 : 1)
-
 /// THE SUITE'S OWN FOOTPRINT, asserted last because it is about everything above it: a test that
 /// reaches a code path which logs must write into its injected sink and nowhere else. Read from
 /// disk rather than trusted, because the failure this closes was invisible for exactly as long as
@@ -517,12 +528,20 @@ func runAuditSinkChecks() {
     check("the suite's audit lines land in its own sink",
           written.contains(testAuditFixtureMarker) && written.contains("model-pin=adopted"))
     check("…and the fork report with them", written.contains("fork=ambiguous"))
-    // The real file is READ, never opened for writing: if the sink is not honoured, the fixture pair
-    // above appears in the user's history, which is the whole defect.
+    // THE PRIMARY JUDGEMENT: the user's own file is exactly as it was. A count catches every write,
+    // including one carrying no sentinel at all - which is the half a marker can never see.
     let real = (try? String(contentsOf: realAuditLog, encoding: .utf8)) ?? ""
-    check("and nothing this suite invented reaches the user's own audit log",
+    let lines = real.split(separator: "\n", omittingEmptySubsequences: false).count
+    check("and the user's own audit log gained nothing at all",
+          real.utf8.count == realAuditBaseline.bytes && lines == realAuditBaseline.lines)
+    // The locator, for when it did: this run's sentinel is a pid and a clock, so a hit names the
+    // leak rather than merely proving one. A real conversation cannot produce it.
+    check("…and carries none of this run's fixture lines",
           !real.contains(testAuditFixtureMarker))
-    check("…including the fork report, whose session id no real conversation can have",
-          !real.contains("session=parent fork=ambiguous"))
     try? FileManager.default.removeItem(at: testAuditLog)
 }
+
+runNativeModelChecks()
+runAuditSinkChecks()
+
+exit(failures == 0 ? 0 : 1)

@@ -190,8 +190,17 @@ struct SessionModelState {
     ///
     /// A whitelist by kind, like `adoptCancellation`: a live wait is not news and is re-derived
     /// within a tick or two of the new image starting, so adopting one would pick up a value that is
-    /// about to be recomputed - or a stale one if its condition has since cleared. No legacy arm
-    /// here, unlike the cancellation's: this notice has carried its kind since the day it existed.
+    /// about to be recomputed - or a stale one if its condition has since cleared.
+    ///
+    /// NO LEGACY ARM, unlike the cancellation's, and the reason is a fact about RELEASES rather than
+    /// about this notice's history - the first version of it did write `kind: nil` (ac862ab), so
+    /// "it has always carried its kind" would be false and is worth stating as such, because a wrong
+    /// argument left standing is what the next person reasons from. What makes the arm unnecessary
+    /// is that no SHIPPED build ever wrote one: `git tag --contains ac862ab` is empty, and the
+    /// released path (v0.38.4) printed this to the terminal instead of writing a notice at all. The
+    /// only image that can hand over a kind-less one is a local build from that window, and the
+    /// cost there is a badge lost at an upgrade - which is what the cancellation's arm exists to
+    /// avoid for an upgrade every session on this machine was about to take.
     mutating func adoptAdoption(_ notice: PendingNotice?) {
         guard let notice, notice.kind == modelAdoptionNoticeKind else { return }
         adopted = PendingBadge(notice.badge, detail: notice.detail, kind: modelAdoptionNoticeKind)

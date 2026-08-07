@@ -153,6 +153,21 @@ struct TranscriptWatcher {
     /// (TranscriptFork.swift). Holds `isQuiet` false, so every non-urgent relaunch waits instead of
     /// resuming an id the conversation may have just left.
     var hasUnresolvedFork = false
+    /// When each model FIRST served a main-chain turn after the newest `/model` command, which is a
+    /// different question from `lastMainChainEventAt` and the one the adoption notice needs.
+    ///
+    /// A poll reads whatever has been appended since the last one, and that chunk routinely holds a
+    /// whole exchange: the command, the answer that confirms it, the user's next prompt, and the
+    /// answer to THAT. Stamped with the last event in the chunk, the notice was newer than the
+    /// prompt sitting between them, so the prompt could not expire it and the badge outlived its
+    /// turn by one - the same defect as stamping with the poll clock, one layer down (probe,
+    /// 2026-08-07).
+    ///
+    /// FIRST WINS, per model: the moment a model started serving is a fact about that model, and a
+    /// later turn on the same model is not a second confirmation. Cleared by a NEWER `/model`, which
+    /// asks the question again, so the map never outlives the command it belongs to and stays the
+    /// size of the models one command produced (one, in every case seen).
+    var modelConfirmations: [String: Date] = [:]
     /// Where this watcher's own audit lines go (the ambiguous-fork report, TranscriptFork.swift).
     /// Injectable for the reason `appendHandoffLine` is: a suite that exercises the tie must not
     /// write invented reports into the user's history.
@@ -420,8 +435,16 @@ struct TranscriptWatcher {
                 let rest = line[modelKey.upperBound...]
                 if let quote = rest.firstIndex(of: "\""), rest[..<quote].hasPrefix("claude"),
                    let ts = lineTimestamp(line), ts >= since {
-                    lastModel = String(rest[..<quote])
+                    let model = String(rest[..<quote])
+                    lastModel = model
                     lastMainChainEventAt = ts
+                    // The first turn this model served since the newest `/model`, kept because the
+                    // last one in the chunk is the wrong stamp for the adoption notice (see
+                    // `modelConfirmations`). Lines arrive in file order, so first-seen is earliest.
+                    if let commandAt = lastModelCommandAt, ts >= commandAt,
+                       modelConfirmations[model] == nil {
+                        modelConfirmations[model] = ts
+                    }
                 }
             }
             // How big the conversation is now, off the same line the model came from. Main-chain
@@ -457,6 +480,8 @@ struct TranscriptWatcher {
             if line.contains(nativeModelCommandTag), !line.contains("\"isSidechain\":true"),
                let ts = lineTimestamp(line), ts >= since {
                 lastModelCommandAt = ts
+                // A new question: what confirmed the PREVIOUS one says nothing about this one.
+                modelConfirmations.removeAll()
             }
             if line.contains(nativeModelStdoutPrefix),
                let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))

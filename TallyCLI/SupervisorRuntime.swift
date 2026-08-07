@@ -268,10 +268,15 @@ func forkAmbiguityLine(boundID: String, now: Date = Date()) -> String {
 ///
 /// `log` is injectable for the reason every directory on this track is (`switchRequestDir`,
 /// `supervisorStateDir`, `quarantineDir`): a test that reaches a code path which logs must not write
-/// into the user's own audit history. It did - a suite run put 62 invented `model-pin=adopted` lines
-/// and 7 fork reports into a real `~/.tally/handoff.log` before this parameter existed (2026-08-07),
-/// which is the same rule the suites already keep for every other home-directory file.
-func appendHandoffLine(_ line: String, to log: URL = handoffLog) {
+/// into the user's own audit history. It did - a suite run put 1,231 invented lines into a real
+/// `~/.tally/handoff.log` before this parameter existed (2026-08-07), which is the same rule the
+/// suites already keep for every other home-directory file.
+///
+/// AND IT HAS NO DEFAULT, deliberately. A default is what let a call site reach the user's file by
+/// saying nothing, which is exactly how the ninth one was missed while the eight above it were being
+/// threaded (review, 2026-08-07). Naming the sink is now the compiler's requirement rather than a
+/// reviewer's, and a logging path added later cannot inherit the old hazard by omission.
+func appendHandoffLine(_ line: String, to log: URL) {
     try? FileManager.default.createDirectory(at: log.deletingLastPathComponent(),
                                              withIntermediateDirectories: true)
     let fd = open(log.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)

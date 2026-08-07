@@ -74,7 +74,11 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
           // a newer stamp.
           commandAt > (state.servedModelCommandAt ?? .distantPast),
           let observed = watcher.lastModel,
-          let observedAt = watcher.lastMainChainEventAt, observedAt >= commandAt
+          // The moment THIS model first served after the command, never the newest event in the
+          // chunk: one poll can read the confirmation, the user's next prompt and the answer to it
+          // all at once, and the last of those is newer than the prompt that should have expired
+          // the notice (`modelConfirmations`, TranscriptWatcher.swift).
+          let observedAt = watcher.modelConfirmations[observed], observedAt >= commandAt
     else { return false }
     // CONSUMED HERE, BEFORE ANYTHING IS JUDGED. "The event has been served" and "the service
     // changed something" are two questions, and the stamp belongs to the first: a `/model` that

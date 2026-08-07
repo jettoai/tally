@@ -452,7 +452,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                         // To the log, never the terminal: this tick relaunches NOTHING (it
                         // `continue`s), so the child is drawing over whatever is written here
                         // (PendingNotice.swift states the rule).
-                        appendHandoffLine(unresolvedForkHoldLine(pid: supervisorPID, cwd: cwd))
+                        appendHandoffLine(unresolvedForkHoldLine(pid: supervisorPID, cwd: cwd),
+                                          to: handoffLog)
                         unresolvedHoldWarned = true
                     }
                     continue   // the child keeps running; the next tick decides again from scratch

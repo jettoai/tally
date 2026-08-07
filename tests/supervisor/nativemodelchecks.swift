@@ -133,9 +133,39 @@ func runNativeModelChecks() {
     // The stamp is the event that CONFIRMED the choice, not the poll that noticed it: a poll
     // timestamp is later than a prompt the user has already sent, so the badge outlived its turn by
     // one (review, 2026-08-07). Everything below measures the expiry from this.
-    let raisedAt = typed.lastMainChainEventAt ?? .distantPast
+    let raisedAt = typed.modelConfirmations["claude-opus-4-8"] ?? .distantPast
     check("the notice is stamped with the turn that confirmed the choice",
-          announced.adoptedAt == raisedAt)
+          announced.adoptedAt == raisedAt && raisedAt == launch.addingTimeInterval(60))
+
+    // AND ONE POLL READS A WHOLE EXCHANGE. The chunk holds the command, the answer that confirms it,
+    // the user's next prompt, and the answer to THAT - so a stamp taken from the newest event in the
+    // chunk is newer than the prompt sitting between them, the prompt cannot expire the notice, and
+    // the badge outlives its turn exactly as it did with the poll clock (probe, 2026-08-07).
+    let batched = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
+        + [servedLine("claude-opus-4-8", at: 60),
+           userLine(90, uuid: "u-next", text: "and now the other thing"),
+           servedLine("claude-opus-4-8", at: 120)])
+    check("the confirmation is the FIRST turn the new model served, not the last",
+          batched.modelConfirmations["claude-opus-4-8"] == launch.addingTimeInterval(60)
+              && batched.lastMainChainEventAt == launch.addingTimeInterval(120))
+    var batchState = freshState()
+    var batchFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "high"])
+    _ = adoptNativeModelChoice(state: &batchState, follow: &batchFollow, watcher: batched,
+                               primaryModel: "fable",
+                               launchArgs: ["--model", "fable", "--effort", "high"],
+                               now: launch.addingTimeInterval(200), log: testAuditLog)
+    check("…so the notice is stamped before the prompt that follows it",
+          batchState.adoptedAt == launch.addingTimeInterval(60))
+    batchState.expireAdoption(lastUserTurnAt: batched.lastUserTurnAt)
+    check("…and the prompt already in that same chunk takes it down on this very tick",
+          batchState.adopted == nil)
+    // A NEWER command asks the question again, so what confirmed the previous one is not evidence
+    // for it: the map is cleared rather than kept.
+    let recommanded = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
+        + [servedLine("claude-opus-4-8", at: 60)]
+        + modelCommandLines(at: 90, effort: "high"))
+    check("a newer /model clears what confirmed the older one",
+          recommanded.modelConfirmations.isEmpty)
     check("the adoption raises a status-line badge", announced.adopted != nil)
     check("…short, because it shares the line with the quota meters",
           (announced.adopted?.badge.count ?? 99) <= 20)

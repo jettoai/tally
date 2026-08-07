@@ -73,9 +73,11 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
           // fire again. The next adoption needs a NEWER `/model`, exactly as the next request needs
           // a newer stamp.
           commandAt > (state.servedModelCommandAt ?? .distantPast),
-          // SOMETHING has served since the command, so the choice has been answered - whatever it
-          // answered with. Which model that was is decided below, after the stamp is consumed.
-          let answeredAt = watcher.modelConfirmations.values.min(), answeredAt >= commandAt
+          // The turn that ANSWERED it: the reply to the first prompt typed after the command
+          // (`modelConfirmation`, TranscriptWatcher.swift). Whatever model that reply carries is the
+          // model the session now runs - reading the answer and judging it are separate questions,
+          // and the judging happens below, after the stamp is consumed.
+          let confirmation = watcher.modelConfirmation, confirmation.at >= commandAt
     else { return false }
     // CONSUMED HERE, BEFORE ANYTHING IS JUDGED. "The event has been served" and "the service
     // changed something" are two questions, and the stamp belongs to the first: a `/model` that
@@ -88,37 +90,28 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
     // is a real thing to do: reading "the model still agrees" as "nothing happened" threw the parsed
     // effort away, so the child ran xhigh and the next relaunch put high back (caught in review of
     // c914b41). Judged, but adopted TOGETHER - one command is one choice, and it is consumed once.
-    // WHICH MODEL THE CHOICE MOVED TO: the EARLIEST post-command turn served by a model that is not
-    // the one already running when the command landed.
+    // WHAT THE ANSWER SAYS THE SESSION NOW RUNS, and nothing about which event to believe: the
+    // confirmation above already identified the turn, by the prompt it belongs to.
     //
-    // Not `lastModel`, which is where this looked before and is the newest event in the chunk. One
-    // poll routinely reads a whole exchange - the command, the answer confirming it, the user's next
-    // prompt, and the answer to THAT - and if the last of those was a genuine quota fallback, the
-    // fallback model was adopted as the user's choice. That is worse than a wrong badge: the pin
-    // becomes what the session is EXPECTED to run, so the degradation rescue reads the fallback as
-    // correct and never fires again for the rest of the session (review, 2026-08-07).
+    // THE RULE THIS REPLACED, and why the replacement is not a smaller version of it. "The earliest
+    // post-command turn served by a model that is not the one already running" looked equivalent and
+    // was refuted by a case its own argument invited (review, 2026-08-07): a user who re-picks the
+    // model they are already on has every same-model turn skipped, so the next DIFFERENT model - a
+    // quota fallback arriving in the same chunk - became the earliest differing event and was pinned
+    // as their choice, with the degradation rescue dead for the rest of the session behind it.
     //
-    // The exclusion is what keeps "earliest" honest, because the earliest post-command turn can
-    // still be the OLD model: a reply already streaming when the command landed finishes after it.
-    // Comparing against `modelBeforeCommand` - the model serving at that exact line - drops it,
-    // which is the tense guard's problem seen from the other side. THE REFUTABLE FORM: this is
-    // wrong exactly when the user picks a model the session is already running AND expects a pin
-    // from it; that case adopts nothing, which is what the repo already promises out loud
-    // ("re-picking the model already running adopts nothing") and what the effort axis below still
-    // handles on its own. The alternative - reading the model out of the picker's printed line - is
-    // the guess this function was written to refuse (see the KNOWN LIMIT above).
-    //
-    // `primaryModel` stands in when nothing had served yet under this watcher: with no observed
-    // predecessor, what the session was launched to run is the model a change would be a change
-    // FROM.
-    let before = watcher.modelBeforeCommand ?? primaryModel
-    let confirmed = watcher.modelConfirmations
-        .filter { !modelsAgree($0.key, before) }
-        .min { $0.value < $1.value }
-    let observed = confirmed?.key ?? watcher.lastModel ?? ""
-    let observedAt = confirmed?.value ?? answeredAt
-    let movedModel = confirmed != nil
-        && !modelsAgree(primaryModel, observed) && !modelsAgree(state.pin.model, observed)
+    // THE REFUTABLE FORM of the rule that stands: the answer to a `/model` is the reply to the first
+    // prompt typed after it. To refute it, produce a transcript where the model a `/model` chose is
+    // proved by something OTHER than that reply - a picker that answers by itself, or a session
+    // whose next prompt is served by a model the command did not choose. The second is real (a
+    // fallback can serve that very turn), and it is why this reads the answer rather than trusting
+    // it: what the reply carries is what the session IS running, which is the thing a pin is for,
+    // and if a fallback served it the rescue sees the difference and acts - the outcome the old rule
+    // destroyed by pinning the fallback instead. A third model later in the same chunk changes
+    // nothing here: it is not the reply to that prompt, so it is never the confirmation.
+    let observed = confirmation.model
+    let observedAt = confirmation.at
+    let movedModel = !modelsAgree(primaryModel, observed) && !modelsAgree(state.pin.model, observed)
     let chosenEffort = watcher.lastModelCommandEffort
     let runningEffort = state.pin.effort ?? flagValue(launchArgs, "--effort")
     let movedEffort = chosenEffort.map { $0.lowercased() != runningEffort?.lowercased() } ?? false

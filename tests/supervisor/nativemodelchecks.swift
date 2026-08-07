@@ -53,15 +53,26 @@ func runNativeModelChecks() {
 
     // MARK: - 35b. Which `/model` events count
 
-    /// The two adjacent main-chain user events Claude Code writes for one `/model`.
+    /// The two adjacent main-chain user events Claude Code writes for one `/model`, followed by the
+    /// prompt the user types next.
+    ///
+    /// THE PROMPT IS PART OF THE FIXTURE because it is part of the transcript: a slash command
+    /// produces no assistant turn of its own, so nothing serves anything until the user asks for
+    /// something, and the reply to THAT is what proves which model the picker chose
+    /// (`modelConfirmation`, TranscriptWatcher.swift). A fixture without it describes a sequence
+    /// Claude Code cannot write. `thenAsks: false` leaves it out for the cases that are about the
+    /// command alone.
     func modelCommandLines(at offset: TimeInterval, effort: String?,
-                           sidechain: Bool = false) -> [String] {
+                           sidechain: Bool = false, thenAsks: Bool = true) -> [String] {
         let side = sidechain ? "true" : "false"
         let tail = effort.map { " with \\u001b[1m\($0)\\u001b[22m effort" } ?? ""
         return [
             #"{"type":"user","isSidechain":\#(side),"timestamp":"\#(stamp(offset))","message":{"role":"user","content":"<command-name>/model</command-name>\n<command-message>model</command-message>"}}"#,
             #"{"type":"user","isSidechain":\#(side),"timestamp":"\#(stamp(offset))","message":{"role":"user","content":"<local-command-stdout>Set model to \#("\\u001b[1mOpus 5 (1M context)\\u001b[22m")\#(" and saved as your default for new sessions")\#(tail)</local-command-stdout>"}}"#,
-        ]
+        ] + (thenAsks
+            ? [userLine(offset + 1, uuid: "u-after-\(Int(offset))", text: "carry on then",
+                        sidechain: sidechain)]
+            : [])
     }
     func servedLine(_ model: String, at offset: TimeInterval) -> String {
         #"{"type":"assistant","isSidechain":false,"timestamp":"\#(stamp(offset))","message":{"model":"\#(model)"}}"#
@@ -133,7 +144,7 @@ func runNativeModelChecks() {
     // The stamp is the event that CONFIRMED the choice, not the poll that noticed it: a poll
     // timestamp is later than a prompt the user has already sent, so the badge outlived its turn by
     // one (review, 2026-08-07). Everything below measures the expiry from this.
-    let raisedAt = typed.modelConfirmations["claude-opus-4-8"] ?? .distantPast
+    let raisedAt = typed.modelConfirmation?.at ?? .distantPast
     check("the notice is stamped with the turn that confirmed the choice",
           announced.adoptedAt == raisedAt && raisedAt == launch.addingTimeInterval(60))
 
@@ -141,12 +152,13 @@ func runNativeModelChecks() {
     // the user's next prompt, and the answer to THAT - so a stamp taken from the newest event in the
     // chunk is newer than the prompt sitting between them, the prompt cannot expire the notice, and
     // the badge outlives its turn exactly as it did with the poll clock (probe, 2026-08-07).
-    let batched = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
-        + [servedLine("claude-opus-4-8", at: 60),
+    let batched = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh", thenAsks: false)
+        + [userLine(50, uuid: "u-go", text: "go on then"),
+           servedLine("claude-opus-4-8", at: 60),
            userLine(90, uuid: "u-next", text: "and now the other thing"),
            servedLine("claude-opus-4-8", at: 120)])
-    check("the confirmation is the FIRST turn the new model served, not the last",
-          batched.modelConfirmations["claude-opus-4-8"] == launch.addingTimeInterval(60)
+    check("the confirmation is the turn that answered the command, not the last in the chunk",
+          batched.modelConfirmation?.at == launch.addingTimeInterval(60)
               && batched.lastMainChainEventAt == launch.addingTimeInterval(120))
     var batchState = freshState()
     var batchFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "high"])
@@ -165,8 +177,9 @@ func runNativeModelChecks() {
     // newest event in the chunk, the adoption pinned HAIKU as the user's choice - and a pin is what
     // the session is expected to run, so from that moment the degradation rescue read the fallback
     // as correct and never fired again for the rest of the session (review, 2026-08-07).
-    let degradedAfter = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
-        + [servedLine("claude-opus-4-8", at: 60),
+    let degradedAfter = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh", thenAsks: false)
+        + [userLine(50, uuid: "u-first", text: "go on then"),
+           servedLine("claude-opus-4-8", at: 60),
            userLine(90, uuid: "u-more", text: "now the other thing"),
            servedLine("claude-haiku-4-5", at: 120)])
     var degradedState = freshState()
@@ -193,31 +206,65 @@ func runNativeModelChecks() {
             && modelsAgree(degradedAfter.lastModel, primary) == false
     }())
 
-    // A REPLY STILL IN FLIGHT when the command lands finishes after it, so the earliest post-command
-    // turn can be the OLD model. It is dropped by comparing against what was serving at the command
-    // line itself - the tense guard from the other side.
-    let inFlight = watcherAfterScanning([servedLine("claude-fable-5", at: 10)]
-        + modelCommandLines(at: 30, effort: "xhigh")
-        + [servedLine("claude-fable-5", at: 40), servedLine("claude-opus-4-8", at: 60)])
-    check("the model serving at the command is remembered",
-          inFlight.modelBeforeCommand == "claude-fable-5")
+    // (b) A REPLY STILL IN FLIGHT when the command lands finishes after it, so the first
+    // post-command turn can be the OLD model. It belongs to the prompt BEFORE the command, which is
+    // exactly what the correlation drops - the tense guard from the other side.
+    let inFlight = watcherAfterScanning([userLine(5, uuid: "u-earlier", text: "the previous ask"),
+                                         servedLine("claude-fable-5", at: 10)]
+        + modelCommandLines(at: 30, effort: "xhigh", thenAsks: false)
+        + [servedLine("claude-fable-5", at: 40),
+           userLine(50, uuid: "u-after", text: "now do the thing"),
+           servedLine("claude-opus-4-8", at: 60)])
+    check("the prompt that a /model waits to be answered by is the one typed after it",
+          inFlight.modelCommandUserTurnAt == launch.addingTimeInterval(50))
     var inFlightState = freshState()
     var inFlightFollow = FollowState(launchArgs: ["--model", "claude-fable-5"])
     _ = adoptNativeModelChoice(state: &inFlightState, follow: &inFlightFollow, watcher: inFlight,
                                primaryModel: "claude-fable-5",
                                launchArgs: ["--model", "claude-fable-5"],
                                now: launch.addingTimeInterval(200), log: testAuditLog)
-    check("…so a straggling turn on it is not read as the answer",
+    check("…so a straggling turn on the old model is not read as the answer",
           inFlightState.pin.model == "claude-opus-4-8"
               && inFlightState.adoptedAt == launch.addingTimeInterval(60))
 
+    // (a) THE CASE THAT REFUTED THE PREVIOUS RULE. The user re-picks the model they are already on,
+    // and a quota fallback serves a later turn in the same chunk. Skipping same-model events made
+    // that fallback the earliest DIFFERENT one, so it was pinned as the user's choice and the rescue
+    // was dead for the rest of the session (review, 2026-08-07).
+    let repickedThenFell = watcherAfterScanning(modelCommandLines(at: 30, effort: nil, thenAsks: false)
+        + [userLine(50, uuid: "u-a", text: "carry on"),
+           servedLine("claude-fable-5", at: 60),
+           userLine(90, uuid: "u-b", text: "and another"),
+           servedLine("claude-haiku-4-5", at: 120)])
+    var repickState = freshState()
+    var repickFollow = FollowState(launchArgs: ["--model", "claude-fable-5"])
+    check("re-picking the running model still adopts nothing, even with a fallback behind it",
+          !adoptNativeModelChoice(state: &repickState, follow: &repickFollow,
+                                  watcher: repickedThenFell, primaryModel: "claude-fable-5",
+                                  launchArgs: ["--model", "claude-fable-5"],
+                                  now: launch.addingTimeInterval(200), log: testAuditLog))
+    check("…so the fallback is not pinned as a choice nobody made", repickState.pin.model == nil)
+    check("…and the command is consumed all the same, which is what stops a later fallback "
+          + "being read as that choice",
+          repickState.servedModelCommandAt == launch.addingTimeInterval(30))
+    check("…leaving the rescue with the difference it exists to act on", {
+        let primary = sessionPrimaryModel(pin: repickState.pin,
+                                          launchArgs: ["--model", "claude-fable-5"],
+                                          providerID: "claude", policy: LaunchPolicy())
+        return primary == "claude-fable-5"
+            && modelsAgree(repickedThenFell.lastModel, primary) == false
+    }())
+
     // A NEWER command asks the question again, so what confirmed the previous one is not evidence
     // for it: the map is cleared rather than kept.
-    let recommanded = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
-        + [servedLine("claude-opus-4-8", at: 60)]
+    let recommanded = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh", thenAsks: false)
+        + [userLine(50, uuid: "u-one", text: "go"), servedLine("claude-opus-4-8", at: 60)]
         + modelCommandLines(at: 90, effort: "high"))
-    check("a newer /model clears what confirmed the older one",
-          recommanded.modelConfirmations.isEmpty)
+    check("a newer /model clears what answered the older one",
+          recommanded.modelConfirmation == nil)
+    // …and starts waiting on the prompt that follows IT, not the one that answered the last command.
+    check("…and waits on the prompt typed after it",
+          recommanded.modelCommandUserTurnAt == launch.addingTimeInterval(91))
     check("the adoption raises a status-line badge", announced.adopted != nil)
     check("…short, because it shares the line with the quota meters",
           (announced.adopted?.badge.count ?? 99) <= 20)

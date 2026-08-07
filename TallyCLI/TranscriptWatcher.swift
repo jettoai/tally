@@ -153,23 +153,32 @@ struct TranscriptWatcher {
     /// (TranscriptFork.swift). Holds `isQuiet` false, so every non-urgent relaunch waits instead of
     /// resuming an id the conversation may have just left.
     var hasUnresolvedFork = false
-    /// The model that was serving when the newest `/model` landed, so a reply still in flight from
-    /// before it can be told apart from the answer TO it. nil when nothing had served yet.
-    var modelBeforeCommand: String?
-    /// When each model FIRST served a main-chain turn after the newest `/model` command, which is a
-    /// different question from `lastMainChainEventAt` and the one the adoption notice needs.
+    /// The first thing the PERSON said after the newest `/model`, which is what makes the answer to
+    /// that command identifiable at all.
     ///
-    /// A poll reads whatever has been appended since the last one, and that chunk routinely holds a
-    /// whole exchange: the command, the answer that confirms it, the user's next prompt, and the
-    /// answer to THAT. Stamped with the last event in the chunk, the notice was newer than the
-    /// prompt sitting between them, so the prompt could not expire it and the badge outlived its
-    /// turn by one - the same defect as stamping with the poll clock, one layer down (probe,
-    /// 2026-08-07).
+    /// A slash command produces no assistant turn of its own: the picker writes two user events and
+    /// nothing else happens until the user types again. So the reply that proves what the session
+    /// now runs is the one belonging to their NEXT prompt, and everything between the command and
+    /// that prompt is the tail of the exchange before it.
     ///
-    /// FIRST WINS, per model: the moment a model started serving is a fact about that model, and a
-    /// later turn on the same model is not a second confirmation. Cleared by a NEWER `/model`, which
-    /// asks the question again, so the map never outlives the command it belongs to and stays the
-    /// size of the models one command produced (one, in every case seen).
+    /// The command's own two events are excluded by shape rather than by timestamp: they are user
+    /// events too, and the picker's stdout can carry a stamp a fraction later than the invocation,
+    /// which would make the command its own "next prompt" and hand the tail back as the answer.
+    var modelCommandUserTurnAt: Date?
+    /// The turn that ANSWERED the newest `/model`: the first main-chain model event at or after the
+    /// prompt above, and the only event this feature treats as a confirmation.
+    ///
+    /// TURN CORRELATION RATHER THAN "THE FIRST DIFFERENT MODEL", which is what this was and what a
+    /// review refuted (2026-08-07). That rule skipped every event serving the model already running,
+    /// so a user re-picking their current model made the NEXT different model - a quota fallback
+    /// minutes later, in the same chunk - the earliest differing event, and it was pinned as their
+    /// choice. A pin is what the session is expected to run, so the degradation rescue then read the
+    /// fallback as correct for the rest of the session. Correlating with the prompt instead is
+    /// indifferent to which model answers: it identifies the ANSWER, and reading it is a separate
+    /// question from judging it.
+    ///
+    /// Cleared by a newer `/model`, which asks the question again.
+    var modelConfirmation: (model: String, at: Date)?
     var modelConfirmations: [String: Date] = [:]
     /// Where this watcher's own audit lines go (the ambiguous-fork report, TranscriptFork.swift).
     /// Injectable for the reason `appendHandoffLine` is: a suite that exercises the tie must not
@@ -441,12 +450,12 @@ struct TranscriptWatcher {
                     let model = String(rest[..<quote])
                     lastModel = model
                     lastMainChainEventAt = ts
-                    // The first turn this model served since the newest `/model`, kept because the
-                    // last one in the chunk is the wrong stamp for the adoption notice (see
-                    // `modelConfirmations`). Lines arrive in file order, so first-seen is earliest.
-                    if let commandAt = lastModelCommandAt, ts >= commandAt,
-                       modelConfirmations[model] == nil {
-                        modelConfirmations[model] = ts
+                    // The answer to the newest `/model`: the first main-chain turn at or after the
+                    // prompt that followed it (`modelConfirmation` states the whole rule). Lines
+                    // arrive in file order, so first-seen is earliest.
+                    if let askedAt = modelCommandUserTurnAt, ts >= askedAt,
+                       modelConfirmation == nil {
+                        modelConfirmation = (model, ts)
                     }
                 }
             }
@@ -474,6 +483,15 @@ struct TranscriptWatcher {
                !line.contains("<task-notification>"),
                let ts = lineTimestamp(line), ts >= since {
                 lastUserTurnAt = ts
+                // The prompt that a `/model` is waiting to be answered by. The command's own two
+                // events are user events as well, so they are excluded by their shape: a timestamp
+                // test cannot separate them, because the picker's stdout may be stamped a moment
+                // after the invocation it belongs to.
+                if let commandAt = lastModelCommandAt, ts >= commandAt,
+                   modelCommandUserTurnAt == nil,
+                   !line.contains(nativeModelCommandTag), !line.contains(nativeModelStdoutPrefix) {
+                    modelCommandUserTurnAt = ts
+                }
             }
             // Claude Code's own `/model`, in the two events it writes. The invocation is what
             // marks the moment; the line it printed carries the effort, and is JSON-parsed only
@@ -483,10 +501,10 @@ struct TranscriptWatcher {
             if line.contains(nativeModelCommandTag), !line.contains("\"isSidechain\":true"),
                let ts = lineTimestamp(line), ts >= since {
                 lastModelCommandAt = ts
-                // A new question: what confirmed the PREVIOUS one says nothing about this one, and
-                // the model to compare against from here on is the one serving at THIS command.
-                modelConfirmations.removeAll()
-                modelBeforeCommand = lastModel
+                // A new question: the prompt that will answer it has not been typed yet, and what
+                // answered the PREVIOUS one says nothing about this one.
+                modelCommandUserTurnAt = nil
+                modelConfirmation = nil
             }
             if line.contains(nativeModelStdoutPrefix),
                let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))

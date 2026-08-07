@@ -79,15 +79,21 @@ extension IntegrationsStore {
         // the second home of a shared pair asks about a file nothing writes and answers "needs
         // healing" forever, which is a write-event-write cycle with the write left out.
         //
-        // EVERY registration in the file, not the first: a duplicate entry left by something else
-        // rewriting settings.json still fires, so a stale copy beside a good one is damage
-        // (`registeredPromptHookCommands`).
+        // EXACTLY ONE REGISTRATION, NAMING THIS APP. Both halves are the health condition, and the
+        // count is the half that reads as pedantry until you see what it catches: something else
+        // rewriting settings.json (a dotfiles merge, two config homes folded into one) can leave two
+        // Tally hooks that BOTH name the current binary. Judged on "is any of them wrong" that file
+        // is in perfect health, so the watcher never reaches the repair - while every prompt runs the
+        // command twice, two answers and two writes, forever (codex review of 264f657).
+        //
+        // A set comparison rather than a scan, because the repair's contract is now exactly this
+        // list (`settingsRegisteringPromptHook` collapses to one), so the check face and the write
+        // face state the same sentence: absent, stale, or duplicated are one answer, and it is "fix".
         return homesCarrying(ours, population: population).contains { home in
             let settings = home.appendingPathComponent("settings.json")
             return promptCommands.contains { command in
-                let registered = registeredPromptHookCommands(settings, hook: command)
-                let expected = promptHookCommand(helper, command: command)
-                return registered.isEmpty || registered.contains { $0 != expected }
+                registeredPromptHookCommands(settings, hook: command)
+                    != [promptHookCommand(helper, command: command)]
             }
         }
     }

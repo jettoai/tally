@@ -322,6 +322,35 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
           !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
                                               binary: binary) && !installAll(healthy))
 
+    // THE DUPLICATE THAT IS NOT STALE, which is the one a "does any of them name the wrong binary"
+    // check calls healthy: a dotfiles merge or two config homes folded into one leaves two entries
+    // that BOTH name the current app. Nothing about the paths is wrong, so the watcher never reaches
+    // the repair - and every `/tally-account` runs twice, two answers and two writes, forever
+    // (codex review of 264f657). The count is therefore part of the health condition, not a detail
+    // of it.
+    let current = IntegrationsStore.promptHookCommand(binary, command: firstCommand)
+    var withTwin = (try? JSONSerialization.jsonObject(with: Data(contentsOf: duplicated)))
+        as? [String: Any] ?? [:]
+    var twinBlock = withTwin["hooks"] as? [String: Any] ?? [:]
+    var twinEntries = twinBlock[IntegrationsStore.promptHookEvent] as? [[String: Any]] ?? []
+    twinEntries.append(["matcher": firstCommand.name,
+                        "hooks": [["type": "command", "command": current]]])
+    twinBlock[IntegrationsStore.promptHookEvent] = twinEntries
+    withTwin["hooks"] = twinBlock
+    try JSONSerialization.data(withJSONObject: withTwin).write(to: duplicated)
+    check("two registrations both naming this very app are still two",
+          IntegrationsStore.registeredPromptHookCommands(duplicated, hook: firstCommand)
+              == [current, current])
+    check("…which is damage, though not one of them names anything wrong",
+          IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
+                                             binary: binary))
+    _ = installAll(healthy)
+    check("…and the repair leaves exactly one of them",
+          IntegrationsStore.registeredPromptHookCommands(duplicated, hook: firstCommand) == [current])
+    check("…after which there is nothing left to ask about",
+          !IntegrationsStore.hooksNeedHealing(skillFiles: healthySkill, population: [healthy],
+                                              binary: binary) && !installAll(healthy))
+
     // MARK: - ASKED PER HOME, WRITTEN PER GROUP
     //
     // On a shared setup several homes stand in front of one physical settings.json. The sync groups

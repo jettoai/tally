@@ -153,6 +153,9 @@ struct TranscriptWatcher {
     /// (TranscriptFork.swift). Holds `isQuiet` false, so every non-urgent relaunch waits instead of
     /// resuming an id the conversation may have just left.
     var hasUnresolvedFork = false
+    /// The model that was serving when the newest `/model` landed, so a reply still in flight from
+    /// before it can be told apart from the answer TO it. nil when nothing had served yet.
+    var modelBeforeCommand: String?
     /// When each model FIRST served a main-chain turn after the newest `/model` command, which is a
     /// different question from `lastMainChainEventAt` and the one the adoption notice needs.
     ///
@@ -480,8 +483,10 @@ struct TranscriptWatcher {
             if line.contains(nativeModelCommandTag), !line.contains("\"isSidechain\":true"),
                let ts = lineTimestamp(line), ts >= since {
                 lastModelCommandAt = ts
-                // A new question: what confirmed the PREVIOUS one says nothing about this one.
+                // A new question: what confirmed the PREVIOUS one says nothing about this one, and
+                // the model to compare against from here on is the one serving at THIS command.
                 modelConfirmations.removeAll()
+                modelBeforeCommand = lastModel
             }
             if line.contains(nativeModelStdoutPrefix),
                let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))

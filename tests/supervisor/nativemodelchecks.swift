@@ -159,6 +159,58 @@ func runNativeModelChecks() {
     batchState.expireAdoption(lastUserTurnAt: batched.lastUserTurnAt)
     check("…and the prompt already in that same chunk takes it down on this very tick",
           batchState.adopted == nil)
+    // THE SAME CHUNK, WITH A REAL DEGRADATION AT THE END OF IT. This is the case that makes the
+    // choice of model load-bearing rather than cosmetic: the user picks Opus, it answers, they ask
+    // something else, and the flagship window runs dry mid-answer so Haiku serves it. Read off the
+    // newest event in the chunk, the adoption pinned HAIKU as the user's choice - and a pin is what
+    // the session is expected to run, so from that moment the degradation rescue read the fallback
+    // as correct and never fired again for the rest of the session (review, 2026-08-07).
+    let degradedAfter = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
+        + [servedLine("claude-opus-4-8", at: 60),
+           userLine(90, uuid: "u-more", text: "now the other thing"),
+           servedLine("claude-haiku-4-5", at: 120)])
+    var degradedState = freshState()
+    var degradedFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "high"])
+    check("the choice adopted is the one that ANSWERED the command",
+          adoptNativeModelChoice(state: &degradedState, follow: &degradedFollow,
+                                 watcher: degradedAfter, primaryModel: "fable",
+                                 launchArgs: ["--model", "fable", "--effort", "high"],
+                                 now: launch.addingTimeInterval(200), log: testAuditLog)
+              && degradedState.pin.model == "claude-opus-4-8")
+    check("…not the quota fallback that served a later turn in the same chunk",
+          degradedAfter.lastModel == "claude-haiku-4-5")
+    check("…and the notice is stamped with that answer, not with the fallback",
+          degradedState.adoptedAt == launch.addingTimeInterval(60))
+    degradedState.expireAdoption(lastUserTurnAt: degradedAfter.lastUserTurnAt)
+    check("…so the prompt between them still takes the badge down", degradedState.adopted == nil)
+    // The whole point of getting the model right: the session is expected to run Opus, Haiku is
+    // serving, and that difference is what the rescue acts on. Pinning Haiku would have erased it.
+    check("…and the degradation is still a degradation the rescue can see", {
+        let primary = sessionPrimaryModel(pin: degradedState.pin,
+                                          launchArgs: ["--model", "fable"],
+                                          providerID: "claude", policy: LaunchPolicy())
+        return primary == "claude-opus-4-8"
+            && modelsAgree(degradedAfter.lastModel, primary) == false
+    }())
+
+    // A REPLY STILL IN FLIGHT when the command lands finishes after it, so the earliest post-command
+    // turn can be the OLD model. It is dropped by comparing against what was serving at the command
+    // line itself - the tense guard from the other side.
+    let inFlight = watcherAfterScanning([servedLine("claude-fable-5", at: 10)]
+        + modelCommandLines(at: 30, effort: "xhigh")
+        + [servedLine("claude-fable-5", at: 40), servedLine("claude-opus-4-8", at: 60)])
+    check("the model serving at the command is remembered",
+          inFlight.modelBeforeCommand == "claude-fable-5")
+    var inFlightState = freshState()
+    var inFlightFollow = FollowState(launchArgs: ["--model", "claude-fable-5"])
+    _ = adoptNativeModelChoice(state: &inFlightState, follow: &inFlightFollow, watcher: inFlight,
+                               primaryModel: "claude-fable-5",
+                               launchArgs: ["--model", "claude-fable-5"],
+                               now: launch.addingTimeInterval(200), log: testAuditLog)
+    check("…so a straggling turn on it is not read as the answer",
+          inFlightState.pin.model == "claude-opus-4-8"
+              && inFlightState.adoptedAt == launch.addingTimeInterval(60))
+
     // A NEWER command asks the question again, so what confirmed the previous one is not evidence
     // for it: the map is cleared rather than kept.
     let recommanded = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")

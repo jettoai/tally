@@ -27,25 +27,71 @@ let testAuditLog = FileManager.default.temporaryDirectory
 ///
 /// It used to be `session`, and the marker asserted against was a model pair - both of which a real
 /// conversation can legitimately produce, so the check could go red on an honest log and, worse,
-/// could not see a leak that happened to carry neither string (review, 2026-08-07). A pid and a
-/// clock make it something no real session can be, which is what a sentinel has to be to mean
-/// anything. Long enough that `String(prefix(8))` - what the log lines carry - is still unique.
-let testFixtureSessionID = "tf\(getpid())x\(UInt32(Date().timeIntervalSince1970) % 100_000)"
+/// could not see a leak that happened to carry neither string (review, 2026-08-07).
+///
+/// THE ENTROPY HAS TO LAND IN THE CHARACTERS THAT ARE RECORDED. A log line carries
+/// `String(sessionID.prefix(8))` and nothing more, so a sentinel built as `tf<pid>x<clock>` spent
+/// all eight on the constant and the pid - two runs minutes apart, or a reused pid meeting a
+/// leftover line, produced the same marker and the check could go red on a leak that was not this
+/// run's (review, 2026-08-07). So the random part comes FIRST and is sized to fill what survives:
+/// two letters of provenance, then six base-36 digits drawn from a range that cannot be shorter.
+///
+/// `tf` also keeps it out of the space of real ids: a Claude Code transcript is named for a UUID,
+/// whose characters are hex, and `t` is not one of them.
+func makeFixtureSessionID() -> String {
+    // 36^5 ..< 36^6: every draw is exactly six base-36 digits, so none of them is padded away.
+    "tf" + String(UInt64.random(in: 60_466_176 ..< 2_176_782_336), radix: 36)
+}
+
+let testFixtureSessionID = makeFixtureSessionID()
 
 /// The 8 characters of it that reach a log line, which is what the assertions grep for.
 let testAuditFixtureMarker = "session=\(testFixtureSessionID.prefix(8))"
+
+/// What every fixture in every suite writes into a `session=` field, this run's and any other's.
+/// Broader than the sentinel on purpose: the sentinel says "THIS run leaked", these say "a test
+/// leaked", and the added-line check below wants both answers.
+let testFixtureSessionShapes = ["session=tf", "session=session ", "session=parent "]
 
 /// The user's own audit log, asked about rather than written to.
 let realAuditLog = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent(".tally/handoff.log")
 
-/// Its size and line count BEFORE anything in this suite runs. The primary judgement is this pair
-/// being unchanged at the end: a sentinel string can only catch a leak that carries it, while a
-/// byte count catches every write there is, including one from a path nobody thought about.
-let realAuditBaseline: (bytes: Int, lines: Int) = {
-    let text = (try? String(contentsOf: realAuditLog, encoding: .utf8)) ?? ""
-    return (text.utf8.count, text.split(separator: "\n", omittingEmptySubsequences: false).count)
+/// How long it was BEFORE anything in this suite ran, so the end can read exactly what was appended
+/// while the suite was running.
+///
+/// WHY NOT "THE FILE IS UNCHANGED", which is what this used to assert. That file is SHARED: on this
+/// machine a real supervisor is always resident, and a handoff, a drift episode or a reload during
+/// the twenty seconds the suite takes appends a legitimate line to it. The assertion was therefore
+/// not a fact about the suite at all - it was a fact about whether the user happened to switch
+/// accounts while it ran (review, 2026-08-07). No amount of care makes it obtainable: the property
+/// "nobody else wrote here" cannot be established by the process that is not the only writer.
+///
+/// So the judgement is narrowed to what IS about this suite - were any of the lines added while it
+/// ran written BY it - and the general "no path leaks anywhere" guarantee moves to where it can
+/// actually be enforced: `appendHandoffLine` has no default sink, so the compiler requires every
+/// call site to name one, and the source scans in the fork and safeguard checks pin the paths that
+/// must not reach a terminal or a shared file at all.
+let realAuditOffset: UInt64 = {
+    (try? FileHandle(forReadingFrom: realAuditLog).seekToEnd()) ?? 0
 }()
+
+/// The lines appended to a log since `offset`, or nil when the file cannot be read from there (it
+/// was rotated or truncated under us, which is not a leak and must not read as one).
+func auditLinesAdded(to log: URL, since offset: UInt64) -> String? {
+    guard let handle = try? FileHandle(forReadingFrom: log) else { return offset == 0 ? "" : nil }
+    defer { try? handle.close() }
+    guard let end = try? handle.seekToEnd(), end >= offset else { return nil }
+    try? handle.seek(toOffset: offset)
+    return String(data: handle.readDataToEndOfFile(), encoding: .utf8)
+}
+
+/// Whether the lines a run added to a shared log are all somebody else's. Pure, so the two cases
+/// that matter - a real supervisor writing while the suite runs, and the suite writing at all - can
+/// both be asserted without either one having to actually happen.
+func auditAdditionsAreClean(_ added: String, sentinel: String) -> Bool {
+    !added.contains(sentinel) && !testFixtureSessionShapes.contains { added.contains($0) }
+}
 
 func watcherAfterScanning(_ lines: [String]) -> TranscriptWatcher {
     let dir = FileManager.default.temporaryDirectory
@@ -528,16 +574,35 @@ func runAuditSinkChecks() {
     check("the suite's audit lines land in its own sink",
           written.contains(testAuditFixtureMarker) && written.contains("model-pin=adopted"))
     check("…and the fork report with them", written.contains("fork=ambiguous"))
-    // THE PRIMARY JUDGEMENT: the user's own file is exactly as it was. A count catches every write,
-    // including one carrying no sentinel at all - which is the half a marker can never see.
-    let real = (try? String(contentsOf: realAuditLog, encoding: .utf8)) ?? ""
-    let lines = real.split(separator: "\n", omittingEmptySubsequences: false).count
-    check("and the user's own audit log gained nothing at all",
-          real.utf8.count == realAuditBaseline.bytes && lines == realAuditBaseline.lines)
-    // The locator, for when it did: this run's sentinel is a pid and a clock, so a hit names the
-    // leak rather than merely proving one. A real conversation cannot produce it.
-    check("…and carries none of this run's fixture lines",
-          !real.contains(testAuditFixtureMarker))
+    // THE PRIMARY JUDGEMENT: of the lines the user's own log gained while this suite ran, none was
+    // written by it. Narrower than "it gained nothing" for a reason that cannot be engineered away
+    // (see `realAuditOffset`): a resident supervisor shares that file and appends to it legitimately
+    // while the suite runs.
+    let added = auditLinesAdded(to: realAuditLog, since: realAuditOffset)
+    check("the user's own audit log gained nothing this suite wrote",
+          added.map { auditAdditionsAreClean($0, sentinel: testAuditFixtureMarker) } ?? true)
+    // …and the two halves of that judgement, on synthetic input, so both are asserted whether or not
+    // either happened during this run. A real handoff landing mid-run must pass;
+    let concurrent = "2026-08-07T05:00:00Z session=9f2a1c04 pid=4242 Claude->Claude 2 "
+        + "reason=manual-switch cwd=/Users/x/work\n"
+    check("a real supervisor writing while the suite runs is not a leak",
+          auditAdditionsAreClean(concurrent, sentinel: testAuditFixtureMarker))
+    // …and anything this run wrote must not, whichever fixture wrote it.
+    check("a line from this run's fixtures is",
+          !auditAdditionsAreClean(concurrent + "… \(testAuditFixtureMarker) model-pin=adopted\n",
+                                  sentinel: testAuditFixtureMarker))
+    check("…as is one from a fixture that predates this run's naming",
+          !auditAdditionsAreClean("2026-08-04T06:07:12Z session=session safeguard-restore=queued\n",
+                                  sentinel: testAuditFixtureMarker))
+
+    // THE SENTINEL ITSELF has to be new every run, and new in the eight characters a log line keeps:
+    // everything past `prefix(8)` is thrown away by the writer, so entropy spent there is not spent
+    // at all (review, 2026-08-07). Thirty-two draws rather than two: a composition whose variable
+    // part is one character over would pass a pair often enough to look fine.
+    let drawn = Set((0 ..< 32).map { _ in String(makeFixtureSessionID().prefix(8)) })
+    check("every sentinel differs in the characters a log line actually records", drawn.count == 32)
+    check("…and is eight characters long, so none of it is thrown away",
+          testFixtureSessionID.count >= 8)
     try? FileManager.default.removeItem(at: testAuditLog)
 }
 

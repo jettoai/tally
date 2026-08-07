@@ -172,8 +172,39 @@ struct TranscriptWatcher {
     ///
     /// Cleared by a newer `/model`, which asks the question again.
     var modelConfirmation: (model: String, at: Date)?
-    /// Real model events served since the newest `/model` without answering it, and whether the
-    /// canary has already been written for this command (`unanchoredConfirmationLimit`).
+    /// The turn that LOOKS like the answer, held until the transcript has finished saying what
+    /// happened in it.
+    ///
+    /// A confirmation cannot be settled when it arrives, and the reason is an ordering fact rather
+    /// than a preference: when the API falls a request onto another model, Claude Code writes the
+    /// assistant records FIRST and the `model_refusal_fallback` system record after them. Deciding
+    /// at arrival therefore reads the fallback before the evidence that it was one, pins it as the
+    /// user's choice, and blinds the degradation rescue for the rest of the session - the very hole
+    /// the fallback check was added to close, reached one record earlier (守門審, 2026-08-07).
+    ///
+    /// So the candidate waits for its turn to be OVER. The signal is structural rather than timed:
+    /// the next turn's root appearing means the previous turn has stopped writing, and by then any
+    /// flag belonging to it has landed. THE COST, stated plainly: a `/model` answered by one turn
+    /// and then silence is adopted late - at the user's next turn rather than at that answer. Late
+    /// is the direction this whole feature fails in on purpose; the pin is what a session is
+    /// expected to run, and a wrong one cannot be noticed by anything downstream.
+    var pendingConfirmation: (model: String, at: Date, root: TurnRoot)?
+    /// How many events this watcher has placed in a turn, which is the file position everything
+    /// about "after the command" is judged by (`TurnRoot.seq`). Monotonic by construction, unlike
+    /// the timestamps in the file.
+    var scanSeq = 0
+    /// Where the newest `/model` sits in that order. nil until one is seen.
+    var commandSeq: Int?
+    /// Flags seen since that command, not just the newest: two fallbacks inside one command's window
+    /// are possible, and comparing a candidate against only the last one lets the earlier turn
+    /// through (守門審, 2026-08-07). Bounded by the reset on every new command.
+    var flagsSinceCommand: [SafeguardFlag] = []
+    /// Whether an unresolved turn is EXPECTED right now rather than a symptom: the events at the top
+    /// of a file this conversation has just moved to have parents that were never in this map.
+    var anchorGraceAfterMove = false
+    /// Real model events served since the newest `/model` whose turn could not be resolved at all,
+    /// and whether the canary has already been written for this command
+    /// (`unanchoredConfirmationLimit`).
     var unanchoredServed = 0
     var anchorLossReported = false
     /// Where this watcher's own audit lines go (the ambiguous-fork report, TranscriptFork.swift).
@@ -243,22 +274,28 @@ struct TranscriptWatcher {
 
     /// Store a user prompt under its uuid, evicting the oldest past the capacity. Re-seen uuids keep
     /// their place (the text does not change), so the FIFO tracks distinct recent messages.
-    /// Whether the turn that just answered was served by a model the API had ALREADY fallen this
-    /// session onto, rather than by the one the user picked.
+    /// Decide the held candidate now that its turn is over: it becomes the answer, or it is dropped
+    /// and the wait goes on.
     ///
-    /// The hole this closes is the one the adoption's own comment admits: a `/model` choosing a
-    /// model whose window is spent gets its first fresh turn served by the fallback, the fallback is
-    /// what the transcript says, and adopting it makes the fallback the model this session is
-    /// EXPECTED to run - which is the one thing that stops the degradation rescue from ever seeing a
-    /// difference again. The three conditions together are what make it recognisable rather than
-    /// guessed: the API said so itself (`model_refusal_fallback`), it said so inside the window
-    /// between the command and this answer, and the model it named is the one now serving.
+    /// DROPPED when the API says it served that turn on a model of its own choosing. A `/model`
+    /// naming a model whose window is spent gets its first fresh turn served by the fallback, and
+    /// adopting that makes the fallback what this session is EXPECTED to run - which is the one
+    /// thing that stops the degradation rescue from ever seeing a difference again. Two conditions,
+    /// not three: the API said so itself (`model_refusal_fallback`) at some point since the command,
+    /// and the model it named is the one this candidate carries.
     ///
-    /// Deferring is safe in the direction that matters: the answer is not thrown away, it is left to
-    /// the next turn, and a late adoption costs a badge while a wrong one costs the rescue.
-    func confirmationIsFallbackServed(model: String, at when: Date, commandAt: Date) -> Bool {
-        guard let flag = lastFlag, flag.at >= commandAt, flag.at <= when else { return false }
-        return modelsAgree(model, flag.to)
+    /// The upper bound the arrival-time version had - the flag must predate the answer - is exactly
+    /// what made it useless: the flag is written AFTER the records it explains. Judging at the end
+    /// of the turn is what lets both orders work, and the remaining looseness (a flag from a later
+    /// turn naming the same model) errs toward waiting, which is the safe direction.
+    ///
+    /// EVERY flag since the command is considered, not the newest one: a window holding two
+    /// fallbacks would otherwise clear a candidate the earlier one disqualifies.
+    mutating func settlePendingConfirmation() {
+        guard let pending = pendingConfirmation, modelConfirmation == nil else { return }
+        pendingConfirmation = nil
+        if flagsSinceCommand.contains(where: { modelsAgree(pending.model, $0.to) }) { return }
+        modelConfirmation = (pending.model, pending.at)
     }
 
     /// A request was served while a `/model` was still waiting for its answer. Counted, and said out
@@ -475,11 +512,22 @@ struct TranscriptWatcher {
             // started, evicting the live ones, and an event whose root is missing is treated as
             // unresolvable anyway - which is the correct answer for a turn that began before the
             // watcher did (TranscriptSignals.swift states the model).
-            var turnRoot: Date?
+            var turnRoot: TurnRoot?
             if !line.contains("\"isSidechain\":true"), let uuid = lineUUID(line),
                let ts = lineTimestamp(line), ts >= since {
+                let startsTurn = lineStartsTurn(line)
+                scanSeq += 1
                 turnRoot = turnRoots.record(uuid: uuid, parent: lineParentUUID(line),
-                                            startsTurn: lineStartsTurn(line), at: ts)
+                                            startsTurn: startsTurn, at: ts, seq: scanSeq)
+                // The first turn placed in the new file ends the post-move grace: from here on an
+                // unresolved chain is a symptom rather than an expected consequence of the move.
+                if turnRoot != nil { anchorGraceAfterMove = false }
+                // A NEW turn starting is the transcript saying the previous one is finished, which
+                // is when a held candidate can be judged: anything the API had to say about that
+                // turn has been written by now (`pendingConfirmation`).
+                if startsTurn, let root = turnRoot, pendingConfirmation?.root.seq != root.seq {
+                    settlePendingConfirmation()
+                }
             }
             // Track the ACTUAL serving model, with three guards learned from a live misfire
             // (2026-07-19: a continued session replays its whole history, whose old lines and
@@ -498,12 +546,25 @@ struct TranscriptWatcher {
                     // (`modelConfirmation` states the whole rule). A root that will not resolve is
                     // not an answer: the wait continues, because a late adoption costs a badge and a
                     // wrong one costs the degradation rescue for the rest of the session.
-                    if let commandAt = lastModelCommandAt, modelConfirmation == nil {
-                        if let turnRoot, turnRoot >= commandAt,
-                           !confirmationIsFallbackServed(model: model, at: ts, commandAt: commandAt) {
-                            modelConfirmation = (model, ts)
-                        } else {
-                            noteUnanchoredService(commandAt: commandAt)
+                    if let commandSeq, modelConfirmation == nil, pendingConfirmation == nil {
+                        // POSITION, not time: a transcript's stamps are not monotonic, and a
+                        // command stamped earlier than a turn already running would otherwise hand
+                        // that turn's tail back as the answer (`TurnRoot.seq`).
+                        if let turnRoot, turnRoot.seq > commandSeq {
+                            // HELD, not decided: what the API did to this turn may still be a
+                            // record or two away (`pendingConfirmation`).
+                            pendingConfirmation = (model, ts, turnRoot)
+                        } else if turnRoot == nil, !anchorGraceAfterMove, turnRoots.evicted == 0 {
+                            // THE ONLY THING THE CANARY IS ABOUT: a chain that will not resolve
+                            // when it should, which is what a format drift looks like. Three ways
+                            // to fail to resolve are EXPECTED and excluded by the guard above, all
+                            // of them found by review (守門審, 2026-08-07): a turn longer than the
+                            // map's capacity has lost its own root (`evicted`), the first events
+                            // after a move have parents from a file this map no longer describes
+                            // (`anchorGraceAfterMove`), and a candidate deliberately held is not
+                            // unresolved at all (it never reaches here). What remains is a chain
+                            // that should have resolved and did not.
+                            noteUnanchoredService(commandAt: lastModelCommandAt ?? .distantPast)
                         }
                     }
                 }
@@ -551,9 +612,16 @@ struct TranscriptWatcher {
                lineIsCommandRecord(line, opening: nativeModelCommandOpening),
                let ts = lineTimestamp(line), ts >= since {
                 lastModelCommandAt = ts
-                // A new question: what answered the PREVIOUS one says nothing about this one, and
-                // the canary starts counting again.
+                // WHERE it sits, which is what every later "after the command" test compares
+                // against: the stamp above is for display and for the badge, and a transcript's
+                // stamps do not run in order (`TurnRoot.seq`).
+                commandSeq = scanSeq
+                // A new question: what answered the PREVIOUS one says nothing about this one, a
+                // candidate held for it is not held for this, the flags that explained it belong to
+                // it, and the canary starts counting again.
                 modelConfirmation = nil
+                pendingConfirmation = nil
+                flagsSinceCommand.removeAll()
                 unanchoredServed = 0
                 anchorLossReported = false
             }
@@ -576,9 +644,16 @@ struct TranscriptWatcher {
                let to = object["fallbackModel"] as? String,
                let category = object["apiRefusalCategory"] as? String,
                let when = (object["timestamp"] as? String).flatMap(parseISO), when >= since {
-                lastFlag = SafeguardFlag(at: when, from: from, to: to, category: category,
+                let flag = SafeguardFlag(at: when, from: from, to: to, category: category,
                                          refusedUUID: object["refusedUserMessageUuid"] as? String,
                                          uuid: object["uuid"] as? String)
+                lastFlag = flag
+                // ALL of them since the command, not just the newest: two fallbacks inside one
+                // command's window are possible, and a candidate compared against only the last one
+                // walks through the earlier one (守門審, 2026-08-07). Bounded by the reset a new
+                // command performs, and by the handful of refusals a session can produce between
+                // two turns.
+                if lastModelCommandAt != nil { flagsSinceCommand.append(flag) }
             }
             guard line.contains("\"isApiErrorMessage\":true") else { continue }
             guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],

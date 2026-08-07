@@ -41,18 +41,44 @@ func lineParentUUID(_ line: Substring) -> String? {
     return value.isEmpty ? nil : value
 }
 
-/// Which exchange each event belongs to, kept as "event uuid -> the timestamp of the user event its
-/// chain starts at". Bounded and insertion-ordered, exactly like the excerpt map next door.
+/// Where a turn started, in the two ways this feature needs to know.
+struct TurnRoot: Equatable {
+    /// The root user event's own timestamp, for the places that want a moment (the badge's stamp).
+    let at: Date
+    /// WHERE IN THE FILE it was read, which is what "after the command" is actually judged by.
+    ///
+    /// Timestamps in a transcript are NOT monotonic, and not by a little: around a compaction this
+    /// machine's corpus holds a summary stamped 07:01:11 followed by a command record stamped
+    /// 06:58:54 - two minutes and seventeen seconds EARLIER (corpus probe, 2026-08-07). Compared by
+    /// time, a command whose stamp is deflated like that reads as older than a turn that was already
+    /// running when it was typed, and that turn's tail then qualifies as its answer: the exact
+    /// failure this anchor exists to prevent, re-entered through the clock.
+    ///
+    /// A transcript is APPEND-ordered, so "was this turn started after the command was written" is a
+    /// question about position - and position is what the scan already has, since it reads lines in
+    /// order. No later stamp can rewrite it.
+    let seq: Int
+}
+
+/// Which exchange each event belongs to, kept as "event uuid -> where its chain starts". Bounded and
+/// insertion-ordered, exactly like the excerpt map next door.
 struct TurnRoots {
-    private(set) var roots: [String: Date] = [:]
+    private(set) var roots: [String: TurnRoot] = [:]
     private var order: [String] = []
+    /// How many entries have been dropped to stay inside the cap. A turn longer than the cap loses
+    /// its own root and every later event in it then resolves to nothing - correct (nothing is
+    /// adopted) but EXPECTED, so the canary must not read it as a format drift.
+    private(set) var evicted = 0
 
     /// Record where `uuid` sits, and answer with the root it resolved to.
     ///
     /// Three cases, and they are the whole model:
     ///  - a user event that is NOT a tool_result STARTS a turn, so it is its own root. Every shape
-    ///    qualifies - a typed prompt, a queued one, a skill expansion, a task notification - because
-    ///    what a turn is for is not the question here; whether a request came after the command is.
+    ///    qualifies - a typed prompt, a queued one, a skill expansion, a task notification, and an
+    ///    auto-compact summary (rare, and a sampling once concluded it never happens; this machine's
+    ///    corpus has one, and it is harmless: a reply rooted at a summary is still a reply, and what
+    ///    it carries is still the model that served it) - because what a turn is FOR is not the
+    ///    question here; whether a request came after the command is.
     ///  - a tool_result is a continuation, so it inherits its parent's root. It carries the arrival
     ///    time of a tool call, which is why it must never be read as the start of anything: that
     ///    timestamp is what made a stale turn's tail look fresh.
@@ -63,13 +89,16 @@ struct TurnRoots {
     /// and is NOT recorded: a chain with a hole in it must stay unresolvable rather than silently
     /// re-rooting the rest of the turn at the first event this scan happened to see.
     @discardableResult
-    mutating func record(uuid: String, parent: String?, startsTurn: Bool, at when: Date) -> Date? {
-        let root: Date? = startsTurn ? when : parent.flatMap { roots[$0] }
+    mutating func record(uuid: String, parent: String?, startsTurn: Bool, at when: Date,
+                         seq: Int) -> TurnRoot? {
+        let root: TurnRoot? = startsTurn ? TurnRoot(at: when, seq: seq)
+            : parent.flatMap { roots[$0] }
         guard let root else { return nil }
         if roots.updateValue(root, forKey: uuid) == nil {
             order.append(uuid)
             if order.count > turnRootCapacity {
                 roots.removeValue(forKey: order.removeFirst())
+                evicted += 1
             }
         }
         return root

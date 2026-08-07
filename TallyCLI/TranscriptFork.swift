@@ -188,6 +188,11 @@ extension TranscriptWatcher {
         // pinning a model nobody chose here.
         turnRoots = TurnRoots()
         modelConfirmation = nil
+        pendingConfirmation = nil
+        // The first events in the new file hang off parents this map has never seen, so they cannot
+        // resolve - which is expected here and must not read as the format drift the canary watches
+        // for (`anchorGraceAfterMove`, TranscriptWatcher.swift).
+        anchorGraceAfterMove = true
         unanchoredServed = 0
         anchorLossReported = false
     }

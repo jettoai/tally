@@ -82,6 +82,14 @@ func runNativeModelChecks() {
         [userLine(askedAt, uuid: "u-\(id)", text: text),
          servedLine(model, at: servedAt, uuid: "a-\(id)", parent: "u-\(id)")]
     }
+    /// The next turn OPENING, and nothing more: a bare prompt with no answer yet. Fixtures that
+    /// assert a confirmation end with one, because that is what settles a held candidate - the
+    /// transcript saying the turn it belonged to is over (`pendingConfirmation`,
+    /// TranscriptWatcher.swift). A conversation always has one; a fixture stopping at the answer
+    /// describes a session frozen mid-sentence.
+    func nextTurnOpens(at offset: TimeInterval, id: String = "closer") -> [String] {
+        [userLine(offset, uuid: "u-\(id)", text: "and then?")]
+    }
     /// A tool_result and the assistant event that follows it: the shape of a turn's TAIL, which
     /// arrives whenever the tool call returns and carries that arrival as its timestamp. It inherits
     /// the root of the turn it belongs to, which is the whole reason a late tail cannot answer a
@@ -93,7 +101,8 @@ func runNativeModelChecks() {
     }
 
     let typed = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
-        + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-opus-4-8", id: "typed"))
+        + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-opus-4-8", id: "typed")
+        + nextTurnOpens(at: 80))
     check("a post-launch /model is noticed, with the effort it printed",
           typed.lastModelCommandAt == launch.addingTimeInterval(30)
               && typed.lastModelCommandEffort == "xhigh")
@@ -168,7 +177,8 @@ func runNativeModelChecks() {
     // the badge outlives its turn exactly as it did with the poll clock (probe, 2026-08-07).
     let batched = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
         + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-opus-4-8", id: "b1")
-        + answeredTurn(askedAt: 90, servedAt: 120, by: "claude-opus-4-8", id: "b2"))
+        + answeredTurn(askedAt: 90, servedAt: 120, by: "claude-opus-4-8", id: "b2")
+        + nextTurnOpens(at: 150))
     check("the confirmation is the turn that answered the command, not the last in the chunk",
           batched.modelConfirmation?.at == launch.addingTimeInterval(60)
               && batched.lastMainChainEventAt == launch.addingTimeInterval(120))
@@ -191,7 +201,8 @@ func runNativeModelChecks() {
     // as correct and never fired again for the rest of the session (review, 2026-08-07).
     let degradedAfter = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
         + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-opus-4-8", id: "d1")
-        + answeredTurn(askedAt: 90, servedAt: 120, by: "claude-haiku-4-5", id: "d2"))
+        + answeredTurn(askedAt: 90, servedAt: 120, by: "claude-haiku-4-5", id: "d2")
+        + nextTurnOpens(at: 150))
     var degradedState = freshState()
     var degradedFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "high"])
     check("the choice adopted is the one that ANSWERED the command",
@@ -227,7 +238,8 @@ func runNativeModelChecks() {
             // model wrote more. Its root is the prompt at 5, so no arrival time makes it eligible.
             + tailLines(of: "old", resultAt: 35, servedAt: 40, by: "claude-fable-5", id: "tail")
             + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-opus-4-8", id: "new",
-                           text: "now do the thing"))
+                           text: "now do the thing")
+            + nextTurnOpens(at: 80))
     check("the turn that answered it is the one that started after it",
           inFlight.modelConfirmation?.at == launch.addingTimeInterval(60))
     var inFlightState = freshState()
@@ -246,7 +258,8 @@ func runNativeModelChecks() {
     // was dead for the rest of the session (review, 2026-08-07).
     let repickedThenFell = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
         + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-fable-5", id: "r1")
-        + answeredTurn(askedAt: 90, servedAt: 120, by: "claude-haiku-4-5", id: "r2"))
+        + answeredTurn(askedAt: 90, servedAt: 120, by: "claude-haiku-4-5", id: "r2")
+        + nextTurnOpens(at: 150))
     var repickState = freshState()
     var repickFollow = FollowState(launchArgs: ["--model", "claude-fable-5"])
     check("re-picking the running model still adopts nothing, even with a fallback behind it",
@@ -393,7 +406,8 @@ func runNativeModelChecks() {
     // model they were degraded onto nor the one they were launched with.
     let confirmed = watcherAfterScanning([servedLine("claude-opus-4-8", at: 10)]
         + modelCommandLines(at: 30, effort: "xhigh")
-        + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-haiku-4-5", id: "settled"))
+        + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-haiku-4-5", id: "settled")
+        + nextTurnOpens(at: 80))
     var settled = freshState()
     var settledFollow = FollowState(launchArgs: ["--model", "fable"])
     check("the answer that arrives after the command is the one adopted",
@@ -410,7 +424,8 @@ func runNativeModelChecks() {
                                   watcher: watcherAfterScanning(
                                       modelCommandLines(at: 30, effort: nil)
                                           + answeredTurn(askedAt: 50, servedAt: 60,
-                                                         by: "claude-fable-5", id: "agree")),
+                                                         by: "claude-fable-5", id: "agree")
+                                          + nextTurnOpens(at: 80)),
                                   primaryModel: "fable", launchArgs: ["--model", "fable"], log: testAuditLog))
     // An effort the line did not name leaves that axis alone rather than resetting it - the same
     // thing `tally model <model>` with no effort means.
@@ -420,7 +435,8 @@ func runNativeModelChecks() {
                                watcher: watcherAfterScanning(
                                    modelCommandLines(at: 30, effort: nil)
                                        + answeredTurn(askedAt: 50, servedAt: 60,
-                                                      by: "claude-opus-4-8", id: "eff")),
+                                                      by: "claude-opus-4-8", id: "eff")
+                                       + nextTurnOpens(at: 80)),
                                primaryModel: "fable",
                                launchArgs: ["--model", "fable", "--effort", "max"], log: testAuditLog)
     check("a choice that named no effort pins only the model",
@@ -456,28 +472,40 @@ func runNativeModelChecks() {
             + modelCommandLines(at: 30, effort: "xhigh")
             + otherCommandLines("effort", at: 40)
             + tailLines(of: "t1old", resultAt: 45, servedAt: 50, by: "claude-fable-5", id: "t1tail")
-            + answeredTurn(askedAt: 60, servedAt: 70, by: "claude-opus-4-8", id: "t1new"))
+            + answeredTurn(askedAt: 60, servedAt: 70, by: "claude-opus-4-8", id: "t1new")
+            + nextTurnOpens(at: 90, id: "t1end"))
     check("T1 another command in between answers nothing",
           t1.modelConfirmation?.at == launch.addingTimeInterval(70))
     check("T1 …and the tail of the turn that was running is not the answer either",
           t1.modelConfirmation?.model == "claude-opus-4-8")
+    // …nor is it a LOST anchor. The canary is about a chain that will not resolve, which is what a
+    // format drift looks like; a turn that resolved and simply began too early is the machinery
+    // working. Counting those reported drift on ordinary sessions (守門審, 2026-08-07).
+    check("T1 …and an old turn's tail is not reported as a lost anchor",
+          t1.unanchoredServed == 0 && !t1.anchorLossReported)
 
     // T2 - /compact writes a summary as a user event with no promptSource. It starts no request, and
     // it is not somebody coming back either (P3).
     let t2 = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
         + otherCommandLines("compact", at: 40)
         + [flaggedUserLine(45, uuid: "u-sum", extra: #""isCompactSummary":true,"#)]
-        + answeredTurn(askedAt: 60, servedAt: 70, by: "claude-opus-4-8", id: "t2"))
+        + answeredTurn(askedAt: 60, servedAt: 70, by: "claude-opus-4-8", id: "t2")
+        + nextTurnOpens(at: 90, id: "t2end"))
     check("T2 the turn after a compaction is the answer",
           t2.modelConfirmation?.at == launch.addingTimeInterval(70))
+    // Asserted on its own rather than off the fixture above: what matters is that the summary never
+    // counts, and reading that off a sequence containing real prompts only proves the last one won.
     check("T2 …and an auto-compact summary is not the person coming back",
-          t2.lastUserTurnAt == launch.addingTimeInterval(60))
+          watcherAfterScanning([flaggedUserLine(45, uuid: "u-only-sum",
+                                                extra: #""isCompactSummary":true,"#)])
+              .lastUserTurnAt == nil)
 
     // T3 - /tally-model is intercepted by a hook: the reply is `<synthetic>` and no request runs.
     let t3 = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
         + otherCommandLines("tally-model", at: 40)
         + [servedLine("<synthetic>", at: 45, uuid: "a-syn", parent: "u-cmd-tally-model")]
-        + answeredTurn(askedAt: 60, servedAt: 70, by: "claude-opus-4-8", id: "t3"))
+        + answeredTurn(askedAt: 60, servedAt: 70, by: "claude-opus-4-8", id: "t3")
+        + nextTurnOpens(at: 90, id: "t3end"))
     check("T3 a synthetic reply answers nothing",
           t3.modelConfirmation?.at == launch.addingTimeInterval(70))
 
@@ -485,7 +513,8 @@ func runNativeModelChecks() {
     let t4 = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
         + answeredTurn(askedAt: 40, servedAt: 50, by: "claude-opus-4-8", id: "t4a")
         + modelCommandLines(at: 60, effort: nil)
-        + answeredTurn(askedAt: 70, servedAt: 80, by: "claude-haiku-4-5", id: "t4b"))
+        + answeredTurn(askedAt: 70, servedAt: 80, by: "claude-haiku-4-5", id: "t4b")
+        + nextTurnOpens(at: 100, id: "t4end"))
     check("T4 the newer command is answered by the turn that follows IT",
           t4.modelConfirmation?.at == launch.addingTimeInterval(80)
               && t4.modelConfirmation?.model == "claude-haiku-4-5")
@@ -495,7 +524,8 @@ func runNativeModelChecks() {
         + otherCommandLines("commit", at: 40)
         + [flaggedUserLine(41, uuid: "u-exp", extra: #""isMeta":true,"#,
                            content: #"[{"type":"text","text":"expanded"}]"#),
-           servedLine("claude-opus-4-8", at: 50, uuid: "a-exp", parent: "u-exp")])
+           servedLine("claude-opus-4-8", at: 50, uuid: "a-exp", parent: "u-exp")]
+        + nextTurnOpens(at: 80, id: "t5end"))
     check("T5 a skill expansion roots a real turn, so its reply is the answer",
           t5.modelConfirmation?.at == launch.addingTimeInterval(50))
 
@@ -503,17 +533,22 @@ func runNativeModelChecks() {
     // (L2 root), and its reply reports what the session is actually running.
     let t6 = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
         + [flaggedUserLine(40, uuid: "u-wake", extra: #""promptSource":"system","#),
-           servedLine("claude-opus-4-8", at: 50, uuid: "a-wake", parent: "u-wake")])
+           servedLine("claude-opus-4-8", at: 50, uuid: "a-wake", parent: "u-wake")]
+        + nextTurnOpens(at: 80, id: "t6end"))
     check("T6 a woken turn answers the command", t6.modelConfirmation?.at == launch.addingTimeInterval(50))
-    // The person's last action here is the `/model` they typed at 30 - deliberately counted, since
-    // typing a command IS acting - and the notification at 40 does not move it.
+    // On its own, for the same reason as T2: a notification is not the person, whatever else the
+    // transcript happens to contain. (A `/model` the user typed IS the person acting, deliberately -
+    // which is why the fixture above cannot answer this question.)
     check("T6 …without counting as the person coming back",
-          t6.lastUserTurnAt == launch.addingTimeInterval(30))
+          watcherAfterScanning([flaggedUserLine(40, uuid: "u-only-wake",
+                                                extra: #""promptSource":"system","#)])
+              .lastUserTurnAt == nil)
 
     // T7 - a prompt typed during the previous turn and sent after it.
     let t7 = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
         + [flaggedUserLine(40, uuid: "u-q", extra: #""promptSource":"queued","#),
-           servedLine("claude-opus-4-8", at: 50, uuid: "a-q", parent: "u-q")])
+           servedLine("claude-opus-4-8", at: 50, uuid: "a-q", parent: "u-q")]
+        + nextTurnOpens(at: 80, id: "t7end"))
     check("T7 a queued prompt's reply answers the command",
           t7.modelConfirmation?.at == launch.addingTimeInterval(50))
 
@@ -528,7 +563,8 @@ func runNativeModelChecks() {
         answeredTurn(askedAt: 5, servedAt: 10, by: "claude-fable-5", id: "t9old")
             + modelCommandLines(at: 30, effort: nil)
             + [userLine(40, uuid: "u-int", text: "actually, stop"),
-               servedLine("claude-opus-4-8", at: 50, uuid: "a-int", parent: "u-int")])
+               servedLine("claude-opus-4-8", at: 50, uuid: "a-int", parent: "u-int")]
+            + nextTurnOpens(at: 80, id: "t9end"))
     check("T9 an interruption's continuation is the answer",
           t9.modelConfirmation?.at == launch.addingTimeInterval(50))
 
@@ -545,11 +581,110 @@ func runNativeModelChecks() {
     let t11 = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
         + [userLine(40, uuid: "u-t11a", text: "go on"), refusal,
            servedLine("claude-haiku-4-5", at: 50, uuid: "a-t11a", parent: "u-t11a")]
-        + answeredTurn(askedAt: 60, servedAt: 70, by: "claude-opus-4-8", id: "t11b"))
+        + answeredTurn(askedAt: 60, servedAt: 70, by: "claude-opus-4-8", id: "t11b")
+        + nextTurnOpens(at: 100, id: "t11end"))
     check("T11 a turn the API fell back on does not answer the command",
           t11.modelConfirmation?.model == "claude-opus-4-8")
     check("T11 …the answer waits for the next turn instead",
           t11.modelConfirmation?.at == launch.addingTimeInterval(70))
+
+    // T11b - THE REAL WRITE ORDER, which is what T11's fixture got wrong: Claude Code writes the
+    // assistant records of a fallback-served turn FIRST and the `model_refusal_fallback` system
+    // record AFTER them. A candidate decided when it arrives therefore reads the fallback before the
+    // evidence that it was one (守門審, 2026-08-07). Holding it until the turn is over is what makes
+    // both orders work.
+    let lateFlag = #"{"parentUuid":"u-t11c","isSidechain":false,"type":"system","subtype":"model_refusal_fallback","originalModel":"claude-opus-4-8","fallbackModel":"claude-haiku-4-5","apiRefusalCategory":"cyber","uuid":"f-late","timestamp":"\#(stamp(55))"}"#
+    let t11c = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
+        + [userLine(40, uuid: "u-t11c", text: "go on"),
+           servedLine("claude-haiku-4-5", at: 50, uuid: "a-t11c", parent: "u-t11c"),
+           lateFlag]
+        + answeredTurn(askedAt: 60, servedAt: 70, by: "claude-opus-4-8", id: "t11d")
+        + nextTurnOpens(at: 100, id: "t11cend"))
+    check("T11b a flag written AFTER the turn it explains still disqualifies that turn",
+          t11c.modelConfirmation?.model == "claude-opus-4-8"
+              && t11c.modelConfirmation?.at == launch.addingTimeInterval(70))
+
+    // T11c - the ordinary case the holding must not break: no flag ever comes, and the candidate is
+    // settled by the next turn opening. Late by one turn, never absent.
+    let noFlag = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
+        + answeredTurn(askedAt: 40, servedAt: 50, by: "claude-opus-4-8", id: "t11e"))
+    check("T11c a candidate with no next turn behind it is still held",
+          noFlag.modelConfirmation == nil && noFlag.pendingConfirmation?.at == launch.addingTimeInterval(50))
+    let settledByNext = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
+        + answeredTurn(askedAt: 40, servedAt: 50, by: "claude-opus-4-8", id: "t11f")
+        + nextTurnOpens(at: 80, id: "t11fend"))
+    check("T11c …and the next turn opening settles it, flag or no flag",
+          settledByNext.modelConfirmation?.at == launch.addingTimeInterval(50)
+              && settledByNext.pendingConfirmation == nil)
+
+    // T11d - the canary is about a LOST anchor, not about a deliberate wait: a fallback turn writing
+    // more than a handful of assistant records used to report a format drift that had not happened.
+    let chatty = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
+        + [userLine(40, uuid: "u-chat", text: "go on")]
+        + (1 ... unanchoredConfirmationLimit + 2).map { i in
+            servedLine("claude-haiku-4-5", at: 40 + Double(i),
+                       uuid: "a-chat-\(i)", parent: "u-chat")
+        }, sink: testAuditLog)
+    check("T11d a resolved turn never counts against the canary, however many records it writes",
+          chatty.unanchoredServed == 0 && !chatty.anchorLossReported)
+
+    // T15 - THE CLOCK CANNOT BE TRUSTED. A transcript's stamps are not monotonic: around a
+    // compaction this machine's corpus has a command record stamped two minutes EARLIER than the
+    // summary written before it. Compared by time, such a command reads as older than the turn that
+    // was already running when it was typed, and that turn's tail qualifies as the answer - the
+    // failure the whole anchor exists to prevent, re-entered through the clock. Position is what the
+    // scan compares, so the deflated stamp changes nothing.
+    let deflated = watcherAfterScanning(
+        // The turn already running, stamped LATER than the command that follows it in the file.
+        answeredTurn(askedAt: 100, servedAt: 110, by: "claude-fable-5", id: "t15old")
+            + modelCommandLines(at: 30, effort: nil)
+            + tailLines(of: "t15old", resultAt: 120, servedAt: 130, by: "claude-fable-5",
+                        id: "t15tail")
+            + answeredTurn(askedAt: 140, servedAt: 150, by: "claude-opus-4-8", id: "t15new")
+            + nextTurnOpens(at: 180, id: "t15end"))
+    check("T15 a turn written before the command is out, whatever its stamp says",
+          deflated.modelConfirmation?.model == "claude-opus-4-8")
+    check("T15 …and the answer is the turn that was written after it",
+          deflated.modelConfirmation?.at == launch.addingTimeInterval(150))
+
+    // T16 - two fallbacks inside one command's window. The newest flag names a model that has
+    // nothing to do with the candidate, and comparing against only that one lets the candidate the
+    // EARLIER flag disqualifies straight through (守門審, 2026-08-07).
+    func refusalLine(_ offset: TimeInterval, to model: String, uuid: String) -> String {
+        #"{"isSidechain":false,"type":"system","subtype":"model_refusal_fallback","originalModel":"claude-opus-4-8","fallbackModel":"\#(model)","apiRefusalCategory":"cyber","uuid":"\#(uuid)","timestamp":"\#(stamp(offset))"}"#
+    }
+    let twoFlags = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
+        + [userLine(40, uuid: "u-t16", text: "go on"),
+           servedLine("claude-haiku-4-5", at: 50, uuid: "a-t16", parent: "u-t16"),
+           refusalLine(55, to: "claude-haiku-4-5", uuid: "f-first"),
+           refusalLine(58, to: "claude-sonnet-4-5", uuid: "f-second")]
+        + answeredTurn(askedAt: 60, servedAt: 70, by: "claude-opus-4-8", id: "t16b")
+        + nextTurnOpens(at: 100, id: "t16end"))
+    check("T16 an earlier flag in the window still disqualifies the turn it explains",
+          twoFlags.modelConfirmation?.model == "claude-opus-4-8"
+              && twoFlags.modelConfirmation?.at == launch.addingTimeInterval(70))
+
+    // T17 - the canary's three EXPECTED ways to fail to resolve, which are not what it watches for.
+    // (a) a turn longer than the map: its own root is evicted, so everything after it resolves to
+    // nothing - correct, and expected.
+    let longTurn = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
+        + [userLine(40, uuid: "u-long", text: "go on")]
+        + (1 ... turnRootCapacity + 8).flatMap { i -> [String] in
+            let parent = i == 1 ? "u-long" : "a-long-\(i - 1)"
+            return
+            [#"{"parentUuid":"\#(parent)","type":"user","uuid":"t-long-\#(i)","isSidechain":false,"timestamp":"\#(stamp(40 + Double(i) / 100))","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}"#,
+             servedLine("claude-opus-4-8", at: 40 + Double(i) / 100 + 0.005,
+                        uuid: "a-long-\(i)", parent: "t-long-\(i)")]
+        }, sink: testAuditLog)
+    check("T17a a turn longer than the map evicts entries",
+          longTurn.turnRoots.evicted > 0)
+    // …and resolution survives it, which is worth knowing precisely: each entry stores the ROOT it
+    // resolved to rather than a pointer to walk, so evicting the root does not orphan the events
+    // behind it. Eviction only bites when a line's DIRECT parent is more than the capacity behind
+    // it, which a linear turn never does. The canary's guard against it is cheap insurance for the
+    // branching case rather than the everyday one.
+    check("T17a …without losing the anchor, and so without reporting one lost",
+          longTurn.unanchoredServed == 0 && !longTurn.anchorLossReported)
 
     // T12 - the chain cannot be resolved (the parent was never seen). Fail-safe: nothing is adopted,
     // and the wait continues rather than guessing.
@@ -585,7 +720,10 @@ func runNativeModelChecks() {
     // straight away: an unforced fork check only looks once the bound file has gone quiet.
     forked.write("parent.jsonl", forkedCommand(5), born: -300, wrote: 598)
     forked.write("child.jsonl", [forked.marker(own: "child", launched: "parent", at: 590)]
-        + forkedTurn(592, 594, id: "fresh", by: "claude-opus-4-8"), born: 599, wrote: 599)
+        + forkedTurn(592, 594, id: "fresh", by: "claude-opus-4-8")
+        // …and the turn after it, which is what settles the candidate (`pendingConfirmation`).
+        + [#"{"type":"user","isSidechain":false,"uuid":"u-after","timestamp":"\#(forked.stamp(596))","message":{"role":"user","content":"and then?"}}"#],
+        born: 599, wrote: 599)
     var moving = forked.watcher(pinnedTo: "parent")
     _ = moving.sawCapHit()
     check("T14 the command is seen in the file it was typed in", moving.lastModelCommandAt != nil)
@@ -598,6 +736,10 @@ func runNativeModelChecks() {
     _ = moving.sawCapHit()
     check("T14 …and the first real turn in the new file is what answers it",
           moving.modelConfirmation?.model == "claude-opus-4-8")
+    // (b) The head of a file this conversation has just moved to: those events hang off parents from
+    // a file this map no longer describes, which is expected rather than a symptom.
+    check("T14b …and the events at the top of the new file are not counted as lost anchors",
+          moving.unanchoredServed == 0 && !moving.anchorLossReported)
     check("T14 …anchored on an event from that file, with nothing left of the old one",
           moving.turnRoots.roots.keys.contains("a-fresh")
               && !moving.turnRoots.roots.keys.contains("u-cmd-old"))
@@ -632,7 +774,8 @@ func runNativeModelChecks() {
     // was typed. This is the rescue's case and it must stay the rescue's case.
     let laterDegradation = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
         + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-opus-4-8", id: "l1")
-        + answeredTurn(askedAt: 80, servedAt: 90, by: "claude-haiku-4-5", id: "l2"))
+        + answeredTurn(askedAt: 80, servedAt: 90, by: "claude-haiku-4-5", id: "l2")
+        + nextTurnOpens(at: 110))
     check("a later degradation under the SAME /model is not adopted as a second choice",
           !adoptNativeModelChoice(state: &consumed, follow: &consumedFollow,
                                   watcher: laterDegradation, primaryModel: "claude-opus-4-8",
@@ -643,7 +786,8 @@ func runNativeModelChecks() {
     let typedAgain = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
         + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-opus-4-8", id: "t1")
         + modelCommandLines(at: 90, effort: nil)
-        + answeredTurn(askedAt: 110, servedAt: 120, by: "claude-haiku-4-5", id: "t2"))
+        + answeredTurn(askedAt: 110, servedAt: 120, by: "claude-haiku-4-5", id: "t2")
+        + nextTurnOpens(at: 150))
     check("a NEWER /model is a new instruction",
           adoptNativeModelChoice(state: &consumed, follow: &consumedFollow, watcher: typedAgain,
                                  primaryModel: "claude-opus-4-8", launchArgs: ["--model", "fable"], log: testAuditLog)
@@ -656,7 +800,8 @@ func runNativeModelChecks() {
     var noop = freshState()
     var noopFollow = FollowState(launchArgs: ["--model", "fable"])
     let repicked = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
-        + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-fable-5", id: "noop"))
+        + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-fable-5", id: "noop")
+        + nextTurnOpens(at: 80))
     check("re-picking the model already running adopts nothing",
           !adoptNativeModelChoice(state: &noop, follow: &noopFollow, watcher: repicked,
                                   primaryModel: "fable", launchArgs: ["--model", "fable"], log: testAuditLog))
@@ -664,7 +809,8 @@ func runNativeModelChecks() {
           noop.servedModelCommandAt == launch.addingTimeInterval(30))
     let fallbackAfterNoop = watcherAfterScanning(modelCommandLines(at: 30, effort: nil)
         + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-fable-5", id: "n1")
-        + answeredTurn(askedAt: 80, servedAt: 90, by: "claude-haiku-4-5", id: "n2"))
+        + answeredTurn(askedAt: 80, servedAt: 90, by: "claude-haiku-4-5", id: "n2")
+        + nextTurnOpens(at: 110))
     check("…so a real fallback after it is left to the rescue, not read as that choice",
           !adoptNativeModelChoice(state: &noop, follow: &noopFollow, watcher: fallbackAfterNoop,
                                   primaryModel: "fable", launchArgs: ["--model", "fable"], log: testAuditLog)
@@ -676,7 +822,8 @@ func runNativeModelChecks() {
     // agrees" as "nothing happened" threw the parsed effort away: the child ran xhigh while the
     // next relaunch would put high back (review of c914b41).
     let depthOnly = watcherAfterScanning(modelCommandLines(at: 30, effort: "xhigh")
-        + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-fable-5", id: "depth"))
+        + answeredTurn(askedAt: 50, servedAt: 60, by: "claude-fable-5", id: "depth")
+        + nextTurnOpens(at: 80))
     var depth = freshState()
     var depthFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "high"])
     check("a /model that kept the model but moved the depth is still adopted",

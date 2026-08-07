@@ -372,4 +372,31 @@ func runSafeguardChecks() {
           !line.contains("u-trigger") && !line.contains("excerpt"))
     check("a transcript that could not be located is simply omitted",
           !plainLine.contains("transcript="))
+
+    // MARK: - The queued restore says nothing on the terminal
+
+    // Both halves of the announcement describe a restart that has NOT happened, so the child is
+    // drawing while they are written: printed, they land in the live TUI (PendingNotice.swift's
+    // rule; the same defect the `/model` adoption hit, owner screenshot 2026-08-07). The wait is
+    // already on the status line - the drift badge carries a "restoring" tail off the state written
+    // beside it - so the terminal loses nothing and the log keeps the record.
+    let cancelled = safeguardRestoreCancelledLine(sessionID: "abcdefgh12345678", event: "e-1",
+                                                  now: Date(timeIntervalSince1970: 1_800_000_000))
+    check("a withdrawn restore is recorded where it can be read back",
+          cancelled.contains(" session=abcdefgh ")
+              && cancelled.contains(" safeguard-restore=cancelled ")
+              && cancelled.contains("event=e-1"))
+    check("…as one line", cancelled.filter { $0 == "\n" }.count == 1)
+    let driftSource = (try? String(contentsOfFile: "TallyCLI/SafeguardDrift.swift",
+                                   encoding: .utf8)) ?? ""
+    check("the safeguard source is readable from the suite", !driftSource.isEmpty)
+    if let start = driftSource.range(of: "let pending = safeguardPendingTransition("),
+       let end = driftSource.range(of: "guard let restore, fuseAllows",
+                                   range: start.upperBound ..< driftSource.endIndex) {
+        let announcement = String(driftSource[start.upperBound ..< end.lowerBound])
+        check("neither announcing nor withdrawing a restore writes to the terminal",
+              !announcement.contains("warn("))
+    } else {
+        check("the announcement block was found", false)
+    }
 }

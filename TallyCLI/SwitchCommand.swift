@@ -162,8 +162,9 @@ func attemptSwitch(_ intent: SwitchIntent) -> SwitchAttempt {
     if let target, headroom(target) <= 0 {
         notes.append("\(target.label) is out of quota - pinning anyway (you asked). A hard cap "
             + "drops the session to the declared fallback model there, and hands it on (clearing "
-            + "the pin) when this account can serve none of those, when a `tally model` pin "
-            + "outranks the change, or when no fresh reading arrives to decide on")
+            + "the pin) when this account cannot comfortably serve any of them, when a `tally "
+            + "model` pin outranks the change, or when no fresh reading of it arrives in a couple "
+            + "of minutes")
     }
     sweepDeadSessionRequests(dir: switchRequestDir)
     do {
@@ -290,12 +291,14 @@ func runSwitch(args: [String]) -> Int32 {
                tally account --auto
 
         <account> pins THIS session there: it moves at the end of the current turn and STAYS,
-        overriding automatic account selection for the rest of the session. A hard cap keeps the
-        account and drops the session to the fallback model declared in Settings; it is handed on
-        (clearing the pin, and saying so) only when this account can serve none of those, when
-        `tally model` has pinned the model too (that pin wins, so the model is kept and the account
-        is not), or when no reading of the account fresh enough to decide on arrives within a
-        couple of minutes.
+        overriding automatic account selection for the rest of the session. A hard cap is answered
+        inside that decision where it can be: the session keeps the account and drops to the
+        fallback model Settings declares, provided this account can still serve one COMFORTABLY (a
+        window with a few percent left does not count). Otherwise it is handed on, which clears the
+        pin and says so - unless `tally model` has pinned the model too (that pin wins: the model is
+        kept, the account is not), or the numbers to decide on are missing, in which case it waits:
+        about two minutes for a fresh reading of this account, and for as long as it takes if Tally
+        has stopped publishing the snapshot or its own pin leaves this session nowhere to go.
         --auto releases the pin, handing the session back to automatic selection (this project's
         profile, then the app's pin or smart pick). It takes no account name.
         Run it bare in a terminal and it lists the fleet to pick from with the arrow keys; in a pipe

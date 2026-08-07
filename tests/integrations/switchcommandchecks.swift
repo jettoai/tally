@@ -110,19 +110,25 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     // the account is kept, so the pin survives every cap an account can still answer through.
     check("command says the pin is the user's to release, and a cap does not take it",
           commandProse.contains("`tally account --auto`")
-              && commandProse.contains("keeps the account and drops the session to the fallback "
-                                       + "model declared in Settings")
-              && commandProse.contains("the pin stands"))
-    // ALL THREE exceptions, because a file naming one of them reads as naming the only one. The
-    // model pin is the one an agent would never guess (it is a different command's pin deciding
-    // this command's outcome), and the stale-reading case is the one that looks like a bug when it
-    // is not: the session moves without any cap being proven, because nothing arrived to prove it.
-    check("…and names all three handoffs that do clear it",
-          commandProse.contains("can serve none of those")
-              && commandProse.contains("`tally model` has pinned the model too")
-              && commandProse.contains("fresh enough to decide on arrives within a couple of "
-                                       + "minutes"))
-    check("…and that the pin survives every cap that was not one of those three",
+              && commandProse.contains("keeps the account and drops to the fallback model "
+                                       + "Settings declares"))
+    // The COMFORT bar, spelled out. "Can serve it" is the reading an agent arrives at on its own,
+    // and it is the wrong one: an account with a few percent of a window left can technically
+    // answer, and handing a pinned session that is not a kindness.
+    check("…and that keeping the account needs room to be comfortable, not merely non-zero",
+          commandProse.contains("still serve one COMFORTABLY")
+              && commandProse.contains("a window with a few percent left does not count"))
+    // Both limits on the other branch, because a file naming one of them reads as naming the only
+    // one. The model pin is the one nobody would guess (another command's pin deciding this
+    // command's outcome), and the wait is the one that looks like a hang when it is a decision:
+    // the session sits still because the numbers to decide on have not arrived.
+    check("…and names what overrides the handoff, and what makes it wait instead",
+          commandProse.contains("`tally model` has pinned the model too (that pin wins")
+              && commandProse.contains("about two minutes for a fresh reading of this account"))
+    check("…including the wait that has no deadline, and the two things that cause it",
+          commandProse.contains("for as long as it takes if Tally has stopped publishing the "
+                                + "snapshot or its own pin leaves this session nowhere to go"))
+    check("…and that the pin survives every cap that was answered in place",
           commandProse.contains("unless the terminal said the session was handed on, the pin is "
                                 + "still there"))
     check("…and what the pin does not touch, and how long it lives",

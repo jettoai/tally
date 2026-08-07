@@ -220,16 +220,17 @@ try MainActor.assumeIsolated {
     // cap always moved the session and cleared the pin), which would have the agent telling users
     // to re-pin after every cap - advice for a system that no longer exists.
     check("…and states that a cap drops the model rather than taking the pin",
-          skillProse.contains("keeps the account and drops the session to the fallback model "
-                              + "declared in Settings")
-              && skillProse.contains("the pin stands"))
-    // All three exceptions, named. An agent that knows only the first would call the other two a
-    // bug: the model pin is another command's pin deciding this one's outcome, and the stale
-    // reading moves a session with no cap ever proven, because nothing arrived to prove it.
-    check("…and names all three handoffs that hand the session on and clear the pin",
-          skillProse.contains("can serve none of those")
-              && skillProse.contains("`tally model` has pinned the model too")
-              && skillProse.contains("within a couple of minutes")
+          skillProse.contains("keeps the account and drops to the fallback model Settings declares")
+              && skillProse.contains("still serve one COMFORTABLY")
+              && skillProse.contains("a window with a few percent left does not count"))
+    // The two limits on the other branch, named. An agent that knows only the handoff would call
+    // both of them a bug: the model pin is another command's pin deciding this one's outcome, and
+    // the wait looks like a hang when it is a decision to sit still until the numbers arrive.
+    check("…and names what overrides the handoff, and what makes it wait instead",
+          skillProse.contains("`tally model` has pinned the model too (that pin wins")
+              && skillProse.contains("about two minutes for a fresh reading of this account")
+              && skillProse.contains("for as long as it takes if Tally has stopped publishing "
+                                     + "the snapshot")
               && skillProse.contains("Do not tell them to re-pin after a cap"))
     check("skill states the three scopes in order, so the agent can answer which wins",
           skillProse.contains("a session pin beats")

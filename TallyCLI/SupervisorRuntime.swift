@@ -242,6 +242,26 @@ func logHandoff(sessionID: String?, from: String, to: String, reason: String, pi
                                      pid: pid, cwd: cwd, now: now))
 }
 
+/// The line a relaunch HELD by an unresolved fork leaves (grep `hold=unresolved-fork`): the tick
+/// stood its restart down because a new transcript here has no turn in it yet, so it cannot be told
+/// apart from the file this conversation moved to (TranscriptFork.swift).
+///
+/// A log line rather than a terminal one, which is what it used to be: this tick relaunches nothing,
+/// so the child is still drawing when it is written (PendingNotice.swift's rule). Said once per
+/// session either way - the caller latches it - and this is the only trace of a restart that was
+/// asked for and did not happen.
+func unresolvedForkHoldLine(pid: String, cwd: String, now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) hold=unresolved-fork cwd=\(cwd)\n"
+}
+
+/// The line an AMBIGUOUS fork leaves (grep `fork=ambiguous`): two transcripts continue this
+/// conversation and their mtimes tie, so the watcher keeps the file it is bound to rather than
+/// guessing. Same channel, same reason as the hold above; the session id is the one it stayed on.
+func forkAmbiguityLine(boundID: String, now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) session=\(boundID.prefix(8)) fork=ambiguous "
+        + "action=staying-on-parent\n"
+}
+
 /// Append one whole line to the shared handoff log, O_APPEND so concurrent supervisors interleave
 /// without a lock. Best-effort: a logging failure must never disturb the caller. Internal, not
 /// private: the drift writers in DriftMonitor.swift share it.

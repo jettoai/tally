@@ -66,6 +66,12 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
     // including the degradation rescue one call further down the tick - has to be judged against
     // that rather than against the command line the session was launched with. It plans no
     // relaunch, so it cannot compete with the two below for the tick's one restart.
+    // The notice it leaves is NEWS on the status line rather than a line on the terminal (that
+    // adoption is the one model-axis event with no relaunch behind it), so something that runs every
+    // tick has to take it down again - the same shape, and the same reason, as the cancelled switch
+    // one axis over (`expireCancellation`, SessionSwitch.swift). Before the adoption, so a notice
+    // raised on THIS tick is never expired by a prompt older than it.
+    model.expireAdoption(lastUserTurnAt: watcher.lastUserTurnAt)
     adoptNativeModelChoice(state: &model, follow: &follow, watcher: watcher,
                            primaryModel: primaryModel, launchArgs: launchArgs)
     // Re-derived HERE rather than by the caller, exactly as `policy` is and for the same reason:

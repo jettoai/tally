@@ -164,8 +164,9 @@ extension TranscriptWatcher {
         // first place: keep the pin and say so.
         if forks.count > 1, forks[1].modified >= newest.modified {
             if !forkAmbiguityWarned {
-                warn("two session files continue this conversation - staying on " +
-                     "\(boundID.prefix(8)); resume the right one by hand if a restart loses turns")
+                // To the log, not the terminal: this is a scan result in the middle of a tick that
+                // relaunches nothing, and the child is drawing (PendingNotice.swift's rule).
+                appendHandoffLine(forkAmbiguityLine(boundID: boundID))
                 forkAmbiguityWarned = true
             }
             return

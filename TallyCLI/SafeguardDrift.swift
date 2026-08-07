@@ -316,6 +316,15 @@ func safeguardRestoreLine(sessionID: String?, flag: SafeguardFlag, restore: Safe
 
 /// Append that line to the shared handoff log, where the relaunch it leads to is recorded too
 /// (`reason=safeguard`).
+/// The line a WITHDRAWN restore leaves (grep `safeguard-restore=cancelled`): the queued restart no
+/// longer applies, which nothing else records. Pure, and carrying no more than the announcement's
+/// own fields, so the pair reads as one episode in the log.
+func safeguardRestoreCancelledLine(sessionID: String?, event: String, now: Date = Date()) -> String {
+    let sid = sessionID.map { String($0.prefix(8)) } ?? "unknown"
+    return "\(ISO8601DateFormatter().string(from: now)) session=\(sid) "
+        + "safeguard-restore=cancelled event=\(event)\n"
+}
+
 func logSafeguardRestore(sessionID: String?, flag: SafeguardFlag, restore: SafeguardRestore,
                          transcript: URL?, now: Date = Date()) {
     appendHandoffLine(safeguardRestoreLine(sessionID: sessionID, flag: flag, restore: restore,
@@ -372,17 +381,22 @@ func applySafeguardRestore(plan: inout RelaunchPlan?, drift: inout DriftMonitor,
     if pending == .announce, let restore {
         // Before the wait rather than after it: a session in use can sit here for a long time, and
         // the whole point of the badge is that the wait is visible while it is happening.
-        let profile = restore.effort.map { "\(restore.model)/\($0)" } ?? restore.model
-        warn("safeguard fallback left this session on \(shortModelName(restore.model)) - " +
-             "restarting it on the declared \(profile) profile when it goes idle")
+        // NOT SAID ON THE TERMINAL, and the comment above is why it used to be: this announces a
+        // restart that has NOT happened yet, so the child is drawing while the line is written and
+        // it lands in the middle of the TUI (the rule in PendingNotice.swift, broken again here).
+        // Nothing is lost by dropping it - the status line already renders exactly this wait, the
+        // drift badge carrying its "restoring" tail from the state written two lines down
+        // (Statusline.swift), and the log keeps the full profile.
         logSafeguardRestore(sessionID: session, flag: flag, restore: restore,
                             transcript: watcher.file)
         writeDriftState(flag, pid: pid, restorePending: true, dir: stateDir)
         drift.markRestoreQueued()
     } else if pending == .cancel {
         // The drift itself stands (the session is still on the fallback model, so the badge keeps
-        // saying so); only the promise of a restart is withdrawn.
-        warn("safeguard restore no longer applies - leaving this session as it is")
+        // saying so); only the promise of a restart is withdrawn, which the badge shows by losing
+        // its "restoring" tail. To the LOG rather than the terminal for the same reason as the
+        // announcement above: no relaunch follows this line, so the child is drawing over it.
+        appendHandoffLine(safeguardRestoreCancelledLine(sessionID: session, event: event))
         writeDriftState(flag, pid: pid, restorePending: false, dir: stateDir)
         drift.clearRestoreQueued()
     }

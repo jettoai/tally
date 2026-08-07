@@ -64,7 +64,7 @@ func sessionPrimaryModel(pin: SessionModelPin, launchArgs: [String], providerID:
 @discardableResult
 func adoptNativeModelChoice(state: inout SessionModelState, follow: inout FollowState,
                             watcher: TranscriptWatcher, primaryModel: String?,
-                            launchArgs: [String]) -> Bool {
+                            launchArgs: [String], now: Date = Date()) -> Bool {
     guard let commandAt = watcher.lastModelCommandAt,
           // ONE EVENT, ONE ADOPTION. The marker lives as long as the child, so without this the
           // condition below stays true for every later disagreement - a real quota fallback
@@ -96,9 +96,40 @@ func adoptNativeModelChoice(state: inout SessionModelState, follow: inout Follow
     follow.adopt(model: state.pin.model ?? flagValue(launchArgs, "--model"),
                  effort: state.pin.effort ?? flagValue(launchArgs, "--effort"))
     let pinned = [state.pin.model, state.pin.effort].compactMap { $0 }.joined(separator: "/")
-    warn("adopted what you chose with `/model` as this session's pin: it runs \(pinned) until "
-        + "`tally model auto` releases it, and is no longer read as a degradation")
+    // NOT `warn`, and this is the one place on the model axis where that matters. The supervisor and
+    // the child share a tty, so stderr lands wherever the cursor is; every other message here
+    // precedes a relaunch, which redraws the screen from nothing, and this adoption deliberately
+    // performs none. Printed, it wrapped across the live TUI's input box and shoved the prompt
+    // around it (owner screenshot, 2026-08-07). The status line is where a message with no
+    // tear-down behind it belongs (PendingNotice.swift states the rule this broke).
+    //
+    // The badge is short because it shares a line with the quota meters, and it does not repeat the
+    // pair: the status line renders what the session runs already. What the user cannot see anywhere
+    // else is that this is a PIN rather than a degradation, and how to undo it - which is what the
+    // badge names and the detail spells out.
+    state.adopted = PendingBadge("/model pinned", detail: "adopted what you chose with `/model` as "
+        + "this session's pin: it runs \(pinned) until `tally model auto` releases it, and is no "
+        + "longer read as a degradation")
+    state.adoptedAt = now
+    // And a durable line, because the badge is gone the moment the user types: without it the one
+    // event that changes what a session runs without restarting it would leave no trace at all.
+    logSessionModelAdoption(pair: pinned, sessionID: watcher.file?.deletingPathExtension()
+        .lastPathComponent, now: now)
     return true
+}
+
+/// The audit line a `/model` adoption leaves in the shared handoff log (grep `model-pin=adopted`),
+/// beside the relaunches and drift episodes of the same session. Pure and separate from the append
+/// below so the format is testable: this is the only durable record of an event that changes what a
+/// session runs and restarts nothing.
+func sessionModelAdoptionLine(pair: String, sessionID: String?, now: Date) -> String {
+    let sid = sessionID.map { String($0.prefix(8)) } ?? "unknown"
+    return "\(ISO8601DateFormatter().string(from: now)) session=\(sid) model-pin=adopted "
+        + "pair=\(pair) source=/model\n"
+}
+
+func logSessionModelAdoption(pair: String, sessionID: String?, now: Date) {
+    appendHandoffLine(sessionModelAdoptionLine(pair: pair, sessionID: sessionID, now: now))
 }
 
 /// One poll tick's handling of a `tally model` request. Deliberate, so no fuse - the user asked for

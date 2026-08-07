@@ -473,4 +473,24 @@ func runForkChecks() {
           straddleWatcher.isQuiet(60))
     check("and the candidate is settled as a sibling, not left unresolved",
           !straddleWatcher.hasUnresolvedFork)
+
+    // Both of this file's messages describe a tick that relaunches NOTHING - a hold, and a scan that
+    // refused to guess - so the child is drawing while they are written and the terminal is the one
+    // place they may not go (PendingNotice.swift's rule). They are said once each either way, so the
+    // log line is the whole record.
+    let held = unresolvedForkHoldLine(pid: "4242", cwd: "/Users/x/work/my project",
+                                      now: Date(timeIntervalSince1970: 1_800_000_000))
+    check("a held restart is recorded with the session it belongs to",
+          held.contains(" pid=4242 ") && held.contains(" hold=unresolved-fork "))
+    check("…and the directory comes last, where a space in it costs nothing",
+          held.hasSuffix(" cwd=/Users/x/work/my project\n"))
+    let ambiguous = forkAmbiguityLine(boundID: "abcdefgh12345678",
+                                      now: Date(timeIntervalSince1970: 1_800_000_000))
+    check("an ambiguous fork records which conversation it stayed on",
+          ambiguous.contains(" session=abcdefgh ") && ambiguous.contains(" fork=ambiguous ")
+              && ambiguous.contains("action=staying-on-parent"))
+    let forkSource = (try? String(contentsOfFile: "TallyCLI/TranscriptFork.swift",
+                                  encoding: .utf8)) ?? ""
+    check("the fork source is readable from the suite", !forkSource.isEmpty)
+    check("and neither message reaches the shared terminal", !forkSource.contains("warn("))
 }

@@ -75,13 +75,16 @@ extension IntegrationsStore {
           model-degradation rescue, a pin moved in the Tally panel) stops moving it. That is the
           difference between this and asking again in ten minutes, so say it.
         - The pin is theirs to release (`tally account --auto`), and a hard cap no longer takes it
-          from them: hitting one keeps the account and drops the session to the fallback model
-          declared in Settings, and the pin stands. It is handed on (clearing the pin, and saying
-          so on the terminal) only when this account can serve none of those, when `tally model`
-          has pinned the model too (that pin wins, so the model is kept and the account is not),
-          or when no reading of the account fresh enough to decide on arrives within a couple of
-          minutes. So "I hit a cap" is not a reason to re-pin: unless the terminal said the
-          session was handed on, the pin is still there.
+          from them. A hard cap is answered inside that decision where it can be: the session
+          keeps the account and drops to the fallback model Settings declares, provided this
+          account can still serve one COMFORTABLY (a window with a few percent left does not
+          count). Otherwise it is handed on, which clears the pin and says so on the terminal -
+          unless `tally model` has pinned the model too (that pin wins: the model is kept, the
+          account is not), or the numbers to decide on are missing, in which case it waits: about
+          two minutes for a fresh reading of this account, and for as long as it takes if Tally
+          has stopped publishing the snapshot or its own pin leaves this session nowhere to go.
+          So "I hit a cap" is not a reason to re-pin: unless the terminal said the session was
+          handed on, the pin is still there.
         - No project profile is touched either way, and the pin dies with the session.
         - A non-zero exit means nothing was queued: no such account, a name that fits SEVERAL
           accounts (the message lists them - type one of those exactly), or a session nothing is

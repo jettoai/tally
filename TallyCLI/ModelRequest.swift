@@ -149,6 +149,37 @@ struct SessionModelState {
     /// nothing is being held. Re-derived every tick from live state, like every other badge
     /// (PendingNotice.swift), so it disappears the moment the reason does.
     var waiting: PendingBadge?
+    /// That this session's `/model` choice was taken as its pin - NEWS rather than a state, like the
+    /// cancelled switch one axis over (`ManualMoveState.cancelled`), and held for the same reason:
+    /// the thing it describes is finished by the time it is read, so nothing re-derives it.
+    ///
+    /// It is on this track at all because the adoption is the ONE model-axis event that plans no
+    /// relaunch (SessionModel.swift says why). Every other message the supervisor speaks out loud
+    /// precedes a tear-down, so stderr lands on a terminal that is about to be redrawn from
+    /// scratch; this one landed in the middle of a live TUI's input box and pushed the prompt around
+    /// it (owner screenshot, 2026-08-07). The rule was already written down in PendingNotice.swift -
+    /// "is the child about to die?" - and this was the one adoption that is not.
+    var adopted: PendingBadge?
+    /// When that news was raised, so it can stop being news. nil whenever `adopted` is.
+    var adoptedAt: Date?
+
+    /// The one badge the status line gets from this session's model axis: a live wait outranks old
+    /// news, because it is the thing that is still true (the account axis ranks its two the same
+    /// way, `ManualMoveState.badge`).
+    var badge: PendingBadge? { waiting ?? adopted }
+
+    /// The adoption notice has been READ: the user has typed since it was raised.
+    ///
+    /// THE USER, not the session, and not a timer - both for the reasons `expireCancellation`
+    /// states one axis over. The adoption happens INSIDE a turn (the `/model` picker is followed by
+    /// the answer it applies to), so "an assistant event happened since" is true seconds later and
+    /// would take the notice down before anyone saw it; a timer expires unread on a session nobody
+    /// is watching and lingers on one being worked in.
+    mutating func expireAdoption(lastUserTurnAt: Date?) {
+        guard let adoptedAt, let lastUserTurnAt, lastUserTurnAt > adoptedAt else { return }
+        adopted = nil
+        self.adoptedAt = nil
+    }
 
     /// Whether this session's own pin is in force, which is the one question the rest of the loop
     /// asks: while it is, the launch-default follow stands down (SessionModel.swift).

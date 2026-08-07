@@ -118,6 +118,73 @@ func runNativeModelChecks() {
                                   primaryModel: "claude-opus-4-8",
                                   launchArgs: ["--model", "fable"]))
 
+    // MARK: - 35c2. It is told to the STATUS LINE, never to the terminal
+
+    // THE ONE MODEL-AXIS EVENT WITH NO RELAUNCH BEHIND IT, which is what made printing it wrong: the
+    // child is drawing, so the line landed inside the live TUI's input box and pushed the prompt
+    // around it (owner screenshot, 2026-08-07). The rule was already written down one file over
+    // ("is the child about to die?", PendingNotice.swift); this was the adoption that is not.
+    var announced = freshState()
+    var announcedFollow = FollowState(launchArgs: ["--model", "fable", "--effort", "high"])
+    let raisedAt = Date(timeIntervalSince1970: 1_800_000_000)
+    _ = adoptNativeModelChoice(state: &announced, follow: &announcedFollow, watcher: typed,
+                               primaryModel: "fable",
+                               launchArgs: ["--model", "fable", "--effort", "high"], now: raisedAt)
+    check("the adoption raises a status-line badge", announced.adopted != nil)
+    check("…short, because it shares the line with the quota meters",
+          (announced.adopted?.badge.count ?? 99) <= 20)
+    // The status line already renders the pair, so the badge does not repeat it. What nothing else
+    // says is that this is a PIN rather than a degradation, and how to undo it.
+    check("…and the long form carries what the status line cannot say", {
+        let detail = announced.adopted?.detail ?? ""
+        return detail.contains("tally model auto") && detail.contains("degradation")
+            && detail.contains("claude-opus-4-8/xhigh")
+    }())
+    check("…which is the badge the rest of the loop asks for",
+          announced.badge == announced.adopted)
+    // A live wait outranks old news, the same ranking the account axis applies to its two.
+    check("…until something is actually being held, which is still true", {
+        var both = announced
+        both.waiting = PendingBadge("model at idle")
+        return both.badge?.badge == "model at idle"
+    }())
+
+    // NEWS NEEDS AN END, and a prompt is the first moment the user demonstrably has: the adoption
+    // happens inside a turn, so "an assistant event since" is true seconds later and would take the
+    // notice down before anyone saw it (`expireCancellation` states the rule one axis over).
+    var expiring = announced
+    expiring.expireAdoption(lastUserTurnAt: raisedAt.addingTimeInterval(-10))
+    check("a prompt older than the notice does not take it down", expiring.adopted != nil)
+    expiring.expireAdoption(lastUserTurnAt: nil)
+    check("nor does a session where nobody has typed since", expiring.adopted != nil)
+    expiring.expireAdoption(lastUserTurnAt: raisedAt.addingTimeInterval(10))
+    check("the user's next prompt does", expiring.adopted == nil && expiring.adoptedAt == nil)
+
+    // The badge is gone the moment they type, so the only durable record of an event that changes
+    // what a session runs and restarts nothing is the log line.
+    let logged = sessionModelAdoptionLine(pair: "claude-opus-4-8/xhigh",
+                                          sessionID: "abcdefgh12345678", now: raisedAt)
+    check("the adoption is recorded where it can be read back",
+          logged.contains(" session=abcdefgh ") && logged.contains(" model-pin=adopted ")
+              && logged.contains(" pair=claude-opus-4-8/xhigh ") && logged.hasSuffix("\n"))
+    check("…and it is one line", logged.filter { $0 == "\n" }.count == 1)
+
+    // AND THE FUNCTION ITSELF MUST NOT REACH THE TERMINAL. Asserted against the source, because the
+    // behaviour above stays green if a `warn` is added BESIDE the badge - and a `warn` beside the
+    // badge is exactly the defect: it is the printing that breaks the TUI, not the absence of a
+    // notice.
+    let modelSource = (try? String(contentsOfFile: "TallyCLI/SessionModel.swift",
+                                   encoding: .utf8)) ?? ""
+    check("the session-model source is readable from the suite", !modelSource.isEmpty)
+    if let start = modelSource.range(of: "func adoptNativeModelChoice("),
+       let end = modelSource.range(of: "func sessionModelAdoptionLine(",
+                                   range: start.upperBound ..< modelSource.endIndex) {
+        let body = String(modelSource[start.upperBound ..< end.lowerBound])
+        check("the adoption writes no line to the shared terminal", !body.contains("warn("))
+    } else {
+        check("the adoption body was found", false)
+    }
+
     // THE TENSE GUARD, and the fixture is the sequence that makes it load-bearing. `lastModel` is
     // the model that served the last answer WRITTEN DOWN, so between a /model and the next turn it
     // still holds the previous one. That is harmless while the previous one was what we expected -

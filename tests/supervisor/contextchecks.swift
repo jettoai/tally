@@ -232,19 +232,28 @@ func runSessionContextChecks() {
                 pid: livePid, dir: dir, now: at)
     check("…and an unchanged one, under the delta, is not rewritten",
           readSessionContext(pid: livePid, dir: dir)?.contextTokens == 200_100)
-    // THE PROCESS WITNESS, published beside it and for the same readers. Unlike the transcript id
-    // it cannot go stale under the session (a `/clear` does not start a new process) and cannot be
-    // shared by two of them, which is why the resolution asks it first (SwitchRequest.swift).
-    writer.sync(tokens: 300_000, accountID: "claude:.claude2", pin: nil, axes: onHaiku,
-                transcript: "conv-FIRST", child: 4242, pid: livePid, dir: dir, now: at)
-    check("the Claude Code this supervisor spawned is published",
-          readSessionContext(pid: livePid, dir: dir)?.childPID == 4242)
-    // A relaunch spawns a new child, and the reading has to follow it or every later prompt is
-    // matched against a pid that has exited.
-    writer.sync(tokens: 300_100, accountID: "claude:.claude2", pin: nil, axes: onHaiku,
-                transcript: "conv-FIRST", child: 4343, pid: livePid, dir: dir, now: at)
-    check("…and a relaunch's new child replaces it, though nothing else moved",
-          readSessionContext(pid: livePid, dir: dir)?.childPID == 4343)
+    // THE PROCESS WITNESS LIVES IN ITS OWN FILE, and that is the point of it: a reading needs a
+    // turn with usage in it before it exists at all, while which Claude Code this session is
+    // running is known at the spawn. Riding it on the reading made it arrive late, and the
+    // commonest way to reach the pickers is a bare `/tally-model` typed before the first turn
+    // (codex review of 49dcdcd).
+    let fresh = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-child-witness-\(UUID().uuidString)")
+    writeSupervisorChild(4242, pid: "5150", dir: fresh)
+    check("the Claude Code a supervisor spawned is readable with no reading published at all",
+          readSupervisorChild(pid: "5150", dir: fresh) == 4242
+              && readSessionContext(pid: "5150", dir: fresh) == nil)
+    // A relaunch spawns a new child, and the witness has to follow it or every later prompt is
+    // matched against a process that has exited.
+    writeSupervisorChild(4343, pid: "5150", dir: fresh)
+    check("…and a relaunch replaces it", readSupervisorChild(pid: "5150", dir: fresh) == 4343)
+    check("a supervisor that never published one answers nothing, not zero",
+          readSupervisorChild(pid: "9999", dir: fresh) == nil)
+    // On the swept track like every other document beside a supervisor, or a dead session's copy
+    // outlives it and answers for a pid the OS has since handed to somebody else.
+    check("the witness is swept with the rest of a dead supervisor's state",
+          supervisorStatePid(ofFile: "5150" + supervisorChildSuffix) == 5150)
+    try? FileManager.default.removeItem(at: fresh)
 
     // THE CONVERSATION WITNESS, which is a reason to write on its own: a `/clear` starts a new
     // conversation in the same session, and a published id that stayed behind would name a
@@ -266,12 +275,20 @@ func runSessionContextChecks() {
     // from the watcher's current file, and a tick that published nil would leave every session
     // witnessless while every unit here still passed.
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
-    check("the poll tick publishes the transcript it is tailing, and the child running it",
-          loop.contains("transcript: watcher.transcriptSessionID, child: Int(childPID),"))
+    check("the poll tick publishes the transcript it is tailing",
+          loop.contains("transcript: watcher.transcriptSessionID, pid: supervisorPID"))
     check("…and so does the republish a handoff makes",
           loop.contains("transcript: watcher.transcriptSessionID,\n"
-              + "                                              child: Int(childPID), "
-              + "pid: supervisorPID"))
+              + "                                              pid: supervisorPID"))
+    // AND THE CHILD IS PUBLISHED AT THE SPAWN, not with a reading. A unit test can assert the
+    // writer stores what it is handed while the loop publishes it too late to be any use, which is
+    // exactly the defect this round fixes.
+    check("the loop publishes the child the moment it has one",
+          loop.contains("writeSupervisorChild(childPID, pid: supervisorPID)"))
+    check("…from inside the block that spawns each child, so a relaunch replaces it",
+          loop.range(of: "spawnChild")
+              .map { loop.range(of: "writeSupervisorChild", range: $0.upperBound ..< loop.endIndex)
+                  != nil } == true)
 
     // Additive: a document written before these fields existed still decodes, with nil for both -
     // which every reader has to treat as "cannot say" rather than as "running nothing".
@@ -284,7 +301,6 @@ func runSessionContextChecks() {
               && legacy?.observedModel == nil)
     check("…and no conversation id, which the resolution reads as \"cannot say\"",
           legacy?.transcriptSessionID == nil)
-    check("…and no child pid either, which is what keeps an older supervisor working",
-          legacy?.childPID == nil)
+
     try? FileManager.default.removeItem(at: dir)
 }

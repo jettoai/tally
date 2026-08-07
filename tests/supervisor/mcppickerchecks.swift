@@ -324,22 +324,30 @@ func runMCPAddressingChecks() {
     // THE PROCESS WITNESS, which now answers first because it is the only one that cannot go stale
     // under the session and cannot be shared by two of them.
     let children = ["outer": 100, "inner": 200]
+    // THE FOUR QUADRANTS of a mixed-build directory, which is the shape that broke twice.
+    // 1. A match: a positive reading, and it ends the question.
     check("the supervisor whose child sent this prompt is it",
           sessionsRunning(200, among: ["outer", "inner"], published: { children[$0] })
-              == ["inner"])
-    check("…and one whose child is another process is not",
-          sessionsRunning(200, among: ["outer"], published: { children[$0] }) == [])
-    // nil is NOT "none of them": it is "nobody here can answer", which falls through to the older
-    // witnesses so a supervisor from a build before the field keeps working.
-    check("a directory where nobody publishes a child pid answers nothing at all",
-          sessionsRunning(200, among: ["quiet"], published: { _ in nil }) == nil)
-    check("…and a caller that cannot name its own Claude Code asks nothing of it",
-          sessionsRunning(nil, among: ["outer"], published: { children[$0] }) == nil)
-    // Only candidates that published are judged: the ones that cannot answer stay out of the
-    // result rather than being counted as mismatches.
-    check("a mixed directory answers for the ones that published",
-          sessionsRunning(100, among: ["outer", "quiet"], published: { children[$0] })
-              == ["outer"])
+              == WitnessReading(identified: true, candidates: ["inner"]))
+    // 2. Everyone published and nobody matched: a real refusal, because every candidate was read
+    //    and every one of them disagreed.
+    check("…and where every candidate was read and none of them is it, nothing survives",
+          sessionsRunning(200, among: ["outer"], published: { children[$0] })
+              == WitnessReading(identified: false, candidates: []))
+    // 3. THE MIXED CASE, and the one that took an old-build session's commands away: a witness
+    //    that cannot speak for a candidate has said NOTHING about it, so it survives to the next
+    //    stage rather than being buried with the ones that disagreed.
+    check("a candidate this witness cannot read survives a stage that disproved the others",
+          sessionsRunning(999, among: ["outer", "legacy"], published: { children[$0] })
+              == WitnessReading(identified: false, candidates: ["legacy"]))
+    // 4. Nobody published at all: the whole set goes on, which is how a directory of older
+    //    supervisors still reaches the witnesses that can answer for it.
+    check("a directory where nobody publishes hands every candidate on",
+          sessionsRunning(200, among: ["quiet", "quieter"], published: { _ in nil })
+              == WitnessReading(identified: false, candidates: ["quiet", "quieter"]))
+    check("…as does a caller that cannot name its own Claude Code",
+          sessionsRunning(nil, among: ["outer"], published: { children[$0] })
+              == WitnessReading(identified: false, candidates: ["outer"]))
 
     // THE TWO CASES codex found in the transcript witness, both closed by the process one.
     //
@@ -359,6 +367,20 @@ func runMCPAddressingChecks() {
             PromptOrigin(marker: "outer", promptSession: "conv-SAME", claudeCodePID: 200))
               .resolve(here: ["outer", "inner"], published: { _ in "conv-SAME" },
                        childOf: { children[$0] }) == .session("inner"))
+    // THE MIXED-BUILD DIRECTORY, end to end: a new-build supervisor that is provably not it, and an
+    // old-build one that cannot answer for itself. The old one has to survive the process stage and
+    // be found by the witnesses that CAN speak for it, or every `/tally-*` in that session fails
+    // until it restarts (codex review of 49dcdcd).
+    check("an old-build session in a directory with a new-build one is still found",
+          SessionMarkerTrust.corroborated(
+            PromptOrigin(marker: "legacy", promptSession: nil, claudeCodePID: 999))
+              .resolve(here: ["outer", "legacy"], published: { _ in nil },
+                       childOf: { children[$0] }) == .session("legacy"))
+    check("…and the new-build one it shares the directory with is not offered instead",
+          SessionMarkerTrust.corroborated(
+            PromptOrigin(marker: nil, promptSession: nil, claudeCodePID: 999))
+              .resolve(here: ["outer", "legacy"], published: { _ in nil },
+                       childOf: { children[$0] }) == .session("legacy"))
     // …and the nested case, which is what the whole witness exists for: the marker fits, the
     // directory fits, and the process does not.
     check("a nested session's prompt does not reach the session it was launched from",
@@ -371,7 +393,8 @@ func runMCPAddressingChecks() {
     // same conversation must not be answered by whichever sorts first.
     check("every candidate watching that conversation comes back, not the first",
           sessionsWatching("conv-SAME", among: ["outer", "inner"],
-                           published: { _ in "conv-SAME" }) == ["outer", "inner"])
+                           published: { _ in "conv-SAME" })
+              == WitnessReading(identified: true, candidates: ["outer", "inner"]))
     check("…so the marker decides between them",
           SessionMarkerTrust.corroborated(
             PromptOrigin(marker: "inner", promptSession: "conv-SAME", claudeCodePID: nil))
@@ -392,19 +415,21 @@ func runMCPAddressingChecks() {
     // the conversation itself can separate them.
     let watching = ["outer": "conv-OUTER", "inner": "conv-INNER"]
     check("a candidate watching exactly this conversation is it, and alone",
-          sessionsWatching("conv-INNER", among: ["outer", "inner"],
-                           published: { watching[$0] }) == ["inner"])
+          sessionsWatching("conv-INNER", among: ["outer", "inner"], published: { watching[$0] })
+              == WitnessReading(identified: true, candidates: ["inner"]))
     check("…a candidate watching a different conversation is provably not it, and is dropped",
-          sessionsWatching("conv-INNER", among: ["outer"], published: { watching[$0] }) == [])
+          sessionsWatching("conv-INNER", among: ["outer"], published: { watching[$0] })
+              == WitnessReading(identified: false, candidates: []))
     // Silence means "cannot say", here as everywhere else on this track: a supervisor from a build
     // before this field existed keeps its place in the queue rather than being disqualified.
     check("…and a candidate publishing nothing is kept, so an older supervisor still works",
-          sessionsWatching("conv-INNER", among: ["outer", "quiet"],
-                           published: { watching[$0] }) == ["quiet"])
+          sessionsWatching("conv-INNER", among: ["outer", "quiet"], published: { watching[$0] })
+              == WitnessReading(identified: false, candidates: ["quiet"]))
     check("with no conversation id to compare, every candidate stands",
-          sessionsWatching(nil, among: ["outer", "inner"], published: { watching[$0] })
+          sessionsWatching(nil, among: ["outer", "inner"], published: { watching[$0] }).candidates
               == ["outer", "inner"]
-              && sessionsWatching("", among: ["outer"], published: { watching[$0] }) == ["outer"])
+              && sessionsWatching("", among: ["outer"], published: { watching[$0] }).candidates
+                  == ["outer"])
 
     // THE WHOLE RULE, composed: the nested case QA could not reach and codex found by reading.
     let nested = SessionMarkerTrust.corroborated(PromptOrigin(marker: "outer", promptSession: "conv-INNER"))

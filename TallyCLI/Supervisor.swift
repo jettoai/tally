@@ -155,6 +155,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         }
         // Every child from here on is one this supervisor decided to start.
         relaunching = true
+        // WHICH CLAUDE CODE THIS SESSION IS, published now rather than with the first reading: it
+        // is what a prompt hook matches its own parent against, and the commonest way to reach the
+        // pickers at all is a bare `/tally-model` typed before the conversation has had a single
+        // turn (SwitchRequest.swift states the whole rule). Written here rather than at start-up so
+        // a relaunch replaces the pid of the child it just ended.
+        writeSupervisorChild(childPID, pid: supervisorPID)
 
         // What became of this child, remembered because a reaped pid cannot be waited on twice
         // and three places here ask (ChildReaper.swift).
@@ -424,8 +430,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // `/clear` or a fork republishes the new transcript with everything else.
             sessionContext.sync(tokens: watcher.lastContextTokens, accountID: account.id,
                                 pin: manualMoves.sessionPin, axes: axes,
-                                transcript: watcher.transcriptSessionID, child: Int(childPID),
-                                pid: supervisorPID)
+                                transcript: watcher.transcriptSessionID, pid: supervisorPID)
             // The one thing this session is WAITING to do, for the status line: a deferral must
             // not be printed onto the terminal the child draws into (PendingNotice.swift).
             syncPendingNotice(&pendingNotice, pid: supervisorPID,
@@ -492,7 +497,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
                                               axes: nextAxes,
                                               transcript: watcher.transcriptSessionID,
-                                              child: Int(childPID), pid: supervisorPID)
+                                              pid: supervisorPID)
                 // Last, so an exec that fails falls through to the respawn below with this plan
                 // fully applied: a failed upgrade can cost the new build, never the account switch.
                 execPlannedSelfUpdate(upgrade, attempted: &selfUpdateAttempted, target: plan.target,

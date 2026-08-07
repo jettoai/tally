@@ -131,6 +131,39 @@ func writeSupervisorCwd(_ cwd: String, pid: String, dir: URL = supervisorStateDi
                                    encoding: .utf8)
 }
 
+/// The suffix of the file naming the Claude Code a supervisor is running.
+let supervisorChildSuffix = ".child"
+
+func supervisorChildFile(pid: String, dir: URL = supervisorStateDir) -> URL {
+    dir.appendingPathComponent(pid + supervisorChildSuffix)
+}
+
+/// Publish the pid of the Claude Code this supervisor just spawned.
+///
+/// A FILE OF ITS OWN, beside the directory this supervisor runs in and for the same reason: it is
+/// known at spawn and it is true from that instant, where the context reading next door does not
+/// exist until the conversation has had a turn with usage in it (`SessionContextWriter.sync`
+/// returns on a nil token count, deliberately - inventing a number nobody measured would be worse
+/// than silence). Riding this witness on that document made it arrive LATE, and a bare
+/// `/tally-model` typed as the first thing in a fresh session is the single commonest way to reach
+/// this feature: the witness has to be there before the first turn, not after it (codex review of
+/// 49dcdcd). It also has to be replaced at a relaunch, which is why it is written at the spawn
+/// rather than once at start-up.
+///
+/// Best-effort like everything else on this track: failing to write it costs the fallback witnesses,
+/// never the session.
+func writeSupervisorChild(_ child: pid_t, pid: String, dir: URL = supervisorStateDir) {
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try? String(child).write(to: supervisorChildFile(pid: pid, dir: dir), atomically: true,
+                             encoding: .utf8)
+}
+
+func readSupervisorChild(pid: String, dir: URL = supervisorStateDir) -> Int? {
+    guard let raw = try? String(contentsOf: supervisorChildFile(pid: pid, dir: dir),
+                                encoding: .utf8) else { return nil }
+    return Int(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+}
+
 func readSupervisorCwd(pid: String, dir: URL = supervisorStateDir) -> String? {
     guard let raw = try? String(contentsOf: supervisorCwdFile(pid: pid, dir: dir), encoding: .utf8)
     else { return nil }
@@ -232,7 +265,7 @@ enum SessionMarkerTrust: Equatable {
                  published: (String) -> String? = {
                      readSessionContext(pid: $0)?.transcriptSessionID
                  },
-                 childOf: (String) -> Int? = { readSessionContext(pid: $0)?.childPID })
+                 childOf: (String) -> Int? = { readSupervisorChild(pid: $0) })
         -> SessionLookup {
         switch self {
         case .trusted(let marker):
@@ -247,16 +280,21 @@ enum SessionMarkerTrust: Equatable {
                     candidates.contains($0) ? $0 : nil
                 }, here: candidates)
             }
-            // PROCESS ANCESTRY FIRST. It is the only witness here that cannot go stale under the
-            // session and cannot be shared by two of them, so where it can answer at all, it is the
-            // one that answers (`sessionsRunning`; nil means nobody could).
-            if let running = sessionsRunning(origin.claudeCodePID, among: here, published: childOf) {
-                return decide(running)
-            }
-            // The conversation witness next, for supervisors from a build that publishes no child
-            // pid. It can rule a candidate out where the marker and the directory can only ever
-            // agree with each other.
-            return decide(sessionsWatching(origin.promptSession, among: here, published: published))
+            // STAGED NARROWING, strongest witness first. Process ancestry cannot go stale under the
+            // session and cannot be shared by two of them; the conversation id can do neither of
+            // those but still separates supervisors from a build that publishes no child pid; the
+            // marker only ever chooses INSIDE what they leave. Each stage passes on what it could
+            // not rule out, so a directory holding one new-build and one old-build supervisor is
+            // narrowed by whichever witness can actually speak for them.
+            let running = sessionsRunning(origin.claudeCodePID, among: here, published: childOf)
+            // A POSITIVE reading ends it. The conversation id is the weaker witness of the two and
+            // it goes stale (a `/clear` rebinds the transcript while the published document still
+            // names the old one), so letting it filter a set the process witness has already named
+            // would refuse the very session that just cleared - with the hook blocking the turn
+            // that could fix it (codex review of 0708b21).
+            guard !running.identified else { return decide(running.candidates) }
+            return decide(sessionsWatching(origin.promptSession, among: running.candidates,
+                                           published: published).candidates)
         }
     }
 }
@@ -278,12 +316,48 @@ struct PromptOrigin: Equatable {
     var claudeCodePID: pid_t?
 }
 
-/// The supervisors in `here` whose own child is the Claude Code that sent this prompt, or nil when
-/// no candidate publishes a child pid at all.
+/// ONE NARROWING RULE, shared by every witness: the candidates a witness can vouch for, or - when
+/// it can vouch for none of them - the candidates it could not speak for at all.
 ///
-/// THE DISTINCTION nil CARRIES: "no candidate can answer this question" is not the same as "no
-/// candidate is it". The first falls through to the older witnesses, so a supervisor from a build
-/// before `childPID` existed keeps working; the second is a refusal.
+/// The second half is what keeps a staged narrowing honest, and getting it wrong broke a whole
+/// class of machine each time. A witness that answers for SOME candidates has said nothing about
+/// the ones it has no reading for, so those survive to the next stage; only the ones it read and
+/// disagreed with are provably not it. Dropping the silent ones with them takes every supervisor
+/// from an older build down with the new ones in the same directory (codex review of 49dcdcd);
+/// keeping the disagreeing ones puts back the nested session this whole mechanism exists to
+/// separate.
+///
+/// An empty result is therefore a REAL refusal: every candidate was read, and every one of them
+/// disagreed.
+func narrowed<Witness: Equatable>(_ wanted: Witness?, among here: [String],
+                                  published: (String) -> Witness?) -> WitnessReading {
+    guard let wanted else { return WitnessReading(identified: false, candidates: here) }
+    var matches: [String] = []
+    var silent: [String] = []
+    for candidate in here {
+        guard let reading = published(candidate) else { silent.append(candidate); continue }
+        if reading == wanted { matches.append(candidate) }
+    }
+    return matches.isEmpty
+        ? WitnessReading(identified: false, candidates: silent)
+        : WitnessReading(identified: true, candidates: matches)
+}
+
+/// What one witness had to say about a candidate set.
+///
+/// THE TWO ANSWERS ARE NOT THE SAME KIND OF ANSWER, and collapsing them is how a staged narrowing
+/// goes wrong in both directions at once. `identified` is a POSITIVE reading - these candidates are
+/// the ones this witness names - and it is dispositive: a later, weaker witness must not be allowed
+/// to take it back, which is exactly what happened to a session that had just run `/clear` (its
+/// process matched, and the stale conversation id then removed it again). Without it, the survivors
+/// are only "the ones this witness could not disprove", which is a narrowing the next stage is free
+/// to refine.
+struct WitnessReading: Equatable {
+    let identified: Bool
+    let candidates: [String]
+}
+
+/// The supervisors in `here` whose own child is the Claude Code that sent this prompt.
 ///
 /// Matched against the caller's DIRECT parent and nothing further up, which is the whole of its
 /// safety. The backstop next door tolerates a grandparent because its mistake costs one model turn
@@ -291,13 +365,11 @@ struct PromptOrigin: Equatable {
 /// conversation, because a `claude` started from inside another session has that session's Claude
 /// Code two levels up. Measured 2026-08-07: a hook's parent IS the Claude Code that ran it, and an
 /// MCP server's parent is the Claude Code that started it. If that ever stops being true, no
-/// candidate matches and the answer is a refusal rather than a wrong session.
+/// candidate matches, and what survives is whatever this witness could not read - which is the
+/// older builds, exactly as it should be.
 func sessionsRunning(_ claudeCodePID: pid_t?, among here: [String],
-                     published: (String) -> Int?) -> [String]? {
-    let publishing = here.filter { published($0) != nil }
-    guard !publishing.isEmpty else { return nil }
-    guard let wanted = claudeCodePID else { return nil }
-    return publishing.filter { published($0) == Int(wanted) }
+                     published: (String) -> Int?) -> WitnessReading {
+    narrowed(claudeCodePID.map(Int.init), among: here, published: published)
 }
 
 /// The supervisors in `here` that could be watching the conversation a prompt came from.
@@ -315,22 +387,15 @@ func sessionsRunning(_ claudeCodePID: pid_t?, among here: [String],
 ///     everywhere else on this track.
 ///
 /// Pure over an injected reader, so all three are asserted without a supervisor on the machine.
+/// EVERY exact match, not the first one. Two supervisors starting in one directory at once can bind
+/// the same transcript by the mtime heuristic (`bindFile`, TranscriptWatcher.swift) and so publish
+/// the same id; returning the first would hand the marker no chance to say which is which, and the
+/// caller would write into whichever happened to sort earlier (codex review of 0708b21). Several
+/// matches go back as several, and the marker disambiguates them exactly as it does any other
+/// ambiguous directory - and refuses when it cannot.
 func sessionsWatching(_ promptSession: String?, among here: [String],
-                      published: (String) -> String?) -> [String] {
-    guard let wanted = promptSession, !wanted.isEmpty else { return here }
-    var matches: [String] = []
-    var silent: [String] = []
-    for candidate in here {
-        guard let watching = published(candidate) else { silent.append(candidate); continue }
-        if watching == wanted { matches.append(candidate) }
-    }
-    // EVERY exact match, not the first one. Two supervisors starting in one directory at once can
-    // bind the same transcript by the mtime heuristic (`bindFile`, TranscriptWatcher.swift) and so
-    // publish the same id; returning the first would hand the marker no chance to say which is
-    // which, and the caller would write into whichever happened to sort earlier (codex review of
-    // 0708b21). Several matches go back as several, and the marker disambiguates them exactly as it
-    // does any other ambiguous directory - and refuses when it cannot.
-    return matches.isEmpty ? silent : matches
+                      published: (String) -> String?) -> WitnessReading {
+    narrowed(promptSession.flatMap { $0.isEmpty ? nil : $0 }, among: here, published: published)
 }
 
 /// The session a command typed HERE belongs to, asked of the live world: the supervisor pid to
@@ -367,7 +432,7 @@ func currentSessionLookup(cwd: String = FileManager.default.currentDirectoryPath
     guard case .session(let key) = marker.resolve(
         here: supervisorsInDirectory(cwd, dir: dir),
         published: { readSessionContext(pid: $0, dir: dir)?.transcriptSessionID },
-        childOf: { readSessionContext(pid: $0, dir: dir)?.childPID })
+        childOf: { readSupervisorChild(pid: $0, dir: dir) })
     else { return nil }
     // Only a marker the resolution ACTUALLY used describes this process; one that was dropped for
     // want of corroboration says nothing about where this command is running.

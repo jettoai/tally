@@ -11,9 +11,8 @@ import Foundation
 func runTranscriptIdentityChecks() {
     // MARK: - 35a. The report file
 
-    /// A fixture process: a pid and a start time derived from it, so every process these checks
-    /// invent has a DISTINCT one without any of them having to spell it out. Which is the point of
-    /// the field: a pid is reused, a pid and the microsecond it started at is not.
+    /// A fixture process: a start time derived from the pid, so every invented process has a
+    /// DISTINCT one without any check having to spell it out.
     func syntheticStart(_ pid: pid_t) -> Int64 { Int64(pid) * 1_000 }
     func synthetic(_ pid: pid_t) -> ProcessStamp {
         ProcessStamp(pid: pid, startedAt: syntheticStart(pid))
@@ -37,11 +36,9 @@ func runTranscriptIdentityChecks() {
           parseTranscriptIdentity("conv-1\n4242\nlater") == nil)
     check("nor is one that is zero", parseTranscriptIdentity("conv-1\n4242\n0") == nil)
 
-    // THE COMPATIBILITY CLAIM, in the one direction that is free and the one that is not. The start
-    // time was APPENDED (the rule RequestTranscript.swift set), so a supervisor from before it
-    // existed reads lines 1 and 2 and is unaffected. This reader going the other way REFUSES a
-    // two-line report rather than inventing a start time for it - inventing one is the comparison
-    // this round removed, and the cost of refusing is a single render.
+    // THE COMPATIBILITY CLAIM, in both directions (parseTranscriptIdentity states why only one of
+    // them is free): an older reader keeps its two lines, and this one refuses a report that has
+    // only those two rather than inventing the field it is missing.
     check("a report from before the start time existed is no report to this reader",
           parseTranscriptIdentity("conv-1\n4242\n") == nil)
     let roundTrip = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -72,11 +69,9 @@ func runTranscriptIdentityChecks() {
 
     // MARK: - 35a2. Which process ran the status line
 
-    // THE PARENT IS THE ANSWER ONLY WHEN NOBODY CUSTOMISED ANYTHING. A user who already had a status
-    // line gets Tally's registered as `tally statusline --wrap <b64> ... || <their own>`, and a
-    // command with a `||` in it is one the shell must stay alive to finish - so `sh` forks Tally and
-    // waits, and `getppid()` is that shell rather than Claude Code. Measured 2026-08-08: the plain
-    // form's parent is Claude Code, the wrapped form's is `/bin/sh`.
+    // THE PARENT IS THE ANSWER ONLY WHEN NOBODY CUSTOMISED ANYTHING: a user who already had a status
+    // line gets ours registered with a `||` in it, which the shell must stay alive to finish, so
+    // `getppid()` is that shell (measured 2026-08-08; claudeCodeThatRanUs states the whole rule).
     //
     // The table is injected because these chains cannot be built out of real processes: the point is
     // the SHAPE of an ancestry, and a test that had to spawn a shell to spawn a shell would be
@@ -92,17 +87,15 @@ func runTranscriptIdentityChecks() {
     // the one thing the walk needs of it - that it is not a shell.
     let plain = ancestry([(700, 600, "2.1.226"), (600, 1, "tally")])
     check("with no wrapper the status line's parent is the answer",
-          claudeCodeThatRanUs(from: 700, process: plain) == synthetic(700))
+          claudeCodeThatRanUs(from: { 700 }, process: plain) == synthetic(700))
     let wrapped = ancestry([(701, 700, "sh"), (700, 600, "2.1.226"), (600, 1, "tally")])
     check("a wrapped status line reports the Claude Code above the shell that ran it",
-          claudeCodeThatRanUs(from: 701, process: wrapped) == synthetic(700))
-    // THE STAMP COMES OFF THE SAME READING that ruled the process out as a shell, so the answer is
-    // one process rather than a pid and a separately fetched time.
+          claudeCodeThatRanUs(from: { 701 }, process: wrapped) == synthetic(700))
     check("…and it carries that process's start time, not only its number",
-          claudeCodeThatRanUs(from: 701, process: wrapped)?.startedAt == syntheticStart(700))
+          claudeCodeThatRanUs(from: { 701 }, process: wrapped)?.startedAt == syntheticStart(700))
     let twoShells = ancestry([(702, 701, "bash"), (701, 700, "zsh"), (700, 600, "2.1.226")])
     check("…however many shells stand in between",
-          claudeCodeThatRanUs(from: 702, process: twoShells) == synthetic(700))
+          claudeCodeThatRanUs(from: { 702 }, process: twoShells) == synthetic(700))
     // THE WALK STOPS AT THE FIRST NON-SHELL, and that is the safety rather than an optimisation: a
     // bare `claude` started from inside a supervised session has the OUTER Claude Code further up
     // this same chain, and a search that climbed until it matched a supervisor's child would publish
@@ -111,23 +104,51 @@ func runTranscriptIdentityChecks() {
     let nestedChain = ancestry([(703, 702, "sh"), (702, 701, "2.1.226"), (701, 700, "zsh"),
                                 (700, 600, "2.1.226")])
     check("the walk stops at the process that ran us, not at the first supervised one",
-          claudeCodeThatRanUs(from: 703, process: nestedChain) == synthetic(702))
-    // Refusals. Each one publishes nothing rather than guessing, which is the same shape every other
-    // failure on this track has.
+          claudeCodeThatRanUs(from: { 703 }, process: nestedChain) == synthetic(702))
+    // Refusals, each publishing nothing rather than guessing.
     var deepChain: [(pid_t, pid_t, String)] = (0..<12).map {
         (pid_t(800 + $0), pid_t(801 + $0), "zsh")
     }
     deepChain.append((812, 1, "2.1.226"))
     let deepShells = ancestry(deepChain)
     check("an ancestry of shells deeper than the limit is no answer",
-          claudeCodeThatRanUs(from: 800, process: deepShells) == nil)
+          claudeCodeThatRanUs(from: { 800 }, process: deepShells) == nil)
     check("…and it is the limit that refuses rather than the chain running out",
-          claudeCodeThatRanUs(from: 800, limit: 20, process: deepShells) == synthetic(812))
+          claudeCodeThatRanUs(from: { 800 }, limit: 20, process: deepShells) == synthetic(812))
     let orphaned = ancestry([(704, 1, "sh"), (1, 0, "launchd")])
     check("a shell reparented to launchd is no answer",
-          claudeCodeThatRanUs(from: 704, process: orphaned) == nil)
+          claudeCodeThatRanUs(from: { 704 }, process: orphaned) == nil)
     check("a process that cannot be read is no answer",
-          claudeCodeThatRanUs(from: 999_999, process: ancestry([])) == nil)
+          claudeCodeThatRanUs(from: { 999_999 }, process: ancestry([])) == nil)
+
+    // TWO OBSERVATIONS, AND THEY HAVE TO AGREE. A walk is a sequence of separate readings, so a
+    // descheduled render can splice the OLD pid onto the NEW process's start time and produce a
+    // stamp that is valid for a conversation it knows nothing about (claudeCodeThatRanUs states the
+    // race). Both fixtures below reproduce it by changing something BETWEEN the passes, which a
+    // static table cannot express - hence readers that answer differently on later calls.
+    var passes = 0
+    func counting() -> pid_t { passes += 1; return 701 }
+    check("a stable ancestry answers, and it took two passes to say so",
+          claudeCodeThatRanUs(from: counting, process: wrapped) == synthetic(700) && passes == 2)
+    // The parent exits between the passes. The kernel reparents us to launchd the instant it does,
+    // so the very reading the splice depends on is the one that gives it away.
+    var readings = 0
+    func reparented() -> pid_t { readings += 1; return readings == 1 ? 701 : 1 }
+    check("an ancestry that lost its Claude Code between the passes is no answer",
+          claudeCodeThatRanUs(from: reparented, process: wrapped) == nil)
+    // The other half: the pid still reads, but the process wearing it is now the successor.
+    var lookups = 0
+    func recycling(_ pid: pid_t) -> (parent: pid_t, name: String, startedAt: Int64)? {
+        lookups += 1
+        switch pid {
+        case 701: return (parent: 700, name: "sh", startedAt: syntheticStart(701))
+        case 700: return (parent: 600, name: "2.1.226",
+                          startedAt: syntheticStart(700) + (lookups > 2 ? 1 : 0))
+        default: return nil
+        }
+    }
+    check("a pid that changed hands between the passes is refused rather than spliced",
+          claudeCodeThatRanUs(from: { 701 }, process: recycling) == nil)
     // The real reader, against the one process this suite can be certain about.
     check("the kernel reading names this process's own parent",
           processIdentity(getpid())?.parent == getppid())
@@ -139,19 +160,18 @@ func runTranscriptIdentityChecks() {
     check("…while this process and its parent do not share one",
           processStamp(getpid())?.startedAt != processStamp(getppid())?.startedAt)
     check("a test binary is not a shell, so the walk stops on it",
-          claudeCodeThatRanUs(from: getpid()) == processStamp(getpid()))
+          claudeCodeThatRanUs(from: getpid) == processStamp(getpid()))
 
     // MARK: - 35b. What one render publishes, and when it publishes nothing
 
     // The addressing is the prompt hooks' own rule (`SessionMarkerTrust.corroborated`), and a status
-    // line is in the strongest position to satisfy it: its parent IS the Claude Code whose
-    // conversation it is reporting, which is the pid each supervisor publishes about its own child.
+    // line is in the strongest position to satisfy it: the Claude Code that ran it is the one whose
+    // conversation it reports, which is the pid each supervisor publishes about its own child.
     //
     // THE FIXTURE STANDS IN FOR THAT PAIR with two REAL processes, because the witnesses are read
     // from the live process table rather than from anything a test can fake: this process is the
     // "Claude Code", and its own parent is the "supervisor". `readSupervisorChild` demands exactly
-    // that relationship (alive, and its parent is the supervisor), so nothing here is stubbed - and
-    // the stamp is the real one off the kernel, for the same reason.
+    // that relationship (alive, and its parent is the supervisor), so nothing here is stubbed.
     let claudeCodePID = getpid()
     let claudeCode = processStamp(claudeCodePID)!
     let supervisor = String(getppid())
@@ -191,13 +211,12 @@ func runTranscriptIdentityChecks() {
     // gets, and before the walk above it published NOTHING for them: the shell in between failed the
     // corroboration, silently, with the mtime guess left in place and no symptom anywhere. The
     // ancestry is injected and the supervisor pair is real, so what is asserted is the join between
-    // them - the process the walk resolves is the one the addressing then vouches for, stamp and
-    // all (the published stamp is the INJECTED start time, which is how it is visible at all that
-    // the report carries what the walk found rather than a second, separate reading).
+    // them - and the published stamp being the INJECTED start time is how it is visible that the
+    // report carries what the walk found rather than a second, separate reading.
     let throughShell = ancestry([(90001, 90002, "sh"), (90002, claudeCodePID, "zsh"),
                                  (claudeCodePID, pid_t(supervisor) ?? 1, "2.1.226")])
     reportTranscriptIdentity(sessionID: "conv-wrapped", cwd: projectCwd.path,
-                             claudeCode: claudeCodeThatRanUs(from: 90001, process: throughShell),
+                             claudeCode: claudeCodeThatRanUs(from: { 90001 }, process: throughShell),
                              marker: supervisor, dir: writeDir)
     check("a status line wrapping the user's own still publishes its conversation",
           readTranscriptIdentity(pid: supervisor, dir: writeDir)
@@ -222,7 +241,7 @@ func runTranscriptIdentityChecks() {
     // NO ANSWER IS NOT A LICENCE TO GUESS. An ancestry the walk cannot read out ends the render
     // here, one guard earlier than everything below it.
     reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path,
-                             claudeCode: claudeCodeThatRanUs(from: 90001, process: ancestry([])),
+                             claudeCode: claudeCodeThatRanUs(from: { 90001 }, process: ancestry([])),
                              marker: supervisor, dir: bare)
     check("a render that cannot tell which Claude Code ran it publishes nothing",
           !FileManager.default.fileExists(atPath: bare.path))
@@ -236,7 +255,7 @@ func runTranscriptIdentityChecks() {
     writeSupervisorChild(claudeCodePID, pid: supervisor, dir: stranger)
     let strangerChain = ancestry([(90001, 90003, "sh"), (90003, 1, "2.1.226")])
     reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path,
-                             claudeCode: claudeCodeThatRanUs(from: 90001, process: strangerChain),
+                             claudeCode: claudeCodeThatRanUs(from: { 90001 }, process: strangerChain),
                              marker: supervisor, dir: stranger)
     check("a render whose ancestry holds no supervisor's child publishes nothing",
           readTranscriptIdentity(pid: supervisor, dir: stranger) == nil)
@@ -388,10 +407,9 @@ func runTranscriptIdentityChecks() {
     // MARK: - 35e. A new child does not inherit the last one's report
 
     // WHAT THE VOIDING ACTUALLY PROMISES, stated as the state it leaves rather than as a defect it
-    // prevents: after a spawn there is no report on file, so nothing on disk describes a child that
-    // has ended. Anything written into that file predates the child now running, whatever it says
-    // about itself - and the fixture below hands the reader a stamp it would otherwise accept, so
-    // what is being asserted is the voiding and not the comparison next door.
+    // prevents: after a spawn there is no report on file. The fixture hands the reader a stamp it
+    // would otherwise ACCEPT, so what is asserted here is the voiding and not the comparison next
+    // door.
     let recycled = twoSessions("recycled-pid")
     writeTranscriptIdentity(TranscriptIdentity(id: "ours", claudeCode: child), pid: "5007",
                             dir: stateDir)
@@ -407,8 +425,7 @@ func runTranscriptIdentityChecks() {
                                    dir: stateDir))
     check("…so a new child starts on nothing rather than on the conversation it replaced",
           recycledWatcher.file == nil)
-    // Idempotent, because a first launch has no report to void and the removal is best-effort like
-    // every other write on this track.
+    // Idempotent: a first launch has no report to void, and the removal is best-effort.
     clearTranscriptIdentity(pid: "5007", dir: stateDir)
     check("voiding a report that is not there is not an error",
           readTranscriptIdentity(pid: "5007", dir: stateDir) == nil)
@@ -419,11 +436,9 @@ func runTranscriptIdentityChecks() {
           readTranscriptIdentity(pid: "5008", dir: stateDir)?.id == "ours")
 
     // THE WINDOW THE VOIDING CANNOT CLOSE, which the previous round's commit message claimed it did
-    // (codex review of 4b4454a). The old child's status line had already passed every check and was
-    // landing its atomic rename when the supervisor unlinked the file: the rename wins, the report
-    // is back, and it describes a conversation that has ended. An unlink cannot beat a write that is
-    // already in flight, so this is a REPRODUCTION rather than a hypothetical - the file is written
-    // AFTER the void, exactly as the losing race leaves it.
+    // (codex review of 4b4454a): an unlink cannot beat a rename already in flight, so the ended
+    // child's report comes back and a reused pid makes it read as the successor's own. Written AFTER
+    // the void here, which is a REPRODUCTION of the losing race rather than a hypothetical.
     let ghost = twoSessions("late-write")
     clearTranscriptIdentity(pid: "5009", dir: stateDir)                      // the spawn
     let replaced = ProcessStamp(pid: child.pid, startedAt: child.startedAt)  // the ended child
@@ -468,8 +483,7 @@ func runTranscriptIdentityChecks() {
     } else {
         check("both the adoption and the cap scan were found in the loop", false)
     }
-    // A PID WOULD COMPILE HERE, and it is what shipped: the supervisor has to hand the reader a
-    // process, or the comparison falls back to a number the OS reuses.
+    // A PID WOULD COMPILE HERE, and it is what shipped: the reader has to be handed a process.
     check("the supervisor identifies its child by process, not by pid",
           loop.contains("child: processStamp(childPID)"))
     if let void = loop.range(of: "clearTranscriptIdentity(pid: supervisorPID)"),

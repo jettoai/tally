@@ -209,12 +209,41 @@ let statusLineAncestorLimit = 8
 ///
 /// nil is a refusal to guess, and the caller publishes nothing: an ancestry that is shells all the
 /// way up, or one that cannot be read, is not evidence of anything.
-/// The stamp comes off the SAME reading that ruled the process out as a shell, so the pid and the
-/// start time cannot describe two different moments however the table changes underneath.
-func claudeCodeThatRanUs(from: pid_t = getppid(), limit: Int = statusLineAncestorLimit,
+///
+/// TWO OBSERVATIONS, AND THEY HAVE TO AGREE. Within one walk the stamp comes off the SAME reading
+/// that ruled the process out as a shell, so those two fields cannot describe different moments -
+/// but the walk as a whole is still a sequence of separate readings, and the FIRST of them is
+/// `getppid()`. Between it and the `sysctl` that follows, this process can be descheduled long
+/// enough for its Claude Code to exit and the pid to be handed to the child replacing it: the stamp
+/// assembled from those two readings is then the old pid with the NEW process's start time, which is
+/// a perfectly valid stamp for a conversation this render knows nothing about (codex review of
+/// 87dc17c). Splicing two observations into one identity is the same defect this file has now hit
+/// three times in three different disguises, so the fix is the general one rather than a guard on
+/// that particular pair: do it twice and refuse unless both answers are the same process.
+///
+/// Re-reading `getppid()` is what makes the second pass an independent observation rather than a
+/// repeat. A dead parent cannot still be our parent: the kernel reparents us the instant it exits
+/// (launchd, pid 1), so the very reading the splice depends on is the reading that gives it away.
+///
+/// The cost of being wrong the other way is stated rather than hidden: a chain that genuinely
+/// changes BETWEEN the two passes refuses a correct answer. That costs one render. The status line
+/// is still running, and the next one publishes.
+func claudeCodeThatRanUs(from: () -> pid_t = getppid, limit: Int = statusLineAncestorLimit,
                          process: (pid_t) -> (parent: pid_t, name: String, startedAt: Int64)?
                              = processIdentity) -> ProcessStamp? {
-    var pid = from
+    guard let first = nonShellAncestor(of: from(), limit: limit, process: process),
+          let second = nonShellAncestor(of: from(), limit: limit, process: process),
+          first == second else { return nil }
+    return first
+}
+
+/// One pass of the search above: the nearest ancestor that is not a shell. Entry point is
+/// `claudeCodeThatRanUs`, which is this run twice, because one pass is an observation and an
+/// identity needs two that agree.
+func nonShellAncestor(of start: pid_t, limit: Int,
+                      process: (pid_t) -> (parent: pid_t, name: String, startedAt: Int64)?)
+    -> ProcessStamp? {
+    var pid = start
     for _ in 0..<limit {
         // pid 1 is launchd, the top of every chain: reaching it means no Claude Code was found.
         guard pid > 1, let hop = process(pid) else { return nil }
@@ -237,9 +266,9 @@ func claudeCodeThatRanUs(from: pid_t = getppid(), limit: Int = statusLineAncesto
 /// THE ORDER OF THE GUARDS IS THE COST CONTROL, and it is deliberate rather than incidental:
 ///
 ///   1. No marker in the environment means nothing is supervising this session, so there is nobody
-///      to tell. That is one environment read, one `kill(pid, 0)` and the two or three kernel reads
-///      that name the caller, and it is where an unsupervised `claude` running Tally's status line
-///      stops - it never touches the disk at all.
+///      to tell. That is one environment read, one `kill(pid, 0)` and the handful of kernel reads
+///      that name the caller (two passes of a short walk, `claudeCodeThatRanUs`), and it is where an
+///      unsupervised `claude` running Tally's status line stops - it never touches the disk at all.
 ///   2. The file the marker names is read and compared. When it already says exactly this, the work
 ///      ends here: one small read, no directory scan, no write. That is what almost every render
 ///      does, because the value only changes when the conversation does.

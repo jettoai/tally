@@ -89,7 +89,14 @@ struct SettingsLaunchAtLoginRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .onAppear { refresh() }
+        .onAppear {
+            // If this launch's one-time default registration threw, this is where it gets said.
+            // Seeded once, on the way in, so `refresh` below filters it against the live state like
+            // any other failed attempt, and a later activation cannot bring it back after the user
+            // has acted. Never on a preview launch, where the default does not run at all.
+            if fixture == nil { failure = LaunchAtLoginDefault.attemptFailure }
+            refresh()
+        }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in refresh() }
     }

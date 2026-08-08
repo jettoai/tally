@@ -47,6 +47,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UpdateAvailability.shared.isDownloaded = UserDefaults.standard.bool(forKey: "TallyUpdateChipReady")
         }
         UsageStore.shared.start()
+        // The one uninvited registration: an unconfigured Tally starts at login, once per install,
+        // and the switch in Settings owns it from then on (LaunchAtLoginDefault). It is here, at
+        // every launch rather than behind a first-run check of its own, because the record of
+        // having done it IS the first-run check, and the only honest one: nothing else can tell a
+        // machine that has never been asked from one whose user said no.
+        LaunchAtLoginDefault.applyIfNeeded()
         // An agent skill installed by an older app version is silently brought up to date, so
         // the guidance ships with the app. Only files that are already installed and ours are
         // touched: never an install, never someone else's skills/tally.

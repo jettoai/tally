@@ -268,6 +268,81 @@ check("a preview differs from a summon in those two respects and no others",
 check("previewing nothing gets the ordinary opening",
       LoginItemPreview.settingsOpening == summonOpening)
 
+// MARK: - the one uninvited registration
+
+typealias Plan = LaunchAtLoginDefault.Plan
+
+func plan(applied: Bool = false, unshipped: Bool = false, demo: Bool = false) -> Plan {
+    LaunchAtLoginDefault.plan(alreadyApplied: applied, isUnshipped: unshipped, isDemo: demo)
+}
+
+// A machine nobody has configured, running an installed build.
+check("an unconfigured install registers itself once", plan() == .attemptThenRecord)
+
+// The property the whole design exists for: turning it off must stay off. Nothing in the world
+// tells "never asked" from "asked and declined", so only the record does.
+check("and never again, whatever the user did with the switch afterwards",
+      plan(applied: true) == .skip)
+
+// The write gate, with no exception: these builds would take the installed app's login item over
+// and point the next login at a directory that is about to stop existing.
+check("a build nobody installed never registers", plan(unshipped: true) == .skip)
+check("nor does a launch showing demo fixtures", plan(demo: true) == .skip)
+check("and neither of those is overridden by the machine being unconfigured",
+      plan(applied: false, unshipped: true) == .skip
+        && plan(applied: false, demo: true) == .skip)
+
+// Stated over the whole input space, so a fourth condition cannot be added without deciding what
+// it means: of the eight combinations, exactly one registers.
+let bools = [false, true]
+let attempting = bools.flatMap { a in bools.flatMap { u in bools.map { d in
+    (applied: a, unshipped: u, demo: d, plan: plan(applied: a, unshipped: u, demo: d))
+} } }.filter { $0.plan == .attemptThenRecord }
+check("exactly one of the eight input combinations registers",
+      attempting.count == 1)
+check("and it is the unconfigured, installed, non-demo one",
+      attempting.first.map { !$0.applied && !$0.unshipped && !$0.demo } == true)
+
+// The imperative half, with both effects injected. No login item is anywhere near this.
+final class Effects {
+    var registered = 0
+    var marked = 0
+    var throwing: Error?
+    func register() throws { registered += 1; if let throwing { throw throwing } }
+    func mark() { marked += 1 }
+}
+struct StubError: LocalizedError { var errorDescription: String? { "code signature refused" } }
+
+let ok = Effects()
+let okFailure = LaunchAtLoginDefault.apply(.attemptThenRecord, register: { try ok.register() },
+                                           markApplied: { ok.mark() })
+check("attempting registers exactly once", ok.registered == 1)
+check("and records that it did", ok.marked == 1)
+check("with nothing to report", okFailure == nil)
+
+let skipped = Effects()
+let skipFailure = LaunchAtLoginDefault.apply(.skip, register: { try skipped.register() },
+                                             markApplied: { skipped.mark() })
+check("skipping registers nothing", skipped.registered == 0)
+check("and records nothing, leaving the attempt for a proper install", skipped.marked == 0)
+check("and has nothing to report", skipFailure == nil)
+
+let failed = Effects()
+failed.throwing = StubError()
+let thrownFailure = LaunchAtLoginDefault.apply(.attemptThenRecord, register: { try failed.register() },
+                                               markApplied: { failed.mark() })
+check("a registration that threw is still recorded, so it is not retried forever",
+      failed.marked == 1)
+// Not swallowed: it comes back as the same kind of record a user's own failed press produces, so
+// the row shows it and expires it by the one rule.
+check("and the error comes back rather than being swallowed",
+      thrownFailure?.message == "code signature refused")
+check("as an attempt that wanted it on", thrownFailure?.wanted == true)
+check("which the row will drop once the state agrees with it anyway",
+      LaunchAtLoginState.surviving(thrownFailure, beside: .enabled) == nil)
+check("and keep while it does not",
+      LaunchAtLoginState.surviving(thrownFailure, beside: .notRegistered) == thrownFailure)
+
 print(failures == 0 ? "\nAll launch-at-login checks passed."
                     : "\n\(failures) launch-at-login check(s) failed.")
 exit(failures == 0 ? 0 : 1)

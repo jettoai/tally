@@ -19,6 +19,7 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -target "$(uname -m)-apple-macos14.0" -o "$out" tests/launchatlogin/main.swift \
   Tally/Core/LaunchAtLoginState.swift Tally/Core/LaunchAtLoginService.swift \
+  Tally/Core/LaunchAtLoginDefault.swift \
   Tally/Core/LoginItemPreview.swift \
   Tally/Core/BuildVariant.swift Tally/Core/DemoUsage.swift Tally/Core/UsageSnapshot.swift \
   Tally/Core/AppLocale.swift Tally/Core/FleetForecast.swift Tally/Core/UsageHistory.swift \

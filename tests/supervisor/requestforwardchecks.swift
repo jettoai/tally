@@ -103,12 +103,30 @@ func runRequestForwardChecks() {
     // the sibling. Resuming a stranger's conversation is worse than the hold this all exists to
     // release (cross-model review of 1382271, reproduced against its parent).
 
+    /// A conversation somebody has actually USED: a prompt, an answer, and the prompt that runs the
+    /// command. Every session looks like this within a minute of starting, and no fixture in this
+    /// area had the shape - which is exactly how the refusal below survived three rounds of review
+    /// with everything green.
+    ///
+    /// `stamped` picks which of the two ways a transcript can name itself, because the `.sibling`
+    /// verdict has two independent halves and each has to be exercised: a file carrying its own
+    /// launch id trips "that launch id is not ours", and one carrying none still trips "an assistant
+    /// turn this child never took". Both shapes are real (49 of this machine's 367 recent transcripts
+    /// hold turns and no `session_id` at all, TranscriptFork.swift).
+    func usedConversation(_ fixture: ForkFixture, own: String, stamped: Bool) -> [String] {
+        [#"{"type":"user","sessionId":"\#(own)","message":{"role":"user","content":"hello"}}"#,
+         stamped ? fixture.marker(own: own, launched: own) : fixture.plainTurn(own: own),
+         #"{"type":"user","sessionId":"\#(own)","message":{"role":"user","content":"/tally-account"}}"#]
+    }
+
     /// Two fresh sessions in one project directory, neither resumed, the sibling written last - so
-    /// the opening binding lands on the sibling's file. Ours is the shape a fresh session has when
-    /// its first act was a hook-answered command: the command record, and no turn at all.
-    func crossedBinding(_ label: String) -> (fixture: ForkFixture, watcher: TranscriptWatcher) {
+    /// the opening binding lands on the sibling's file. `ours` defaults to the shape a fresh session
+    /// has when its first act was a hook-answered command (the command record, no turn at all); the
+    /// arms below hand in a conversation that has been used instead.
+    func crossedBinding(_ label: String, ours: [String]? = nil)
+        -> (fixture: ForkFixture, watcher: TranscriptWatcher) {
         let fixture = ForkFixture(label)
-        fixture.write("ours.jsonl", fixture.clearedLines(own: "ours"), born: 10, wrote: 100)
+        fixture.write("ours.jsonl", ours ?? fixture.clearedLines(own: "ours"), born: 10, wrote: 100)
         // An older unresolvable file of this session's own, for the arm below: nothing but the
         // monotonicity gate can refuse it, so it says which gate answered.
         fixture.write("earlier.jsonl", fixture.clearedLines(own: "earlier"), born: 5, wrote: 50)
@@ -147,6 +165,61 @@ func runRequestForwardChecks() {
     crossed.locateFile(forceForkCheck: true)
     check("so the very next scan does not hand the session back to the sibling",
           crossed.file?.lastPathComponent == "ours.jsonl" && crossed.resumeID == "ours")
+
+    // MARK: - The same guess, on a conversation that has been USED
+
+    // THE THIRD LAYER (codex review of a9cf959). The guessed origin poisons the join key, and the
+    // request path asked the file-evidence question with it: our own transcript stamps our real
+    // launch id, which is not the marker, and it has answered at least once - so `.sibling` came back
+    // on both of its independent halves, the adoption was refused, and the request was served on the
+    // stranger's conversation after all. The feature therefore worked only for a session that had
+    // never had a turn, WHICH IS THE ONLY SHAPE ANY FIXTURE HERE HAD.
+    for stamped in [false, true] {
+        let shape = stamped ? "stamping its own launch id" : "with no session_id at all"
+        let used = ForkFixture("used-conversation-\(stamped)")
+        var watcher = crossedBinding("used-\(stamped)",
+                                     ours: usedConversation(used, own: "ours", stamped: stamped)).1
+        check("a used conversation is adopted from a guessed origin, \(shape)",
+              adoptRequestedTranscript("ours", watcher: &watcher, sessionKey: "4242"))
+        check("…so the watcher leaves the stranger it was guessed onto, \(shape)",
+              watcher.file?.lastPathComponent == "ours.jsonl" && watcher.resumeID == "ours")
+        check("…and the origin it now dates from is ours, \(shape)",
+              watcher.boundByEvidence && watcher.launchKey(boundTo: "ours") == "ours")
+        watcher.locateFile(forceForkCheck: true)
+        check("…and the next scan leaves it there, \(shape)",
+              watcher.file?.lastPathComponent == "ours.jsonl")
+    }
+
+    // The same thing through a whole tick, on a used conversation: the switch is served on OUR
+    // conversation and the relaunch resumes it, rather than continuing a stranger's.
+    let usedFixture = ForkFixture("used-conversation-tick")
+    var usedWatcher = crossedBinding("used-tick",
+                                     ours: usedConversation(usedFixture, own: "ours",
+                                                            stamped: true)).1
+    let usedDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-used-\(UUID().uuidString)")
+    try! writeSwitchRequest(accountID: "B", sessionKey: "4242", transcriptID: "ours",
+                            now: Date(timeIntervalSince1970: 1_800_000_000), dir: usedDir)
+    var usedMoves = ManualMoveState(sessionKey: "4242", servedEpoch: 100, dir: usedDir)
+    var usedPlan: RelaunchPlan?
+    var usedRecord: PendingSwitchConsumption?
+    var usedPolicy = fleetPolicy
+    applyManualMoves(plan: &usedPlan, state: &usedMoves, record: &usedRecord, policy: &usedPolicy,
+                     account: onA, providerID: "claude", watcher: &usedWatcher, childAge: 9999,
+                     keyboardIdle: { _ in true }, dir: usedDir,
+                     request: { readSwitchRequest(sessionKey: $0, dir: usedDir) },
+                     accounts: { [onA, toB] }, homeOnDisk: { _, _ in false })
+    check("a used conversation's move happens too", usedPlan?.target.id == "B")
+    check("…and the relaunch continues OUR conversation, not the stranger's",
+          relaunchArgs(["--model", "fable"], sessionID: usedWatcher.resumeID, sameAccount: false)
+              == ["--resume", "ours", "--model", "fable"])
+    try? FileManager.default.removeItem(at: usedDir)
+
+    // AND THE CHECK IS NOT WEAKENED WHERE IT MEANS SOMETHING. With an origin somebody vouched for,
+    // a request naming a file full of another conversation's turns is refused exactly as before -
+    // that is the arm requesttranscriptchecks.swift holds ("a request naming a conversation with
+    // somebody else's turns in it is refused"), and it runs against a resumeID-bound watcher.
+    // Restated here as the boundary of this change rather than repeated as an assertion.
 
     // The whole tick, which is where it matters: the request is served on OUR conversation, and the
     // relaunch it plans resumes ours rather than the stranger's.

@@ -114,14 +114,18 @@ func transcriptWatchedElsewhere(_ id: String, excluding sessionKey: String,
 ///     directory is the watcher's own, so a request cannot send it wandering; the birth gate is the
 ///     fork scan's (`scanCandidates`) and answers the same question - a transcript that predates the
 ///     launch cannot be where this child moved to, and resuming it would replace the conversation.
-///   - A file written no later than the one already bound, WHEN that binding is itself a fact rather
-///     than the opening guess: this only ever moves forward from an origin somebody vouched for
-///     (below).
 ///   - A file another live supervisor says it is watching (above).
-///   - A file the fork scan can already PROVE belongs to another conversation. `.sibling` means an
-///     assistant turn this child never took, or somebody else's launch id: evidence in the file
-///     itself, and it outranks a report about which prompt was typed where. `.unresolved` (the
-///     `/clear` this exists for) and `.fork` (the move the scan would have adopted anyway) both pass.
+///
+/// And TWO MORE that are asked only where the ORIGIN IS A FACT, because both of them read the bound
+/// file as though this child had written it: one dates from its mtime, the other joins on the id
+/// latched from it. Where the binding is `bindFile`'s opening guess they are not weak evidence, they
+/// are confident answers to a question about somebody else's conversation (`originIsFact`, below).
+///
+///   - A file written no later than the one already bound: this only ever moves FORWARD.
+///   - A file the fork scan can PROVE belongs to another conversation. `.sibling` means an assistant
+///     turn this child never took, or a launch id that is not ours: evidence in the file itself, and
+///     it outranks a report about which prompt was typed where. `.unresolved` (the `/clear` this
+///     exists for) and `.fork` (the move the scan would have adopted anyway) both pass.
 ///
 /// The hold is dropped here rather than left for the next scan, because the next scan will not run:
 /// the file just bound was written seconds ago, so `followFork`'s cost gate returns before it
@@ -143,6 +147,15 @@ func adoptRequestedTranscript(_ id: String?, watcher: inout TranscriptWatcher, s
         .resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]),
         let created = values.creationDate, let modified = values.contentModificationDate,
         created >= watcher.since.addingTimeInterval(-5) else { return false }
+    // IS THE ORIGIN A FACT AT ALL? Asked once, because the two refusals that rest on it fail
+    // TOGETHER and for one reason: both read the bound file as though this child had written it.
+    //
+    // A first binding does not always meet that. With no id to resume, `bindFile` takes the newest
+    // transcript in the directory, and two fresh sessions in one project directory means the other
+    // one's file can win that race: the watcher opens on somebody else's conversation. Everything
+    // derived from that binding then describes a stranger - the time axis below, and the join key
+    // two guards further down.
+    let originIsFact = watcher.boundByEvidence
     // ONLY FORWARD IN TIME, AND ONLY FROM A BINDING SOMEBODY VOUCHED FOR.
     //
     // The rule is the scan's, and so is the measure (`forks.filter { $0.modified > live }`,
@@ -170,17 +183,43 @@ func adoptRequestedTranscript(_ id: String?, watcher: inout TranscriptWatcher, s
     // the whole tick down - and neither request is consumed on a stand-down, so the next tick did
     // exactly the same thing. Two commands that never happen, for ever, which is the very shape of
     // the defect this file exists to fix.
-    if watcher.boundByEvidence {
+    if originIsFact {
         let live = (try? URL(fileURLWithPath: bound.path)
             .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         guard modified > live ?? .distantPast else { return false }
     }
     guard !transcriptWatchedElsewhere(id, excluding: sessionKey, dir: dir) else { return false }
-    // The join key is resolved against the file being LEFT, before anything moves (TranscriptFork
-    // .swift: it names the id this child was LAUNCHED with, and every file the conversation moves
-    // into carries that one forever).
-    let marker = watcher.launchKey(boundTo: bound.deletingPathExtension().lastPathComponent)
-    guard watcher.forkEvidence(url, id: id, launchedWith: marker) != .sibling else { return false }
+    // WHAT THE FILE ITSELF SAYS, where we are in a position to read it. The join key is resolved
+    // against the file being LEFT, before anything moves (TranscriptFork.swift: it names the id this
+    // child was LAUNCHED with, and every file the conversation moves into carries that one forever).
+    //
+    // A GUESSED ORIGIN CANNOT ASK THIS QUESTION AT ALL, and that is stronger than "the answer is
+    // unreliable". Both halves of the `.sibling` verdict fail here, each in its own way (codex review
+    // of a9cf959, and it had survived three rounds because every fixture in this area held a
+    // conversation with no turns in it):
+    //
+    //   - "a launch id that is not ours" is computed against a marker latched from the guess, so our
+    //     OWN transcript, which stamps our real launch id, reads as a stranger's.
+    //   - "an assistant turn this child never took" is sound only for a candidate the conversation
+    //     may have MOVED INTO, where a turn must postdate the move. This request asks a different
+    //     question - which file was the conversation in ALL ALONG - and for that a turn is not
+    //     disqualifying, it is what a used session looks like. So any session that had answered even
+    //     once was refused, and the request went on being served on the stranger's conversation.
+    //
+    // There is no marker-free reading that separates our conversation from another one (a transcript
+    // states its own id and its launch id, and both are meaningless without knowing ours), so this is
+    // SKIPPED rather than weakened. What still stands in front of an untrusted move: the file must be
+    // in this session's own project directory, born after this child launched, unclaimed by any other
+    // live supervisor, and NAMED by Claude Code as the conversation this prompt came from. And the
+    // asymmetry that makes skipping the right call rather than a concession: while the origin is a
+    // guess the watcher is ALREADY on a file nobody vouched for, so a refusal derived from that same
+    // guess cannot keep it anywhere safer - it can only freeze it there. If the guess happened to be
+    // right, this question never arises: the request names the file already bound, and the first
+    // guard returns.
+    if originIsFact {
+        let marker = watcher.launchKey(boundTo: bound.deletingPathExtension().lastPathComponent)
+        guard watcher.forkEvidence(url, id: id, launchedWith: marker) != .sibling else { return false }
+    }
     watcher.moveTo(url)
     watcher.hasUnresolvedFork = false
     return true

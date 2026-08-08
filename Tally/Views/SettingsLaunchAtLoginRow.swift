@@ -34,6 +34,14 @@ import SwiftUI
 /// is the way in: `-TallyLoginItemPreview requiresApproval` and the row stands on a fixture it can
 /// be operated against, with SMAppService neither asked nor told.
 struct SettingsLaunchAtLoginRow: View {
+    /// Whether the pane this row sits on is the one the Settings window is currently showing.
+    ///
+    /// Passed in because the row cannot tell: it is built either way. Settings lays every pane out
+    /// together in one stack so the window can size itself to the tallest, and the ones not
+    /// selected are transparent rather than absent, which means every lifecycle hook in here runs
+    /// on a pane nobody has opened. Anything that can only happen once has to key on this instead.
+    let isVisible: Bool
+
     @State private var state: LaunchAtLoginState = .notRegistered
     /// The last register/unregister attempt that threw, for as long as the state beside it does
     /// not already explain itself. Filtered through `LaunchAtLoginState.surviving` on every write
@@ -68,7 +76,13 @@ struct SettingsLaunchAtLoginRow: View {
                 if manageable {
                     if let key = state.noticeKey { notice(L(key)) }
                     if let failure { notice(failure.message) }
-                    if state.offersSystemSettings {
+                    // Both lines above are reasons for this button, not just the state's own.
+                    if LaunchAtLoginState.offersSystemSettings(for: state, failure: failure) {
+                        // One label for both reasons on purpose: it names a DESTINATION, and the
+                        // sentence above it supplies the meaning ("allow it" under a held-back
+                        // registration, "see whether it is even there" under a refused one). A
+                        // label that changed with the state would read as a different button
+                        // leading somewhere else, when it is the same place either way.
                         Button(L("Open Login Items")) { openLoginItems() }
                             .controlSize(.small)
                             .padding(.top, 2)
@@ -89,17 +103,30 @@ struct SettingsLaunchAtLoginRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .onAppear {
-            // If this launch's one-time default registration threw, this is where it gets said,
-            // and TAKING it is what stops it being said again: this view is rebuilt whenever the
-            // Settings tree is (switching the app's language does it), and a second reading would
-            // put that old failure beside a switch the user has since turned off on purpose.
-            // Never on a preview launch, where the default does not run at all.
-            if fixture == nil { failure = LaunchAtLoginDefault.takeAttemptFailure() }
-            refresh()
+        .onAppear { refresh() }
+        // Keyed on BEING SHOWN rather than on appearing, and the difference is the whole point:
+        // every Settings pane is built into one stack and the hidden ones only differ by opacity,
+        // so `onAppear` here fires for a pane the user has never opened. `initial: true` covers the
+        // case where this pane is the one the window opens on, without the collection depending on
+        // a lifecycle hook at all.
+        .onChange(of: isVisible, initial: true) { _, showing in
+            if showing { collectStartupFailure() }
         }
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in refresh() }
+    }
+
+    /// Collect this launch's one-time default registration failure, if it threw and nobody has been
+    /// told yet. Taking it is what stops it being said twice; only doing so while the pane is on
+    /// screen is what stops it being thrown away unsaid.
+    ///
+    /// Assigns only when there IS something, so switching away from this pane and back cannot wipe
+    /// a failure the user produced themselves by pressing the switch.
+    private func collectStartupFailure() {
+        guard LaunchAtLoginAttemptReport.collectible(visible: isVisible, previewing: fixture != nil),
+              let startup = LaunchAtLoginDefault.takeAttemptFailure() else { return }
+        failure = startup
+        refresh()   // filtered against the live state, like any other failed attempt
     }
 
     private func notice(_ text: String) -> some View {

@@ -101,6 +101,22 @@ struct LaunchAtLoginAttemptReport {
         defer { failure = nil }
         return failure
     }
+
+    /// Whether a row in this situation may take the report.
+    ///
+    /// `visible` is here because being BUILT is not being seen. The Settings window lays every pane
+    /// out at once in a single stack, the unselected ones merely transparent, so a row on a pane
+    /// the user has never opened runs its lifecycle hooks exactly like the one they are looking at.
+    /// Taking on `onAppear` therefore had the Accounts pane's neighbour swallow the report the
+    /// moment the window opened, and the failure was gone before anyone could have read it: the
+    /// same lie as the replay, told from the other side.
+    ///
+    /// The general rule this came from, worth more than the fix: a lifecycle event may drive
+    /// IDEMPOTENT work, never destructive work. `refresh()` re-reading a status on a hidden pane
+    /// costs a query and is right either way; `take()` on a hidden pane spends something that
+    /// cannot be got back. Anything destructive has to hang off a condition that is true only when
+    /// the thing is actually true, which is what `visible` is: a value, not an event.
+    static func collectible(visible: Bool, previewing: Bool) -> Bool { visible && !previewing }
 }
 
 @MainActor

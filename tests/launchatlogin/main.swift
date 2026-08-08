@@ -70,11 +70,41 @@ check("the missing state says where to put the app",
 
 // MARK: - the shortcut into System Settings
 
-check("every state that explains itself also offers the way there",
-      spoken.allSatisfy(\.offersSystemSettings))
-check("a settled login item offers no shortcut",
-      !LaunchAtLoginState.enabled.offersSystemSettings
-        && !LaunchAtLoginState.notRegistered.offersSystemSettings)
+check("every state that explains itself is one settled in System Settings",
+      spoken.allSatisfy(\.needsSystemSettings))
+check("a settled login item is not",
+      !LaunchAtLoginState.enabled.needsSystemSettings
+        && !LaunchAtLoginState.notRegistered.needsSystemSettings)
+
+// The button is a rule over BOTH lines the row can be showing, not over the state alone.
+func offersWayOut(_ state: LaunchAtLoginState, _ failure: LaunchAtLoginFailure?) -> Bool {
+    LaunchAtLoginState.offersSystemSettings(for: state, failure: failure)
+}
+let anyFailureShown = LaunchAtLoginFailure(wanted: true, message: "code signature refused")
+
+check("each state that explains itself still offers the button on its own",
+      spoken.allSatisfy { offersWayOut($0, nil) })
+check("and a quiet state on its own still offers nothing",
+      !offersWayOut(.enabled, nil) && !offersWayOut(.notRegistered, nil))
+
+// The gap this closed: a refused signature leaves an ordinary `.notRegistered` behind, so the row
+// said "that failed" and gave the user nowhere to go.
+check("a failure beside a state with nothing to say still offers the button",
+      offersWayOut(.notRegistered, anyFailureShown))
+check("and so does one beside an enabled login item",
+      offersWayOut(.enabled, anyFailureShown))
+check("a failure never takes the button away from a state that had it",
+      spoken.allSatisfy { offersWayOut($0, anyFailureShown) })
+// Stated whole: of every state, the button is absent only when there is nothing on screen to
+// explain, so no line can ever be shown without a way to act on it.
+let allStates: [LaunchAtLoginState] = [.enabled, .notRegistered, .requiresApproval, .notFound,
+                                       .unknown]
+check("nothing is ever said without somewhere to go with it",
+      allStates.allSatisfy { state in
+          [anyFailureShown, nil].allSatisfy { failure in
+              let saysSomething = state.noticeKey != nil || failure != nil
+              return offersWayOut(state, failure) == saysSomething
+          } })
 
 // MARK: - which thrown errors reach the user
 
@@ -374,6 +404,45 @@ check("and stays gone however many times it is asked", report.take() == nil)
 
 var nothingWrong = LaunchAtLoginAttemptReport(nil)
 check("a launch with nothing to report reports nothing", nothingWrong.take() == nil)
+
+// MARK: - and only a row the user can actually see may consume it
+
+// What the row does: collect only while its pane is the one on screen, and only outside a preview.
+func collect(_ report: inout LaunchAtLoginAttemptReport,
+             visible: Bool, previewing: Bool = false) -> LaunchAtLoginFailure? {
+    guard LaunchAtLoginAttemptReport.collectible(visible: visible, previewing: previewing)
+    else { return nil }
+    return report.take()
+}
+
+check("a row on the pane being shown may collect",
+      LaunchAtLoginAttemptReport.collectible(visible: true, previewing: false))
+check("a row on a pane nobody opened may not",
+      !LaunchAtLoginAttemptReport.collectible(visible: false, previewing: false))
+check("and a preview never collects, shown or not",
+      !LaunchAtLoginAttemptReport.collectible(visible: true, previewing: true)
+        && !LaunchAtLoginAttemptReport.collectible(visible: false, previewing: true))
+
+// The scenario this missed: Settings opens on Accounts, and the Launch pane is BUILT anyway,
+// because every pane lives in the one stack. Its lifecycle hooks run. It must not eat the report.
+var pending = LaunchAtLoginAttemptReport(
+    LaunchAtLoginFailure(wanted: true, message: "code signature refused"))
+check("a built but hidden pane takes nothing", collect(&pending, visible: false) == nil)
+check("and a second hidden pane takes nothing either", collect(&pending, visible: false) == nil)
+// The user switches to Launch. Now it is theirs to read.
+check("the report survives for the pane the user opens",
+      collect(&pending, visible: true)?.message == "code signature refused")
+// The other end, which must keep standing: rebuilt while visible, it does not say it twice.
+check("and is not said a second time on a rebuilt visible pane",
+      collect(&pending, visible: true) == nil)
+
+// Both ends together, stated as the invariant: the report reaches exactly one reader, and that
+// reader is one the user could see.
+var once = LaunchAtLoginAttemptReport(LaunchAtLoginFailure(wanted: true, message: "x"))
+let readers = [false, false, true, true, false, true].map { collect(&once, visible: $0) }
+check("exactly one reader ever gets it", readers.compactMap { $0 }.count == 1)
+check("and it is the first visible one",
+      readers.firstIndex(where: { $0 != nil }) == 2)
 
 // The path that produced the defect, end to end. Switching the app's language re-keys SettingsView,
 // so the row is built again and asks again; by then the user has turned the switch on and back off

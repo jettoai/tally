@@ -116,7 +116,7 @@ struct SettingsView: View {
     private func paneContent(_ item: Section) -> some View {
         switch item {
         case .accounts: sectionCard { SettingsAccountsView(store: store, settings: settings) }
-        case .launch: sectionCard { SettingsLaunchView(store: store, settings: settings) }
+        case .launch: sectionCard { SettingsLaunchView(store: store, settings: settings, visible: section == item) }
         case .display: sectionCard { displayRows }
         // Disabled on exactly what the hard gate refuses (`guardNotDev`, IntegrationsStore).
         case .integrations: sectionCard { integrationsRows.disabled(BuildVariant.isUnshipped) }

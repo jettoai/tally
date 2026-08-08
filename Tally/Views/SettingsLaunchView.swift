@@ -14,10 +14,13 @@ import SwiftUI
 struct SettingsLaunchView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
+    /// Whether this pane is the one Settings is showing. Only the launch-at-login row needs it,
+    /// and only because it collects a report that can be collected once (see that row).
+    var visible: Bool = false
 
     var body: some View {
         let descriptors = ProviderCatalog.descriptors.filter { settings.isEnabled($0.id) }
-        SettingsLaunchAtLoginRow()
+        SettingsLaunchAtLoginRow(isVisible: visible)
         rowDivider
         if descriptors.isEmpty {
             Text(L("Enable a provider in Accounts to configure launches."))

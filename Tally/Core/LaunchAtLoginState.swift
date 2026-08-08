@@ -57,9 +57,13 @@ extension LaunchAtLoginState {
         }
     }
 
-    /// Whether to offer the shortcut into System Settings > Login Items. Every state that carries
-    /// a notice does, because each of them is settled there and nowhere in this window.
-    var offersSystemSettings: Bool { noticeKey != nil }
+    /// Whether THIS STATE is one that gets settled in System Settings > Login Items. Every state
+    /// carrying a notice is, because each of them is settled there and nowhere in this window.
+    ///
+    /// Named for the state rather than for the button, because it is not the whole rule for the
+    /// button and reading it as one produced a row that said "that failed" with nothing to press
+    /// (see `offersSystemSettings(for:failure:)`).
+    var needsSystemSettings: Bool { noticeKey != nil }
 
     /// Whether a thrown register/unregister error still needs a line of its own, given the state
     /// macOS reports beside it.
@@ -81,6 +85,25 @@ extension LaunchAtLoginState {
         case (.enabled, true), (.notRegistered, false), (.requiresApproval, true): return false
         default: return true
         }
+    }
+
+    /// Whether the row offers its way into System Settings, given everything that is on screen.
+    ///
+    /// Two lines can be showing and either of them is reason enough. The state's own notice is one,
+    /// and it was the only one for a while, which left the other case mute: a failure can be on
+    /// screen while the state has nothing to say at all. The likeliest such case is also the worst
+    /// one to be mute in, a registration macOS refused for a signature it did not accept, where
+    /// `register()` never took and the state is therefore a perfectly ordinary `.notRegistered`.
+    /// The user was told something went wrong and given nowhere to go with it, at the one moment a
+    /// way out is worth most.
+    ///
+    /// A rule over both inputs rather than a widened `needsSystemSettings`, because that property
+    /// is a true statement about states and `.notRegistered` is genuinely not settled in System
+    /// Settings. What changed is not the state; it is that the row is now saying more than the
+    /// state does.
+    static func offersSystemSettings(for state: LaunchAtLoginState,
+                                     failure: LaunchAtLoginFailure?) -> Bool {
+        state.needsSystemSettings || failure != nil
     }
 
     /// The recorded failure still worth a line beside `state`, or nil once the world has moved

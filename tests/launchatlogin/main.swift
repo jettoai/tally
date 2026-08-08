@@ -343,6 +343,51 @@ check("which the row will drop once the state agrees with it anyway",
 check("and keep while it does not",
       LaunchAtLoginState.surviving(thrownFailure, beside: .notRegistered) == thrownFailure)
 
+// MARK: - one answer about the foreground, for every window a launch puts up by itself
+
+// The first version of this rule lived on the Settings window alone, which left it true only while
+// the OTHER window happened not to restore. Both restores now ask this one question.
+check("a preview launch takes the foreground from nobody",
+      !LoginItemPreview.mayTakeForeground(previewing: LoginItemPreview.fixture(named: "notFound")))
+check("an ordinary launch is free to come forward",
+      LoginItemPreview.mayTakeForeground(previewing: nil))
+check("and no previewable state is an exception",
+      LoginItemPreview.names.allSatisfy {
+          !LoginItemPreview.mayTakeForeground(previewing: LoginItemPreview.fixture(named: $0)) })
+// The Settings pane's own answer is DEFINED as this one, so the two windows cannot drift into
+// disagreeing about a single launch.
+check("the Settings window's answer is that same answer, not a second copy",
+      [LoginItemPreview.fixture(named: "enabled"), nil].allSatisfy {
+          LoginItemPreview.settingsOpening(previewing: $0).activates
+              == LoginItemPreview.mayTakeForeground(previewing: $0) })
+check("this process, previewing nothing, may come forward",
+      LoginItemPreview.launchMayTakeForeground)
+
+// MARK: - the startup failure is consumed, not merely unpersisted
+
+var report = LaunchAtLoginAttemptReport(
+    LaunchAtLoginFailure(wanted: true, message: "code signature refused"))
+check("a startup failure is handed to whoever asks first",
+      report.take()?.message == "code signature refused")
+check("and is gone for the next reader", report.take() == nil)
+check("and stays gone however many times it is asked", report.take() == nil)
+
+var nothingWrong = LaunchAtLoginAttemptReport(nil)
+check("a launch with nothing to report reports nothing", nothingWrong.take() == nil)
+
+// The path that produced the defect, end to end. Switching the app's language re-keys SettingsView,
+// so the row is built again and asks again; by then the user has turned the switch on and back off
+// deliberately, and the state contradicts what that old attempt wanted.
+var launchReport = LaunchAtLoginAttemptReport(
+    LaunchAtLoginFailure(wanted: true, message: "code signature refused"))
+let firstBuild = LaunchAtLoginState.surviving(launchReport.take(), beside: .notRegistered)
+check("the first Settings view says the startup registration failed", firstBuild != nil)
+let afterRebuild = LaunchAtLoginState.surviving(launchReport.take(), beside: .notRegistered)
+check("a rebuilt view does not tell the user their own switch-off failed", afterRebuild == nil)
+// And the filter is not what saves it: at this state `surviving` would happily have kept it.
+check("which the expiry rule alone would NOT have prevented",
+      LaunchAtLoginState.surviving(firstBuild, beside: .notRegistered) != nil)
+
 print(failures == 0 ? "\nAll launch-at-login checks passed."
                     : "\n\(failures) launch-at-login check(s) failed.")
 exit(failures == 0 ? 0 : 1)

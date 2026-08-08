@@ -30,13 +30,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // closed by the time an update runs, so there is nothing of it to restore.)
         // Settings second so it lands on top when both were open: the update button lives
         // there, making it the window the user most likely had focused.
-        MainWindowController.shared.restoreAtLaunchIfNeeded()
+        // The one uninvited registration: an unconfigured Tally starts at login, once per install,
+        // and the switch in Settings owns it from then on (LaunchAtLoginDefault). It is here, at
+        // every launch rather than behind a first-run check of its own, because the record of
+        // having done it IS the first-run check, and the only honest one: nothing else can tell a
+        // machine that has never been asked from one whose user said no.
+        //
+        // BEFORE the window restores below, and that ordering is load-bearing: if this attempt
+        // fails it leaves a report for the Settings row to collect ONCE, and a restored Settings
+        // window builds that row on its way up. Published later, the row would ask before there
+        // was anything to ask for and the failure would never be seen on the launch it happened.
+        LaunchAtLoginDefault.applyIfNeeded()
+        // One answer for the whole launch, read once and given to every path below that puts a
+        // window up without anybody having clicked anything. Read here rather than inside each
+        // controller so the set of those paths is a list somebody can look at.
+        let mayTakeForeground = LoginItemPreview.launchMayTakeForeground
+        MainWindowController.shared.restoreAtLaunchIfNeeded(activating: mayTakeForeground)
         // A state preview opens Settings its own way and stands IN FOR the restore rather than
         // following it. Following would not work: the restore activates, and the second preview
         // launch onwards would always find the restore flag set, because opening the window is
         // what sets it.
         if !openSettingsForLoginItemPreview() {
-            SettingsWindowController.shared.restoreAtLaunchIfNeeded()
+            SettingsWindowController.shared.restoreAtLaunchIfNeeded(activating: mayTakeForeground)
         }
         // Design-preview hook (demo/dev only): -TallyUpdateChip 0.15.0 renders the header's
         // update chip without a live feed (-TallyUpdateChipReady YES for the downloaded state),
@@ -47,12 +62,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UpdateAvailability.shared.isDownloaded = UserDefaults.standard.bool(forKey: "TallyUpdateChipReady")
         }
         UsageStore.shared.start()
-        // The one uninvited registration: an unconfigured Tally starts at login, once per install,
-        // and the switch in Settings owns it from then on (LaunchAtLoginDefault). It is here, at
-        // every launch rather than behind a first-run check of its own, because the record of
-        // having done it IS the first-run check, and the only honest one: nothing else can tell a
-        // machine that has never been asked from one whose user said no.
-        LaunchAtLoginDefault.applyIfNeeded()
         // An agent skill installed by an older app version is silently brought up to date, so
         // the guidance ships with the app. Only files that are already installed and ours are
         // touched: never an install, never someone else's skills/tally.

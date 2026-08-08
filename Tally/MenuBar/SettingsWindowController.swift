@@ -24,8 +24,13 @@ final class SettingsWindowController {
     var isWindowVisible: Bool { window?.isVisible == true }
 
     /// Reopen the window at launch if it was up when the app last quit (see `restoreKey`).
-    func restoreAtLaunchIfNeeded() {
-        if UserDefaults.standard.bool(forKey: Self.restoreKey) { show(restoring: true) }
+    ///
+    /// `activating`: the launch's one answer about taking the foreground, same as the dashboard's
+    /// restore takes (LoginItemPreview.mayTakeForeground).
+    func restoreAtLaunchIfNeeded(activating: Bool = true) {
+        if UserDefaults.standard.bool(forKey: Self.restoreKey) {
+            show(restoring: true, activating: activating)
+        }
     }
 
     /// Called at termination: tear-down closes must not read as the user dismissing the

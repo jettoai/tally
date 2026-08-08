@@ -79,24 +79,46 @@ enum LaunchAtLoginDefault {
     }
 }
 
+/// What the one attempt threw, held until somebody has been told, and not one reader longer.
+///
+/// A one-shot rather than a value that is merely never written to disk. "Only this launch" was the
+/// wrong boundary: a static lives as long as the PROCESS, while the view that reads it is rebuilt
+/// whenever anything rebuilds the Settings tree, and switching the app's language rebuilds all of
+/// it (SettingsView keys itself on the language for exactly that effect). Read a second time, a
+/// failed startup registration reappears beside a switch the user has since turned off ON PURPOSE,
+/// and `surviving` correctly keeps it there, because the state really does contradict what that
+/// old attempt asked for. The user is then shown their own deliberate choice as a failure.
+///
+/// Which is the same fault this whole feature keeps being about: something out of date telling the
+/// user about now. The fix has to be that reading it consumes it, not that it is not persisted.
+struct LaunchAtLoginAttemptReport {
+    private var failure: LaunchAtLoginFailure?
+
+    init(_ failure: LaunchAtLoginFailure?) { self.failure = failure }
+
+    /// Hand the failure over, once. Every later ask gets nil, because by then it has been said.
+    mutating func take() -> LaunchAtLoginFailure? {
+        defer { failure = nil }
+        return failure
+    }
+}
+
 @MainActor
 extension LaunchAtLoginDefault {
-    /// What the one attempt threw, for the rest of this launch, or nil when it did not run or did
-    /// not throw.
-    ///
-    /// Held for the launch rather than stored, because it is an incident and not a setting. Stored,
-    /// it would come back next launch beside a switch the user has since deliberately turned off,
-    /// where `surviving` would rightly keep it (the state does contradict what the attempt asked
-    /// for) and the user would be told their own choice was an error. The states worth explaining
-    /// past this launch explain themselves from the live status, which is durable by construction.
-    private(set) static var attemptFailure: LaunchAtLoginFailure?
+    /// This launch's report. Private so there is exactly one way to read it, and that way empties
+    /// it: a `private(set)` property would let a second reader take the same copy again, which is
+    /// the defect this replaced.
+    private static var report = LaunchAtLoginAttemptReport(nil)
+
+    /// The failure from this launch's one attempt, for whoever asks first. Nil afterwards.
+    static func takeAttemptFailure() -> LaunchAtLoginFailure? { report.take() }
 
     /// Run at launch, once per machine per install.
     static func applyIfNeeded() {
-        attemptFailure = apply(
+        report = LaunchAtLoginAttemptReport(apply(
             plan(alreadyApplied: UserDefaults.standard.bool(forKey: appliedKey),
                  isUnshipped: BuildVariant.isUnshipped, isDemo: DemoUsage.isActive),
             register: { try LaunchAtLoginService.setRegistered(true) },
-            markApplied: { UserDefaults.standard.set(true, forKey: appliedKey) })
+            markApplied: { UserDefaults.standard.set(true, forKey: appliedKey) }))
     }
 }

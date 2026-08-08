@@ -167,8 +167,30 @@ enum LoginItemPreview {
     /// The rule as a function of the fixture, so both answers can be asserted from a process that
     /// is previewing nothing.
     static func settingsOpening(previewing fixture: Fixture?) -> SettingsOpening {
-        SettingsOpening(onLaunchPane: fixture != nil, activates: fixture == nil)
+        SettingsOpening(onLaunchPane: fixture != nil,
+                        activates: mayTakeForeground(previewing: fixture))
     }
+
+    /// Whether anything this launch puts on screen of its own accord may also pull the app to the
+    /// front.
+    ///
+    /// ONE answer for the whole launch, and it is deliberately not phrased about any particular
+    /// window. The first version of this rule was a parameter on the Settings window alone, which
+    /// made it true only while the OTHER window happened not to restore: a user who quit with the
+    /// dashboard open got the app yanked forward anyway, because that restore runs first and does
+    /// its own activating. Correctness that depends on what the user left open is not correctness.
+    ///
+    /// So every launch-time path that shows a window without anybody having clicked anything asks
+    /// this, and the enumeration of those paths is the point rather than the individual fixes:
+    /// both window restores (`MainWindowController` and `SettingsWindowController`) call
+    /// `NSApp.activate` and are wired through here; the pinned panel's restore orders its panel
+    /// front but never activates, so it cannot take the foreground from another app; and the
+    /// updater's alerts do activate but stay dormant without a feed URL, which is exactly the
+    /// build a preview runs in.
+    static func mayTakeForeground(previewing fixture: Fixture?) -> Bool { fixture == nil }
+
+    /// This launch's answer.
+    static var launchMayTakeForeground: Bool { mayTakeForeground(previewing: fixture) }
 
     /// The fixture after the trip the row's button offers: consent given, login item present.
     ///

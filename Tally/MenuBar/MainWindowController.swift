@@ -49,8 +49,15 @@ final class MainWindowController {
     var isWindowVisible: Bool { window?.isVisible == true }
 
     /// Reopen the window at launch if it was up when the app last quit (see `restoreKey`).
-    func restoreAtLaunchIfNeeded() {
-        if UserDefaults.standard.bool(forKey: Self.restoreKey) { show(restoring: true) }
+    ///
+    /// `activating` is the launch's one answer about taking the foreground, passed in rather than
+    /// assumed: a restore is not a click, and on a launch that must stay in the background this is
+    /// the path that would otherwise pull the app forward on nothing but "the window happened to be
+    /// open last time" (LoginItemPreview.mayTakeForeground).
+    func restoreAtLaunchIfNeeded(activating: Bool = true) {
+        if UserDefaults.standard.bool(forKey: Self.restoreKey) {
+            show(restoring: true, activating: activating)
+        }
     }
 
     /// Called at termination: tear-down closes must not read as the user dismissing the
@@ -78,7 +85,10 @@ final class MainWindowController {
     /// Nothing here decides which view the window lands on any more: the surface keeps that in its
     /// own state, so a window reopened during a session shows what its header was last switched to,
     /// exactly like the panel and the popover do.
-    func show(restoring: Bool = false) {
+    /// `activating` = take the foreground, which every ordinary summon does because it is a click.
+    /// Only the launch-time restore passes false, and only on a launch that must leave the
+    /// foreground to however the app was started (see `restoreAtLaunchIfNeeded`).
+    func show(restoring: Bool = false, activating: Bool = true) {
         StatusItemController.shared?.closePopover()
         // The pinned panel gives way too, and for a harder reason than tidiness: it is THIS view in
         // its always-on-top form, so leaving it up stacks two identical surfaces and the floating
@@ -179,8 +189,15 @@ final class MainWindowController {
         }
         UserDefaults.standard.set(true, forKey: Self.restoreKey)
         ActivationPolicy.promote()   // a visible dashboard earns a Dock / Cmd-Tab presence
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
+        // The promotion above stays unconditional: being reachable through Cmd-Tab is how a window
+        // is found again, and is not the same act as taking the screen from whoever is using it.
+        // Only the second is the caller's to withhold.
+        if activating {
+            NSApp.activate(ignoringOtherApps: true)
+            window?.makeKeyAndOrderFront(nil)
+        } else {
+            window?.orderFront(nil)
+        }
         // Nothing should start focused, the same clear `PinnedPanelController.show` makes on its way
         // in. This window outlives its closes, so focus left on the tab switch is still there when it
         // is summoned again. A close reads from inside the view as this surface going quiet, the one

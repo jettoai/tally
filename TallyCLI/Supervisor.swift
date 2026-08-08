@@ -149,6 +149,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // (TerminalHandover.swift). Not on the user's own first launch: they typed the command a
         // moment ago, nothing has died here, and anything they type next is theirs.
         if relaunching { drainTerminalInput() }
+        // Void the last child's report before a new pid can inherit it (TranscriptIdentity.swift).
+        clearTranscriptIdentity(pid: supervisorPID)
         guard let childPID = spawnChild([provider.cli] + launchArgs, environment: environment) else {
             warn("cannot launch `\(provider.cli)`")
             exit(127)

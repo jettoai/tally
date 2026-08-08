@@ -32,9 +32,11 @@ import Foundation
 // prompt hooks and the MCP picker answer, and it has one answer (`SessionMarkerTrust.corroborated`,
 // SwitchRequest.swift): the marker in the environment counts only where the directory the prompt
 // came from is actually running that supervisor, narrowed by process ancestry and by the
-// conversation id. A status line is in the strongest position of all three - it is a direct child of
-// Claude Code, so `getppid()` IS the process whose conversation it is reporting, and that pid is
-// exactly what each supervisor publishes about its own child (`readSupervisorChild`).
+// conversation id. A status line is in the strongest position of all three, because the process that
+// RAN it is the one whose conversation it is reporting, and that pid is exactly what each supervisor
+// publishes about its own child (`readSupervisorChild`). Which process that is takes a short walk up
+// the ancestry rather than a `getppid()`, for the reason `claudeCodeThatRanUs` states: it is the
+// parent only for the users who never had a status line of their own.
 
 /// The suffix under which a session's own report of its transcript lives, beside the supervisor's
 /// presence entry and the other per-session documents (SwitchRequest.swift keeps that family).
@@ -48,13 +50,17 @@ func transcriptIdentityFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 /// What one status-line render reported: the conversation it drew for, and the Claude Code that drew
 /// it.
 ///
-/// THE PID IS NOT DECORATION, and it is what makes a stale file harmless. A supervisor outlives its
-/// children: it relaunches one to move accounts, to change model, to take an update. A report left
-/// by the child before last names a conversation that child was in, and a relaunch that starts a
-/// FRESH conversation (nothing to resume) would otherwise bind the watcher to a transcript nobody is
-/// writing any more. The reader therefore accepts a report only from the child it is running right
-/// now, which also disposes of the other stale case for free: a recycled supervisor pid inheriting a
-/// dead supervisor's file, whose child pid cannot be ours.
+/// THE PID IS NOT DECORATION, and it is half of what makes a stale file harmless. A supervisor
+/// outlives its children: it relaunches one to move accounts, to change model, to take an update. A
+/// report left by the child before last names a conversation that child was in, and a relaunch that
+/// starts a FRESH conversation (nothing to resume) would otherwise bind the watcher to a transcript
+/// nobody is writing any more. The reader therefore accepts a report only from the child it is
+/// running right now, which also disposes of the other stale case for free: a recycled supervisor
+/// pid inheriting a dead supervisor's file, whose child pid cannot be ours.
+///
+/// THE OTHER HALF IS THAT THE FILE DOES NOT SURVIVE A SPAWN AT ALL, because a pid is only unique
+/// while its process is alive and this check compares equal on a recycled one:
+/// `clearTranscriptIdentity` states that half.
 struct TranscriptIdentity: Equatable {
     /// Claude Code's own id for the conversation, which is also the stem of the transcript it is
     /// writing (measured 2026-08-07, and the same equality `transcriptSessionID` rests on).
@@ -91,6 +97,93 @@ func writeTranscriptIdentity(_ identity: TranscriptIdentity, pid: String,
         .write(to: transcriptIdentityFile(pid: pid, dir: dir), atomically: true, encoding: .utf8)
 }
 
+/// Void this session's report. Called at every spawn, before the child that would invalidate it
+/// exists (Supervisor.swift), and best-effort like every other write on this track.
+///
+/// THE READER'S PID CHECK IS NOT ENOUGH ON ITS OWN, which is the whole reason this exists: it is
+/// exact only for as long as a pid identifies one process, and the moment a supervisor replaces its
+/// child the OS is free to hand the dead one's number to the new one. The report from before the
+/// relaunch would then read as this child's own, and the watcher would be dragged back onto the
+/// conversation that relaunch ended - a reload or a handoff resuming the wrong transcript, until the
+/// new child's first render happened to correct it. Removing the file at the spawn removes the whole
+/// window: a report describes one child, and there is a new one.
+///
+/// What the pid check still catches after this, and why it stays: a status line that was mid-render
+/// when its Claude Code was terminated can land its write AFTER this removal, and that report is
+/// from a process that has already gone.
+func clearTranscriptIdentity(pid: String, dir: URL = supervisorStateDir) {
+    try? FileManager.default.removeItem(at: transcriptIdentityFile(pid: pid, dir: dir))
+}
+
+// MARK: - Which process ran this status line
+
+/// A live process's parent and its short name, read from the kernel in one call.
+///
+/// `sysctl` rather than the `ps` table the backstop reads (PromptHookBackstop.swift): that one wants
+/// EVERY process and their arguments, and one call answers the whole question; this one wants two
+/// fields about a single pid, on a path that runs per render and per candidate per prompt, and
+/// spawning `ps` to learn them would be a subprocess for a struct copy. nil when the pid is gone or
+/// cannot be asked about. `parentProcessID` (SwitchRequest.swift) is the parent-only reading of this
+/// same struct.
+///
+/// The name is `p_comm`: the executable's basename as the kernel recorded it, truncated to 16
+/// characters - which every shell name fits inside several times over, and a shell name is all this
+/// file asks of it.
+func processIdentity(_ pid: pid_t) -> (parent: pid_t, name: String)? {
+    var info = kinfo_proc()
+    var size = MemoryLayout<kinfo_proc>.stride
+    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+    guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+    let name = withUnsafeBytes(of: info.kp_proc.p_comm) {
+        String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+    }
+    return (info.kp_eproc.e_ppid, name)
+}
+
+/// The process names a status line can be running UNDERNEATH: a shell that stayed alive to do
+/// something with its exit status.
+let statusLineWrapperShells: Set<String> = ["sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh",
+                                            "fish"]
+
+/// How far up the ancestry the search goes before giving up. A process tree cannot loop, so this is
+/// not a cycle guard: it is a refusal to walk an unbounded distance on a path that runs on every
+/// render.
+let statusLineAncestorLimit = 8
+
+/// The Claude Code that ran this status line, which is NOT always its parent.
+///
+/// A USER WHO ALREADY HAD A STATUS LINE PUTS A SHELL IN BETWEEN. Tally never clobbers one: it
+/// registers `tally statusline --wrap <b64> 2>/dev/null || printf %s <b64> | base64 -D | /bin/sh`,
+/// so the original keeps running inside ours and survives even Tally's own disappearance
+/// (`upsertStatusLine`, IntegrationsStore.swift). A command with a `||` in it is one the shell has
+/// to stay around to finish, so it forks Tally and waits; a plain command it can hand over outright,
+/// and it execs instead. Measured 2026-08-08 on macOS 14: the plain form's parent is Claude Code,
+/// the wrapped form's parent is `/bin/sh`. So `getppid()` answers correctly for everyone who never
+/// customised anything and is silently wrong for exactly the people who did - no error and no
+/// fallback, just the mtime guess for ever, which is the one failure this whole file exists to end.
+///
+/// THE SEARCH CROSSES SHELLS AND NOTHING ELSE, and that is the safety rather than a convenience. A
+/// `claude` started from a shell inside another supervised session has the OUTER Claude Code further
+/// up this very chain, and refusing that one is what the corroboration below is for. Stopping at the
+/// first ancestor that is not a shell stops at the process that actually ran us; a search that
+/// climbed until something matched a supervisor's published child would walk straight past an
+/// unsupervised inner session and publish its conversation onto the outer one.
+///
+/// nil is a refusal to guess, and the caller publishes nothing: an ancestry that is shells all the
+/// way up, or one that cannot be read, is not evidence of anything.
+func claudeCodeThatRanUs(from: pid_t = getppid(), limit: Int = statusLineAncestorLimit,
+                         process: (pid_t) -> (parent: pid_t, name: String)? = processIdentity)
+    -> pid_t? {
+    var pid = from
+    for _ in 0..<limit {
+        // pid 1 is launchd, the top of every chain: reaching it means no Claude Code was found.
+        guard pid > 1, let hop = process(pid) else { return nil }
+        guard statusLineWrapperShells.contains(hop.name) else { return pid }
+        pid = hop.parent
+    }
+    return nil
+}
+
 // MARK: - The status line's side
 
 /// Report the conversation this render was drawn for, if it is worth reporting and there is anybody
@@ -103,8 +196,9 @@ func writeTranscriptIdentity(_ identity: TranscriptIdentity, pid: String,
 /// THE ORDER OF THE GUARDS IS THE COST CONTROL, and it is deliberate rather than incidental:
 ///
 ///   1. No marker in the environment means nothing is supervising this session, so there is nobody
-///      to tell. That is one environment read and one `kill(pid, 0)`, and it is where an unsupervised
-///      `claude` running Tally's status line stops - it never touches the disk at all.
+///      to tell. That is one environment read, one `kill(pid, 0)` and the two or three kernel reads
+///      that name the caller, and it is where an unsupervised `claude` running Tally's status line
+///      stops - it never touches the disk at all.
 ///   2. The file the marker names is read and compared. When it already says exactly this, the work
 ///      ends here: one small read, no directory scan, no write. That is what almost every render
 ///      does, because the value only changes when the conversation does.
@@ -119,17 +213,18 @@ func writeTranscriptIdentity(_ identity: TranscriptIdentity, pid: String,
 /// `TALLY_SUPERVISOR_PID` names the very real session running it. The defaults are the real ones, so
 /// the status line reads exactly as it would without them.
 func reportTranscriptIdentity(sessionID: String?, cwd: String?,
-                              claudeCodePID: pid_t = getppid(),
+                              claudeCodePID: pid_t? = claudeCodeThatRanUs(),
                               marker: String? = liveSessionMarker(),
                               dir: URL = supervisorStateDir) {
-    guard let sessionID, isTranscriptSessionID(sessionID), let marker else { return }
+    guard let sessionID, isTranscriptSessionID(sessionID), let marker, let claudeCodePID
+    else { return }
     let identity = TranscriptIdentity(id: sessionID, claudeCodePID: claudeCodePID)
     guard readTranscriptIdentity(pid: marker, dir: dir) != identity else { return }
     // The same rule every second-hand surface uses, and for the same reason: a marker is inherited
     // by everything a session ever starts, so a `claude` launched from inside another supervised
     // session carries a marker that has nothing to do with it. Process ancestry settles it here
-    // outright - a status line's parent IS the Claude Code it draws for, and that is the pid each
-    // supervisor publishes about its own child.
+    // outright - the Claude Code that ran this status line is the one it draws for, and that is the
+    // pid each supervisor publishes about its own child.
     //
     // A SUPERVISOR TOO OLD TO PUBLISH ITS CHILD gets no report, and that is the right way to fail:
     // the fallback witness is the conversation id each supervisor publishes, which goes stale across

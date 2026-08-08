@@ -185,20 +185,10 @@ func writeSupervisorChild(_ child: pid_t, pid: String, dir: URL = supervisorStat
     try? String(child).write(to: file, atomically: true, encoding: .utf8)
 }
 
-/// The parent of a live process, straight from the kernel.
-///
-/// `sysctl` rather than the `ps` table the backstop reads (PromptHookBackstop.swift): that one wants
-/// EVERY process and their arguments, and one call answers the whole question; this one wants a
-/// single field about a single pid, on a path that runs per candidate per prompt, and spawning `ps`
-/// to learn it would be a subprocess for a struct copy. nil when the pid is gone or cannot be asked
-/// about.
-func parentProcessID(_ pid: pid_t) -> pid_t? {
-    var info = kinfo_proc()
-    var size = MemoryLayout<kinfo_proc>.stride
-    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
-    guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
-    return info.kp_eproc.e_ppid
-}
+/// The parent of a live process, straight from the kernel: the one field of `processIdentity`
+/// (TranscriptIdentity.swift, which states why this is a `sysctl` and not the `ps` table next door)
+/// that this track asks for. nil when the pid is gone or cannot be asked about.
+func parentProcessID(_ pid: pid_t) -> pid_t? { processIdentity(pid)?.parent }
 
 /// The Claude Code that supervisor is running, or nil when there is no answer to be had.
 ///

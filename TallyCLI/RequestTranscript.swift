@@ -114,7 +114,9 @@ func transcriptWatchedElsewhere(_ id: String, excluding sessionKey: String,
 ///     directory is the watcher's own, so a request cannot send it wandering; the birth gate is the
 ///     fork scan's (`scanCandidates`) and answers the same question - a transcript that predates the
 ///     launch cannot be where this child moved to, and resuming it would replace the conversation.
-///   - A file written no later than the one already bound: THIS ONLY EVER MOVES FORWARD (below).
+///   - A file written no later than the one already bound, WHEN that binding is itself a fact rather
+///     than the opening guess: this only ever moves forward from an origin somebody vouched for
+///     (below).
 ///   - A file another live supervisor says it is watching (above).
 ///   - A file the fork scan can already PROVE belongs to another conversation. `.sibling` means an
 ///     assistant turn this child never took, or somebody else's launch id: evidence in the file
@@ -141,10 +143,24 @@ func adoptRequestedTranscript(_ id: String?, watcher: inout TranscriptWatcher, s
         .resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]),
         let created = values.creationDate, let modified = values.contentModificationDate,
         created >= watcher.since.addingTimeInterval(-5) else { return false }
-    // ONLY FORWARD IN TIME, which is the same rule and the same measure the scan applies to what it
-    // adopts (`forks.filter { $0.modified > live }`, TranscriptFork.swift): the process writes to
-    // exactly one transcript, so everything it left behind stopped growing, and a candidate written
-    // no later than the bound file cannot be where the conversation is now.
+    // ONLY FORWARD IN TIME, AND ONLY FROM A BINDING SOMEBODY VOUCHED FOR.
+    //
+    // The rule is the scan's, and so is the measure (`forks.filter { $0.modified > live }`,
+    // TranscriptFork.swift): the process writes to exactly one transcript, so everything it left
+    // behind stopped growing, and a candidate written no later than the bound file cannot be where
+    // the conversation is now.
+    //
+    // THAT ARGUMENT HAS A PREMISE - that the bound file is one THIS child wrote - and a first
+    // binding does not always meet it. With no id to resume, `bindFile` takes the newest transcript
+    // in the directory, and two fresh sessions in one project directory means the other one's file
+    // can win that race: the watcher opens on somebody else's conversation. Measured against a
+    // guessed origin, our own transcript is "older" and this gate refused the exact id Claude Code
+    // reported, leaving the request to be served on the SIBLING - resuming a stranger's conversation,
+    // which is worse than the hold this whole file exists to release (cross-model review of 1382271,
+    // reproduced against its parent). So the gate asks first whether the origin is a fact
+    // (`boundByEvidence`). The scan needs no such question: what it adopts has already carried this
+    // child's launch marker, so its origin is proven by construction, and what monotonicity buys it
+    // there is only that an already-dead fork of this same child is not re-adopted.
     //
     // TWO EXITS OF ONE RULE, and the half that was missing here cost a live regression (found by a
     // cross-model review of 7d871a6, reproduced): clear twice with a hook-answered command after
@@ -154,9 +170,11 @@ func adoptRequestedTranscript(_ id: String?, watcher: inout TranscriptWatcher, s
     // the whole tick down - and neither request is consumed on a stand-down, so the next tick did
     // exactly the same thing. Two commands that never happen, for ever, which is the very shape of
     // the defect this file exists to fix.
-    let live = (try? URL(fileURLWithPath: bound.path)
-        .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-    guard modified > live ?? .distantPast else { return false }
+    if watcher.boundByEvidence {
+        let live = (try? URL(fileURLWithPath: bound.path)
+            .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        guard modified > live ?? .distantPast else { return false }
+    }
     guard !transcriptWatchedElsewhere(id, excluding: sessionKey, dir: dir) else { return false }
     // The join key is resolved against the file being LEFT, before anything moves (TranscriptFork
     // .swift: it names the id this child was LAUNCHED with, and every file the conversation moves

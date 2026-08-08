@@ -128,6 +128,31 @@ enum ForkEvidence {
 // to the planners it is cancelling: StandDown.swift.
 
 extension TranscriptWatcher {
+    /// Whether the file this watcher is bound to was chosen by EVIDENCE, or merely guessed.
+    ///
+    /// A FIRST BINDING CAN BE WRONG, and `bindFile` says so itself: with no id to resume it takes the
+    /// most recently written transcript in the directory, which "would otherwise pick the wrong file
+    /// when the directory holds a second session (a sibling tab, an unrelated older conversation)".
+    /// Two fresh sessions in one project directory, the other one mid-turn, and this watcher opens
+    /// bound to somebody else's conversation. Nothing about that binding is a fact, and reasoning
+    /// that takes it as one inherits the mistake (`adoptRequestedTranscript` states the one that did).
+    ///
+    /// DERIVED RATHER THAN STORED, from the field that already answers it. `resumeID` is what the
+    /// next relaunch would resume, and it has exactly three writers, every one of which knew which
+    /// conversation it meant: the launch that was told an id (`--resume`, bound directly above), the
+    /// scan that proved where the conversation went, and a request that named it outright (both
+    /// through `moveTo`). The heuristic is the one binding nobody vouched for, and it is precisely
+    /// the one that writes `file` and leaves `resumeID` alone - so the two disagreeing IS the guess.
+    ///
+    /// A stored flag would be a second copy of that fact, and the failure mode of a second copy is a
+    /// path that sets one and forgets the other. Here a future path that binds a file without saying
+    /// which conversation it is reads as a GUESS, which is the safe direction: everything downstream
+    /// of this only ever adds a refusal on the strength of it.
+    var boundByEvidence: Bool {
+        guard let file else { return false }
+        return resumeID == file.deletingPathExtension().lastPathComponent
+    }
+
     /// Re-point at the transcript the conversation moved to, when it moved (see the fork notes at
     /// the top of this file). Everything the watcher does from then on - quiet, cap detection, the
     /// subagent directory, and above all the id the next relaunch resumes - follows the live file.
@@ -186,8 +211,23 @@ extension TranscriptWatcher {
         // carries forever (the notes at the top of this file). Resolved after the move it would latch
         // the id just adopted, and the next move would be invisible for the rest of the child's life.
         // A no-op on the scan's path, which has already asked.
-        if let current = file {
+        if let current = file, boundByEvidence {
             _ = launchKey(boundTo: current.deletingPathExtension().lastPathComponent)
+        } else {
+            // UNLESS THE ORIGIN WAS A GUESS, in which case this move REPLACES it rather than dating
+            // from it. A key latched off `bindFile`'s mtime guess names whatever conversation won
+            // that race, and with a stranger's id as the join key that stranger's own stamped turn
+            // reads as OUR fork: the scan adopts it right back, and the session relaunches onto a
+            // conversation nobody here has anything to do with (measured, not predicted - this
+            // whole-tick case failed exactly that way before this branch existed).
+            //
+            // The sibling verdicts go with it, for the same reason and no other: `forkSibling` is
+            // deliberately kept across an ordinary move because being a sibling is a fact about the
+            // file and this child's CONSTANT launch id. The key is not constant across THIS move, so
+            // every verdict reached with the old one is a verdict about a question nobody asked -
+            // including, in the other direction, our own later `/clear` filed away as a stranger.
+            launchID = nil
+            forkSibling.removeAll()
         }
         file = url
         resumeID = url.deletingPathExtension().lastPathComponent

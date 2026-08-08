@@ -92,6 +92,94 @@ func runRequestForwardChecks() {
     check("…so the watcher lands on the conversation that is actually there",
           vanishedWatcher.file?.lastPathComponent == "live.jsonl")
 
+    // MARK: - Forward FROM WHERE: an opening guess is not a time axis
+
+    // The monotonic argument rests on the bound file being one THIS child wrote, and a first binding
+    // does not always meet that. `bindFile` says so itself: with no id to resume it takes the newest
+    // transcript in the directory, which "would otherwise pick the wrong file when the directory
+    // holds a second session". Two fresh sessions in one project directory, the other one mid-turn,
+    // and this watcher opens on somebody else's conversation - against which OUR file is "older",
+    // so the gate refused the very id Claude Code reported and the request went on to be served on
+    // the sibling. Resuming a stranger's conversation is worse than the hold this all exists to
+    // release (cross-model review of 1382271, reproduced against its parent).
+
+    /// Two fresh sessions in one project directory, neither resumed, the sibling written last - so
+    /// the opening binding lands on the sibling's file. Ours is the shape a fresh session has when
+    /// its first act was a hook-answered command: the command record, and no turn at all.
+    func crossedBinding(_ label: String) -> (fixture: ForkFixture, watcher: TranscriptWatcher) {
+        let fixture = ForkFixture(label)
+        fixture.write("ours.jsonl", fixture.clearedLines(own: "ours"), born: 10, wrote: 100)
+        // An older unresolvable file of this session's own, for the arm below: nothing but the
+        // monotonicity gate can refuse it, so it says which gate answered.
+        fixture.write("earlier.jsonl", fixture.clearedLines(own: "earlier"), born: 5, wrote: 50)
+        // Actively being used, which is exactly why it wins a race decided on mtime, and stamping
+        // its own launch id the way a real second session does.
+        fixture.write("sibling.jsonl", [fixture.marker(own: "sibling", launched: "sibling")],
+                      born: 20, wrote: 200)
+        var watcher = TranscriptWatcher(projectDir: fixture.dir, since: fixture.launchedAt)
+        watcher.auditLog = testAuditLog
+        watcher.locateFile()
+        check("the opening binding really is the sibling's file (\(label))",
+              watcher.file?.lastPathComponent == "sibling.jsonl" && !watcher.boundByEvidence)
+        return (fixture, watcher)
+    }
+
+    var (_, crossed) = crossedBinding("guessed-origin")
+    check("a guessed origin does not get to veto the conversation Claude Code named",
+          adoptRequestedTranscript("ours", watcher: &crossed, sessionKey: "4242"))
+    check("…so the watcher lands on our own conversation, older mtime and all",
+          crossed.file?.lastPathComponent == "ours.jsonl" && crossed.resumeID == "ours")
+    check("…and the binding is a fact from here on, so the gate applies again",
+          crossed.boundByEvidence)
+    // THE ORIGIN IS REPLACED, NOT JUST THE BINDING. The join key is latched from whatever the
+    // watcher was bound to, so a guessed binding latches a guessed key - and the sibling's own
+    // stamped turn then reads as OUR fork, handing the session straight back on the next scan.
+    check("…and the join key is re-resolved from it rather than from the guess",
+          crossed.launchKey(boundTo: "ours") == "ours")
+    // AND THE GATE CLOSES BEHIND IT. A binding a request corrected is a binding somebody vouched
+    // for, so the next request naming something older is refused exactly as it is after any other
+    // adoption: starting from a guess cannot reopen the two-station interlock this file opened with.
+    // `earlier` is unresolvable, so monotonicity is the only gate that can be answering here.
+    check("…so a request naming something older than THAT is refused, interlock guard intact",
+          !adoptRequestedTranscript("earlier", watcher: &crossed, sessionKey: "4242"))
+    check("…and the watcher is still on our own conversation",
+          crossed.file?.lastPathComponent == "ours.jsonl")
+    crossed.locateFile(forceForkCheck: true)
+    check("so the very next scan does not hand the session back to the sibling",
+          crossed.file?.lastPathComponent == "ours.jsonl" && crossed.resumeID == "ours")
+
+    // The whole tick, which is where it matters: the request is served on OUR conversation, and the
+    // relaunch it plans resumes ours rather than the stranger's.
+    let (_, crossedStart) = crossedBinding("guessed-origin-tick")
+    var crossedWatcher = crossedStart
+    let crossedDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-crossed-\(UUID().uuidString)")
+    try! writeSwitchRequest(accountID: "B", sessionKey: "4242", transcriptID: "ours",
+                            now: Date(timeIntervalSince1970: 1_800_000_000), dir: crossedDir)
+    var crossedMoves = ManualMoveState(sessionKey: "4242", servedEpoch: 100, dir: crossedDir)
+    var crossedPlan: RelaunchPlan?
+    var crossedRecord: PendingSwitchConsumption?
+    var crossedPolicy = fleetPolicy
+    applyManualMoves(plan: &crossedPlan, state: &crossedMoves, record: &crossedRecord,
+                     policy: &crossedPolicy, account: onA, providerID: "claude",
+                     watcher: &crossedWatcher, childAge: 9999, keyboardIdle: { _ in true },
+                     dir: crossedDir,
+                     request: { readSwitchRequest(sessionKey: $0, dir: crossedDir) },
+                     accounts: { [onA, toB] }, homeOnDisk: { _, _ in false })
+    check("the move a wrongly-bound session asked for still happens",
+          crossedPlan?.target.id == "B")
+    check("…on our own conversation rather than the sibling's",
+          crossedWatcher.file?.lastPathComponent == "ours.jsonl")
+    check("…so the relaunch resumes ours, which is the whole point of the id being carried",
+          relaunchArgs(["--model", "fable"], sessionID: crossedWatcher.resumeID, sameAccount: false)
+              == ["--resume", "ours", "--model", "fable"])
+    crossedWatcher.locateFile(forceForkCheck: true)
+    check("…and the execution point's own scan leaves it there",
+          crossedWatcher.file?.lastPathComponent == "ours.jsonl"
+              && !relaunchHeldByUnresolvedFork(reason: crossedPlan?.reason ?? "switch",
+                                               unresolvedFork: crossedWatcher.hasUnresolvedFork))
+    try? FileManager.default.removeItem(at: crossedDir)
+
     // The order the two stations run in is a RULE rather than an arrangement, and this section's
     // whole-tick fixture below depends on it, so it is read off the source that owns it rather than
     // assumed.

@@ -171,8 +171,26 @@ extension TranscriptWatcher {
             }
             return
         }
-        file = newest.url
-        resumeID = newest.url.deletingPathExtension().lastPathComponent
+        moveTo(newest.url)
+    }
+
+    /// Re-point at `url` and drop everything that was true only of the file being left.
+    ///
+    /// ONE RESET, SHARED BY THE TWO WAYS a live child's transcript can change under it: the scan
+    /// above proving where the conversation went, and a request that names the file outright
+    /// (RequestTranscript.swift). A second copy of this list would be a second answer to "what
+    /// survives a move", and the half that got left behind would be the half nobody tested.
+    mutating func moveTo(_ url: URL) {
+        // The join key belongs to the file being LEFT and is latched before `resumeID` moves: it
+        // names the id this child was LAUNCHED with, which every file the conversation moves into
+        // carries forever (the notes at the top of this file). Resolved after the move it would latch
+        // the id just adopted, and the next move would be invisible for the rest of the child's life.
+        // A no-op on the scan's path, which has already asked.
+        if let current = file {
+            _ = launchKey(boundTo: current.deletingPathExtension().lastPathComponent)
+        }
+        file = url
+        resumeID = url.deletingPathExtension().lastPathComponent
         // Cap detection restarts at the top of the new file (its events are all post-launch, and
         // the `since` guards in `sawCapHit` still filter anything replayed from before it).
         offset = 0
@@ -202,7 +220,10 @@ extension TranscriptWatcher {
     /// it here rather than at init keeps every construction path (with a resume id, with a file
     /// handed straight in, or neither) on the same value, and reads `resumeID` before any adoption
     /// can move it.
-    private mutating func launchKey(boundTo boundID: String) -> String {
+    ///
+    /// Not private, because the request adoption has to latch it against the file it is leaving too
+    /// (RequestTranscript.swift). Idempotent by construction, so asking twice on one move is free.
+    mutating func launchKey(boundTo boundID: String) -> String {
         if let launchID { return launchID }
         let key = resumeID ?? boundID
         launchID = key

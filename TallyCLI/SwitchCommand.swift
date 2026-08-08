@@ -180,7 +180,12 @@ func attemptSwitch(_ intent: SwitchIntent,
     }
     sweepDeadSessionRequests(dir: switchRequestDir)
     do {
-        try writeSwitchRequest(accountID: target?.id ?? switchAutoRequest, sessionKey: sessionKey)
+        // The conversation this was typed into, when the surface knows it: a hook and the native
+        // picker are told by Claude Code, a person's shell is not. It is what lets the supervisor
+        // act on a session that has just been `/clear`ed instead of holding the request until the
+        // session ends (RequestTranscript.swift states the deadlock in full).
+        try writeSwitchRequest(accountID: target?.id ?? switchAutoRequest, sessionKey: sessionKey,
+                               transcriptID: marker.promptTranscriptID)
     } catch {
         return .refusal("cannot write \(switchRequestFile(sessionKey: sessionKey).path): "
                             + "\(error.localizedDescription)",

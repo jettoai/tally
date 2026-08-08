@@ -546,6 +546,7 @@ check("a session mid-turn stays busy even with only finished subagents",
 runCapResetChecks()
 runCapSelfUpdateChecks()
 runForkChecks()
+runRequestTranscriptChecks()
 runStandDownChecks()
 runDispatchLayoutChecks()
 runReloadChecks()

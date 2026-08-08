@@ -219,6 +219,11 @@ func applySessionModel(plan: inout TickPlan, state: inout SessionModelState,
         return
     }
     guard request.epoch > state.servedEpoch else { return }
+    // WHICH CONVERSATION IS ASKING, on the same terms and for the same deadlock as the account axis
+    // (`applySwitchRequest`, SessionSwitch.swift). Both halves are closed together rather than
+    // leaving the identical hole one file away: `/tally-model` after a `/clear` is answered by the
+    // same prompt hook, writes no turn either, and hung in exactly the same way.
+    adoptRequestedTranscript(request.transcriptID, watcher: &watcher, sessionKey: state.sessionKey)
     let pair = sessionModelPair(request, policy: policy, launchArgs: launchArgs)
 
     /// Everything a served request owes whether or not it relaunches: the pin, the consumed stamp,

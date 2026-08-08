@@ -49,6 +49,14 @@ struct ModelRequest: Equatable {
     /// one request because they are one instruction ("run this conversation like THIS"), and
     /// because a relaunch carries both or neither anyway.
     let effort: String?
+    /// The conversation this was typed into, as Claude Code itself reported it, or nil when the
+    /// surface that wrote it had no such report. The same field the account axis carries, for the
+    /// same reason and read by the same rule (RequestTranscript.swift).
+    ///
+    /// IT IS NOT AN AXIS, so it is not part of `pin` and it changes nothing about what the session
+    /// runs: it says WHICH conversation is asking, which is the question the hold got stuck on. A
+    /// `var` with a default, so the memberwise initialiser keeps working unchanged.
+    var transcriptID: String?
 
     /// This request releases the pin rather than naming something to run.
     var isRelease: Bool { model == modelAutoRequest }
@@ -61,7 +69,15 @@ struct ModelRequest: Equatable {
 }
 
 /// Parse the file body: the stamp on line 1, the model on line 2, the effort on line 3 (an empty
-/// line meaning "leave the effort alone"). Pure, so the format is testable without a home directory.
+/// line meaning "leave the effort alone"), and the conversation it was typed into on line 4 (empty,
+/// or absent altogether, meaning "nothing can say"). Pure, so the format is testable without a home
+/// directory.
+///
+/// LINE 4 IS ADDITIVE IN BOTH DIRECTIONS, exactly as the account axis's third line is
+/// (`parseSwitchRequest`): appended rather than inserted, so an older supervisor reads the three
+/// lines it knows and ignores what follows, and a file written without it parses as it always did.
+/// An unusable value reads as absent rather than as a broken request, because it says nothing about
+/// the pair, which is the instruction.
 ///
 /// Anything unparseable is nil - no request - rather than a partial one, the rule the switch request
 /// follows for a truncated write. It goes further on one point: both axes are CHECKED here as well
@@ -84,7 +100,8 @@ func parseModelRequest(_ raw: String) -> ModelRequest? {
     // A release carrying an effort is a contradiction, not a half-instruction: `--auto` hands both
     // axes back at once, so the only honest reading of the pair is to refuse it.
     guard model != modelAutoRequest || effort == nil else { return nil }
-    return ModelRequest(epoch: epoch, model: model, effort: effort)
+    let transcript = lines.dropFirst(3).first.flatMap { isTranscriptSessionID($0) ? $0 : nil }
+    return ModelRequest(epoch: epoch, model: model, effort: effort, transcriptID: transcript)
 }
 
 func modelRequestFile(sessionKey: String, dir: URL = modelRequestDir) -> URL {
@@ -100,12 +117,14 @@ func readModelRequest(sessionKey: String, dir: URL = modelRequestDir) -> ModelRe
 
 /// Stamp a request for one session. Atomic (Foundation writes temp + rename), so a supervisor
 /// polling mid-write reads either the previous request or this one, never half of either.
-func writeModelRequest(model: String, effort: String?, sessionKey: String, now: Date = Date(),
+func writeModelRequest(model: String, effort: String?, sessionKey: String,
+                       transcriptID: String? = nil, now: Date = Date(),
                        dir: URL = modelRequestDir) throws {
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    try "\(Int(now.timeIntervalSince1970 * 1000))\n\(model)\n\(effort ?? "")\n"
-        .write(to: modelRequestFile(sessionKey: sessionKey, dir: dir), atomically: true,
-               encoding: .utf8)
+    let body = "\(Int(now.timeIntervalSince1970 * 1000))\n\(model)\n\(effort ?? "")\n"
+        + "\(transcriptRequestLine(transcriptID))\n"
+    try body.write(to: modelRequestFile(sessionKey: sessionKey, dir: dir), atomically: true,
+                   encoding: .utf8)
 }
 
 /// The request is served: unlink it. The served stamp in memory is what makes the decision

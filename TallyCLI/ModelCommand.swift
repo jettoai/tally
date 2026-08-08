@@ -160,8 +160,12 @@ func attemptModel(_ intent: ModelIntent, now: Date = Date(),
     case .pin(let model, let effort): requested = (model, effort)
     }
     do {
+        // The conversation this was typed into, on the same terms as the account axis
+        // (`attemptSwitch`): a hook and the native picker are told which one it is, a person's shell
+        // is not, and the supervisor uses it to catch up with a `/clear` it cannot otherwise resolve.
         try writeModelRequest(model: requested.model, effort: requested.effort,
-                              sessionKey: sessionKey, now: now)
+                              sessionKey: sessionKey, transcriptID: marker.promptTranscriptID,
+                              now: now)
     } catch {
         return .refusal("cannot write \(modelRequestFile(sessionKey: sessionKey).path): "
             + "\(error.localizedDescription)")

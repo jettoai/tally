@@ -43,20 +43,35 @@ struct SwitchRequest: Equatable {
     /// against the live fleet at write time (the same rule `tally project set --account` follows),
     /// so a label renamed while the request sat here still moves the session to the right account.
     let accountID: String
+    /// The conversation this was typed into, as Claude Code itself reported it, or nil when the
+    /// surface that wrote it had no such report (a person's own shell). What it is FOR, and why a
+    /// request has to carry it at all, is RequestTranscript.swift.
+    ///
+    /// A `var` with a default so the memberwise initialiser keeps working unchanged, which is the
+    /// same additivity the file format below promises the other way round.
+    var transcriptID: String?
 
     /// This request releases the session pin rather than naming somewhere to go.
     var isUnpin: Bool { accountID == switchAutoRequest }
 }
 
-/// Parse the file body: the stamp on line 1, the account id on line 2. Pure, so the format is
+/// Parse the file body: the stamp on line 1, the account id on line 2, the conversation it was typed
+/// into on line 3 (empty, or absent altogether, meaning "nothing can say"). Pure, so the format is
 /// testable without a home directory. Anything unparseable is nil - no request - rather than a
 /// partial one: a truncated write must never read as a switch to an account nobody named.
+///
+/// LINE 3 IS ADDITIVE IN BOTH DIRECTIONS, which is the whole of its compatibility story: a file
+/// written before it existed simply has no third line and parses exactly as it always did, and a
+/// supervisor from such a build reads lines 1 and 2 of a new file and ignores what follows. An
+/// unusable value (one that could not name a transcript, `isTranscriptSessionID`) reads as ABSENT
+/// rather than as a broken request: it says nothing about the account, which is the instruction.
 func parseSwitchRequest(_ raw: String) -> SwitchRequest? {
     let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
         .map { $0.trimmingCharacters(in: .whitespaces) }
     guard let epoch = lines.first.flatMap({ Int($0) }),
           let accountID = lines.dropFirst().first, !accountID.isEmpty else { return nil }
-    return SwitchRequest(epoch: epoch, accountID: accountID)
+    let transcript = lines.dropFirst(2).first.flatMap { isTranscriptSessionID($0) ? $0 : nil }
+    return SwitchRequest(epoch: epoch, accountID: accountID, transcriptID: transcript)
 }
 
 func switchRequestFile(sessionKey: String, dir: URL = switchRequestDir) -> URL {
@@ -72,12 +87,17 @@ func readSwitchRequest(sessionKey: String, dir: URL = switchRequestDir) -> Switc
 
 /// Stamp a request for one session. Atomic (Foundation writes temp + rename), so a supervisor
 /// polling mid-write reads either the previous request or this one, never half of either.
-func writeSwitchRequest(accountID: String, sessionKey: String, now: Date = Date(),
-                        dir: URL = switchRequestDir) throws {
+///
+/// The third line is written even when there is nothing to put on it, the way the model request
+/// writes its own unnamed effort: one shape on disk is one shape to read back, and a reader old
+/// enough to know only the first two lines is unaffected either way.
+func writeSwitchRequest(accountID: String, sessionKey: String, transcriptID: String? = nil,
+                        now: Date = Date(), dir: URL = switchRequestDir) throws {
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    try "\(Int(now.timeIntervalSince1970 * 1000))\n\(accountID)\n"
-        .write(to: switchRequestFile(sessionKey: sessionKey, dir: dir), atomically: true,
-               encoding: .utf8)
+    let body = "\(Int(now.timeIntervalSince1970 * 1000))\n\(accountID)\n"
+        + "\(transcriptRequestLine(transcriptID))\n"
+    try body.write(to: switchRequestFile(sessionKey: sessionKey, dir: dir), atomically: true,
+                   encoding: .utf8)
 }
 
 /// The request is served (or found to be about nothing): unlink it. The served stamp in memory is

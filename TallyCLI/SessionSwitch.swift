@@ -222,6 +222,14 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
         return
     }
     guard request.epoch > state.servedEpoch else { return }
+    // WHICH CONVERSATION IS ASKING, before the quiet gate reads a file that may no longer be it. A
+    // `/clear` with nothing typed into it yet cannot be told from a sibling by anything inside it, so
+    // the fork hold answers "not quiet" to protect a move it cannot see - and a request answered by a
+    // prompt hook writes no turn to resolve it, so this one instruction waited for a turn that would
+    // never come (RequestTranscript.swift). The request names the file Claude Code says the prompt
+    // came from; adopting it puts the watcher back on the live conversation, and the gate below then
+    // asks its ordinary question about the right file.
+    adoptRequestedTranscript(request.transcriptID, watcher: &watcher, sessionKey: state.sessionKey)
     /// Consume the request, leaving the session pin wherever `pin` puts it. The default is "leave
     /// it alone", which is what the branches that changed nothing about where this session runs
     /// want; the two that decided something about the pin say so.

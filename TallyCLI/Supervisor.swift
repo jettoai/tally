@@ -284,6 +284,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             /// A served `tally model`, on those same terms (SessionModel.swift).
             var modelRecord: PendingModelConsumption?
 
+            // Where this conversation is, FIRST, so no gate below has to fall back on the mtime
+            // guess to find out (TranscriptIdentity.swift owns the whole rule).
+            adoptReportedTranscript(watcher: &watcher, sessionKey: supervisorPID,
+                                    childPID: childPID)
             // Cap recovery has top priority: the transcript is scanned BEFORE any relaunch path
             // (pin, switch, follow, rescue, fallback), because a relaunch resets the watcher's
             // `since` and would filter the cap event as old history and lose it (2026-07-24). The

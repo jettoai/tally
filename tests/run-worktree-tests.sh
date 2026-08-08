@@ -29,7 +29,7 @@ swiftc -o "$out" \
   TallyCLI/WorktreeTree.swift \
   TallyCLI/WorktreeActivity.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift Tally/Core/LaunchAxisNames.swift \
-  TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift \
+  TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift \
   TallyCLI/DriftMonitor.swift \
   TallyCLI/SafeguardDrift.swift \
   TallyCLI/KeyboardIdle.swift \

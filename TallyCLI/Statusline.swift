@@ -85,6 +85,14 @@ func runStatusline(args: [String]) -> Never {
     // the configured launch model is the fallback when the JSON carries none.
     let sessionJSON = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any]
     let sessionModel = (sessionJSON?["model"] as? [String: Any])?["display_name"] as? String
+    // WHILE WE HAVE IT: this same object names the conversation Claude Code is rendering for, which
+    // is the one thing the supervisor otherwise has to GUESS (TranscriptIdentity.swift states the
+    // three defects that guess produced). Reporting it here costs one small file read in the case
+    // that is true on almost every render (nothing changed), and it cannot fail loudly: everything
+    // behind this call is best-effort over small files, it prints nothing, and it returns before any
+    // work at all when this session is not supervised. The line below is drawn either way.
+    reportTranscriptIdentity(sessionID: sessionJSON?["session_id"] as? String,
+                             cwd: sessionJSON?["cwd"] as? String)
 
     var quota: [String] = []
     var fleetPiece: String?

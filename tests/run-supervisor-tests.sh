@@ -18,7 +18,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/capgatechecks.swift tests/supervisor/capresetchecks.swift \
   tests/supervisor/capselfupdatechecks.swift \
   tests/supervisor/forkchecks.swift tests/supervisor/requesttranscriptchecks.swift \
-  tests/supervisor/requestforwardchecks.swift \
+  tests/supervisor/requestforwardchecks.swift tests/supervisor/transcriptidentitychecks.swift \
   tests/supervisor/dispatchlayoutchecks.swift \
   tests/supervisor/keyboardchecks.swift tests/supervisor/openturnchecks.swift \
   tests/supervisor/terminaldrainchecks.swift \
@@ -36,7 +36,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/modelsurfacechecks.swift tests/supervisor/nativemodelchecks.swift \
   tests/supervisor/mcppickerchecks.swift tests/supervisor/backstopchecks.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
-  TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift TallyCLI/Reload.swift \
+  TallyCLI/TranscriptWatcher.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift TallyCLI/Reload.swift \
   TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AccountComfort.swift \
   TallyCLI/Rebalance.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift \
   TallyCLI/KeyboardIdle.swift TallyCLI/OpenTurn.swift TallyCLI/ProviderExecutable.swift \

@@ -61,8 +61,8 @@ extension LaunchAtLoginState {
     /// a notice does, because each of them is settled there and nowhere in this window.
     var offersSystemSettings: Bool { noticeKey != nil }
 
-    /// Whether a thrown register/unregister error still needs a line of its own, once the re-read
-    /// state is on screen next to it.
+    /// Whether a thrown register/unregister error still needs a line of its own, given the state
+    /// macOS reports beside it.
     ///
     /// This is not a `try?`. An error is dropped only where something truthful already stands in
     /// its place: asking for "on" and landing on `.enabled` throws `kSMErrorAlreadyRegistered`
@@ -72,10 +72,42 @@ extension LaunchAtLoginState {
     /// explains it in words the raw error does not. Everything else, a refused code signature
     /// included, reaches the user verbatim, and so does a denial they were trying to switch OFF
     /// (there the state on screen is not the one they asked for either).
+    ///
+    /// Phrased against the STATE rather than against the error, and that is what lets it be asked
+    /// twice: once the moment the attempt returns, and again on every later re-read. See
+    /// `surviving(_:beside:)`.
     static func surfacesFailure(after state: LaunchAtLoginState, wanted: Bool) -> Bool {
         switch (state, wanted) {
         case (.enabled, true), (.notRegistered, false), (.requiresApproval, true): return false
         default: return true
         }
     }
+
+    /// The recorded failure still worth a line beside `state`, or nil once the world has moved
+    /// past it.
+    ///
+    /// A failure is the answer to a gesture, not a fact about the machine, so it cannot be re-read
+    /// the way the state is. It can be re-JUDGED, which is what this does: the message stays only
+    /// while the state still contradicts what was asked for. Without it, a user who is told the
+    /// switch did not take, goes and settles it under Login Items, and comes back, reads "on,
+    /// enabled" with "that failed" still sitting under it, the older of the two being the wrong
+    /// one.
+    ///
+    /// The row runs this on BOTH paths, right after an attempt and on every refresh, so the two
+    /// cannot drift into two answers. That is also why the row remembers `wanted` next to the
+    /// message: it is the one part of a failure that no re-read can recover, because it is not
+    /// something the world knows. Everything the world knows is still read, never stored.
+    static func surviving(_ failure: LaunchAtLoginFailure?,
+                          beside state: LaunchAtLoginState) -> LaunchAtLoginFailure? {
+        guard let failure, surfacesFailure(after: state, wanted: failure.wanted) else { return nil }
+        return failure
+    }
+}
+
+/// A register/unregister attempt that threw, kept exactly as long as it still explains what is on
+/// screen. `wanted` is what the user asked for, and it is here because the filter above needs it
+/// long after the call that produced the message has returned.
+struct LaunchAtLoginFailure: Equatable {
+    let wanted: Bool
+    let message: String
 }

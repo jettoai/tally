@@ -14,6 +14,12 @@ import SwiftUI
 /// in `body` re-runs on every unrelated redraw and still would not refresh at the moment it
 /// matters.
 ///
+/// The failure line under it gets the same treatment one step removed. It cannot be re-read (a
+/// gesture's outcome is not something the machine remembers), so it is re-JUDGED against the state
+/// on every refresh, in `LaunchAtLoginState.surviving(_:beside:)`. Left alone it would outlive its
+/// cause: told the switch did not take, the user settles it under Login Items, comes back, and
+/// reads "on, enabled" with "that failed" still under it.
+///
 /// Disabled for a build nobody installed (`BuildVariant.isUnshipped`), the same gate the
 /// Integrations pane uses, for its reason plus one of its own. `SMAppService.mainApp` registers
 /// the bundle that is RUNNING: "Tally Dev" only ever runs out of DerivedData, and a locally built
@@ -22,13 +28,34 @@ import SwiftUI
 /// and aim the next boot at a build directory. Both leave a login item pointed at a path that is
 /// about to be deleted; the second does it wearing the installed app's name, which is the failure
 /// BuildVariant.isBuildTree was written for.
+///
+/// Which leaves the dev build a reviewer actually looks at showing one greyed switch and a line of
+/// apology, while the states worth reviewing need a denied consent to appear. `LoginItemPreview`
+/// is the way in: `-TallyLoginItemPreview requiresApproval` and the row stands on a fixture it can
+/// be operated against, with SMAppService neither asked nor told.
 struct SettingsLaunchAtLoginRow: View {
     @State private var state: LaunchAtLoginState = .notRegistered
-    /// The last register/unregister error that the state beside it does not already explain.
-    @State private var failure: String?
+    /// The last register/unregister attempt that threw, for as long as the state beside it does
+    /// not already explain itself. Filtered through `LaunchAtLoginState.surviving` on every write
+    /// AND every refresh, never assigned past it.
+    @State private var failure: LaunchAtLoginFailure?
 
-    /// A build nobody installed reads the login item but never writes it.
-    private var manageable: Bool { !BuildVariant.isUnshipped }
+    /// The fixture this row stands on for a dev preview launch (`-TallyLoginItemPreview`,
+    /// LoginItemPreview), and nil on every normal launch. Non-nil is the single thing that diverts
+    /// this row away from SMAppService, and it diverts BOTH directions at once: the three places
+    /// below that would read or write a real login item each check it, so a preview launch asks
+    /// macOS nothing and tells it nothing. Nil, and every line runs the code it ran before the flag
+    /// existed.
+    ///
+    /// Seeded at construction rather than in `onAppear` so the first frame is already the previewed
+    /// state: a frame of the greyed-out dev notice, in the one build a reviewer looks at this in,
+    /// is a frame that could land in a screenshot.
+    @State private var fixture: LoginItemPreview.Fixture? = LoginItemPreview.fixture
+
+    /// A build nobody installed reads the login item but never writes it. A preview launch is
+    /// operable regardless, which is the point of it: the gate exists to keep this row's hands off
+    /// a real login item, and a fixture is not one.
+    private var manageable: Bool { fixture != nil || !BuildVariant.isUnshipped }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -40,9 +67,9 @@ struct SettingsLaunchAtLoginRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if manageable {
                     if let key = state.noticeKey { notice(L(key)) }
-                    if let failure { notice(failure) }
+                    if let failure { notice(failure.message) }
                     if state.offersSystemSettings {
-                        Button(L("Open Login Items")) { LaunchAtLoginService.openLoginItems() }
+                        Button(L("Open Login Items")) { openLoginItems() }
                             .controlSize(.small)
                             .padding(.top, 2)
                     }
@@ -74,27 +101,58 @@ struct SettingsLaunchAtLoginRow: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// Read even where the row cannot be operated: a locally built Release shares the installed
-    /// app's identity, so the honest thing to show is that app's real login item, greyed out.
+    /// Ask what is true, from the fixture on a preview launch and from macOS otherwise.
+    ///
+    /// The real read happens even where the row cannot be operated: a locally built Release shares
+    /// the installed app's identity, so the honest thing to show is that app's real login item,
+    /// greyed out.
     private func refresh() {
-        state = LaunchAtLoginService.current
+        apply(fixture?.state ?? LaunchAtLoginService.current)
+    }
+
+    /// The one place what is on screen is decided. Every path ends here, an attempt and a preview
+    /// press included, so a write and a re-read cannot reach different verdicts, and the failure
+    /// line a reviewer watches disappear is filtered by the shipping rule rather than by anything
+    /// the preview brought with it.
+    private func apply(_ settled: LaunchAtLoginState) {
+        state = settled
+        failure = LaunchAtLoginState.surviving(failure, beside: settled)
     }
 
     private func setRegistered(_ registered: Bool) {
+        if let fixture {
+            let outcome = LoginItemPreview.pressing(registered, on: fixture)
+            self.fixture = outcome.fixture
+            failure = outcome.failure
+            apply(outcome.fixture.state)
+            return
+        }
         var thrown: Error?
         do {
             try LaunchAtLoginService.setRegistered(registered)
         } catch {
             thrown = error
         }
-        // The state macOS reports AFTER the attempt is the answer, including when the attempt
-        // threw: a denied registration is still a registration, and it is what the notice above
-        // is written from.
-        let settled = LaunchAtLoginService.current
-        state = settled
-        failure = thrown.flatMap { error in
-            LaunchAtLoginState.surfacesFailure(after: settled, wanted: registered)
-                ? error.localizedDescription : nil
+        // Recorded raw, with what was asked for; `apply` decides whether it survives the state
+        // macOS reports afterwards. That state is the answer even when the attempt threw: a denied
+        // registration is still a registration, and it is what the notice above is written from.
+        failure = thrown.map {
+            LaunchAtLoginFailure(wanted: registered, message: $0.localizedDescription)
         }
+        refresh()
+    }
+
+    /// On a normal launch this opens System Settings. On a preview launch it stands in for having
+    /// been there: the fixture comes back settled, which is the sequence a reviewer needs to watch
+    /// (it is what clears a failure line that has outlived its cause) and the one sequence that
+    /// cannot be staged for real, because the panel that would open shows the reviewer's own login
+    /// items, where this row's fixture does not exist.
+    private func openLoginItems() {
+        guard fixture == nil else {
+            fixture = LoginItemPreview.settledInSystemSettings
+            apply(LoginItemPreview.settledInSystemSettings.state)
+            return
+        }
+        LaunchAtLoginService.openLoginItems()
     }
 }

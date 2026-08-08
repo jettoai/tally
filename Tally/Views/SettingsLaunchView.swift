@@ -6,12 +6,19 @@ import SwiftUI
 /// fallback pairing). Split out of the Accounts pane: "which accounts exist" and "what happens
 /// when I launch" are different questions, and one pane answering both buried each.
 /// The row builders live in SettingsLaunchRows.swift.
+///
+/// One row here is about a different launch: whether macOS starts TALLY at login
+/// (SettingsLaunchAtLoginRow). It leads the pane, unindented and outside every provider group,
+/// because it is the only setting on it that applies before any provider exists, and it is the
+/// one this pane's title reads as first.
 struct SettingsLaunchView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
 
     var body: some View {
         let descriptors = ProviderCatalog.descriptors.filter { settings.isEnabled($0.id) }
+        SettingsLaunchAtLoginRow()
+        rowDivider
         if descriptors.isEmpty {
             Text(L("Enable a provider in Accounts to configure launches."))
                 .font(.caption).foregroundStyle(.secondary)

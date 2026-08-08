@@ -9680,6 +9680,209 @@
           }
         }
       }
+    },
+    "Start at login": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入時啟動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录时启动"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログイン時に起動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 시 시작"
+          }
+        }
+      }
+    },
+    "Tally is in the menu bar as soon as you log in, so a fresh boot still shows your quota.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入後 Tally 立刻出現在選單列，剛開機也能一眼看到額度。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录后 Tally 立刻出现在菜单栏，刚开机也能一眼看到额度。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログインするとすぐ Tally がメニューバーに現れるので、起動直後でも残量をひと目で確認できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인하면 Tally가 곧바로 메뉴 막대에 나타나므로, 막 부팅한 뒤에도 사용량을 한눈에 볼 수 있습니다."
+          }
+        }
+      }
+    },
+    "macOS is holding this back. Allow Tally under Login Items in System Settings; switching this off and on again cannot grant it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 正擋著它。請到「系統設定 → 一般 → 登入項目」允許 Tally；在這裡反覆開關並不會取得允許。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 正拦着它。请到「系统设置 → 通用 → 登录项」允许 Tally；在这里反复开关并不会取得允许。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS がこれを止めています。「システム設定 → 一般 → ログイン項目」で Tally を許可してください。ここで切り替えを繰り返しても許可は得られません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS가 이를 막고 있습니다. 「시스템 설정 → 일반 → 로그인 항목」에서 Tally를 허용하세요. 여기서 껐다 켜기를 반복해도 허용되지 않습니다."
+          }
+        }
+      }
+    },
+    "macOS found no login item for this copy of Tally. Move Tally to your Applications folder, then turn this on again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 找不到這份 Tally 的登入項目。請先把 Tally 移到「應用程式」資料夾，再重新開啟這個選項。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 找不到这份 Tally 的登录项。请先把 Tally 移到「应用程序」文件夹，再重新开启这个选项。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Tally のログイン項目が macOS で見つかりません。Tally を「アプリケーション」フォルダに移してから、もう一度オンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS가 이 Tally의 로그인 항목을 찾지 못했습니다. Tally를 「응용 프로그램」 폴더로 옮긴 뒤 다시 켜 주세요."
+          }
+        }
+      }
+    },
+    "macOS reported a login item state this version of Tally does not recognize.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 回報了這個版本的 Tally 不認得的登入項目狀態。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 返回了这个版本的 Tally 无法识别的登录项状态。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Tally のバージョンが認識できないログイン項目の状態が macOS から返されました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 버전의 Tally가 알지 못하는 로그인 항목 상태를 macOS가 보고했습니다."
+          }
+        }
+      }
+    },
+    "Open Login Items": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟登入項目"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开登录项"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログイン項目を開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 항목 열기"
+          }
+        }
+      }
+    },
+    "Start at login is managed by the installed release app.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「登入時啟動」由已安裝的正式版負責管理。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「登录时启动」由已安装的正式版负责管理。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ログイン時に起動」は、インストール済みの製品版アプリが管理します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「로그인 시 시작」은 설치된 정식 버전 앱이 관리합니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

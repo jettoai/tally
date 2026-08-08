@@ -119,8 +119,8 @@ targets:
       base:
         CODE_SIGN_ENTITLEMENTS: Tally/Resources/Tally.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: ai.jetto.tally
-        MARKETING_VERSION: "0.39.0"
-        CURRENT_PROJECT_VERSION: "510"
+        MARKETING_VERSION: "0.40.0"
+        CURRENT_PROJECT_VERSION: "521"
         SWIFT_VERSION: "6.0"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         CODE_SIGN_IDENTITY: "Apple Development"

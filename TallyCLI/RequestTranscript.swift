@@ -106,7 +106,7 @@ func transcriptWatchedElsewhere(_ id: String, excluding sessionKey: String,
 /// Re-point the watcher at the transcript a request named, when everything about that name checks
 /// out. True when it moved, which is only ever news to a test: the callers act on the watcher.
 ///
-/// FOUR REFUSALS, and each closes a way this could be worse than the hold it releases:
+/// FIVE REFUSALS, and each closes a way this could be worse than the hold it releases:
 ///
 ///   - A name this build cannot use as a filename, or the one already bound. The second is the
 ///     ordinary case by a wide margin: nothing has moved, so there is nothing to do.
@@ -114,6 +114,7 @@ func transcriptWatchedElsewhere(_ id: String, excluding sessionKey: String,
 ///     directory is the watcher's own, so a request cannot send it wandering; the birth gate is the
 ///     fork scan's (`scanCandidates`) and answers the same question - a transcript that predates the
 ///     launch cannot be where this child moved to, and resuming it would replace the conversation.
+///   - A file written no later than the one already bound: THIS ONLY EVER MOVES FORWARD (below).
 ///   - A file another live supervisor says it is watching (above).
 ///   - A file the fork scan can already PROVE belongs to another conversation. `.sibling` means an
 ///     assistant turn this child never took, or somebody else's launch id: evidence in the file
@@ -134,11 +135,28 @@ func adoptRequestedTranscript(_ id: String?, watcher: inout TranscriptWatcher, s
     guard let bound = watcher.file,
           bound.deletingPathExtension().lastPathComponent != id else { return false }
     let url = watcher.projectDir.appendingPathComponent("\(id).jsonl")
-    // Fresh URL for the same reason every other stat here builds one: resource values are cached per
-    // instance, and this path is read once per tick while a request is pending.
-    guard let created = (try? URL(fileURLWithPath: url.path)
-        .resourceValues(forKeys: [.creationDateKey]))?.creationDate,
+    // Fresh URLs for the same reason every other stat here builds one: resource values are cached
+    // per instance, and these are read once per tick while a request is pending.
+    guard let values = try? URL(fileURLWithPath: url.path)
+        .resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]),
+        let created = values.creationDate, let modified = values.contentModificationDate,
         created >= watcher.since.addingTimeInterval(-5) else { return false }
+    // ONLY FORWARD IN TIME, which is the same rule and the same measure the scan applies to what it
+    // adopts (`forks.filter { $0.modified > live }`, TranscriptFork.swift): the process writes to
+    // exactly one transcript, so everything it left behind stopped growing, and a candidate written
+    // no later than the bound file cannot be where the conversation is now.
+    //
+    // TWO EXITS OF ONE RULE, and the half that was missing here cost a live regression (found by a
+    // cross-model review of 7d871a6, reproduced): clear twice with a hook-answered command after
+    // each, and the two stations of ONE tick name two different transcripts. The account station
+    // runs first and adopts the newer one; the model station then dragged the watcher BACK to the
+    // older one, so the execution point's forced scan saw the newer file unresolved again and stood
+    // the whole tick down - and neither request is consumed on a stand-down, so the next tick did
+    // exactly the same thing. Two commands that never happen, for ever, which is the very shape of
+    // the defect this file exists to fix.
+    let live = (try? URL(fileURLWithPath: bound.path)
+        .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+    guard modified > live ?? .distantPast else { return false }
     guard !transcriptWatchedElsewhere(id, excluding: sessionKey, dir: dir) else { return false }
     // The join key is resolved against the file being LEFT, before anything moves (TranscriptFork
     // .swift: it names the id this child was LAUNCHED with, and every file the conversation moves

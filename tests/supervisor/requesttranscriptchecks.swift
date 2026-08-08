@@ -267,9 +267,15 @@ func runRequestTranscriptChecks() {
     let ours = ForkFixture("request-own-fork")
     ours.write("parent.jsonl", ["{}"], born: -3600, wrote: 0)
     ours.write("fork.jsonl", [ours.marker(own: "fork", launched: "parent")], born: 30, wrote: 120)
+    // BOTH inside the scan's 5s cost window, and the fork the later of the two: the gate keeps the
+    // scan from moving anything, while the move itself is still forward in time (a candidate written
+    // BEFORE the bound file is refused, and rightly - requestforwardchecks.swift).
     try! FileManager.default.setAttributes(
-        [.modificationDate: Date()],
+        [.modificationDate: Date().addingTimeInterval(-4)],
         ofItemAtPath: ours.dir.appendingPathComponent("parent.jsonl").path)
+    try! FileManager.default.setAttributes(
+        [.modificationDate: Date().addingTimeInterval(-2)],
+        ofItemAtPath: ours.dir.appendingPathComponent("fork.jsonl").path)
     var ownFork = ours.watcher(pinnedTo: "parent")
     ownFork.locateFile()
     check("the scan's cost gate has not moved it yet",

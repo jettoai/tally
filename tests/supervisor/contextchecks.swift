@@ -239,20 +239,39 @@ func runSessionContextChecks() {
     // (codex review of 49dcdcd).
     let fresh = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-child-witness-\(UUID().uuidString)")
-    // Live pids throughout, because the reading refuses a dead one (see below): this process and
-    // the one that started it are both running for as long as this suite is.
+    // A REAL PARENT AND CHILD, because the reading checks both that the process is alive and that it
+    // is that supervisor's OWN child: this process and the one that started it are exactly such a
+    // pair, and they are both running for as long as this suite is.
     let liveChild = getpid()
-    writeSupervisorChild(liveChild, pid: "5150", dir: fresh)
+    let itsSupervisor = String(getppid())
+    writeSupervisorChild(liveChild, pid: itsSupervisor, dir: fresh)
     check("the Claude Code a supervisor spawned is readable with no reading published at all",
-          readSupervisorChild(pid: "5150", dir: fresh) == Int(liveChild)
-              && readSessionContext(pid: "5150", dir: fresh) == nil)
+          readSupervisorChild(pid: itsSupervisor, dir: fresh) == Int(liveChild)
+              && readSessionContext(pid: itsSupervisor, dir: fresh) == nil)
     // A relaunch spawns a new child, and the witness has to follow it or every later prompt is
-    // matched against a process that has exited.
-    writeSupervisorChild(getppid(), pid: "5150", dir: fresh)
-    check("…and a relaunch replaces it",
-          readSupervisorChild(pid: "5150", dir: fresh) == Int(getppid()))
+    // matched against a process that has exited. Asserted on the FILE, because the second value has
+    // no relationship to this supervisor and the reading is right to refuse it - which is the next
+    // check.
+    writeSupervisorChild(4242, pid: itsSupervisor, dir: fresh)
+    check("…and a relaunch replaces what is published",
+          (try? String(contentsOf: supervisorChildFile(pid: itsSupervisor, dir: fresh),
+                       encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) == "4242")
     check("a supervisor that never published one answers nothing, not zero",
           readSupervisorChild(pid: "9999", dir: fresh) == nil)
+
+    // A LIVE PID THAT IS SOMEBODY ELSE'S CHILD IS NOT AN ANSWER. Pids are reused, and liveness alone
+    // would let a stale value name whatever now holds that number - which reads as a confident
+    // "provably not it" and takes the real candidate down with it. Nothing sweeps this residue
+    // either: the sweep is keyed on the SUPERVISOR's pid, and this supervisor is alive.
+    writeSupervisorChild(liveChild, pid: "5153", dir: fresh)
+    check("a live process that is not that supervisor's child reads as no witness",
+          supervisorAlive(liveChild) && readSupervisorChild(pid: "5153", dir: fresh) == nil)
+    check("…so it too is carried on as silent rather than ruling the candidate out",
+          sessionsRunning(liveChild, among: ["5153"],
+                          published: { readSupervisorChild(pid: $0, dir: fresh) })
+              == WitnessReading(identified: false, candidates: ["5153"]))
+    check("the parent lookup answers for a real pair and refuses a pid nothing is running",
+          parentProcessID(getpid()) == getppid() && parentProcessID(999_999) == nil)
 
     // A PID NOTHING IS RUNNING IS NO ANSWER. A relaunch terminates the old child before spawning
     // the new one, so a value left behind by a publish that failed names a process that has

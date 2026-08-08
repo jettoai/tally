@@ -56,6 +56,10 @@ struct Snapshot: Decodable {
     var version: Int
     var generatedAt: Date
     var accounts: [Account]
+    /// The account ids in the order the app's PANEL renders them (the user's own drag order).
+    /// Absent in snapshots from an older app, which reads as "no preference" and leaves every
+    /// surface on the order `accounts` arrives in.
+    var accountOrder: [String]?
     /// User preference: the status line renders the full quota line even when wrapping a
     /// custom status line (absent in old snapshots → minimal signal).
     var statuslineFullQuota: Bool?

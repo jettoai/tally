@@ -238,10 +238,33 @@ func liveSwitchFleet(cwd: String = FileManager.default.currentDirectoryPath,
     -> (accounts: [Snapshot.Account], rows: [SwitchFleetRow]?, problem: String?) {
     let (snapshot, problem) = loadSnapshot()
     guard let accounts = snapshot?.accounts else { return ([], nil, problem) }
-    return (accounts,
+    return (accountsInPanelOrder(accounts, order: snapshot?.accountOrder),
             switchFleetRows(accounts: accounts, provider: providers[0].id,
                             current: currentSessionAccount(accounts, cwd: cwd, marker: marker)),
             problem)
+}
+
+/// The accounts as the app's PANEL lists them: the published drag order first, then anything that
+/// order does not mention, in the order the snapshot wrote it.
+///
+/// The order is published beside the accounts rather than applied to them, because that array's own
+/// order decides near-ties for the launcher's account pick (UsageSnapshot.swift states the trade).
+/// So applying it is the reading surface's job, and this is the one place it is done.
+///
+/// An absent order is a snapshot from an older app, and reads as "no preference": everything keeps
+/// the order it arrived in, which is what every surface did before this existed.
+func accountsInPanelOrder(_ accounts: [Snapshot.Account],
+                          order: [String]?) -> [Snapshot.Account] {
+    guard let order else { return accounts }
+    // An EMPTY order needs no special case: nothing ranks, so every account ties and the stable
+    // fallback below leaves them exactly where they were (asserted, and the early return that used
+    // to be here was found to change nothing by mutating it away).
+    let rank = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+    return accounts.enumerated().sorted { lhs, rhs in
+        let left = rank[lhs.element.id] ?? Int.max
+        let right = rank[rhs.element.id] ?? Int.max
+        return left == right ? lhs.offset < rhs.offset : left < right
+    }.map(\.element)
 }
 
 /// The same listing, read off this machine, with whatever the snapshot read had to say about

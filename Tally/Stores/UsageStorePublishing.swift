@@ -17,7 +17,13 @@ extension UsageStore {
         UsageSnapshot.make(accounts: lastPublishedAccounts, launchHomes: lastLaunchHomes,
                            statuslineFullQuota: SettingsStore.shared.statuslineFullQuota,
                            displayMode: SettingsStore.shared.displayMode.rawValue,
-                           fleet: fleet, fleetPools: fleetPools).write()
+                           fleet: fleet, fleetPools: fleetPools,
+                           // What the PANEL shows, for the surfaces that mirror it. The accounts
+                           // themselves keep the order they are written in, because readers that
+                           // resolve near-ties by taking the first candidate depend on it
+                           // (UsageSnapshot.accountOrder states the whole trade).
+                           accountOrder: SettingsStore.shared
+                               .orderedAccountIDs(lastPublishedAccounts.map(\.id))).write()
     }
 
     /// Feed the claude flagship weekly pool to the dry-pool notifier. The flagship window is chosen

@@ -165,20 +165,45 @@ func writeSupervisorChild(_ child: pid_t, pid: String, dir: URL = supervisorStat
     try? String(child).write(to: file, atomically: true, encoding: .utf8)
 }
 
+/// The parent of a live process, straight from the kernel.
+///
+/// `sysctl` rather than the `ps` table the backstop reads (PromptHookBackstop.swift): that one wants
+/// EVERY process and their arguments, and one call answers the whole question; this one wants a
+/// single field about a single pid, on a path that runs per candidate per prompt, and spawning `ps`
+/// to learn it would be a subprocess for a struct copy. nil when the pid is gone or cannot be asked
+/// about.
+func parentProcessID(_ pid: pid_t) -> pid_t? {
+    var info = kinfo_proc()
+    var size = MemoryLayout<kinfo_proc>.stride
+    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+    guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+    return info.kp_eproc.e_ppid
+}
+
 /// The Claude Code that supervisor is running, or nil when there is no answer to be had.
 ///
-/// A DEAD PID IS NO ANSWER. The removal above cannot cover every way a publish fails - a directory
-/// that has become unwritable defeats both halves of it - so the reading refuses one more thing:
-/// a pid nothing is running. The child a relaunch replaced was terminated before the new one was
-/// spawned, so a stale value names a process that has exited, and treating it as a denial is
-/// exactly the failure the removal exists to prevent. Together they leave one residue, stated
-/// rather than hidden: a stale pid the OS has since REUSED reads as live. That window is bounded by
-/// the same sweep every document on this track relies on.
+/// TWO THINGS ARE CHECKED, and neither is the file's contents. A publish that fails leaves the
+/// previous child's pid behind (the removal above narrows that, and a directory which has become
+/// unwritable defeats both halves of it), so the value on disk cannot be taken as a fact:
+///
+///   - THE PROCESS MUST BE RUNNING. A relaunch terminates the old child before spawning the new
+///     one, so a stale value names a process that has exited - and reading it as a fact is exactly
+///     the failure this guard exists to prevent: it makes the one real candidate look "provably not
+///     it", removing it and skipping the fallbacks behind it.
+///   - AND IT MUST BE THIS SUPERVISOR'S OWN CHILD. Liveness alone is not enough, because pids are
+///     reused: the OS can hand a stale pid to something else entirely, and that process is alive.
+///     The child is spawned directly by the supervisor (`spawnChild`, posix_spawnp), so its parent
+///     IS the supervisor, and a reused pid would have to land under the very same parent to fool
+///     this. Nothing sweeps the residue for us - the sweep is keyed on the SUPERVISOR's pid, and a
+///     supervisor that is still alive keeps its own stale `.child` file forever (a claim to the
+///     contrary stood in this comment until codex read it, 3c0635a) - so this check is the whole
+///     defence rather than a narrowing of one.
 func readSupervisorChild(pid: String, dir: URL = supervisorStateDir) -> Int? {
     guard let raw = try? String(contentsOf: supervisorChildFile(pid: pid, dir: dir),
                                 encoding: .utf8),
           let child = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-          let running = pid_t(exactly: child), supervisorAlive(running) else { return nil }
+          let running = pid_t(exactly: child), supervisorAlive(running),
+          let supervisor = pid_t(pid), parentProcessID(running) == supervisor else { return nil }
     return child
 }
 

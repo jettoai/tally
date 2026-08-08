@@ -196,6 +196,46 @@ func runMCPPickerChecks() {
                                                     provider: "claude", current: nil))
               .map(\.value) == ["claude:.claude", "claude:.claude2", switchAutoRequest])
 
+    // AND THE ORDER IS THE PANEL'S, NOT THE SNAPSHOT'S. The snapshot writes its accounts sorted by
+    // provider and label; the panel renders whatever order the user dragged them into, and the
+    // dialog promised to mirror the PANEL. The order is published beside the accounts rather than
+    // applied to them, because the array's own order decides near-ties for the launcher's account
+    // pick (`smartPick`), so applying it is the reading surface's job (codex batch, 3c0635a).
+    let dragged = accountsInPanelOrder([first, second],
+                                       order: ["claude:.claude2", "claude:.claude"])
+    check("a published drag order is what the dialog lists by",
+          dragged.map(\.id) == ["claude:.claude2", "claude:.claude"])
+    check("…and the options follow it",
+          mcpAccountOptions(accounts: dragged,
+                            ranked: switchFleetRows(accounts: [first, second], provider: "claude",
+                                                    current: nil)).map(\.value)
+              == ["claude:.claude2", "claude:.claude", switchAutoRequest])
+    // An account the order does not mention keeps the place the snapshot gave it, after the ones it
+    // does: a fleet gains accounts between drags, and a new one must not disappear or jump to front.
+    check("an account the order never mentions keeps its snapshot place, behind the ordered ones",
+          accountsInPanelOrder([first, second, loggedOut],
+                               order: ["claude:.claude2"]).map(\.id)
+              == ["claude:.claude2", "claude:.claude", "claude:.claude3"])
+    // A snapshot from an app that predates the field says nothing, and nothing is what it changes.
+    check("no published order leaves every account exactly where the snapshot put it",
+          accountsInPanelOrder([first, second], order: nil).map(\.id)
+              == ["claude:.claude", "claude:.claude2"]
+              && accountsInPanelOrder([first, second], order: []).map(\.id)
+                  == ["claude:.claude", "claude:.claude2"])
+    // AND THE READING ACTUALLY APPLIES IT. The rule above is a pure function, and a pure function
+    // nobody calls is the wiring defect this feature has now been bitten by twice: every assertion
+    // here would still pass with `liveSwitchFleet` handing back the raw snapshot order. Locked by
+    // shape, because the call sits behind a snapshot read this suite does not perform.
+    let hookSource = (try? String(contentsOfFile: "TallyCLI/SwitchHook.swift", encoding: .utf8)) ?? ""
+    check("the fleet reading hands the dialog its accounts in panel order",
+          hookSource.contains("return (accountsInPanelOrder(accounts, order: snapshot?.accountOrder),"))
+    // …and the app publishes the order for it to apply, which is the other half nobody else asserts.
+    let publishing = (try? String(contentsOfFile: "Tally/Stores/UsageStorePublishing.swift",
+                                  encoding: .utf8)) ?? ""
+    check("…and the app publishes the panel's order beside the accounts",
+          publishing.contains("accountOrder: SettingsStore.shared")
+              && publishing.contains("orderedAccountIDs(lastPublishedAccounts.map(\\.id))"))
+
     // THE POOL IN THE HEADING, so the rows read as "the whole Claude fleet" rather than a filtered
     // view of it.
     check("the heading names the pool and counts it",

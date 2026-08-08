@@ -79,6 +79,18 @@ struct UsageSnapshot: Codable {
     /// panel instead of just the headline. Added in 0.17 (optional; `fleet` keeps publishing the
     /// single headline pool for older CLIs - the snapshot schema only ever gains fields).
     var fleetPools: [String: [Fleet]]?
+    /// The account ids in the order the PANEL renders them, which is the user's own drag order
+    /// (`SettingsStore.orderedAccountIDs`) and not the order `accounts` is written in.
+    ///
+    /// PUBLISHED BESIDE THE ACCOUNTS RATHER THAN APPLIED TO THEM, and that is a deliberate second
+    /// best. Sorting `accounts` itself would have been one line and one source of truth - but that
+    /// array's order is load-bearing for readers that resolve NEAR-TIES by taking the first
+    /// candidate (`smartPick`, TallyCLI/AccountPick.swift, replaces its leader only on a margin),
+    /// so reordering it would quietly change which account a launch lands on for a fleet whose
+    /// scores are close. A surface that wants to mirror the panel applies this; everything else is
+    /// untouched. Added in 0.38.7 (optional; older CLIs decode fine and keep snapshot order - the
+    /// schema only ever gains fields).
+    var accountOrder: [String]?
 
     static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally", isDirectory: true)
@@ -89,7 +101,7 @@ struct UsageSnapshot: Codable {
     static func make(accounts: [AccountUsage], launchHomes: [String: String],
                      statuslineFullQuota: Bool = false, displayMode: String? = nil,
                      fleet: [String: Fleet]? = nil, fleetPools: [String: [Fleet]]? = nil,
-                     now: Date = Date()) -> UsageSnapshot {
+                     accountOrder: [String]? = nil, now: Date = Date()) -> UsageSnapshot {
         UsageSnapshot(
             generatedAt: now,
             accounts: accounts.map { usage in
@@ -115,7 +127,8 @@ struct UsageSnapshot: Codable {
             statuslineFullQuota: statuslineFullQuota,
             displayMode: displayMode,
             fleet: fleet,
-            fleetPools: fleetPools
+            fleetPools: fleetPools,
+            accountOrder: accountOrder
         )
     }
 

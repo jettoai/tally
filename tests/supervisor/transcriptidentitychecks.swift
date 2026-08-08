@@ -11,29 +11,54 @@ import Foundation
 func runTranscriptIdentityChecks() {
     // MARK: - 35a. The report file
 
+    /// A fixture process: a pid and a start time derived from it, so every process these checks
+    /// invent has a DISTINCT one without any of them having to spell it out. Which is the point of
+    /// the field: a pid is reused, a pid and the microsecond it started at is not.
+    func syntheticStart(_ pid: pid_t) -> Int64 { Int64(pid) * 1_000 }
+    func synthetic(_ pid: pid_t) -> ProcessStamp {
+        ProcessStamp(pid: pid, startedAt: syntheticStart(pid))
+    }
+
     check("a report parses into the conversation and the process that drew it",
-          parseTranscriptIdentity("fa4677f4-e618\n4242\n")
-              == TranscriptIdentity(id: "fa4677f4-e618", claudeCodePID: 4242))
+          parseTranscriptIdentity("fa4677f4-e618\n4242\n4242000\n")
+              == TranscriptIdentity(id: "fa4677f4-e618", claudeCode: synthetic(4242)))
     check("no trailing newline is fine",
-          parseTranscriptIdentity("conv-1\n99")?.claudeCodePID == 99)
+          parseTranscriptIdentity("conv-1\n99\n99000")?.claudeCode == synthetic(99))
     check("an id with no pid is no report", parseTranscriptIdentity("conv-1\n") == nil)
-    check("a pid with no id is no report", parseTranscriptIdentity("\n4242") == nil)
+    check("a pid with no id is no report", parseTranscriptIdentity("\n4242\n4242000") == nil)
     check("a report naming something that cannot be a transcript is no report",
-          parseTranscriptIdentity("../../etc/passwd\n4242") == nil)
+          parseTranscriptIdentity("../../etc/passwd\n4242\n4242000") == nil)
     check("and neither is one whose pid is not a number",
-          parseTranscriptIdentity("conv-1\nlater") == nil)
+          parseTranscriptIdentity("conv-1\nlater\n4242000") == nil)
     // Zero is not a process anyone can be the child of, and it is what a truncated or half-written
     // second line reads as.
-    check("a zero pid is no report", parseTranscriptIdentity("conv-1\n0") == nil)
+    check("a zero pid is no report", parseTranscriptIdentity("conv-1\n0\n4242000") == nil)
+    check("and a start time that is not a number is no report",
+          parseTranscriptIdentity("conv-1\n4242\nlater") == nil)
+    check("nor is one that is zero", parseTranscriptIdentity("conv-1\n4242\n0") == nil)
+
+    // THE COMPATIBILITY CLAIM, in the one direction that is free and the one that is not. The start
+    // time was APPENDED (the rule RequestTranscript.swift set), so a supervisor from before it
+    // existed reads lines 1 and 2 and is unaffected. This reader going the other way REFUSES a
+    // two-line report rather than inventing a start time for it - inventing one is the comparison
+    // this round removed, and the cost of refusing is a single render.
+    check("a report from before the start time existed is no report to this reader",
+          parseTranscriptIdentity("conv-1\n4242\n") == nil)
     let roundTrip = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-identity-\(UUID().uuidString)")
     check("a session with no report reads as nil",
           readTranscriptIdentity(pid: "4242", dir: roundTrip) == nil)
-    writeTranscriptIdentity(TranscriptIdentity(id: "conv-1", claudeCodePID: 77), pid: "4242",
-                            dir: roundTrip)
+    writeTranscriptIdentity(TranscriptIdentity(id: "conv-1", claudeCode: synthetic(77)),
+                            pid: "4242", dir: roundTrip)
+    let body = (try? String(contentsOf: transcriptIdentityFile(pid: "4242", dir: roundTrip),
+                            encoding: .utf8)) ?? ""
+    let bodyLines = body.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    check("the conversation and the pid keep the lines an older reader takes them from",
+          bodyLines.count > 2 && bodyLines[0] == "conv-1" && bodyLines[1] == "77"
+              && bodyLines[2] == "77000")
     check("a written report round-trips",
           readTranscriptIdentity(pid: "4242", dir: roundTrip)
-              == TranscriptIdentity(id: "conv-1", claudeCodePID: 77))
+              == TranscriptIdentity(id: "conv-1", claudeCode: synthetic(77)))
     check("and it is addressed to one session only",
           readTranscriptIdentity(pid: "9999", dir: roundTrip) == nil)
     // The document joins the family the state directory sweeps, or a dead session's copy would
@@ -56,22 +81,28 @@ func runTranscriptIdentityChecks() {
     // The table is injected because these chains cannot be built out of real processes: the point is
     // the SHAPE of an ancestry, and a test that had to spawn a shell to spawn a shell would be
     // asserting the fixture. The real reader is asserted against this process further down.
-    func ancestry(_ chain: [(pid_t, pid_t, String)]) -> (pid_t) -> (parent: pid_t, name: String)? {
-        let table = Dictionary(uniqueKeysWithValues:
-            chain.map { ($0.0, (parent: $0.1, name: $0.2)) })
+    func ancestry(_ chain: [(pid_t, pid_t, String)])
+        -> (pid_t) -> (parent: pid_t, name: String, startedAt: Int64)? {
+        let table = Dictionary(uniqueKeysWithValues: chain.map {
+            ($0.0, (parent: $0.1, name: $0.2, startedAt: syntheticStart($0.0)))
+        })
         return { table[$0] }
     }
     // Claude Code's own executable name is its version (measured 2026-08-08: `2.1.226`), which is
     // the one thing the walk needs of it - that it is not a shell.
     let plain = ancestry([(700, 600, "2.1.226"), (600, 1, "tally")])
     check("with no wrapper the status line's parent is the answer",
-          claudeCodeThatRanUs(from: 700, process: plain) == 700)
+          claudeCodeThatRanUs(from: 700, process: plain) == synthetic(700))
     let wrapped = ancestry([(701, 700, "sh"), (700, 600, "2.1.226"), (600, 1, "tally")])
     check("a wrapped status line reports the Claude Code above the shell that ran it",
-          claudeCodeThatRanUs(from: 701, process: wrapped) == 700)
+          claudeCodeThatRanUs(from: 701, process: wrapped) == synthetic(700))
+    // THE STAMP COMES OFF THE SAME READING that ruled the process out as a shell, so the answer is
+    // one process rather than a pid and a separately fetched time.
+    check("…and it carries that process's start time, not only its number",
+          claudeCodeThatRanUs(from: 701, process: wrapped)?.startedAt == syntheticStart(700))
     let twoShells = ancestry([(702, 701, "bash"), (701, 700, "zsh"), (700, 600, "2.1.226")])
     check("…however many shells stand in between",
-          claudeCodeThatRanUs(from: 702, process: twoShells) == 700)
+          claudeCodeThatRanUs(from: 702, process: twoShells) == synthetic(700))
     // THE WALK STOPS AT THE FIRST NON-SHELL, and that is the safety rather than an optimisation: a
     // bare `claude` started from inside a supervised session has the OUTER Claude Code further up
     // this same chain, and a search that climbed until it matched a supervisor's child would publish
@@ -80,7 +111,7 @@ func runTranscriptIdentityChecks() {
     let nestedChain = ancestry([(703, 702, "sh"), (702, 701, "2.1.226"), (701, 700, "zsh"),
                                 (700, 600, "2.1.226")])
     check("the walk stops at the process that ran us, not at the first supervised one",
-          claudeCodeThatRanUs(from: 703, process: nestedChain) == 702)
+          claudeCodeThatRanUs(from: 703, process: nestedChain) == synthetic(702))
     // Refusals. Each one publishes nothing rather than guessing, which is the same shape every other
     // failure on this track has.
     var deepChain: [(pid_t, pid_t, String)] = (0..<12).map {
@@ -91,7 +122,7 @@ func runTranscriptIdentityChecks() {
     check("an ancestry of shells deeper than the limit is no answer",
           claudeCodeThatRanUs(from: 800, process: deepShells) == nil)
     check("…and it is the limit that refuses rather than the chain running out",
-          claudeCodeThatRanUs(from: 800, limit: 20, process: deepShells) == 812)
+          claudeCodeThatRanUs(from: 800, limit: 20, process: deepShells) == synthetic(812))
     let orphaned = ancestry([(704, 1, "sh"), (1, 0, "launchd")])
     check("a shell reparented to launchd is no answer",
           claudeCodeThatRanUs(from: 704, process: orphaned) == nil)
@@ -101,8 +132,14 @@ func runTranscriptIdentityChecks() {
     check("the kernel reading names this process's own parent",
           processIdentity(getpid())?.parent == getppid())
     check("…and a pid nobody is using reads as nothing", processIdentity(999_999) == nil)
+    // THE START TIME IS A FACT ABOUT THE PROCESS, not about the reading: two readings of the same
+    // live pid have to agree, or comparing them would refuse this session's own child every tick.
+    check("…and a live process's start time is the same on every reading",
+          processStamp(getpid()) != nil && processStamp(getpid()) == processStamp(getpid()))
+    check("…while this process and its parent do not share one",
+          processStamp(getpid())?.startedAt != processStamp(getppid())?.startedAt)
     check("a test binary is not a shell, so the walk stops on it",
-          claudeCodeThatRanUs(from: getpid()) == getpid())
+          claudeCodeThatRanUs(from: getpid()) == processStamp(getpid()))
 
     // MARK: - 35b. What one render publishes, and when it publishes nothing
 
@@ -113,8 +150,10 @@ func runTranscriptIdentityChecks() {
     // THE FIXTURE STANDS IN FOR THAT PAIR with two REAL processes, because the witnesses are read
     // from the live process table rather than from anything a test can fake: this process is the
     // "Claude Code", and its own parent is the "supervisor". `readSupervisorChild` demands exactly
-    // that relationship (alive, and its parent is the supervisor), so nothing here is stubbed.
-    let claudeCode = getpid()
+    // that relationship (alive, and its parent is the supervisor), so nothing here is stubbed - and
+    // the stamp is the real one off the kernel, for the same reason.
+    let claudeCodePID = getpid()
+    let claudeCode = processStamp(claudeCodePID)!
     let supervisor = String(getppid())
     let writeDir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-identity-write-\(UUID().uuidString)")
@@ -123,13 +162,13 @@ func runTranscriptIdentityChecks() {
     try! FileManager.default.createDirectory(at: projectCwd, withIntermediateDirectories: true)
     markSupervisorLive(pid: supervisor, dir: writeDir)
     writeSupervisorCwd(projectCwd.path, pid: supervisor, dir: writeDir)
-    writeSupervisorChild(claudeCode, pid: supervisor, dir: writeDir)
+    writeSupervisorChild(claudeCodePID, pid: supervisor, dir: writeDir)
 
-    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCodePID: claudeCode,
+    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCode: claudeCode,
                              marker: supervisor, dir: writeDir)
     check("a render publishes the conversation it drew for",
           readTranscriptIdentity(pid: supervisor, dir: writeDir)
-              == TranscriptIdentity(id: "conv-1", claudeCodePID: claudeCode))
+              == TranscriptIdentity(id: "conv-1", claudeCode: claudeCode))
 
     // WRITES MUST BE RARE: a render can happen several times a second, and the value only changes
     // when the conversation does. A second render saying the same thing must not touch the disk at
@@ -138,12 +177,12 @@ func runTranscriptIdentityChecks() {
     let ageMark = Date(timeIntervalSince1970: 1_800_000_000)
     try! FileManager.default.setAttributes([.modificationDate: ageMark],
                                            ofItemAtPath: published.path)
-    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCodePID: claudeCode,
+    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCode: claudeCode,
                              marker: supervisor, dir: writeDir)
     let unchanged = (try? FileManager.default.attributesOfItem(atPath: published.path))?[.modificationDate] as? Date
     check("a render that would say the same thing does not write at all", unchanged == ageMark)
     // …and one that has something new to say does.
-    reportTranscriptIdentity(sessionID: "conv-2", cwd: projectCwd.path, claudeCodePID: claudeCode,
+    reportTranscriptIdentity(sessionID: "conv-2", cwd: projectCwd.path, claudeCode: claudeCode,
                              marker: supervisor, dir: writeDir)
     check("a `/clear` is published on the very next render",
           readTranscriptIdentity(pid: supervisor, dir: writeDir)?.id == "conv-2")
@@ -152,36 +191,38 @@ func runTranscriptIdentityChecks() {
     // gets, and before the walk above it published NOTHING for them: the shell in between failed the
     // corroboration, silently, with the mtime guess left in place and no symptom anywhere. The
     // ancestry is injected and the supervisor pair is real, so what is asserted is the join between
-    // them - the pid the walk resolves is the pid the addressing then vouches for.
-    let throughShell = ancestry([(90001, 90002, "sh"), (90002, claudeCode, "zsh"),
-                                 (claudeCode, pid_t(supervisor) ?? 1, "2.1.226")])
+    // them - the process the walk resolves is the one the addressing then vouches for, stamp and
+    // all (the published stamp is the INJECTED start time, which is how it is visible at all that
+    // the report carries what the walk found rather than a second, separate reading).
+    let throughShell = ancestry([(90001, 90002, "sh"), (90002, claudeCodePID, "zsh"),
+                                 (claudeCodePID, pid_t(supervisor) ?? 1, "2.1.226")])
     reportTranscriptIdentity(sessionID: "conv-wrapped", cwd: projectCwd.path,
-                             claudeCodePID: claudeCodeThatRanUs(from: 90001, process: throughShell),
+                             claudeCode: claudeCodeThatRanUs(from: 90001, process: throughShell),
                              marker: supervisor, dir: writeDir)
     check("a status line wrapping the user's own still publishes its conversation",
           readTranscriptIdentity(pid: supervisor, dir: writeDir)
-              == TranscriptIdentity(id: "conv-wrapped", claudeCodePID: claudeCode))
+              == TranscriptIdentity(id: "conv-wrapped", claudeCode: synthetic(claudeCodePID)))
 
     // NOTHING TO TELL, AND NOBODY TO TELL IT TO. An unsupervised `claude` running Tally's status
     // line has no marker, and that is where this path stops - before it touches the disk at all.
     let bare = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-identity-bare-\(UUID().uuidString)")
-    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCodePID: claudeCode,
+    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCode: claudeCode,
                              marker: nil, dir: bare)
     check("an unsupervised session publishes nothing",
           !FileManager.default.fileExists(atPath: bare.path))
-    reportTranscriptIdentity(sessionID: nil, cwd: projectCwd.path, claudeCodePID: claudeCode,
+    reportTranscriptIdentity(sessionID: nil, cwd: projectCwd.path, claudeCode: claudeCode,
                              marker: supervisor, dir: bare)
     check("a payload with no session id publishes nothing either",
           !FileManager.default.fileExists(atPath: bare.path))
     reportTranscriptIdentity(sessionID: "../../evil", cwd: projectCwd.path,
-                             claudeCodePID: claudeCode, marker: supervisor, dir: bare)
+                             claudeCode: claudeCode, marker: supervisor, dir: bare)
     check("and neither does one naming something that cannot be a transcript",
           !FileManager.default.fileExists(atPath: bare.path))
     // NO ANSWER IS NOT A LICENCE TO GUESS. An ancestry the walk cannot read out ends the render
     // here, one guard earlier than everything below it.
     reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path,
-                             claudeCodePID: claudeCodeThatRanUs(from: 90001, process: ancestry([])),
+                             claudeCode: claudeCodeThatRanUs(from: 90001, process: ancestry([])),
                              marker: supervisor, dir: bare)
     check("a render that cannot tell which Claude Code ran it publishes nothing",
           !FileManager.default.fileExists(atPath: bare.path))
@@ -192,10 +233,10 @@ func runTranscriptIdentityChecks() {
         .appendingPathComponent("tally-identity-stranger-\(UUID().uuidString)")
     markSupervisorLive(pid: supervisor, dir: stranger)
     writeSupervisorCwd(projectCwd.path, pid: supervisor, dir: stranger)
-    writeSupervisorChild(claudeCode, pid: supervisor, dir: stranger)
+    writeSupervisorChild(claudeCodePID, pid: supervisor, dir: stranger)
     let strangerChain = ancestry([(90001, 90003, "sh"), (90003, 1, "2.1.226")])
     reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path,
-                             claudeCodePID: claudeCodeThatRanUs(from: 90001, process: strangerChain),
+                             claudeCode: claudeCodeThatRanUs(from: 90001, process: strangerChain),
                              marker: supervisor, dir: stranger)
     check("a render whose ancestry holds no supervisor's child publishes nothing",
           readTranscriptIdentity(pid: supervisor, dir: stranger) == nil)
@@ -218,7 +259,7 @@ func runTranscriptIdentityChecks() {
                                           sessionPin: nil, axes: SessionAxes(),
                                           transcript: "somebody-elses-conversation"),
                         pid: supervisor, dir: nested)
-    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCodePID: claudeCode,
+    reportTranscriptIdentity(sessionID: "conv-1", cwd: projectCwd.path, claudeCode: claudeCode,
                              marker: supervisor, dir: nested)
     check("an inherited marker does not let a render publish onto another session",
           readTranscriptIdentity(pid: supervisor, dir: nested) == nil)
@@ -243,7 +284,7 @@ func runTranscriptIdentityChecks() {
 
     let stateDir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-identity-read-\(UUID().uuidString)")
-    let child: pid_t = 4242
+    let child = synthetic(4242)
 
     /// A watcher for that scene, with whatever report the session has published so far.
     func supervised(_ fixture: ForkFixture, key: String, report: TranscriptIdentity?)
@@ -251,14 +292,14 @@ func runTranscriptIdentityChecks() {
         if let report { writeTranscriptIdentity(report, pid: key, dir: stateDir) }
         var watcher = TranscriptWatcher(projectDir: fixture.dir, since: fixture.launchedAt)
         watcher.auditLog = testAuditLog
-        adoptReportedTranscript(watcher: &watcher, sessionKey: key, childPID: child, dir: stateDir)
+        adoptReportedTranscript(watcher: &watcher, sessionKey: key, child: child, dir: stateDir)
         return watcher
     }
 
     // THE POINT OF THE WHOLE FEATURE: the heuristic would take the sibling, and it never gets to.
     let reported = twoSessions("reported")
     var bound = supervised(reported, key: "5001",
-                           report: TranscriptIdentity(id: "ours", claudeCodePID: child))
+                           report: TranscriptIdentity(id: "ours", claudeCode: child))
     check("a reported conversation is bound without the heuristic ever choosing",
           bound.file?.lastPathComponent == "ours.jsonl")
     check("…and the id a relaunch would resume is ours, not the newest file in the directory",
@@ -286,7 +327,7 @@ func runTranscriptIdentityChecks() {
     // to tail, and a relaunch would resume an id with nothing behind it.
     let missing = twoSessions("missing-file")
     var missingWatcher = supervised(missing, key: "5003",
-                                    report: TranscriptIdentity(id: "ghost", claudeCodePID: child))
+                                    report: TranscriptIdentity(id: "ghost", claudeCode: child))
     check("a report naming a file that is not here binds nothing", missingWatcher.file == nil)
     missingWatcher.locateFile()
     check("…and the session falls back to exactly what it does today",
@@ -297,21 +338,22 @@ func runTranscriptIdentityChecks() {
     // nobody is writing.
     let stale = twoSessions("stale-child")
     let staleWatcher = supervised(stale, key: "5004",
-                                  report: TranscriptIdentity(id: "ours", claudeCodePID: child + 1))
+                                  report: TranscriptIdentity(id: "ours",
+                                                             claudeCode: synthetic(child.pid + 1)))
     check("a report from a child this supervisor has replaced is ignored", staleWatcher.file == nil)
 
     // A `/clear` is the case the hold was built for, and the report answers it outright: the new
     // transcript has no turn in it yet, so nothing IN the file can prove whose it is.
     let cleared = twoSessions("cleared")
     var clearedWatcher = supervised(cleared, key: "5005",
-                                    report: TranscriptIdentity(id: "ours", claudeCodePID: child))
+                                    report: TranscriptIdentity(id: "ours", claudeCode: child))
     cleared.write("after-clear.jsonl", cleared.clearedLines(own: "after-clear"),
                   born: 300, wrote: 400)
     check("the session is on its conversation before the clear",
           clearedWatcher.file?.lastPathComponent == "ours.jsonl")
-    writeTranscriptIdentity(TranscriptIdentity(id: "after-clear", claudeCodePID: child),
+    writeTranscriptIdentity(TranscriptIdentity(id: "after-clear", claudeCode: child),
                             pid: "5005", dir: stateDir)
-    adoptReportedTranscript(watcher: &clearedWatcher, sessionKey: "5005", childPID: child,
+    adoptReportedTranscript(watcher: &clearedWatcher, sessionKey: "5005", child: child,
                             dir: stateDir)
     check("the next render moves it onto the cleared conversation",
           clearedWatcher.file?.lastPathComponent == "after-clear.jsonl"
@@ -331,7 +373,7 @@ func runTranscriptIdentityChecks() {
     both.write("after-clear.jsonl", both.clearedLines(own: "after-clear"), born: 300, wrote: 400)
     var bothWatcher = supervised(both, key: "5006",
                                  report: TranscriptIdentity(id: "after-clear",
-                                                            claudeCodePID: child))
+                                                            claudeCode: child))
     check("the report binds the conversation the user is in now",
           bothWatcher.file?.lastPathComponent == "after-clear.jsonl")
     check("a request naming the conversation it was typed in does not drag the watcher back",
@@ -343,25 +385,25 @@ func runTranscriptIdentityChecks() {
     check("a request naming the reported conversation moves nothing",
           !adoptRequestedTranscript("after-clear", watcher: &bothWatcher, sessionKey: "5006"))
 
-    // MARK: - 35e. A new child voids the last one's report
+    // MARK: - 35e. A new child does not inherit the last one's report
 
-    // A REPORT DESCRIBES ONE CHILD, and a supervisor gets through several: it relaunches to move
-    // account, to change model, to take an update. The reader refuses a report whose pid is not the
-    // child it is running, and that refusal is exact only for as long as a pid identifies one
-    // process - the OS is free to hand the ended child's number straight back to the one replacing
-    // it, and then the previous conversation reads as this child's own report until its first render
-    // happens to correct it. So the spawn removes the file, and the case that used to slip through
-    // is asserted WITH the collision in place rather than assumed away.
+    // WHAT THE VOIDING ACTUALLY PROMISES, stated as the state it leaves rather than as a defect it
+    // prevents: after a spawn there is no report on file, so nothing on disk describes a child that
+    // has ended. Anything written into that file predates the child now running, whatever it says
+    // about itself - and the fixture below hands the reader a stamp it would otherwise accept, so
+    // what is being asserted is the voiding and not the comparison next door.
     let recycled = twoSessions("recycled-pid")
-    writeTranscriptIdentity(TranscriptIdentity(id: "ours", claudeCodePID: child), pid: "5007",
+    writeTranscriptIdentity(TranscriptIdentity(id: "ours", claudeCode: child), pid: "5007",
                             dir: stateDir)
     check("the previous child's report is on file",
           readTranscriptIdentity(pid: "5007", dir: stateDir) != nil)
     clearTranscriptIdentity(pid: "5007", dir: stateDir)     // what every spawn does
+    check("the spawn leaves no report behind it",
+          readTranscriptIdentity(pid: "5007", dir: stateDir) == nil)
     var recycledWatcher = TranscriptWatcher(projectDir: recycled.dir, since: recycled.launchedAt)
     recycledWatcher.auditLog = testAuditLog
-    check("a report written before this child was spawned is not adopted, pid collision and all",
-          !adoptReportedTranscript(watcher: &recycledWatcher, sessionKey: "5007", childPID: child,
+    check("…so there is nothing for the new child to adopt",
+          !adoptReportedTranscript(watcher: &recycledWatcher, sessionKey: "5007", child: child,
                                    dir: stateDir))
     check("…so a new child starts on nothing rather than on the conversation it replaced",
           recycledWatcher.file == nil)
@@ -370,11 +412,40 @@ func runTranscriptIdentityChecks() {
     clearTranscriptIdentity(pid: "5007", dir: stateDir)
     check("voiding a report that is not there is not an error",
           readTranscriptIdentity(pid: "5007", dir: stateDir) == nil)
-    writeTranscriptIdentity(TranscriptIdentity(id: "ours", claudeCodePID: child), pid: "5008",
+    writeTranscriptIdentity(TranscriptIdentity(id: "ours", claudeCode: child), pid: "5008",
                             dir: stateDir)
     clearTranscriptIdentity(pid: "5007", dir: stateDir)
     check("…and one session's spawn does not void another session's report",
           readTranscriptIdentity(pid: "5008", dir: stateDir)?.id == "ours")
+
+    // THE WINDOW THE VOIDING CANNOT CLOSE, which the previous round's commit message claimed it did
+    // (codex review of 4b4454a). The old child's status line had already passed every check and was
+    // landing its atomic rename when the supervisor unlinked the file: the rename wins, the report
+    // is back, and it describes a conversation that has ended. An unlink cannot beat a write that is
+    // already in flight, so this is a REPRODUCTION rather than a hypothetical - the file is written
+    // AFTER the void, exactly as the losing race leaves it.
+    let ghost = twoSessions("late-write")
+    clearTranscriptIdentity(pid: "5009", dir: stateDir)                      // the spawn
+    let replaced = ProcessStamp(pid: child.pid, startedAt: child.startedAt)  // the ended child
+    let successor = ProcessStamp(pid: child.pid, startedAt: child.startedAt + 1)
+    check("the successor took the ended child's pid back", replaced.pid == successor.pid)
+    writeTranscriptIdentity(TranscriptIdentity(id: "ours", claudeCode: replaced), pid: "5009",
+                            dir: stateDir)                                   // the late rename
+    var ghostWatcher = TranscriptWatcher(projectDir: ghost.dir, since: ghost.launchedAt)
+    ghostWatcher.auditLog = testAuditLog
+    check("a report that landed after the spawn is refused even on a reused pid",
+          !adoptReportedTranscript(watcher: &ghostWatcher, sessionKey: "5009", child: successor,
+                                   dir: stateDir))
+    check("…so the ended conversation does not become the new child's",
+          ghostWatcher.file == nil)
+    // And the same report IS taken by the child that actually wrote it, or the refusal above would
+    // be a refusal of everything rather than of the wrong process.
+    var ownWatcher = TranscriptWatcher(projectDir: ghost.dir, since: ghost.launchedAt)
+    ownWatcher.auditLog = testAuditLog
+    check("…while the child that wrote it is still bound by it",
+          adoptReportedTranscript(watcher: &ownWatcher, sessionKey: "5009", child: replaced,
+                                  dir: stateDir)
+              && ownWatcher.file?.lastPathComponent == "ours.jsonl")
     try? FileManager.default.removeItem(at: stateDir)
 
     // MARK: - 35f. Both ends are actually wired
@@ -397,6 +468,10 @@ func runTranscriptIdentityChecks() {
     } else {
         check("both the adoption and the cap scan were found in the loop", false)
     }
+    // A PID WOULD COMPILE HERE, and it is what shipped: the supervisor has to hand the reader a
+    // process, or the comparison falls back to a number the OS reuses.
+    check("the supervisor identifies its child by process, not by pid",
+          loop.contains("child: processStamp(childPID)"))
     if let void = loop.range(of: "clearTranscriptIdentity(pid: supervisorPID)"),
        let spawn = loop.range(of: "spawnChild(") {
         // THE ORDER IS THE GUARD. Voided after the spawn, the pid the file names could already have

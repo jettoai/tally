@@ -38,6 +38,59 @@ import Foundation
 // the ancestry rather than a `getppid()`, for the reason `claudeCodeThatRanUs` states: it is the
 // parent only for the users who never had a status line of their own.
 
+// MARK: - What identifies a process
+
+/// WHICH PROCESS, said in the only way that stays true. A pid names a process for exactly as long as
+/// that process is alive, and a supervisor spends its life replacing children: the moment one ends,
+/// its number is back in the pool and the OS may hand it straight to the replacement. Every witness
+/// on this track that compared pids was therefore comparing a value that CAN come out equal for two
+/// different conversations, which is precisely the case the reader has to refuse (codex review of
+/// 4b4454a: a status line still mid-render when its Claude Code was terminated can land its atomic
+/// rename after the supervisor voided the file, and a recycled pid then makes that dead
+/// conversation's report read as the new child's own).
+///
+/// Start time closes it: a pid is reused, a pid AND the microsecond it started at is not. It is one
+/// more field off the struct the parent reading already fetches (`processIdentity`), so the cost is
+/// nothing and the check stops being probabilistic.
+struct ProcessStamp: Equatable {
+    let pid: pid_t
+    /// Microseconds since the epoch, as the kernel recorded the fork (`p_starttime`). Stable for the
+    /// life of the process: two readings of a live pid give the same number, and a reused pid gives
+    /// a different one.
+    let startedAt: Int64
+}
+
+/// A live process's parent, its short name, and when it started, read from the kernel in one call.
+///
+/// `sysctl` rather than the `ps` table the backstop reads (PromptHookBackstop.swift): that one wants
+/// EVERY process and their arguments, and one call answers the whole question; this one wants three
+/// fields about a single pid, on a path that runs per render and per candidate per prompt, and
+/// spawning `ps` to learn them would be a subprocess for a struct copy. nil when the pid is gone or
+/// cannot be asked about. `parentProcessID` (SwitchRequest.swift) is the parent-only reading of it.
+///
+/// The name is `p_comm`: the executable's basename as the kernel recorded it, truncated to 16
+/// characters - which every shell name fits inside several times over, and a shell name is all this
+/// file asks of it.
+func processIdentity(_ pid: pid_t) -> (parent: pid_t, name: String, startedAt: Int64)? {
+    var info = kinfo_proc()
+    var size = MemoryLayout<kinfo_proc>.stride
+    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+    guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+    let name = withUnsafeBytes(of: info.kp_proc.p_comm) {
+        String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
+    }
+    let started = info.kp_proc.p_un.__p_starttime
+    return (info.kp_eproc.e_ppid, name,
+            Int64(started.tv_sec) * 1_000_000 + Int64(started.tv_usec))
+}
+
+/// Who a live pid actually is. nil when it is nobody, which every caller reads as "cannot say".
+func processStamp(_ pid: pid_t) -> ProcessStamp? {
+    processIdentity(pid).map { ProcessStamp(pid: pid, startedAt: $0.startedAt) }
+}
+
+// MARK: - The report file
+
 /// The suffix under which a session's own report of its transcript lives, beside the supervisor's
 /// presence entry and the other per-session documents (SwitchRequest.swift keeps that family).
 /// Registered in `supervisorStateSuffixes` so a dead supervisor's copy is swept with the rest.
@@ -50,35 +103,45 @@ func transcriptIdentityFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 /// What one status-line render reported: the conversation it drew for, and the Claude Code that drew
 /// it.
 ///
-/// THE PID IS NOT DECORATION, and it is half of what makes a stale file harmless. A supervisor
-/// outlives its children: it relaunches one to move accounts, to change model, to take an update. A
-/// report left by the child before last names a conversation that child was in, and a relaunch that
-/// starts a FRESH conversation (nothing to resume) would otherwise bind the watcher to a transcript
-/// nobody is writing any more. The reader therefore accepts a report only from the child it is
-/// running right now, which also disposes of the other stale case for free: a recycled supervisor
-/// pid inheriting a dead supervisor's file, whose child pid cannot be ours.
+/// THE STAMP IS NOT DECORATION, and it is what makes a stale file harmless. A supervisor outlives
+/// its children: it relaunches one to move accounts, to change model, to take an update. A report
+/// left by the child before last names a conversation that child was in, and a relaunch that starts
+/// a FRESH conversation (nothing to resume) would otherwise bind the watcher to a transcript nobody
+/// is writing any more. The reader therefore accepts a report only from the child it is running
+/// right now, which also disposes of the other stale case for free: a recycled supervisor pid
+/// inheriting a dead supervisor's file, whose child cannot be ours.
 ///
-/// THE OTHER HALF IS THAT THE FILE DOES NOT SURVIVE A SPAWN AT ALL, because a pid is only unique
-/// while its process is alive and this check compares equal on a recycled one:
-/// `clearTranscriptIdentity` states that half.
+/// "THE CHILD IT IS RUNNING" IS A PROCESS, NOT A NUMBER, and that is the whole of the second round's
+/// fix. Both halves of the defence that preceded it failed on the same square, which is why neither
+/// caught it: the voiding cannot beat a rename already in flight, and a pid check cannot tell the
+/// successor from the process whose number it inherited (`ProcessStamp` states the mechanism).
 struct TranscriptIdentity: Equatable {
     /// Claude Code's own id for the conversation, which is also the stem of the transcript it is
     /// writing (measured 2026-08-07, and the same equality `transcriptSessionID` rests on).
     let id: String
-    /// The Claude Code process that reported it: the status line's own parent.
-    let claudeCodePID: pid_t
+    /// The Claude Code process that reported it: the one that ran this status line.
+    let claudeCode: ProcessStamp
 }
 
-/// Parse the file body: the id on line 1, the reporting pid on line 2. Pure, so the format is
-/// testable without a home directory, and anything unparseable is NO report rather than a partial
-/// one - the reader's fallback is the behaviour this build has always had, which is safe by
-/// construction.
+/// Parse the file body: the id on line 1, the reporting pid on line 2, its start time on line 3.
+/// Pure, so the format is testable without a home directory, and anything unparseable is NO report
+/// rather than a partial one - the reader's fallback is the behaviour this build has always had,
+/// which is safe by construction.
+///
+/// THE THIRD LINE IS APPENDED, and the direction of compatibility is worth stating because only one
+/// direction is free. A supervisor from before it existed reads lines 1 and 2 and stops, so it is
+/// unaffected: every field it knows kept its position (the rule `RequestTranscript.swift` set). This
+/// reader going the other way REFUSES a two-line report rather than assuming a start time, because
+/// assuming one is exactly the comparison this round removed - and the cost of refusing is a single
+/// render, after which the running status line publishes a complete one.
 func parseTranscriptIdentity(_ raw: String) -> TranscriptIdentity? {
     let lines = raw.split(separator: "\n", omittingEmptySubsequences: false)
         .map { $0.trimmingCharacters(in: .whitespaces) }
     guard let id = lines.first, isTranscriptSessionID(id),
-          let pid = lines.dropFirst().first.flatMap({ pid_t($0) }), pid > 0 else { return nil }
-    return TranscriptIdentity(id: id, claudeCodePID: pid)
+          let pid = lines.dropFirst().first.flatMap({ pid_t($0) }), pid > 0,
+          let started = lines.dropFirst(2).first.flatMap({ Int64($0) }), started > 0
+    else { return nil }
+    return TranscriptIdentity(id: id, claudeCode: ProcessStamp(pid: pid, startedAt: started))
 }
 
 func readTranscriptIdentity(pid: String, dir: URL = supervisorStateDir) -> TranscriptIdentity? {
@@ -93,52 +156,27 @@ func readTranscriptIdentity(pid: String, dir: URL = supervisorStateDir) -> Trans
 func writeTranscriptIdentity(_ identity: TranscriptIdentity, pid: String,
                              dir: URL = supervisorStateDir) {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    try? "\(identity.id)\n\(identity.claudeCodePID)\n"
+    try? "\(identity.id)\n\(identity.claudeCode.pid)\n\(identity.claudeCode.startedAt)\n"
         .write(to: transcriptIdentityFile(pid: pid, dir: dir), atomically: true, encoding: .utf8)
 }
 
-/// Void this session's report. Called at every spawn, before the child that would invalidate it
-/// exists (Supervisor.swift), and best-effort like every other write on this track.
+/// Void this session's report. Called at every spawn, before the child it would describe exists
+/// (Supervisor.swift), and best-effort like every other write on this track.
 ///
-/// THE READER'S PID CHECK IS NOT ENOUGH ON ITS OWN, which is the whole reason this exists: it is
-/// exact only for as long as a pid identifies one process, and the moment a supervisor replaces its
-/// child the OS is free to hand the dead one's number to the new one. The report from before the
-/// relaunch would then read as this child's own, and the watcher would be dragged back onto the
-/// conversation that relaunch ended - a reload or a handoff resuming the wrong transcript, until the
-/// new child's first render happened to correct it. Removing the file at the spawn removes the whole
-/// window: a report describes one child, and there is a new one.
+/// DEMOTED, AND SAID SO. This arrived as the fix for a report outliving its author and was described
+/// as removing "the whole window", which was wrong: an unlink cannot beat a write that has already
+/// passed its checks and is landing its rename, so it narrowed the window rather than closing it,
+/// and what remained needed the stamp comparison to catch (`TranscriptIdentity`). With that in place
+/// the reader refuses a superseded report whether or not this file is still there.
 ///
-/// What the pid check still catches after this, and why it stays: a status line that was mid-render
-/// when its Claude Code was terminated can land its write AFTER this removal, and that report is
-/// from a process that has already gone.
+/// It stays for what it does buy, which is not correctness: a dead conversation's id stops sitting
+/// in the state directory for the life of the session, the void is immediate rather than deferred to
+/// whenever something next reads, and it does not depend on a kernel reading succeeding.
 func clearTranscriptIdentity(pid: String, dir: URL = supervisorStateDir) {
     try? FileManager.default.removeItem(at: transcriptIdentityFile(pid: pid, dir: dir))
 }
 
 // MARK: - Which process ran this status line
-
-/// A live process's parent and its short name, read from the kernel in one call.
-///
-/// `sysctl` rather than the `ps` table the backstop reads (PromptHookBackstop.swift): that one wants
-/// EVERY process and their arguments, and one call answers the whole question; this one wants two
-/// fields about a single pid, on a path that runs per render and per candidate per prompt, and
-/// spawning `ps` to learn them would be a subprocess for a struct copy. nil when the pid is gone or
-/// cannot be asked about. `parentProcessID` (SwitchRequest.swift) is the parent-only reading of this
-/// same struct.
-///
-/// The name is `p_comm`: the executable's basename as the kernel recorded it, truncated to 16
-/// characters - which every shell name fits inside several times over, and a shell name is all this
-/// file asks of it.
-func processIdentity(_ pid: pid_t) -> (parent: pid_t, name: String)? {
-    var info = kinfo_proc()
-    var size = MemoryLayout<kinfo_proc>.stride
-    var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
-    guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
-    let name = withUnsafeBytes(of: info.kp_proc.p_comm) {
-        String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
-    }
-    return (info.kp_eproc.e_ppid, name)
-}
 
 /// The process names a status line can be running UNDERNEATH: a shell that stayed alive to do
 /// something with its exit status.
@@ -171,14 +209,17 @@ let statusLineAncestorLimit = 8
 ///
 /// nil is a refusal to guess, and the caller publishes nothing: an ancestry that is shells all the
 /// way up, or one that cannot be read, is not evidence of anything.
+/// The stamp comes off the SAME reading that ruled the process out as a shell, so the pid and the
+/// start time cannot describe two different moments however the table changes underneath.
 func claudeCodeThatRanUs(from: pid_t = getppid(), limit: Int = statusLineAncestorLimit,
-                         process: (pid_t) -> (parent: pid_t, name: String)? = processIdentity)
-    -> pid_t? {
+                         process: (pid_t) -> (parent: pid_t, name: String, startedAt: Int64)?
+                             = processIdentity) -> ProcessStamp? {
     var pid = from
     for _ in 0..<limit {
         // pid 1 is launchd, the top of every chain: reaching it means no Claude Code was found.
         guard pid > 1, let hop = process(pid) else { return nil }
-        guard statusLineWrapperShells.contains(hop.name) else { return pid }
+        guard statusLineWrapperShells.contains(hop.name)
+        else { return ProcessStamp(pid: pid, startedAt: hop.startedAt) }
         pid = hop.parent
     }
     return nil
@@ -205,20 +246,20 @@ func claudeCodeThatRanUs(from: pid_t = getppid(), limit: Int = statusLineAncesto
 ///   3. Only a render that would say something NEW pays for the corroboration below.
 ///
 /// Step 2 cannot be fooled by an inherited marker, which is the one thing that would make reading a
-/// file named for it unsafe: it skips only when the stored report matches OURS in both fields, and
-/// the pid field is this render's own Claude Code. Another session's supervisor publishes its own
-/// child's pid there, and one process cannot be two supervisors' child.
-/// `marker` and `claudeCodePID` are injected for the reason every other file-touching helper here
+/// file named for it unsafe: it skips only when the stored report matches OURS in every field, and
+/// the process field is this render's own Claude Code. Another session's supervisor publishes its
+/// own child there, and one process cannot be two supervisors' child.
+/// `marker` and `claudeCode` are injected for the reason every other file-touching helper here
 /// injects its inputs: a test of the addressing must not read the suite's own environment, where
 /// `TALLY_SUPERVISOR_PID` names the very real session running it. The defaults are the real ones, so
 /// the status line reads exactly as it would without them.
 func reportTranscriptIdentity(sessionID: String?, cwd: String?,
-                              claudeCodePID: pid_t? = claudeCodeThatRanUs(),
+                              claudeCode: ProcessStamp? = claudeCodeThatRanUs(),
                               marker: String? = liveSessionMarker(),
                               dir: URL = supervisorStateDir) {
-    guard let sessionID, isTranscriptSessionID(sessionID), let marker, let claudeCodePID
+    guard let sessionID, isTranscriptSessionID(sessionID), let marker, let claudeCode
     else { return }
-    let identity = TranscriptIdentity(id: sessionID, claudeCodePID: claudeCodePID)
+    let identity = TranscriptIdentity(id: sessionID, claudeCode: claudeCode)
     guard readTranscriptIdentity(pid: marker, dir: dir) != identity else { return }
     // The same rule every second-hand surface uses, and for the same reason: a marker is inherited
     // by everything a session ever starts, so a `claude` launched from inside another supervised
@@ -232,7 +273,7 @@ func reportTranscriptIdentity(sessionID: String?, cwd: String?,
     // published document still names the old one), so it would refuse anyway. A build that cannot
     // read the report cannot be harmed by not receiving it.
     let trust = SessionMarkerTrust.corroborated(
-        PromptOrigin(marker: marker, promptSession: sessionID, claudeCodePID: claudeCodePID))
+        PromptOrigin(marker: marker, promptSession: sessionID, claudeCodePID: claudeCode.pid))
     guard case .session(let key) = trust.resolve(
         here: supervisorsInDirectory(cwd ?? FileManager.default.currentDirectoryPath, dir: dir),
         published: { readSessionContext(pid: $0, dir: dir)?.transcriptSessionID },
@@ -255,24 +296,28 @@ func reportTranscriptIdentity(sessionID: String?, cwd: String?,
 ///     claims the same transcript.
 ///   - THIS is the process this supervisor spawned, saying what it is writing right now, on a
 ///     channel that only exists while it is running. There is no ordering question (a later render
-///     supersedes an earlier one by definition), no identity question (the pid must be the child we
-///     are running), and no rival claim to weigh (a process has one parent).
+///     supersedes an earlier one by definition), no identity question (the process must be the child
+///     we are running), and no rival claim to weigh (a process has one parent).
 ///
 /// Which is also why the birth gate is absent: a resumed conversation's transcript predates this
 /// child by hours and is still exactly where the conversation is. Dating it would refuse the truth.
 ///
 /// TWO REFUSALS REMAIN, and both are about whether the report is ABOUT this child at all:
 ///
-///   - a report from another Claude Code (a child this supervisor has since replaced, or a stale
-///     file under a recycled pid), and
+///   - a report from another Claude Code: a child this supervisor has since replaced, a stale file
+///     under a recycled supervisor pid, or a render of the ended conversation that landed after the
+///     spawn onto a REUSED child pid - which is why `child` is a stamp and not a number, and
 ///   - a conversation with no transcript in this session's project directory, where there would be
 ///     nothing to tail and a relaunch would resume an id with nothing behind it. `bindFile`'s pinned
 ///     arm refuses on the same ground.
+///
+/// `child` is passed in rather than read here so the whole rule is assertable without a live process
+/// on the machine; the supervisor reads its own with `processStamp`.
 @discardableResult
 func adoptReportedTranscript(watcher: inout TranscriptWatcher, sessionKey: String,
-                             childPID: pid_t?, dir: URL = supervisorStateDir) -> Bool {
-    guard let childPID, let report = readTranscriptIdentity(pid: sessionKey, dir: dir),
-          report.claudeCodePID == childPID,
+                             child: ProcessStamp?, dir: URL = supervisorStateDir) -> Bool {
+    guard let child, let report = readTranscriptIdentity(pid: sessionKey, dir: dir),
+          report.claudeCode == child,
           watcher.file?.deletingPathExtension().lastPathComponent != report.id else { return false }
     let url = watcher.projectDir.appendingPathComponent("\(report.id).jsonl")
     guard FileManager.default.fileExists(atPath: url.path) else { return false }

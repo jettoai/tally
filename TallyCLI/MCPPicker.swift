@@ -115,8 +115,42 @@ enum MCPPickReply: Equatable {
     case declined
 }
 
+/// One offer, in BOTH shapes it can be drawn in.
+///
+/// The rows are the one-step list Tally.app draws: every row is a whole decision, so choosing one IS
+/// the answer and there is nothing left to confirm. The schema is the same offer as an elicitation
+/// form, which is what Claude Code draws when the app is not there to draw anything - two axes and a
+/// submit button, exactly as before.
+///
+/// TWO RENDERINGS OF ONE OFFER, carried together rather than derived at the far end, because the
+/// thing that must never differ between them is WHICH options the person is being given. A picker
+/// that offered a different fleet depending on which channel answered would be worse than either.
+struct MCPPickOffer {
+    let kind: PickKind
+    let message: String
+    let rows: [PickRow]
+    let schema: [String: Any]
+
+    /// What a chosen row comes back as, in the shape the form's answer already had: the callers
+    /// below read `content[mcpModelField]` and friends, and they do not care which channel filled
+    /// it in.
+    func content(for answer: PickAnswer) -> [String: String] {
+        guard let value = answer.value else { return [:] }
+        switch kind {
+        case .account:
+            return [mcpAccountField: value]
+        case .model:
+            var content = [mcpModelField: value]
+            // An effort the row did not name stays ABSENT rather than empty, which is the third
+            // state this axis has and the one the form expresses by leaving the field unfilled.
+            if let effort = answer.effort { content[mcpEffortField] = effort }
+            return content
+        }
+    }
+}
+
 /// How a tool asks. Injected all the way down so the pickers can be driven without a client.
-typealias MCPAsk = (_ message: String, _ schema: [String: Any]) -> MCPPickReply
+typealias MCPAsk = (MCPPickOffer) -> MCPPickReply
 
 /// Everything the pickers do to the world, in one place, so a test can drive the whole round trip
 /// without reading this machine's snapshot or writing a request into `~/.tally`.
@@ -309,18 +343,32 @@ func mcpModelPrompt(_ status: ModelStatus) -> String {
 /// entirely (SwitchCommand.swift states why that is not merely a convenience).
 func mcpAccountOptions(accounts: [Snapshot.Account], ranked rows: [SwitchFleetRow])
     -> [MCPPickOption] {
-    let tags = Dictionary(rows.map { ($0.id, $0.tags) }, uniquingKeysWith: { first, _ in first })
-    return accounts.compactMap { account -> MCPPickOption? in
-        guard let tags = tags[account.id] else { return nil }
-        let flagship = account.modelWindowName?.lowercased() ?? "model"
-        let windows = ["\(flagship) \(fmt(account.modelRemaining))",
-                       "session \(fmt(account.sessionRemaining))",
-                       "weekly \(fmt(account.weeklyRemaining))"].joined(separator: " · ")
-        return MCPPickOption(value: account.id, label: "\(account.label)  \(windows)"
-            + (tags.isEmpty ? "" : "  (\(tags.joined(separator: ", ")))"))
-    } + [MCPPickOption(value: switchAutoRequest,
-                       label: "automatic selection  (release this session's pin)")]
+    // A PROJECTION OF THE PICKER'S ROWS rather than a second reading of the fleet: the two channels
+    // must offer the same accounts in the same order with the same recommendation, and the only way
+    // to be sure of that is for one of them to be the other one flattened. What the form adds is
+    // only that its single string has to carry what the panel draws in three places.
+    mcpAccountPickRows(accounts, ranked: rows).map { row in
+        MCPPickOption(value: row.value,
+                      label: [row.label, row.detail].compactMap { $0 }.joined(separator: "  ")
+                          + (row.tags.isEmpty ? ""
+                             : "  (\(row.tags.joined(separator: ", ")))"))
+    }
 }
+
+/// The three windows one account reads as, in the order the PANEL draws them (flagship, 5-hour,
+/// weekly - measured against the app 2026-08-07). One formatter, because the form's option list and
+/// the native picker's rows both show them and a person reading the two would notice a difference
+/// before they noticed anything else.
+func mcpAccountWindows(_ account: Snapshot.Account) -> String {
+    let flagship = account.modelWindowName?.lowercased() ?? "model"
+    return ["\(flagship) \(fmt(account.modelRemaining))",
+            "session \(fmt(account.sessionRemaining))",
+            "weekly \(fmt(account.weeklyRemaining))"].joined(separator: " · ")
+}
+
+/// What the release row is called on both channels, from the file both targets compile so the panel
+/// and the form cannot come to call it different things.
+let mcpAccountAutoLabel = pickAutoLabel
 
 /// The line above those rows: which pool is being chosen from, and what choosing does.
 ///
@@ -358,8 +406,11 @@ func mcpPickModel(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> St
         return queue(intent)
     }
     let status = world.modelStatus(input)
-    let schema = mcpModelSchema(models: mcpModelOptions(status), efforts: claudeEffortNames())
-    guard case .accepted(let content) = ask(mcpModelPrompt(status), schema),
+    let offer = MCPPickOffer(kind: .model, message: mcpModelPrompt(status),
+                             rows: mcpModelPickRows(status),
+                             schema: mcpModelSchema(models: mcpModelOptions(status),
+                                                    efforts: claudeEffortNames()))
+    guard case .accepted(let content) = ask(offer),
           let model = content[mcpModelField] else {
         return mcpBlockDecision(mcpNothingChanged)
     }
@@ -406,7 +457,9 @@ func mcpPickAccount(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> 
     // Counting the ROWS rather than the accounts: the release is one of the options and is not an
     // account, and an account the ranking excluded is not in the pool being offered.
     let prompt = mcpAccountPrompt(offering: rows.count, provider: providers[0].id, problem: problem)
-    guard case .accepted(let content) = ask(prompt, schema),
+    let offer = MCPPickOffer(kind: .account, message: prompt,
+                             rows: mcpAccountPickRows(accounts, ranked: rows), schema: schema)
+    guard case .accepted(let content) = ask(offer),
           let account = content[mcpAccountField] else {
         return mcpBlockDecision(mcpNothingChanged)
     }

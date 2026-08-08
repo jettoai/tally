@@ -274,8 +274,16 @@ func runMCPPickerChecks() {
             return world
         }
 
+        /// The offer the picker built, kept so a check can look at what would have been drawn:
+        /// one offer now carries both renderings (the one-step rows and the form's schema).
+        var offer: MCPPickOffer?
+
         func ask(_ reply: MCPPickReply) -> MCPAsk {
-            { [self] _, _ in asked += 1; return reply }
+            { [self] offer in
+                asked += 1
+                self.offer = offer
+                return reply
+            }
         }
     }
 
@@ -724,7 +732,7 @@ func runMCPTransportChecks() {
         return ModelAttempt(result: .queued,
                             message: "queued in \(input.sessionDirectory) for \(input.sessionID)")
     }
-    MCPServer(connection: script.connection, world: world).serve()
+    MCPServer(connection: script.connection, world: world, pick: .unavailable).serve()
 
     let sent = script.sent
     check("initialize is answered with the version the client asked for",
@@ -762,7 +770,7 @@ func runMCPTransportChecks() {
         ["jsonrpc": "2.0", "id": 2, "method": "resources/list"],
         ["jsonrpc": "2.0", "id": 3, "method": "no/such/method"],
     ])
-    MCPServer(connection: unknown.connection).serve()
+    MCPServer(connection: unknown.connection, pick: .unavailable).serve()
     let unknownSent = unknown.sent
     check("an unknown tool answers with text rather than nothing",
           (unknownSent.first?["result"] as? [String: Any])?["isError"] as? Bool == true)
@@ -790,7 +798,7 @@ func runMCPTransportChecks() {
         moved.append(intent)
         return SwitchAttempt(result: .queued, message: "moved")
     }
-    MCPServer(connection: abandoned.connection, world: quiet).serve()
+    MCPServer(connection: abandoned.connection, world: quiet, pick: .unavailable).serve()
     check("a client that goes away mid-dialog moves nothing", moved.isEmpty)
     check("…and the tool call is still answered before the server stops",
           mcpDecisionText(abandoned.sent.first { $0["id"] as? Int == 1 } ?? [:])?

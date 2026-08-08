@@ -85,6 +85,12 @@ targets:
       # drifted spelling fails SILENTLY here: Claude Code substitutes an unknown variable with the
       # empty string, which is indistinguishable from a command typed with no arguments.
       - path: Tally/Core/PromptHookInput.swift
+      # The native picker's IPC contract: the request the CLI writes under `~/.tally/pick`,
+      # the claim and the answer the app writes back, and the row shape the panel draws. Both
+      # targets compile the one copy for the reason the two above give, sharpened by the
+      # channel: these are separate processes speaking through files, so a drifted field name
+      # is a picker that opens and can never be answered.
+      - path: Tally/Core/PickContract.swift
     settings:
       base:
         PRODUCT_NAME: tally

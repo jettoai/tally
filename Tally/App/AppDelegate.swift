@@ -62,6 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UpdateAvailability.shared.isDownloaded = UserDefaults.standard.bool(forKey: "TallyUpdateChipReady")
         }
         UsageStore.shared.start()
+        // The native picker behind `/tally-account` and `/tally-model`: listen for the CLI's
+        // knock for the life of the process, the way the update check's observer does. Not
+        // listening is not an error anywhere - the CLI waits a second and a half for a claim
+        // and then draws the form Claude Code has always drawn (PickPanelController.swift).
+        PickPanelController.shared.install()
+        PickPanelController.previewIfRequested()
         // An agent skill installed by an older app version is silently brought up to date, so
         // the guidance ships with the app. Only files that are already installed and ours are
         // touched: never an install, never someone else's skills/tally.

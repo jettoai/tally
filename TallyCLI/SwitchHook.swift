@@ -107,12 +107,11 @@ func hookSwitchAction(_ raw: String) -> HookSwitchAction {
     return name.isEmpty ? .list : .queue(name)
 }
 
-/// The two tags a row can carry, spelled once because the second is read by CODE: the menu opens
-/// on the recommended row (`switchMenuStart`, SwitchMenu.swift), and a literal repeated in two files
-/// is a highlight that would silently stop landing on the right line. The first is named beside it
-/// so the pair reads as one vocabulary rather than as one constant and one loose string.
-let switchCurrentSessionTag = "this session"
-let switchRecommendedTag = "most headroom"
+// The two tags a row can carry are spelled once, in the file BOTH TARGETS compile
+// (PickContract.swift): they are read by code on both sides now - the arrow-key menu opens on the
+// recommended row (`switchMenuStart`, SwitchMenu.swift) and the native panel draws them apart from
+// the label - and a literal repeated across a process boundary is a highlight that would silently
+// stop landing on the right line.
 
 /// One account as a manual pick shows it, independent of the surface drawing it: the hook's stderr
 /// list and the arrow-key menu behind a bare `tally switch` (SwitchMenu.swift) are the same reading

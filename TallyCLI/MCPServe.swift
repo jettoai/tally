@@ -87,11 +87,16 @@ final class MCPServer {
     /// SwitchRequest.swift).
     private let claudeCodePID: pid_t?
 
+    /// Everything the native picker does to the world, injected whole so the wait below can be
+    /// driven without an app to answer it (NativePick.swift).
+    private let pick: NativePickChannel
+
     init(connection: MCPConnection, world: MCPPickerWorld = MCPPickerWorld(),
-         claudeCodePID: pid_t? = getppid()) {
+         claudeCodePID: pid_t? = getppid(), pick: NativePickChannel = .live) {
         self.connection = connection
         self.world = world
         self.claudeCodePID = claudeCodePID
+        self.pick = pick
     }
 
     /// Read until end of input. Returning IS the shutdown: the client closing the pipe is how an
@@ -189,11 +194,69 @@ final class MCPServer {
                                           "isError": false])
     }
 
-    /// Raise a dialog and wait for the answer, answering everything else that arrives meanwhile.
+    /// Ask, by whichever channel can answer: Tally.app draws a one-step list when it is there, and
+    /// Claude Code draws the form when it is not.
+    ///
+    /// THE FALLBACK IS WHAT MAKES THIS SAFE TO SHIP. Every way the native path can fail - no app
+    /// running, an app that never claimed the request, an app that died holding it, a request that
+    /// could not be written at all - lands here, on the behaviour that shipped before it. The worst
+    /// outcome of the whole feature is today.
+    private func ask(_ offer: MCPPickOffer) -> MCPPickReply {
+        if let reply = askNatively(offer) { return reply }
+        return askByForm(offer.message, offer.schema)
+    }
+
+    /// Put the offer where the app will see it and wait for the person, serving the client all the
+    /// while. nil means nobody is going to answer this natively, which is the caller's cue to draw
+    /// the form instead - it is NOT a decline, and the difference matters: a decline would leave the
+    /// person with nothing after a command they typed.
+    ///
+    /// WHY THE LOOP LOOKS LIKE THIS is the whole of NativePick.swift's header: the answer arrives as
+    /// a file while the client keeps talking on stdin, so the wait watches both and blocks on
+    /// neither for longer than one poll interval.
+    private func askNatively(_ offer: MCPPickOffer) -> MCPPickReply? {
+        let id = newPickID()
+        guard pick.publish(PickRequest(id: id, kind: offer.kind, message: offer.message,
+                                       rows: offer.rows)) else { return nil }
+        // Whatever happens next, the files go: one left behind would raise a panel for a question
+        // nobody is waiting on any more.
+        defer { pick.discard(id) }
+        let started = pick.now()
+        var claimed = false
+        while true {
+            // THE CLIENT FIRST, and only when it has actually said something. `receive` reads a
+            // line, so calling it unasked is exactly the deafness this loop exists to avoid.
+            if pick.messageWaiting(nativePickPollSeconds) {
+                // End of input while waiting is a DECLINE, the same reading the form path gives it:
+                // the client went away, so nothing was chosen and nothing may be queued on a guess.
+                guard let next = receive() else { return .declined }
+                handle(next)
+            }
+            // A CANCELLED ANSWER IS AN ANSWER: Esc and a click outside both write one, so the wait
+            // ends at the moment the person decides rather than at the deadline.
+            if let answer = pick.answer(id) {
+                return answer.isCancelled ? .declined : .accepted(offer.content(for: answer))
+            }
+            let waited = pick.now().timeIntervalSince(started)
+            if !claimed {
+                claimed = pick.isClaimed(id)
+                // Nobody has taken it: the app is not running, or is not going to. Fall back while
+                // the person is still looking at the terminal they typed into.
+                if !claimed, waited > nativePickClaimSeconds { return nil }
+            } else if waited > nativePickDeadlineSeconds {
+                // A panel somebody raised and walked away from. Nothing was chosen, which is what
+                // every other unanswered pick already comes to.
+                return .declined
+            }
+        }
+    }
+
+    /// The form, unchanged: raise an elicitation and wait for the answer, answering everything else
+    /// that arrives meanwhile.
     ///
     /// End of input while waiting is a DECLINE, not a crash and not a retry: the client went away,
     /// so nothing was chosen and nothing may be queued on a guess.
-    private func ask(_ message: String, _ schema: [String: Any]) -> MCPPickReply {
+    private func askByForm(_ message: String, _ schema: [String: Any]) -> MCPPickReply {
         elicitations += 1
         let id = "tally-elicit-\(elicitations)"
         send(["jsonrpc": "2.0", "id": id, "method": "elicitation/create",

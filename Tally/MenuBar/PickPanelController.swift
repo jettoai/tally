@@ -53,9 +53,11 @@ final class PickPanelController: NSObject, NSWindowDelegate {
     private func present(id: String?) {
         guard let id, isPickID(id), current == nil,
               // The same one-answer-per-launch question every other unprompted window asks
-              // (LoginItemPreview.mayTakeForeground): a launch that is previewing something must not
+              // (CaptureLaunch.mayTakeForeground): a launch that is there to be looked at must not
               // be interrupted by a panel, and this is that policy rather than a second copy of it.
-              LoginItemPreview.launchMayTakeForeground,
+              // Widened with the rest of the family: it used to ask only about the login-item state
+              // preview, so a demo capture or a panel snapshot could still be walked over.
+              CaptureLaunch.launchMayTakeForeground,
               let request = readPickRequest(id: id, dir: dir), !request.rows.isEmpty
         else { return }
         // CLAIMED FIRST, and exclusively. The knock reaches every listener on the machine, so a

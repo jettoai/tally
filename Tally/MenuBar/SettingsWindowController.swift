@@ -26,7 +26,7 @@ final class SettingsWindowController {
     /// Reopen the window at launch if it was up when the app last quit (see `restoreKey`).
     ///
     /// `activating`: the launch's one answer about taking the foreground, same as the dashboard's
-    /// restore takes (LoginItemPreview.mayTakeForeground).
+    /// restore takes (CaptureLaunch.mayTakeForeground).
     func restoreAtLaunchIfNeeded(activating: Bool = true) {
         if UserDefaults.standard.bool(forKey: Self.restoreKey) {
             show(restoring: true, activating: activating)

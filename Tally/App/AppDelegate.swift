@@ -43,8 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LaunchAtLoginDefault.applyIfNeeded()
         // One answer for the whole launch, read once and given to every path below that puts a
         // window up without anybody having clicked anything. Read here rather than inside each
-        // controller so the set of those paths is a list somebody can look at.
-        let mayTakeForeground = LoginItemPreview.launchMayTakeForeground
+        // controller so the set of those paths is a list somebody can look at, and asked of the
+        // whole capture family rather than of any one flag: every launch that exists to be looked
+        // at wants the same thing from these paths, not just the login-item state preview.
+        let mayTakeForeground = CaptureLaunch.launchMayTakeForeground
         MainWindowController.shared.restoreAtLaunchIfNeeded(activating: mayTakeForeground)
         // A state preview opens Settings its own way and stands IN FOR the restore rather than
         // following it. Following would not work: the restore activates, and the second preview
@@ -140,10 +142,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the same `settingsOpening`, so the flag and the pane cannot disagree.
     private func openSettingsForLoginItemPreview() -> Bool {
         guard LoginItemPreview.fixture != nil else { return false }
-        // Passed rather than hardcoded false, so the value the assertions pin is the value that
-        // reaches the window.
-        SettingsWindowController.shared.show(
-            activating: LoginItemPreview.settingsOpening.activates)
+        // The same launch-wide answer the restores above got, so all three paths that can put a
+        // window up at startup are driven by one value read in one place.
+        SettingsWindowController.shared.show(activating: CaptureLaunch.launchMayTakeForeground)
         return true
     }
 

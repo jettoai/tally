@@ -53,7 +53,7 @@ final class MainWindowController {
     /// `activating` is the launch's one answer about taking the foreground, passed in rather than
     /// assumed: a restore is not a click, and on a launch that must stay in the background this is
     /// the path that would otherwise pull the app forward on nothing but "the window happened to be
-    /// open last time" (LoginItemPreview.mayTakeForeground).
+    /// open last time" (CaptureLaunch.mayTakeForeground).
     func restoreAtLaunchIfNeeded(activating: Bool = true) {
         if UserDefaults.standard.bool(forKey: Self.restoreKey) {
             show(restoring: true, activating: activating)

@@ -143,22 +143,6 @@ enum LoginItemPreview {
         /// account list and no login item row at all.
         let onLaunchPane: Bool
 
-        /// Take the foreground.
-        ///
-        /// True for every ordinary summon, which is a click and should come forward. False when
-        /// previewing, and NOT because a preview should hide: because `open` and `open -g` have
-        /// already decided, and calling `NSApp.activate(ignoringOtherApps:)` overrules both. A
-        /// reviewer running plain `open` still gets the window in front (macOS activates a
-        /// launched app), while a background check with `open -g` leaves their desktop alone,
-        /// which is the project's background-first rule (AGENTS.md, and
-        /// ~/.claude/docs/patterns/macos-app-verification.md).
-        ///
-        /// This says nothing about the Dock. Being reachable through Cmd-Tab and taking the screen
-        /// away from whoever is using it are different acts, and only the second one is rude; a
-        /// Settings window absent from Cmd-Tab is one a reviewer loses behind the next window they
-        /// open, with the menu bar icon the only way back. So the promotion still happens and only
-        /// the activation is left to the launcher.
-        let activates: Bool
     }
 
     /// How this launch opens it.
@@ -167,30 +151,26 @@ enum LoginItemPreview {
     /// The rule as a function of the fixture, so both answers can be asserted from a process that
     /// is previewing nothing.
     static func settingsOpening(previewing fixture: Fixture?) -> SettingsOpening {
-        SettingsOpening(onLaunchPane: fixture != nil,
-                        activates: mayTakeForeground(previewing: fixture))
+        SettingsOpening(onLaunchPane: fixture != nil)
     }
 
-    /// Whether anything this launch puts on screen of its own accord may also pull the app to the
-    /// front.
+    /// Whether a launch previewing `fixture` and carrying nothing else may pull the app forward.
     ///
-    /// ONE answer for the whole launch, and it is deliberately not phrased about any particular
-    /// window. The first version of this rule was a parameter on the Settings window alone, which
-    /// made it true only while the OTHER window happened not to restore: a user who quit with the
-    /// dashboard open got the app yanked forward anyway, because that restore runs first and does
-    /// its own activating. Correctness that depends on what the user left open is not correctness.
+    /// A view of `CaptureLaunch`'s rule from this one flag, not a second copy of it: the foreground
+    /// policy belongs to the whole capture family and is stated there. Kept because two callers
+    /// reason about the login-item preview specifically, and because it pins the membership that
+    /// makes a preview launch a background one at all.
     ///
-    /// So every launch-time path that shows a window without anybody having clicked anything asks
-    /// this, and the enumeration of those paths is the point rather than the individual fixes:
-    /// both window restores (`MainWindowController` and `SettingsWindowController`) call
-    /// `NSApp.activate` and are wired through here; the pinned panel's restore orders its panel
-    /// front but never activates, so it cannot take the foreground from another app; and the
-    /// updater's alerts do activate but stay dormant without a feed URL, which is exactly the
-    /// build a preview runs in.
-    static func mayTakeForeground(previewing fixture: Fixture?) -> Bool { fixture == nil }
-
-    /// This launch's answer.
-    static var launchMayTakeForeground: Bool { mayTakeForeground(previewing: fixture) }
+    /// The paths this governs, which is the point rather than any individual fix: both window
+    /// restores (`MainWindowController` and `SettingsWindowController`) call `NSApp.activate` and
+    /// are wired through the launch-wide answer; the pinned panel's restore orders its panel front
+    /// but never activates, so it cannot take the foreground from another app; and the updater's
+    /// alerts do activate but stay dormant without a feed URL, which is exactly the build a
+    /// preview runs in.
+    static func mayTakeForeground(previewing fixture: Fixture?) -> Bool {
+        CaptureLaunch.mayTakeForeground(
+            activeKeys: fixture == nil ? [] : [CaptureLaunch.loginItemPreview])
+    }
 
     /// The fixture after the trip the row's button offers: consent given, login item present.
     ///

@@ -283,17 +283,12 @@ check("every previewable state opens on that same pane",
           LoginItemPreview.settingsOpening(previewing: LoginItemPreview.fixture(named: $0))
               .onLaunchPane })
 
-check("an ordinary summon takes the foreground, the way a click should",
-      summonOpening.activates)
-// Not because a preview should hide, but because `open` and `open -g` have already decided and
-// activating here overrules both.
-check("a preview leaves the foreground to however the app was launched",
-      !previewOpening.activates)
-
-// Stated whole, so a third difference cannot appear without this failing.
-check("a preview differs from a summon in those two respects and no others",
-      previewOpening == LoginItemPreview.SettingsOpening(onLaunchPane: true, activates: false)
-        && summonOpening == LoginItemPreview.SettingsOpening(onLaunchPane: false, activates: true))
+// The foreground half of this used to live in `SettingsOpening` too, back when the login-item
+// preview was the only capture flag. It belongs to the whole family now (see below), so what is
+// left here is the pane, stated whole so a second difference cannot appear without this failing.
+check("a preview differs from a summon in the pane it opens on, and nothing else",
+      previewOpening == LoginItemPreview.SettingsOpening(onLaunchPane: true)
+        && summonOpening == LoginItemPreview.SettingsOpening(onLaunchPane: false))
 // This process previews nothing, so the property that reads the real inputs is the summon answer.
 check("previewing nothing gets the ordinary opening",
       LoginItemPreview.settingsOpening == summonOpening)
@@ -384,14 +379,63 @@ check("an ordinary launch is free to come forward",
 check("and no previewable state is an exception",
       LoginItemPreview.names.allSatisfy {
           !LoginItemPreview.mayTakeForeground(previewing: LoginItemPreview.fixture(named: $0)) })
-// The Settings pane's own answer is DEFINED as this one, so the two windows cannot drift into
-// disagreeing about a single launch.
-check("the Settings window's answer is that same answer, not a second copy",
-      [LoginItemPreview.fixture(named: "enabled"), nil].allSatisfy {
-          LoginItemPreview.settingsOpening(previewing: $0).activates
-              == LoginItemPreview.mayTakeForeground(previewing: $0) })
-check("this process, previewing nothing, may come forward",
-      LoginItemPreview.launchMayTakeForeground)
+check("this process, carrying no capture flag, may come forward",
+      CaptureLaunch.launchMayTakeForeground)
+
+// MARK: - and the whole capture family gets that same answer
+
+// Scoping this to the login-item preview was the defect: every flag here exists so something can
+// be looked at, and a window restore was pulling the app forward on all the others. One cell per
+// member, because a family rule that is only spot-checked is how the first one got missed.
+for key in CaptureLaunch.backgroundKeys {
+    check("a launch carrying \(key) does not come forward on its own",
+          !CaptureLaunch.mayTakeForeground(activeKeys: [key]))
+}
+// The membership itself, written out rather than derived from the list under test. The grid above
+// is generated FROM `backgroundKeys`, so dropping a member silently drops its own check with it:
+// shrinking the family back to one flag left that loop green over a single cell. Spelled out, both
+// directions are pinned, a member going missing and one appearing without anybody deciding to.
+let expectedFamily: Set<String> = [
+    "TallyDemoData", "TallyAppearance", "TallyCardStyle",
+    "TallyPanelCapture", "TallyTooltipPreview", "TallyEmptyStatePreview",
+    "TallyTokenGraphPreview", "TallyUpdateChip", "TallyPickPreview", "TallyLoginItemPreview",
+    "TallyStripSnapshot",
+    "TallyDryNotifyTest", "TallyResetHintTest", "TallyLoginExpiryTest",
+]
+check("the family is exactly these fourteen flags",
+      Set(CaptureLaunch.backgroundKeys) == expectedFamily)
+check("and it carries no duplicates",
+      CaptureLaunch.backgroundKeys.count == expectedFamily.count)
+check("a launch carrying none of them does",
+      CaptureLaunch.mayTakeForeground(activeKeys: []))
+check("and one carrying several is answered once, the same way",
+      !CaptureLaunch.mayTakeForeground(
+          activeKeys: ["TallyDemoData", "TallyPanelCapture", "TallyAppearance"]))
+
+// The membership that makes a preview launch a background one. Without it the login-item rule
+// above would be a second, drifting copy of the family's.
+check("the login-item state preview is a member of the family",
+      CaptureLaunch.backgroundKeys.contains(CaptureLaunch.loginItemPreview))
+
+// Deliberately NOT members, each for its own stated reason. Asserted so the choices are visible
+// rather than inferred from an absence.
+check("the interactive renewal hook is not a member, it exists to be driven",
+      CaptureLaunch.mayTakeForeground(activeKeys: ["TallyRenewLoginCLI"]))
+check("nor are the two modifiers, which show nothing on their own",
+      CaptureLaunch.mayTakeForeground(
+          activeKeys: ["TallyUpdateChipReady", "TallyTokenGraphHover"]))
+// ... but riding along with their parent changes nothing: the parent is what is asked about.
+check("a modifier alongside its flag is still a background launch",
+      !CaptureLaunch.mayTakeForeground(
+          activeKeys: ["TallyUpdateChip", "TallyUpdateChipReady"]))
+
+// How a flag counts as carried. Launch arguments land in defaults as strings of every shape.
+check("a flag with any value is carried", CaptureLaunch.isActive(rawValue: "fleet")
+        && CaptureLaunch.isActive(rawValue: "YES") && CaptureLaunch.isActive(rawValue: "0.15.0"))
+check("an absent flag is not", !CaptureLaunch.isActive(rawValue: nil))
+check("an explicitly switched-off one is not, so a saved command can keep it",
+      !CaptureLaunch.isActive(rawValue: "NO") && !CaptureLaunch.isActive(rawValue: "false")
+        && !CaptureLaunch.isActive(rawValue: ""))
 
 // MARK: - the startup failure is consumed, not merely unpersisted
 

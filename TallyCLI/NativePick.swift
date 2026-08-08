@@ -45,9 +45,14 @@ struct NativePickChannel {
     /// Put the request on disk and knock. False when it could not be written at all, which is read
     /// as "there is no native path today" and falls straight through to the form.
     var publish: (PickRequest) -> Bool
-    /// Has the app taken this one? The claim is what separates "no app" from "somebody is looking
-    /// at it" (PickContract.swift).
-    var isClaimed: (String) -> Bool
+    /// WHO has taken this one, or nil when nobody has. A pid rather than a yes: an app that claims
+    /// a request and then dies must not be able to hold the wait open to its deadline, and the only
+    /// way to tell that apart from "somebody is still looking at it" is to ask about the process
+    /// (PickContract.swift writes it, `isAlive` below asks).
+    var claimant: (String) -> pid_t?
+    /// Whether a claiming process is still there. Its own member so the wait can be driven through a
+    /// death in a test without one.
+    var isAlive: (pid_t) -> Bool = { supervisorAlive($0) }
     /// The answer, or nil while there is not one. An unreadable answer is a CANCELLATION rather than
     /// a nil, decided in the contract, so this never has to guess.
     var answer: (String) -> PickAnswer?
@@ -80,7 +85,7 @@ struct NativePickChannel {
                     userInfo: nil, deliverImmediately: true)
                 return true
             },
-            isClaimed: { FileManager.default.fileExists(atPath: pickClaimFile(id: $0).path) },
+            claimant: { readPickClaim(id: $0) },
             answer: { readPickAnswer(id: $0) },
             discard: { id in
                 guard isPickID(id) else { return }
@@ -106,8 +111,8 @@ struct NativePickChannel {
     /// Tally.app effectively has, and what every test that is exercising the FORM path uses, so a
     /// suite can never write into the user's own `~/.tally/pick` or knock on a running app.
     static var unavailable: NativePickChannel {
-        NativePickChannel(publish: { _ in false }, isClaimed: { _ in false }, answer: { _ in nil },
-                          discard: { _ in }, messageWaiting: { _ in true })
+        NativePickChannel(publish: { _ in false }, claimant: { _ in nil },
+                          answer: { _ in nil }, discard: { _ in }, messageWaiting: { _ in true })
     }
 }
 

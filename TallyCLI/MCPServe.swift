@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 // `tally mcp-serve` - the MCP server behind the native `/tally-account` and `/tally-model` pickers.
@@ -30,13 +31,76 @@ struct MCPConnection {
     /// One message line, or nil at end of input.
     var read: () -> String?
     var write: (String) -> Void
+    /// Whether a whole line is ALREADY IN HAND, without touching the descriptor.
+    ///
+    /// THIS EXISTS BECAUSE A BUFFERED READ AND A POLLED DESCRIPTOR DO NOT SEE THE SAME THING, which
+    /// is the classic way of mixing the two and it cost a real defect here (review of ee77152). A
+    /// client that writes several messages in one go leaves them in ONE pipe write; the read that
+    /// takes the first line pulls the whole chunk into user space, and from then on `poll(fd 0)`
+    /// says - correctly - that the descriptor has nothing on it. The second message would then sit
+    /// unanswered until the person finished choosing or the wait timed out, which is precisely the
+    /// deafness the wait is built to avoid.
+    ///
+    /// Defaulted to false so every injected connection reads exactly as it did: a test that scripts
+    /// its own messages has no buffer of its own to speak for.
+    var buffered: () -> Bool = { false }
 
-    /// The real one: stdin and stdout, unbuffered, one line per message.
+    /// The real one: this process's own stdin and stdout, one line per message.
     static var stdio: MCPConnection {
-        MCPConnection(read: { readLine(strippingNewline: true) },
-                      write: { line in
-                          FileHandle.standardOutput.write(Data((line + "\n").utf8))
-                      })
+        let reader = StdioLineReader()
+        return MCPConnection(read: { reader.line() },
+                             write: { line in
+                                 FileHandle.standardOutput.write(Data((line + "\n").utf8))
+                             },
+                             buffered: { reader.hasCompleteLine })
+    }
+}
+
+/// Lines off a file descriptor, buffered where WE can see the buffer.
+///
+/// `readLine` keeps its buffer inside the C library, where nothing can ask whether it is holding
+/// anything - and a wait that also polls the descriptor has to be able to ask (see `buffered`
+/// above). So the buffering is done here instead: `read(2)` into a `Data`, split on newlines, and a
+/// question anybody can put to it.
+///
+/// The general path is unchanged by construction: `line()` returns the same lines in the same order
+/// and nil at end of input, which is all `serve()` ever asked of `readLine`.
+final class StdioLineReader {
+    private var buffer = Data()
+    private var ended = false
+    private let descriptor: Int32
+    private let chunkSize = 4096
+
+    init(descriptor: Int32 = 0) { self.descriptor = descriptor }
+
+    /// A whole line is in hand already. Asked BEFORE the descriptor is polled, never instead of
+    /// reading it.
+    var hasCompleteLine: Bool { buffer.contains(0x0A) }
+
+    /// The next line, reading only when there is not one buffered. nil at end of input, including
+    /// the case where the last line arrived without a newline behind it.
+    func line() -> String? {
+        while true {
+            if let newline = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex ..< newline]
+                buffer.removeSubrange(buffer.startIndex ... newline)
+                return String(decoding: line, as: UTF8.self)
+            }
+            if ended {
+                guard !buffer.isEmpty else { return nil }
+                defer { buffer.removeAll() }
+                return String(decoding: buffer, as: UTF8.self)
+            }
+            var chunk = [UInt8](repeating: 0, count: chunkSize)
+            let count = Darwin.read(descriptor, &chunk, chunkSize)
+            if count > 0 {
+                buffer.append(contentsOf: chunk[0 ..< count])
+            } else if count < 0 && errno == EINTR {
+                continue   // a signal, not an end: ask again
+            } else {
+                ended = true   // 0 is end of input; anything else is unreadable, which reads the same
+            }
+        }
     }
 }
 
@@ -222,11 +286,13 @@ final class MCPServer {
         // nobody is waiting on any more.
         defer { pick.discard(id) }
         let started = pick.now()
-        var claimed = false
         while true {
-            // THE CLIENT FIRST, and only when it has actually said something. `receive` reads a
-            // line, so calling it unasked is exactly the deafness this loop exists to avoid.
-            if pick.messageWaiting(nativePickPollSeconds) {
+            // THE CLIENT FIRST, and only when it has actually said something. OUR OWN BUFFER IS
+            // ASKED BEFORE THE DESCRIPTOR, because a message already pulled into user space is
+            // invisible to `poll` and would otherwise wait out the whole pick (`MCPConnection
+            // .buffered` states the mechanism). `receive` reads a line, so calling it unasked is
+            // exactly the deafness this loop exists to avoid.
+            if connection.buffered() || pick.messageWaiting(nativePickPollSeconds) {
                 // End of input while waiting is a DECLINE, the same reading the form path gives it:
                 // the client went away, so nothing was chosen and nothing may be queued on a guess.
                 guard let next = receive() else { return .declined }
@@ -238,11 +304,16 @@ final class MCPServer {
                 return answer.isCancelled ? .declined : .accepted(offer.content(for: answer))
             }
             let waited = pick.now().timeIntervalSince(started)
-            if !claimed {
-                claimed = pick.isClaimed(id)
-                // Nobody has taken it: the app is not running, or is not going to. Fall back while
-                // the person is still looking at the terminal they typed into.
-                if !claimed, waited > nativePickClaimSeconds { return nil }
+            // ASKED EVERY TURN RATHER THAN LATCHED. A claim that was true once is not a claim that
+            // is true now: an app that took the request and then died would hold this wait to its
+            // five-minute deadline and answer "nothing changed", when what it owes the person is the
+            // form (review of ee77152). Holding it open is only justified while somebody is really
+            // looking at it.
+            let watched = pick.claimant(id).map(pick.isAlive) ?? false
+            if !watched {
+                // Nobody has taken it, or whoever had it is gone. Fall back while the person is
+                // still looking at the terminal they typed into.
+                if waited > nativePickClaimSeconds { return nil }
             } else if waited > nativePickDeadlineSeconds {
                 // A panel somebody raised and walked away from. Nothing was chosen, which is what
                 // every other unanswered pick already comes to.

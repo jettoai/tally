@@ -57,11 +57,18 @@ func mcpModelPickRows(_ status: ModelStatus, efforts: [String] = pickerExpandedE
     let options = mcpModelOptions(status)
     let runningEffort = status.running?.effort?.lowercased()
     var rows: [PickRow] = []
+    // Whether the depth this session is at is one of the ones drawn below. When it is NOT - a
+    // session on `low`, or one whose depth nothing has read yet - the row that means "leave the
+    // depth alone" IS where the session is, and marking anything else would leave the whole list
+    // with no resting row and the cursor on an unrelated model (review of ee77152).
+    let depthIsDrawn = runningEffort.map { effort in
+        efforts.contains { $0.lowercased() == effort }
+    } ?? false
     for option in options where option.value != mcpModelAutoValue {
         let isRunningModel = modelsAgree(option.value, status.running?.model)
         // The model on its own: changes what answers, leaves the depth where it is.
         rows.append(PickRow(value: option.value, effort: nil, label: option.label,
-                            isCurrent: isRunningModel && runningEffort == nil))
+                            isCurrent: isRunningModel && !depthIsDrawn))
         for effort in efforts {
             rows.append(PickRow(value: option.value, effort: effort,
                                 label: "\(option.value) · \(effort)",

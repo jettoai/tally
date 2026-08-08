@@ -12,8 +12,10 @@ import Foundation
 final class PickChannelDouble {
     var published: [PickRequest] = []
     var discarded: [String] = []
-    /// What `isClaimed` answers, in order; the last value repeats.
-    var claims: [Bool] = [true]
+    /// Who holds the claim on each turn, in order; the last value repeats. nil is "nobody".
+    var claims: [pid_t?] = [4242]
+    /// Which claimants are still alive. Anything absent from here is dead.
+    var living: Set<pid_t> = [4242]
     /// What `answer` answers, in order; the last value repeats.
     var answers: [PickAnswer?] = [nil]
     /// What `messageWaiting` answers, in order; the last value repeats.
@@ -36,7 +38,8 @@ final class PickChannelDouble {
     var channel: NativePickChannel {
         NativePickChannel(
             publish: { [self] request in published.append(request); return true },
-            isClaimed: { [self] _ in next(claims, &claimAsks) },
+            claimant: { [self] _ in next(claims, &claimAsks) },
+            isAlive: { [self] pid in living.contains(pid) },
             answer: { [self] _ in next(answers, &answerAsks) },
             discard: { [self] id in discarded.append(id) },
             messageWaiting: { [self] _ in next(messages, &messageAsks) },
@@ -94,7 +97,7 @@ func runPickerChecks() {
 
     var queued: [SwitchIntent] = []
     let chosen = PickChannelDouble()
-    chosen.claims = [true]
+    chosen.claims = [4242]
     // Nothing on the first turn, the answer on the second: the wait has to keep looking rather than
     // deciding on the first miss.
     chosen.answers = [nil, PickAnswer(value: "claude:.claude2")]
@@ -143,7 +146,7 @@ func runPickerChecks() {
     // Nobody claims it: Tally.app is not running, or is not going to draw. The person gets the form
     // that shipped before this feature, not an error and not a hang.
     let unclaimed = PickChannelDouble()
-    unclaimed.claims = [false]
+    unclaimed.claims = [nil]
     unclaimed.elapsed = [0, 0, nativePickClaimSeconds + 0.1]
     let fellBack = runPick(unclaimed.channel, world: pickWorld())
     check("an unclaimed request falls back to the form",
@@ -158,7 +161,7 @@ func runPickerChecks() {
 
     // A panel somebody raised and walked away from: the claim held, the deadline did not.
     let abandoned = PickChannelDouble()
-    abandoned.claims = [true]
+    abandoned.claims = [4242]
     abandoned.elapsed = [0, 0, nativePickDeadlineSeconds + 1]
     let expired = runPick(abandoned.channel, world: pickWorld())
     check("a claimed panel nobody answers expires as nothing chosen",
@@ -172,7 +175,7 @@ func runPickerChecks() {
     // and a server that reads only for its own answer leaves it waiting with a panel on screen.
     // The elicitation wait had this for free; the native wait has to watch two sources to keep it.
     let busy = PickChannelDouble()
-    busy.claims = [true]
+    busy.claims = [4242]
     busy.messages = [true, false]
     busy.answers = [nil, nil, PickAnswer(value: "claude:.claude2")]
     let served = runPick(busy.channel, client: [["jsonrpc": "2.0", "id": 4, "method": "ping"]],
@@ -183,11 +186,95 @@ func runPickerChecks() {
     // The client going away mid-panel is a decline: nothing was chosen, and nothing may be queued on
     // a guess.
     let gone = PickChannelDouble()
-    gone.claims = [true]
+    gone.claims = [4242]
     gone.messages = [true]
     let hungUp = runPick(gone.channel, client: [], world: pickWorld())
     check("end of input while the panel is open is a decline",
           hungUp.decision.contains(mcpNothingChanged))
+
+    // MARK: - 36c2. A message already in hand is served without asking the descriptor
+
+    // THE DEFECT (review of ee77152): a client that writes several messages in one pipe write leaves
+    // them in ONE chunk, the read that takes the first line pulls the rest into user space, and
+    // `poll(fd 0)` then says - correctly - that the descriptor is empty. The second message would
+    // sit unanswered until the person chose or the wait timed out, which is exactly the deafness
+    // this loop exists to prevent. So the wait asks OUR OWN buffer first.
+    let holding = PickChannelDouble()
+    holding.claims = [4242]
+    holding.answers = [nil, nil, PickAnswer(value: "claude:.claude2")]
+    // The descriptor NEVER has anything on it: every turn of this wait must come from the buffer.
+    holding.messages = [false]
+    let script = MCPScriptedConnection([["jsonrpc": "2.0", "id": 4, "method": "ping"]])
+    var buffered = MCPConnection(read: script.connection.read, write: script.connection.write)
+    var lines = 1
+    buffered.buffered = { lines > 0 }
+    let readThrough = buffered.read
+    buffered.read = { lines -= 1; return readThrough() }
+    let bufferedServer = MCPServer(connection: buffered, world: pickWorld(), claudeCodePID: nil,
+                                   pick: holding.channel)
+    bufferedServer.handle(["jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                           "params": ["name": PromptHookTool.pickAccount.rawValue,
+                                      "arguments": ["cwd": "/tmp/w", "command_args": ""]]])
+    check("a message already in our own buffer is served, though the descriptor is quiet",
+          script.sent.contains { $0["id"] as? Int == 4 && $0["result"] != nil })
+    check("…and the pick still lands afterwards",
+          mcpDecisionText(script.sent.first { $0["id"] as? Int == 9 } ?? [:])?
+              .contains("queued the move") == true)
+
+    // The reader that makes it possible, on its own: lines in, lines out, and it can say whether it
+    // is holding one. The general path asks nothing else of it.
+    let pipe = Pipe()
+    let reader = StdioLineReader(descriptor: pipe.fileHandleForReading.fileDescriptor)
+    check("nothing buffered before anything is written", !reader.hasCompleteLine)
+    // BOTH MESSAGES IN ONE WRITE, which is the shape that produced the defect.
+    pipe.fileHandleForWriting.write(Data("{\"a\":1}\n{\"b\":2}\n".utf8))
+    check("the first line reads back whole", reader.line() == "{\"a\":1}")
+    check("…and the second is now IN HAND, where poll could never have seen it",
+          reader.hasCompleteLine)
+    check("…and reads back without touching the descriptor again", reader.line() == "{\"b\":2}")
+    check("with the buffer drained, nothing is claimed to be waiting", !reader.hasCompleteLine)
+    try? pipe.fileHandleForWriting.close()
+    check("end of input is nil, exactly as the general path has always read it", reader.line() == nil)
+
+    // MARK: - 36c3. A claim is only worth anything while its holder is alive
+
+    // A claim that was true once is not a claim that is true now: an app that took the request and
+    // then died used to hold the wait to its five-minute deadline and answer "nothing changed",
+    // when what it owes the person is the form.
+    let died = PickChannelDouble()
+    died.claims = [4242]
+    died.living = []          // claimed by a process that is not there any more
+    died.elapsed = [0, 0, nativePickClaimSeconds + 0.1]
+    let orphaned = runPick(died.channel, world: pickWorld())
+    check("a claim held by a dead process falls back to the form",
+          orphaned.sent.contains { $0["method"] as? String == "elicitation/create" })
+    // …while a live one is waited on, which is the whole point of telling them apart.
+    let watching = PickChannelDouble()
+    watching.claims = [4242]
+    watching.elapsed = [0, 0, nativePickClaimSeconds + 0.1, nativePickClaimSeconds + 0.2]
+    watching.answers = [nil, nil, nil, PickAnswer(value: "claude:.claude2")]
+    let waited = runPick(watching.channel, world: pickWorld())
+    check("a claim held by a live process is waited on past the claim window",
+          waited.decision.contains("queued the move")
+              && !waited.sent.contains { $0["method"] as? String == "elicitation/create" })
+
+    // MARK: - 36c4. Two apps cannot claim the same request
+
+    // The knock reaches every listener on the machine, so a release build and a dev build both hear
+    // it. The file system decides once; the loser draws nothing.
+    let raceDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-claim-\(UUID().uuidString)")
+    check("the first app to ask gets the claim", takePickClaim(id: "abc", owner: 111, dir: raceDir))
+    check("…and the second is refused rather than overwriting it",
+          !takePickClaim(id: "abc", owner: 222, dir: raceDir))
+    check("…so the claim still names the app that is actually drawing",
+          readPickClaim(id: "abc", dir: raceDir) == 111)
+    check("an unclaimed request has no claimant at all",
+          readPickClaim(id: "nobody", dir: raceDir) == nil)
+    try! Data("not a pid\n".utf8).write(to: pickClaimFile(id: "junk", dir: raceDir))
+    check("a claim that says nothing usable is nobody, not a wait",
+          readPickClaim(id: "junk", dir: raceDir) == nil)
+    try? FileManager.default.removeItem(at: raceDir)
 
     // MARK: - 36d. The pair a list must not be able to draw
 
@@ -225,6 +312,28 @@ func runPickerChecks() {
               == claudeEffortNames())
     check("the release is the last row, where a list of escapes belongs",
           rows.last?.value == mcpModelAutoValue)
+    // A SESSION AT A DEPTH THE LIST DOES NOT DRAW still has to have a resting row, or the cursor
+    // opens on an unrelated model and the keyboard path starts by scrolling away from where the
+    // person already is. The bare row means "leave the depth alone", so in that case it IS where
+    // they are.
+    func rowsRunning(_ model: String?, _ effort: String?) -> [PickRow] {
+        var status = ModelStatus()
+        status.observedModel = model
+        status.declared = SessionModelPin(model: model, effort: effort)
+        return mcpModelPickRows(status)
+    }
+    let onLow = rowsRunning("opus", "low")
+    check("a session at a depth the list does not draw rests on the model's own row",
+          onLow.filter(\.isCurrent).map { ($0.value, $0.effort) }.map(\.0) == ["opus"]
+              && onLow.first(where: \.isCurrent)?.effort == nil)
+    let onHigh = rowsRunning("opus", "high")
+    check("…while a session at a depth it does draw rests on that pair",
+          onHigh.filter(\.isCurrent).map(\.effort) == ["high"])
+    let noDepth = rowsRunning("opus", nil)
+    check("…and one whose depth nothing has read yet rests on the model too",
+          noDepth.filter(\.isCurrent).allSatisfy { $0.effort == nil })
+    check("exactly one row rests, in every one of those",
+          [onLow, onHigh, noDepth].allSatisfy { $0.filter(\.isCurrent).count == 1 })
     // The form is unchanged, which is the fallback's whole promise: it still has two fields.
     let schema = mcpModelSchema(models: mcpModelOptions(ModelStatus()), efforts: claudeEffortNames())
     check("the form fallback still asks per axis, exactly as it did",

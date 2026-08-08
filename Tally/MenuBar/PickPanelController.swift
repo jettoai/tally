@@ -58,21 +58,31 @@ final class PickPanelController: NSObject, NSWindowDelegate {
               LoginItemPreview.launchMayTakeForeground,
               let request = readPickRequest(id: id, dir: dir), !request.rows.isEmpty
         else { return }
+        // CLAIMED FIRST, and exclusively. The knock reaches every listener on the machine, so a
+        // release build and a dev build running side by side both get here with nothing drawn yet;
+        // whoever loses the file system's race draws nothing and leaves quietly, rather than putting
+        // a second panel on screen for a question that can only be answered once (`takePickClaim`).
+        guard takePickClaim(id: request.id, dir: dir) else { return }
         show(request)
-        // Claimed only once the panel is really up, which is what the claim is FOR: it says a person
-        // is looking at this, so the CLI may stop counting seconds and start waiting.
-        try? Data().write(to: pickClaimFile(id: request.id, dir: dir), options: .atomic)
     }
 
     private func show(_ request: PickRequest) {
         current = request
         previousApp = NSWorkspace.shared.frontmostApplication
-        let panel = PickPanel(
-            contentRect: .zero,
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
-            backing: .buffered, defer: false)
+        // NOT `.nonactivatingPanel`, which is the opposite of what this panel is for: that style
+        // asks AppKit to keep the panel out of the key window chain, and the whole point here is
+        // that the keyboard can answer it (arrow keys and Enter). Setting it alongside an
+        // `NSApp.activate` also leaves the panel drawn in its INACTIVE style, which is what a
+        // hidden titlebar over a washed-out background reads as: a dialog that looks broken.
+        let panel = PickPanel(contentRect: .zero, styleMask: [.titled, .fullSizeContentView],
+                              backing: .buffered, defer: false)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
+        // The titlebar is kept only for the rounded chrome and the drag behaviour; its buttons are
+        // three more actions on a surface whose whole design is one action per row.
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            panel.standardWindowButton(button)?.isHidden = true
+        }
         panel.isMovableByWindowBackground = true
         panel.level = .floating
         panel.hidesOnDeactivate = false

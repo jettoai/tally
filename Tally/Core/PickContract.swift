@@ -143,6 +143,40 @@ func readPickRequest(id: String, dir: URL = pickRequestDir) -> PickRequest? {
     return decodePick(PickRequest.self, from: try? Data(contentsOf: pickRequestFile(id: id, dir: dir)))
 }
 
+/// Take the claim, or find that somebody already has it.
+///
+/// EXCLUSIVE ON PURPOSE, and it is the only thing that keeps two running copies of Tally apart: the
+/// notification goes to EVERY listener on the machine, so a release build and a dev build both hear
+/// the same knock, both find nothing drawn yet, and both raise a panel over the same question. The
+/// person then answers one of them while the other hangs there, and whichever wrote its claim last
+/// owns a file the first one thinks is its own. `withoutOverwriting` is the whole fix: the file
+/// system decides, once, and the loser draws nothing.
+///
+/// The pid inside it is what lets the CLI tell "somebody is looking at this" from "somebody WAS":
+/// an app that claims and then dies would otherwise hold the request until the deadline.
+func takePickClaim(id: String, owner: pid_t = ProcessInfo.processInfo.processIdentifier,
+                   dir: URL = pickRequestDir) -> Bool {
+    guard isPickID(id) else { return false }
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    do {
+        try Data("\(owner)\n".utf8).write(to: pickClaimFile(id: id, dir: dir),
+                                           options: .withoutOverwriting)
+        return true
+    } catch {
+        return false
+    }
+}
+
+/// The process holding this request, or nil when nobody does (or the file says nothing usable,
+/// which reads the same way: there is no one to wait for).
+func readPickClaim(id: String, dir: URL = pickRequestDir) -> pid_t? {
+    guard isPickID(id),
+          let raw = try? String(contentsOf: pickClaimFile(id: id, dir: dir), encoding: .utf8),
+          let owner = pid_t(raw.trimmingCharacters(in: .whitespacesAndNewlines)), owner > 0
+    else { return nil }
+    return owner
+}
+
 /// The answer, or nil when there is not one yet. AN UNREADABLE FILE IS AN ANSWER: it means the app
 /// wrote something this build cannot use, and the only safe reading of that is that nothing was
 /// chosen (`PickAnswer` says why guessing is not an option). Absent and unreadable are therefore

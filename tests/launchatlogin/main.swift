@@ -406,6 +406,55 @@ check("the family is exactly these fourteen flags",
       Set(CaptureLaunch.backgroundKeys) == expectedFamily)
 check("and it carries no duplicates",
       CaptureLaunch.backgroundKeys.count == expectedFamily.count)
+
+// MARK: - the scan that keeps the classification honest
+
+// Twice now the classification has been completed by hand and twice an outside scan found a flag
+// it had missed: first the two reached through `devOverrideKey:`, then `TallyLoginStatusCLI`, which
+// a `forKey:` scan cannot see at all because it looks the key up through a named constant. So the
+// scan stops being something somebody remembers to run.
+//
+// It reads the SOURCE, and it matches the literal rather than any particular way of looking a flag
+// up, because the lookup form is exactly what changed underneath the last two attempts. Anything
+// spelled "TallyXxx" in Tally/ must therefore end up in a bucket or be named below as not a flag.
+func swiftSources(under root: String) -> [String] {
+    guard let walker = FileManager.default.enumerator(atPath: root) else { return [] }
+    return walker.compactMap { $0 as? String }
+        .filter { $0.hasSuffix(".swift") }
+        .map { root + "/" + $0 }
+}
+
+func tallyLiterals(in paths: [String]) -> Set<String> {
+    let pattern = try! NSRegularExpression(pattern: "\"(Tally[A-Za-z]+)\"")
+    var found: Set<String> = []
+    for path in paths {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+        let range = NSRange(text.startIndex..., in: text)
+        for match in pattern.matches(in: text, range: range) {
+            if let r = Range(match.range(at: 1), in: text) { found.insert(String(text[r])) }
+        }
+    }
+    return found
+}
+
+// Spelled "Tally..." but not launch flags, each named with what it actually is. A new entry here is
+// a deliberate act, which is the point: the alternative is a silent absence.
+let notLaunchFlags: Set<String> = [
+    "TallyPanelDragEnded",    // a Notification.Name (PinnedPanelController)
+    "TallyPinnedUsagePanel",  // a window frame autosave name
+]
+
+let sources = swiftSources(under: "Tally")
+check("the scan found the app's sources at all", sources.count > 50)
+let scanned = tallyLiterals(in: sources).subtracting(notLaunchFlags)
+check("every flag spelled in the source is classified",
+      scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
+check("and every flag classified is spelled in the source",
+      Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
+check("which comes to eighteen, in three buckets",
+      CaptureLaunch.allFlagKeys.count == 18 && scanned.count == 18)
+check("with nothing counted twice",
+      Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
 check("a launch carrying none of them does",
       CaptureLaunch.mayTakeForeground(activeKeys: []))
 check("and one carrying several is answered once, the same way",
@@ -419,15 +468,35 @@ check("the login-item state preview is a member of the family",
 
 // Deliberately NOT members, each for its own stated reason. Asserted so the choices are visible
 // rather than inferred from an absence.
-check("the interactive renewal hook is not a member, it exists to be driven",
-      CaptureLaunch.mayTakeForeground(activeKeys: ["TallyRenewLoginCLI"]))
+check("the interactive CLI overrides are not members, they exist to be driven",
+      CaptureLaunch.interactiveKeys.allSatisfy {
+          CaptureLaunch.mayTakeForeground(activeKeys: [$0]) })
+check("and there are two of them, the renewal chain and the login-status chain",
+      Set(CaptureLaunch.interactiveKeys) == ["TallyRenewLoginCLI", "TallyLoginStatusCLI"])
 check("nor are the two modifiers, which show nothing on their own",
-      CaptureLaunch.mayTakeForeground(
-          activeKeys: ["TallyUpdateChipReady", "TallyTokenGraphHover"]))
+      CaptureLaunch.mayTakeForeground(activeKeys: Set(CaptureLaunch.modifierKeys)))
 // ... but riding along with their parent changes nothing: the parent is what is asked about.
 check("a modifier alongside its flag is still a background launch",
       !CaptureLaunch.mayTakeForeground(
           activeKeys: ["TallyUpdateChip", "TallyUpdateChipReady"]))
+
+// MARK: - the two ways the pick panel is raised
+
+// The real picker is prompted: somebody typed a command and it is waiting on their answer, so it
+// takes the foreground. It can only ever be raised on a launch that may take the foreground, since
+// the knock is refused on any other (PickPanelController.present), which is what makes its
+// unconditional activate safe.
+check("a picker somebody is waiting on comes forward, whatever the launch was for",
+      CaptureLaunch.mayTakeForeground(prompted: true, activeKeys: ["TallyPickPreview"])
+        && CaptureLaunch.mayTakeForeground(prompted: true, activeKeys: []))
+// The preview is prompted by nobody, and the flag that raises it is in the family, so it never
+// does. One function, two answers: that pairing is the fix.
+check("the same panel raised by a launch flag does not",
+      !CaptureLaunch.mayTakeForeground(prompted: false, activeKeys: ["TallyPickPreview"]))
+check("and an unprompted surface on an ordinary launch still may",
+      CaptureLaunch.mayTakeForeground(prompted: false, activeKeys: []))
+check("which is the same membership that stops the real picker being answered there",
+      CaptureLaunch.backgroundKeys.contains("TallyPickPreview"))
 
 // How a flag counts as carried. Launch arguments land in defaults as strings of every shape.
 check("a flag with any value is carried", CaptureLaunch.isActive(rawValue: "fleet")

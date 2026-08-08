@@ -9,11 +9,11 @@ import Foundation
 /// a window restore. What is scoped to one flag here is nothing; the family is the unit.
 ///
 /// Membership is decided by PURPOSE, one question per flag: does this exist so something can be
-/// observed without taking the observer's desktop away? The one flag that answers no is
-/// `TallyRenewLoginCLI`, which points a renewal at a stand-in binary so the chain (menu, click,
-/// renewal, verdict) can be DRIVEN by hand. Driving it means being in front of it, so it is not in
-/// the family. It costs nothing either way, since a plain `open` activates the app regardless, but
-/// the family means something only while it is defined by purpose rather than by convenience.
+/// observed without taking the observer's desktop away? The two that answer no are the CLI
+/// overrides in `interactiveKeys`, which point a chain at a stand-in binary so it can be DRIVEN by
+/// hand. Driving something means being in front of it, so they are not in the family. It costs
+/// nothing either way, since a plain `open` activates the app regardless, but the family means
+/// something only while it is defined by purpose rather than by convenience.
 ///
 /// `TallyUpdateChipReady` and `TallyTokenGraphHover` are absent for a different reason: they are
 /// modifiers, inert without the flag they qualify, and that flag is in the list. A launch carrying
@@ -51,6 +51,26 @@ enum CaptureLaunch {
         "TallyLoginExpiryTest",
     ]
 
+    /// Flags that qualify another flag and show nothing on their own. Inert alone, and the flag
+    /// each of them qualifies is in `backgroundKeys`, so a launch carrying one is answered by its
+    /// parent.
+    static let modifierKeys = ["TallyUpdateChipReady", "TallyTokenGraphHover"]
+
+    /// Flags that point a chain at a stand-in binary so it can be DRIVEN by hand: probe, verdict,
+    /// chip, click, renewal. Driving something means being in front of it, so these are not the
+    /// family, and that is a statement about purpose rather than about cost (a plain `open`
+    /// activates either way).
+    ///
+    /// Both were missed by a scan for `forKey:`, because both reach the defaults through a named
+    /// constant instead. That is why the completeness check now scans for the LITERALS rather than
+    /// for any particular way of looking one up.
+    static let interactiveKeys = ["TallyRenewLoginCLI", "TallyLoginStatusCLI"]
+
+    /// Every launch flag this app has, in exactly one bucket each. The completeness check compares
+    /// this against the flags actually spelled in the source, so a new one cannot be added without
+    /// somebody deciding which bucket it is in.
+    static var allFlagKeys: [String] { backgroundKeys + modifierKeys + interactiveKeys }
+
     /// Whether a launch carrying exactly these flags may pull the app forward on its own.
     ///
     /// One answer for the whole launch, asked by every startup path that shows a window without
@@ -61,7 +81,21 @@ enum CaptureLaunch {
         activeKeys.isDisjoint(with: backgroundKeys)
     }
 
-    /// This launch's answer.
+    /// Whether a surface being raised right now may take the foreground.
+    ///
+    /// `prompted` = somebody asked for it just now and is waiting on it: a click, or a command they
+    /// typed that will not finish until they answer. Those always come forward, whatever the launch
+    /// was for, because being in front of the person who asked IS the surface working. Everything
+    /// unprompted asks the family instead.
+    ///
+    /// The two go through one function so that "which of these is this?" is a decision with a name
+    /// rather than a default argument somebody remembers to override. The pick panel has one of
+    /// each: the picker a CLI is blocked on, and the same panel raised by a launch flag for a look.
+    static func mayTakeForeground(prompted: Bool, activeKeys: Set<String>) -> Bool {
+        prompted || mayTakeForeground(activeKeys: activeKeys)
+    }
+
+    /// This launch's answer for anything unprompted.
     static var launchMayTakeForeground: Bool { mayTakeForeground(activeKeys: activeKeys()) }
 
     /// Which of the family this launch carries.

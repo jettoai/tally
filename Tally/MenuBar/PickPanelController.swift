@@ -68,9 +68,19 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         show(request)
     }
 
-    private func show(_ request: PickRequest) {
+    /// `prompted` = somebody asked for this panel just now and is waiting on it, which is what
+    /// point 3 in the file header is about. True for the picker a CLI is blocked on; false for the
+    /// same panel raised by a launch flag for a look, where taking the foreground would walk over
+    /// whoever is using the machine. Both answers come from one place (CaptureLaunch), so neither
+    /// path can quietly grow its own policy.
+    private func show(_ request: PickRequest, prompted: Bool = true) {
+        let activating = CaptureLaunch.mayTakeForeground(
+            prompted: prompted, activeKeys: CaptureLaunch.activeKeys())
         current = request
-        previousApp = NSWorkspace.shared.frontmostApplication
+        // Captured only when the foreground is actually being borrowed. Nothing was taken on a
+        // background preview, so there is nothing to hand back, and handing it back anyway would
+        // activate whatever the person had moved on to.
+        previousApp = activating ? NSWorkspace.shared.frontmostApplication : nil
         // NOT `.nonactivatingPanel`, which is the opposite of what this panel is for: that style
         // asks AppKit to keep the panel out of the key window chain, and the whole point here is
         // that the keyboard can answer it (arrow keys and Enter). Setting it alongside an
@@ -108,8 +118,15 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         // ORIGIN ONLY, which is why it does not fight the line above: the house rule for a window
         // the user summoned is the screen the pointer is on, at the standard dialog height.
         panel.centerOnPointerScreen()
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
+        // `orderFront` rather than `makeKeyAndOrderFront` when the foreground is not ours: taking
+        // key would also arm `windowDidResignKey`, and the first click anywhere else would read as
+        // the person cancelling a question nobody asked them.
+        if activating {
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+        } else {
+            panel.orderFront(nil)
+        }
         self.panel = panel
     }
 
@@ -152,7 +169,8 @@ final class PickPanelController: NSObject, NSWindowDelegate {
               let kind = UserDefaults.standard.string(forKey: "TallyPickPreview"),
               let request = previewRequest(kind: kind) else { return }
         shared.answersOnDisk = false
-        shared.show(request)
+        // Nobody asked for this one: it is a launch flag putting the panel up to be looked at.
+        shared.show(request, prompted: false)
     }
 
     /// The fixture the flag names. Two shapes, because the two lists are shaped differently: an

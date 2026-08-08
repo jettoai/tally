@@ -36,7 +36,11 @@ final class SettingsWindowController {
 
     /// `restoring` = a launch-time restore: keep the autosaved frame instead of re-centering,
     /// so the window reappears where the user left it before the (update-driven) quit.
-    func show(restoring: Bool = false) {
+    ///
+    /// `activating` = take the foreground, which every ordinary summon does because it is a click.
+    /// The dev state preview passes false so that whether Tally comes forward is decided by how it
+    /// was launched (`open` versus `open -g`) rather than overruled from in here.
+    func show(restoring: Bool = false, activating: Bool = true) {
         StatusItemController.shared?.closePopover()
         if window == nil {
             let hosting = NSHostingController(rootView: SettingsView(
@@ -80,8 +84,17 @@ final class SettingsWindowController {
         if window?.isVisible != true, !restoring { window?.centerOnPointerScreen() }
         UserDefaults.standard.set(true, forKey: Self.restoreKey)
         ActivationPolicy.promote()   // a visible Settings window earns a Dock / Cmd-Tab presence
-        NSApp.activate(ignoringOtherApps: true)
-        window?.makeKeyAndOrderFront(nil)
+        // The promotion above is unconditional on purpose: Cmd-Tab presence is how a window is
+        // found again, and withholding it from a window nobody activated is the wrong half to
+        // withhold. Only the foreground is the caller's call - and `orderFront` rather than
+        // `makeKeyAndOrderFront` when it is not ours to take, so a background launch does not pull
+        // first responder out of whatever the user is typing into.
+        if activating {
+            NSApp.activate(ignoringOtherApps: true)
+            window?.makeKeyAndOrderFront(nil)
+        } else {
+            window?.orderFront(nil)
+        }
     }
 
     /// Bring the (already open) window along when another Tally window takes the stage - macOS

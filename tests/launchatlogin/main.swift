@@ -234,6 +234,40 @@ check("no fixture can describe a state macOS never reports",
         .allSatisfy { statuses.map { LaunchAtLoginService.state(for: $0) }
             .contains($0.state) || $0.state == .unknown })
 
+// MARK: - how a launch opens the Settings window
+
+// Both halves of this were shipped wrong once: the window opened on Accounts, where the previewed
+// row is not, and it pulled itself to the front out of a background launch.
+let previewOpening = LoginItemPreview.settingsOpening(
+    previewing: LoginItemPreview.fixture(named: "notFound"))
+let summonOpening = LoginItemPreview.settingsOpening(previewing: nil)
+
+check("a preview opens Settings on the pane the previewed row lives on",
+      previewOpening.onLaunchPane)
+check("an ordinary summon still opens where it always did",
+      !summonOpening.onLaunchPane)
+// Every state has to land there, not just the one sampled above: a reviewer walking the five
+// values must not have to find the row again on some of them.
+check("every previewable state opens on that same pane",
+      LoginItemPreview.names.allSatisfy {
+          LoginItemPreview.settingsOpening(previewing: LoginItemPreview.fixture(named: $0))
+              .onLaunchPane })
+
+check("an ordinary summon takes the foreground, the way a click should",
+      summonOpening.activates)
+// Not because a preview should hide, but because `open` and `open -g` have already decided and
+// activating here overrules both.
+check("a preview leaves the foreground to however the app was launched",
+      !previewOpening.activates)
+
+// Stated whole, so a third difference cannot appear without this failing.
+check("a preview differs from a summon in those two respects and no others",
+      previewOpening == LoginItemPreview.SettingsOpening(onLaunchPane: true, activates: false)
+        && summonOpening == LoginItemPreview.SettingsOpening(onLaunchPane: false, activates: true))
+// This process previews nothing, so the property that reads the real inputs is the summon answer.
+check("previewing nothing gets the ordinary opening",
+      LoginItemPreview.settingsOpening == summonOpening)
+
 print(failures == 0 ? "\nAll launch-at-login checks passed."
                     : "\n\(failures) launch-at-login check(s) failed.")
 exit(failures == 0 ? 0 : 1)

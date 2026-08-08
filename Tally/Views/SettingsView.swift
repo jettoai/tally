@@ -39,7 +39,7 @@ struct SettingsView: View {
         }
     }
 
-    @State private var section: Section = .accounts
+    @State private var section: Section = LoginItemPreview.settingsOpening.onLaunchPane ? .launch : .accounts
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {

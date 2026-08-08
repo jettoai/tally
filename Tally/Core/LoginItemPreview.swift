@@ -132,6 +132,44 @@ enum LoginItemPreview {
         }
     }
 
+    /// How a launch opens the Settings window. A preview launch differs in exactly two respects,
+    /// and the type exists so those two are named rather than left as bare booleans at a call site.
+    struct SettingsOpening: Equatable {
+        /// Start on the Launch pane, where the previewed row lives, instead of the usual Accounts.
+        ///
+        /// A flag whose whole job is putting one row in front of a reviewer has not done it if the
+        /// window opens on a different pane and leaves them to find it. That is not hypothetical:
+        /// the first version opened Settings and landed on Accounts, and the reviewer saw the
+        /// account list and no login item row at all.
+        let onLaunchPane: Bool
+
+        /// Take the foreground.
+        ///
+        /// True for every ordinary summon, which is a click and should come forward. False when
+        /// previewing, and NOT because a preview should hide: because `open` and `open -g` have
+        /// already decided, and calling `NSApp.activate(ignoringOtherApps:)` overrules both. A
+        /// reviewer running plain `open` still gets the window in front (macOS activates a
+        /// launched app), while a background check with `open -g` leaves their desktop alone,
+        /// which is the project's background-first rule (AGENTS.md, and
+        /// ~/.claude/docs/patterns/macos-app-verification.md).
+        ///
+        /// This says nothing about the Dock. Being reachable through Cmd-Tab and taking the screen
+        /// away from whoever is using it are different acts, and only the second one is rude; a
+        /// Settings window absent from Cmd-Tab is one a reviewer loses behind the next window they
+        /// open, with the menu bar icon the only way back. So the promotion still happens and only
+        /// the activation is left to the launcher.
+        let activates: Bool
+    }
+
+    /// How this launch opens it.
+    static var settingsOpening: SettingsOpening { settingsOpening(previewing: fixture) }
+
+    /// The rule as a function of the fixture, so both answers can be asserted from a process that
+    /// is previewing nothing.
+    static func settingsOpening(previewing fixture: Fixture?) -> SettingsOpening {
+        SettingsOpening(onLaunchPane: fixture != nil, activates: fixture == nil)
+    }
+
     /// The fixture after the trip the row's button offers: consent given, login item present.
     ///
     /// In a preview launch that button does NOT open System Settings, it lands here instead. Going

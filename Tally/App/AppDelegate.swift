@@ -31,8 +31,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Settings second so it lands on top when both were open: the update button lives
         // there, making it the window the user most likely had focused.
         MainWindowController.shared.restoreAtLaunchIfNeeded()
-        SettingsWindowController.shared.restoreAtLaunchIfNeeded()
-        openSettingsForLoginItemPreview()
+        // A state preview opens Settings its own way and stands IN FOR the restore rather than
+        // following it. Following would not work: the restore activates, and the second preview
+        // launch onwards would always find the restore flag set, because opening the window is
+        // what sets it.
+        if !openSettingsForLoginItemPreview() {
+            SettingsWindowController.shared.restoreAtLaunchIfNeeded()
+        }
         // Design-preview hook (demo/dev only): -TallyUpdateChip 0.15.0 renders the header's
         // update chip without a live feed (-TallyUpdateChipReady YES for the downloaded state),
         // so the nudge can be reviewed and screenshotted.
@@ -100,16 +105,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// `-TallyLoginItemPreview <state>` (LoginItemPreview): put the window the previewed row lives
-    /// in on screen, so the flag is the whole instruction rather than the first half of one.
+    /// in on screen, on that row's own pane, so the flag is the whole instruction rather than the
+    /// first half of one. Reports whether it did, because a preview launch replaces the ordinary
+    /// Settings restore instead of running after it (see the caller).
     ///
     /// The gate is inside `LoginItemPreview.fixture`, which is nil on every normal launch. Unlike
     /// the panel-capture hook above there is nothing to keep out of the shared defaults here: this
     /// goes through the ordinary `show()`, so the one thing it records is that Settings was open,
     /// which is the same note the window makes when somebody opens it by hand, in the dev build's
     /// own domain.
-    private func openSettingsForLoginItemPreview() {
-        guard LoginItemPreview.fixture != nil else { return }
-        SettingsWindowController.shared.show()
+    ///
+    /// Which pane it lands on is not decided here: `SettingsView` seeds its opening section from
+    /// the same `settingsOpening`, so the flag and the pane cannot disagree.
+    private func openSettingsForLoginItemPreview() -> Bool {
+        guard LoginItemPreview.fixture != nil else { return false }
+        // Passed rather than hardcoded false, so the value the assertions pin is the value that
+        // reaches the window.
+        SettingsWindowController.shared.show(
+            activating: LoginItemPreview.settingsOpening.activates)
+        return true
     }
 
     private func applyPreviewAppearance() {

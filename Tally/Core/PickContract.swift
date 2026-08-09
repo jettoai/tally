@@ -135,6 +135,51 @@ func pickDismissalIsFromPerson(shownAt: Date?, now: Date = Date(),
     return now.timeIntervalSince(shownAt) >= grace
 }
 
+/// What a grace that has run out says about a panel nobody has answered.
+///
+/// THE HALF THE GRACE WAS MISSING. Ignoring a resign while the foreground ask settles fixed the
+/// panel that answered itself in 147ms, and opened the opposite hole: a person who really does click
+/// away INSIDE the grace has their resign dropped, and AppKit sends no second one, because the
+/// window is already not key. Nothing else was watching, so the pick sat until the CLI's five-minute
+/// deadline with a dead panel on screen and every later pick forced onto the form. One defect traded
+/// for a worse one.
+///
+/// So the grace expiring is itself an event, and THREE states have to be told apart at it:
+///
+///   - THE ASK LANDED. The panel is key again, so the resign was the activation settling and the
+///     person has touched nothing. Nothing to answer.
+///   - WE STILL HOLD THE FOREGROUND. Tally is the active app but this panel is not key: whatever
+///     took key is ours, and a person who had walked away would not have left us in front.
+///   - THE PERSON LEFT. Not key, and Tally is not the active app either.
+///
+/// The third is answered ONCE MORE before it is believed, and that is what keeps this from
+/// re-creating the original defect in a slower form: an activation that never landed at all looks
+/// exactly like somebody leaving, so the panel asks for the foreground a second time and re-judges a
+/// grace later. That also closes the residue the first fix admitted to (a panel visible but never
+/// keyable): the retry is the thing that gets it its keyboard.
+enum PickGraceVerdict: Equatable, Sendable {
+    /// Leave it alone: the panel is where it should be, or the foreground is still ours.
+    case settling
+    /// Ask for the foreground once more, then judge again.
+    case retryActivation
+    /// The person put it down. Answer for them, which frees the CLI immediately rather than at its
+    /// deadline.
+    case dismissed
+}
+
+/// The rule, pure, so all three states are asserted without an app (the first fix's whole lesson was
+/// that a judgement living inside a delegate callback is a judgement nothing can test).
+///
+/// `sawResign` is the load-bearing input: a panel that never became key never resigned, so nobody
+/// has put anything down and there is nothing here to answer. That is also the case where the
+/// activation never landed, which must never be read as a dismissal.
+func pickGraceVerdict(sawResign: Bool, isKey: Bool, appIsActive: Bool,
+                      alreadyRetried: Bool) -> PickGraceVerdict {
+    guard sawResign else { return .settling }
+    if isKey || appIsActive { return .settling }
+    return alreadyRetried ? .dismissed : .retryActivation
+}
+
 // MARK: - The files
 
 func pickRequestFile(id: String, dir: URL = pickRequestDir) -> URL {

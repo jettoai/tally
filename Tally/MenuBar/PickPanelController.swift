@@ -28,6 +28,13 @@ final class PickPanelController: NSObject, NSWindowDelegate {
     /// When the panel went up, which is what separates the activation settling from a person putting
     /// it down (`pickDismissalIsFromPerson`).
     private var shownAt: Date?
+    /// A resign that arrived while the ask was still settling. AppKit sends no second one, so this
+    /// is the only record that it happened, and the grace's expiry is where it is judged.
+    private var sawResignInGrace = false
+    /// Whether the foreground has already been asked for a second time (`PickGraceVerdict`).
+    private var retriedActivation = false
+    /// The timer that judges the grace. Held so a panel that is answered first can cancel it.
+    private var graceTimer: Timer?
 
     /// Where the request files live. Injected only so a preview can drive the panel from a fixture
     /// without writing into the real directory.
@@ -132,6 +139,9 @@ final class PickPanelController: NSObject, NSWindowDelegate {
             panel.orderFront(nil)
         }
         self.panel = panel
+        // The grace is a deadline of its own, not just a filter: something has to come back and look
+        // at a panel whose resign was swallowed.
+        armGrace()
     }
 
     /// A click outside the panel is a cancellation, the same reading Escape gets: the person went
@@ -144,9 +154,43 @@ final class PickPanelController: NSObject, NSWindowDelegate {
     /// exactly what shipped in 0.41.0 (`pickPanelActivationGrace` carries the trace). The judgement
     /// itself is pure and lives with the contract, where it can be asserted without an app.
     func windowDidResignKey(_ notification: Notification) {
-        guard (notification.object as? NSWindow) === panel,
-              pickDismissalIsFromPerson(shownAt: shownAt) else { return }
+        guard (notification.object as? NSWindow) === panel else { return }
+        guard pickDismissalIsFromPerson(shownAt: shownAt) else {
+            // REMEMBERED RATHER THAN DROPPED. A person really can click away inside the grace, and
+            // AppKit will not tell us twice: the window is already not key, so no second resign is
+            // coming. Dropping it outright left the panel on screen and the CLI waiting out its
+            // five-minute deadline (review of the first fix).
+            sawResignInGrace = true
+            return
+        }
         finish(with: .cancelled)
+    }
+
+    /// The grace has run out with nobody having answered: judge what that means, once.
+    private func judgeGrace() {
+        guard let panel else { return }
+        switch pickGraceVerdict(sawResign: sawResignInGrace, isKey: panel.isKeyWindow,
+                                appIsActive: NSApp.isActive, alreadyRetried: retriedActivation) {
+        case .settling:
+            return   // from here on a resign is past the grace and answers on its own
+        case .retryActivation:
+            retriedActivation = true
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+            armGrace()
+        case .dismissed:
+            finish(with: .cancelled)
+        }
+    }
+
+    /// Judge the grace one grace-length from now. Scheduled on the main run loop, which is where the
+    /// panel lives.
+    private func armGrace() {
+        graceTimer?.invalidate()
+        graceTimer = Timer.scheduledTimer(withTimeInterval: pickPanelActivationGrace,
+                                          repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.judgeGrace() }
+        }
     }
 
     /// Answer once, put the foreground back, and forget everything. Idempotent by construction: the
@@ -162,6 +206,10 @@ final class PickPanelController: NSObject, NSWindowDelegate {
                 userInfo: nil, deliverImmediately: true)
         }
         panel?.delegate = nil
+        graceTimer?.invalidate()
+        graceTimer = nil
+        sawResignInGrace = false
+        retriedActivation = false
         panel?.orderOut(nil)
         panel = nil
         shownAt = nil

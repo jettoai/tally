@@ -390,6 +390,64 @@ func runPickerChecks() {
     check("an empty answer object is a cancellation",
           decodePick(PickAnswer.self, from: Data("{}".utf8))?.isCancelled == true)
 
+    // MARK: - 36e2b. The other half of the grace: what its expiry means
+
+    // THE DEFECT THE FIRST FIX INTRODUCED. Swallowing a resign inside the grace stopped the panel
+    // answering itself in 147ms, and opened the opposite hole: a person who clicks away DURING the
+    // grace has their resign dropped, and AppKit sends no second one because the window is already
+    // not key. Nothing was watching, so the panel sat there and the CLI waited out its five-minute
+    // deadline. So the expiry is an event of its own, and it has three answers.
+    let verdicts: [(name: String, sawResign: Bool, isKey: Bool, active: Bool, retried: Bool,
+                    expected: PickGraceVerdict)] = [
+        ("nobody ever put it down (the ask simply never landed)", false, false, false, false,
+         .settling),
+        ("…and still nothing to answer even after a retry", false, false, false, true, .settling),
+        ("the panel is key again, so the resign WAS the ask settling", true, true, false, false,
+         .settling),
+        ("we still hold the foreground, so whatever took key is ours", true, false, true, false,
+         .settling),
+        ("not key and not ours: ask once more before answering for them", true, false, false, false,
+         .retryActivation),
+        ("…and if that did not bring it back either, they left", true, false, false, true,
+         .dismissed),
+    ]
+    for case let (name, sawResign, isKey, active, retried, expected) in verdicts {
+        check("grace expiry: \(name)",
+              pickGraceVerdict(sawResign: sawResign, isKey: isKey, appIsActive: active,
+                               alreadyRetried: retried) == expected)
+    }
+    // THE TWO PROPERTIES THAT MATTER, stated as their own assertions rather than left to be read
+    // out of the table.
+    check("a click away inside the grace is answered, and answered from the expiry rather than "
+          + "from the CLI's deadline",
+          pickGraceVerdict(sawResign: true, isKey: false, appIsActive: false, alreadyRetried: false)
+              != .settling)
+    check("…while an activation that never landed is never read as somebody leaving",
+          pickGraceVerdict(sawResign: false, isKey: false, appIsActive: false, alreadyRetried: true)
+              == .settling)
+    // Bounded, and the bound is two graces: one to notice, one to try again.
+    check("so the wait for that answer is two graces, not five minutes",
+          pickPanelActivationGrace * 2 < 2.0)
+    // And the controller must actually run that clock: a rule nothing schedules is the same defect
+    // in a new place.
+    check("the controller remembers a resign it swallowed",
+          controller.contains("sawResignInGrace = true"))
+    check("…judges the grace when it runs out",
+          controller.contains("pickGraceVerdict(sawResign: sawResignInGrace"))
+    // ASSERTED INSIDE `show`, not merely present in the file: the retry branch and the definition
+    // both name `armGrace()`, so a whole-file search would have gone on passing with the panel
+    // arming nothing (which is exactly what a mutation of this line proved).
+    let showBody = controller.range(of: "private func show(").flatMap { start in
+        controller.range(of: "func windowDidResignKey").map { end in
+            String(controller[start.lowerBound ..< end.lowerBound])
+        }
+    } ?? ""
+    check("the panel's own setup is readable", !showBody.isEmpty)
+    check("…and raising the panel is what arms that judgement",
+          showBody.contains("armGrace()"))
+    check("…and asks for the foreground again rather than answering on the first doubt",
+          controller.contains("case .retryActivation:"))
+
     // MARK: - 36e3. The form fallback, end to end, over a real pipe
 
     // THE FACE THIS ROUND MISSED. Every fallback check above asserts that the form is SENT; none of

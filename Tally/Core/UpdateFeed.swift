@@ -25,7 +25,15 @@ struct FeedRelease: Equatable, Sendable {
 /// project that ships two or three times a day, that reading is stale within the hour. This reader
 /// keeps no session and no state, so it can always answer.
 enum AppcastFeed {
-    /// Every item of the feed this machine could install, newest first.
+    /// Every item of the feed this machine could install, newest first, or **nil when the document
+    /// was not an appcast at all**.
+    ///
+    /// That distinction is the whole reason this returns an optional. GitHub answers a missing or
+    /// broken release asset with a status code AND a body, and an HTML error page fed to an XML
+    /// reader yields zero items, which is the same array a perfectly good feed with nothing new in
+    /// it yields. Read as "no update", a 404 erases a known one. So the reader reports whether it
+    /// found an appcast (an `<rss>` document with a `<channel>` in it) rather than leaving the
+    /// caller to infer it from a count.
     ///
     /// Items are dropped when they carry no readable build number, when they name a channel (a
     /// feed with beta channels must not be offered to a subscriber of none, which is Sparkle's own
@@ -34,19 +42,21 @@ enum AppcastFeed {
     /// A feed that fails to parse partway through still returns the items that were complete: each
     /// `</item>` is self contained, and a truncated response is a reason to know less, not a reason
     /// to know nothing.
-    static func releases(from xml: Data, runningSystem: [Int]) -> [FeedRelease] {
+    static func parse(_ xml: Data, runningSystem: [Int]) -> [FeedRelease]? {
         let collector = ItemCollector()
         let parser = XMLParser(data: xml)
         parser.delegate = collector
         _ = parser.parse()
+        guard collector.sawAppcast else { return nil }
         return collector.releases
             .filter { satisfiesMinimumSystem($0.minimumSystemVersion, running: runningSystem) }
             .sorted { $0.build > $1.build }
     }
 
-    /// The newest release worth telling the user about, or nil when this build is already it.
+    /// The newest release worth telling the user about, or nil when this build is already it or
+    /// the document was not an appcast.
     static func newest(from xml: Data, runningSystem: [Int], above installedBuild: Int) -> FeedRelease? {
-        releases(from: xml, runningSystem: runningSystem).first { $0.build > installedBuild }
+        parse(xml, runningSystem: runningSystem)?.first { $0.build > installedBuild }
     }
 
     /// Whether a `sparkle:minimumSystemVersion` string admits the running system. Components the
@@ -75,6 +85,8 @@ enum AppcastFeed {
 /// the prefixed names arrive literally, exactly as the feed spells them.
 private final class ItemCollector: NSObject, XMLParserDelegate {
     private(set) var releases: [FeedRelease] = []
+    /// Whether the document is an appcast rather than, say, a web server's apology.
+    private(set) var sawAppcast = false
 
     private var build: String?
     private var display: String?
@@ -88,6 +100,8 @@ private final class ItemCollector: NSObject, XMLParserDelegate {
                 attributes attributeDict: [String: String]) {
         text = ""
         switch elementName {
+        case "channel":
+            sawAppcast = true
         case "item":
             insideItem = true
             build = nil

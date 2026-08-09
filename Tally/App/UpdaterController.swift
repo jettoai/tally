@@ -63,7 +63,7 @@ final class UpdaterController: NSObject {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(systemDidWake),
             name: NSWorkspace.didWakeNotification, object: nil)
-        if automaticallyChecksForUpdates { startPolling() }
+        apply(.watchingChanged(automaticallyChecksForUpdates))
     }
 
     static let externalCheckNotification = Notification.Name("ai.jetto.tally.checkForUpdates")
@@ -86,7 +86,9 @@ final class UpdaterController: NSObject {
         get { UserDefaults.standard.object(forKey: Self.checksKey) as? Bool ?? true }
         set {
             UserDefaults.standard.set(newValue, forKey: Self.checksKey)
-            if newValue { startPolling() } else { stopPolling() }
+            // Through the reducer, not straight to the timer: turning this off has to take the
+            // unattended install down with it, and that rule lives in one place.
+            apply(.watchingChanged(newValue))
         }
     }
 
@@ -119,14 +121,49 @@ final class UpdaterController: NSObject {
     private static let feedPollInterval: TimeInterval = 15 * 60
 
     private var feedTimer: Timer?
-    /// The newest release the feed offered, or nil when this build is already it.
-    private var newest: FeedRelease?
-    /// The release Sparkle has downloaded and staged, once it has one.
-    private var staged: FeedRelease?
-    /// When the app first learned an update existed. `IdleInstall` measures the pinned-panel grace
-    /// against it, and it survives the download that follows.
-    private var knownSince: Date?
     private(set) var lastFeedCheck: Date?
+
+    /// Everything known about updates, and the only thing that changes it. See UpdateState.swift
+    /// for why the transitions are a function rather than a habit spread across the callbacks.
+    private var state = UpdateState(installedBuild: UpdaterController.installedBuild)
+
+    /// Move the state and carry out what it asks for. Every Sparkle callback, every timer and
+    /// every switch in Settings comes through here, which is the point: there is one place where
+    /// a transition is written down.
+    private func apply(_ event: UpdateEvent) {
+        state.installsAutomatically = automaticallyDownloadsUpdates
+        let actions = UpdateReducer.reduce(&state, event, now: Date())
+        // Written only on a real change: this is an @Observable the panel header reads, and every
+        // assignment invalidates the view whether or not the value moved.
+        let chip = state.chip
+        if UpdateAvailability.shared.version != chip?.display {
+            UpdateAvailability.shared.version = chip?.display
+        }
+        if UpdateAvailability.shared.isDownloaded != (chip?.ready ?? false) {
+            UpdateAvailability.shared.isDownloaded = chip?.ready ?? false
+        }
+        // The idle timer runs exactly while there is an offer whose moment could arrive.
+        if state.knownSince == nil {
+            idleTimer?.invalidate()
+            idleTimer = nil
+        } else if idleTimer == nil {
+            idleTimer = Timer.scheduledTimer(withTimeInterval: Self.idlePollInterval, repeats: true) { _ in
+                Task { @MainActor in UpdaterController.shared.installIfIdle() }
+            }
+        }
+        for action in actions { perform(action) }
+    }
+
+    private func perform(_ action: UpdateAction) {
+        switch action {
+        case .startWatching: startPolling()
+        case .stopWatching: stopPolling()
+        case .runHeldInstall: runHeldInstall()
+        case .beginSilentInstall: beginSilentInstall()
+        case .visibleCheck: visibleCheck()
+        case .teardownForRelaunch: teardownForRelaunch()
+        }
+    }
 
     private func startPolling() {
         guard controller != nil else { return }
@@ -161,17 +198,33 @@ final class UpdaterController: NSObject {
                                  timeoutInterval: 20)
         let system = Self.runningSystem
         let installed = Self.installedBuild
-        URLSession.shared.dataTask(with: request) { data, _, _ in
-            guard let data else { return }
-            let found = AppcastFeed.newest(from: data, runningSystem: system, above: installed)
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            // A reading only counts when all three succeeded. GitHub serves a body with its 404s
+            // and its 5xx pages, and an appcast parser handed an HTML error page reports "no
+            // items" as confidently as it reports an empty feed, so a failure that is allowed
+            // through here erases a known update and stops the idle install.
+            guard error == nil,
+                  let code = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(code),
+                  let data, let feed = AppcastFeed.parse(data, runningSystem: system) else {
+                Task { @MainActor in UpdaterController.shared.apply(.feedReadFailed) }
+                return
+            }
+            let found = feed.first { $0.build > installed }
             Task { @MainActor in UpdaterController.shared.absorbFeed(found) }
         }.resume()
     }
 
     private func absorbFeed(_ found: FeedRelease?) {
         lastFeedCheck = Date()
-        newest = found
-        refreshAvailability()
+        apply(.feedRead(newest: found, skippedBuild: Self.skippedBuild))
+    }
+
+    /// The version the user pressed "Skip This Version" on, as Sparkle recorded it
+    /// (`SUSkippedVersion`, holding the appcast item's `sparkle:version`; see SPUSkippedUpdate.m).
+    /// Sparkle's other skip key is for major upgrades, which are declared by
+    /// `sparkle:minimumAutoupdateVersion` and which this project's appcast never emits.
+    private static var skippedBuild: Int? {
+        (UserDefaults.standard.string(forKey: "SUSkippedVersion")).flatMap { Int($0) }
     }
 
     /// This bundle's CFBundleVersion. An unreadable one answers `Int.max` so that nothing in the
@@ -190,41 +243,20 @@ final class UpdaterController: NSObject {
         return [version.majorVersion, version.minorVersion, version.patchVersion]
     }()
 
-    /// Push what is known into the observable the header chip reads, and keep the idle timer
-    /// running exactly while there is something for it to do.
-    private func refreshAvailability() {
-        let chip = UpdatePlan.chip(installedBuild: Self.installedBuild, staged: staged, newest: newest)
-        UpdateAvailability.shared.version = chip?.display
-        UpdateAvailability.shared.isDownloaded = chip?.ready ?? false
-        guard chip != nil else {
-            knownSince = nil
-            idleTimer?.invalidate()
-            idleTimer = nil
-            return
-        }
-        if knownSince == nil { knownSince = Date() }
-        if idleTimer == nil {
-            idleTimer = Timer.scheduledTimer(withTimeInterval: Self.idlePollInterval, repeats: true) { _ in
-                Task { @MainActor in UpdaterController.shared.installIfIdle() }
-            }
-        }
-        installIfIdle()
-    }
-
     /// User-initiated check from Settings: promote to a regular app so Sparkle's window fronts.
     /// Whatever windows Sparkle opens (checking, update found, up to date, error) follow the
     /// pointer's screen: they aren't ours to create, so a fast poller (every 50ms, stopped when
     /// the session ends) places each new window once, quickly enough that the move from
     /// Sparkle's default spot is imperceptible. Fixed-delay sweeps raced the feed fetch: a
     /// window that appeared between sweeps sat at Sparkle's position long enough to visibly jump.
-    func checkForUpdates() {
+    func checkForUpdates() { apply(.checkPressed) }
+
+    /// The visible half: promote to a regular app so Sparkle's window fronts, then ask.
+    private func visibleCheck() {
         // Holding Sparkle's install handler stalls its update cycle: `sessionInProgress` stays true
         // for as long as we hold it, and `SPUUpdater.checkForUpdates` bails out (with a log line and
-        // nothing else) while it is. A click on the header's "↻ ready" chip or on Check Now means
-        // "put the new version on", which is precisely what the held handler does, so run it rather
-        // than a check that cannot go anywhere. (The chip's own press goes through `installNow`;
-        // this is Check Now, and the CLI's `tally update`.)
-        if pendingInstall != nil { runPendingInstall(); return }
+        // nothing else) while it is. The reducer only ever asks for this action when no handler is
+        // held, so the check can actually go somewhere.
         pollFeed()   // the chip and this window should not be able to disagree about the version
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -254,9 +286,6 @@ final class UpdaterController: NSObject {
     /// finishes preparing until the moment it is run.
     private var pendingInstall: InstallHandler?
     private var idleTimer: Timer?
-    /// Somebody pressed the chip: the download that follows installs the moment it is ready,
-    /// without waiting for the machine to go quiet. Cleared when the request is served.
-    private var userRequestedInstall = false
 
     /// How often the idle conditions are re-tested. The install is in no hurry and the shortest
     /// window it can accept is `IdleInstall.idleBar` (five minutes), so a minute's granularity
@@ -264,27 +293,10 @@ final class UpdaterController: NSObject {
     private static let idlePollInterval: TimeInterval = 60
 
     /// The header chip's action: put the newest version this app knows about onto the machine.
-    ///
-    /// Distinct from Check Now, which is a question ("is there anything?") and is entitled to
-    /// Sparkle's windows to answer it. This is an instruction, and its whole contract is that what
-    /// lands is the version the chip was showing.
-    func installNow() {
-        switch UpdatePlan.step(installedBuild: Self.installedBuild, staged: staged, newest: newest) {
-        case .nothing:
-            checkForUpdates()   // the chip should not have been up; treat the press as a question
-        case .installStaged, .installStaleStaged:
-            // Run the payload if it is in hand; otherwise Check Now is the way to reach a staged
-            // install a previous run left behind, and the flag makes it land without a second press.
-            userRequestedInstall = true
-            checkForUpdates()
-        case .fetchNewest:
-            // Without the standing consent to install unattended, the press earns the standard
-            // dialog (release notes, an explicit Install) rather than a silent restart.
-            guard automaticallyDownloadsUpdates else { checkForUpdates(); return }
-            userRequestedInstall = true
-            beginSilentInstall()
-        }
-    }
+    /// Same event as Check Now, because the difference between "install this" and "is there
+    /// anything?" is a fact about the state, not about which control was pressed, and keeping it
+    /// in one place is what stops the two from drifting.
+    func installNow() { apply(.chipPressed) }
 
     /// Ask Sparkle for a fresh background check. It reads the feed at this moment, downloads
     /// whatever is newest in it and hands the install back through `willInstallUpdateOnQuit`. This
@@ -296,47 +308,38 @@ final class UpdaterController: NSObject {
         updater.checkForUpdatesInBackground()
     }
 
-    /// Take the install over, then run it when the moment is right.
-    private func holdInstall(_ handler: InstallHandler) {
-        pendingInstall = handler
-        if userRequestedInstall { runPendingInstall(); return }
-        // The payload is on disk: the chip's green ↻ state, and (through the same call) the idle
-        // timer and a first look at whether the moment is already here.
-        refreshAvailability()
-    }
-
-    /// Do whatever the current knowledge says to do, if the moment allows it. The rules for the
-    /// moment are in `IdleInstall` and the rules for the action are in `UpdatePlan`; this only
-    /// reads the world for them.
+    /// Read the world for `IdleInstall` and hand its verdict over. Which action that verdict earns
+    /// is the reducer's to say.
     private func installIfIdle() {
-        guard automaticallyDownloadsUpdates, let since = knownSince else { return }
-        guard IdleInstall.shouldInstall(
-            taskSurfaceOpen: Self.taskSurfaceOnScreen,
-            pinnedPanelOpen: PinnedPanelController.shared.isVisible,
-            secondsSinceUserInput: Self.secondsSinceUserInput(),
-            waiting: Date().timeIntervalSince(since)) else { return }
-        switch UpdatePlan.step(installedBuild: Self.installedBuild, staged: staged, newest: newest) {
-        case .nothing:
-            return
-        case .installStaged, .installStaleStaged:
-            runPendingInstall()
-        case .fetchNewest:
-            beginSilentInstall()
-        }
+        let idle = state.knownSince.map {
+            IdleInstall.shouldInstall(
+                taskSurfaceOpen: Self.taskSurfaceOnScreen,
+                pinnedPanelOpen: PinnedPanelController.shared.isVisible,
+                secondsSinceUserInput: Self.secondsSinceUserInput(),
+                waiting: Date().timeIntervalSince($0))
+        } ?? false
+        apply(.momentArrived(idle: idle))
     }
 
-    /// Hand the update back to Sparkle to install and relaunch. Everything is torn down first: the
-    /// app is about to be replaced, and a timer that outlived the handler would poll a state that
-    /// no longer exists.
-    private func runPendingInstall() {
+    /// Hand the update back to Sparkle. Nothing is torn down here: `handler.run()` is a request,
+    /// not a departure, and it can fail (an authorisation the user cancels, a disk that is full, a
+    /// replacement that does not take) with this app still running afterwards. Standing the timers
+    /// down at this point is how the app would stop watching for updates for the rest of its life,
+    /// which is the exact disease this whole change was written to cure, one door along. The
+    /// teardown waits for `updaterWillRelaunchApplication`, which only fires when it is really
+    /// going; a failure arrives at `didAbortWithError` instead and puts everything back.
+    private func runHeldInstall() {
         guard let handler = pendingInstall else { return }
+        pendingInstall = nil
+        handler.run()
+    }
+
+    /// The app really is being replaced. Now the machinery can go.
+    private func teardownForRelaunch() {
         idleTimer?.invalidate()
         idleTimer = nil
-        feedTimer?.invalidate()
-        feedTimer = nil
+        stopPolling()
         pendingInstall = nil
-        userRequestedInstall = false
-        handler.run()
     }
 
     /// Windows the user opened to DO something: a restart takes them away mid-task (a half-scrolled
@@ -369,24 +372,17 @@ private struct InstallHandler: @unchecked Sendable {
 }
 
 extension UpdaterController: SPUUpdaterDelegate {
-    /// What Sparkle just fetched is a fresher reading than the poller's, so it replaces it. The
-    /// chip follows (the Docker-style nudge: an accent "↑ x.y.z" while an update is known).
+    /// What Sparkle just fetched, which is a reading of the same feed the poller reads.
     nonisolated func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         let release = Self.release(from: item)
-        Task { @MainActor in
-            self.newest = release
-            self.refreshAvailability()
-        }
+        Task { @MainActor in self.apply(.sparkleFoundUpdate(release)) }
     }
 
     /// Second chip state, the Ghostty semantic: the payload is already on disk, so a click means
     /// "restart into the new version", not "start a download". The chip goes green + ↻.
     nonisolated func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
         let release = Self.release(from: item)
-        Task { @MainActor in
-            self.staged = release
-            self.refreshAvailability()
-        }
+        Task { @MainActor in self.apply(.sparkleStagedUpdate(release)) }
     }
 
     /// Sparkle's own view of an appcast entry, in the shape the plan compares. An item whose
@@ -398,48 +394,33 @@ extension UpdaterController: SPUUpdaterDelegate {
                            minimumSystemVersion: item.minimumSystemVersion)
     }
 
-    /// The whole point of the "install automatically" toggle: Sparkle has the update prepared and
-    /// would otherwise sit on it until the app is quit, which for a menu-bar app is never. Answering
-    /// true takes the install over (Sparkle stalls its cycle and hands us the trigger), and it then
-    /// runs on the first quiet moment - see the idle self-install section above.
+    /// Take the install over. Answering true stalls Sparkle's cycle and hands this app the
+    /// trigger; when it is pulled is the reducer's business, and the caller follows with the idle
+    /// question so a moment that has already arrived is not missed.
     nonisolated func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
                              immediateInstallationBlock immediateInstallHandler: @escaping () -> Void)
         -> Bool {
         let handler = InstallHandler(run: immediateInstallHandler)
         let release = Self.release(from: item)
         Task { @MainActor in
-            self.staged = release
-            self.holdInstall(handler)
+            self.pendingInstall = handler
+            self.apply(.installHandlerArrived(release))
+            if self.pendingInstall != nil { self.installIfIdle() }
         }
         return true
     }
 
-    /// Sparkle looked at the feed just now and found nothing, which outranks whatever the poller
-    /// last saw. The staged payload, if there is one, is a fact on disk and stays.
-    nonisolated func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
-        Task { @MainActor in
-            self.newest = nil
-            self.refreshAvailability()
-        }
-    }
-
-    /// A silent install that fails has nothing to show for itself, and a press of the chip that
-    /// visibly does nothing is worse than an error. So a failed request is re-run as a visible
-    /// check, which is the same work with Sparkle's windows attached: the user gets told why.
-    /// Only when the request is still outstanding - the flag is cleared the moment one is served,
-    /// so the ordinary end of an update session does not come back through here.
+    /// Sparkle gave up: a signature that did not verify, an authorisation the user cancelled, a
+    /// disk with no room, a feed it could not reach. The app is still here, so everything stood
+    /// down for a restart that is not coming gets put back, and the build that failed is
+    /// remembered so the idle timer does not spend the rest of the day re-downloading it.
     nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
-        Task { @MainActor in
-            guard self.userRequestedInstall else { return }
-            self.userRequestedInstall = false
-            self.checkForUpdates()
-        }
+        Task { @MainActor in self.apply(.installAttemptFailed) }
     }
 
     nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
         Task { @MainActor in
-            self.newest = nil
-            self.staged = nil
+            self.apply(.willRelaunch)
             UpdateAvailability.shared.clear()
         }
     }

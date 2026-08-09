@@ -397,56 +397,88 @@ func runPickerChecks() {
     // grace has their resign dropped, and AppKit sends no second one because the window is already
     // not key. Nothing was watching, so the panel sat there and the CLI waited out its five-minute
     // deadline. So the expiry is an event of its own, and it has three answers.
-    let verdicts: [(name: String, sawResign: Bool, isKey: Bool, active: Bool, retried: Bool,
-                    expected: PickGraceVerdict)] = [
-        ("nobody ever put it down (the ask simply never landed)", false, false, false, false,
-         .settling),
-        ("…and still nothing to answer even after a retry", false, false, false, true, .settling),
-        ("the panel is key again, so the resign WAS the ask settling", true, true, false, false,
-         .settling),
-        ("we still hold the foreground, so whatever took key is ours", true, false, true, false,
-         .settling),
-        ("not key and not ours: ask once more before answering for them", true, false, false, false,
-         .retryActivation),
-        ("…and if that did not bring it back either, they left", true, false, false, true,
-         .dismissed),
+    // EXHAUSTIVE, because this judgement has now been wrong in three different rounds and each time
+    // the wrong answer lived in a combination nobody had written down: v1 answered every lost key
+    // window, v2 answered none of the ones inside the grace, v3 STOPPED THE CLOCK on two states that
+    // had not settled. Sixteen rows, written out rather than computed - an expectation derived from
+    // the same rule it is checking would agree with any bug the rule has.
+    let table: [(sawResign: Bool, isKey: Bool, active: Bool, retried: Bool,
+                 expected: PickGraceVerdict, why: String)] = [
+        // The panel holds the key window: the ordinary resign path takes over, whatever else is true.
+        (false, true, false, false, .settled, "key, nothing seen"),
+        (true, true, false, false, .settled, "key again after a resign: the ask had simply settled"),
+        (false, true, true, false, .settled, "key and ours"),
+        (true, true, true, false, .settled, "key and ours after a resign"),
+        (false, true, false, true, .settled, "key after a retry"),
+        (true, true, false, true, .settled, "key after a retry that saw a resign"),
+        (false, true, true, true, .settled, "key and ours after a retry"),
+        (true, true, true, true, .settled, "key and ours, retried, resign seen"),
+        // Our own foreground with another of our windows on top: nobody left the app, and the panel
+        // is still reachable by hand. Watch, do not answer and do not give up.
+        (false, false, true, false, .keepWatching, "ours, not key"),
+        (true, false, true, false, .keepWatching, "ours, not key, resign seen"),
+        (false, false, true, true, .keepWatching, "ours, not key, after a retry"),
+        (true, false, true, true, .keepWatching, "ours, not key, retried, resign seen"),
+        // Not key and not ours: ask once more before believing it, because an ask that never landed
+        // is indistinguishable from somebody walking away until the second ask separates them.
+        (false, false, false, false, .retryActivation, "gone, never resigned, first doubt"),
+        (true, false, false, false, .retryActivation, "gone after a resign, first doubt"),
+        // Asked twice and still out of reach. A resign says it was in their hands; none says it was
+        // never reachable at all.
+        (true, false, false, true, .dismissed, "retried, they had it and left"),
+        (false, false, false, true, .abandoned, "retried, never reachable"),
     ]
-    for case let (name, sawResign, isKey, active, retried, expected) in verdicts {
-        check("grace expiry: \(name)",
-              pickGraceVerdict(sawResign: sawResign, isKey: isKey, appIsActive: active,
-                               alreadyRetried: retried) == expected)
+    check("the grace machine has an answer for all sixteen states", table.count == 16)
+    for row in table {
+        check("grace: \(row.why)",
+              pickGraceVerdict(sawResign: row.sawResign, isKey: row.isKey, appIsActive: row.active,
+                               alreadyRetried: row.retried) == row.expected)
     }
-    // THE TWO PROPERTIES THAT MATTER, stated as their own assertions rather than left to be read
-    // out of the table.
-    check("a click away inside the grace is answered, and answered from the expiry rather than "
-          + "from the CLI's deadline",
-          pickGraceVerdict(sawResign: true, isKey: false, appIsActive: false, alreadyRetried: false)
-              != .settling)
-    check("…while an activation that never landed is never read as somebody leaving",
+    // THE INVARIANT ALL THREE ROUNDS BROKE, asserted directly rather than left implicit in the rows:
+    // the only reading that stops the clock is the one where the panel really is in the person's
+    // hands. Everything else either watches again, asks again, or answers.
+    // ASKED OF THE RULE, not of the table above: an invariant checked against my own hand-written
+    // expectations only proves I wrote them consistently, which is not what is in danger here.
+    func verdict(_ row: (sawResign: Bool, isKey: Bool, active: Bool, retried: Bool,
+                         expected: PickGraceVerdict, why: String)) -> PickGraceVerdict {
+        pickGraceVerdict(sawResign: row.sawResign, isKey: row.isKey, appIsActive: row.active,
+                         alreadyRetried: row.retried)
+    }
+    check("nothing stops watching a panel that is not key",
+          table.allSatisfy { verdict($0) != .settled || $0.isKey })
+    // And it terminates: out of reach twice over is always an answer, never another lap.
+    check("a panel that is unreachable after a retry is always answered",
+          table.filter { !$0.isKey && !$0.active && $0.retried }
+              .allSatisfy { [.dismissed, .abandoned].contains(verdict($0)) })
+    check("…including the one nobody ever touched, which is cancelled rather than left as a zombie",
           pickGraceVerdict(sawResign: false, isKey: false, appIsActive: false, alreadyRetried: true)
-              == .settling)
-    // Bounded, and the bound is two graces: one to notice, one to try again.
-    check("so the wait for that answer is two graces, not five minutes",
-          pickPanelActivationGrace * 2 < 2.0)
-    // And the controller must actually run that clock: a rule nothing schedules is the same defect
-    // in a new place.
-    check("the controller remembers a resign it swallowed",
-          controller.contains("sawResignInGrace = true"))
-    check("…judges the grace when it runs out",
-          controller.contains("pickGraceVerdict(sawResign: sawResignInGrace"))
-    // ASSERTED INSIDE `show`, not merely present in the file: the retry branch and the definition
-    // both name `armGrace()`, so a whole-file search would have gone on passing with the panel
-    // arming nothing (which is exactly what a mutation of this line proved).
-    let showBody = controller.range(of: "private func show(").flatMap { start in
-        controller.range(of: "func windowDidResignKey").map { end in
+              == .abandoned)
+    check("a click away inside the grace is still answered from the expiry, not the CLI deadline",
+          pickGraceVerdict(sawResign: true, isKey: false, appIsActive: false, alreadyRetried: false)
+              != .settled)
+
+    // The controller has to run that machine, and the retry needs a grace of its own: the second
+    // `NSApp.activate` resigns asynchronously exactly as the first did, so judging it against the
+    // ORIGINAL start put the very first defect back on the retry path.
+    let retryBody = controller.range(of: "case .retryActivation:").flatMap { start in
+        controller.range(of: "case .dismissed").map { end in
             String(controller[start.lowerBound ..< end.lowerBound])
         }
     } ?? ""
-    check("the panel's own setup is readable", !showBody.isEmpty)
-    check("…and raising the panel is what arms that judgement",
-          showBody.contains("armGrace()"))
-    check("…and asks for the foreground again rather than answering on the first doubt",
-          controller.contains("case .retryActivation:"))
+    check("the retry branch is readable", !retryBody.isEmpty)
+    check("…and it restarts the grace it will be judged against",
+          retryBody.contains("shownAt = Date()"))
+    check("…and starts a fresh observation window with it",
+          retryBody.contains("sawResignInGrace = false"))
+    check("…and arms the next judgement", retryBody.contains("armGrace()"))
+    let watchBody = controller.range(of: "case .keepWatching:").flatMap { start in
+        controller.range(of: "case .retryActivation:").map { end in
+            String(controller[start.lowerBound ..< end.lowerBound])
+        }
+    } ?? ""
+    check("a panel that is merely being watched keeps its clock", watchBody.contains("armGrace()"))
+    check("…and both terminal readings answer the pick",
+          controller.contains("case .dismissed, .abandoned:"))
 
     // MARK: - 36e3. The form fallback, end to end, over a real pipe
 

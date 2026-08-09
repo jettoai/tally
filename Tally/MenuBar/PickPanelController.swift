@@ -166,19 +166,32 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         finish(with: .cancelled)
     }
 
-    /// The grace has run out with nobody having answered: judge what that means, once.
+    /// The grace has run out: judge what the panel is doing, and make sure something is still
+    /// watching it unless it has genuinely settled (`PickGraceVerdict` carries the full machine).
     private func judgeGrace() {
         guard let panel else { return }
         switch pickGraceVerdict(sawResign: sawResignInGrace, isKey: panel.isKeyWindow,
                                 appIsActive: NSApp.isActive, alreadyRetried: retriedActivation) {
-        case .settling:
-            return   // from here on a resign is past the grace and answers on its own
+        case .settled:
+            return   // it holds the key window: an ordinary resign answers from here on
+        case .keepWatching:
+            armGrace()
         case .retryActivation:
             retriedActivation = true
+            // A FRESH GRACE FOR THE SECOND ASK. `NSApp.activate` resigns asynchronously exactly as
+            // the first one did, and judging that against the ORIGINAL `shownAt` made the very first
+            // defect reappear on this path: the retry's own settling read as past the grace and
+            // cancelled instantly. The observation window is reset with it, so a resign from before
+            // the retry cannot be counted against it either.
+            shownAt = Date()
+            sawResignInGrace = false
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
             armGrace()
-        case .dismissed:
+        case .dismissed, .abandoned:
+            // Both end the same way and for the same reason: nobody is going to answer this panel,
+            // and leaving it up holds a claimed request until the CLI's deadline. `finish` hands the
+            // foreground back on the way out.
             finish(with: .cancelled)
         }
     }

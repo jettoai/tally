@@ -135,49 +135,60 @@ func pickDismissalIsFromPerson(shownAt: Date?, now: Date = Date(),
     return now.timeIntervalSince(shownAt) >= grace
 }
 
-/// What a grace that has run out says about a panel nobody has answered.
+/// WHAT A RAISED PANEL IS DOING, judged whenever its grace runs out.
 ///
-/// THE HALF THE GRACE WAS MISSING. Ignoring a resign while the foreground ask settles fixed the
-/// panel that answered itself in 147ms, and opened the opposite hole: a person who really does click
-/// away INSIDE the grace has their resign dropped, and AppKit sends no second one, because the
-/// window is already not key. Nothing else was watching, so the pick sat until the CLI's five-minute
-/// deadline with a dead panel on screen and every later pick forced onto the form. One defect traded
-/// for a worse one.
+/// THIS IS THE THIRD SHAPE OF ONE JUDGEMENT, and the first two failed in opposite directions, which
+/// is why it is a state machine now rather than another condition:
 ///
-/// So the grace expiring is itself an event, and THREE states have to be told apart at it:
+///   v1 read every lost key window as a dismissal, so every pick answered itself in 147ms.
+///   v2 swallowed the ones inside the grace, so a person who really left was never answered at all.
+///   v3 gave the expiry three answers, two of which STOPPED THE CLOCK on a panel that had not
+///      settled: a foreground ask that never landed, and a sibling window of ours taking key. Both
+///      left a claimed request and a panel on screen with nothing watching either.
 ///
-///   - THE ASK LANDED. The panel is key again, so the resign was the activation settling and the
-///     person has touched nothing. Nothing to answer.
-///   - WE STILL HOLD THE FOREGROUND. Tally is the active app but this panel is not key: whatever
-///     took key is ours, and a person who had walked away would not have left us in front.
-///   - THE PERSON LEFT. Not key, and Tally is not the active app either.
-///
-/// The third is answered ONCE MORE before it is believed, and that is what keeps this from
-/// re-creating the original defect in a slower form: an activation that never landed at all looks
-/// exactly like somebody leaving, so the panel asks for the foreground a second time and re-judges a
-/// grace later. That also closes the residue the first fix admitted to (a panel visible but never
-/// keyable): the retry is the thing that gets it its keyboard.
+/// So the rule below has one invariant, and it is the thing all three rounds got wrong in turn:
+/// EVERY READING THAT LEAVES THE PANEL UP ALSO LEAVES SOMETHING WATCHING IT. Only `.settled` stops
+/// the clock, and it is reachable only while the panel actually holds the key window - the one state
+/// where the ordinary resign path takes over and answers on its own.
 enum PickGraceVerdict: Equatable, Sendable {
-    /// Leave it alone: the panel is where it should be, or the foreground is still ours.
-    case settling
-    /// Ask for the foreground once more, then judge again.
+    /// The panel holds the key window. Nothing more to poll: a later resign is past the grace and
+    /// answers for itself.
+    case settled
+    /// Not resolved, and nobody has put anything down. Look again.
+    case keepWatching
+    /// Ask for the foreground once more, on a FRESH grace: the second ask resigns asynchronously
+    /// exactly as the first did, so it needs its own window to settle in (that is the other half of
+    /// what v3 got wrong).
     case retryActivation
-    /// The person put it down. Answer for them, which frees the CLI immediately rather than at its
+    /// The person put it down. Answer for them, which frees the waiting CLI now rather than at its
     /// deadline.
     case dismissed
+    /// Asked twice and still unreachable: not key, and not even our own foreground. Nobody can get
+    /// to this panel, so it is cancelled and the foreground handed back rather than left as a
+    /// window the person can neither see the point of nor answer.
+    case abandoned
 }
 
-/// The rule, pure, so all three states are asserted without an app (the first fix's whole lesson was
-/// that a judgement living inside a delegate callback is a judgement nothing can test).
+/// The transition, pure and total, so every combination can be asserted without an app.
 ///
-/// `sawResign` is the load-bearing input: a panel that never became key never resigned, so nobody
-/// has put anything down and there is nothing here to answer. That is also the case where the
-/// activation never landed, which must never be read as a dismissal.
+/// The inputs are what the panel can observe about itself at the moment its grace expires; the
+/// discriminator that does the real work is `sawResign`, because a panel that never became key never
+/// resigned - which is exactly how "the foreground ask never landed" is told apart from "somebody
+/// walked away", the distinction the whole family of defects turns on.
 func pickGraceVerdict(sawResign: Bool, isKey: Bool, appIsActive: Bool,
                       alreadyRetried: Bool) -> PickGraceVerdict {
-    guard sawResign else { return .settling }
-    if isKey || appIsActive { return .settling }
-    return alreadyRetried ? .dismissed : .retryActivation
+    // KEY IS THE ONLY WAY TO STOP WATCHING. Everything else below keeps a clock on the panel.
+    if isKey { return .settled }
+    // Our own foreground, some other window of ours holding key: nobody has left the app, so this is
+    // not a dismissal, and the panel is still reachable by hand. Keep looking rather than answering
+    // or giving up (the CLI's own deadline is the backstop if a person really does leave it).
+    if appIsActive { return .keepWatching }
+    // Not key, and not our foreground either. One more ask before this is believed: an activation
+    // that never landed looks exactly like somebody leaving, and only the retry tells them apart.
+    guard alreadyRetried else { return .retryActivation }
+    // Asked twice. A resign says the panel was in their hands and they left it; no resign at all
+    // says it was never reachable to begin with.
+    return sawResign ? .dismissed : .abandoned
 }
 
 // MARK: - The files

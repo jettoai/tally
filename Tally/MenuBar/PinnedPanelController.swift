@@ -174,7 +174,10 @@ extension View {
 /// `.behindWindow`, and it carries its own rounded mask because the window server composites the blur
 /// without honoring the SwiftUI clip shape. Accessibility's Reduce Transparency is a need, not a
 /// preference: it clamps the surface to solid regardless of the user's glass setting.
-private struct PanelBackdrop: View {
+/// The surface a borderless panel draws under its content: the glass the user asked for, or a
+/// plain window background when they did not (or when the system says no to transparency). Shared
+/// with the pick panel, which is borderless for the same reason and must not invent a second look.
+struct PanelBackdrop: View {
     @Bindable var settings: SettingsStore
 
     var body: some View {

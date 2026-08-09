@@ -112,20 +112,22 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         // background preview, so there is nothing to hand back, and handing it back anyway would
         // activate whatever the person had moved on to.
         previousApp = activating ? NSWorkspace.shared.frontmostApplication : nil
-        // NOT `.nonactivatingPanel`, which is the opposite of what this panel is for: that style
-        // asks AppKit to keep the panel out of the key window chain, and the whole point here is
-        // that the keyboard can answer it (arrow keys and Enter). Setting it alongside an
-        // `NSApp.activate` also leaves the panel drawn in its INACTIVE style, which is what a
-        // hidden titlebar over a washed-out background reads as: a dialog that looks broken.
-        let panel = PickPanel(contentRect: .zero, styleMask: [.titled, .fullSizeContentView],
+        // BORDERLESS, LIKE THE PINNED PANEL, which is the surface this one is now a sibling of: the
+        // content draws its own backdrop and its own 12pt corner (`PanelBackdrop`, PickPanelView),
+        // so nothing is inherited from a window frame. The titled panel this replaced kept a
+        // titlebar for its rounded chrome and spent 32 points on it while drawing nothing there,
+        // which is the empty band at the top of the panel Albert kept seeing.
+        //
+        // NOT `.nonactivatingPanel`, which the pinned panel does use and this one must not: that
+        // style asks AppKit to keep the panel out of the key window chain, and the whole point here
+        // is that the keyboard can answer it (arrow keys and Enter).
+        let panel = PickPanel(contentRect: .zero, styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        // The titlebar is kept only for the rounded chrome and the drag behaviour; its buttons are
-        // three more actions on a surface whose whole design is one action per row.
-        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            panel.standardWindowButton(button)?.isHidden = true
-        }
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        // Movable by its background, unlike the pinned panel: there are no cards to reorder here, so
+        // AppKit's own window drag can have the whole surface and the rows keep their clicks.
         panel.isMovableByWindowBackground = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
@@ -133,7 +135,7 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         panel.animationBehavior = .utilityWindow
         panel.delegate = self
         panel.onCancel = { [weak self] in self?.finish(with: .cancelled) }
-        let hosting = NSHostingController(rootView: PickPanelView(request: request) { [weak self] row in
+        let hosting = PickHostingView(rootView: PickPanelView(request: request) { [weak self] row in
             guard let row else {
                 self?.finish(with: .cancelled)
                 return
@@ -145,7 +147,7 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         // content size: two authorities recursed the layout engine into a stack overflow on this
         // repo's pinned panel in 2026-07 (~/.claude/docs/patterns/swiftui-appkit.md).
         hosting.sizingOptions = [.intrinsicContentSize]
-        panel.contentViewController = hosting
+        panel.contentView = hosting
         // ORIGIN ONLY, which is why it does not fight the line above: the house rule for a window
         // the user summoned is the screen the pointer is on, at the standard dialog height.
         panel.centerOnPointerScreen()
@@ -307,6 +309,29 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         default:
             return nil
         }
+    }
+}
+
+/// The panel's content, answering the FIRST click rather than spending it on focus.
+///
+/// The same fix the pinned panel already carries, one surface over (`MeasuredHostingView` in
+/// SurfaceSizer.swift, passed `acceptsFirstMouse: true` by PinnedPanelController): a floating panel
+/// belonging to an app that is not active gets its first click taken by activation, so the panel
+/// could not be dragged until it had been clicked once to wake it. Both halves are needed and the
+/// second is the one that is easy to miss: SwiftUI only tracks a gesture in the KEY window, so the
+/// window is made key synchronously as the press lands before the event is routed on.
+///
+/// A hosting VIEW rather than a controller for the same reason that one is: `NSHostingController`
+/// makes its own hosting view and there is nowhere to put these two overrides. The size authority is
+/// unchanged and still single - `sizingOptions` on this view, no frame written by anybody - and the
+/// panel's measured height is what proves it (tests/supervisor/pickheightchecks, and the window
+/// bounds recorded with it).
+private final class PickHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        if let window, !window.isKeyWindow { window.makeKey() }
+        super.mouseDown(with: event)
     }
 }
 

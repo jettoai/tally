@@ -28,18 +28,6 @@ extension PopoverRootView {
     /// The clear space the clock cluster's leading spacer never gives up, so the switch and the clock
     /// read as two things rather than one run-on strip.
     private static let clockLead: CGFloat = 8
-    /// How far the wordmark's INK reaches left of the frame it is laid out in. The glyph is given a
-    /// height and left to find its own width, and it draws the letterform larger than the box that
-    /// ends up around it - measured off a window capture, the mark's first ink sat 1.5pt from the
-    /// panel edge while the frame it belongs to started at 12.
-    private static let brandInkOverhang: CGFloat = 10.5
-    /// Where the brand cluster's frame starts, so that its INK starts on the panel's content line -
-    /// the same x the session strip, the fleet rows, the cards and the footer controls all begin at.
-    /// Padding the frame to that line instead is what left the logo reading as pinned to the edge
-    /// with everything below it beginning 12pt in, which is the whole of the complaint: nothing about
-    /// the header moved, the tab switch merely took away the thing the eye used to measure it by.
-    private static let brandLead = PanelGeometry.contentPadding + brandInkOverhang
-
     var header: some View {
         HStack(spacing: Self.gap) {
             // EVERY part of this row moves the panel, and each part says how: the runs with nothing
@@ -78,7 +66,7 @@ extension PopoverRootView {
                 // The leading padding is inside the grab area on purpose: the margin that seats the
                 // wordmark on the panel's content line is space nothing else claims, so it may as
                 // well be somewhere to take hold of.
-                .padding(.leading, Self.brandLead)
+                .padding(.leading, PanelGeometry.brandLead)
                 .frame(maxHeight: .infinity)
                 .windowDragSurface()
                 // Docker-style nudge, two states: detected (accent ↑, click walks the install

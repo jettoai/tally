@@ -17,6 +17,21 @@ enum PanelGeometry {
     static let contentPadding: CGFloat = 12
     static let columnGap: CGFloat = 10
 
+    /// How far the wordmark's INK reaches left of the frame it is laid out in. The glyph is given a
+    /// height and left to find its own width, and it draws the letterform larger than the box that
+    /// ends up around it - measured off a window capture, the mark's first ink sat 1.5pt from the
+    /// panel edge while the frame it belongs to started at 12.
+    static let brandInkOverhang: CGFloat = 10.5
+
+    /// Where a brand cluster's frame starts, so that its INK starts on the content line - the same x
+    /// the session strip, the fleet rows, the cards and the footer controls all begin at. Padding
+    /// the frame to that line instead is what left the logo reading as pinned to the edge with
+    /// everything below it beginning 12pt in.
+    ///
+    /// Here rather than in the header that first needed it, because the pick panel now speaks the
+    /// same visual language and a second copy of 10.5 is two numbers free to drift apart.
+    static let brandLead = contentPadding + brandInkOverhang
+
     /// The card width the multi-column panel widths below were laid out from. Nominal: the widths
     /// are rounded to whole points, so a card lands within half a point of this (see `cardWidth`).
     static let cardColumnWidth: CGFloat = 263

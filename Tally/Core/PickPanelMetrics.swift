@@ -26,31 +26,148 @@ import CoreGraphics
 let pickRowsMaxHeight: CGFloat = 360
 
 /// One row with a label only: the vertical padding it draws with, plus a line of `.body`.
-let pickPlainRowHeight: CGFloat = 34
+let pickPlainRowHeight: CGFloat = 30
 
-/// One row that also carries a second line (an account's three windows). The difference is a line of
-/// `.caption` and the stack spacing above it.
-let pickDetailRowHeight: CGFloat = 55
+/// One row that also carries a second line (an account's three windows, or an aside taken off the
+/// label). The difference is a line of `.caption` and the stack spacing above it.
+let pickDetailRowHeight: CGFloat = 44
 
-/// The gap between two rows, and the padding the list draws around the whole run.
+/// The gap between two rows of the same thing, and the padding the list draws around the whole run.
 let pickRowSpacing: CGFloat = 2
 let pickRowsPadding: CGFloat = 2
+
+/// The gap between two rows that name DIFFERENT things: one model's depths and the next model's,
+/// one account and the next. Even spacing made a model and its two depths read as three unrelated
+/// rows, which is the opposite of what the list is trying to say.
+let pickRowGroupSpacing: CGFloat = 10
+
+/// The rule above the row that hands the axis back. Its own line because that row is not another
+/// choice in the list, it is the way out of the list.
+let pickRowDividerHeight: CGFloat = 1
+
+/// Whether row `index` is the release row (`auto`, "automatic selection").
+///
+/// LAST IS THE TEST, because last is what the release row is: both builders append it after
+/// everything else and say so, and both are pinned by assertions that would fail if either stopped
+/// ("the release is the last row, where a list of escapes belongs" and "the release row is offered
+/// last and is on nobody's account", tests/supervisor/pickerchecks). A list of one row has no
+/// release row to separate from anything.
+func pickRowIsRelease(index: Int, of rows: [PickRow]) -> Bool {
+    rows.count > 1 && index == rows.count - 1
+}
+
+/// The space above row `index`: nothing above the first, a rule and two group gaps above the release
+/// row, a group gap where the list changes subject, and the ordinary gap inside a group.
+///
+/// The one place this is decided, because the panel draws it and the height arithmetic has to agree
+/// with what was drawn (`pickRowsSeedHeight` sums exactly this).
+func pickRowGap(before index: Int, rows: [PickRow]) -> CGFloat {
+    guard index > 0, index < rows.count else { return 0 }
+    if pickRowIsRelease(index: index, of: rows) {
+        return pickRowGroupSpacing * 2 + pickRowDividerHeight
+    }
+    return rows[index].value == rows[index - 1].value ? pickRowSpacing : pickRowGroupSpacing
+}
+
+/// What this panel is, for the identity line: the app's name is drawn beside it, so this only has to
+/// name the axis. English, like every other string the CLI puts on this wire.
+func pickPanelKindName(_ kind: PickKind) -> String {
+    switch kind {
+    case .model: return "Model"
+    case .account: return "Account"
+    }
+}
+
+/// What the panel writes ON a row, and what it writes UNDER it.
+///
+/// The wire carries one label per row because the elicitation form has one field and no second line
+/// to put anything on: "fable · high" and "auto  (follow this project's profile, then the fleet
+/// default)" are what a form can say. The panel has a chip for the depth and a caption line for the
+/// aside, so saying it the form's way would say the depth twice and squeeze a sentence into a row.
+///
+/// SPLIT HERE RATHER THAN ON THE WIRE, which is the whole point: the two surfaces draw the same row
+/// differently, so the difference belongs to the drawing. A second set of fields would have to be
+/// filled in by every builder and kept in step with a panel it cannot see.
+func pickPanelLabel(_ row: PickRow) -> String { pickRowText(row).label }
+
+/// The second line: what the row already carries (an account's three windows), or the aside its
+/// label was trailing.
+func pickPanelDetail(_ row: PickRow) -> String? { pickRowText(row).detail }
+
+/// Both halves at once, since neither can be decided without the other.
+private func pickRowText(_ row: PickRow) -> (label: String, detail: String?) {
+    var label = row.label
+    // The depth, drawn once. The chip beside the name is the panel's way of saying it, so the
+    // label's own copy comes off (`mcpModelPickRows` writes "opus · high", and the fixture the dev
+    // preview draws writes the same).
+    if let effort = row.effort, label.hasSuffix("\(pickEffortSeparator)\(effort)") {
+        label.removeLast(pickEffortSeparator.count + effort.count)
+    }
+    if let detail = row.detail, !detail.isEmpty { return (label, detail) }
+    // The aside, moved to its own line: "auto  (follow this project's profile, then the fleet
+    // default)" is a row's worth of sentence, and it is written with two spaces before the bracket
+    // by every builder that writes one (`pickAutoLabel`, `mcpModelOptions`).
+    guard label.hasSuffix(")"), let opening = label.range(of: pickNoteSeparator, options: .backwards)
+    else { return (label, nil) }
+    let note = label[opening.upperBound ..< label.index(before: label.endIndex)]
+    return (String(label[label.startIndex ..< opening.lowerBound]), String(note))
+}
+
+/// How a label spells the depth it already names, and how it opens a trailing aside. Here so the
+/// panel takes apart exactly what the builders put together.
+let pickEffortSeparator = " · "
+let pickNoteSeparator = "  ("
 
 /// What the list is given before anything has been laid out.
 ///
 /// Arithmetic from the row shapes, with the two row heights taken from what this panel actually
-/// renders at (measured 2026-08-09: a four-row account list came to 210 points and a ten-row model
-/// list ran past the cap). A SEED, not an authority: the moment the rows report their real height
-/// that is what the list uses, so an inaccuracy here costs at most a slightly wrong first frame and
-/// never a wrong panel. What it buys is that the first frame is already the right size, and that a
+/// renders at. Measured 2026-08-10 by raising the cap out of the way and reading the window: the
+/// four-row account list lays out at 221 points and the ten-row model list at 371, which this
+/// arithmetic reproduces to the point. (The first pass at these constants was fitted against a
+/// GUESSED window chrome and was wrong in both of them by amounts that cancelled; the cap was moved
+/// to 200 and then to 1000 to measure the chrome instead of assuming it.) A SEED, not an authority:
+/// the moment the rows report their real height that is what the list uses, so an inaccuracy here
+/// costs at most a slightly wrong first frame and never a wrong panel. What it buys is that the first frame is already the right size, and that a
 /// measurement which never arrives still leaves a usable list rather than a sliver.
 func pickRowsSeedHeight(_ rows: [PickRow], cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
     guard !rows.isEmpty else { return 0 }
-    let withDetail = rows.filter { !($0.detail ?? "").isEmpty }.count
-    let plain = rows.count - withDetail
-    let stacked = CGFloat(plain) * pickPlainRowHeight + CGFloat(withDetail) * pickDetailRowHeight
-        + CGFloat(rows.count - 1) * pickRowSpacing + pickRowsPadding * 2
+    // Each row as the panel will draw it, gaps included: the second line is whatever
+    // `pickPanelDetail` decides it is, and the space above each row is whatever `pickRowGap` says,
+    // so this cannot drift from the layout by being written down twice. The pinned row is not in
+    // here, because it is not in the scrolling region either (`pickStickyHeight`).
+    let stacked = pickScrollingIndices(of: rows).reduce(pickRowsPadding * 2) { total, index in
+        total + pickRowGap(before: index, rows: rows) + pickRowHeight(rows[index])
+    }
     return min(stacked, cap)
+}
+
+/// How tall one row is drawn: a line, or two when it has something under it.
+func pickRowHeight(_ row: PickRow) -> CGFloat {
+    pickPanelDetail(row) == nil ? pickPlainRowHeight : pickDetailRowHeight
+}
+
+/// Which rows scroll: everything except the one pinned under them.
+///
+/// THE WAY OUT DOES NOT SCROLL AWAY, which is what this is for: a fleet or an effort table can be
+/// taller than the cap, and the row that releases the pin is the one a person reaches for when the
+/// list is not what they wanted. Below the scrolling region it is always on screen; inside it, it is
+/// wherever the list happens to have been left.
+///
+/// It stays a member of `rows` throughout: the selection is an index into that one array, so the
+/// keyboard walks off the last scrolling row straight onto the pinned one with nothing to special
+/// case (`PickPanelView.move`).
+func pickScrollingIndices(of rows: [PickRow]) -> Range<Int> {
+    guard let last = rows.indices.last, pickRowIsRelease(index: last, of: rows) else {
+        return rows.indices.startIndex ..< rows.indices.endIndex
+    }
+    return 0 ..< last
+}
+
+/// The block pinned under the scrolling region: the rule that sets it apart, and the row itself.
+/// Zero when there is nothing to pin, which is a list of one row.
+func pickStickyHeight(_ rows: [PickRow]) -> CGFloat {
+    guard let last = rows.indices.last, pickRowIsRelease(index: last, of: rows) else { return 0 }
+    return pickRowGap(before: last, rows: rows) + pickRowHeight(rows[last])
 }
 
 /// The height the list is drawn at: what it measured, or the seed until that lands, capped either

@@ -175,8 +175,19 @@ enum PickGraceVerdict: Equatable, Sendable {
 /// discriminator that does the real work is `sawResign`, because a panel that never became key never
 /// resigned - which is exactly how "the foreground ask never landed" is told apart from "somebody
 /// walked away", the distinction the whole family of defects turns on.
-func pickGraceVerdict(sawResign: Bool, isKey: Bool, appIsActive: Bool,
+func pickGraceVerdict(prompted: Bool = true, sawResign: Bool, isKey: Bool, appIsActive: Bool,
                       alreadyRetried: Bool) -> PickGraceVerdict {
+    // NOBODY ASKED FOR THIS ONE, so there is nobody to free and nothing to resolve. A panel raised
+    // by a launch flag for a look is not owed a keyboard and has no waiting CLI behind it, and the
+    // machine below would otherwise walk it straight into `.retryActivation` - which is an accessory
+    // app taking the foreground 0.6s after a deliberately BACKGROUND launch, from a panel that never
+    // borrowed the foreground and so hands nothing back. That is the last cell of the background
+    // launch contract (`CaptureLaunch`), and it belongs here rather than in the caller so the answer
+    // stays testable.
+    //
+    // THE INVARIANT IS UNCHANGED, only stated properly: the clock exists to free somebody who is
+    // waiting. Stopping it on a panel nobody is waiting on frees nothing and costs nothing.
+    guard prompted else { return .settled }
     // KEY IS THE ONLY WAY TO STOP WATCHING. Everything else below keeps a clock on the panel.
     if isKey { return .settled }
     // Our own foreground, some other window of ours holding key: nobody has left the app, so this is

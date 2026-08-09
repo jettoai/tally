@@ -33,6 +33,10 @@ final class PickPanelController: NSObject, NSWindowDelegate {
     private var sawResignInGrace = false
     /// Whether the foreground has already been asked for a second time (`PickGraceVerdict`).
     private var retriedActivation = false
+    /// Whether somebody asked for this panel and is waiting on it. False for a panel raised by a
+    /// launch flag for a look, which must never take the foreground it was deliberately launched
+    /// without (`pickGraceVerdict`).
+    private var prompted = true
     /// The timer that judges the grace. Held so a panel that is answered first can cancel it.
     private var graceTimer: Timer?
 
@@ -87,6 +91,7 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         let activating = CaptureLaunch.mayTakeForeground(
             prompted: prompted, activeKeys: CaptureLaunch.activeKeys())
         current = request
+        self.prompted = prompted
         shownAt = Date()
         // Captured only when the foreground is actually being borrowed. Nothing was taken on a
         // background preview, so there is nothing to hand back, and handing it back anyway would
@@ -170,8 +175,10 @@ final class PickPanelController: NSObject, NSWindowDelegate {
     /// watching it unless it has genuinely settled (`PickGraceVerdict` carries the full machine).
     private func judgeGrace() {
         guard let panel else { return }
-        switch pickGraceVerdict(sawResign: sawResignInGrace, isKey: panel.isKeyWindow,
-                                appIsActive: NSApp.isActive, alreadyRetried: retriedActivation) {
+        switch pickGraceVerdict(prompted: prompted, sawResign: sawResignInGrace,
+                                isKey: panel.isKeyWindow,
+                                appIsActive: NSApp.isActive,
+                                alreadyRetried: retriedActivation) {
         case .settled:
             return   // it holds the key window: an ordinary resign answers from here on
         case .keepWatching:
@@ -223,6 +230,7 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         graceTimer = nil
         sawResignInGrace = false
         retriedActivation = false
+        prompted = true
         panel?.orderOut(nil)
         panel = nil
         shownAt = nil

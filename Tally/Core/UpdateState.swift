@@ -35,8 +35,16 @@ struct UpdateState: Equatable {
     var failedBuild: Int?
     /// The build the user chose to skip, as Sparkle recorded it (`SUSkippedVersion`).
     var skippedBuild: Int?
-    /// A press of the chip is outstanding: the install runs the moment it is ready rather than
-    /// waiting for the machine to go quiet.
+    /// A silent install that a PERSON asked for is outstanding, so the payload runs the moment it
+    /// is ready rather than waiting for the machine to go quiet.
+    ///
+    /// Set by exactly one transition (the one that emits `.beginSilentInstall` for a press) and
+    /// cleared by every transition that ends such an install. It deliberately is NOT set by a press
+    /// that only earns a visible check: Sparkle's UI driver answers a dialog through
+    /// `showReadyToInstallAndRelaunch` and never calls `willInstallUpdateOnQuit`
+    /// (SPUUIBasedUpdateDriver.m:417-426), so nothing on that path would ever consume the flag. It
+    /// would sit set instead, and the next thing to read it would act on a request that was served
+    /// long ago: an aborted check re-opening itself, or a later payload skipping the idle rules.
     var requestedByUser = false
     /// When the current offer first became known. The pinned-panel grace in `IdleInstall` is
     /// measured against it, and its absence is what stops the idle install from running at all.
@@ -75,12 +83,22 @@ enum UpdateEvent: Equatable {
     /// The app is about to be replaced. The only event that may take the machinery down.
     case willRelaunch
     /// The header chip: an instruction, "put the newest version on".
+    /// What the user answered in Sparkle's own update dialog. `build` is the item it was about.
+    case userMadeChoice(UpdateUserChoice, build: Int?)
     case chipPressed
     /// Settings' Check Now, and the CLI's `tally update`: a question, "is there anything?", which
     /// earns an answer in a window rather than a restart nobody asked for.
     case checkPressed
     /// The idle timer fired; `idle` is `IdleInstall`'s verdict, read from the world by the caller.
     case momentArrived(idle: Bool)
+}
+
+/// The three answers Sparkle's update dialog can carry back
+/// (`SPUUpdaterDelegate.updater(_:userDidMakeChoice:forUpdate:state:)`).
+enum UpdateUserChoice: Equatable {
+    case install
+    case dismiss
+    case skip
 }
 
 /// What the caller should go and do about it.
@@ -93,6 +111,8 @@ enum UpdateAction: Equatable {
     /// anything a person asked for, including the reporting of a failure.
     case visibleCheck
     case teardownForRelaunch
+    /// Let go of an install trigger Sparkle has cancelled underneath us.
+    case discardHeldInstall
 }
 
 enum UpdateReducer {
@@ -153,8 +173,33 @@ enum UpdateReducer {
             state.installing = true
             return [.teardownForRelaunch]
 
+        case .userMadeChoice(let choice, let build):
+            switch choice {
+            case .install:
+                // Sparkle carries it out from here; how it goes arrives as its own event.
+                break
+            case .dismiss:
+                // The visible session is over. Nothing there could have set the flag, and this is
+                // the belt to that pair of braces.
+                state.requestedByUser = false
+            case .skip:
+                // Read here rather than waiting for the next reading of the feed. Sparkle writes
+                // SUSkippedVersion when the button is pressed, and the app's own poll had usually
+                // already answered by then; with automatic checks off there is no next poll at
+                // all. Either way the chip would go on offering a version the user just declined.
+                if let build { state.skippedBuild = build }
+                // Sparkle cancels a staged installation on skip (SPUCoreBasedUpdateDriver.m:313),
+                // so the payload and its trigger are gone.
+                let hadTrigger = state.installHandlerHeld
+                state.staged = nil
+                state.installHandlerHeld = false
+                state.requestedByUser = false
+                state.settle(now: now)
+                return hadTrigger ? [.discardHeldInstall] : []
+            }
+            return []
+
         case .chipPressed:
-            state.requestedByUser = true
             return state.dispatch(userAsked: true)
 
         case .checkPressed:
@@ -212,6 +257,8 @@ private extension UpdateState {
             // asking to see what goes wrong, and the visible path is where they find out.
             if release.build == failedBuild { return userAsked ? [.visibleCheck] : [] }
             guard installsAutomatically else { return userAsked ? [.visibleCheck] : [] }
+            // The only place the flag goes up, which is what makes it mean what it says.
+            if userAsked { requestedByUser = true }
             return [.beginSilentInstall]
         }
     }

@@ -162,6 +162,7 @@ final class UpdaterController: NSObject {
         case .beginSilentInstall: beginSilentInstall()
         case .visibleCheck: visibleCheck()
         case .teardownForRelaunch: teardownForRelaunch()
+        case .discardHeldInstall: pendingInstall = nil
         }
     }
 
@@ -408,6 +409,29 @@ extension UpdaterController: SPUUpdaterDelegate {
             if self.pendingInstall != nil { self.installIfIdle() }
         }
         return true
+    }
+
+    /// What the user answered in Sparkle's own dialog. Implementing this is also what stops
+    /// Sparkle reaching for its deprecated `userDidSkipThisVersion:` (it prefers this one and only
+    /// falls back when this is absent, SPUUIBasedUpdateDriver.m:257-264).
+    ///
+    /// Skip is the one that matters: it is written to `SUSkippedVersion` at the moment the button
+    /// is pressed, and the app's own reading of that key happens when its poll completes, which is
+    /// usually earlier and, with automatic checks turned off, may never happen again. Without this
+    /// the chip would go on offering a version the user had just declined, and pressing it would
+    /// reopen the same update.
+    nonisolated func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice,
+                             forUpdate updateItem: SUAppcastItem,
+                             state updateState: SPUUserUpdateState) {
+        let build = Int(updateItem.versionString)
+        let answer: UpdateUserChoice
+        switch choice {
+        case .skip: answer = .skip
+        case .install: answer = .install
+        case .dismiss: answer = .dismiss
+        @unknown default: answer = .dismiss
+        }
+        Task { @MainActor in self.apply(.userMadeChoice(answer, build: build)) }
     }
 
     /// Sparkle gave up: a signature that did not verify, an authorisation the user cancelled, a

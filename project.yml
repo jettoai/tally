@@ -156,6 +156,12 @@ targets:
         SUPublicEDKey: "$(SPARKLE_PUBLIC_ED_KEY)"
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 3600
+        # Sparkle otherwise ties "may install automatically" to "checks on a schedule", and Tally
+        # turns the latter off for good at launch: its scheduler stops permanently at the first
+        # release it finds, so Tally watches the feed itself and calls Sparkle when it is time to
+        # install (UpdaterController.start). Without this key that switch would be stuck off and
+        # the unattended install would never run.
+        SUAllowsAutomaticUpdates: true
         CFBundleName: Tally
         LSUIElement: true
         LSMinimumSystemVersion: "14.0"

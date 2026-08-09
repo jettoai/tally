@@ -1,14 +1,16 @@
 import SwiftUI
 
-/// The Sparkle rows of the settings pane, with truthful toggle state.
+/// The update rows of the settings pane, with truthful toggle state.
 ///
-/// Sparkle's effective "automatically download" value is `automatic checks AND
-/// SUAutomaticallyUpdate`, and its setter silently refuses writes while automatic checks are
-/// off, so the two switches are NOT independent. Rendering them straight from computed bindings
-/// let the install switch flip visually whenever anything re-rendered the pane (it "turned
-/// itself off" after Check Now). These rows keep local state that re-syncs from Sparkle after
-/// every write instead, and the dependency is visible: the install row disables while automatic
-/// checks are off.
+/// Rendering these straight from computed bindings let the install switch flip visually whenever
+/// anything re-rendered the pane (it "turned itself off" after Check Now), so the rows keep local
+/// state and re-sync after every write instead.
+///
+/// The two switches are still shown as dependent, and now that is this app's rule rather than
+/// Sparkle's: installing what nobody went looking for is not a thing that can happen, so the
+/// install row disables while the checks row is off. (Sparkle used to impose the same dependency
+/// on its own setter. It no longer does here: `SUAllowsAutomaticUpdates` in Info.plist unties
+/// them, because Sparkle's scheduler is deliberately off and its switch would otherwise be stuck.)
 struct SettingsUpdateRows: View {
     @State private var autoChecks = false
     @State private var autoInstalls = false

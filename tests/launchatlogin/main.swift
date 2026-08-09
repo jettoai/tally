@@ -442,6 +442,10 @@ func tallyLiterals(in paths: [String]) -> Set<String> {
 let notLaunchFlags: Set<String> = [
     "TallyPanelDragEnded",    // a Notification.Name (PinnedPanelController)
     "TallyPinnedUsagePanel",  // a window frame autosave name
+    // A stored preference, not a launch argument: the Settings switch for "check for updates"
+    // (UpdaterController). It lives in Tally's own defaults because Sparkle's copy of the same
+    // question is held at false for the life of the app.
+    "TallyChecksForUpdatesAutomatically",
 ]
 
 let sources = swiftSources(under: "Tally")

@@ -190,7 +190,7 @@ check("the header gives every non-interactive run of the row a grab area",
           && headerSource.contains("private func dragPad(_ width: CGFloat) -> some View")
           && headerSource.contains(".overlay(alignment: .leading) { dragPad(centreOffset.leading) }"))
 check("…and the update badge keeps its click while joining them",
-      headerSource.contains(".windowDragOrTap { UpdaterController.shared.checkForUpdates() }"))
+      headerSource.contains(".windowDragOrTap { UpdaterController.shared.installNow() }"))
 
 // 11. A drag that is under way, and the reason it cannot be answered by a flag alone: AppKit carries
 //     the window after `performDrag` returns (measured: the call's entry and exit share a

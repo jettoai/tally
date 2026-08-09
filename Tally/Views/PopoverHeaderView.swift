@@ -87,7 +87,7 @@ extension PopoverRootView {
                 if let version = UpdateAvailability.shared.version {
                     let ready = UpdateAvailability.shared.isDownloaded
                     Button {
-                        UpdaterController.shared.checkForUpdates()
+                        UpdaterController.shared.installNow()
                     } label: {
                         Text(verbatim: "\(ready ? "↻" : "↑") \(version)")
                             .font(.caption2.weight(.semibold))
@@ -98,7 +98,7 @@ extension PopoverRootView {
                     .buttonStyle(.plain)
                     // A control, so it takes the travelling form: the badge still installs on a
                     // click and the panel still moves if the hand meant to move it.
-                    .windowDragOrTap { UpdaterController.shared.checkForUpdates() }
+                    .windowDragOrTap { UpdaterController.shared.installNow() }
                     .tallyTooltip(ready ? L("Update downloaded - click to restart")
                                 : L("Update available - click to install"))
                 }

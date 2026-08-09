@@ -298,9 +298,20 @@ final class MCPServer {
                 guard let next = receive() else { return .declined }
                 handle(next)
             }
+            // WHO HAS IT, AND IS IT ONE OF OURS. The stand-down that keeps a build nobody installed
+            // from claiming (`pickMayBeClaimed`) can only bind builds that HAVE it, and the copies
+            // this protects against are older than it by definition: a Tally left running from
+            // before that change claims exactly as it always did, carrying the panel defect that
+            // cancelled every pick in 147ms. So the requester arbitrates, on the one thing an older
+            // build cannot produce - the seal beside the claim (`pickClaimSealFile`).
+            let holder = pick.claimant(id)
+            let strangerHolds = holder.map { !pick.sealed(id, $0) } ?? false
             // A CANCELLED ANSWER IS AN ANSWER: Esc and a click outside both write one, so the wait
-            // ends at the moment the person decides rather than at the deadline.
-            if let answer = pick.answer(id) {
+            // ends at the moment the person decides rather than at the deadline. UNLESS A STRANGER
+            // IS HOLDING THE REQUEST, because then the answer on disk is that stranger's, and the
+            // one it writes is the instant cancellation this whole round is about. Refusing the
+            // claim without refusing its answer would have changed nothing the person could see.
+            if !strangerHolds, let answer = pick.answer(id) {
                 return answer.isCancelled ? .declined : .accepted(offer.content(for: answer))
             }
             let waited = pick.now().timeIntervalSince(started)
@@ -308,8 +319,9 @@ final class MCPServer {
             // is true now: an app that took the request and then died would hold this wait to its
             // five-minute deadline and answer "nothing changed", when what it owes the person is the
             // form (review of ee77152). Holding it open is only justified while somebody is really
-            // looking at it.
-            let watched = pick.claimant(id).map(pick.isAlive) ?? false
+            // looking at it - and while it is somebody we can hold to this protocol, which is the
+            // same reason with one more term.
+            let watched = !strangerHolds && (holder.map(pick.isAlive) ?? false)
             if !watched {
                 // Nobody has taken it, or whoever had it is gone. Fall back while the person is
                 // still looking at the terminal they typed into.

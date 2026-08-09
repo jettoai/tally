@@ -53,6 +53,10 @@ struct NativePickChannel {
     /// Whether a claiming process is still there. Its own member so the wait can be driven through a
     /// death in a test without one.
     var isAlive: (pid_t) -> Bool = { supervisorAlive($0) }
+    /// WHETHER THAT CLAIMANT IS ONE OF OURS: a claim sealed by the app that took it, which a copy of
+    /// Tally from before the seal existed cannot produce (`pickClaimSealFile` says why the requester
+    /// is the end that has to arbitrate, and why the seal is a sibling file rather than a field).
+    var sealed: (String, pid_t) -> Bool = { pickClaimIsSealed(id: $0, owner: $1) }
     /// The answer, or nil while there is not one. An unreadable answer is a CANCELLATION rather than
     /// a nil, decided in the contract, so this never has to guess.
     var answer: (String) -> PickAnswer?
@@ -89,7 +93,8 @@ struct NativePickChannel {
             answer: { readPickAnswer(id: $0) },
             discard: { id in
                 guard isPickID(id) else { return }
-                for file in [pickRequestFile(id: id), pickClaimFile(id: id), pickAnswerFile(id: id)] {
+                for file in [pickRequestFile(id: id), pickClaimFile(id: id), pickAnswerFile(id: id),
+                             pickClaimSealFile(id: id)] {
                     try? FileManager.default.removeItem(at: file)
                 }
             },
@@ -112,7 +117,8 @@ struct NativePickChannel {
     /// suite can never write into the user's own `~/.tally/pick` or knock on a running app.
     static var unavailable: NativePickChannel {
         NativePickChannel(publish: { _ in false }, claimant: { _ in nil },
-                          answer: { _ in nil }, discard: { _ in }, messageWaiting: { _ in true })
+                          sealed: { _, _ in false }, answer: { _ in nil }, discard: { _ in },
+                          messageWaiting: { _ in true })
     }
 }
 

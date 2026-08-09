@@ -16,6 +16,10 @@ final class PickChannelDouble {
     var claims: [pid_t?] = [4242]
     /// Which claimants are still alive. Anything absent from here is dead.
     var living: Set<pid_t> = [4242]
+    /// Which claimants sealed the claim they hold, which is what tells a current app from a copy
+    /// running since before the seal existed. nil is "every claimant here is a current one", so a
+    /// test only says this when the version skew is what it is about (pickclaimchecks).
+    var sealing: Set<pid_t>?
     /// What `answer` answers, in order; the last value repeats.
     var answers: [PickAnswer?] = [nil]
     /// What `messageWaiting` answers, in order; the last value repeats.
@@ -40,6 +44,7 @@ final class PickChannelDouble {
             publish: { [self] request in published.append(request); return true },
             claimant: { [self] _ in next(claims, &claimAsks) },
             isAlive: { [self] pid in living.contains(pid) },
+            sealed: { [self] _, pid in sealing?.contains(pid) ?? true },
             answer: { [self] _ in next(answers, &answerAsks) },
             discard: { [self] id in discarded.append(id) },
             messageWaiting: { [self] _ in next(messages, &messageAsks) },

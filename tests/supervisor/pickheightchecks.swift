@@ -75,10 +75,11 @@ func runPickHeightChecks() {
     // scroll must not be able to push the release row off the bottom, so its height is added to the
     // panel rather than taken out of the scrolling region's budget.
     check("the release row is not one of the rows that scroll",
-          pickScrollingIndices(of: modelRows) == 0 ..< (modelRows.count - 1)
-              && pickScrollingIndices(of: accountRows) == 0 ..< (accountRows.count - 1))
+          pickPalette(rows: modelRows).items.count == modelRows.count - 1
+              && pickPalette(rows: accountRows).items.count == accountRows.count - 1)
     check("…and a list with nothing to pin scrolls all of itself",
-          pickScrollingIndices(of: plain(1)) == 0 ..< 1)
+          pickPalette(rows: plain(1)).items.count == 1
+              && pickPalette(rows: plain(1)).sticky == nil)
     check("the pinned block is the rule plus the row it sets apart",
           pickStickyHeight(modelRows)
               == pickRowGap(before: modelRows.count - 1, rows: modelRows)
@@ -160,19 +161,22 @@ func runPickHeightChecks() {
     let view = (try? String(contentsOfFile: "Tally/Views/PickPanelView.swift", encoding: .utf8)) ?? ""
     check("the panel view is readable from this suite", !view.isEmpty)
     check("the list is told its height by the rule above",
-          view.contains(".frame(height: pickRowsHeight(measured: rowsHeight, rows: request.rows))"))
+          view.contains(".frame(height: pickPaletteHeight(measured: rowsHeight, palette: palette))"))
     check("…measured off an EAGER stack, which is the only kind that measures whole",
           view.contains("VStack(spacing: 0)") && !view.contains("LazyVStack"))
     check("…and nothing asks the scrolling container for a height it does not have",
           !view.contains(".frame(maxHeight:"))
+    // THE GAPS AND THE RULE ARE THE PALETTE'S OWN, which is what keeps the drawing and the sum the
+    // same thing: the view draws the space the palette decided rather than deciding it again from
+    // the rows (`pickPaletteSeedHeight` adds up exactly these two fields).
     check("the gaps between rows come from the rule the arithmetic sums, not from the stack",
-          view.contains("pickRowGap(before: index, rows: request.rows)"))
-    check("…and the release row is set apart by the same test the arithmetic uses",
-          view.contains("pickRowIsRelease(index: index, of: request.rows)"))
-    check("only the scrolling rows are inside the scroll region",
-          view.contains("ForEach(pickScrollingIndices(of: request.rows)"))
-    check("…and the release row is drawn after it, outside",
-          view.contains("pickRowIsRelease(index: release, of: request.rows)"))
+          view.contains("Color.clear.frame(height: item.gapAbove)"))
+    check("…and the way out is set apart by the same flag the arithmetic reads",
+          view.contains("if item.ruled"))
+    check("only the scrolling items are inside the scroll region",
+          view.contains("ForEach(Array(palette.items.enumerated())"))
+    check("…and the pinned row is drawn after it, outside",
+          view.contains("if let sticky = palette.sticky { entry(sticky) }"))
     check("each row is drawn with the name and the second line the rule decides",
           view.contains("pickPanelLabel(row)") && view.contains("pickPanelDetail(row)"))
 }

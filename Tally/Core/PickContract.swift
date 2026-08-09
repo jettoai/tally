@@ -69,13 +69,71 @@ struct PickRow: Codable, Equatable, Sendable {
     var isCurrent = false
 }
 
+/// One section of a palette: an axis, what it is called, and the rows that answer it.
+///
+/// WHY BOTH AXES ARE ON ONE PANEL. `/tally-model` and `/tally-account` ask two halves of one
+/// sentence ("what runs this conversation, and where"), and somebody who opened one and wanted the
+/// other had to escape it and type the second command. A section is what makes the second question
+/// reachable without making the first one longer: the axis that was asked for is on top, and a row
+/// still decides everything about itself, so there is still nothing to confirm.
+struct PickSection: Codable, Equatable, Sendable {
+    let kind: PickKind
+    /// What the section is called above its rows. Written by the CLI, like every other string on
+    /// this wire, so one end decides the vocabulary.
+    let heading: String
+    let rows: [PickRow]
+}
+
+/// What a section is called. Plural, because it names a run of rows rather than the panel's axis
+/// (`pickPanelKindName` names that, once, on the identity line).
+func pickSectionHeading(_ kind: PickKind) -> String {
+    switch kind {
+    case .model: return "Models"
+    case .account: return "Accounts"
+    }
+}
+
+/// The sections in the order they are drawn: the one that was asked for, then the rest.
+///
+/// One implementation for both ends, and that is the point: the CLI writes them focus-first, and
+/// the app puts them focus-first again rather than trusting the order it was handed. A request
+/// whose sections arrived the other way round would otherwise pin the wrong section's release row
+/// under the list, which is the one row a person reaches for when the list is not what they wanted.
+func pickSectionsFocusFirst(_ sections: [PickSection], focus: PickKind) -> [PickSection] {
+    guard let index = sections.firstIndex(where: { $0.kind == focus }), index != 0 else {
+        return sections
+    }
+    var ordered = sections
+    ordered.insert(ordered.remove(at: index), at: 0)
+    return ordered
+}
+
 /// One request to draw a picker.
 struct PickRequest: Codable, Equatable, Sendable {
     let id: String
     let kind: PickKind
     /// The sentence above the list, written by the CLI so both channels say the same thing.
     let message: String
+    /// THE FOCUS SECTION'S ROWS, and the whole of what an app from before the palette can see. Kept
+    /// byte for byte as it was for exactly that reason: a copy of Tally that has never heard of
+    /// `sections` decodes this field and draws the one list it always drew, which is this request
+    /// with its second half missing rather than a request it cannot read at all.
     let rows: [PickRow]
+    /// Every section, focus first, for an app that can draw a palette.
+    ///
+    /// OPTIONAL BECAUSE THE FAR END IS WHATEVER IS INSTALLED. The CLI ships inside the bundle but a
+    /// session that was already talking when an update landed goes on running the CLI it launched
+    /// with (`pickClaimSealFile` states the same limit one axis over), so both skews are live at
+    /// once: a new CLI's request reaching an old app (which reads `rows`), and an old CLI's request
+    /// reaching a new app (which finds this nil and draws a single section, exactly as before).
+    var sections: [PickSection]?
+
+    /// Every row the request offers, whichever section it is in. What "there is something to draw"
+    /// means for a request that may carry either shape.
+    var everyRow: [PickRow] {
+        guard let sections, !sections.isEmpty else { return rows }
+        return sections.flatMap(\.rows)
+    }
 }
 
 /// What the person did. A row, or nothing.
@@ -87,6 +145,14 @@ struct PickRequest: Codable, Equatable, Sendable {
 struct PickAnswer: Codable, Equatable, Sendable {
     var value: String?
     var effort: String?
+    /// WHICH SECTION THE ROW CAME FROM, because one palette offers both axes and the two are applied
+    /// by different paths: the same click can move a conversation to another account or change what
+    /// answers it, and nothing about the value says which.
+    ///
+    /// Optional for the same reason `PickRequest.sections` is: an app that predates the palette
+    /// answers from the only section it ever drew, which is the request's own kind, so nil READS AS
+    /// the focus kind rather than as an error (`MCPPickOffer.content`).
+    var kind: PickKind?
 
     static let cancelled = PickAnswer()
 

@@ -280,8 +280,12 @@ final class MCPServer {
     /// neither for longer than one poll interval.
     private func askNatively(_ offer: MCPPickOffer) -> MCPPickReply? {
         let id = newPickID()
+        // BOTH SHAPES ON THE WIRE: `rows` is the focus section, which is the whole of what an app
+        // from before the palette can read, and `sections` is the palette itself for one that can
+        // (`PickRequest.sections` states why both skews are live at once).
         guard pick.publish(PickRequest(id: id, kind: offer.kind, message: offer.message,
-                                       rows: offer.rows)) else { return nil }
+                                       rows: offer.rows, sections: offer.sections))
+        else { return nil }
         // Whatever happens next, the files go: one left behind would raise a panel for a question
         // nobody is waiting on any more.
         defer { pick.discard(id) }

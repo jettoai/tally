@@ -38,6 +38,26 @@ func mcpAccountPickRows(_ accounts: [Snapshot.Account], ranked rows: [SwitchFlee
     } + [PickRow(value: switchAutoRequest, effort: nil, label: mcpAccountAutoLabel)]
 }
 
+/// THE PALETTE BOTH COMMANDS RAISE: the axis that was asked for, and the other one under it.
+///
+/// ONE SURFACE FOR TWO COMMANDS, because they are two halves of one sentence: `/tally-model` and
+/// `/tally-account` decide what runs this conversation and where it runs, and somebody who opened
+/// one and wanted the other had to escape it and type the second command. Nothing about a row
+/// changes - each still decides everything about itself, and choosing one is still the whole answer.
+///
+/// FOCUS FIRST, and `PickRequest.rows` is that section's rows, so a copy of Tally from before the
+/// palette draws exactly the list it always drew rather than a request it cannot read
+/// (`PickRequest.sections`).
+///
+/// A SECTION WITH NO ROWS IS NOT DRAWN AT ALL: a machine with one account has nothing to offer on
+/// that axis, and a heading over an empty list is a promise the panel is not keeping.
+func mcpPickSections(focus: PickKind, model: [PickRow], account: [PickRow]) -> [PickSection] {
+    let sections = [PickSection(kind: .model, heading: pickSectionHeading(.model), rows: model),
+                    PickSection(kind: .account, heading: pickSectionHeading(.account),
+                                rows: account)]
+    return pickSectionsFocusFirst(sections.filter { !$0.rows.isEmpty }, focus: focus)
+}
+
 /// The two depths the list expands. NOT the whole enumeration, and that is a judgement about this
 /// surface rather than about the axis: a picker whose reason to exist is "see it all, click once"
 /// stops being that at four models times seven depths, where every choice starts with a scroll. The

@@ -56,17 +56,28 @@ func pickRowIsRelease(index: Int, of rows: [PickRow]) -> Bool {
     rows.count > 1 && index == rows.count - 1
 }
 
-/// The space above row `index`: nothing above the first, a rule and two group gaps above the release
-/// row, a group gap where the list changes subject, and the ordinary gap inside a group.
+/// The space above one row, given what is drawn above it: nothing at the top of the list, a rule and
+/// two group gaps above a way out, the tight gap inside one subject, and the group gap where the
+/// list changes subject.
 ///
 /// The one place this is decided, because the panel draws it and the height arithmetic has to agree
-/// with what was drawn (`pickRowsSeedHeight` sums exactly this).
+/// with what was drawn (`PickPalette` carries both).
+///
+/// `previous` is nil for the first row under a section heading: the heading is what separates it
+/// from what came before, so the row itself only needs air.
+func pickRowGap(above row: PickRow, after previous: PickRow?, ruled: Bool,
+                atTop: Bool) -> CGFloat {
+    if atTop { return 0 }
+    if ruled { return pickRowGroupSpacing * 2 + pickRowDividerHeight }
+    guard let previous else { return pickRowSpacing }
+    return previous.value == row.value ? pickRowSpacing : pickRowGroupSpacing
+}
+
+/// The same rule, asked of a position in one list of rows.
 func pickRowGap(before index: Int, rows: [PickRow]) -> CGFloat {
     guard index > 0, index < rows.count else { return 0 }
-    if pickRowIsRelease(index: index, of: rows) {
-        return pickRowGroupSpacing * 2 + pickRowDividerHeight
-    }
-    return rows[index].value == rows[index - 1].value ? pickRowSpacing : pickRowGroupSpacing
+    return pickRowGap(above: rows[index], after: rows[index - 1],
+                      ruled: pickRowIsRelease(index: index, of: rows), atTop: false)
 }
 
 /// What this panel is, for the identity line: the app's name is drawn beside it, so this only has to
@@ -129,16 +140,22 @@ let pickNoteSeparator = "  ("
 /// the moment the rows report their real height that is what the list uses, so an inaccuracy here
 /// costs at most a slightly wrong first frame and never a wrong panel. What it buys is that the first frame is already the right size, and that a
 /// measurement which never arrives still leaves a usable list rather than a sliver.
-func pickRowsSeedHeight(_ rows: [PickRow], cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
-    guard !rows.isEmpty else { return 0 }
-    // Each row as the panel will draw it, gaps included: the second line is whatever
-    // `pickPanelDetail` decides it is, and the space above each row is whatever `pickRowGap` says,
-    // so this cannot drift from the layout by being written down twice. The pinned row is not in
-    // here, because it is not in the scrolling region either (`pickStickyHeight`).
-    let stacked = pickScrollingIndices(of: rows).reduce(pickRowsPadding * 2) { total, index in
-        total + pickRowGap(before: index, rows: rows) + pickRowHeight(rows[index])
+func pickPaletteSeedHeight(_ palette: PickPalette, cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
+    guard !palette.items.isEmpty else { return 0 }
+    // Each item as the panel will draw it, gaps included: a row's second line is whatever
+    // `pickPanelDetail` decides it is, a heading is drawn at exactly the height it reports, and the
+    // space above each is the gap the palette already decided. Nothing here reads the rows a second
+    // time, which is what keeps it from drifting away from the layout. The pinned row is not in
+    // here, because it is not in the scrolling region either (`pickPaletteStickyHeight`).
+    let stacked = palette.items.reduce(pickRowsPadding * 2) { total, item in
+        total + item.gapAbove + item.height
     }
     return min(stacked, cap)
+}
+
+/// The same seed for one list of rows: the single-section shape a request without sections has.
+func pickRowsSeedHeight(_ rows: [PickRow], cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
+    pickPaletteSeedHeight(pickPalette(rows: rows), cap: cap)
 }
 
 /// How tall one row is drawn: a line, or two when it has something under it.
@@ -146,28 +163,22 @@ func pickRowHeight(_ row: PickRow) -> CGFloat {
     pickPanelDetail(row) == nil ? pickPlainRowHeight : pickDetailRowHeight
 }
 
-/// Which rows scroll: everything except the one pinned under them.
+/// The block pinned under the scrolling region: the rule that sets it apart, and the row itself.
+/// Zero when there is nothing to pin, which is a list whose focus section has no way out of its own.
 ///
 /// THE WAY OUT DOES NOT SCROLL AWAY, which is what this is for: a fleet or an effort table can be
 /// taller than the cap, and the row that releases the pin is the one a person reaches for when the
 /// list is not what they wanted. Below the scrolling region it is always on screen; inside it, it is
-/// wherever the list happens to have been left.
-///
-/// It stays a member of `rows` throughout: the selection is an index into that one array, so the
-/// keyboard walks off the last scrolling row straight onto the pinned one with nothing to special
-/// case (`PickPanelView.move`).
-func pickScrollingIndices(of rows: [PickRow]) -> Range<Int> {
-    guard let last = rows.indices.last, pickRowIsRelease(index: last, of: rows) else {
-        return rows.indices.startIndex ..< rows.indices.endIndex
-    }
-    return 0 ..< last
+/// wherever the list happens to have been left. It stays a member of `PickPalette.choices`, so the
+/// keyboard walks off the last scrolling row straight onto it with nothing to special case.
+func pickPaletteStickyHeight(_ palette: PickPalette) -> CGFloat {
+    guard let sticky = palette.sticky else { return 0 }
+    return sticky.gapAbove + sticky.height
 }
 
-/// The block pinned under the scrolling region: the rule that sets it apart, and the row itself.
-/// Zero when there is nothing to pin, which is a list of one row.
+/// The same block for one list of rows.
 func pickStickyHeight(_ rows: [PickRow]) -> CGFloat {
-    guard let last = rows.indices.last, pickRowIsRelease(index: last, of: rows) else { return 0 }
-    return pickRowGap(before: last, rows: rows) + pickRowHeight(rows[last])
+    pickPaletteStickyHeight(pickPalette(rows: rows))
 }
 
 /// The height the list is drawn at: what it measured, or the seed until that lands, capped either
@@ -177,7 +188,13 @@ func pickStickyHeight(_ rows: [PickRow]) -> CGFloat {
 /// wins whenever there is one, and the seed is only ever the answer before the first layout pass has
 /// happened. A measurement of zero is not a measurement (it is what a collapsed layout reports), so
 /// it does not count as one.
+func pickPaletteHeight(measured: CGFloat, palette: PickPalette,
+                       cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
+    min(measured > 0 ? measured : pickPaletteSeedHeight(palette, cap: cap), cap)
+}
+
+/// The same reading for one list of rows.
 func pickRowsHeight(measured: CGFloat, rows: [PickRow],
                     cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
-    min(measured > 0 ? measured : pickRowsSeedHeight(rows, cap: cap), cap)
+    pickPaletteHeight(measured: measured, palette: pickPalette(rows: rows), cap: cap)
 }

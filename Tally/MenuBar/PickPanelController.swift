@@ -87,7 +87,7 @@ final class PickPanelController: NSObject, NSWindowDelegate {
               // Widened with the rest of the family: it used to ask only about the login-item state
               // preview, so a demo capture or a panel snapshot could still be walked over.
               CaptureLaunch.launchMayTakeForeground,
-              let request = readPickRequest(id: id, dir: dir), !request.rows.isEmpty
+              let request = readPickRequest(id: id, dir: dir), !request.everyRow.isEmpty
         else { return }
         // CLAIMED FIRST, and exclusively. The knock reaches every listener on the machine, so a
         // release build and a dev build running side by side both get here with nothing drawn yet;
@@ -135,12 +135,10 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         panel.animationBehavior = .utilityWindow
         panel.delegate = self
         panel.onCancel = { [weak self] in self?.finish(with: .cancelled) }
-        let hosting = PickHostingView(rootView: PickPanelView(request: request) { [weak self] row in
-            guard let row else {
-                self?.finish(with: .cancelled)
-                return
-            }
-            self?.finish(with: PickAnswer(value: row.value, effort: row.effort))
+        let hosting = PickHostingView(rootView: PickPanelView(request: request) { [weak self] choice in
+            // The choice carries the section it came from, which is what tells the CLI whether this
+            // click moved the conversation or changed what answers it (`PickChoice.answer`).
+            self?.finish(with: choice?.answer ?? .cancelled)
         })
         // ONE SIZE AUTHORITY, and this is the one. The content decides how big the panel is (the
         // list caps its own height and scrolls past it), so nothing here may set a frame or a
@@ -272,40 +270,46 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         shared.show(request, prompted: false)
     }
 
-    /// The fixture the flag names. Two shapes, because the two lists are shaped differently: an
-    /// account row carries three windows and a recommendation, a model row carries a pair.
+    /// The fixture the flag names: BOTH sections, in the order the named one opens them.
+    ///
+    /// Both are built for either flag, because the two commands now raise the same palette and a
+    /// preview that showed one section would be a picture of a surface nobody sees. What the flag
+    /// decides is which section leads and which way out is pinned, which is the whole difference
+    /// between the two commands.
     static func previewRequest(kind: String) -> PickRequest? {
+        let accounts = PickSection(kind: .account, heading: pickSectionHeading(.account), rows: [
+            PickRow(value: "claude:.claude", label: "Claude",
+                    detail: "fable 54% · session 86% · weekly 47%",
+                    tags: [switchCurrentSessionTag], isCurrent: true),
+            PickRow(value: "claude:.claude2", label: "Claude 2",
+                    detail: "fable 91% · session 74% · weekly 63%",
+                    tags: [switchRecommendedTag]),
+            PickRow(value: "claude:.claude3", label: "Claude 3",
+                    detail: "fable 12% · session 40% · weekly 22%"),
+            PickRow(value: "--auto", label: pickAutoLabel),
+        ])
+        var modelRows: [PickRow] = []
+        for model in ["fable", "opus", "sonnet"] {
+            modelRows.append(PickRow(value: model, label: model))
+            for effort in ["high", "xhigh"] {
+                modelRows.append(PickRow(value: model, effort: effort,
+                                         label: "\(model) · \(effort)",
+                                         isCurrent: model == "fable" && effort == "high"))
+            }
+        }
+        modelRows.append(PickRow(value: "auto", label: "auto  (follow this project's profile, then "
+            + "the fleet default)"))
+        let models = PickSection(kind: .model, heading: pickSectionHeading(.model), rows: modelRows)
         switch kind {
         case "account":
             return PickRequest(
                 id: "preview", kind: .account,
                 message: "Claude ×3 · Move this conversation to another account",
-                rows: [
-                    PickRow(value: "claude:.claude", label: "Claude",
-                            detail: "fable 54% · session 86% · weekly 47%",
-                            tags: [switchCurrentSessionTag], isCurrent: true),
-                    PickRow(value: "claude:.claude2", label: "Claude 2",
-                            detail: "fable 91% · session 74% · weekly 63%",
-                            tags: [switchRecommendedTag]),
-                    PickRow(value: "claude:.claude3", label: "Claude 3",
-                            detail: "fable 12% · session 40% · weekly 22%"),
-                    PickRow(value: "--auto", label: pickAutoLabel),
-                ])
+                rows: accounts.rows, sections: [accounts, models])
         case "model":
-            var rows: [PickRow] = []
-            for model in ["fable", "opus", "sonnet"] {
-                rows.append(PickRow(value: model, label: model))
-                for effort in ["high", "xhigh"] {
-                    rows.append(PickRow(value: model, effort: effort,
-                                        label: "\(model) · \(effort)",
-                                        isCurrent: model == "fable" && effort == "high"))
-                }
-            }
-            rows.append(PickRow(value: "auto", label: "auto  (follow this project's profile, then "
-                + "the fleet default)"))
             return PickRequest(id: "preview", kind: .model,
                                message: "This session's last response was served by claude-fable-5",
-                               rows: rows)
+                               rows: models.rows, sections: [models, accounts])
         default:
             return nil
         }

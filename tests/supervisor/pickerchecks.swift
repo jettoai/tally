@@ -411,14 +411,22 @@ func runPickerChecks() {
     // MARK: - 36f. What a chosen row comes back as
 
     // One offer, two channels, one answer shape: the callers read `content[mcpModelField]` and do
-    // not care which of them filled it in.
-    let modelOffer = MCPPickOffer(kind: .model, message: "", rows: [], schema: [:])
+    // not care which of them filled it in. The rows are the ones the offer was actually built with,
+    // because an answer naming a row nobody drew is not a pick (`MCPPickOffer.content`); which
+    // SECTION an answer came from is asserted next door, in pickpalettechecks.
+    let modelOffer = MCPPickOffer(kind: .model, message: "",
+                                  rows: [PickRow(value: "opus", effort: "xhigh",
+                                                 label: "opus · xhigh"),
+                                         PickRow(value: "opus", label: "opus")],
+                                  schema: [:])
     check("a model row answers with the pair it carried",
           modelOffer.content(for: PickAnswer(value: "opus", effort: "xhigh"))
               == ["model": "opus", "effort": "xhigh"])
     check("…and a row with no effort leaves that field ABSENT rather than empty",
           modelOffer.content(for: PickAnswer(value: "opus")) == ["model": "opus"])
-    let accountOffer = MCPPickOffer(kind: .account, message: "", rows: [], schema: [:])
+    let accountOffer = MCPPickOffer(kind: .account, message: "",
+                                    rows: [PickRow(value: "claude:.claude2", label: "Claude 2")],
+                                    schema: [:])
     check("an account row answers under the account field",
           accountOffer.content(for: PickAnswer(value: "claude:.claude2"))
               == ["account": "claude:.claude2"])

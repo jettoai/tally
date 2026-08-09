@@ -107,51 +107,6 @@ func mcpAttemptText(_ message: String, notes: [String]) -> String {
     ([message] + notes).joined(separator: "\n")
 }
 
-/// What the person did with the dialog. Escape, Decline and a transport that went away are ONE
-/// answer here, deliberately: the design draws no difference between refusing and cancelling
-/// (nothing was changed either way), and inventing one would be two sentences for one event.
-enum MCPPickReply: Equatable {
-    case accepted([String: String])
-    case declined
-}
-
-/// One offer, in BOTH shapes it can be drawn in.
-///
-/// The rows are the one-step list Tally.app draws: every row is a whole decision, so choosing one IS
-/// the answer and there is nothing left to confirm. The schema is the same offer as an elicitation
-/// form, which is what Claude Code draws when the app is not there to draw anything - two axes and a
-/// submit button, exactly as before.
-///
-/// TWO RENDERINGS OF ONE OFFER, carried together rather than derived at the far end, because the
-/// thing that must never differ between them is WHICH options the person is being given. A picker
-/// that offered a different fleet depending on which channel answered would be worse than either.
-struct MCPPickOffer {
-    let kind: PickKind
-    let message: String
-    let rows: [PickRow]
-    let schema: [String: Any]
-
-    /// What a chosen row comes back as, in the shape the form's answer already had: the callers
-    /// below read `content[mcpModelField]` and friends, and they do not care which channel filled
-    /// it in.
-    func content(for answer: PickAnswer) -> [String: String] {
-        guard let value = answer.value else { return [:] }
-        switch kind {
-        case .account:
-            return [mcpAccountField: value]
-        case .model:
-            var content = [mcpModelField: value]
-            // An effort the row did not name stays ABSENT rather than empty, which is the third
-            // state this axis has and the one the form expresses by leaving the field unfilled.
-            if let effort = answer.effort { content[mcpEffortField] = effort }
-            return content
-        }
-    }
-}
-
-/// How a tool asks. Injected all the way down so the pickers can be driven without a client.
-typealias MCPAsk = (MCPPickOffer) -> MCPPickReply
-
 /// Everything the pickers do to the world, in one place, so a test can drive the whole round trip
 /// without reading this machine's snapshot or writing a request into `~/.tally`.
 ///
@@ -391,42 +346,44 @@ func mcpAccountPrompt(offering count: Int, provider: String, problem: String?) -
 
 // MARK: - The tools themselves
 
+/// The account rows a palette offers beside the models, or none at all.
+///
+/// EMPTY IS A REAL ANSWER HERE, and it is why this is not simply the account picker's own reading:
+/// a machine with no snapshot, or with nothing the ranking will move a session to, has nothing to
+/// offer on that axis, and `mcpAccountPickRows` would still hand back a release row on its own.
+/// A section holding only a way out of an axis nobody asked about is noise
+/// (`mcpPickSections` drops it).
+func mcpPaletteAccountRows(_ world: MCPPickerWorld, _ input: MCPHookInput) -> [PickRow] {
+    let (accounts, ranked, _) = world.fleetRows(input)
+    guard let ranked, !ranked.isEmpty else { return [] }
+    return mcpAccountPickRows(accounts, ranked: ranked)
+}
+
 /// `pick_model`: queue what was named, or ask.
 func mcpPickModel(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> String {
-    func queue(_ intent: ModelIntent) -> String {
-        let attempt = world.applyModel(intent, input)
-        return mcpBlockDecision(mcpAttemptText(attempt.message, notes: attempt.notes))
-    }
     if !input.isBare {
         guard let intent = modelIntent(input.words) else {
             return mcpBlockDecision(
                 "`/tally-model` takes a model and an optional effort, or `auto`; "
                     + "\"\(input.commandArgs)\" is neither, so nothing was queued")
         }
-        return queue(intent)
+        let attempt = world.applyModel(intent, input)
+        return mcpBlockDecision(mcpAttemptText(attempt.message, notes: attempt.notes))
     }
     let status = world.modelStatus(input)
+    // BOTH AXES, MODELS FIRST. The fleet is read even though this command is about models, because
+    // the panel offers both and a person who typed the wrong one of the two commands is one click
+    // from what they meant rather than an Escape and a retype (`mcpPickSections`).
     let offer = MCPPickOffer(kind: .model, message: mcpModelPrompt(status),
-                             rows: mcpModelPickRows(status),
+                             sections: mcpPickSections(focus: .model,
+                                                       model: mcpModelPickRows(status),
+                                                       account: mcpPaletteAccountRows(world, input)),
                              schema: mcpModelSchema(models: mcpModelOptions(status),
                                                     efforts: claudeEffortNames()))
-    guard case .accepted(let content) = ask(offer),
-          let model = content[mcpModelField] else {
+    guard case .accepted(let content) = ask(offer) else {
         return mcpBlockDecision(mcpNothingChanged)
     }
-    // An unfilled optional field arrives as an ABSENT KEY rather than as a null (measured in the
-    // probe, 2026-08-07), which is exactly the third state this axis needs: nothing named leaves
-    // the effort where it is.
-    let effort = content[mcpEffortField]
-    guard let intent = modelIntent([model] + (effort.map { [$0] } ?? [])) else {
-        // The one combination the grammar refuses that a dialog can produce: the release beside an
-        // effort. Two opposite instructions, so neither is guessed at (`modelIntent`).
-        return mcpBlockDecision(
-            "\(mcpModelAutoValue) hands this session back to the layers below, so it cannot carry "
-                + "an effort of its own; nothing was queued. Pick \(mcpModelAutoValue) on its own, "
-                + "or a model with the effort you want")
-    }
-    return queue(intent)
+    return mcpQueuePick(content, input: input, world: world)
 }
 
 /// `pick_account`: queue the move that was named, or ask.
@@ -457,15 +414,19 @@ func mcpPickAccount(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> 
     // Counting the ROWS rather than the accounts: the release is one of the options and is not an
     // account, and an account the ranking excluded is not in the pool being offered.
     let prompt = mcpAccountPrompt(offering: rows.count, provider: providers[0].id, problem: problem)
+    // BOTH AXES, ACCOUNTS FIRST: the same palette the model command raises, opened the other way up
+    // (`mcpPickSections`). The models come from this session's own reading, which is the same one
+    // `/tally-model` would have shown.
     let offer = MCPPickOffer(kind: .account, message: prompt,
-                             rows: mcpAccountPickRows(accounts, ranked: rows), schema: schema)
-    guard case .accepted(let content) = ask(offer),
-          let account = content[mcpAccountField] else {
+                             sections: mcpPickSections(
+                                focus: .account,
+                                model: mcpModelPickRows(world.modelStatus(input)),
+                                account: mcpAccountPickRows(accounts, ranked: rows)),
+                             schema: schema)
+    guard case .accepted(let content) = ask(offer) else {
         return mcpBlockDecision(mcpNothingChanged)
     }
-    // BY ID, not by name: the row already knows exactly which account it is, so the pick skips the
-    // matcher entirely and cannot land on an account whose label merely shares a prefix.
-    return queue(account == switchAutoRequest ? .auto : .pinAccount(account))
+    return mcpQueuePick(content, input: input, world: world)
 }
 
 /// What a cancelled dialog says. One sentence for Escape and for Decline, and it names the state

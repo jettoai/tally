@@ -103,6 +103,38 @@ let switchRecommendedTag = "most headroom"
 /// What the release row is called wherever it is offered.
 let pickAutoLabel = "automatic selection  (release this session's pin)"
 
+/// How long a panel that has just been raised may lose the key window without that meaning anybody
+/// put it down.
+///
+/// THE INCIDENT THIS EXISTS FOR (0.41.0, first real use): every `/tally-model` and `/tally-account`
+/// came back INSTANTLY with "nothing was changed", and no panel was ever seen. The file trace says
+/// exactly what happened - request written, claimed 11ms later, and an EMPTY answer (a cancellation)
+/// 147ms after that, with nobody having touched anything:
+///
+///     80.876  <id>.request
+///     80.887  <id>.claim    17431
+///     81.034  <id>.answer   {}
+///
+/// Tally is an accessory app, so raising this panel means asking for the foreground, and that ask
+/// does not complete synchronously: the panel is made key in-process, the activation then settles
+/// (or does not), and AppKit takes the key window back. The controller read that as the person
+/// clicking away and answered on their behalf, before they had seen anything to click.
+let pickPanelActivationGrace: TimeInterval = 0.6
+
+/// Whether a panel losing the key window is the PERSON putting it down.
+///
+/// Pure and shared so the rule can be asserted without an app: the panel is AppKit, but "what counts
+/// as a dismissal" is a decision, and this incident is what it costs when that decision lives only
+/// inside a delegate callback nothing can reach.
+///
+/// A panel that was never shown answers false, which is the same fail-safe direction: silence is not
+/// a dismissal, and the CLI's own deadline is what ends a pick nobody answers.
+func pickDismissalIsFromPerson(shownAt: Date?, now: Date = Date(),
+                               grace: TimeInterval = pickPanelActivationGrace) -> Bool {
+    guard let shownAt else { return false }
+    return now.timeIntervalSince(shownAt) >= grace
+}
+
 // MARK: - The files
 
 func pickRequestFile(id: String, dir: URL = pickRequestDir) -> URL {

@@ -357,6 +357,81 @@ func runPickerChecks() {
     check("the release row is offered last and is on nobody's account",
           accountRows.last?.value == switchAutoRequest && accountRows.last?.tags.isEmpty == true)
 
+    // MARK: - 36e2. A panel losing key is not always a person putting it down
+
+    // THE 0.41.0 INCIDENT, as an assertion. Every pick came back instantly with "nothing was
+    // changed" and no panel was ever seen; the files say the app claimed in 11ms and wrote an EMPTY
+    // answer 147ms later, with nobody having touched anything. Raising the panel asks an accessory
+    // app for the foreground, the ask settles after the panel is made key, and AppKit takes the key
+    // window back in between - which the delegate read as a dismissal and answered on the person's
+    // behalf.
+    let raised = Date(timeIntervalSince1970: 1_800_000_000)
+    check("a key window lost while the foreground ask is still settling is NOT a dismissal",
+          !pickDismissalIsFromPerson(shownAt: raised,
+                                     now: raised.addingTimeInterval(0.147)))
+    check("…nor is one lost in the same instant the panel went up",
+          !pickDismissalIsFromPerson(shownAt: raised, now: raised))
+    check("a panel that was never raised cannot have been dismissed",
+          !pickDismissalIsFromPerson(shownAt: nil, now: raised.addingTimeInterval(60)))
+    check("…while a person clicking away from a panel they have been looking at still is",
+          pickDismissalIsFromPerson(shownAt: raised,
+                                    now: raised.addingTimeInterval(pickPanelActivationGrace + 0.01)))
+    check("…and so is one seconds later, which is what clicking away actually looks like",
+          pickDismissalIsFromPerson(shownAt: raised, now: raised.addingTimeInterval(30)))
+    // The controller asks that question rather than answering it inline, which is the half that
+    // made the defect invisible: the judgement used to live only in a delegate callback.
+    let controller = (try? String(contentsOfFile: "Tally/MenuBar/PickPanelController.swift",
+                                  encoding: .utf8)) ?? ""
+    check("the panel controller is readable from the suite", !controller.isEmpty)
+    check("…and it decides a resign-key through the shared rule",
+          controller.contains("pickDismissalIsFromPerson(shownAt: shownAt)"))
+    // An empty answer is what the app wrote in the incident, and it has to keep reading as a
+    // cancellation rather than as a row nobody named.
+    check("an empty answer object is a cancellation",
+          decodePick(PickAnswer.self, from: Data("{}".utf8))?.isCancelled == true)
+
+    // MARK: - 36e3. The form fallback, end to end, over a real pipe
+
+    // THE FACE THIS ROUND MISSED. Every fallback check above asserts that the form is SENT; none of
+    // them carried a reply back through the transport that was rewritten underneath it
+    // (`StdioLineReader`). A round trip that stops at "the question went out" cannot see a reader
+    // that answers nil, and the incident made that gap worth closing whichever way it had gone.
+    let toServer = Pipe()
+    let wireReader = StdioLineReader(descriptor: toServer.fileHandleForReading.fileDescriptor)
+    // THE REPLY IS LOADED BEFORE THE QUESTION IS ASKED, which is what keeps this test honest under
+    // a mutant: a client that only answers when it SEES the form turns "the form was never sent"
+    // into a deadlock, and a hanging test says nothing about what broke. The id is the server's
+    // first (`tally-elicit-1`), so the reply is already in the pipe whichever way the run goes.
+    let accept: [String: Any] = ["jsonrpc": "2.0", "id": "tally-elicit-1",
+                                 "result": ["action": "accept",
+                                            "content": ["model": "sonnet"]]]
+    toServer.fileHandleForWriting.write(try! JSONSerialization.data(withJSONObject: accept))
+    toServer.fileHandleForWriting.write(Data("\n".utf8))
+    var replies: [[String: Any]] = []
+    let wire = MCPConnection(read: { wireReader.line() },
+                             write: { line in
+                                 if let data = line.data(using: .utf8),
+                                    let object = (try? JSONSerialization.jsonObject(with: data))
+                                        as? [String: Any] {
+                                     replies.append(object)
+                                 }
+                             },
+                             buffered: { wireReader.hasCompleteLine })
+    var formQueued: [ModelIntent] = []
+    let formServer = MCPServer(connection: wire, world: pickWorld(model: { formQueued.append($0) }),
+                               claudeCodePID: nil, pick: .unavailable)
+    formServer.handle(["jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                       "params": ["name": PromptHookTool.pickModel.rawValue,
+                                  "arguments": ["cwd": "/tmp/w", "command_args": ""]]])
+    check("with no app to draw it, the form goes out over the real transport",
+          replies.contains { $0["method"] as? String == "elicitation/create" })
+    check("…the reply comes back THROUGH THE NEW READER and is applied",
+          formQueued == [ModelIntent.pin(model: "sonnet", effort: nil)])
+    check("…and the tool answers with what was queued rather than with a cancellation",
+          mcpDecisionText(replies.first { $0["id"] as? Int == 7 } ?? [:])?
+              .contains(mcpNothingChanged) == false)
+    try? toServer.fileHandleForWriting.close()
+
     // MARK: - 36f. What a chosen row comes back as
 
     // One offer, two channels, one answer shape: the callers read `content[mcpModelField]` and do

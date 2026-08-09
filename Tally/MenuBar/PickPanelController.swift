@@ -25,6 +25,9 @@ final class PickPanelController: NSObject, NSWindowDelegate {
     private var current: PickRequest?
     /// The app the person was in when this was raised, so it can have the foreground back.
     private var previousApp: NSRunningApplication?
+    /// When the panel went up, which is what separates the activation settling from a person putting
+    /// it down (`pickDismissalIsFromPerson`).
+    private var shownAt: Date?
 
     /// Where the request files live. Injected only so a preview can drive the panel from a fixture
     /// without writing into the real directory.
@@ -77,6 +80,7 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         let activating = CaptureLaunch.mayTakeForeground(
             prompted: prompted, activeKeys: CaptureLaunch.activeKeys())
         current = request
+        shownAt = Date()
         // Captured only when the foreground is actually being borrowed. Nothing was taken on a
         // background preview, so there is nothing to hand back, and handing it back anyway would
         // activate whatever the person had moved on to.
@@ -132,8 +136,16 @@ final class PickPanelController: NSObject, NSWindowDelegate {
 
     /// A click outside the panel is a cancellation, the same reading Escape gets: the person went
     /// back to what they were doing, which is the answer.
+    ///
+    /// EXCEPT WHILE THE FOREGROUND ASK IS STILL SETTLING. Raising this panel from an accessory app
+    /// means requesting activation, and that request does not complete on this turn of the loop: the
+    /// panel is made key here, the request settles afterwards, and AppKit takes the key window back
+    /// in between. Read as a dismissal, that answered every pick the instant it was asked - which is
+    /// exactly what shipped in 0.41.0 (`pickPanelActivationGrace` carries the trace). The judgement
+    /// itself is pure and lives with the contract, where it can be asserted without an app.
     func windowDidResignKey(_ notification: Notification) {
-        guard (notification.object as? NSWindow) === panel else { return }
+        guard (notification.object as? NSWindow) === panel,
+              pickDismissalIsFromPerson(shownAt: shownAt) else { return }
         finish(with: .cancelled)
     }
 
@@ -152,6 +164,7 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         panel?.delegate = nil
         panel?.orderOut(nil)
         panel = nil
+        shownAt = nil
         // Handed back to whoever had it. Without this, every pick would leave the person in Tally
         // instead of the terminal they typed the command into.
         previousApp?.activate()

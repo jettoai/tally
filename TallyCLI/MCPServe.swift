@@ -286,6 +286,9 @@ final class MCPServer {
         // nobody is waiting on any more.
         defer { pick.discard(id) }
         let started = pick.now()
+        /// Whether the previous lap found the request held by a claim with no seal beside it. The
+        /// one piece of memory this wait keeps, and the fallback below says what it is for.
+        var sawUnsealedClaim = false
         while true {
             // THE CLIENT FIRST, and only when it has actually said something. OUR OWN BUFFER IS
             // ASKED BEFORE THE DESCRIPTOR, because a message already pulled into user space is
@@ -302,10 +305,16 @@ final class MCPServer {
             // from claiming (`pickMayBeClaimed`) can only bind builds that HAVE it, and the copies
             // this protects against are older than it by definition: a Tally left running from
             // before that change claims exactly as it always did, carrying the panel defect that
-            // cancelled every pick in 147ms. So the requester arbitrates, on the one thing an older
-            // build cannot produce - the seal beside the claim (`pickClaimSealFile`).
+            // cancelled every pick in 147ms. So this wait arbitrates, on the one thing an older
+            // build cannot produce - the seal beside the claim. It protects the sessions STARTED
+            // since the seal shipped, and only those: this server runs until its client closes
+            // stdin, so an older session is still asking the old questions with the old binary
+            // (`pickClaimSealFile` states the whole of that limit).
             let holder = pick.claimant(id)
             let strangerHolds = holder.map { !pick.sealed(id, $0) } ?? false
+            // Consecutive is what the extra lap below means, so a request that stops being held by a
+            // stranger starts the count over.
+            if !strangerHolds { sawUnsealedClaim = false }
             // A CANCELLED ANSWER IS AN ANSWER: Esc and a click outside both write one, so the wait
             // ends at the moment the person decides rather than at the deadline. UNLESS A STRANGER
             // IS HOLDING THE REQUEST, because then the answer on disk is that stranger's, and the
@@ -325,7 +334,18 @@ final class MCPServer {
             if !watched {
                 // Nobody has taken it, or whoever had it is gone. Fall back while the person is
                 // still looking at the terminal they typed into.
-                if waited > nativePickClaimSeconds { return nil }
+                if waited > nativePickClaimSeconds {
+                    // ONE MORE LAP WHEN A CLAIM IS THERE BUT UNSEALED, because that state has two
+                    // causes and only one of them is a stale build. The other is a current app in
+                    // the microseconds between taking the claim and sealing it (`takePickClaim`
+                    // writes the two in that order), and a deadline landing in that gap would draw
+                    // the form with the panel already coming up: the two surfaces at once that the
+                    // claim exists to prevent. A stale build is unsealed on every lap, so it falls
+                    // back one poll interval later than it otherwise would, which is 100ms nobody
+                    // can see. AN ABSENT CLAIM IS NOT AMBIGUOUS and is not delayed with it.
+                    if !strangerHolds || sawUnsealedClaim { return nil }
+                    sawUnsealedClaim = true
+                }
             } else if waited > nativePickDeadlineSeconds {
                 // A panel somebody raised and walked away from. Nothing was chosen, which is what
                 // every other unanswered pick already comes to.

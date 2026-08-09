@@ -66,9 +66,11 @@ func runPickClaimChecks() {
     // is older than it. A Tally started yesterday claims exactly as it always did and cancels in
     // 147ms, with the fix sitting in a binary nobody has relaunched.
     //
-    // So the arbitration moves to the end we can always update. The CLI ships inside the bundle and
-    // re-enters this wait on every single pick, and it now asks for something an older app cannot
-    // produce: the seal beside the claim.
+    // So the arbitration moves to the requester, which asks for something an older app cannot
+    // produce: the seal beside the claim. What that reaches is sessions STARTED since it shipped,
+    // and no more than that - a running `mcp-serve` keeps the binary it launched with, so the
+    // sessions already talking stay as exposed as they were (`pickClaimSealFile` states the limit,
+    // and the checks below are about what the new code does, not about reaching the old).
 
     let skewDir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-seal-\(UUID().uuidString)")
@@ -107,7 +109,7 @@ func runPickClaimChecks() {
     let stranger = PickChannelDouble()
     stranger.claims = [991]
     stranger.living = [991]                       // alive, and holding it: not the dead-claim case
-    stranger.sealing = []                         // sealed by nobody, which is what makes it old
+    stranger.seals = [false]                      // sealed on no lap, which is what makes it old
     stranger.answers = [PickAnswer.cancelled]     // the 147ms self-cancellation, already on disk
     stranger.elapsed = [0, 0, nativePickClaimSeconds + 0.1]
     let overruled = runPick(
@@ -125,7 +127,7 @@ func runPickClaimChecks() {
     var queued: [SwitchIntent] = []
     let current = PickChannelDouble()
     current.claims = [4242]
-    current.sealing = [4242]
+    current.seals = [true]
     current.answers = [nil, PickAnswer(value: "claude:.claude2")]
     let landed = runPick(current.channel, world: pickWorld(applied: { queued.append($0) }))
     check("a sealed claim is waited on and its answer is the person's",
@@ -135,15 +137,61 @@ func runPickClaimChecks() {
 
     // The two ends of the same rule, stated together: what decides is the seal, not the pid, not
     // liveness. An old copy that stays alive for the full five minutes still never holds this wait
-    // open past the claim deadline.
+    // open past the claim deadline, and it is unsealed on EVERY lap, which is what the extra lap
+    // below tells it apart by.
     let patient = PickChannelDouble()
     patient.claims = [991]
     patient.living = [991]
-    patient.sealing = []
+    patient.seals = [false]
     patient.elapsed = [0, 0, nativePickClaimSeconds + 0.1]
     let notHeld = runPick(patient.channel, world: pickWorld())
     check("an unsealed claim cannot hold the wait open, however alive its holder is",
           notHeld.sent.contains { $0["method"] as? String == "elicitation/create" })
+
+    // MARK: - 36c9. The microseconds between taking a claim and sealing it
+
+    // THE INTERLEAVING THIS COSTS IF THE UNSEALED READING IS BELIEVED ON SIGHT (codex review of
+    // b621bbc): a current app wins the claim and seals it a moment later, and the claim deadline
+    // lands in between. Read once, that is a stranger, and the wait draws the form while the panel
+    // is coming up - two surfaces for one question, which is the thing the claim exists to stop.
+    // So the unsealed reading has to be seen TWICE IN A ROW before it is acted on. A stale build
+    // gives it every lap; this gap gives it once.
+    var raced: [SwitchIntent] = []
+    let sealingLate = PickChannelDouble()
+    sealingLate.claims = [4242]
+    sealingLate.living = [4242]
+    sealingLate.seals = [false, true]                 // claimed on this lap, sealed on the next
+    sealingLate.answers = [nil, nil, PickAnswer(value: "claude:.claude2")]
+    // The first reading is the wait's own start; every lap after it is already past the claim
+    // deadline, so the very first sighting of the unsealed claim is a deadline sighting.
+    sealingLate.elapsed = [0, nativePickClaimSeconds + 0.1]
+    let survived = runPick(sealingLate.channel, world: pickWorld(applied: { raced.append($0) }))
+    check("a claim sealed one lap after the deadline is still the app's, not a stranger's",
+          survived.decision.contains("queued the move") && raced == [.pinAccount("claude:.claude2")])
+    check("…so no form is drawn behind a panel that was already on its way up",
+          !survived.sent.contains { $0["method"] as? String == "elicitation/create" })
+    // And the delay is bought for that case alone: a request nobody has claimed is unambiguous, so
+    // it still falls back the moment the claim deadline passes.
+    let nobody = PickChannelDouble()
+    nobody.claims = [nil]
+    nobody.elapsed = [0, 0, nativePickClaimSeconds + 0.1]
+    let unclaimed = runPick(nobody.channel, world: pickWorld())
+    check("an unclaimed request still falls back the moment its deadline passes",
+          unclaimed.sent.contains { $0["method"] as? String == "elicitation/create" })
+    check("…on the very lap that saw the deadline, with no extra lap spent on anybody's behalf",
+          nobody.laps == 2)
+    // CONSECUTIVE, which is the other half of the rule: a lap that finds the claim sealed says the
+    // gap closed, so a later unsealed reading is a fresh first sighting rather than the second half
+    // of an old one. Told apart by WHICH LAP the wait gives up on, because that is the only thing
+    // the two versions of the rule differ in.
+    let flickering = PickChannelDouble()
+    flickering.claims = [4242]
+    flickering.seals = [false, true, false, false]
+    flickering.elapsed = [0, nativePickClaimSeconds + 0.1]
+    let counted = runPick(flickering.channel, world: pickWorld())
+    check("a sealed lap in between starts the extra lap over rather than completing it",
+          counted.sent.contains { $0["method"] as? String == "elicitation/create" }
+              && flickering.laps == 4)
 
     // The files the wait leaves behind. Carried by the source because the live channel writes into
     // the user's own `~/.tally/pick`, which no suite may touch: a seal left in the directory would

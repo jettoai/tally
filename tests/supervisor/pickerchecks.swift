@@ -16,17 +16,21 @@ final class PickChannelDouble {
     var claims: [pid_t?] = [4242]
     /// Which claimants are still alive. Anything absent from here is dead.
     var living: Set<pid_t> = [4242]
-    /// Which claimants sealed the claim they hold, which is what tells a current app from a copy
-    /// running since before the seal existed. nil is "every claimant here is a current one", so a
-    /// test only says this when the version skew is what it is about (pickclaimchecks).
-    var sealing: Set<pid_t>?
+    /// Whether the claim is sealed, in order; the last value repeats. What tells a current app from
+    /// a copy running since before the seal existed, and a SEQUENCE because the seal lands a moment
+    /// after the claim it vouches for, which is a state the wait has to sit through (pickclaimchecks
+    /// drives both). Asked only on the laps that found a claimant, exactly as the wait asks it.
+    var seals: [Bool] = [true]
     /// What `answer` answers, in order; the last value repeats.
     var answers: [PickAnswer?] = [nil]
     /// What `messageWaiting` answers, in order; the last value repeats.
     var messages: [Bool] = [false]
     /// How far the clock has moved when each turn asks, in order; the last value repeats.
     var elapsed: [TimeInterval] = [0]
-    private var claimAsks = 0, answerAsks = 0, messageAsks = 0, clockAsks = 0
+    private var claimAsks = 0, sealAsks = 0, answerAsks = 0, messageAsks = 0, clockAsks = 0
+    /// How many laps the wait actually took, which is the only way to assert that a reading it is
+    /// ALLOWED to act on immediately was not quietly given an extra lap (pickclaimchecks 36c9).
+    var laps: Int { claimAsks }
     private let start = Date(timeIntervalSince1970: 1_800_000_000)
 
     /// How many turns the wait may take before the clock is slammed past every deadline. A test
@@ -44,7 +48,7 @@ final class PickChannelDouble {
             publish: { [self] request in published.append(request); return true },
             claimant: { [self] _ in next(claims, &claimAsks) },
             isAlive: { [self] pid in living.contains(pid) },
-            sealed: { [self] _, pid in sealing?.contains(pid) ?? true },
+            sealed: { [self] _, _ in next(seals, &sealAsks) },
             answer: { [self] _ in next(answers, &answerAsks) },
             discard: { [self] id in discarded.append(id) },
             messageWaiting: { [self] _ in next(messages, &messageAsks) },

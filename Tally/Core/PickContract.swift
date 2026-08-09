@@ -222,10 +222,17 @@ func pickAnswerFile(id: String, dir: URL = pickRequestDir) -> URL {
 /// WHY THERE IS ONE AT ALL. The stand-down above only reaches builds that have it, and the builds
 /// this is about are by definition older than it: an app already running from before this change
 /// claims exactly as it always did, and the one thing it carries for certain is the panel defect
-/// that made it dangerous. The requester is the end we can always update, because the CLI ships
-/// inside the bundle and the wait is re-entered on every pick, so the arbitration belongs there: a
-/// claim nobody sealed was taken by a build that predates this protocol, and the wait declines to
-/// treat it as a claim (MCPServe.askNatively).
+/// that made it dangerous. So the arbitration is put on the requester, where a claim nobody sealed
+/// is declined as a claim (MCPServe.askNatively).
+///
+/// WHICH REQUESTERS THAT ACTUALLY REACHES, precisely, because the tempting version of this sentence
+/// is false: the CLI ships inside the bundle, so every session STARTED after an update runs the new
+/// code. Not every session. `MCPServer.serve()` reads until its Claude Code closes stdin, which is
+/// hours or days, and a process cannot be reloaded from underneath itself: a session that was
+/// already talking when the update landed goes on running the CLI it launched with, asks for no
+/// seal, and can still be answered by a stale app. That is not a hole this opens, it is the state
+/// those sessions were already in, and it closes on its own as they turn over. Nothing here can
+/// shorten it, which is why it is written down instead of implied away.
 ///
 /// WHY A FILE BESIDE THE CLAIM RATHER THAN A FIELD INSIDE IT, which is the shape this obviously
 /// wanted: the claim file's whole content IS the pid (`readPickClaim` parses the trimmed file), so

@@ -9,11 +9,11 @@ import Foundation
 /// a window restore. What is scoped to one flag here is nothing; the family is the unit.
 ///
 /// Membership is decided by PURPOSE, one question per flag: does this exist so something can be
-/// observed without taking the observer's desktop away? The two that answer no are the CLI
-/// overrides in `interactiveKeys`, which point a chain at a stand-in binary so it can be DRIVEN by
-/// hand. Driving something means being in front of it, so they are not in the family. It costs
-/// nothing either way, since a plain `open` activates the app regardless, but the family means
-/// something only while it is defined by purpose rather than by convenience.
+/// observed without taking the observer's desktop away? The ones that answer no are in
+/// `interactiveKeys`, and they exist to be DRIVEN by hand instead. Driving something means being in
+/// front of it, so they are not in the family. It costs nothing either way, since a plain `open`
+/// activates the app regardless, but the family means something only while it is defined by purpose
+/// rather than by convenience.
 ///
 /// `TallyUpdateChipReady` and `TallyTokenGraphHover` are absent for a different reason: they are
 /// modifiers, inert without the flag they qualify, and that flag is in the list. A launch carrying
@@ -56,15 +56,26 @@ enum CaptureLaunch {
     /// parent.
     static let modifierKeys = ["TallyUpdateChipReady", "TallyTokenGraphHover"]
 
-    /// Flags that point a chain at a stand-in binary so it can be DRIVEN by hand: probe, verdict,
-    /// chip, click, renewal. Driving something means being in front of it, so these are not the
-    /// family, and that is a statement about purpose rather than about cost (a plain `open`
-    /// activates either way).
+    /// The override that hands the pick claim back to a build that has stood down
+    /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks
+    /// about this flag specifically, and a second spelling of the key would gate on a different flag
+    /// from the one classified here.
+    static let pickClaimOverride = "TallyPickClaim"
+
+    /// Flags that exist so something can be DRIVEN by hand rather than looked at, which is the other
+    /// answer to the family's one question. Driving something means being in front of it, so these
+    /// are not the family, and that is a statement about purpose rather than about cost (a plain
+    /// `open` activates either way).
     ///
-    /// Both were missed by a scan for `forKey:`, because both reach the defaults through a named
-    /// constant instead. That is why the completeness check now scans for the LITERALS rather than
-    /// for any particular way of looking one up.
-    static let interactiveKeys = ["TallyRenewLoginCLI", "TallyLoginStatusCLI"]
+    /// Two of them point a chain at a stand-in binary: probe, verdict, chip, click, renewal. The
+    /// third hands a stood-down build back a capability instead of substituting anything, and it is
+    /// here on the same test: a developer answering the pick panel to see what a real request does
+    /// is working the app, not observing it.
+    ///
+    /// The first two were missed by a scan for `forKey:`, because both reach the defaults through a
+    /// named constant instead. That is why the completeness check now scans for the LITERALS rather
+    /// than for any particular way of looking one up.
+    static let interactiveKeys = ["TallyRenewLoginCLI", "TallyLoginStatusCLI", pickClaimOverride]
 
     /// Every launch flag this app has, in exactly one bucket each. The completeness check compares
     /// this against the flags actually spelled in the source, so a new one cannot be added without
@@ -100,7 +111,14 @@ enum CaptureLaunch {
 
     /// Which of the family this launch carries.
     static func activeKeys(in defaults: UserDefaults = .standard) -> Set<String> {
-        Set(backgroundKeys.filter { isActive(rawValue: defaults.object(forKey: $0)) })
+        Set(backgroundKeys.filter { carries($0, in: defaults) })
+    }
+
+    /// Whether this launch carries one named flag, in whatever shape its value arrived (`isActive`).
+    /// For the flags asked about one at a time rather than as a set: the family is answered over the
+    /// whole launch, an override is answered about itself.
+    static func carries(_ key: String, in defaults: UserDefaults = .standard) -> Bool {
+        isActive(rawValue: defaults.object(forKey: key))
     }
 
     /// Whether a flag was carried, from whatever the defaults hold for it.

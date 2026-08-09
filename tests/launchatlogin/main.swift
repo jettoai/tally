@@ -455,8 +455,8 @@ check("every flag spelled in the source is classified",
       scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
 check("and every flag classified is spelled in the source",
       Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-check("which comes to eighteen, in three buckets",
-      CaptureLaunch.allFlagKeys.count == 18 && scanned.count == 18)
+check("which comes to nineteen, in three buckets",
+      CaptureLaunch.allFlagKeys.count == 19 && scanned.count == 19)
 check("with nothing counted twice",
       Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
 check("a launch carrying none of them does",
@@ -475,8 +475,20 @@ check("the login-item state preview is a member of the family",
 check("the interactive CLI overrides are not members, they exist to be driven",
       CaptureLaunch.interactiveKeys.allSatisfy {
           CaptureLaunch.mayTakeForeground(activeKeys: [$0]) })
-check("and there are two of them, the renewal chain and the login-status chain",
-      Set(CaptureLaunch.interactiveKeys) == ["TallyRenewLoginCLI", "TallyLoginStatusCLI"])
+check("and there are three of them: the two stand-in chains and the pick claim override",
+      Set(CaptureLaunch.interactiveKeys)
+        == ["TallyRenewLoginCLI", "TallyLoginStatusCLI", "TallyPickClaim"])
+// The newest of the three, which is in this bucket rather than the family for the family's own
+// reason: it exists so the pick panel can be ANSWERED by hand on a build that has stood down
+// (`pickMayBeClaimed`), and answering means being in front of it. Classified as a capture flag it
+// would have suppressed the foreground the panel needs.
+check("the pick claim override is not a capture flag",
+      !CaptureLaunch.backgroundKeys.contains(CaptureLaunch.pickClaimOverride))
+check("…it is spelled once, where the panel's gate reads it",
+      CaptureLaunch.pickClaimOverride == "TallyPickClaim"
+        && CaptureLaunch.interactiveKeys.contains(CaptureLaunch.pickClaimOverride))
+check("…and a launch carrying it may come forward, because somebody is about to work it",
+      CaptureLaunch.mayTakeForeground(activeKeys: [CaptureLaunch.pickClaimOverride]))
 check("nor are the two modifiers, which show nothing on their own",
       CaptureLaunch.mayTakeForeground(activeKeys: Set(CaptureLaunch.modifierKeys)))
 // ... but riding along with their parent changes nothing: the parent is what is asked about.

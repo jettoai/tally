@@ -9,8 +9,9 @@ import SwiftUI
 //
 //   1. CLAIMING. Writing the claim file is what tells the waiting CLI "somebody is looking at this",
 //      and NOT writing it is how every fallback works: no app, an app that will not draw right now,
-//      a request this build cannot read. The CLI waits a second and a half for the claim and then
-//      draws the old form, so a refusal here costs the person nothing but the native look.
+//      a request this build cannot read, a build nobody installed (`pickMayBeClaimed`). The CLI
+//      waits a second and a half for the claim and then draws the old form, so a refusal here costs
+//      the person nothing but the native look.
 //   2. ONE AT A TIME. A second request arriving while a panel is up is not queued and not stacked:
 //      it is simply not claimed, so it falls back. Two panels would be two answers competing for one
 //      keyboard, and the fallback is a complete surface rather than a degraded one.
@@ -65,6 +66,20 @@ final class PickPanelController: NSObject, NSWindowDelegate {
     }
 
     private func present(id: String?) {
+        // STAND DOWN IF THIS IS NOT THE INSTALLED APP, before anything else is even looked at. The
+        // knock is machine-wide, so every Tally running here hears it, and the exclusive claim below
+        // only guarantees that ONE of them wins: a build left running from yesterday is the likelier
+        // winner precisely because it does less before it claims. On 2026-08-09 one was, and it was
+        // built before the panel's self-cancelling defect was fixed, so every pick on that machine
+        // died in 147ms with an installed 0.42.0 sitting right beside it (`pickMayBeClaimed` carries
+        // the trace, the escape hatch, and what standing down costs a DMG launch).
+        //
+        // The dev preview is untouched by this: it never comes through here at all
+        // (`previewIfRequested` shows the panel directly and writes no answer), so a build that may
+        // not answer a real request can still be the one a developer is looking at.
+        guard pickMayBeClaimed(isUnshipped: BuildVariant.isUnshipped,
+                               overridden: CaptureLaunch.carries(CaptureLaunch.pickClaimOverride))
+        else { return }
         guard let id, isPickID(id), current == nil,
               // The same one-answer-per-launch question every other unprompted window asks
               // (CaptureLaunch.mayTakeForeground): a launch that is there to be looked at must not

@@ -15,6 +15,9 @@ struct PickPanelView: View {
 
     @State private var selection: Int
     @FocusState private var focused: Bool
+    /// What the rows actually laid out at, or zero before the first pass. Read through
+    /// `pickRowsHeight`, which is where "zero is not a measurement" is decided.
+    @State private var rowsHeight: CGFloat = 0
 
     init(request: PickRequest, choose: @escaping (PickRow?) -> Void) {
         self.request = request
@@ -31,7 +34,11 @@ struct PickPanelView: View {
                 .padding(.bottom, 2)
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 2) {
+                    // EAGER, and that is a sizing decision rather than a performance one: what the
+                    // list is told to be tall is what these rows MEASURE (`rowsHeightReporter`), and
+                    // a lazy stack only measures the rows it has materialized. The lists here are a
+                    // fleet or an effort table, tens of rows at the outside.
+                    VStack(spacing: pickRowSpacing) {
                         ForEach(Array(request.rows.enumerated()), id: \.offset) { index, row in
                             PickRowView(row: row, isSelected: index == selection)
                                 .id(index)
@@ -44,11 +51,15 @@ struct PickPanelView: View {
                                 .onHover { if $0 { selection = index } }
                         }
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, pickRowsPadding)
+                    .background(rowsHeightReporter)
                 }
-                // Capped so the intrinsic height stays bounded whatever the fleet or the effort list
-                // does: the panel is sized by this content and nothing else (PickPanelController).
-                .frame(maxHeight: 360)
+                // TOLD, NOT ASKED. A ScrollView has no ideal height along its scroll axis, so a
+                // panel sized by its content (`PickPanelController` leaves `sizingOptions` the only
+                // size authority) used to get nothing back and come up as a message with no rows
+                // under it. The height comes from the rows themselves now, measured or computed,
+                // and `pickRowsHeight` is where both live.
+                .frame(height: pickRowsHeight(measured: rowsHeight, rows: request.rows))
                 .onChange(of: selection) { _, now in
                     withAnimation(.linear(duration: 0.08)) { proxy.scrollTo(now, anchor: .center) }
                 }
@@ -68,6 +79,17 @@ struct PickPanelView: View {
         .onKeyPress(.escape) {
             choose(nil)
             return .handled
+        }
+    }
+
+    /// The rows' own laid-out height, reported upward. Same shape as the surface the panel and the
+    /// popover are sized by (`PopoverRootView.sizeReporter`), and for the same reason: a rendered
+    /// size is a fact, while a size asked of a scrolling container is a preference it does not have.
+    private var rowsHeightReporter: some View {
+        GeometryReader { proxy in
+            Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
+                rowsHeight = height
+            }
         }
     }
 

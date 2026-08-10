@@ -72,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PickPanelController.previewIfRequested()
         // An agent skill installed by an older app version is silently brought up to date, so
         // the guidance ships with the app. Only files that are already installed and ours are
-        // touched: never an install, never someone else's skills/tally.
+        // touched: never an install, never someone else's skill of the same name.
         IntegrationsStore.shared.autoUpdateSkill()
         // And keep them there: the sync above runs once, while the file it writes into is the
         // user's and can be rewritten by anything (IntegrationsSelfHeal.swift).

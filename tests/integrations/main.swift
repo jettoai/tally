@@ -52,7 +52,7 @@ try MainActor.assumeIsolated {
     try runStatusLineChecks(tmp: tmp)
 
     // MARK: Claude Code skill surgery - install, refuse foreign files, remove cleanly.
-    let skillFile = tmp.appendingPathComponent("skills/tally/SKILL.md")
+    let skillFile = IntegrationsStore.claudeSkillFile(inHome: tmp)
     check("fresh skill install writes the file",
           try IntegrationsStore.upsertSkill(in: skillFile) == true
               && FileManager.default.fileExists(atPath: skillFile.path))
@@ -83,7 +83,8 @@ try MainActor.assumeIsolated {
     var refused = false
     do { _ = try IntegrationsStore.upsertSkill(in: skillFile) } catch { refused = true }
     var afterRefusal = try String(contentsOf: skillFile, encoding: .utf8)
-    check("a user's own skills/tally is never clobbered", refused && afterRefusal == userSkill)
+    check("a user's own skill at that path is never clobbered",
+          refused && afterRefusal == userSkill)
     try IntegrationsStore.removeSkill(in: skillFile)
     afterRefusal = try String(contentsOf: skillFile, encoding: .utf8)
     check("remove leaves a foreign skill untouched", afterRefusal == userSkill)
@@ -94,7 +95,7 @@ try MainActor.assumeIsolated {
     var refusedJunk = false
     do { _ = try IntegrationsStore.upsertSkill(in: skillFile) } catch { refusedJunk = true }
     let junkAfter = try Data(contentsOf: skillFile)
-    check("an undecodable skills/tally is refused, not clobbered",
+    check("an undecodable skill file is refused, not clobbered",
           refusedJunk && junkAfter == junk)
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
@@ -378,7 +379,7 @@ try MainActor.assumeIsolated {
     check("only the outdated files count as updated", auto.updated == 2 && auto.error == nil)
     check("an absent skill is never installed",
           !FileManager.default.fileExists(atPath: absentFile.path))
-    check("a foreign skills/tally is never overwritten",
+    check("a foreign skill file is never overwritten",
           try String(contentsOf: foreignFile, encoding: .utf8) == userSkill)
     check("a current install is left alone",
           try String(contentsOf: currentFile, encoding: .utf8) == currentSkill)
@@ -417,6 +418,9 @@ try MainActor.assumeIsolated {
     try runTallyCommandChecks(tmp: tmp, skill: currentSkill)
     // And keeping that hook there once something takes it out (selfhealchecks.swift).
     try runMergeChecks(tmp: tmp)
+    // The other half of that release: the skill folder that took `/tally` off the menu it had just
+    // been merged onto, and the move that gets an install out of it (mergechecks.swift).
+    try runSkillFolderMoveChecks(tmp: tmp)
     try runSelfHealChecks(tmp: tmp, skill: currentSkill)
     // The registration those checks deliberately leave out: the native picker pair, the MCP server
     // it calls, and the gate in front of both (nativepickerchecks.swift).

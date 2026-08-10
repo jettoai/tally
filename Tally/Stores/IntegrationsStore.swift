@@ -223,10 +223,20 @@ final class IntegrationsStore {
         ClaudeAccounts.discover().compactMap { $0.launchHome.map { URL(fileURLWithPath: $0) } }
     }
 
+    /// The folder inside `<home>/skills` the skill lives in.
+    ///
+    /// THE FOLDER NAME IS A REGISTRATION, not a detail of where a file sits. Claude Code keys its
+    /// slash-command menu on the folder, so a skill folder called `tally` took the `/tally` COMMAND
+    /// off that menu: 0.44.0 installed both, and the command was on every machine and offered on
+    /// none of them, while the menu listed the skill under the name its frontmatter carries. So the
+    /// folder is spelled the way the frontmatter is, and the two namespaces no longer collide. What
+    /// carries an install already on disk across to it is IntegrationsSkillFolderMove.swift.
+    nonisolated static let skillFolderName = "tally-quota"
+
     /// Where the skill lives inside one config home. (`claudeSkillFiles()` builds the same path for
-    /// the discovered homes; folding it onto this is a follow-up, its file is held open elsewhere.)
+    /// the discovered homes through this one spelling.)
     static func claudeSkillFile(inHome home: URL) -> URL {
-        home.appendingPathComponent("skills/tally/SKILL.md")
+        home.appendingPathComponent("skills/\(skillFolderName)/SKILL.md")
     }
 
     /// One settings.json per discovered claude home, deduplicated by physical file (shared

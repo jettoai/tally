@@ -5507,31 +5507,31 @@
         }
       }
     },
-    "A different skill occupies skills/tally": {
+    "A different skill occupies skills/%@": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "skills/tally 已被其他技能佔用"
+            "value": "skills/%@ 已被其他技能佔用"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "skills/tally 已被其他技能占用"
+            "value": "skills/%@ 已被其他技能占用"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "skills/tally を別のスキルが使用しています"
+            "value": "skills/%@ を別のスキルが使用しています"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 스킬이 skills/tally를 사용하고 있습니다"
+            "value": "다른 스킬이 skills/%@ 폴더를 사용하고 있습니다"
           }
         }
       }

@@ -51,4 +51,11 @@ func runLocalizationKeyChecks() {
     check("the occupied-command message has exactly one key", occupied.count == 1)
     check("…which takes the file name as an argument, and never spells a command into itself",
           occupied.first.map { $0.contains("%@") && !$0.contains("tally-") } == true)
+    // And its twin, which the SKILL folder move would otherwise have taught us a second time: the
+    // folder is an argument for the same reason the file name is, so renaming it keeps the four
+    // translations that a key spelling the name into itself would have dropped.
+    let occupiedSkill = keys.filter { $0.hasPrefix("A different skill occupies skills/") }
+    check("the occupied-skill message has exactly one key", occupiedSkill.count == 1)
+    check("…which takes the folder as an argument, and never spells it into itself",
+          occupiedSkill.first.map { $0.contains("%@") && !$0.contains("tally") } == true)
 }

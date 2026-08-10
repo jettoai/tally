@@ -13,6 +13,7 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   tests/integrations/localizationchecks.swift tests/integrations/renamechecks.swift tests/integrations/mergechecks.swift \
   tests/integrations/nativepickerchecks.swift tests/integrations/skillversionchecks.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsSkill.swift \
+  Tally/Stores/IntegrationsSkillContent.swift Tally/Stores/IntegrationsSkillFolderMove.swift \
   Tally/Stores/IntegrationsTallyCommand.swift Tally/Stores/IntegrationsPromptCommand.swift \
   Tally/Stores/IntegrationsPromptHook.swift Tally/Stores/IntegrationsMCPServer.swift \
   Tally/Stores/IntegrationsSelfHeal.swift \

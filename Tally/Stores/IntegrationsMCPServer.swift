@@ -44,7 +44,7 @@ extension IntegrationsStore {
     /// called `tally`.
     ///
     /// PROVENANCE, not the key. Every other half of this integration proves ownership before it
-    /// touches anything - a foreign `skills/tally` is never overwritten (IntegrationsSkill.swift), a
+    /// touches anything - a foreign skill file is never overwritten (IntegrationsSkill.swift), a
     /// command file is ours only if it carries the marker, a hook only if it runs our subcommand -
     /// and this one was matching on the name alone, so a user's own `tally` server would have been
     /// silently overwritten on install and DELETED on uninstall or on a downgrade

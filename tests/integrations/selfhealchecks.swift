@@ -255,10 +255,10 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     check("a home with no skill has no hooks either, by construction", !hooksPresent(removed))
     check("…and is left that way: an uninstall is an instruction, not a fault to repair",
           !needsHealing(removedSkill, [removed]))
-    // A skills/tally that belongs to somebody else is the same answer for a different reason: it was
+    // A skill file that belongs to somebody else is the same answer for a different reason: it was
     // never ours, so there is nothing of ours to put back.
     let foreign = try makeHome("foreign", skill: "---\nname: someone-elses\n---\nnot ours")
-    check("a foreign skills/tally is not read as an install of ours",
+    check("a foreign skill file is not read as an install of ours",
           !needsHealing([IntegrationsStore.claudeSkillFile(inHome: foreign)], [foreign]))
     // And the two guards do not shadow each other: a home that IS ours, next to one that is not,
     // still gets its own hooks back.

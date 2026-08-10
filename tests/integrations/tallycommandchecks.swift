@@ -131,7 +131,7 @@ func runTallyCommandChecks(tmp: URL, skill currentSkill: String) throws {
           commandFile.path == commandHome.appendingPathComponent("commands/tally.md").path)
     check("the home is read back off a skill path, which is what pairs the two",
           IntegrationsStore.claudeHome(
-            ofSkillFile: commandHome.appendingPathComponent("skills/tally/SKILL.md")).path
+            ofSkillFile: IntegrationsStore.claudeSkillFile(inHome: commandHome)).path
               == commandHome.path)
     check("fresh command install writes the file",
           try IntegrationsStore.upsertSwitchCommand(in: commandFile) == true
@@ -297,7 +297,7 @@ func runTallyCommandChecks(tmp: URL, skill currentSkill: String) throws {
 
     // MARK: detection - an install from an older app has the skill and neither of these.
     let pairHome = tmp.appendingPathComponent("pair-home")
-    let pairSkill = pairHome.appendingPathComponent("skills/tally/SKILL.md")
+    let pairSkill = IntegrationsStore.claudeSkillFile(inHome: pairHome)
     try FileManager.default.createDirectory(at: pairSkill.deletingLastPathComponent(),
                                             withIntermediateDirectories: true)
     try currentSkill.write(to: pairSkill, atomically: true, encoding: .utf8)

@@ -78,11 +78,11 @@ extension IntegrationsStore {
         home.appendingPathComponent("commands/\(name).md")
     }
 
-    /// The config home a `<home>/skills/tally/SKILL.md` path belongs to. The commands follow the
+    /// The config home a `<home>/skills/<skill>/SKILL.md` path belongs to. The commands follow the
     /// skill's homes rather than discovering their own, which is what keeps them in step even for an
     /// account that has since logged out (its SKILL.md is still on disk, and so are its commands).
     static func claudeHome(ofSkillFile file: URL) -> URL {
-        file.deletingLastPathComponent()      // skills/tally
+        file.deletingLastPathComponent()      // the skill folder
             .deletingLastPathComponent()      // skills
             .deletingLastPathComponent()      // the config home
     }
@@ -92,7 +92,7 @@ extension IntegrationsStore {
     nonisolated static var promptCommandMarker: String { "tally-command v\(skillVersion)" }
 
     /// Writes one command file. Anything at that path which is not ours is never clobbered, exactly
-    /// as the skill treats a foreign skills/tally: existence and readability stay distinct, so an
+    /// as the skill treats a foreign skill file: existence and readability stay distinct, so an
     /// unreadable file throws rather than being overwritten unseen. Returns true when it changed.
     static func upsertPromptCommand(in file: URL, command: PromptCommand) throws -> Bool {
         if FileManager.default.fileExists(atPath: file.path) {

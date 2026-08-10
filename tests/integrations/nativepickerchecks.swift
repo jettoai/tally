@@ -196,7 +196,7 @@ func runNativePickerChecks(tmp: URL, skill currentSkill: String) throws {
     // MARK: - A server of the USER's, under the name ours needs
     //
     // Every other half of this integration proves ownership before it touches anything: a foreign
-    // `skills/tally` is never overwritten, a command file is ours only if it carries the marker, a
+    // skill file is never overwritten, a command file is ours only if it carries the marker, a
     // hook only if it runs our subcommand. This one matched on the KEY alone, so a user's own
     // server called `tally` would have been silently overwritten on install and DELETED on
     // uninstall or on a Claude Code downgrade (codex review of 512303b).

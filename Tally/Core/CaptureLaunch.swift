@@ -15,9 +15,9 @@ import Foundation
 /// activates the app regardless, but the family means something only while it is defined by purpose
 /// rather than by convenience.
 ///
-/// `TallyUpdateChipReady` and `TallyTokenGraphHover` are absent for a different reason: they are
-/// modifiers, inert without the flag they qualify, and that flag is in the list. A launch carrying
-/// one of them alone is showing nothing and has nothing to protect.
+/// The `modifierKeys` are absent for a different reason: they are modifiers, inert without the flag
+/// they qualify, and that flag is in the list. A launch carrying one of them alone is showing
+/// nothing and has nothing to protect.
 ///
 /// The asymmetry worth knowing when adding a flag: including one that did not need it changes
 /// nothing observable, because a foreground launch is activated by macOS anyway and this only
@@ -54,7 +54,7 @@ enum CaptureLaunch {
     /// Flags that qualify another flag and show nothing on their own. Inert alone, and the flag
     /// each of them qualifies is in `backgroundKeys`, so a launch carrying one is answered by its
     /// parent.
-    static let modifierKeys = ["TallyUpdateChipReady", "TallyTokenGraphHover"]
+    static let modifierKeys = ["TallyUpdateChipReady", "TallyUpdateChipBusy", "TallyTokenGraphHover"]
 
     /// The override that hands the pick claim back to a build that has stood down
     /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks

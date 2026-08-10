@@ -7,6 +7,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/updatefeed/main.swift tests/updatefeed/harness.swift \
-    tests/updatefeed/userchoice.swift \
+    tests/updatefeed/userchoice.swift tests/updatefeed/busy.swift \
     Tally/Core/UpdateFeed.swift Tally/Core/UpdateState.swift
 "$out"

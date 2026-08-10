@@ -49,6 +49,14 @@ struct UpdateState: Equatable {
     /// When the current offer first became known. The pinned-panel grace in `IdleInstall` is
     /// measured against it, and its absence is what stops the idle install from running at all.
     var knownSince: Date?
+    /// The step of an install that is being carried out right now, or nil when nothing is running.
+    ///
+    /// Every transition that starts one sets it and every transition that ends one clears it, in
+    /// this file, for the same reason the rest of the table is here: the version that shipped
+    /// without it moved through a background check, a download and an unpack with nothing on
+    /// screen changing at all, and then replaced the app. From the outside that is a press that did
+    /// nothing followed by the app closing itself, which is what it was reported as.
+    var busy: UpdateBusy?
 
     /// What the app is prepared to offer, which is not everything it knows: a version the user
     /// chose to skip is knowledge, not an offer. Anything newer than the skipped build still is.
@@ -66,6 +74,16 @@ struct UpdateState: Equatable {
     }
 }
 
+/// The steps of an install, in the order they happen, as far as anybody waiting on one needs them.
+/// Sparkle reports the first three; the fourth is the app's own, from the moment it hands the
+/// install back and starts expecting to be replaced.
+enum UpdateBusy: Equatable {
+    case checking
+    case downloading
+    case extracting
+    case restarting
+}
+
 /// Everything that can happen to the updater. Named for the fact, not for the Sparkle callback or
 /// the timer that noticed it, so that "the feed said nothing new" and "the feed could not be read"
 /// are different events rather than the same one with a nil in it.
@@ -76,8 +94,21 @@ enum UpdateEvent: Equatable {
     /// A reading that did not. Carries nothing because it knows nothing.
     case feedReadFailed
     case sparkleFoundUpdate(FeedRelease?)
+    /// Sparkle is about to fetch the payload, and about to spend a while doing it.
+    case sparkleWillDownload
+    /// The archive is on disk and is being unpacked, which on a signed DMG is not instant either.
+    case sparkleWillExtract
     case sparkleStagedUpdate(FeedRelease?)
     case installHandlerArrived(FeedRelease?)
+    /// A silent install was asked for and never got off the ground, because Sparkle already had a
+    /// session open or the consent was withdrawn between the decision and the call. It is an event
+    /// rather than a silent return in the caller because the chip is at that moment saying an
+    /// install is running, and nothing else would ever come along to correct it.
+    case silentInstallCouldNotStart
+    /// Sparkle's update cycle ended (`didFinishUpdateCycleForUpdateCheck`). It cannot end while the
+    /// install trigger is held, so this only arrives with nothing left running: a check that found
+    /// nothing, an item deferred as informational, a session somebody closed.
+    case updateCycleEnded
     /// Sparkle gave up on an update. The app is still running, which is the whole point.
     case installAttemptFailed
     /// The app is about to be replaced. The only event that may take the machinery down.
@@ -140,14 +171,40 @@ enum UpdateReducer {
             state.settle(now: now)
             return []
 
+        case .sparkleWillDownload:
+            state.busy = .downloading
+            return []
+
+        case .sparkleWillExtract:
+            state.busy = .extracting
+            return []
+
         case .sparkleStagedUpdate(let release):
+            // Deliberately not the end of the wait: the payload is downloaded, and the unpack and
+            // the preparation that follow it are most of the time the user spends looking at this.
             if let release { state.staged = release }
             state.settle(now: now)
+            return []
+
+        case .silentInstallCouldNotStart:
+            state.busy = nil
+            return []
+
+        case .updateCycleEnded:
+            // Nothing of Sparkle's is running any more, so a chip still claiming otherwise is
+            // wrong. `.restarting` is the exception: the trigger has been pulled by then and the
+            // app is on its way out, and the one path that ends the cycle afterwards (an
+            // authorisation the user put off until quit) still installs on quit.
+            if state.busy != .restarting { state.busy = nil }
             return []
 
         case .installHandlerArrived(let release):
             if let release { state.staged = release }
             state.installHandlerHeld = true
+            // The fetching is over. Either the dispatch below turns this straight into a restart,
+            // or nothing more happens until somebody asks, and a chip that goes on spinning while
+            // the app waits for an idle moment is claiming work nobody is doing.
+            state.busy = nil
             state.settle(now: now)
             // Only an outstanding press installs on the spot. Everything else waits to be asked
             // by the idle timer, which is the next thing the caller does anyway.
@@ -164,6 +221,7 @@ enum UpdateReducer {
             state.staged = nil
             state.installHandlerHeld = false
             state.installing = false
+            state.busy = nil
             let personWasWaiting = state.requestedByUser
             state.requestedByUser = false
             state.settle(now: now)
@@ -182,6 +240,7 @@ enum UpdateReducer {
                 // The visible session is over. Nothing there could have set the flag, and this is
                 // the belt to that pair of braces.
                 state.requestedByUser = false
+                state.busy = nil
             case .skip:
                 // Read here rather than waiting for the next reading of the feed. Sparkle writes
                 // SUSkippedVersion when the button is pressed, and the app's own poll had usually
@@ -194,12 +253,17 @@ enum UpdateReducer {
                 state.staged = nil
                 state.installHandlerHeld = false
                 state.requestedByUser = false
+                state.busy = nil
                 state.settle(now: now)
                 return hadTrigger ? [.discardHeldInstall] : []
             }
             return []
 
         case .chipPressed:
+            // A press while the last one is still being carried out. The chip is disabled off the
+            // same fact and this is the belt to that brace: the press says nothing new, and acting
+            // on it would put a second check on top of the running one.
+            guard state.busy == nil else { return [] }
             return state.dispatch(userAsked: true)
 
         case .checkPressed:
@@ -251,6 +315,9 @@ private extension UpdateState {
             guard installHandlerHeld else { return userAsked ? [.visibleCheck] : [] }
             installHandlerHeld = false
             requestedByUser = false
+            // The app expects to be replaced from here, so the chip stops offering a version and
+            // says what is about to happen instead. It is the only warning of the restart there is.
+            busy = .restarting
             return [.runHeldInstall]
         case .fetchNewest(let release):
             // The failed build is passable by hand but not by timer: a person pressing it is
@@ -259,6 +326,9 @@ private extension UpdateState {
             guard installsAutomatically else { return userAsked ? [.visibleCheck] : [] }
             // The only place the flag goes up, which is what makes it mean what it says.
             if userAsked { requestedByUser = true }
+            // Set on the idle path too, and not only for the press that is waiting on it: an
+            // unattended install that ends in a restart should have said so on its way past.
+            busy = .checking
             return [.beginSilentInstall]
         }
     }

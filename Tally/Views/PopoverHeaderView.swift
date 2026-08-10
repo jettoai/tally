@@ -70,21 +70,45 @@ extension PopoverRootView {
                 // a click just restarts into the new version).
                 if let version = UpdateAvailability.shared.version {
                     let ready = UpdateAvailability.shared.isDownloaded
+                    let busy = UpdateAvailability.shared.busy
                     Button {
-                        UpdaterController.shared.installNow()
+                        startInstall()
                     } label: {
-                        Text(verbatim: "\(ready ? "↻" : "↑") \(version)")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(ready ? TallyColor.normal : TallyColor.ai))
+                        HStack(spacing: 4) {
+                            if let busy {
+                                // The native spinner, for the reason the refresh button uses one:
+                                // a hand-rolled rotation cannot be stopped cleanly. Scaled to the
+                                // caption line it sits on - the small control size is the height
+                                // of the whole capsule.
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .scaleEffect(0.6)
+                                    .frame(width: 10, height: 10)
+                                    .tint(.white)
+                                Text(Self.busyLabel(busy))
+                            } else {
+                                Text(verbatim: "\(ready ? "↻" : "↑") \(version)")
+                            }
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(ready ? TallyColor.normal : TallyColor.ai))
                     }
                     .buttonStyle(.plain)
+                    // Nothing a second press could ask for that the first is not already doing,
+                    // and the reducer refuses one anyway - this is what makes the refusal visible
+                    // rather than a click that appears to have been swallowed.
+                    .disabled(busy != nil)
                     // A control, so it takes the travelling form: the badge still installs on a
                     // click and the panel still moves if the hand meant to move it.
-                    .windowDragOrTap { UpdaterController.shared.installNow() }
-                    .tallyTooltip(ready ? L("Update downloaded - click to restart")
-                                : L("Update available - click to install"))
+                    .windowDragOrTap { startInstall() }
+                    // Around the control rather than on it, because the busy chip is disabled and
+                    // a disabled control is routed no hover at all - which is the state that most
+                    // needs to be able to explain itself.
+                    .tallyTooltipAroundControl(busy.map(Self.busyLabel)
+                        ?? (ready ? L("Update downloaded - click to restart")
+                                  : L("Update available - click to install")))
                 }
             }
             // Held at its ideal width, which is both what it is owed - the product's name and the
@@ -193,6 +217,21 @@ extension PopoverRootView {
         case .usage: Task { await store.refresh(userInitiated: true) }
         case .tokens: tokens.refresh()
         }
+    }
+
+    /// One install, reached the two ways the refresh above is, and carrying the guard the button
+    /// expresses with `.disabled`: the drag overlay is not a SwiftUI control, so nothing stops it
+    /// on the caller's behalf.
+    private func startInstall() {
+        guard UpdateAvailability.shared.busy == nil else { return }
+        UpdaterController.shared.installNow()
+    }
+
+    /// What the chip says while it is working. The steps before the restart read as one line on
+    /// purpose: checking, downloading and unpacking are Sparkle's business, and what the person
+    /// waiting needs is that it is working and that the restart, when it comes, is not sudden.
+    private static func busyLabel(_ busy: UpdateBusy) -> String {
+        busy == .restarting ? L("Restarting…") : L("Updating…")
     }
 
     /// A grab area exactly as wide as one side's centring pad, full height. Zero-width when that

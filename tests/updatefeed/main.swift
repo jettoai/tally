@@ -372,6 +372,7 @@ do {
            "with a handler held Sparkle is stalled, so Check Now runs it rather than asking nothing")
 }
 runUserChoiceChecks()
+runBusyChecks()
 
 // MARK: P1, the half of it that lives in the controller rather than in the table above
 //

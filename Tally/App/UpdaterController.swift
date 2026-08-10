@@ -142,6 +142,9 @@ final class UpdaterController: NSObject {
         if UpdateAvailability.shared.isDownloaded != (chip?.ready ?? false) {
             UpdateAvailability.shared.isDownloaded = chip?.ready ?? false
         }
+        if UpdateAvailability.shared.busy != state.busy {
+            UpdateAvailability.shared.busy = state.busy
+        }
         // The idle timer runs exactly while there is an offer whose moment could arrive.
         if state.knownSince == nil {
             idleTimer?.invalidate()
@@ -305,7 +308,13 @@ final class UpdaterController: NSObject {
     /// newest known release the same thing.
     private func beginSilentInstall() {
         guard let updater = controller?.updater, !updater.sessionInProgress,
-              updater.automaticallyDownloadsUpdates else { return }
+              updater.automaticallyDownloadsUpdates else {
+            // Nothing was started, and the chip is at this instant showing that something was.
+            // Returning quietly here is how it would spin for the rest of the run, over a press
+            // that never went anywhere.
+            apply(.silentInstallCouldNotStart)
+            return
+        }
         updater.checkForUpdatesInBackground()
     }
 
@@ -379,6 +388,28 @@ extension UpdaterController: SPUUpdaterDelegate {
         Task { @MainActor in self.apply(.sparkleFoundUpdate(release)) }
     }
 
+    /// The two callbacks that account for the wait. Between a press and the restart Sparkle spends
+    /// most of its time in these, and with automatic installs on it spends all of it off screen:
+    /// the press was reported as "the app froze and then closed itself" because nothing in between
+    /// was ever said out loud.
+    nonisolated func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem,
+                             with request: NSMutableURLRequest) {
+        Task { @MainActor in self.apply(.sparkleWillDownload) }
+    }
+
+    nonisolated func updater(_ updater: SPUUpdater, willExtractUpdate item: SUAppcastItem) {
+        Task { @MainActor in self.apply(.sparkleWillExtract) }
+    }
+
+    /// Sparkle's driver has finished, whatever came of it. The errors arrive at `didAbortWithError`
+    /// as well and are handled there; this one is here for the endings that are not errors and
+    /// would otherwise leave a chip saying it was still working: a check that found nothing, an
+    /// update deferred because it needs the user's attention first.
+    nonisolated func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
+                             error: (any Error)?) {
+        Task { @MainActor in self.apply(.updateCycleEnded) }
+    }
+
     /// Second chip state, the Ghostty semantic: the payload is already on disk, so a click means
     /// "restart into the new version", not "start a download". The chip goes green + ↻.
     nonisolated func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
@@ -447,26 +478,5 @@ extension UpdaterController: SPUUpdaterDelegate {
             self.apply(.willRelaunch)
             UpdateAvailability.shared.clear()
         }
-    }
-}
-
-/// Observable "an update is waiting" state, fed by the updater delegate above and rendered by
-/// the panel header. Separate tiny class because UpdaterController is an NSObject delegate
-/// (the @Observable macro and NSObject don't mix).
-@MainActor
-@Observable
-final class UpdateAvailability {
-    static let shared = UpdateAvailability()
-    var version: String?
-    /// True once Sparkle has the update downloaded (auto-download on): a click now finishes
-    /// in one restart instead of walking the download dialog.
-    var isDownloaded = false
-    /// Observable mirror of UpdaterController.isActive, so views rendered before start() (a
-    /// Settings window restored at launch) correct themselves once the updater comes up.
-    var updaterActive = false
-
-    func clear() {
-        version = nil
-        isDownloaded = false
     }
 }

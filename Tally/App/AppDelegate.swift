@@ -56,12 +56,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsWindowController.shared.restoreAtLaunchIfNeeded(activating: mayTakeForeground)
         }
         // Design-preview hook (demo/dev only): -TallyUpdateChip 0.15.0 renders the header's
-        // update chip without a live feed (-TallyUpdateChipReady YES for the downloaded state),
-        // so the nudge can be reviewed and screenshotted.
+        // update chip without a live feed (-TallyUpdateChipReady YES for the downloaded state,
+        // -TallyUpdateChipBusy updating|restarting for the two working faces), so the nudge can be
+        // reviewed and screenshotted.
         if DemoUsage.isActive || BuildVariant.isDev,
            let fake = UserDefaults.standard.string(forKey: "TallyUpdateChip") {
             UpdateAvailability.shared.version = fake
             UpdateAvailability.shared.isDownloaded = UserDefaults.standard.bool(forKey: "TallyUpdateChipReady")
+            // The working chip has no other way onto a screenshot: behind a live feed it lasts as
+            // long as a download does, and the second of the two ends with the app being replaced.
+            // Named for what the chip SAYS rather than for the state machine's steps, because that
+            // is what is being reviewed - `.downloading` stands in for all three of the steps that
+            // read "Updating…". An absent or unrecognised value leaves the chip as it was.
+            switch UserDefaults.standard.string(forKey: "TallyUpdateChipBusy")?.lowercased() {
+            case "updating": UpdateAvailability.shared.busy = .downloading
+            case "restarting": UpdateAvailability.shared.busy = .restarting
+            default: break
+            }
         }
         UsageStore.shared.start()
         // The native picker behind `/tally`: listen for the CLI's

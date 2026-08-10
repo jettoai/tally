@@ -190,7 +190,18 @@ check("the header gives every non-interactive run of the row a grab area",
           && headerSource.contains("private func dragPad(_ width: CGFloat) -> some View")
           && headerSource.contains(".overlay(alignment: .leading) { dragPad(centreOffset.leading) }"))
 check("…and the update badge keeps its click while joining them",
-      headerSource.contains(".windowDragOrTap { UpdaterController.shared.installNow() }"))
+      headerSource.contains(".windowDragOrTap { startInstall() }"))
+// The badge now has a state its click must NOT land in: while an install is being carried out it
+// is disabled, and pressing it again would put a second check on top of the running one. So it is
+// held to what the refresh button two blocks up is held to, and for the same mechanical reason -
+// `.disabled` stops a SwiftUI control, and the tap entrance is an AppKit view laid over it that
+// nothing stops on the caller's behalf. A refusal written on the button alone is a refusal the
+// drag overlay does not make, which is the shape the badge used to be wrong in.
+check("…through the one implementation its button also presses",
+      headerSource.contains("private func startInstall() {")
+          && headerSource.components(separatedBy: "startInstall()").count == 4)
+check("…and that action carries the busy guard itself, where both entrances meet it",
+      headerSource.range(of: "func startInstall() {\n        guard UpdateAvailability.shared.busy == nil else { return }") != nil)
 
 // 11. A drag that is under way, and the reason it cannot be answered by a flag alone: AppKit carries
 //     the window after `performDrag` returns (measured: the call's entry and exit share a

@@ -455,8 +455,8 @@ check("every flag spelled in the source is classified",
       scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
 check("and every flag classified is spelled in the source",
       Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-check("which comes to nineteen, in three buckets",
-      CaptureLaunch.allFlagKeys.count == 19 && scanned.count == 19)
+check("which comes to twenty, in three buckets",
+      CaptureLaunch.allFlagKeys.count == 20 && scanned.count == 20)
 check("with nothing counted twice",
       Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
 check("a launch carrying none of them does",
@@ -489,7 +489,7 @@ check("…it is spelled once, where the panel's gate reads it",
         && CaptureLaunch.interactiveKeys.contains(CaptureLaunch.pickClaimOverride))
 check("…and a launch carrying it may come forward, because somebody is about to work it",
       CaptureLaunch.mayTakeForeground(activeKeys: [CaptureLaunch.pickClaimOverride]))
-check("nor are the two modifiers, which show nothing on their own",
+check("nor are the modifiers, which show nothing on their own",
       CaptureLaunch.mayTakeForeground(activeKeys: Set(CaptureLaunch.modifierKeys)))
 // ... but riding along with their parent changes nothing: the parent is what is asked about.
 check("a modifier alongside its flag is still a background launch",

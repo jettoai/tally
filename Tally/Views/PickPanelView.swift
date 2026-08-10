@@ -67,7 +67,9 @@ struct PickPanelView: View {
         let listHeight = pickPanelListHeight(request, filters: queries, measured: listHeights)
         let pending = pickPendingChanges(palette, selections: selections)
         VStack(alignment: .leading, spacing: 0) {
-            header
+            // The identity line and the way out (PickPanelHeaderView), which is also where "closed
+            // explicitly, never by looking away" is said on screen.
+            PickPanelHeaderView(kind: request.kind) { choose(nil) }
             // THREE SIZES, THREE JOBS: the header is the anchor, this is the situation it is
             // answering, and the rows are the answer. Everything was one weight of grey before, so
             // the panel read as two paragraphs with a list under them. It stays one line across the
@@ -143,38 +145,6 @@ struct PickPanelView: View {
         // What is left is typing. What each press MEANS is decided by `pickKeyAction`, which is pure
         // and asserted without a screen; this only translates SwiftUI's vocabulary into that one.
         .onKeyPress(phases: [.down, .repeat]) { press in typed(press) }
-    }
-
-    /// THE SAME HEADER THE REST OF THE APP HAS, which is the whole of this decision: the popover
-    /// and the pinned panel open with the wordmark on the content line, so this one does too rather
-    /// than inventing a third way to say the app's own name (`PopoverRootView.header`). Two attempts
-    /// at something of its own were rejected on sight, and the reason is that they were something of
-    /// its own.
-    ///
-    /// The wordmark is laid out by its INK rather than its frame (`PanelGeometry.brandLead`): the
-    /// glyph draws wider than the box it is given, so a frame padded to the content line puts the
-    /// mark left of everything under it. The lead is shared with the popover, not copied from it.
-    private var header: some View {
-        HStack(spacing: 6) {
-            TallyWordmarkView(glyphHeight: 13)
-                .padding(.leading, PanelGeometry.brandLead - PanelGeometry.contentPadding)
-            // The same tag the popover header wears, in the same place beside the wordmark: two
-            // instances of this panel can be on one machine, and answering the one belonging to a
-            // build nobody installed is exactly what the claim stand-down exists to prevent
-            // (`pickMayBeClaimed`). A person deserves to see which is which before they click.
-            if BuildVariant.isDev {
-                TallyDevTagView()
-            }
-            Spacer(minLength: 8)
-            // Which of the two this was opened as, said once and quietly: the panel offers both
-            // axes, and this is the one the command asked for.
-            Text(L(pickPanelKindName(request.kind)))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.bottom, 7)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Tally, \(pickPanelKindName(request.kind))")
     }
 
     /// One column: its field (which is also where its name is), its rows, and the way out of its

@@ -112,8 +112,15 @@ func runPickSurfaceChecks() {
     // THE DEV TAG, which is why it is on this panel at all: two instances of it can be on one
     // machine, and a build nobody installed must be tellable from the installed one BEFORE a click
     // moves somebody's conversation. Reused from the popover's header rather than drawn again.
+    // On the header's own file since it gained the way out (PickPanelHeaderView.swift), the way the
+    // row moved to PickRowView.swift when it gained the circle.
+    let panelHeader = (try? String(contentsOfFile: "Tally/Views/PickPanelHeaderView.swift",
+                                   encoding: .utf8)) ?? ""
+    check("the panel header is readable from this suite", !panelHeader.isEmpty)
     check("a dev build says so on this panel, in the popover's own badge",
-          view.contains("if BuildVariant.isDev") && view.contains("TallyDevTagView()"))
+          panelHeader.contains("if BuildVariant.isDev") && panelHeader.contains("TallyDevTagView()"))
+    check("…and the panel draws that header rather than a line of its own",
+          view.contains("PickPanelHeaderView(kind: request.kind) { choose(nil) }"))
     let popover = (try? String(contentsOfFile: "Tally/Views/PopoverHeaderView.swift",
                                encoding: .utf8)) ?? ""
     check("…which is the one the popover wears, rather than a second capsule",
@@ -211,7 +218,7 @@ func runPickSurfaceChecks() {
     let strings = catalogue?["strings"] as? [String: Any] ?? [:]
     check("the string catalogue is readable from this suite", !strings.isEmpty)
     for word in ["Accounts", "Models", "Type to filter", "esc to clear", "No matches", "Filter",
-                 "Account", "Model", pickEffortUnchangedKey] {
+                 "Account", "Model", "Close", pickEffortUnchangedKey] {
         let entry = strings[word] as? [String: Any]
         let localizations = entry?["localizations"] as? [String: Any] ?? [:]
         check("\(word) is translated into every language Tally ships",
@@ -220,7 +227,7 @@ func runPickSurfaceChecks() {
     check("…and the panel asks for them through the app's own language rather than the main bundle",
           view.contains("L(pickColumnHeadingKey(column.kind))")
               && view.contains(#"L("Type to filter")"#)
-              && view.contains("L(pickPanelKindName(request.kind))"))
+              && panelHeader.contains("L(pickPanelKindName(kind))"))
     check("the column names the panel draws are the keys the catalogue is written in",
           pickColumnHeadingKey(.account) == "Accounts" && pickColumnHeadingKey(.model) == "Models")
 

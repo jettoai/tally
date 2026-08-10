@@ -354,9 +354,9 @@ let pickPendingLead = "→ "
 /// not looked yet, and the command's own choice of column was already gone.
 ///
 /// So a hover inside the window the panel was raised in decides nothing. It is THE SAME WINDOW the
-/// dismissal judgement uses and the same reasoning: a panel that has just been raised is not yet
-/// being used, and what it reports about itself in that moment describes the raising rather than
-/// the person.
+/// foreground ask is given to settle in (`pickPanelActivationGrace`) and the same reasoning: a panel
+/// that has just been raised is not yet being used, and what it reports about itself in that moment
+/// describes the raising rather than the person.
 func pickHoverMovesFocus(shownAt: Date, now: Date = Date()) -> Bool {
-    pickDismissalIsFromPerson(shownAt: shownAt, now: now)
+    now.timeIntervalSince(shownAt) >= pickPanelActivationGrace
 }

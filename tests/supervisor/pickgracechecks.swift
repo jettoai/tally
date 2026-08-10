@@ -1,9 +1,10 @@
 import Foundation
 
-// THE GRACE, AND EVERYTHING IT HAS BEEN WRONG ABOUT. Split from pickerchecks.swift for file size,
-// the way switchrequestchecks.swift is split from switchchecks.swift.
+// THE PANEL STANDS UNTIL SOMEBODY CLOSES IT, and the little that is left of the focus machine that
+// used to close it for them. Split from pickerchecks.swift for file size, the way
+// switchrequestchecks.swift is split from switchchecks.swift.
 //
-// One judgement, four rounds, each failing in a direction the last one had just closed:
+// One judgement, five rounds, each failing in a direction the last one had just closed:
 //
 //   v1  every lost key window was a dismissal          -> every pick answered itself in 147ms
 //   v2  the ones inside the grace were swallowed       -> a person who really left was never answered
@@ -11,160 +12,200 @@ import Foundation
 //       stopped the clock without settling             -> claimed request stuck to the CLI's deadline
 //   v4  the retry had no grace of its own              -> v1 reappeared on the retry path
 //   v5  a background preview walked into the retry     -> an accessory app took the foreground 0.6s
-//                                                         after a deliberately background launch
+//                                                        after a deliberately background launch
 //
-// So the rule is a state machine and this file asserts it exhaustively, which is the only form that
-// could have caught any of the five: each was a combination nobody had written down.
+// v6 STOPPED ASKING THE QUESTION. All five rounds were attempts to tell "the person walked away"
+// from "the foreground ask never landed", and from inside the app those are the same observation:
+// not key, not active. So a lost key window answers nothing at all now - the panel keeps standing,
+// which is what Albert wanted from it in the first place (switching away to look something up used
+// to cancel the pick and cost him the command again), and a panel nobody comes back to is ended by
+// a deadline that reads no intent (`pickPanelDeadline`).
+//
+// So this file asserts two things: that the rule which remains is small and exhaustively known, and
+// that no path back to answering-on-a-lost-focus survives anywhere in the controller.
 
 func runPickGraceChecks() {
     let controller = (try? String(contentsOfFile: "Tally/MenuBar/PickPanelController.swift",
                                   encoding: .utf8)) ?? ""
     check("the panel controller is readable from the suite", !controller.isEmpty)
+    let contract = (try? String(contentsOfFile: "Tally/Core/PickContract.swift",
+                                encoding: .utf8)) ?? ""
+    check("the pick contract is readable from the suite", !contract.isEmpty)
 
-    // MARK: - 36e2. A panel losing key is not always a person putting it down
+    // MARK: - 36e2. Losing the keyboard is not an answer
 
-    // THE 0.41.0 INCIDENT, as an assertion. Every pick came back instantly with "nothing was
-    // changed" and no panel was ever seen; the files say the app claimed in 11ms and wrote an EMPTY
-    // answer 147ms later, with nobody having touched anything. Raising the panel asks an accessory
-    // app for the foreground, the ask settles after the panel is made key, and AppKit takes the key
-    // window back in between - which the delegate read as a dismissal and answered on the person's
-    // behalf.
-    let raised = Date(timeIntervalSince1970: 1_800_000_000)
-    check("a key window lost while the foreground ask is still settling is NOT a dismissal",
-          !pickDismissalIsFromPerson(shownAt: raised,
-                                     now: raised.addingTimeInterval(0.147)))
-    check("…nor is one lost in the same instant the panel went up",
-          !pickDismissalIsFromPerson(shownAt: raised, now: raised))
-    check("a panel that was never raised cannot have been dismissed",
-          !pickDismissalIsFromPerson(shownAt: nil, now: raised.addingTimeInterval(60)))
-    check("…while a person clicking away from a panel they have been looking at still is",
-          pickDismissalIsFromPerson(shownAt: raised,
-                                    now: raised.addingTimeInterval(pickPanelActivationGrace + 0.01)))
-    check("…and so is one seconds later, which is what clicking away actually looks like",
-          pickDismissalIsFromPerson(shownAt: raised, now: raised.addingTimeInterval(30)))
-    // The controller asks that question rather than answering it inline, which is the half that
-    // made the defect invisible: the judgement used to live only in a delegate callback.
-    check("…and it decides a resign-key through the shared rule",
-          controller.contains("pickDismissalIsFromPerson(shownAt: shownAt)"))
+    // THE 0.41.0 INCIDENT, and the shape of every round that followed it. Every pick came back
+    // instantly with "nothing was changed" and no panel was ever seen; the files say the app claimed
+    // in 11ms and wrote an EMPTY answer 147ms later, with nobody having touched anything. Raising
+    // the panel asks an accessory app for the foreground, the ask settles after the panel is made
+    // key, and AppKit takes the key window back in between - which the delegate read as a dismissal.
+    //
+    // The delegate is what is gone. Asserted as the ABSENCE of the callback rather than as a
+    // property of what it would have decided, because there is nothing left to decide: a controller
+    // that is not a window delegate cannot be told the window lost key.
+    check("the panel no longer hears about a lost key window at all",
+          !controller.contains("windowDidResignKey"))
+    check("…which is a fact about the type rather than about one method it happens not to have",
+          !controller.contains("NSWindowDelegate") && !controller.contains("panel.delegate"))
+    check("…and the rule that used to judge one is gone from the contract with it",
+          !contract.contains("pickDismissalIsFromPerson") && !contract.contains("sawResign")
+              && !contract.contains("case dismissed") && !contract.contains("case abandoned"))
     // An empty answer is what the app wrote in the incident, and it has to keep reading as a
-    // cancellation rather than as a row nobody named.
+    // cancellation rather than as a row nobody named: Escape, the ✕ and the deadline all write one.
     check("an empty answer object is a cancellation",
           decodePick(PickAnswer.self, from: Data("{}".utf8))?.isCancelled == true)
+    // AND THE PANEL HAS TO SURVIVE THE THING THAT USED TO KILL IT. Not answering on deactivation is
+    // only half of standing through it: a window that hides when its app resigns is off the screen
+    // whether or not anybody answered for it, and a normal level is buried by whatever they
+    // switched to.
+    check("the panel stays on screen when the person switches away",
+          controller.contains("panel.hidesOnDeactivate = false")
+              && controller.contains("panel.level = .floating"))
+    // …and is reachable when they come back, which takes both halves of the first-click fix: an
+    // inactive app's window otherwise spends the first click on activation, and SwiftUI only tracks
+    // a gesture in the KEY window.
+    check("…and the click that brings them back is a click on a row, not a click to wake it",
+          controller.contains("override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }")
+              && controller.contains("if let window, !window.isKeyWindow { window.makeKey() }"))
 
-    // MARK: - 36e2b. The other half of the grace: what its expiry means
+    // MARK: - 36e2b. What is left of the grace: one ask for the foreground
 
-    // THE DEFECT THE FIRST FIX INTRODUCED. Swallowing a resign inside the grace stopped the panel
-    // answering itself in 147ms, and opened the opposite hole: a person who clicks away DURING the
-    // grace has their resign dropped, and AppKit sends no second one because the window is already
-    // not key. Nothing was watching, so the panel sat there and the CLI waited out its five-minute
-    // deadline. So the expiry is an event of its own, and it has three answers.
-    // EXHAUSTIVE, because this judgement has now been wrong in three different rounds and each time
-    // the wrong answer lived in a combination nobody had written down: v1 answered every lost key
-    // window, v2 answered none of the ones inside the grace, v3 STOPPED THE CLOCK on two states that
-    // had not settled. Sixteen rows, written out rather than computed - an expectation derived from
-    // the same rule it is checking would agree with any bug the rule has.
-    let table: [(sawResign: Bool, isKey: Bool, active: Bool, retried: Bool,
-                 expected: PickGraceVerdict, why: String)] = [
-        // The panel holds the key window: the ordinary resign path takes over, whatever else is true.
-        (false, true, false, false, .settled, "key, nothing seen"),
-        (true, true, false, false, .settled, "key again after a resign: the ask had simply settled"),
-        (false, true, true, false, .settled, "key and ours"),
-        (true, true, true, false, .settled, "key and ours after a resign"),
-        (false, true, false, true, .settled, "key after a retry"),
-        (true, true, false, true, .settled, "key after a retry that saw a resign"),
-        (false, true, true, true, .settled, "key and ours after a retry"),
-        (true, true, true, true, .settled, "key and ours, retried, resign seen"),
-        // Our own foreground with another of our windows on top: nobody left the app, and the panel
-        // is still reachable by hand. Watch, do not answer and do not give up.
-        (false, false, true, false, .keepWatching, "ours, not key"),
-        (true, false, true, false, .keepWatching, "ours, not key, resign seen"),
-        (false, false, true, true, .keepWatching, "ours, not key, after a retry"),
-        (true, false, true, true, .keepWatching, "ours, not key, retried, resign seen"),
-        // Not key and not ours: ask once more before believing it, because an ask that never landed
-        // is indistinguishable from somebody walking away until the second ask separates them.
-        (false, false, false, false, .retryActivation, "gone, never resigned, first doubt"),
-        (true, false, false, false, .retryActivation, "gone after a resign, first doubt"),
-        // Asked twice and still out of reach. A resign says it was in their hands; none says it was
-        // never reachable at all.
-        (true, false, false, true, .dismissed, "retried, they had it and left"),
-        (false, false, false, true, .abandoned, "retried, never reachable"),
+    // EXHAUSTIVE, which four rounds of defects is the argument for: every one of them lived in a
+    // combination nobody had written down. Four states now rather than thirty-two, because the
+    // inputs that mattered only to cancellation went with it.
+    let table: [(prompted: Bool, isKey: Bool, expected: Bool, why: String)] = [
+        // Somebody is waiting on this panel and it does not have the keyboard: the ask either never
+        // landed or was taken back while it settled, and one more is what separates them.
+        (true, false, true, "asked for, and the keyboard is not here yet"),
+        // It has the keyboard. There is nothing to ask for and nothing left to watch.
+        (true, true, false, "asked for, and holding the keyboard"),
+        // NOBODY ASKED FOR THIS ONE: a panel a launch flag raised to be looked at has no waiting CLI
+        // behind it and was launched deliberately into the background, so nothing about its key
+        // window can make it worth taking the screen. Without this it walked into the retry and an
+        // accessory app stole the foreground 0.6s after a background launch (v5).
+        (false, false, false, "a preview, unfocused, must not take the screen"),
+        (false, true, false, "a preview that happens to hold the keyboard asks for nothing either"),
     ]
-    check("the grace machine has an answer for all sixteen states", table.count == 16)
+    check("the rule has an answer for all four states", table.count == 4)
     for row in table {
-        check("grace: \(row.why)",
-              pickGraceVerdict(sawResign: row.sawResign, isKey: row.isKey, appIsActive: row.active,
-                               alreadyRetried: row.retried) == row.expected)
+        check("retry: \(row.why)",
+              pickShouldRetryActivation(prompted: row.prompted, isKey: row.isKey) == row.expected)
     }
-    // AND THE OTHER SIXTEEN, which all collapse to one answer - that collapse IS the claim. A panel
-    // raised by a launch flag for a look has no waiting CLI behind it and was launched deliberately
-    // into the background, so nothing about its key window or the foreground can make it worth
-    // taking the screen: without this it walked into `.retryActivation` and an accessory app stole
-    // the foreground 0.6s after a background launch, handing nothing back afterwards.
-    var previewStates = 0
-    for sawResign in [false, true] {
-        for isKey in [false, true] {
-            for active in [false, true] {
-                for retried in [false, true] {
-                    previewStates += 1
-                    check("preview never takes the foreground: resign=\(sawResign) key=\(isKey) "
-                          + "active=\(active) retried=\(retried)",
-                          pickGraceVerdict(prompted: false, sawResign: sawResign, isKey: isKey,
-                                           appIsActive: active, alreadyRetried: retried)
-                              == .settled)
-                }
-            }
-        }
-    }
-    check("…over all sixteen of them", previewStates == 16)
-    check("a prompted panel in the very same state still asks for the foreground, which is what "
-          + "makes that a property of being ASKED FOR rather than of the state",
-          pickGraceVerdict(prompted: true, sawResign: false, isKey: false, appIsActive: false,
-                           alreadyRetried: false) == .retryActivation)
-    check("and the controller judges with the flag it was shown under",
-          controller.contains("pickGraceVerdict(prompted: prompted,"))
-    // THE INVARIANT ALL THREE ROUNDS BROKE, asserted directly rather than left implicit in the rows:
-    // the only reading that stops the clock is the one where the panel really is in the person's
-    // hands. Everything else either watches again, asks again, or answers.
-    // ASKED OF THE RULE, not of the table above: an invariant checked against my own hand-written
-    // expectations only proves I wrote them consistently, which is not what is in danger here.
-    func verdict(_ row: (sawResign: Bool, isKey: Bool, active: Bool, retried: Bool,
-                         expected: PickGraceVerdict, why: String)) -> PickGraceVerdict {
-        pickGraceVerdict(sawResign: row.sawResign, isKey: row.isKey, appIsActive: row.active,
-                         alreadyRetried: row.retried)
-    }
-    check("nothing stops watching a panel that is not key",
-          table.allSatisfy { verdict($0) != .settled || $0.isKey })
-    // And it terminates: out of reach twice over is always an answer, never another lap.
-    check("a panel that is unreachable after a retry is always answered",
-          table.filter { !$0.isKey && !$0.active && $0.retried }
-              .allSatisfy { [.dismissed, .abandoned].contains(verdict($0)) })
-    check("…including the one nobody ever touched, which is cancelled rather than left as a zombie",
-          pickGraceVerdict(sawResign: false, isKey: false, appIsActive: false, alreadyRetried: true)
-              == .abandoned)
-    check("a click away inside the grace is still answered from the expiry, not the CLI deadline",
-          pickGraceVerdict(sawResign: true, isKey: false, appIsActive: false, alreadyRetried: false)
-              != .settled)
+    // THE PROPERTY THE PREVIEW ROWS ARE FOR, asked of the rule rather than of the rows above: an
+    // invariant checked against my own hand-written expectations only proves I wrote them
+    // consistently, which is not what is in danger here.
+    check("nothing that was not asked for ever asks for the foreground",
+          [true, false].allSatisfy { !pickShouldRetryActivation(prompted: false, isKey: $0) })
+    check("…and a prompted panel in the very same state does, which is what makes that a property "
+          + "of being ASKED FOR rather than of the state",
+          pickShouldRetryActivation(prompted: true, isKey: false))
 
-    // The controller has to run that machine, and the retry needs a grace of its own: the second
-    // `NSApp.activate` resigns asynchronously exactly as the first did, so judging it against the
-    // ORIGINAL start put the very first defect back on the retry path.
-    let retryBody = controller.range(of: "case .retryActivation:").flatMap { start in
-        controller.range(of: "case .dismissed").map { end in
+    // The controller has to run that rule, with the flag the panel was shown under.
+    check("the controller judges the grace with the shared rule, and with that flag",
+          controller.contains("pickShouldRetryActivation(prompted: prompted, isKey: panel.isKeyWindow)"))
+    // ONCE. There is no second expiry to answer, and that is carried by the schedule rather than by
+    // a flag: the grace is armed where the panel goes up and nowhere else. A retry that re-armed
+    // would be an accessory app taking the screen again from somebody who has visibly moved on.
+    let judgeBody = controller.range(of: "private func judgeGrace()").flatMap { start in
+        controller.range(of: "private func armGrace()").map { end in
             String(controller[start.lowerBound ..< end.lowerBound])
         }
     } ?? ""
-    check("the retry branch is readable", !retryBody.isEmpty)
-    check("…and it restarts the grace it will be judged against",
-          retryBody.contains("shownAt = Date()"))
-    check("…and starts a fresh observation window with it",
-          retryBody.contains("sawResignInGrace = false"))
-    check("…and arms the next judgement", retryBody.contains("armGrace()"))
-    let watchBody = controller.range(of: "case .keepWatching:").flatMap { start in
-        controller.range(of: "case .retryActivation:").map { end in
+    check("the retry branch is readable", !judgeBody.isEmpty)
+    check("…and it asks for the foreground and the keyboard together",
+          judgeBody.contains("NSApp.activate(ignoringOtherApps: true)")
+              && judgeBody.contains("panel.makeKeyAndOrderFront(nil)"))
+    check("…and arms nothing further, so the second ask cannot exist",
+          !judgeBody.contains("armGrace()"))
+    check("the grace is armed exactly where the panel is raised",
+          controller.components(separatedBy: "armGrace()").count == 3)   // the call, and its own func
+
+    // MARK: - 36e2c. The deadline that replaced the guessing
+
+    // ONE NUMBER, TWO ENDS. The CLI stops waiting at `nativePickDeadlineSeconds` and the panel takes
+    // itself off the screen just short of that, so the answer lands while the wait is still reading
+    // it: the CLI discards the whole request the moment it gives up, and an answer written after
+    // that is a file nobody reads, left in `~/.tally/pick` for good.
+    check("the panel closes before the CLI stops waiting, not with it and never after",
+          pickPanelDeadline < nativePickDeadlineSeconds)
+    check("…by a margin that covers the skew rather than by a whole minute of the person's time",
+          nativePickDeadlineSeconds - pickPanelDeadline > 1
+              && nativePickDeadlineSeconds - pickPanelDeadline < 30)
+    // …and it is one number rather than two that agree today: the wait's own file must not carry a
+    // second copy for either end to tune on its own.
+    let nativePick = (try? String(contentsOfFile: "TallyCLI/NativePick.swift", encoding: .utf8)) ?? ""
+    check("the wait reads the deadline from the contract rather than declaring one of its own",
+          !nativePick.isEmpty && !nativePick.contains("let nativePickDeadlineSeconds"))
+    let serve = (try? String(contentsOfFile: "TallyCLI/MCPServe.swift", encoding: .utf8)) ?? ""
+    check("…which is the one the wait actually gives up on",
+          serve.contains("waited > nativePickDeadlineSeconds"))
+    check("the panel arms it, and only for a panel somebody is waiting on",
+          controller.contains("if prompted { armDeadline() }")
+              && controller.contains("withTimeInterval: pickPanelDeadline"))
+    // THE FOREGROUND IS NOT HANDED BACK ON THIS PATH, which is the one asymmetry the deadline has.
+    // Every other way out is somebody acting on the panel, so putting them back in the terminal they
+    // typed into finishes what they started. Five minutes of silence says they are somewhere else,
+    // and activating a captured app would take the screen for a panel they had forgotten.
+    let expireBody = controller.range(of: "private func expire()").flatMap { start in
+        controller.range(of: "private func finish(").map { end in
             String(controller[start.lowerBound ..< end.lowerBound])
         }
     } ?? ""
-    check("a panel that is merely being watched keeps its clock", watchBody.contains("armGrace()"))
-    check("…and both terminal readings answer the pick",
-          controller.contains("case .dismissed, .abandoned:"))
+    check("the deadline path is readable", !expireBody.isEmpty)
+    check("…and it drops the borrowed foreground before answering, rather than activating into it",
+          expireBody.contains("previousApp = nil") && expireBody.contains("finish(with: .cancelled)"))
+    // Both clocks are stopped by an answer, and a panel that has been answered must not be able to
+    // answer again five minutes later.
+    let finishBody = controller.range(of: "private func finish(with answer: PickAnswer)").flatMap {
+        start in
+        controller.range(of: "// MARK: - Dev preview").map { end in
+            String(controller[start.lowerBound ..< end.lowerBound])
+        }
+    } ?? ""
+    check("the answered panel is readable", !finishBody.isEmpty)
+    check("…and answering stops both clocks",
+          finishBody.contains("graceTimer?.invalidate()")
+              && finishBody.contains("deadlineTimer?.invalidate()"))
+    check("…and is idempotent by construction, so a timer that already fired finds nothing to do",
+          finishBody.contains("guard let request = current else { return }")
+              && finishBody.contains("current = nil"))
+
+    // MARK: - 36e2d. The ways out, and that one of them can be seen
+
+    // A PANEL THAT NO LONGER CLOSES ITSELF HAS TO SHOW HOW IT IS CLOSED. Escape always worked and
+    // still does, but nothing on screen said so and the only visible way out was choosing something
+    // the person may not have wanted.
+    let header = (try? String(contentsOfFile: "Tally/Views/PickPanelHeaderView.swift",
+                              encoding: .utf8)) ?? ""
+    check("the panel header is readable from this suite", !header.isEmpty)
+    check("the header carries a way out that can be clicked",
+          header.contains("Button(action: close)")
+              && header.contains(#"Image(systemName: "xmark")"#))
+    let view = (try? String(contentsOfFile: "Tally/Views/PickPanelView.swift", encoding: .utf8)) ?? ""
+    check("…wired to the panel's own cancellation rather than to a second idea of closing",
+          view.contains("PickPanelHeaderView(kind: request.kind) { choose(nil) }"))
+    check("…which answers a hover before it is clicked, so it reads as a control",
+          header.contains(".onHover { hovered = $0 }") && header.contains("hovered ?"))
+    check("…is named for a screen reader, in the app's own language",
+          header.contains(#".accessibilityLabel(L("Close"))"#))
+    // …and is not swallowed by the identity beside it: the header combines its children into one
+    // element for the wordmark's sake, and a button inside that group is a button a screen reader
+    // cannot reach. TWO CLAIMS, and the second is the one a lone position check misses (a mutant
+    // that wrapped the whole row in a SECOND combine passed it): there is exactly one combined
+    // group in this header, and the way out stands after it rather than inside it.
+    let combines = header.components(separatedBy: ".accessibilityElement(children: .combine)")
+    check("the header combines the identity into one element, and only that",
+          combines.count == 2)
+    var wayOutIsItsOwnElement = false
+    if let combined = header.range(of: ".accessibilityElement(children: .combine)"),
+       let button = header.range(of: "closeButton") {
+        wayOutIsItsOwnElement = button.lowerBound > combined.upperBound
+    }
+    check("…and the way out is its own element rather than part of the wordmark",
+          wayOutIsItsOwnElement && combines.count == 2)
+    check("Escape still closes the panel at the AppKit level as well as the SwiftUI one",
+          controller.contains("override func cancelOperation(_ sender: Any?) { onCancel?() }")
+              && controller.contains("panel.onCancel = { [weak self] in self?.finish(with: .cancelled) }"))
+    check("…and choosing a row writes exactly what was submitted",
+          controller.contains("finish(with: answer ?? .cancelled)"))
 }

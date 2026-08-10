@@ -18,28 +18,29 @@ import SwiftUI
 //   3. THE FOREGROUND IS BORROWED. The person triggered this from a terminal, so taking focus is
 //      right; keeping it is not. Whatever was frontmost is captured before activating and restored
 //      when the panel goes, or every pick would throw them out of the window they were typing in.
+//   4. IT IS CLOSED EXPLICITLY, NEVER BY LOOKING AWAY. Escape, the ✕ on its header and choosing a
+//      row are the ways out; losing the key window is not one of them. Somebody who switches away
+//      to look something up before answering comes back to the panel they left, instead of to a
+//      cancelled pick and a command to retype (Albert, 2026-08-10). What ends a panel nobody comes
+//      back to is a deadline rather than a guess about their attention (`pickPanelDeadline`).
 @MainActor
-final class PickPanelController: NSObject, NSWindowDelegate {
+final class PickPanelController: NSObject {
     static let shared = PickPanelController()
 
     private var panel: PickPanel?
     private var current: PickRequest?
     /// The app the person was in when this was raised, so it can have the foreground back.
     private var previousApp: NSRunningApplication?
-    /// When the panel went up, which is what separates the activation settling from a person putting
-    /// it down (`pickDismissalIsFromPerson`).
-    private var shownAt: Date?
-    /// A resign that arrived while the ask was still settling. AppKit sends no second one, so this
-    /// is the only record that it happened, and the grace's expiry is where it is judged.
-    private var sawResignInGrace = false
-    /// Whether the foreground has already been asked for a second time (`PickGraceVerdict`).
-    private var retriedActivation = false
     /// Whether somebody asked for this panel and is waiting on it. False for a panel raised by a
     /// launch flag for a look, which must never take the foreground it was deliberately launched
-    /// without (`pickGraceVerdict`).
+    /// without, and which nothing is waiting on (`pickShouldRetryActivation`).
     private var prompted = true
-    /// The timer that judges the grace. Held so a panel that is answered first can cancel it.
+    /// The timer that asks whether the foreground ask landed. Held so a panel that is answered
+    /// inside the grace can cancel it.
     private var graceTimer: Timer?
+    /// The timer that closes a panel nobody came back to. Held for the same reason, and because a
+    /// panel that is answered must not be able to answer twice five minutes later.
+    private var deadlineTimer: Timer?
 
     /// Where the request files live. Injected only so a preview can drive the panel from a fixture
     /// without writing into the real directory.
@@ -128,7 +129,6 @@ final class PickPanelController: NSObject, NSWindowDelegate {
             prompted: prompted, activeKeys: CaptureLaunch.activeKeys())
         current = request
         self.prompted = prompted
-        shownAt = Date()
         // Captured only when the foreground is actually being borrowed. Nothing was taken on a
         // background preview, so there is nothing to hand back, and handing it back anyway would
         // activate whatever the person had moved on to.
@@ -150,11 +150,15 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         // Movable by its background, unlike the pinned panel: there are no cards to reorder here, so
         // AppKit's own window drag can have the whole surface and the rows keep their clicks.
         panel.isMovableByWindowBackground = true
+        // FLOATING AND SURVIVING DEACTIVATION, which is what a panel that outlives its own focus
+        // needs to be: an unanswered pick stays in front of whatever the person switched to, so
+        // coming back to it is looking at it rather than hunting for it behind a browser window.
+        // Both lines are the persistence contract in AppKit's own vocabulary - a normal level would
+        // bury it, and hiding on deactivate would take it off the screen the instant they left.
         panel.level = .floating
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .utilityWindow
-        panel.delegate = self
         panel.onCancel = { [weak self] in self?.finish(with: .cancelled) }
         let hosting = PickHostingView(rootView: PickPanelView(request: request) { [weak self] answer in
             // The answer names its axes, which is what tells the CLI whether this submit moved the
@@ -170,9 +174,8 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         // ORIGIN ONLY, which is why it does not fight the line above: the house rule for a window
         // the user summoned is the screen the pointer is on, at the standard dialog height.
         panel.centerOnPointerScreen()
-        // `orderFront` rather than `makeKeyAndOrderFront` when the foreground is not ours: taking
-        // key would also arm `windowDidResignKey`, and the first click anywhere else would read as
-        // the person cancelling a question nobody asked them.
+        // `orderFront` rather than `makeKeyAndOrderFront` when the foreground is not ours: a panel
+        // nobody asked for must not take the keyboard away from whatever the person is typing in.
         if activating {
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
@@ -180,67 +183,34 @@ final class PickPanelController: NSObject, NSWindowDelegate {
             panel.orderFront(nil)
         }
         self.panel = panel
-        // The grace is a deadline of its own, not just a filter: something has to come back and look
-        // at a panel whose resign was swallowed.
+        // One look at whether the foreground ask landed, and one clock on a panel nobody answers.
+        // Every panel gets the first; only a panel somebody is waiting on gets the second.
         armGrace()
+        if prompted { armDeadline() }
     }
 
-    /// A click outside the panel is a cancellation, the same reading Escape gets: the person went
-    /// back to what they were doing, which is the answer.
+    /// The grace has run out: the panel either has the keyboard or the foreground ask did not land,
+    /// and this is the one second ask it gets (`pickShouldRetryActivation` carries what is left of
+    /// the machine, and why nothing here cancels anything any more).
     ///
-    /// EXCEPT WHILE THE FOREGROUND ASK IS STILL SETTLING. Raising this panel from an accessory app
-    /// means requesting activation, and that request does not complete on this turn of the loop: the
-    /// panel is made key here, the request settles afterwards, and AppKit takes the key window back
-    /// in between. Read as a dismissal, that answered every pick the instant it was asked - which is
-    /// exactly what shipped in 0.41.0 (`pickPanelActivationGrace` carries the trace). The judgement
-    /// itself is pure and lives with the contract, where it can be asserted without an app.
-    func windowDidResignKey(_ notification: Notification) {
-        guard (notification.object as? NSWindow) === panel else { return }
-        guard pickDismissalIsFromPerson(shownAt: shownAt) else {
-            // REMEMBERED RATHER THAN DROPPED. A person really can click away inside the grace, and
-            // AppKit will not tell us twice: the window is already not key, so no second resign is
-            // coming. Dropping it outright left the panel on screen and the CLI waiting out its
-            // five-minute deadline (review of the first fix).
-            sawResignInGrace = true
-            return
-        }
-        finish(with: .cancelled)
-    }
-
-    /// The grace has run out: judge what the panel is doing, and make sure something is still
-    /// watching it unless it has genuinely settled (`PickGraceVerdict` carries the full machine).
+    /// Raising this panel from an accessory app means requesting activation, and that request does
+    /// not complete on this turn of the loop: the panel is made key here and AppKit may take the key
+    /// window straight back while the ask settles. So the state a moment after raising says nothing,
+    /// and one grace later is the first honest reading of it.
     private func judgeGrace() {
-        guard let panel else { return }
-        switch pickGraceVerdict(prompted: prompted, sawResign: sawResignInGrace,
-                                isKey: panel.isKeyWindow,
-                                appIsActive: NSApp.isActive,
-                                alreadyRetried: retriedActivation) {
-        case .settled:
-            return   // it holds the key window: an ordinary resign answers from here on
-        case .keepWatching:
-            armGrace()
-        case .retryActivation:
-            retriedActivation = true
-            // A FRESH GRACE FOR THE SECOND ASK. `NSApp.activate` resigns asynchronously exactly as
-            // the first one did, and judging that against the ORIGINAL `shownAt` made the very first
-            // defect reappear on this path: the retry's own settling read as past the grace and
-            // cancelled instantly. The observation window is reset with it, so a resign from before
-            // the retry cannot be counted against it either.
-            shownAt = Date()
-            sawResignInGrace = false
-            NSApp.activate(ignoringOtherApps: true)
-            panel.makeKeyAndOrderFront(nil)
-            armGrace()
-        case .dismissed, .abandoned:
-            // Both end the same way and for the same reason: nobody is going to answer this panel,
-            // and leaving it up holds a claimed request until the CLI's deadline. `finish` hands the
-            // foreground back on the way out.
-            finish(with: .cancelled)
-        }
+        guard let panel,
+              pickShouldRetryActivation(prompted: prompted, isKey: panel.isKeyWindow)
+        else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
     }
 
-    /// Judge the grace one grace-length from now. Scheduled on the main run loop, which is where the
-    /// panel lives.
+    /// Look at the panel once, one grace-length from now. Scheduled on the main run loop, which is
+    /// where the panel lives.
+    ///
+    /// ONCE, NOT REPEATEDLY, and that is the whole reason the retry cannot run twice: a second ask
+    /// would be an accessory app taking the screen again from somebody who has visibly moved on, and
+    /// there is nothing else for a repeat to decide now that focus decides nothing.
     private func armGrace() {
         graceTimer?.invalidate()
         graceTimer = Timer.scheduledTimer(withTimeInterval: pickPanelActivationGrace,
@@ -249,9 +219,29 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Close a panel nobody came back to, just before the CLI stops waiting for it
+    /// (`pickPanelDeadline` states why "just before" rather than "with").
+    private func armDeadline() {
+        deadlineTimer?.invalidate()
+        deadlineTimer = Timer.scheduledTimer(withTimeInterval: pickPanelDeadline,
+                                             repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.expire() }
+        }
+    }
+
+    /// The deadline: nothing was chosen, AND NOBODY IS HANDED THE FOREGROUND. Every other way out of
+    /// this panel is somebody acting on it, so putting them back in the terminal they typed into
+    /// finishes what they started. Five minutes of silence is the opposite case: they are somewhere
+    /// else entirely, and activating the app they had captured would take the screen from whatever
+    /// they moved on to, for a panel they had already forgotten.
+    private func expire() {
+        previousApp = nil
+        finish(with: .cancelled)
+    }
+
     /// Answer once, put the foreground back, and forget everything. Idempotent by construction: the
-    /// request is cleared first, so the resign-key that follows an ordered-out panel finds nothing
-    /// left to answer and returns.
+    /// request is cleared first, so a timer that has already been scheduled onto the main loop finds
+    /// nothing left to answer and returns.
     private func finish(with answer: PickAnswer) {
         guard let request = current else { return }
         current = nil
@@ -261,15 +251,13 @@ final class PickPanelController: NSObject, NSWindowDelegate {
                 Notification.Name(pickAnsweredNotification), object: request.id,
                 userInfo: nil, deliverImmediately: true)
         }
-        panel?.delegate = nil
         graceTimer?.invalidate()
         graceTimer = nil
-        sawResignInGrace = false
-        retriedActivation = false
+        deadlineTimer?.invalidate()
+        deadlineTimer = nil
         prompted = true
         panel?.orderOut(nil)
         panel = nil
-        shownAt = nil
         // Handed back to whoever had it. Without this, every pick would leave the person in Tally
         // instead of the terminal they typed the command into.
         previousApp?.activate()

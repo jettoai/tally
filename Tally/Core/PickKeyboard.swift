@@ -81,8 +81,8 @@ func pickColumnFocus(_ palette: PickPalette, from kind: PickKind, step: Int) -> 
 // MARK: - The keyboard
 
 /// One keypress, in the vocabulary this surface has. Named here rather than taken from SwiftUI so
-/// the rule below can be asserted without a view (the same split the dismissal judgement is under,
-/// `pickDismissalIsFromPerson`).
+/// the rule below can be asserted without a view (the same split the panel's own focus rules are
+/// under, `pickShouldRetryActivation`).
 enum PickKey: Equatable, Sendable {
     case up
     case down

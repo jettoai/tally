@@ -31,9 +31,9 @@ import Foundation
 /// budget for "is the app even running", not for "has it finished drawing".
 let nativePickClaimSeconds: TimeInterval = 1.5
 
-/// How long a CLAIMED panel may stay open. Reached only when somebody walks away from a panel they
-/// raised, and it resolves the way every other unanswered pick already does: nothing was chosen.
-let nativePickDeadlineSeconds: TimeInterval = 300
+// How long a claimed panel may stay open is `nativePickDeadlineSeconds`, which lives with the
+// contract rather than here: the app closes the panel just short of it (`pickPanelDeadline`), and a
+// deadline the two ends kept separate copies of would drift the first time either was tuned.
 
 /// How long each turn of the wait blocks on the client's stream. The wait's only clock, so it is
 /// also the resolution of both deadlines above and the worst-case delay on serving a client message.

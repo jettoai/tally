@@ -207,8 +207,8 @@ let switchRecommendedTag = "most headroom"
 /// What the release row is called wherever it is offered.
 let pickAutoLabel = "automatic selection  (release this session's pin)"
 
-/// How long a panel that has just been raised may lose the key window without that meaning anybody
-/// put it down.
+/// How long a panel that has just been raised may go without the keyboard before the foreground is
+/// asked for a second time.
 ///
 /// THE INCIDENT THIS EXISTS FOR (0.41.0, first real use): every `/tally-model` and `/tally-account`
 /// came back INSTANTLY with "nothing was changed", and no panel was ever seen. The file trace says
@@ -223,88 +223,63 @@ let pickAutoLabel = "automatic selection  (release this session's pin)"
 /// does not complete synchronously: the panel is made key in-process, the activation then settles
 /// (or does not), and AppKit takes the key window back. The controller read that as the person
 /// clicking away and answered on their behalf, before they had seen anything to click.
+///
+/// LOSING THE KEY WINDOW IS NO LONGER AN ANSWER AT ALL, which is what finally closed that family
+/// rather than narrowing it a fifth time: a panel stands until somebody closes it (Escape, the ✕ on
+/// its header, or a row), so nothing about focus can end a pick. What this window is left deciding
+/// is when to ask for the foreground once more, which is a question about our own activation rather
+/// than about anybody's intent.
 let pickPanelActivationGrace: TimeInterval = 0.6
 
-/// Whether a panel losing the key window is the PERSON putting it down.
+/// WHETHER A PANEL THAT HAS BEEN UP FOR ONE GRACE SHOULD ASK FOR THE FOREGROUND AGAIN.
 ///
-/// Pure and shared so the rule can be asserted without an app: the panel is AppKit, but "what counts
-/// as a dismissal" is a decision, and this incident is what it costs when that decision lives only
-/// inside a delegate callback nothing can reach.
+/// THIS IS WHAT IS LEFT OF A FIVE-STATE MACHINE, and what went is every reading that ANSWERED a pick
+/// nobody had touched (`dismissed`, `abandoned`) or kept a clock on one so that it could later
+/// (`keepWatching`). Four rounds of defects came out of one distinction: "the person walked away"
+/// against "the foreground ask never landed". From inside the app those two are the same
+/// observation - not key, not active - and every round that tried to separate them broke in the
+/// direction the last one had just closed. So the panel stopped asking. Nothing here cancels
+/// anything, the panel keeps standing, and a panel nobody comes back to is ended by a deadline
+/// instead (`pickPanelDeadline`), which cannot be wrong about intent because it never reads any.
 ///
-/// A panel that was never shown answers false, which is the same fail-safe direction: silence is not
-/// a dismissal, and the CLI's own deadline is what ends a pick nobody answers.
-func pickDismissalIsFromPerson(shownAt: Date?, now: Date = Date(),
-                               grace: TimeInterval = pickPanelActivationGrace) -> Bool {
-    guard let shownAt else { return false }
-    return now.timeIntervalSince(shownAt) >= grace
+/// Pure, so all four states can be asserted without an app.
+///
+/// `prompted` = somebody asked for this panel and is waiting on it. False for the panel a launch
+/// flag raises to be looked at, which must never take a foreground it was deliberately launched
+/// without (the last cell of the background launch contract, `CaptureLaunch`) - and answering that
+/// here rather than in the caller is what keeps it testable.
+///
+/// ASKED ONCE, and that is a property of the schedule rather than of a flag: the grace is armed when
+/// the panel goes up and never re-armed, so there is no second expiry for this to answer.
+func pickShouldRetryActivation(prompted: Bool, isKey: Bool) -> Bool {
+    prompted && !isKey
 }
 
-/// WHAT A RAISED PANEL IS DOING, judged whenever its grace runs out.
+/// How long a CLAIMED panel may stay open before the CLI stops waiting for it. Reached only when
+/// somebody raises a panel and does not come back to it, and it resolves the way every other
+/// unanswered pick already does: nothing was chosen.
 ///
-/// THIS IS THE THIRD SHAPE OF ONE JUDGEMENT, and the first two failed in opposite directions, which
-/// is why it is a state machine now rather than another condition:
-///
-///   v1 read every lost key window as a dismissal, so every pick answered itself in 147ms.
-///   v2 swallowed the ones inside the grace, so a person who really left was never answered at all.
-///   v3 gave the expiry three answers, two of which STOPPED THE CLOCK on a panel that had not
-///      settled: a foreground ask that never landed, and a sibling window of ours taking key. Both
-///      left a claimed request and a panel on screen with nothing watching either.
-///
-/// So the rule below has one invariant, and it is the thing all three rounds got wrong in turn:
-/// EVERY READING THAT LEAVES THE PANEL UP ALSO LEAVES SOMETHING WATCHING IT. Only `.settled` stops
-/// the clock, and it is reachable only while the panel actually holds the key window - the one state
-/// where the ordinary resign path takes over and answers on its own.
-enum PickGraceVerdict: Equatable, Sendable {
-    /// The panel holds the key window. Nothing more to poll: a later resign is past the grace and
-    /// answers for itself.
-    case settled
-    /// Not resolved, and nobody has put anything down. Look again.
-    case keepWatching
-    /// Ask for the foreground once more, on a FRESH grace: the second ask resigns asynchronously
-    /// exactly as the first did, so it needs its own window to settle in (that is the other half of
-    /// what v3 got wrong).
-    case retryActivation
-    /// The person put it down. Answer for them, which frees the waiting CLI now rather than at its
-    /// deadline.
-    case dismissed
-    /// Asked twice and still unreachable: not key, and not even our own foreground. Nobody can get
-    /// to this panel, so it is cancelled and the foreground handed back rather than left as a
-    /// window the person can neither see the point of nor answer.
-    case abandoned
-}
+/// HERE RATHER THAN BESIDE THE WAIT THAT COUNTS IT (`MCPServe.askNatively`), because the panel now
+/// has a deadline of its own and the two must be one number: an app that closed later than the CLI
+/// gave up would answer into a directory the CLI had already swept, and one that closed on a timer
+/// written separately would drift away from the wait the moment either was tuned.
+let nativePickDeadlineSeconds: TimeInterval = 300
 
-/// The transition, pure and total, so every combination can be asserted without an app.
+/// How long the PANEL stands before it closes itself, which is deliberately a little short of the
+/// wait above.
 ///
-/// The inputs are what the panel can observe about itself at the moment its grace expires; the
-/// discriminator that does the real work is `sawResign`, because a panel that never became key never
-/// resigned - which is exactly how "the foreground ask never landed" is told apart from "somebody
-/// walked away", the distinction the whole family of defects turns on.
-func pickGraceVerdict(prompted: Bool = true, sawResign: Bool, isKey: Bool, appIsActive: Bool,
-                      alreadyRetried: Bool) -> PickGraceVerdict {
-    // NOBODY ASKED FOR THIS ONE, so there is nobody to free and nothing to resolve. A panel raised
-    // by a launch flag for a look is not owed a keyboard and has no waiting CLI behind it, and the
-    // machine below would otherwise walk it straight into `.retryActivation` - which is an accessory
-    // app taking the foreground 0.6s after a deliberately BACKGROUND launch, from a panel that never
-    // borrowed the foreground and so hands nothing back. That is the last cell of the background
-    // launch contract (`CaptureLaunch`), and it belongs here rather than in the caller so the answer
-    // stays testable.
-    //
-    // THE INVARIANT IS UNCHANGED, only stated properly: the clock exists to free somebody who is
-    // waiting. Stopping it on a panel nobody is waiting on frees nothing and costs nothing.
-    guard prompted else { return .settled }
-    // KEY IS THE ONLY WAY TO STOP WATCHING. Everything else below keeps a clock on the panel.
-    if isKey { return .settled }
-    // Our own foreground, some other window of ours holding key: nobody has left the app, so this is
-    // not a dismissal, and the panel is still reachable by hand. Keep looking rather than answering
-    // or giving up (the CLI's own deadline is the backstop if a person really does leave it).
-    if appIsActive { return .keepWatching }
-    // Not key, and not our foreground either. One more ask before this is believed: an activation
-    // that never landed looks exactly like somebody leaving, and only the retry tells them apart.
-    guard alreadyRetried else { return .retryActivation }
-    // Asked twice. A resign says the panel was in their hands and they left it; no resign at all
-    // says it was never reachable to begin with.
-    return sawResign ? .dismissed : .abandoned
-}
+/// WHY THE PANEL NEEDS A DEADLINE AT ALL, and it is the price of the panel standing through a lost
+/// key window: a pick somebody raised and then forgot used to end the moment they clicked elsewhere,
+/// and now nothing about focus ends it. Without this it would sit on the screen for the rest of the
+/// session, over a CLI that stopped waiting for it minutes earlier.
+///
+/// WHY SHORTER RATHER THAN EQUAL. The answer has to land while the wait is still reading: the CLI
+/// discards the whole request the moment it gives up (`defer { pick.discard(id) }`), so an answer
+/// written after that is a file nobody reads, left behind in `~/.tally/pick`. The panel also starts
+/// its clock LATER than the wait starts its own - the request is written, knocked on and claimed
+/// first - so the margin covers that skew as well as one poll interval. Seconds against five
+/// minutes, which nobody sitting in front of a panel can perceive.
+let pickPanelDeadline: TimeInterval = nativePickDeadlineSeconds - 5
 
 // MARK: - The files
 

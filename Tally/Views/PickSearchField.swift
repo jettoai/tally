@@ -22,10 +22,10 @@ import SwiftUI
 /// (`pickKeyAction`).
 ///
 /// THE PANEL'S KEY-WINDOW FAMILY IS UNTOUCHED BY THIS, which is worth stating because that family
-/// has cost four rounds (`pickGraceVerdict`): the field is a first responder INSIDE the panel, and
-/// `windowDidResignKey` fires when the WINDOW loses key, not when the responder inside it changes.
-/// Editing this field, or moving between the two, never looks like the person putting the panel
-/// down.
+/// cost four rounds before the panel stopped reading focus as an answer at all
+/// (`pickShouldRetryActivation`): the field is a first responder INSIDE the panel, so editing it or
+/// moving between the two columns changes what holds the keyboard within one window and never what
+/// the window itself is doing.
 struct PickSearchField: NSViewRepresentable {
     /// What the column is filtered by now. One-way down: the panel owns the query, because clearing
     /// it is one of the things Escape does.

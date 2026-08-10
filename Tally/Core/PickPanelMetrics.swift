@@ -129,9 +129,79 @@ private func pickRowText(_ row: PickRow) -> (label: String, detail: String?) {
 let pickEffortSeparator = " · "
 let pickNoteSeparator = "  ("
 
-/// How tall one row is drawn: a line, or two when it has something under it.
-func pickRowHeight(_ row: PickRow) -> CGFloat {
-    pickPanelDetail(row) == nil ? pickPlainRowHeight : pickDetailRowHeight
+/// WHAT A MODEL NAMED WITHOUT A DEPTH MEANS, as the English key its translations are filed under
+/// (`Localizable.xcstrings`), or nil for every row that says what it does on its own.
+///
+/// THE DEFECT THIS EXISTS FOR (Albert, on the panel, 2026-08-10): the model list draws "fable",
+/// "fable · high" and "fable · xhigh", and the first of the three explained itself nowhere. It is
+/// the third state the grammar has - change the model, leave the depth alone
+/// (`ModelIntent.pin(model:effort:)` with no effort) - and the product's own owner could not read
+/// it off the row.
+///
+/// DRAWN RATHER THAN SENT, which is the same seam `pickPanelLabel` is on and for the same reason:
+/// the other surface for these rows is the elicitation form, which has one field per axis and no
+/// second line, so a sentence added to the wire would arrive there as more words in a label that
+/// already carries the model name. What the panel adds, the panel says.
+///
+/// A key rather than a finished string, because this file is compiled into the assertion suite as
+/// well as the app and the suite has no bundle to resolve against (`pickColumnHeadingKey`).
+func pickPanelNote(_ row: PickRow, kind: PickKind) -> String? {
+    guard kind == .model, row.effort == nil, pickPanelDetail(row) == nil else { return nil }
+    return pickEffortUnchangedKey
+}
+
+let pickEffortUnchangedKey = "Keeps the current effort"
+
+/// WHERE ONE DEPTH SITS ON THE RAMP THE PANEL COLOURS IT BY.
+///
+/// A BAND RATHER THAN A TONE PER LEVEL, because what the colour has to answer is "how far past the
+/// ordinary depth is this", and the whole axis is now drawn (`pickerExpandedEfforts`): six words in
+/// one accent are six words nobody can put in order at a glance, which is what Albert saw when the
+/// list held two.
+///
+/// A RANK RATHER THAN A COLOUR, so this is pure and the palette stays in one place (`TallyColor`,
+/// which the panel reads it through). Taken from the axis's own two lists rather than from a table
+/// written here: a level the CLI's help gains lands on the right side of `high` on its own, and a
+/// value neither list has heard of is drawn as ordinary rather than as a warning about something we
+/// cannot rank.
+enum PickEffortHeat: Equatable, Sendable {
+    /// Shallower than the depth most sessions run at: `low`, `medium`.
+    case shallow
+    /// The ordinary depth, and anything unrecognised.
+    case standard
+    /// Past the ordinary one: `xhigh`.
+    case deep
+    /// The deepest the documented axis goes, which on a metered subscription is also the fastest way
+    /// to spend a window: `max`.
+    case deepest
+    /// NOT A DEPTH AT ALL. `ultracode` is `xhigh` plus the CLI's own multi-agent orchestration
+    /// (`claudeUndocumentedEffortAliases`), so it is drawn at that depth's colour and set apart by
+    /// weight instead: a sixth hue would say it is a rung past `max`, which it is not.
+    case mode
+}
+
+/// The depth every drawn row and the sentence under the columns are coloured by, so one word is one
+/// colour wherever the panel writes it.
+func pickEffortHeat(_ effort: String?) -> PickEffortHeat {
+    guard let effort else { return .standard }
+    let name = effort.lowercased()
+    if claudeUndocumentedEffortAliases.contains(name) { return .mode }
+    let levels = claudeEffortFallbackLevels
+    guard let standard = levels.firstIndex(of: pickStandardEffort),
+          let index = levels.firstIndex(of: name)
+    else { return .standard }
+    if index < standard { return .shallow }
+    if index == standard { return .standard }
+    return index == levels.count - 1 ? .deepest : .deep
+}
+
+/// The depth the ramp is centred on: what a session runs at unless somebody said otherwise.
+let pickStandardEffort = "high"
+
+/// How tall one row is drawn: a line, or two when it has something under it - whether that second
+/// line came with the row or was added to it (`pickPanelNote`).
+func pickRowHeight(_ row: PickRow, note: String? = nil) -> CGFloat {
+    pickPanelDetail(row) == nil && note == nil ? pickPlainRowHeight : pickDetailRowHeight
 }
 
 /// WHAT ONE COLUMN'S SCROLLING REGION IS GIVEN before anything has been laid out.

@@ -31,8 +31,10 @@ struct PickSearchField: NSViewRepresentable {
     /// it is one of the things Escape does.
     let text: String
     let placeholder: String
-    /// Whether this column is the one the keyboard is in. The first responder follows it, so
-    /// stepping across with an arrow key moves the caret to the other field.
+    /// Whether this column is the one the keyboard is in. The first responder follows it WHEN IT
+    /// CHANGES, so stepping across with an arrow key or Tab moves the caret to the other field -
+    /// and never while it stands still, which is what keeps a field that already has the keyboard
+    /// from being argued with (`updateNSView`).
     let isFocused: Bool
     /// A key the panel answers with. True means the panel took it; false leaves it to the field,
     /// which is how a caret step stays a caret step (`pickKeyAction` decides which is which).
@@ -63,12 +65,25 @@ struct PickSearchField: NSViewRepresentable {
         context.coordinator.command = command
         context.coordinator.onEdit = onEdit
         context.coordinator.onFocus = onFocus
+        // WHETHER THE PANEL JUST MOVED THE KEYBOARD HERE, which is the only thing that may take the
+        // first responder off another field.
+        //
+        // THE FIRST RESPONDER IS THE FACT AND THE PANEL'S STATE FOLLOWS IT, one direction only. The
+        // correction below used to run on EVERY pass, so any path that moved the responder without
+        // the panel knowing left two disagreeing records of where the keyboard was, and the next
+        // redraw resolved it by dragging the responder back to the state's answer. Albert hit
+        // exactly that (2026-08-10): Tab moved the responder across, the panel still believed the
+        // left column was focused, and the first keystroke pulled the caret back to it. Reading the
+        // edge rather than the level means a field that HAS the responder is never argued with, and
+        // whatever moved it says so through `onFocus` instead (`controlTextDidBeginEditing`).
+        let claimed = isFocused && !context.coordinator.heldFocus
+        context.coordinator.heldFocus = isFocused
         context.coordinator.isFocused = isFocused
         field.placeholderString = placeholder
         // Written only when it really differs, so an update never disturbs a caret or a composition
         // in progress.
         if field.stringValue != text { field.stringValue = text }
-        guard isFocused else { return }
+        guard claimed else { return }
         // ASYNC, because the view may not be in a window yet on the first pass, and a responder
         // cannot be made in a window that is not there. Re-checked inside: by the time this runs
         // the focus may have moved on, and taking the responder back then would be this view
@@ -94,6 +109,13 @@ struct PickSearchField: NSViewRepresentable {
         var onEdit: (String) -> Void
         var onFocus: () -> Void
         var isFocused: Bool
+        /// Whether this field was the focused column on the LAST pass, which is what turns "the
+        /// panel moved the keyboard" into an edge the correction can be hung on.
+        ///
+        /// FALSE EVEN FOR THE COLUMN THE PANEL OPENS IN, deliberately: the first pass is then an
+        /// edge like any other, and the field the command chose takes the responder once, the way
+        /// the arrow keys and Tab make the next one take it.
+        var heldFocus = false
 
         init(command: @escaping (PickKey) -> Bool, onEdit: @escaping (String) -> Void,
              onFocus: @escaping () -> Void, isFocused: Bool) {
@@ -105,6 +127,12 @@ struct PickSearchField: NSViewRepresentable {
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
+            // THE FIELD BEING TYPED INTO IS THE FOCUSED COLUMN, said again on every keystroke and
+            // not only when the edit session opened. Idempotent, and it is the half of "the
+            // responder is the fact" that cannot be missed: whatever moved the keyboard here -
+            // a click, a path this panel does not name - the first character typed puts the
+            // panel's own record straight, so the arrow keys and Escape act on this column.
+            onFocus()
             onEdit(field.stringValue)
         }
 
@@ -114,8 +142,14 @@ struct PickSearchField: NSViewRepresentable {
         ///
         /// EVERYTHING ELSE IS THE FIELD'S, deliberately: backspace, forward delete, word motion,
         /// select-all, paste and every input-method command reach it untouched, which is the whole
-        /// reason this is a real field. Only these six are ours, and two of them are handed back
+        /// reason this is a real field. Only these eight are ours, and two of them are handed back
         /// when the panel says they are not its business (a caret step in a query that has one).
+        ///
+        /// TAB IS ONE OF OURS, which it was not, and that omission is the defect: unclaimed, it fell
+        /// through to AppKit's key-view loop, which moved the first responder to the other field
+        /// while the panel went on believing the column it had chosen was still the focused one
+        /// (`pickKeyAction`, and the correction in `updateNSView` that used to act on the
+        /// disagreement).
         func control(_ control: NSControl, textView: NSTextView,
                      doCommandBy selector: Selector) -> Bool {
             let key: PickKey
@@ -124,6 +158,8 @@ struct PickSearchField: NSViewRepresentable {
             case #selector(NSResponder.moveDown(_:)): key = .down
             case #selector(NSResponder.moveLeft(_:)): key = .left
             case #selector(NSResponder.moveRight(_:)): key = .right
+            case #selector(NSResponder.insertTab(_:)): key = .tab
+            case #selector(NSResponder.insertBacktab(_:)): key = .backtab
             case #selector(NSResponder.insertNewline(_:)): key = .enter
             case #selector(NSResponder.cancelOperation(_:)): key = .escape
             default: return false

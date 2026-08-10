@@ -57,15 +57,20 @@ func mcpPickSections(focus: PickKind, model: [PickRow], account: [PickRow]) -> [
     return pickSectionsFocusFirst(sections.filter { !$0.rows.isEmpty }, focus: focus)
 }
 
-/// The two depths the list expands. NOT the whole enumeration, and that is a judgement about this
-/// surface rather than about the axis: a picker whose reason to exist is "see it all, click once"
-/// stops being that at four models times seven depths, where every choice starts with a scroll. The
-/// other levels are not lost, they are TYPED (`/tally-model opus low`), which the grammar has always
-/// accepted and which is the faster path for somebody who already knows what they want.
+/// THE DEPTHS THE LIST EXPANDS: all of them, in the axis's own order, from the axis's own list.
 ///
-/// The form fallback still offers every level, so nothing is unreachable when the app is not there
-/// to draw this at all.
-let pickerExpandedEfforts = ["high", "xhigh"]
+/// IT USED TO BE TWO (`high` and `xhigh`), and that was a judgement made when the list had no way to
+/// narrow itself: four models times seven depths puts a scroll in front of every choice, so the rest
+/// were left to be TYPED (`/tally-model opus low`). The panel has a filter per column now, and a
+/// query is faster than a scroll for the person who knows what they want and no worse for the person
+/// reading. What the old shape cost was the people it did not occur to: a depth that is never drawn
+/// is a depth most of the fleet does not know the axis has.
+///
+/// TAKEN FROM `claudeEffortNames()` RATHER THAN LISTED AGAIN, which is the rule its own file opens
+/// with: a second hand-written list is a list that drifts, and this one would drift into offering a
+/// depth the CLI would then refuse. The order is that list's order, which is shallow to deep with
+/// the mode the CLI accepts but does not document at the end.
+let pickerExpandedEfforts = claudeEffortNames()
 
 /// The model rows: every model on its own, then that model at the depths above, then the release.
 ///

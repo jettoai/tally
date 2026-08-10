@@ -413,6 +413,23 @@ func runPickPaletteChecks() {
     check("…and go back to the field once there is a caret in it to walk",
           pickKeyAction(.left, query: "op") == .ignore
               && pickKeyAction(.right, query: "op") == .ignore)
+    // TAB IS THE OTHER WAY ACROSS, and the one that does not ask what is typed: it means "the next
+    // field" everywhere on the machine and never means a caret step, so it has no second reading to
+    // choose between. THE DEFECT IT IS HERE FOR (Albert, live, 2026-08-10): unclaimed, Tab fell
+    // through to AppKit's key-view loop, which moved the first responder while the panel went on
+    // believing the column it had chosen was focused - and the first keystroke after that was pulled
+    // back into the column that had been left behind.
+    check("Tab moves to the next column, and Shift-Tab back",
+          pickKeyAction(.tab, query: "") == .moveColumn(1)
+              && pickKeyAction(.backtab, query: "") == .moveColumn(-1))
+    check("…and it still changes columns with a query typed, which is where the arrows hand back",
+          pickKeyAction(.tab, query: "op") == .moveColumn(1)
+              && pickKeyAction(.backtab, query: "op") == .moveColumn(-1))
+    // Where it LANDS is the same clamped walk the arrows take, so a held Tab comes to rest at an end
+    // rather than lapping the two columns.
+    check("…landing where the arrows land, at rest on the ends",
+          pickColumnFocus(both, from: .account, step: 1) == .model
+              && pickColumnFocus(both, from: .model, step: 1) == .model)
     check("Enter takes what the cursor is on", pickKeyAction(.enter, query: "op") == .commit)
     // ESCAPE HAS TWO ANSWERS, and the order is the point: losing the whole panel to a stray Escape
     // means retyping the command, while a filter is a state people want out of far more often.

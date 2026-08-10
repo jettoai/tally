@@ -302,19 +302,26 @@ func runPickerChecks() {
     // whole decision rather than the first half of one.
     check("a model is offered on its own, which leaves the depth alone",
           rows.contains { $0.value == "opus" && $0.effort == nil })
-    // EXPANDED TO TWO DEPTHS, deliberately: the list is meant to be taken in at a glance, and the
-    // whole enumeration would put a scroll in front of every choice. The rest are typed, which the
-    // grammar has always accepted (asserted below, because "reachable another way" is the entire
-    // justification for not drawing them).
-    check("…and at the two depths this surface expands",
-          pickerExpandedEfforts.allSatisfy { effort in
-              rows.contains { $0.value == "opus" && $0.effort == effort }
+    // EXPANDED TO THE WHOLE AXIS, which it was not: the list drew `high` and `xhigh` and left the
+    // rest to be typed, from a judgement made before the panel had a filter in each column. A depth
+    // that is never drawn is a depth most people do not know the axis has, and a query is faster
+    // than the scroll that judgement was avoiding.
+    check("…and at every depth the axis has, in the axis's own order",
+          rows.filter { $0.value == "opus" }.compactMap(\.effort) == claudeEffortNames()
+              && claudeEffortNames().first == "low")
+    check("…which is the axis's own list rather than a second one written beside it",
+          pickerExpandedEfforts == claudeEffortNames()
+              && Set(rows.compactMap(\.effort)) == Set(claudeEffortNames()))
+    // The mode the CLI accepts without documenting is drawn too, because it is a value a launch may
+    // carry (`claudeUndocumentedEffortAliases`), and a picker that refuses to offer what the grammar
+    // accepts is a picker people have to type around.
+    check("…the undocumented mode included, since a launch may really carry it",
+          rows.contains { $0.value == "opus" && $0.effort == "ultracode" }
+              && modelIntentProblem(.pin(model: "opus", effort: "ultracode")) == nil)
+    check("every drawn depth is one the grammar accepts, so nothing offered can be refused",
+          claudeEffortNames().allSatisfy {
+              modelIntentProblem(.pin(model: "opus", effort: $0)) == nil
           })
-    check("…and at no others, so the list stays one screen",
-          Set(rows.compactMap(\.effort)) == Set(pickerExpandedEfforts))
-    check("a depth the list does not draw is still typeable, which is why it may be left out",
-          modelIntent(["opus", "low"]) == .pin(model: "opus", effort: "low")
-              && modelIntentProblem(.pin(model: "opus", effort: "low")) == nil)
     check("…and the form fallback still offers every one of them",
           (((mcpModelSchema(models: [], efforts: claudeEffortNames())["properties"]
              as? [String: Any])?[mcpEffortField] as? [String: Any])?["enum"] as? [String])
@@ -331,18 +338,27 @@ func runPickerChecks() {
         status.declared = SessionModelPin(model: model, effort: effort)
         return mcpModelPickRows(status)
     }
-    let onLow = rowsRunning("opus", "low")
+    // A DEPTH THIS LIST DOES NOT DRAW is no longer one of the documented levels - the list draws all
+    // of those - but the axis is read from the installed CLI's own help at runtime
+    // (`EffortLevels`), so a level this build has never heard of is still reachable and still has to
+    // leave the person a resting row.
+    let onUnknown = rowsRunning("opus", "turbo")
     check("a session at a depth the list does not draw rests on the model's own row",
-          onLow.filter(\.isCurrent).map { ($0.value, $0.effort) }.map(\.0) == ["opus"]
-              && onLow.first(where: \.isCurrent)?.effort == nil)
+          onUnknown.filter(\.isCurrent).map(\.value) == ["opus"]
+              && onUnknown.first(where: \.isCurrent)?.effort == nil)
     let onHigh = rowsRunning("opus", "high")
     check("…while a session at a depth it does draw rests on that pair",
           onHigh.filter(\.isCurrent).map(\.effort) == ["high"])
+    // …which now includes the shallow end, and that is the point of expanding: a session on `low`
+    // used to rest on the model's own row, one step from a depth change it never asked for.
+    let onLow = rowsRunning("opus", "low")
+    check("…the shallow end included, which the list used to leave without one",
+          onLow.filter(\.isCurrent).map(\.effort) == ["low"])
     let noDepth = rowsRunning("opus", nil)
     check("…and one whose depth nothing has read yet rests on the model too",
           noDepth.filter(\.isCurrent).allSatisfy { $0.effort == nil })
     check("exactly one row rests, in every one of those",
-          [onLow, onHigh, noDepth].allSatisfy { $0.filter(\.isCurrent).count == 1 })
+          [onUnknown, onHigh, onLow, noDepth].allSatisfy { $0.filter(\.isCurrent).count == 1 })
     // The form is unchanged, which is the fallback's whole promise: it still has two fields.
     let schema = mcpModelSchema(models: mcpModelOptions(ModelStatus()), efforts: claudeEffortNames())
     check("the form fallback still asks per axis, exactly as it did",

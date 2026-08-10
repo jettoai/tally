@@ -294,7 +294,10 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         var modelRows: [PickRow] = []
         for model in ["fable", "opus", "sonnet"] {
             modelRows.append(PickRow(value: model, label: model))
-            for effort in ["high", "xhigh"] {
+            // EVERY DEPTH, because that is what the CLI now expands (`pickerExpandedEfforts`, which
+            // is this same list): a fixture drawing two of them is a picture of a panel nobody sees,
+            // and the length of the real list is exactly what a capture is looked at for.
+            for effort in claudeEffortNames() {
                 modelRows.append(PickRow(value: model, effort: effort,
                                          label: "\(model) · \(effort)",
                                          isCurrent: model == "fable" && effort == "high"))

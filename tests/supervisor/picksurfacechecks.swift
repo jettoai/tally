@@ -59,6 +59,30 @@ func runPickSurfaceChecks() {
     check("the row view is readable from this suite", !rowView.isEmpty)
     check("a row's second line is held to one line, which is what the height family assumes",
           rowView.contains(".lineLimit(1)"))
+    // THE LINE THE PANEL ADDS, drawn from the item the arithmetic measured rather than decided again
+    // here: a model named with no depth says what it leaves alone (`pickPanelNote`), and the two
+    // must be the same answer or the row is a line taller than the sum knows about.
+    check("a model with no depth is drawn with the line the column gave it",
+          view.contains("note: item.note") && rowView.contains("} else if let note {")
+              && rowView.contains("Text(L(note))"))
+    // AND THE DEPTH IS A CHIP COLOURED BY HOW DEEP IT IS, from the ramp rather than one accent for
+    // every level: `high` and `xhigh` were the same purple, so nothing said which of them spends a
+    // paid window faster (Albert, 2026-08-10). One table, so the chip on a row and the same word in
+    // the bar under the columns cannot come out different colours.
+    check("the depth is drawn as a chip in the tags' own capsule",
+          rowView.contains("PickEffortChip(effort: effort, lit: isCircled)")
+              && rowView.contains("cornerRadius: TallyMetrics.calloutRadius"))
+    check("…tinted by where the depth sits on the ramp, not by a colour written on the row",
+          rowView.contains(".foregroundStyle(color)")
+              && rowView.contains("switch pickEffortHeat(effort)"))
+    check("…and the sentence under the columns colours that word from the same table",
+          rowView.contains("Text(verbatim: effort).foregroundStyle(pickEffortColor(effort))")
+              && rowView.contains("pickChangeParts(pair.element)"))
+    // A MODE IS SET APART BY WEIGHT rather than by a sixth hue, in both places the depth is written:
+    // `ultracode` runs AT xhigh, so a colour past the deepest depth would rank it as something it is
+    // not (`PickEffortHeat.mode`).
+    check("…and the mode the CLI does not document is told apart by weight, in both of them",
+          rowView.components(separatedBy: ".fontWeight(pickEffortWeight(effort))").count == 3)
     check("a column its filter emptied says that rather than showing a gap",
           view.contains("column.isEmptyOfMatches") && view.contains(#"L("No matches")"#))
     check("every keypress is decided by the rule this file asserts",
@@ -97,11 +121,21 @@ func runPickSurfaceChecks() {
                              encoding: .utf8)) ?? ""
     check("…wrapping AppKit's own, which is what makes an input method work at all",
           field.contains("NSViewRepresentable") && field.contains("NSTextField"))
+    // TAB IS ONE OF THESE, and its absence is the defect Albert hit (2026-08-10): a key this list
+    // does not name is a key AppKit's own key-view loop takes, so the first responder moved to the
+    // other column's field while the panel went on believing the one it had chosen was focused, and
+    // the next keystroke was dragged back to it. Both directions, since Shift-Tab is its own
+    // selector rather than a modifier on the first.
     for selector in ["moveUp", "moveDown", "moveLeft", "moveRight", "insertNewline",
-                     "cancelOperation"] {
+                     "cancelOperation", "insertTab", "insertBacktab"] {
         check("…handing the panel the keys it answers with: \(selector)",
               field.contains("#selector(NSResponder.\(selector)(_:))"))
     }
+    // …and the panel's backstop path answers it too, for the panel whose field never took the
+    // responder at all (the dev preview is raised that way).
+    check("…and the same key on the path the field never sees",
+          view.contains(".onKeyPress(.tab, phases: [.down, .repeat])")
+              && view.contains("act(press.modifiers.contains(.shift) ? .backtab : .tab)"))
     // AND NOTHING ELSE, which is the half that fixes backspace: every editing key reaches the field
     // editor untouched, so deleting, composing and pasting are AppKit's rather than ours.
     check("…and taking none of the editing ones, backspace first among them",
@@ -117,6 +151,24 @@ func runPickSurfaceChecks() {
               && !field.contains("stringValue.count"))
     check("a click in the other column's field moves the panel's focus with it",
           field.contains("controlTextDidBeginEditing") && view.contains("onFocus: { focus ="))
+    // THE FIRST RESPONDER IS THE FACT AND THE STATE FOLLOWS IT, one direction only. The correction
+    // that puts the keyboard in the focused column runs on the EDGE - the pass where the panel
+    // itself moved the focus - and never on the level, or a field that already holds the responder
+    // is argued with on every redraw. That argument is the bug: Tab moved the responder, the state
+    // still said the other column, and typing pulled the caret back to it (Albert, 2026-08-10).
+    check("the keyboard is taken only on the pass the panel moved it",
+          field.contains("let claimed = isFocused && !context.coordinator.heldFocus")
+              && field.contains("guard claimed else { return }")
+              && !field.contains("guard isFocused else { return }"))
+    // The other half of that rule, and the one that cannot be missed: whatever moved the keyboard
+    // here - a click, a path this panel does not name - the character typed puts the panel's own
+    // record straight, so the arrow keys and Escape act on the column being typed into.
+    // Read as the body between the two delegate methods, since the one after it calls `onFocus`
+    // too and a scan of the whole file could not tell which of them this is about.
+    let onTyping = (field.components(separatedBy: "func controlTextDidChange").last ?? "")
+        .components(separatedBy: "func controlTextDidBeginEditing").first ?? ""
+    check("…and whichever field is typed into says so, on every keystroke rather than the first",
+          onTyping.contains("onFocus()") && onTyping.contains("onEdit(field.stringValue)"))
 
     // EVERY WORD THIS SURFACE ADDED IS IN THE CATALOGUE, in all four translations: the app ships
     // five languages, and a string that reaches a person in English on a Japanese machine is a
@@ -127,7 +179,7 @@ func runPickSurfaceChecks() {
     let strings = catalogue?["strings"] as? [String: Any] ?? [:]
     check("the string catalogue is readable from this suite", !strings.isEmpty)
     for word in ["Accounts", "Models", "Type to filter", "esc to clear", "No matches", "Filter",
-                 "Account", "Model"] {
+                 "Account", "Model", pickEffortUnchangedKey] {
         let entry = strings[word] as? [String: Any]
         let localizations = entry?["localizations"] as? [String: Any] ?? [:]
         check("\(word) is translated into every language Tally ships",
@@ -154,4 +206,9 @@ func runPickSurfaceChecks() {
     check("the dev preview shows the whole palette, which is what a person actually sees",
           controller.contains("sections: [accounts, models]")
               && controller.contains("sections: [models, accounts]"))
+    // …AND THE WHOLE OF THE MODEL LIST, since this fixture is what the panel is captured through: two
+    // depths here while the CLI expands the axis (`pickerExpandedEfforts`) would be a picture of a
+    // panel nobody sees, and how long that list runs is exactly what a capture is looked at for.
+    check("…expanding the same depths the CLI does",
+          controller.contains("for effort in claudeEffortNames()"))
 }

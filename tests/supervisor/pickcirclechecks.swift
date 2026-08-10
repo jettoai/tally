@@ -79,9 +79,9 @@ func runPickCircleChecks() {
     check("a panel nobody has touched submits nothing",
           pickPendingChanges(palette, selections: [.account: 0, .model: 1]).isEmpty
               && pickSubmission(palette, selections: [.account: 0, .model: 1],
-                                focus: .model) == nil)
+                                command: .model) == nil)
     check("…and Enter on it is a cancellation, which is what the CLI already has a sentence for",
-          pickSubmission(palette, selections: [:], focus: .model) == nil)
+          pickSubmission(palette, selections: [:], command: .model) == nil)
     // ONE AXIS: the commonest pick there is.
     let oneAxis = pickPendingChanges(palette, selections: [.account: 0, .model: 5])
     check("circling another row in one column submits that axis and only it",
@@ -101,19 +101,19 @@ func runPickCircleChecks() {
 
     // MARK: - 38c. The answer both axes travel in
 
-    let submitted = pickSubmission(palette, selections: [.account: 1, .model: 5], focus: .model)
-    // FOCUS FIRST, because the three fields every reader has can only carry one axis: the one the
-    // person typed the command about is the one that survives a skew.
-    check("a two-axis submit puts the FOCUSED axis in the fields every reader has",
+    let submitted = pickSubmission(palette, selections: [.account: 1, .model: 5], command: .model)
+    // THE COMMAND'S AXIS FIRST, because the three fields every reader has can only carry one axis:
+    // the one the person typed the command about is the one that survives a skew.
+    check("a two-axis submit puts the COMMAND'S axis in the fields every reader has",
           submitted?.value == "opus" && submitted?.effort == "xhigh" && submitted?.kind == .model)
     check("…and the other one beside it, whole",
           submitted?.also == PickAxisAnswer(value: "claude:.claude2", effort: nil, kind: .account))
-    let fromAccount = pickSubmission(palette, selections: [.account: 1, .model: 5], focus: .account)
+    let fromAccount = pickSubmission(palette, selections: [.account: 1, .model: 5], command: .account)
     check("…the other way up when the other command opened the panel",
           fromAccount?.value == "claude:.claude2" && fromAccount?.kind == .account
               && fromAccount?.also?.value == "opus" && fromAccount?.also?.effort == "xhigh")
     check("a one-axis submit carries no second axis at all",
-          pickSubmission(palette, selections: [.account: 0, .model: 5], focus: .model)?.also == nil)
+          pickSubmission(palette, selections: [.account: 0, .model: 5], command: .model)?.also == nil)
     check("neither answer is a cancellation, and one carrying only the second axis would not be",
           submitted?.isCancelled == false
               && PickAnswer(also: PickAxisAnswer(value: "opus", kind: .model)).isCancelled == false
@@ -129,8 +129,18 @@ func runPickCircleChecks() {
     }
     let onTheWire = encodePick(submitted)
     let legacy = decodePick(LegacyPickAnswer.self, from: onTheWire)
-    check("a CLI from before the second axis reads the focused one and stops",
+    check("a CLI from before the second axis reads the command's own and stops",
           legacy == LegacyPickAnswer(value: "opus", effort: "xhigh", kind: .model))
+    // WHAT THE OTHER CHOICE OF AXIS WOULD COST, spelled out because it is silent (codex review of
+    // c283a85): the panel used to name the axis its KEYBOARD was in, and the keyboard moves on its
+    // own - a hover, an arrow key, a Tab. So a `/tally-model` whose focus had drifted to the
+    // accounts column wrote this, and an older CLI applies the three fields and ignores the rest:
+    // the move happens, the model change the command was about is dropped, and nothing says so.
+    let drifted = pickSubmission(palette, selections: [.account: 1, .model: 5], command: .account)
+    check("naming the wrong axis first is a change an older CLI drops in silence",
+          decodePick(LegacyPickAnswer.self, from: encodePick(drifted))
+              == LegacyPickAnswer(value: "claude:.claude2", effort: nil, kind: .account)
+              && drifted?.also?.value == "opus")
     check("…and this one reads back exactly what it wrote",
           decodePick(PickAnswer.self, from: onTheWire) == submitted)
     // The other skew: an answer written by an app that never heard of two axes.
@@ -234,15 +244,21 @@ func runPickCircleChecks() {
     check("a click circles a row rather than answering the panel",
           view.contains(".onTapGesture { selections[column.kind] = index }")
               && !view.contains("choose(PickChoice"))
+    // …AND IT NAMES THE AXIS THE COMMAND WAS ABOUT, not the one the keyboard drifted into. The
+    // panel passed `focus` here, which a hover or a Tab moves; the check above says what that costs
+    // at the far end, and this is the half a source scan can hold.
     check("Enter submits every circle, by the rule this file asserts",
-          view.contains("choose(pickSubmission(palette, selections: selections, focus: focus))"))
+          view.contains("choose(pickSubmission(palette, selections: selections, "
+              + "command: request.kind))")
+              && !view.contains("focus: focus"))
     check("…and the arrow keys move the circle by theirs",
           view.contains("pickMovedSelection(from: selections[focus], step: step,"))
     check("a query moves the circle only when it took the circled row away",
           view.contains("pickReselected(column, keeping: circled)"))
-    check("the bar draws what one press would do, from the same rule",
-          view.contains("PickApplyBar(summary: pickPendingSummary(pending))"))
     let row = (try? String(contentsOfFile: "Tally/Views/PickRowView.swift", encoding: .utf8)) ?? ""
+    check("the bar draws what one press would do, from the same rule",
+          view.contains("PickApplyBar(changes: pending)")
+              && row.contains("pickPendingSummary(changes)"))
     check("the circled row is marked in the app's own pin language",
           row.contains(#"Image(systemName: isCircled ? "checkmark.circle.fill" : "circle")"#))
     check("…and a hover is drawn as something else, so the two cannot be confused",

@@ -85,7 +85,7 @@ struct PickPanelView: View {
             // WHAT ONE PRESS WOULD DO, said before it is pressed. Its space is kept whether or not
             // it has anything in it (`pickApplyBarHeight`): a panel that grew when a row was circled
             // would move every row under the pointer that just circled it.
-            PickApplyBar(summary: pickPendingSummary(pending)) { submit() }
+            PickApplyBar(changes: pending) { submit() }
         }
         // THE PANEL'S OWN CONTENT LINE, which is the popover's and the pinned panel's
         // (`PanelGeometry.contentPadding`): this surface used to keep a wider margin of its own, so
@@ -124,6 +124,13 @@ struct PickPanelView: View {
         .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in act(.down) }
         .onKeyPress(.leftArrow, phases: [.down, .repeat]) { _ in act(.left) }
         .onKeyPress(.rightArrow, phases: [.down, .repeat]) { _ in act(.right) }
+        // Tab is the panel's on this path too, for the reason it is the field's: left to AppKit it
+        // walks the key-view loop, and a responder moved behind the panel's back is the disagreement
+        // this whole family of defects comes out of. Shift is what tells the two directions apart,
+        // since both arrive as the same key.
+        .onKeyPress(.tab, phases: [.down, .repeat]) { press in
+            act(press.modifiers.contains(.shift) ? .backtab : .tab)
+        }
         // Both delete keys mean the same thing on this path, which has no caret to delete forward
         // from: it is reached only when there is no field editor to own them.
         .onKeyPress(.delete, phases: [.down, .repeat]) { _ in act(.delete) }
@@ -294,7 +301,11 @@ struct PickPanelView: View {
     private func rowView(_ column: PickColumn, _ item: PickPaletteItem, index: Int,
                          isFocused: Bool) -> some View {
         PickRowView(row: item.row, isCircled: selections[column.kind] == index,
-                    isHovered: hovered[column.kind] == index, isFocusedColumn: isFocused)
+                    isHovered: hovered[column.kind] == index, isFocusedColumn: isFocused,
+                    // The line the column decided this row gets, drawn from the same item the
+                    // arithmetic measured, so what is on screen and what was summed are one answer
+                    // (`PickPaletteItem.note`).
+                    note: item.note)
             .id(index)
             .contentShape(Rectangle())
             // A CLICK CIRCLES, IT DOES NOT SUBMIT. The panel exists to carry both axes at once, and
@@ -381,11 +392,15 @@ struct PickPanelView: View {
         return true
     }
 
-    /// EVERYTHING THE PANEL ANSWERS WITH goes through here: both circles, the focused column first,
+    /// EVERYTHING THE PANEL ANSWERS WITH goes through here: both circles, the COMMAND'S axis first,
     /// and nil when neither has moved off what is already the case (`pickSubmission`, which is where
     /// "Enter on an unchanged panel is a cancellation" is decided and asserted).
+    ///
+    /// `request.kind` RATHER THAN `focus`, which is what this used to pass and is a bug an older CLI
+    /// reads as a dropped change: the focused column moves on its own (a hover, an arrow key, a
+    /// Tab), while which command raised this panel does not. `pickSubmission` carries the trace.
     private func submit() {
-        choose(pickSubmission(palette, selections: selections, focus: focus))
+        choose(pickSubmission(palette, selections: selections, command: request.kind))
     }
 
     /// The query changed, either because it was typed into or because Escape cleared it.

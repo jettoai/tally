@@ -26,6 +26,10 @@ struct PickRowView: View {
     /// Whether this row's column is the one the keyboard is in. Both columns keep a circle, so both
     /// draw one; the focused column's is drawn the stronger of the two.
     var isFocusedColumn = true
+    /// The second line the PANEL adds to this row, as the key its translations are filed under
+    /// (`pickPanelNote`): what a model named with no depth does. Nil for every row that already
+    /// says what it does, and the height arithmetic reads the same answer (`PickPaletteItem`).
+    var note: String?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -43,9 +47,7 @@ struct PickRowView: View {
                         .font(.body)
                         .fontWeight(row.isCurrent ? .semibold : .regular)
                     if let effort = row.effort {
-                        Text(effort)
-                            .font(.caption)
-                            .foregroundStyle(TallyColor.ai)
+                        PickEffortChip(effort: effort, lit: isCircled)
                     }
                     Spacer(minLength: 8)
                     // The tags the CLI decided, drawn rather than restated: which account this
@@ -72,6 +74,15 @@ struct PickRowView: View {
                         // ONE LINE, ALWAYS: the height family assumes a two-line row is exactly two
                         // lines (`pickDetailRowHeight`), so a detail that wraps is a row taller than
                         // anything computing this panel's size knows about.
+                        .lineLimit(1)
+                } else if let note {
+                    // WHAT THIS ROW DOES TO THE OTHER AXIS, drawn rather than sent (`pickPanelNote`
+                    // says why the wire does not carry it, and what a bare model row read as before
+                    // it was here). Quieter than a detail line: it is the same sentence on every one
+                    // of these rows, so it must not compete with the names beside it.
+                    Text(L(note))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
             }
@@ -106,6 +117,59 @@ struct PickRowView: View {
     }
 }
 
+/// THE DEPTH BESIDE A MODEL'S NAME: a chip in the same capsule the tags wear, tinted by how deep it
+/// is (`pickEffortHeat`).
+///
+/// WHY IT IS TINTED AT ALL. Both drawn depths used to be the one accent purple, so `high` and
+/// `xhigh` read as two interchangeable words and nothing on the panel said which of them spends the
+/// paid window faster (Albert, on the panel). The whole axis is drawn now
+/// (`pickerExpandedEfforts`), which makes the ramp the thing that keeps six words readable.
+struct PickEffortChip: View {
+    let effort: String
+    /// Whether the row it sits on is circled, which is the same two fills the tags beside it use: a
+    /// chip on the circled row is drawn a shade stronger so the row reads as one object.
+    var lit = false
+
+    private var color: Color { pickEffortColor(effort) }
+
+    var body: some View {
+        Text(verbatim: effort)
+            .font(.caption2)
+            .fontWeight(pickEffortWeight(effort))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: TallyMetrics.calloutRadius, style: .continuous)
+                    .fill(color.opacity(lit ? 0.22 : 0.14)))
+    }
+}
+
+/// THE ONE PLACE A DEPTH BECOMES A COLOUR, so the chip on a row and the same word in the bar under
+/// the columns cannot end up two different colours. The ranking itself is pure and asserted without
+/// a screen (`pickEffortHeat`); this is only the palette it is read through.
+///
+/// THE APP'S OWN TONES RATHER THAN A RAMP INVENTED HERE: the accent purple for the ordinary depth,
+/// and the meters' amber and red past it, which are the two warm tones this palette has and are
+/// already what "this is the costly end" looks like everywhere else in the app (`TallyColor`). The
+/// shallow end is no colour at all, because there is nothing to warn about down there.
+func pickEffortColor(_ effort: String) -> Color {
+    switch pickEffortHeat(effort) {
+    case .shallow: return Color.secondary
+    case .standard: return TallyColor.ai
+    // `ultracode` runs AT this depth, so it is drawn in this depth's colour and told apart by the
+    // weight below rather than by a hue that would rank it past `max`.
+    case .deep, .mode: return TallyColor.warning
+    case .deepest: return TallyColor.critical
+    }
+}
+
+/// The one thing on the chip that is not the ramp: a mode is set in the depth it runs at, and said
+/// slightly louder because it is doing something else as well (`PickEffortHeat.mode`).
+func pickEffortWeight(_ effort: String) -> Font.Weight {
+    pickEffortHeat(effort) == .mode ? .semibold : .regular
+}
+
 /// THE BAR UNDER BOTH COLUMNS: what one press would do, and the button that does it.
 ///
 /// WHY THERE IS ONE AT ALL. A click used to be the whole answer, so there was nothing to preview and
@@ -120,14 +184,15 @@ struct PickRowView: View {
 /// ITS SPACE IS KEPT EVEN WHEN IT SAYS NOTHING (`pickApplyBarHeight`), which is the same rule the
 /// shared list height is under: the panel must not change size while somebody is working in it.
 struct PickApplyBar: View {
-    /// What will be submitted, or nil when nothing would be.
-    let summary: String?
+    /// What would be submitted, in the order the columns stand. Empty on a panel that would submit
+    /// nothing, which is what draws no sentence and no button.
+    let changes: [PickChoice]
     let apply: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            if let summary {
-                Text(summary)
+            if let summary = pickPendingSummary(changes) {
+                sentence
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -156,5 +221,21 @@ struct PickApplyBar: View {
         .frame(height: pickApplyBarHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, pickApplyBarGap)
+    }
+
+    /// THE SAME SENTENCE `pickPendingSummary` WRITES, in pieces so the depth in it carries the
+    /// colour its chip carries in the row above (`pickEffortColor`): one word, one colour, wherever
+    /// this panel says it. Assembled from `pickChangeParts`, which is what the joined form is built
+    /// from too, so the drawn line and the line read aloud are the same words in the same order.
+    private var sentence: Text {
+        changes.enumerated().reduce(Text(verbatim: pickPendingLead)) { line, pair in
+            let parts = pickChangeParts(pair.element)
+            let separated = pair.offset == 0 ? line : line + Text(verbatim: pickEffortSeparator)
+            let named = separated + Text(verbatim: parts.label)
+            guard let effort = parts.effort else { return named }
+            return named + Text(verbatim: " ")
+                + Text(verbatim: effort).foregroundStyle(pickEffortColor(effort))
+                    .fontWeight(pickEffortWeight(effort))
+        }
     }
 }

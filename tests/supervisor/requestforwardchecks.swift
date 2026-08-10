@@ -343,6 +343,19 @@ func runRequestForwardChecks() {
               && readModelRequest(sessionKey: "4242", dir: raceModelDir) == nil)
     let settled = directiveTick()
     check("and the tick after it plans nothing at all", settled.plan == nil)
+    // THE PIN HAS TO BE RECORDED BEFORE THE ARGV IS BUILT, which is the last link of that chain and
+    // the one this fixture cannot reach: `planLaunchArgs` falls back to the session's own pin for a
+    // plan naming neither axis (`RelaunchPlan`), so a commit moved below it would build the new
+    // child's command line from the pin the conversation had BEFORE the pick - a two-axis submit
+    // that moves the account and quietly relaunches on the old depth. The tick body needs a running
+    // supervisor, so the order is read off the source, like the self-update fold's is
+    // (selfupdatefoldchecks).
+    let tick = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    let recorded = tick.range(of: "modelRecord?.commit(&sessionModelState)")?.lowerBound
+    let built = tick.range(of: "launchArgs = planLaunchArgs(")?.lowerBound
+    check("the pair is recorded before the relaunch's arguments are built from it",
+          recorded != nil && built != nil && recorded! < built!
+              && tick.contains("sessionPin: sessionModelState.pin"))
     try? FileManager.default.removeItem(at: raceRoot)
 
     // WHAT HAPPENS TO A REQUEST WHOSE CONVERSATION HAS BEEN SUPERSEDED, which is the question the

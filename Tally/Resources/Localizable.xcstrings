@@ -10057,6 +10057,35 @@
           }
         }
       }
+    },
+    "Keeps the current effort": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "維持目前的推理強度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持当前的推理强度"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の推論強度を維持"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 추론 강도 유지"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

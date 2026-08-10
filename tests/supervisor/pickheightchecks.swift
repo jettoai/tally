@@ -15,8 +15,11 @@ import Foundation
 // their shape until then. The arithmetic is here because it is the half that can be asserted without
 // a screen, and because it is what makes the collapsed state unreachable rather than unlikely.
 func runPickHeightChecks() {
+    // A DEPTH ON EVERY ONE OF THEM, which is what makes these one-line rows: a model named with NO
+    // depth is drawn with the line saying what it leaves alone (`pickPanelNote`), so a row carrying
+    // nothing at all is no longer the shortest row this panel has.
     func plain(_ n: Int) -> [PickRow] {
-        (0 ..< n).map { PickRow(value: "v\($0)", label: "row \($0)") }
+        (0 ..< n).map { PickRow(value: "v\($0)", effort: "high", label: "row \($0)") }
     }
     func detailed(_ n: Int) -> [PickRow] {
         (0 ..< n).map { PickRow(value: "v\($0)", label: "row \($0)", detail: "session 90%") }
@@ -37,8 +40,13 @@ func runPickHeightChecks() {
     check("a row carrying a second line is taller than one without",
           pickRowsSeedHeight(detailed(1)) > pickRowsSeedHeight(plain(1)))
     check("…and an empty detail is not a second line, it is no line",
-          pickRowsSeedHeight([PickRow(value: "v", label: "l", detail: "")])
+          pickRowsSeedHeight([PickRow(value: "v", effort: "high", label: "l", detail: "")])
               == pickRowsSeedHeight(plain(1)))
+    // …while a model with no depth on it IS a two-line row, because the panel gives it the line
+    // saying so. The one row shape that grew, and it grew for a reason a person can read.
+    check("a model named with no depth is drawn with the note under it",
+          pickRowsSeedHeight([PickRow(value: "v", label: "l")])
+              == pickRowsSeedHeight(detailed(1)))
     check("a fleet nobody could read on one screen stops at the cap",
           pickRowsSeedHeight(detailed(40)) == pickRowsMaxHeight)
     // A request with no rows never reaches the panel (`PickPanelController.present` refuses one), so
@@ -63,8 +71,14 @@ func runPickHeightChecks() {
     }
     modelRows.append(PickRow(value: "auto",
                              label: "auto  (follow this project's profile, then the fleet default)"))
-    check("the model list lays out at 371 points all told (+/- 4), before the cap",
-          abs(pickRowsSeedHeight(modelRows, cap: 1000) + pickStickyHeight(modelRows) - 371) <= 4)
+    // 371 WHEN IT WAS MEASURED, AND 42 POINTS TALLER SINCE: each of the three rows naming a model
+    // with no depth gained the line saying it leaves the depth alone (`pickPanelNote`), which is the
+    // difference between the two row heights this panel draws, three times over. The constant those
+    // rows moved onto (`pickDetailRowHeight`) is the one the account list was measured against on
+    // the same day, so this is the measured arithmetic carried forward rather than a new guess.
+    check("the model list lays out at 413 points all told (+/- 4), before the cap",
+          abs(pickRowsSeedHeight(modelRows, cap: 1000) + pickStickyHeight(modelRows) - 413) <= 4
+              && pickDetailRowHeight - pickPlainRowHeight == 14)
     check("…and a list long enough to need it scrolls at the cap",
           pickRowsSeedHeight(detailed(20) + [PickRow(value: "--auto", label: pickAutoLabel)])
               == pickRowsMaxHeight)

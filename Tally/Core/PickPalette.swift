@@ -28,16 +28,21 @@ import Foundation
 // row, or nothing at all - and the first and last of those mean the same thing, no change on this
 // axis.
 
-/// One row as the panel draws it: the row itself, and the space above it.
+/// One row as the panel draws it: the row itself, the space above it, and the line the PANEL adds
+/// under it.
 struct PickPaletteItem: Equatable, Sendable {
     let row: PickRow
     /// The space above this row, decided once (`pickRowGap`) so the drawing and the sum agree.
     let gapAbove: CGFloat
     /// Whether that space carries a rule: the way out of the column, set apart from its choices.
     let ruled: Bool
+    /// The second line this row is GIVEN rather than the one it arrived with (`pickPanelNote`), as
+    /// the English key its translations are filed under. Decided here because it depends on which
+    /// column the row is in, which a row does not carry and the column does.
+    let note: String?
 
     /// How tall this row is drawn, which is what the arithmetic adds up.
-    var height: CGFloat { pickRowHeight(row) }
+    var height: CGFloat { pickRowHeight(row, note: note) }
 }
 
 /// A row and the column it came from: everything circling it decides.
@@ -194,14 +199,17 @@ func pickColumn(_ section: PickSection, filter: String = "") -> PickColumn {
         items.append(PickPaletteItem(row: row,
                                      gapAbove: pickRowGap(above: row, after: previous, ruled: false,
                                                           atTop: items.isEmpty),
-                                     ruled: false))
+                                     ruled: false,
+                                     note: pickPanelNote(row, kind: section.kind)))
         previous = row
     }
+    // NO NOTE ON THE WAY OUT, and structurally rather than by a test: the pinned row hands the axis
+    // back, so "this changes the model and leaves the depth alone" is the one thing it does not do.
     let sticky = release.map { index in
         PickPaletteItem(row: section.rows[index],
                         gapAbove: pickRowGap(above: section.rows[index], after: nil, ruled: true,
                                              atTop: false),
-                        ruled: true)
+                        ruled: true, note: nil)
     }
     return PickColumn(kind: section.kind, items: items, sticky: sticky,
                       filtering: pickIsFiltering(filter))
@@ -277,23 +285,40 @@ func pickPendingChanges(_ palette: PickPalette, selections: [PickKind: Int]) -> 
 /// changed"). Inventing a second state for "submitted, but empty" would be a second sentence saying
 /// the same thing.
 ///
-/// FOCUS FIRST, because the three fields every reader has can only carry one axis and an older CLI
-/// applies exactly them: the axis the person typed the command about is the one that survives the
-/// skew (`PickAnswer`).
+/// THE COMMAND'S AXIS FIRST, because the three fields every reader has can only carry one axis and
+/// an older CLI applies exactly them: the axis the person typed the command about is the one that
+/// survives the skew (`PickAnswer`).
+///
+/// `command` IS THE COMMAND THAT RAISED THE PANEL (`PickRequest.kind`) AND NOT WHERE THE KEYBOARD
+/// ENDED UP, which is the defect this parameter was renamed for (codex review of c283a85). The
+/// panel used to pass its focused column, and that column moves on its own: a hover, an arrow key
+/// and a Tab all change it. So a person who typed `/tally-model`, circled a model AND an account,
+/// and happened to leave the keyboard in the accounts column, submitted an answer whose three
+/// compatible fields named the ACCOUNT - and an older CLI, which reads exactly those and ignores
+/// `also`, applied the move and dropped the model change the command was about, silently.
 func pickSubmission(_ palette: PickPalette, selections: [PickKind: Int],
-                    focus: PickKind) -> PickAnswer? {
+                    command: PickKind) -> PickAnswer? {
     let changes = pickPendingChanges(palette, selections: selections)
-    let ordered = changes.filter { $0.kind == focus } + changes.filter { $0.kind != focus }
+    let ordered = changes.filter { $0.kind == command } + changes.filter { $0.kind != command }
     guard !ordered.isEmpty else { return nil }
     return PickAnswer(axes: ordered.map(\.axis))
 }
 
-/// HOW ONE PENDING CHANGE READS in the bar under the columns: the name, and the depth when the row
-/// carries one. The panel's own reading of the row rather than the wire's, so a model row does not
-/// say its depth twice (`pickPanelLabel`).
+/// HOW ONE PENDING CHANGE READS in the bar under the columns, IN PIECES: the name, and the depth
+/// when the row carries one. The panel's own reading of the row rather than the wire's, so a model
+/// row does not say its depth twice (`pickPanelLabel`).
+///
+/// TAKEN APART BECAUSE THE BAR COLOURS THE DEPTH the same way the row's chip does (`pickEffortHeat`)
+/// and a sentence cannot be tinted in the middle. The joined form below is built from exactly these
+/// two, so what is drawn and what a screen reader is handed cannot drift into two spellings.
+func pickChangeParts(_ choice: PickChoice) -> (label: String, effort: String?) {
+    (pickPanelLabel(choice.row), choice.row.effort)
+}
+
+/// The same change as one string.
 func pickChangeSummary(_ choice: PickChoice) -> String {
-    let label = pickPanelLabel(choice.row)
-    return choice.row.effort.map { "\(label) \($0)" } ?? label
+    let parts = pickChangeParts(choice)
+    return parts.effort.map { "\(parts.label) \($0)" } ?? parts.label
 }
 
 /// WHAT THE BAR SAYS, or nil when there is nothing to say and it draws nothing.
@@ -303,8 +328,12 @@ func pickChangeSummary(_ choice: PickChoice) -> String {
 /// deserves to see both.
 func pickPendingSummary(_ changes: [PickChoice]) -> String? {
     guard !changes.isEmpty else { return nil }
-    return "→ " + changes.map(pickChangeSummary).joined(separator: pickEffortSeparator)
+    return pickPendingLead + changes.map(pickChangeSummary).joined(separator: pickEffortSeparator)
 }
+
+/// What that line opens with, and what stands between two changes on it. Named because the bar
+/// draws the same line in coloured pieces and must open it the same way.
+let pickPendingLead = "→ "
 
 /// WHETHER A HOVER IS A PERSON MOVING THE POINTER, or the panel having been raised underneath one
 /// that never moved.
@@ -321,97 +350,4 @@ func pickPendingSummary(_ changes: [PickChoice]) -> String? {
 /// the person.
 func pickHoverMovesFocus(shownAt: Date, now: Date = Date()) -> Bool {
     pickDismissalIsFromPerson(shownAt: shownAt, now: now)
-}
-
-/// WHERE THE CARET GOES when a column takes the keyboard back: the end of what is already typed, so
-/// coming back to a column adds to the query rather than replacing it.
-///
-/// UTF-16, BECAUSE THAT IS WHAT AN `NSRange` COUNTS. `String.count` counts what a person calls
-/// characters, and the two disagree the moment a query holds an emoji or a composed syllable: an
-/// offset measured in graphemes lands short of the end, and the next keystroke is inserted into the
-/// middle of the query instead of after it (codex review, 2026-08-10). Nothing about the panel's
-/// vocabulary rules those out - an account is called whatever somebody typed into Settings.
-func pickCaretEnd(_ text: String) -> Int { text.utf16.count }
-
-/// Which column the focus lands on when it is stepped sideways. Clamped rather than wrapped, like
-/// the walk down a column: a held arrow key must come to rest somewhere rather than cycle.
-func pickColumnFocus(_ palette: PickPalette, from kind: PickKind, step: Int) -> PickKind {
-    guard let index = palette.columns.firstIndex(where: { $0.kind == kind }) else { return kind }
-    let landed = min(max(index + step, 0), palette.columns.count - 1)
-    return palette.columns[landed].kind
-}
-
-// MARK: - The keyboard
-
-/// One keypress, in the vocabulary this surface has. Named here rather than taken from SwiftUI so
-/// the rule below can be asserted without a view (the same split the dismissal judgement is under,
-/// `pickDismissalIsFromPerson`).
-enum PickKey: Equatable, Sendable {
-    case up
-    case down
-    case left
-    case right
-    case enter
-    case escape
-    case delete
-    case text(String)
-}
-
-/// What a keypress does to the panel.
-enum PickKeyAction: Equatable, Sendable {
-    /// Up or down the column the keyboard is in.
-    case move(Int)
-    /// Across to the next column.
-    case moveColumn(Int)
-    /// Submit everything both columns have circled (`pickSubmission`), which is nothing on a panel
-    /// where neither circle has moved off what is already the case.
-    case commit
-    case cancel
-    /// The FOCUSED column's query, after this keypress. Covers typing, backspace and the clearing
-    /// half of Escape.
-    case edit(String)
-    case ignore
-}
-
-/// THE WHOLE KEYBOARD, as one total function.
-///
-/// SIDEWAYS IS FREE HERE, which is what pays for the columns: this field has no caret to walk, so
-/// left and right can mean the only other thing a two-column surface needs them to mean. The cost is
-/// stated rather than discovered: no caret means no editing in the middle of a query, only typing
-/// and backspace, which is what a filter of a dozen model names is answered with anyway.
-///
-/// ENTER IS THE SUBMIT, WHEREVER THE CURSOR IS, because the circles are what it sends and they are
-/// on the screen: the row it takes is not "the one under the cursor" any more, it is everything both
-/// columns have circled. On a panel where nothing has been circled off the current state it sends
-/// nothing, which is a cancellation and says so ("nothing was changed").
-///
-/// ESCAPE HAS TWO ANSWERS and the order is the point: a filter that is showing three rows out of
-/// thirty is a state a person wants OUT of more often than they want the panel gone, and losing the
-/// whole panel to a stray Escape means retyping the command. So the first Escape clears what was
-/// typed IN THE COLUMN THE KEYBOARD IS IN, and the second one closes.
-///
-/// A MODIFIER MEANS SOMEBODY IS DOING SOMETHING ELSE (copying, switching windows), so those presses
-/// are handed back untouched rather than typed into the filter; the caller decides what carries a
-/// modifier, because that is the one part that is SwiftUI's to say.
-func pickKeyAction(_ key: PickKey, query: String) -> PickKeyAction {
-    switch key {
-    case .up: return .move(-1)
-    case .down: return .move(1)
-    // SIDEWAYS MEANS TWO THINGS, and the query decides which: with something typed there is a
-    // caret in the field and left and right walk it, which is what anybody who has just typed
-    // expects; with the field empty there is no caret to walk, so they are free to mean the only
-    // other thing a two-column surface needs (`.ignore` hands the key back to the field).
-    case .left: return query.isEmpty ? .moveColumn(-1) : .ignore
-    case .right: return query.isEmpty ? .moveColumn(1) : .ignore
-    case .enter: return .commit
-    case .escape: return query.isEmpty ? .cancel : .edit("")
-    case .delete: return query.isEmpty ? .ignore : .edit(String(query.dropLast()))
-    case .text(let characters):
-        // Only what a person can see: a control character reaching the query would filter the list
-        // down to nothing with no way to tell why.
-        guard !characters.isEmpty,
-              characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
-        else { return .ignore }
-        return .edit(query + characters)
-    }
 }

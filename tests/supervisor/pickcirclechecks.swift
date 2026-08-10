@@ -252,7 +252,7 @@ func runPickCircleChecks() {
               + "command: request.kind))")
               && !view.contains("focus: focus"))
     check("…and the arrow keys move the circle by theirs",
-          view.contains("pickMovedSelection(from: selections[focus], step: step,"))
+          view.contains("pickMovedSelection(from: selections[kind], step: step,"))
     check("a query moves the circle only when it took the circled row away",
           view.contains("pickReselected(column, keeping: circled)"))
     let row = (try? String(contentsOfFile: "Tally/Views/PickRowView.swift", encoding: .utf8)) ?? ""

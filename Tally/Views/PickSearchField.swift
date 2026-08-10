@@ -32,12 +32,13 @@ struct PickSearchField: NSViewRepresentable {
     let text: String
     let placeholder: String
     /// Whether this column is the one the keyboard is in. The first responder follows it WHEN IT
-    /// CHANGES, so stepping across with an arrow key or Tab moves the caret to the other field -
-    /// and never while it stands still, which is what keeps a field that already has the keyboard
-    /// from being argued with (`updateNSView`).
+    /// CHANGES, so stepping across with an arrow key or Tab moves the caret to the other field, and
+    /// otherwise only while no field is being edited at all, which is what keeps a field that
+    /// already has the keyboard from being argued with (`updateNSView`).
     let isFocused: Bool
-    /// A key the panel answers with. True means the panel took it; false leaves it to the field,
-    /// which is how a caret step stays a caret step (`pickKeyAction` decides which is which).
+    /// A key the panel answers with. True means the panel took it. Every key this field hands up is
+    /// answered, so false belongs to the panel's own backstop path (a press with no ink, a
+    /// backspace with nothing left to delete) and means the panel did nothing with it.
     let command: (PickKey) -> Bool
     /// What was typed, on every change: composition, paste and backspace all arrive here.
     let onEdit: (String) -> Void
@@ -76,7 +77,18 @@ struct PickSearchField: NSViewRepresentable {
         // left column was focused, and the first keystroke pulled the caret back to it. Reading the
         // edge rather than the level means a field that HAS the responder is never argued with, and
         // whatever moved it says so through `onFocus` instead (`controlTextDidBeginEditing`).
-        let claimed = isFocused && !context.coordinator.heldFocus
+        //
+        // AND THE CASE AN EDGE ALONE CANNOT REACH: THE KEYBOARD IS IN THE PANEL AND IN NO FIELD AT
+        // ALL. The panel is focusable itself, so its own SwiftUI focus and this claim both want the
+        // responder on the pass the panel comes up, and whichever settles last has it; when that is
+        // the panel, the state goes on naming a column whose field never took the keyboard, no edge
+        // is ever coming (the state did not move), and every press is answered by the panel's
+        // backstop instead. That is the surface Albert's arrow keys were typed into. So the claim
+        // also runs on the LEVEL while nothing is being edited, which cannot argue with anybody by
+        // construction: a field holding the responder makes this false (`pickFieldEditorIsIdle`),
+        // which is the property the edge was introduced for.
+        let claimed = isFocused
+            && (!context.coordinator.heldFocus || pickFieldEditorIsIdle(field.window))
         context.coordinator.heldFocus = isFocused
         context.coordinator.isFocused = isFocused
         field.placeholderString = placeholder
@@ -142,8 +154,10 @@ struct PickSearchField: NSViewRepresentable {
         ///
         /// EVERYTHING ELSE IS THE FIELD'S, deliberately: backspace, forward delete, word motion,
         /// select-all, paste and every input-method command reach it untouched, which is the whole
-        /// reason this is a real field. Only these eight are ours, and two of them are handed back
-        /// when the panel says they are not its business (a caret step in a query that has one).
+        /// reason this is a real field. Only these eight are ours, and all eight are now ANSWERED:
+        /// the sideways pair used to be handed back so a query that had a caret could walk it, and
+        /// what Albert asked for instead is that a two-column surface keeps them for the columns
+        /// whatever is typed (`pickKeyAction` carries the trade and what it costs).
         ///
         /// TAB IS ONE OF OURS, which it was not, and that omission is the defect: unclaimed, it fell
         /// through to AppKit's key-view loop, which moved the first responder to the other field
@@ -167,4 +181,20 @@ struct PickSearchField: NSViewRepresentable {
             return command(key)
         }
     }
+}
+
+/// WHETHER THE KEYBOARD IS IN THIS WINDOW AND IN NO FIELD: the window takes key events, and what
+/// holds the responder inside it is not an editor. Both halves are load-bearing.
+///
+/// KEY, because a window that is not taking key events has no keyboard to converge: the dev preview
+/// is raised without the foreground on purpose (`PickPanelController.previewIfRequested`), and a
+/// field reaching for the responder there would be reaching for something nobody is holding.
+///
+/// AND NO EDITOR, because that is what keeps the level claim from becoming the argument the edge was
+/// introduced to end: while any column is being edited this is false, so a stale idea of which
+/// column is focused can never pull the caret out of the field somebody is typing in. A field editor
+/// is an `NSText`, whichever column it is currently serving.
+@MainActor private func pickFieldEditorIsIdle(_ window: NSWindow?) -> Bool {
+    guard let window, window.isKeyWindow else { return false }
+    return !(window.firstResponder is NSText)
 }

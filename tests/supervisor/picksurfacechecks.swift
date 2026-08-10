@@ -86,8 +86,22 @@ func runPickSurfaceChecks() {
     check("a column its filter emptied says that rather than showing a gap",
           view.contains("column.isEmptyOfMatches") && view.contains(#"L("No matches")"#))
     check("every keypress is decided by the rule this file asserts",
-          view.contains("pickKeyAction(key, query: queries[focus] ?? \"\")")
-              && view.contains("pickColumnFocus(palette, from: focus, step: step)"))
+          view.contains("pickKeyAction(key, query: queries[kind] ?? \"\")")
+              && view.contains("pickColumnFocus(palette, from: kind, step: step)"))
+    // TYPING IS THE HANDLER OF LAST RESORT on this path, so everything the named ones declined
+    // arrives there wearing whatever character it carries, and an arrow key carries one. Both halves
+    // of what stopped it are locked: the press goes through the same rule as every other key (where
+    // `pickIsTypable` turns it away), and the sideways keys no longer decline in the first place.
+    check("what the named handlers declined is typed through the same rule, not straight in",
+          view.contains(".onKeyPress(phases: [.down, .repeat]) { press in typed(press) }")
+              && view.contains("return act(.text(press.characters))")
+              && !view.contains("edited(press.characters"))
+    // A KEYBOARD WITH NOWHERE TO GO IS THE SAME HOLE: the request says which column the keyboard
+    // starts in and the sections say which columns exist, and nothing on the wire makes the first
+    // one of the second. Refused here, every key on the panel fell through to the typing handler.
+    check("a focus naming no column lands on one that is drawn rather than refusing the key",
+          view.contains("guard let column = palette.column(focus) ?? palette.columns.first")
+              && view.contains("if kind != focus { focus = kind }"))
     check("the pointer moves the keyboard's column with it, once the panel is really up",
           view.contains("focus = column.kind")
               && view.contains("guard pickHoverMovesFocus(shownAt: shownAt) else { return }"))
@@ -156,10 +170,22 @@ func runPickSurfaceChecks() {
     // itself moved the focus - and never on the level, or a field that already holds the responder
     // is argued with on every redraw. That argument is the bug: Tab moved the responder, the state
     // still said the other column, and typing pulled the caret back to it (Albert, 2026-08-10).
-    check("the keyboard is taken only on the pass the panel moved it",
-          field.contains("let claimed = isFocused && !context.coordinator.heldFocus")
+    check("the keyboard is taken on the pass the panel moved it",
+          field.contains("let claimed = isFocused")
+              && field.contains("!context.coordinator.heldFocus")
               && field.contains("guard claimed else { return }")
               && !field.contains("guard isFocused else { return }"))
+    // AND ON THE LEVEL WHILE NOBODY IS EDITING, which is the case an edge cannot reach: the panel is
+    // focusable itself, so on the pass it comes up its own SwiftUI focus and this claim both want
+    // the responder, and when the panel wins there is no second edge coming - the state never moved.
+    // Every press then goes to the panel's backstop, which is the surface Albert's arrow keys were
+    // typed into (2026-08-10). Safe by construction rather than by care: a field holding the
+    // responder makes the test below false, which is exactly the property the edge was added for.
+    check("…and again whenever the keyboard is in the panel and in no field at all",
+          field.contains("|| pickFieldEditorIsIdle(field.window)"))
+    check("…which is asked of the window that has the keyboard, and of what holds it there",
+          field.contains("guard let window, window.isKeyWindow else { return false }")
+              && field.contains("return !(window.firstResponder is NSText)"))
     // The other half of that rule, and the one that cannot be missed: whatever moved the keyboard
     // here - a click, a path this panel does not name - the character typed puts the panel's own
     // record straight, so the arrow keys and Escape act on the column being typed into.

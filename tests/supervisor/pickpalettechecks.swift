@@ -404,15 +404,16 @@ func runPickPaletteChecks() {
 
     check("the up and down arrows move the cursor in the column it is in",
           pickKeyAction(.up, query: "") == .move(-1) && pickKeyAction(.down, query: "") == .move(1))
-    // SIDEWAYS MEANS TWO THINGS, and the query is what decides which: an empty field has no caret
-    // to walk, so the arrows are free to change columns; a field with something in it has one, and
-    // the key goes back to the field (`.ignore`) so it walks the caret like anywhere else.
-    check("the left and right arrows move between the columns while nothing is typed",
+    // SIDEWAYS IS THE OTHER COLUMN AND NOTHING ELSE, whatever is typed (Albert, 2026-08-10). The
+    // reading this replaces asked the query and handed the key back to walk a caret with once there
+    // was one, which changed what the key meant under the person and, on the path with no field to
+    // hand anything to, let the press fall through to the panel's typing handler.
+    check("the left and right arrows move between the columns",
           pickKeyAction(.left, query: "") == .moveColumn(-1)
               && pickKeyAction(.right, query: "") == .moveColumn(1))
-    check("…and go back to the field once there is a caret in it to walk",
-          pickKeyAction(.left, query: "op") == .ignore
-              && pickKeyAction(.right, query: "op") == .ignore)
+    check("…and still do once something is typed, rather than turning into a caret step",
+          pickKeyAction(.left, query: "op") == .moveColumn(-1)
+              && pickKeyAction(.right, query: "op") == .moveColumn(1))
     // TAB IS THE OTHER WAY ACROSS, and the one that does not ask what is typed: it means "the next
     // field" everywhere on the machine and never means a caret step, so it has no second reading to
     // choose between. THE DEFECT IT IS HERE FOR (Albert, live, 2026-08-10): unclaimed, Tab fell
@@ -445,4 +446,26 @@ func runPickPaletteChecks() {
     check("a control character is not typing",
           pickKeyAction(.text("\u{1B}"), query: "") == .ignore
               && pickKeyAction(.text(""), query: "") == .ignore)
+    // AND NEITHER IS AN ARROW KEY WEARING A CHARACTER, which is the defect Albert caught live
+    // (2026-08-10): AppKit spells the arrows and the whole function row as private-use scalars, so
+    // a press that reached a TEXT handler carried something no general test of a character turns
+    // away, and eight presses put eight empty boxes in the models filter with "No matches" under
+    // them. All four arrows, since it was one key of the four that was reported and all four arrive
+    // the same way.
+    for arrow in ["\u{F700}", "\u{F701}", "\u{F702}", "\u{F703}"] {
+        check("an arrow key's own character is not typing",
+              !pickIsTypable(arrow) && pickKeyAction(.text(arrow), query: "op") == .ignore)
+    }
+    // The ends of the block AppKit reserves, so the guard is a range rather than four constants: the
+    // function row, Home, End and the rest live in here too.
+    check("…nor anything else in the block AppKit spells its function keys in",
+          !pickIsTypable("\u{F704}") && !pickIsTypable("\u{F8FF}")
+              && pickFunctionKeyScalars == 0xF700...0xF8FF)
+    // AND THE GUARD STILL LETS A PERSON TYPE, which is the half a guard is easy to lose: an account
+    // is called whatever somebody typed into Settings, so what passes has to include the scripts a
+    // fleet actually holds and the scalars either side of the reserved block.
+    check("what a person can see is typing, in any script the fleet holds",
+          pickIsTypable("o") && pickIsTypable(" ") && pickIsTypable("Claude 2")
+              && pickIsTypable("克勞德") && pickIsTypable("\u{1F680}")
+              && pickIsTypable("\u{F6FF}") && pickIsTypable("\u{F900}"))
 }

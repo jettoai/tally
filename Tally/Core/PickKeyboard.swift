@@ -22,6 +22,34 @@ import Foundation
 /// vocabulary rules those out - an account is called whatever somebody typed into Settings.
 func pickCaretEnd(_ text: String) -> Int { text.utf16.count }
 
+/// The block AppKit spells its function keys in: `NSUpArrowFunctionKey` is 0xF700 and the whole
+/// family runs to 0xF8FF. Unicode leaves that range to private use, which is exactly why it has to
+/// be named here: there is nothing in a general test of a character that rules it out.
+let pickFunctionKeyScalars: ClosedRange<UInt32> = 0xF700...0xF8FF
+
+/// WHETHER A PRESS IS SOMETHING A PERSON WOULD SEE IN THE FIELD. The one gate in front of every
+/// path that puts characters into a query, so a key that is not typing cannot become typing by
+/// arriving through a path that did not think to ask.
+///
+/// TWO KINDS ARE TURNED AWAY, and the second is the defect this was extracted for:
+///
+///   1. CONTROL CHARACTERS, which carry no ink: one in the query narrows the list to nothing with
+///      nothing on screen to say why.
+///   2. THE FUNCTION-KEY BLOCK. An arrow key reaching a TEXT handler still carries a character,
+///      and a printable-looking one, because AppKit spells the arrows and the function row as
+///      scalars in the private use area. Albert pressed the arrows eight times on the live panel
+///      (2026-08-10) and got eight empty boxes in the models filter with "No matches" underneath:
+///      the presses had fallen past the panel's own arrow handlers and been typed. The other half
+///      of that fix is that they no longer fall through at all (`pickKeyAction`, sideways), and
+///      both halves stay: one keeps the key on its own path, this one keeps every other key that
+///      carries no ink out of the query whatever path it arrives by.
+func pickIsTypable(_ characters: String) -> Bool {
+    guard !characters.isEmpty else { return false }
+    return characters.unicodeScalars.allSatisfy {
+        !CharacterSet.controlCharacters.contains($0) && !pickFunctionKeyScalars.contains($0.value)
+    }
+}
+
 /// Which column the focus lands on when it is stepped sideways. Clamped rather than wrapped, like
 /// the walk down a column: a held arrow key must come to rest somewhere rather than cycle.
 func pickColumnFocus(_ palette: PickPalette, from kind: PickKind, step: Int) -> PickKind {
@@ -68,10 +96,11 @@ enum PickKeyAction: Equatable, Sendable {
 
 /// THE WHOLE KEYBOARD, as one total function.
 ///
-/// SIDEWAYS IS FREE HERE, which is what pays for the columns: this field has no caret to walk, so
-/// left and right can mean the only other thing a two-column surface needs them to mean. The cost is
-/// stated rather than discovered: no caret means no editing in the middle of a query, only typing
-/// and backspace, which is what a filter of a dozen model names is answered with anyway.
+/// SIDEWAYS IS THE OTHER COLUMN, which is what pays for the columns: left and right mean the one
+/// thing a two-column surface needs a spare key for, and they mean it whether or not something has
+/// been typed. The cost is stated rather than discovered, and it is paid in the query: no caret step
+/// means a query is typed and backspaced rather than edited in the middle, which is what a filter
+/// over a dozen model names is answered with anyway (the case below carries the rest).
 ///
 /// ENTER IS THE SUBMIT, WHEREVER THE CURSOR IS, because the circles are what it sends and they are
 /// on the screen: the row it takes is not "the one under the cursor" any more, it is everything both
@@ -90,12 +119,25 @@ func pickKeyAction(_ key: PickKey, query: String) -> PickKeyAction {
     switch key {
     case .up: return .move(-1)
     case .down: return .move(1)
-    // SIDEWAYS MEANS TWO THINGS, and the query decides which: with something typed there is a
-    // caret in the field and left and right walk it, which is what anybody who has just typed
-    // expects; with the field empty there is no caret to walk, so they are free to mean the only
-    // other thing a two-column surface needs (`.ignore` hands the key back to the field).
-    case .left: return query.isEmpty ? .moveColumn(-1) : .ignore
-    case .right: return query.isEmpty ? .moveColumn(1) : .ignore
+    // SIDEWAYS IS ALWAYS THE OTHER COLUMN, whatever is typed (Albert, 2026-08-10), and that is a
+    // correction of the reading this shipped with. The first one asked the query: an empty field
+    // has no caret to walk, so the arrows changed columns, and a field with something in it got
+    // them handed back to walk the caret with. It cost two things, and the second is a defect:
+    //
+    //   1. THE KEY CHANGED MEANING UNDER THE PERSON. Type three letters to narrow the fleet, press
+    //      right for the models, and the caret moves one character instead. Wanting the next column
+    //      does not stop when somebody has typed, and on this surface it is the commoner want.
+    //   2. HANDING A KEY BACK SPLIT THE PATHS. The field walks a caret with it, but the panel's own
+    //      backstop has no field to hand anything to: an unclaimed key there falls through to the
+    //      next handler, which is TYPING (PickPanelView). That is how eight presses of an arrow key
+    //      became eight boxes in the filter, and `pickIsTypable` is the other half of the fix.
+    //
+    // What it costs is stated rather than discovered: nothing walks into the middle of a query on
+    // this surface, so a query is typed and backspaced rather than edited, which is what a filter
+    // over a dozen model names and a handful of account names is answered with. Every other motion
+    // is untouched and still the field's: word steps, Home, End, and the whole of a selection.
+    case .left: return .moveColumn(-1)
+    case .right: return .moveColumn(1)
     // TAB CHANGES COLUMN WHATEVER IS TYPED, which is the one place it differs from the arrows: Tab
     // means "the next field" everywhere on the machine and never means a caret step, so there is no
     // second reading for a query to choose between. It is clamped like the arrows rather than
@@ -109,11 +151,9 @@ func pickKeyAction(_ key: PickKey, query: String) -> PickKeyAction {
     case .escape: return query.isEmpty ? .cancel : .edit("")
     case .delete: return query.isEmpty ? .ignore : .edit(String(query.dropLast()))
     case .text(let characters):
-        // Only what a person can see: a control character reaching the query would filter the list
-        // down to nothing with no way to tell why.
-        guard !characters.isEmpty,
-              characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
-        else { return .ignore }
+        // Only what a person can see, and it is asked HERE because here is where every path that
+        // types meets (`pickIsTypable` says what is turned away and what it cost to learn).
+        guard pickIsTypable(characters) else { return .ignore }
         return .edit(query + characters)
     }
 }

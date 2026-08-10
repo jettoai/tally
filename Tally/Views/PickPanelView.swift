@@ -361,21 +361,33 @@ struct PickPanelView: View {
         }
     }
 
-    /// ONE DECISION FOR EVERY KEY, whichever way it arrived: the field hands up the six it does not
-    /// own (PickSearchField), and the modifiers below are the backstop for a panel whose field never
-    /// took the responder. Answers whether the panel took the key; false leaves it to the field,
-    /// which is how a caret step in a typed query stays a caret step.
+    /// ONE DECISION FOR EVERY KEY, whichever way it arrived: the field hands up the eight it does
+    /// not own (PickSearchField), and the handlers above are the backstop for a panel whose field
+    /// never took the responder. Answers whether the panel took the key.
+    ///
+    /// FALSE IS NOT FREE, which the sideways keys are the lesson of (`pickKeyAction` carries what
+    /// they cost): the field's path hands a declined key to its editor, but on the BACKSTOP path
+    /// there is no editor and SwiftUI simply carries on to the next handler, the last of which is
+    /// typing. What still answers false is a backspace with nothing to delete and a press with no
+    /// ink in it, neither of which any handler further down would put on screen.
     private func apply(_ key: PickKey) -> Bool {
         let palette = self.palette
-        guard let column = palette.column(focus) else { return false }
-        switch pickKeyAction(key, query: queries[focus] ?? "") {
+        // A FOCUS THAT NAMES NO COLUMN IS STILL A KEYBOARD SOMEWHERE, and it is reachable: the
+        // request says where the keyboard starts (`request.kind`) while the sections say which
+        // columns exist, and nothing on the wire makes the first one of the second. Refused here,
+        // every key on the panel fell into the same hole the sideways keys did, so the state
+        // converges on a column that is really drawn instead, and says so.
+        guard let column = palette.column(focus) ?? palette.columns.first else { return false }
+        let kind = column.kind
+        if kind != focus { focus = kind }
+        switch pickKeyAction(key, query: queries[kind] ?? "") {
         case .move(let step):
             // Where an arrow key lands, including from a column circling nothing, is the rule this
             // panel is asserted by rather than arithmetic written here (`pickMovedSelection`).
-            selections[focus] = pickMovedSelection(from: selections[focus], step: step,
-                                                   count: column.rows.count)
+            selections[kind] = pickMovedSelection(from: selections[kind], step: step,
+                                                  count: column.rows.count)
         case .moveColumn(let step):
-            let landed = pickColumnFocus(palette, from: focus, step: step)
+            let landed = pickColumnFocus(palette, from: kind, step: step)
             focus = landed
             if let next = palette.column(landed) {
                 selections[landed] = pickColumnSelection(next, remembered: selections[landed])
@@ -385,7 +397,7 @@ struct PickPanelView: View {
         case .cancel:
             choose(nil)
         case .edit(let typed):
-            edited(typed, in: focus)
+            edited(typed, in: kind)
         case .ignore:
             return false
         }
@@ -432,6 +444,11 @@ struct PickPanelView: View {
     /// became first responder; the field's own editor handles this otherwise. A press carrying a
     /// command, control or option is somebody doing something else with the machine, so it is handed
     /// back rather than typed into the filter.
+    ///
+    /// THIS IS THE LAST HANDLER ON THE PANEL, so everything anything above it declined arrives here
+    /// wearing whatever character it happens to carry, and an arrow key carries one
+    /// (`pickIsTypable`, which is where that press stops). A handler of last resort cannot be
+    /// trusted to only see typing just because everything else was named first.
     private func typed(_ press: KeyPress) -> KeyPress.Result {
         guard !press.modifiers.contains(.command), !press.modifiers.contains(.control),
               !press.modifiers.contains(.option) else { return .ignored }

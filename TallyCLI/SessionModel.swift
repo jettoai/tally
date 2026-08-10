@@ -209,8 +209,8 @@ func applySessionModel(plan: inout TickPlan, state: inout SessionModelState,
     // A REQUEST THAT VANISHED TAKES ITS BADGE WITH IT. The badge is documented as re-derived every
     // tick from live state, and it was not: this early return is the only path a tick takes once
     // the file is gone, so a request removed by anything other than being served (a sweep of a
-    // session whose pid was reused, a user clearing `~/.tally`, a rolled-back build) left "model:
-    // waiting for turn end" on the status line for the rest of the conversation, describing an
+    // session whose pid was reused, a user clearing `~/.tally`, a rolled-back build) left this
+    // axis's wait badge on the status line for the rest of the conversation, describing an
     // instruction that no longer exists anywhere (QA, 2026-08-07: still on screen an hour later).
     // Only the ABSENT case clears it - an already-served request had its badge cleared by the serve
     // that served it, and clearing again here would be a second answer to the same question.
@@ -263,17 +263,30 @@ func applySessionModel(plan: inout TickPlan, state: inout SessionModelState,
         serve(consumingNow: false)
         return
     }
-    guard reloadQuiet(transcriptQuiet: watcher.isQuiet(manualMoveIdleSeconds),
-                      hasTranscript: watcher.file != nil, childAge: childAge,
-                      bar: manualMoveIdleSeconds,
-                      keyboardQuiet: keyboardIdle(manualMoveIdleSeconds)) else {
-        // The only wait there is, and it is at most the rest of the turn that asked. Held as a badge
-        // rather than said on the terminal, because the child is drawing this very turn there
-        // (PendingNotice.swift: only a message that precedes a tear-down may use it).
-        state.waiting = PendingBadge(
-            sessionModelWaitingBadge,
-            detail: "`tally model` asked for \(sessionModelDescription(pair)); it takes effect "
-                + "when this turn ends")
+    // Held apart rather than folded into the one call, so the badge below can name the gate that
+    // actually decided without asking any of them a second time - the account axis holds its own
+    // components for exactly that (`applySwitchRequest`, SessionSwitch.swift). `watcher.file` is
+    // only meaningful after `isQuiet` has run its locate, hence the order.
+    let transcriptQuiet = watcher.isQuiet(manualMoveIdleSeconds)
+    let hasTranscript = watcher.file != nil
+    let keyboardQuiet = keyboardIdle(manualMoveIdleSeconds)
+    guard reloadQuiet(transcriptQuiet: transcriptQuiet, hasTranscript: hasTranscript,
+                      childAge: childAge, bar: manualMoveIdleSeconds,
+                      keyboardQuiet: keyboardQuiet) else {
+        // Held as a badge rather than said on the terminal, because the child is drawing this very
+        // turn there (PendingNotice.swift: only a message that precedes a tear-down may use it).
+        //
+        // WHICH WAIT IT IS comes from the gate that held it rather than from this branch: the bar is
+        // three terms and only the first is a turn, so the one "waiting for turn end" told a person
+        // typing a prompt, and a session that had written no turn at all, that something was ending
+        // which was not running (the same defect the account axis was carrying, 232c42a). Asked once
+        // off the components it was just given, so the badge cannot name a term other than the one
+        // that decided.
+        state.waiting = sessionModelWait(
+            gate: quietGate(transcriptQuiet: transcriptQuiet, keyboardQuiet: keyboardQuiet,
+                            hasTranscript: hasTranscript, childAge: childAge,
+                            bar: manualMoveIdleSeconds),
+            pair: pair)
         return
     }
     let (snapshot, problem) = loadSnapshotting()
@@ -342,10 +355,45 @@ func sessionModelNotice(_ pair: SessionModelPin, movingTo label: String?,
            : "; `tally model --auto` to follow the default again")
 }
 
-/// The status-line badge a queued model change leaves. A constant because the wording is asserted in
-/// a test and read by a person on the same line, and a copy of it drifting in one of the two would
-/// assert nothing.
-let sessionModelWaitingBadge = "model: waiting for turn end"
+/// The status-line badge a queued model change leaves while a TURN is what holds it. Constants
+/// because the wording is asserted in a test and read by a person on the same line, and a copy of it
+/// drifting in one of the two would assert nothing.
+///
+/// FOUR, BECAUSE THE GATE HAS FOUR TERMS (`QuietGate`, Reload.swift) and only the first of them is a
+/// turn. The wording is the account axis's one word over (`switchQueuedWait`, SessionSwitch.swift):
+/// the two waits sit in the same row of the same status line, and one of them saying "after typing"
+/// while the other said "waiting for turn end" about the same held keyboard would be two accounts of
+/// one fact. It also brings this badge inside the width that row is worth (24 characters, which the
+/// old wording was three over).
+let sessionModelWaitingBadge = "model: after this turn"
+let sessionModelTypingBadge = "model: after typing"
+let sessionModelStartupBadge = "model: after startup"
+/// The fourth arm, which no caller can reach today: a term added to the gate and not here would land
+/// on a badge that is vague rather than wrong.
+let sessionModelIdleBadge = "model: when idle"
+
+/// What a queued `tally model` says on the status line, and at length beside it: the gate that is
+/// actually holding the change, named, and the pair that is coming once it lifts.
+func sessionModelWait(gate: QuietGate, pair: SessionModelPin) -> PendingBadge {
+    let asked = "`tally model` asked for \(sessionModelDescription(pair))"
+    switch gate {
+    case .transcript:
+        return PendingBadge(sessionModelWaitingBadge,
+                            detail: "\(asked); it takes effect when this turn ends")
+    case .keyboard:
+        return PendingBadge(sessionModelTypingBadge,
+                            detail: "a prompt is being typed here, so the change waits: \(asked), "
+                                + "and it takes effect once the keyboard is quiet")
+    case .startup:
+        return PendingBadge(sessionModelStartupBadge,
+                            detail: "this session has only just started and has written no turn "
+                                + "yet, so the change waits: \(asked), and it takes effect in a "
+                                + "moment")
+    case .unknown:
+        return PendingBadge(sessionModelIdleBadge,
+                            detail: "\(asked); it takes effect as soon as this session is idle")
+    }
+}
 
 /// The pair as a person reads it. `default` for an axis nobody names, the word the follow adoption
 /// already uses for the same absence.

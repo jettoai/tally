@@ -23,14 +23,15 @@ func runModelTickChecks() {
               request: ModelRequest?, policy: LaunchPolicy, launchArgs: [String],
               watcher: inout TranscriptWatcher, accountPinned: Bool = false,
               fleet: [Snapshot.Account] = [], on: Snapshot.Account? = nil,
-              childAge: TimeInterval = 600, planned: RelaunchPlan? = nil)
+              childAge: TimeInterval = 600, keyboardIdle: Bool = true,
+              planned: RelaunchPlan? = nil)
         -> (plan: RelaunchPlan?, record: PendingModelConsumption?) {
         var planning = TickPlan(planned)
         var record: PendingModelConsumption?
         applySessionModel(plan: &planning, state: &state, record: &record, follow: &follow,
                           policy: policy, account: on ?? onA, providerID: "claude",
                           launchArgs: launchArgs, accountPinned: accountPinned, quarantine: [:],
-                          watcher: &watcher, childAge: childAge, keyboardIdle: { _ in true },
+                          watcher: &watcher, childAge: childAge, keyboardIdle: { _ in keyboardIdle },
                           dir: tickDir, request: request,
                           snapshot: fleet.isEmpty ? { (nil, "no snapshot") } : fleetOf(fleet))
         return (planning.plan, record)
@@ -202,6 +203,67 @@ func runModelTickChecks() {
           reloadQuiet(transcriptQuiet: true, hasTranscript: false, childAge: 600,
                       bar: manualMoveIdleSeconds))
 
+    // MARK: - 33d2. …and the badge names the wait it is actually in
+
+    // The bar is three terms and only the first is a turn, so one "waiting for turn end" was a
+    // promise the other two sources could not keep: this session is idle by the transcript, nothing
+    // is streaming, and what holds the change is the person still typing (the account axis was
+    // carrying the same defect, 232c42a). Asserted through a whole tick, so what is pinned is the
+    // badge a supervisor would raise rather than a wording function called by hand.
+    var typingState = SessionModelState(sessionKey: "5509", servedEpoch: 0, dir: tickDir)
+    var typingFollow = FollowState(launchArgs: [])
+    var idleTyping = idleWatcher("model-typing")
+    let typed = tick(&typingState, follow: &typingFollow,
+                     request: ModelRequest(epoch: 1000, model: "opus", effort: nil),
+                     policy: fleetDefault, launchArgs: [], watcher: &idleTyping, fleet: [onA],
+                     keyboardIdle: false)
+    check("a prompt being typed holds the change, and says the keyboard is what holds it",
+          typed.plan == nil && typingState.waiting?.badge == sessionModelTypingBadge)
+    check("…naming no turn, because there is none running",
+          typingState.waiting?.detail?.contains("a prompt is being typed") == true
+              && typingState.waiting?.detail?.contains("this turn ends") == false)
+    check("…and still naming the pair that is coming",
+          typingState.waiting?.detail?.contains("opus") == true)
+
+    // The third source: a child that started moments ago has written no transcript at all, so the
+    // gate holds on the child's age. There is not even a conversation yet for a turn to end in.
+    var startingState = SessionModelState(sessionKey: "5510", servedEpoch: 0, dir: tickDir)
+    var startingFollow = FollowState(launchArgs: [])
+    var starting = startupWatcher("model-startup")
+    let young = tick(&startingState, follow: &startingFollow,
+                     request: ModelRequest(epoch: 1100, model: "opus", effort: nil),
+                     policy: fleetDefault, launchArgs: [], watcher: &starting, fleet: [onA],
+                     childAge: 1)
+    check("a session with no transcript yet holds the change on the child's age",
+          young.plan == nil && startingState.waiting?.badge == sessionModelStartupBadge)
+    check("…with the long form saying there is no turn to end",
+          startingState.waiting?.detail?.contains("written no turn yet") == true
+              && startingState.waiting?.detail?.contains("this turn ends") == false)
+    // …and the same session a moment later is a change rather than a wait: the badge described a
+    // state that ends on its own, which is what makes it honest.
+    check("the same request fires once the child is old enough",
+          tick(&startingState, follow: &startingFollow,
+               request: ModelRequest(epoch: 1100, model: "opus", effort: nil),
+               policy: fleetDefault, launchArgs: [], watcher: &starting, fleet: [onA],
+               childAge: 9999).plan?.reason == "model")
+
+    // THE FOUR ARE FOUR, one wording per gate rather than one gate wearing four names. Asked of the
+    // whole enum rather than of the three a tick can reach: a term added to `QuietGate` and not
+    // worded here would be a model change that says nothing about what it is waiting for.
+    check("no two sources say the same thing",
+          Set([sessionModelWaitingBadge, sessionModelTypingBadge, sessionModelStartupBadge,
+               sessionModelIdleBadge]).count == 4)
+    check("the gate has exactly the four terms these badges answer", QuietGate.allCases.count == 4)
+    for gate in QuietGate.allCases {
+        let wait = sessionModelWait(gate: gate,
+                                    pair: SessionModelPin(model: "opus", effort: "xhigh"))
+        check("\(gate): names the pair that is coming once it lifts",
+              wait.detail?.contains("opus/xhigh") == true)
+        check("\(gate): fits the row beside the quota meters", wait.badge.count <= 24)
+        check("\(gate): says model, so the row says which axis is waiting",
+              wait.badge.hasPrefix("model: "))
+    }
+
     // MARK: - 33e. Which account the new model lands on
 
     // Changing the model changes which accounts can serve it, so an unpinned session re-picks.
@@ -326,8 +388,8 @@ func runModelTickChecks() {
     // MARK: - 33g. A request that VANISHES takes its badge with it
 
     // The badge is documented as re-derived every tick from live state, and it was not: with the
-    // request file gone, the early return at the top of the tick was the only path left, so "model:
-    // waiting for turn end" stayed on the status line for the rest of the conversation, describing
+    // request file gone, the early return at the top of the tick was the only path left, so this
+    // axis's wait badge stayed on the status line for the rest of the conversation, describing
     // an instruction that no longer existed anywhere (QA, 2026-08-07: still on screen an hour after
     // the file was removed). The ways a request disappears without being served are ordinary - a
     // sweep of a session whose pid the OS reused, a user clearing `~/.tally`, a build rolled back.

@@ -125,20 +125,29 @@ func pickColumnHeadingKey(_ kind: PickKind) -> String {
 
 /// Whether a row answers what has been typed.
 ///
-/// MATCHED ON WHAT IS ON SCREEN, and on the raw label besides: a person filtering by "high" is
+/// MATCHED ON WHAT THE ROW IS CALLED, and on the raw label besides: a person filtering by "high" is
 /// reading the chip beside a name, and one filtering by "opus · high" is reading the pair the way
 /// the CLI wrote it. Case-insensitive substring rather than anything cleverer, because the
 /// vocabulary is a dozen model names and a handful of account labels.
+///
+/// THE SECOND LINE IS NOT MATCHED, and that is the correction of the first reading (Albert, live,
+/// 2026-08-10). An account's detail line is its three windows, "fable 91% · session 74% · weekly
+/// 63%", so it is nearly all digits: typing "3" to reach Claude 3 also matched every account whose
+/// percentages happened to hold a 3, which on a real fleet is most of them. A name is what a filter
+/// over a fleet answers; the numbers under it are the account's STATE, and state changes every
+/// minute while the name does not.
+///
+/// THE TAGS ARE STILL MATCHED, and the distinction is the point rather than an exception: typing
+/// "most headroom" and watching that very row disappear is the filter telling you it is broken
+/// (codex review, 2026-08-10). A tag NAMES the row's standing in the fleet; the detail line
+/// MEASURES it.
 ///
 /// A blank query matches everything, whitespace included: a space is a character in "Claude 2", but
 /// a query that is ONLY spaces is somebody who has not started typing yet.
 func pickRowMatches(_ row: PickRow, query: String) -> Bool {
     guard pickIsFiltering(query) else { return true }
     let needle = query.lowercased()
-    // THE TAGS ARE MATCHED TOO, because they are words on the screen: "most headroom" and "this
-    // session" are drawn beside the name, and a person typing what they can see and watching that
-    // very row disappear is being told the filter is broken (codex review, 2026-08-10).
-    let fields = [pickPanelLabel(row), row.label, row.effort, pickPanelDetail(row)] + row.tags
+    let fields = [pickPanelLabel(row), row.label, row.effort] + row.tags
     return fields.compactMap { $0 }.contains { $0.lowercased().contains(needle) }
 }
 

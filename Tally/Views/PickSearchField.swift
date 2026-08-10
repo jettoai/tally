@@ -94,7 +94,16 @@ struct PickSearchField: NSViewRepresentable {
         field.placeholderString = placeholder
         // Written only when it really differs, so an update never disturbs a caret or a composition
         // in progress.
-        if field.stringValue != text { field.stringValue = text }
+        //
+        // AND THE WRITE IS WHAT SELECTS IT. Setting a field's value selects the whole of it, so a
+        // query put here by the panel rather than by the field editor came back SELECTED, and the
+        // next keystroke would have replaced it instead of adding to it. Albert typed "3" and got
+        // the digit highlighted (live, 2026-08-10). Counted in the units an `NSRange` counts, like
+        // every other caret on this surface (`pickCaretEnd`).
+        if field.stringValue != text {
+            field.stringValue = text
+            field.currentEditor()?.selectedRange = NSRange(location: pickCaretEnd(text), length: 0)
+        }
         guard claimed else { return }
         // ASYNC, because the view may not be in a window yet on the first pass, and a responder
         // cannot be made in a window that is not there. Re-checked inside: by the time this runs

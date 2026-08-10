@@ -163,6 +163,12 @@ func runPickSurfaceChecks() {
     check("the caret is placed in the units an NSRange counts, not in what a person calls one",
           field.contains("pickCaretEnd(field.stringValue)")
               && !field.contains("stringValue.count"))
+    // A QUERY THE PANEL WROTE COMES BACK SELECTED unless something puts the caret back: setting a
+    // field's value selects the whole of it, so the next keystroke replaces the query instead of
+    // adding to it. Albert typed "3" and saw the digit highlighted (live, 2026-08-10).
+    check("a value written by the panel leaves a caret behind it, not a selection",
+          field.contains("field.stringValue = text")
+              && field.contains("NSRange(location: pickCaretEnd(text), length: 0)"))
     check("a click in the other column's field moves the panel's focus with it",
           field.contains("controlTextDidBeginEditing") && view.contains("onFocus: { focus ="))
     // THE FIRST RESPONDER IS THE FACT AND THE STATE FOLLOWS IT, one direction only. The correction

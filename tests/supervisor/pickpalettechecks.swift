@@ -245,16 +245,32 @@ func runPickPaletteChecks() {
               && missed.column(.model)?.choices.count == 1)
     check("a column nobody typed into is not empty of matches, it is just empty of a query",
           both.column(.model)?.isEmptyOfMatches == false)
-    // WHAT IS MATCHED: the name, the depth beside it, and the second line under it.
+    // WHAT IS MATCHED: what the row is CALLED. The name, the depth beside it, the tags beside that,
+    // and not the line of percentages underneath. The detail here is the shape the CLI really
+    // writes, three windows, because that is what makes the digit case below able to go wrong.
     let account = PickRow(value: "claude:.claude2", label: "Claude 2",
-                          detail: "fable 91% · session 74%", tags: [switchRecommendedTag])
+                          detail: "fable 91% · session 74% · weekly 63%",
+                          tags: [switchRecommendedTag])
     check("a row is matched by its name, whatever the case",
           pickRowMatches(account, query: "claude") && pickRowMatches(account, query: "CLAUDE 2"))
     check("…by the depth drawn beside it",
           pickRowMatches(PickRow(value: "opus", effort: "xhigh", label: "opus · xhigh"),
                          query: "xhigh"))
-    check("…and by the line under it, which is where the percentages are",
-          pickRowMatches(account, query: "session 74"))
+    // AND NOT BY THE LINE UNDER IT, which is the correction of the first reading (Albert, live,
+    // 2026-08-10). That line is an account's three windows and so is nearly all digits: typing "3"
+    // for Claude 3 also matched every account whose percentages held a 3, which on a real fleet is
+    // most of them. The fixture is built so this can actually fail: the detail really does carry
+    // the digit, and the name really does not.
+    let third = PickRow(value: "claude:.claude3", label: "Claude 3",
+                        detail: "fable 12% · session 40% · weekly 22%")
+    // The control is a digit THIS row has in its own percentages ("session 40%") and not in its
+    // name, so it fails the moment the second line is matched again.
+    check("a digit typed as a name answers the account whose NAME carries it",
+          pickRowMatches(third, query: "3") && !pickRowMatches(third, query: "4"))
+    check("…and not the account that merely has it in a percentage",
+          !pickRowMatches(account, query: "3") && account.detail?.contains("3") == true)
+    check("…nor is a row reachable by the words of its own second line",
+          !pickRowMatches(account, query: "session 74") && !pickRowMatches(account, query: "weekly"))
     // THE TAGS ARE ON THE SCREEN, so they are matched too: typing what you can read and watching
     // that very row vanish is the filter telling you it is broken (codex review, 2026-08-10).
     check("…and by the tags drawn beside it, which are words a person can read",

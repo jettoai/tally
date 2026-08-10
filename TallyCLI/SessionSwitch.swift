@@ -171,6 +171,43 @@ private func launchableAccount(_ id: String?, provider: String,
 /// account the session is moving to, and which one it sits on until then, are the detail's job.
 let switchQueuedBadge = "switch: after this turn"
 
+/// The other two waits the same gate produces, because "after this turn" is a promise only ONE of
+/// them can keep. `reloadQuiet` is three terms (SessionSwitch asks it through `reloadQuiet` itself),
+/// and only the first is a turn: a prompt being typed and a session that has not written a turn at
+/// all both hold the move too, and both used to say a turn was ending when none was running. The
+/// reader can only act on one of the three, which is the whole reason the reload axis names its gate
+/// as well (`reloadWaitReason`).
+let switchQueuedTypingBadge = "switch: after typing"
+let switchQueuedStartupBadge = "switch: after startup"
+/// The fourth arm of `QuietGate`, which no caller can reach today: a gate term added there and not
+/// here would land on a badge that is vague rather than wrong.
+let switchQueuedIdleBadge = "switch: when idle"
+
+/// What a queued switch says on the status line, and at length beside it: the gate that is actually
+/// holding the move, named. `target` is where the session is going and `staying` where it sits until
+/// then, which is the question behind every badge on this track.
+func switchQueuedWait(gate: QuietGate, target: String, staying: String) -> PendingBadge {
+    let until = "staying on \(staying) until then"
+    switch gate {
+    case .transcript:
+        return PendingBadge(switchQueuedBadge,
+                            detail: "switching to \(target) when this turn ends; \(until)")
+    case .keyboard:
+        return PendingBadge(switchQueuedTypingBadge,
+                            detail: "a prompt is being typed here, so the move waits: switching to "
+                                + "\(target) once the keyboard is quiet; \(until)")
+    case .startup:
+        return PendingBadge(switchQueuedStartupBadge,
+                            detail: "this session has only just started and has written no turn "
+                                + "yet, so the move waits for it to settle: switching to \(target) "
+                                + "in a moment; \(until)")
+    case .unknown:
+        return PendingBadge(switchQueuedIdleBadge,
+                            detail: "switching to \(target) as soon as this session is idle; "
+                                + "\(until)")
+    }
+}
+
 /// What a held switch says on the status line: one badge per REASON the move has not happened, and
 /// they are kept apart because the reader can only act on one of them.
 ///
@@ -254,10 +291,16 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
     let target = switchTargetState(request.accountID, provider: providerID, accounts: accounts(),
                                    homeOnDisk: homeOnDisk)
     let named = target.account
-    let quiet = reloadQuiet(transcriptQuiet: watcher.isQuiet(manualMoveIdleSeconds),
-                            hasTranscript: watcher.file != nil, childAge: childAge,
-                            bar: manualMoveIdleSeconds,
-                            keyboardQuiet: keyboardIdle(manualMoveIdleSeconds))
+    // Held apart rather than folded into the one call, so the queued badge below can name the gate
+    // that actually decided without asking any of them a second time - the reload axis holds its
+    // own components for exactly that (Reload.swift, `applyReloadRequest`). `watcher.file` is only
+    // meaningful after `isQuiet` has run its locate, hence the order.
+    let transcriptQuiet = watcher.isQuiet(manualMoveIdleSeconds)
+    let hasTranscript = watcher.file != nil
+    let keyboardQuiet = keyboardIdle(manualMoveIdleSeconds)
+    let quiet = reloadQuiet(transcriptQuiet: transcriptQuiet, hasTranscript: hasTranscript,
+                            childAge: childAge, bar: manualMoveIdleSeconds,
+                            keyboardQuiet: keyboardQuiet)
     switch switchDecision(served: state.servedEpoch, request: request, target: target,
                           onTarget: named?.id == account.id, isQuiet: quiet) {
     case .none:
@@ -284,10 +327,18 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
         // request (`PendingSwitchConsumption.commit`), a request that vanishes takes it with it
         // (the guard at the top of this function), and an account that stops being launchable
         // replaces it with the badge for that (`switchWaitBadge`, below).
-        state.waiting = PendingBadge(
-            switchQueuedBadge,
-            detail: "switching to \(named?.label ?? request.accountID) when this turn ends; "
-                + "staying on \(account.label) until then")
+        //
+        // WHICH WAIT IT IS comes from the gate that held it, not from the branch: `reloadQuiet` is
+        // three terms and only the first of them is a turn, so a single "after this turn" told a
+        // person typing a prompt, and a session that had not written a turn at all, that something
+        // was ending which was not running (codex review of 8b34d49). The gate is asked once, off
+        // the components it was just given (`quietGate`), so the badge cannot name a term other
+        // than the one that decided.
+        state.waiting = switchQueuedWait(
+            gate: quietGate(transcriptQuiet: transcriptQuiet, keyboardQuiet: keyboardQuiet,
+                            hasTranscript: hasTranscript, childAge: childAge,
+                            bar: manualMoveIdleSeconds),
+            target: named?.label ?? request.accountID, staying: account.label)
     case .unavailable:
         // The one wait worth a badge: it can outlast the turn, and nobody has been told. Held rather
         // than announced for the same reason - the child is alive, so a line here would land in the

@@ -247,8 +247,12 @@ func runKeyboardChecks() {
     check("the manual-move source is readable from the keyboard checks", !manualMoveSource.isEmpty)
     check("the pin adoption waits for the keyboard too",
           manualMoveSource.contains("keyboardIdle(manualMoveIdleSeconds)"))
+    // Two halves since the badge learned to name the gate that is holding it: the reading is taken
+    // at the manual-move bar, and it is that reading the gate is given. Held apart because a call
+    // site that computed one and passed another is exactly the drift a single check would miss.
     check("and so does an explicit switch",
-          manualMoveSource.contains("keyboardQuiet: keyboardIdle(manualMoveIdleSeconds)"))
+          manualMoveSource.contains("let keyboardQuiet = keyboardIdle(manualMoveIdleSeconds)")
+              && manualMoveSource.contains("keyboardQuiet: keyboardQuiet"))
     check("neither reads a keyboard of its own",
           !manualMoveSource.contains("lastKeyboardInput")
               && !manualMoveSource.contains("keyboardIdleNow"))

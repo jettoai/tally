@@ -90,17 +90,44 @@ func reloadWaitNote(state: inout ReloadWait, epoch: Int, now: Date = Date()) -> 
     return .stillWaiting
 }
 
-/// Which gate is holding the request, in the two lengths its two homes need: a couple of words for
-/// the status line, which shares its row with the quota meters, and the full phrase for the notice
+/// WHICH TERM OF `reloadQuiet` SAID NO. Takes the components that gate was just given rather than
+/// recomputing any of them, and tests them in that same order, so the answer names the gate that
+/// actually decided.
+///
+/// ONE RESOLVER FOR EVERY AXIS THAT WAITS ON THIS BAR. The reload's badge (`reloadWaitReason`, just
+/// below) and the switch's queued badge (`switchQueuedWait`, SessionSwitch.swift) word it for their
+/// own surfaces, because the two are answering different questions of the reader; WHICH gate it is
+/// must be one answer, or the two would come to give different accounts of the same wait.
+///
+/// `CaseIterable` for the tests rather than for the code: a term added here has to be worded on
+/// every axis that names one, and the suites walk this list to insist on it.
+enum QuietGate: Equatable, CaseIterable {
+    /// A live turn, an unanswered tool call, or a subagent still writing: one Bool covers all three
+    /// (TranscriptWatcher.isQuiet), so a wording for this arm names all of what it might be rather
+    /// than picking one.
+    case transcript
+    /// A prompt being typed, which writes nothing anywhere until it is submitted (KeyboardIdle).
+    case keyboard
+    /// No transcript yet and a child younger than the bar: a terminal opened moments ago.
+    case startup
+    /// None of the three. Unreachable from a caller that asks only where `reloadQuiet` said no - the
+    /// arms above are that expression negated, term for term - and deliberately not a crash: this is
+    /// what a fourth term added to the gate and not to this list would show.
+    case unknown
+}
+
+func quietGate(transcriptQuiet: Bool, keyboardQuiet: Bool, hasTranscript: Bool,
+               childAge: TimeInterval, bar: TimeInterval) -> QuietGate {
+    if !transcriptQuiet { return .transcript }
+    if !keyboardQuiet { return .keyboard }
+    if !hasTranscript, childAge < bar { return .startup }
+    return .unknown
+}
+
+/// How the reload names that gate, in the two lengths its two homes need: a couple of words for the
+/// status line, which shares its row with the quota meters, and the full phrase for the notice
 /// file's `detail`. One function rather than two so the short and long forms cannot come to describe
 /// different gates.
-///
-/// Takes the components `reloadQuiet` was just given rather than recomputing any of them, and tests
-/// them in that same order, so the name is the gate that actually decided.
-///
-/// The transcript arm is one Bool covering a live turn, an unanswered tool call, and a subagent
-/// still writing (TranscriptWatcher.isQuiet), so its long form names all of what it might be rather
-/// than picking one.
 struct ReloadWaitReason: Equatable {
     let short: String
     let full: String
@@ -108,19 +135,17 @@ struct ReloadWaitReason: Equatable {
 
 func reloadWaitReason(transcriptQuiet: Bool, keyboardQuiet: Bool, hasTranscript: Bool,
                       childAge: TimeInterval, bar: TimeInterval) -> ReloadWaitReason {
-    if !transcriptQuiet {
-        return ReloadWaitReason(short: "session busy",
-                                full: "session or a subagent still writing")
-    }
-    if !keyboardQuiet { return ReloadWaitReason(short: "keyboard", full: "keyboard active") }
-    if !hasTranscript, childAge < bar {
+    switch quietGate(transcriptQuiet: transcriptQuiet, keyboardQuiet: keyboardQuiet,
+                     hasTranscript: hasTranscript, childAge: childAge, bar: bar) {
+    case .transcript:
+        return ReloadWaitReason(short: "session busy", full: "session or a subagent still writing")
+    case .keyboard:
+        return ReloadWaitReason(short: "keyboard", full: "keyboard active")
+    case .startup:
         return ReloadWaitReason(short: "starting up", full: "no transcript yet")
+    case .unknown:
+        return ReloadWaitReason(short: "in use", full: "session in use")
     }
-    // Unreachable from the caller, and deliberately not a crash. It is only asked on the `.queued`
-    // branch, which means `reloadQuiet` said no, which means one of the three arms above is the one
-    // that said it: the branches are that expression negated, term for term. This is what to show
-    // if a fourth term is ever added to the gate and not to this list.
-    return ReloadWaitReason(short: "in use", full: "session in use")
 }
 
 // MARK: - Supervisor-side decision

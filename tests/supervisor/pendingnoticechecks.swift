@@ -301,7 +301,12 @@ func runPendingNoticeChecks() {
         // writes the same request from a surface with no terminal output of its own, so the wait
         // goes to the one place a live child allows something to be said (2026-08-10).
         check("but it does raise a badge, so the wait is not invisible",
-              queuedSwitch.contains("state.waiting = PendingBadge("))
+              queuedSwitch.contains("state.waiting = switchQueuedWait("))
+        // …and that badge is chosen by the gate that actually held the move rather than by the
+        // branch, which is the difference between a wait being visible and being described
+        // (`switchQueuedWait`, SessionSwitch.swift).
+        check("…naming which of the three waits this is",
+              queuedSwitch.contains("gate: quietGate(transcriptQuiet: transcriptQuiet"))
     } else {
         check("the queued switch branch was found", false)
     }

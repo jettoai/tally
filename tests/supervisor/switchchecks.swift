@@ -24,6 +24,16 @@ func idleWatcher(_ label: String) -> TranscriptWatcher {
     switchWatcher(label, lines: [#"{"type":"user","timestamp":"2026-01-01T00:00:00Z"}"#])
 }
 
+/// A child that started moments ago: no transcript anywhere yet, which is the state `reloadQuiet`
+/// holds on the child's AGE because there is no file to ask (Reload.swift). The third of the three
+/// sources a queued switch can have, and the one with no turn in it at all.
+func startupWatcher(_ label: String) -> TranscriptWatcher {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-switch-\(label)-\(UUID().uuidString)")
+    try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return TranscriptWatcher(projectDir: dir, file: nil, since: Date())
+}
+
 /// A session in the middle of a tool call: the assistant opened one moments ago and no result has
 /// come back, which is exactly the state `tally switch` is run from. The FILE is stale (the mtime
 /// bar passes), so only the open-turn veto can hold this one busy.
@@ -194,13 +204,13 @@ func runSwitchChecks() {
     func tick(_ watcher: inout TranscriptWatcher, request: SwitchRequest?,
               policy: LaunchPolicy = pinnedNowhere, keyboardIdle: Bool = true,
               accounts: [Snapshot.Account] = fleet, homeOnDisk: Bool = false,
-              now: Date = Date())
+              childAge: TimeInterval = 9999, now: Date = Date())
         -> (plan: RelaunchPlan?, record: PendingSwitchConsumption?) {
         var plan: RelaunchPlan?
         var record: PendingSwitchConsumption?
         var under = policy   // in: the fleet's; out: this session's (`applyManualMoves`)
         applyManualMoves(plan: &plan, state: &state, record: &record, policy: &under,
-                         account: onA, providerID: "claude", watcher: &watcher, childAge: 9999,
+                         account: onA, providerID: "claude", watcher: &watcher, childAge: childAge,
                          keyboardIdle: { _ in keyboardIdle }, dir: tickDir,
                          request: { _ in request }, accounts: { accounts },
                          homeOnDisk: { _, _ in homeOnDisk }, now: now)
@@ -285,6 +295,56 @@ func runSwitchChecks() {
     check("a busy keyboard queues the switch",
           tick(&typing, request: later, keyboardIdle: false).plan == nil)
     check("without consuming it", state.servedEpoch < later.epoch)
+    // …AND SAYS SO AS ITSELF. `reloadQuiet` is three terms and only the first is a turn, so the one
+    // "after this turn" badge was a promise the other two sources could not keep: this session is
+    // idle by the transcript, nothing is streaming, and what the move is waiting for is the person
+    // to stop typing (codex review of 8b34d49). Asserted through a whole tick, so what is pinned is
+    // the badge a supervisor would actually raise rather than a wording function called by hand.
+    check("a prompt being typed says the keyboard is what holds the move",
+          state.waiting?.badge == switchQueuedTypingBadge)
+    check("…and names no turn, because there is none running",
+          state.waiting?.detail?.contains("a prompt is being typed") == true
+              && state.waiting?.detail?.contains("this turn ends") == false)
+    check("…still naming where it is going and where it stays until then",
+          state.waiting?.detail?.contains("switching to Claude 2") == true
+              && state.waiting?.detail?.contains("staying on A") == true)
+    check("and that badge fits the row beside the quota meters",
+          (state.waiting?.badge.count ?? 99) <= 24)
+
+    // The third source: a child that started moments ago has written no transcript at all, so the
+    // gate holds the move on the child's age (Reload.swift). Nothing is streaming here either, and
+    // there is not even a conversation yet for a turn to end in.
+    var starting = startupWatcher("startup")
+    let onStartup = SwitchRequest(epoch: state.servedEpoch + 2, accountID: "B")
+    check("a session with no transcript yet queues the switch on the child's age",
+          tick(&starting, request: onStartup, childAge: 1).plan == nil)
+    check("…and says it is waiting for the session to come up",
+          state.waiting?.badge == switchQueuedStartupBadge)
+    check("…with the long form saying there is no turn to end",
+          state.waiting?.detail?.contains("written no turn yet") == true
+              && state.waiting?.detail?.contains("this turn ends") == false)
+    check("that badge fits the row too", (state.waiting?.badge.count ?? 99) <= 24)
+    // …and the same session a moment later, once the child is past the bar, is a move rather than a
+    // wait: the badge described a state that ends on its own, which is what makes it honest.
+    check("the same request fires once the child is old enough",
+          tick(&starting, request: onStartup, childAge: 9999).plan?.target.id == "B")
+
+    // THE THREE ARE THREE, and one wording per gate rather than one gate wearing three names.
+    check("no two sources say the same thing",
+          Set([switchQueuedBadge, switchQueuedTypingBadge, switchQueuedStartupBadge,
+               switchQueuedIdleBadge]).count == 4)
+    // Asked of the whole gate rather than of the three the tick above reached: a term added to
+    // `QuietGate` and not worded here would be a switch that says nothing while it waits.
+    check("the gate has exactly the four terms these badges answer", QuietGate.allCases.count == 4)
+    for gate in QuietGate.allCases {
+        let wait = switchQueuedWait(gate: gate, target: "Claude 2", staying: "A")
+        check("\(gate): names where it is going and where it sits until then",
+              wait.detail?.contains("switching to Claude 2") == true
+                  && wait.detail?.contains("staying on A") == true)
+        check("\(gate): fits the row beside the quota meters", wait.badge.count <= 24)
+        check("\(gate): says switch, so the row says which axis is waiting",
+              wait.badge.hasPrefix("switch: "))
+    }
 
     // The account SIGNED OUT between the command and the tick: nothing is relaunched into a config
     // dir with no login in it, and nothing is said on the terminal either - the child is alive and
@@ -339,9 +399,10 @@ func runSwitchChecks() {
     _ = tick(&deleted, request: afterCancel, keyboardIdle: false)
     // The news is gone: it described a request that has been superseded. What stands in its place is
     // the new request's own wait, which is the live thing to say about this session now - it is the
-    // keyboard holding this tick, and the badge for that is the queued one.
+    // keyboard holding this tick, and the badge for that is the keyboard's own.
     check("but a fresh request takes it down", state.cancelled == nil)
-    check("leaving the wait that request is actually in", state.badge?.badge == switchQueuedBadge)
+    check("leaving the wait that request is actually in",
+          state.badge?.badge == switchQueuedTypingBadge)
 
     // …and so does the user coming back, which is the bound this notice was missing: nothing
     // re-derives it, so before it was given an end it stayed on the status line for the life of the

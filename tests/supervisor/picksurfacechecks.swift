@@ -43,6 +43,10 @@ func runPickSurfaceChecks() {
     // so believing it would resize the panel from underneath.
     check("…and a measurement taken while a column is filtered is not believed",
           view.contains(#"guard !pickIsFiltering(queries[kind] ?? "") else { return }"#))
+    // A DETAIL LINE THAT WRAPS IS A ROW THE ARITHMETIC CANNOT SEE, so the row refuses to wrap: a
+    // real fleet at 100% across three windows plus a tag did exactly that on the first live run.
+    check("a row's second line is held to one line, which is what the height family assumes",
+          view.contains(".lineLimit(1)"))
     check("a column its filter emptied says that rather than showing a gap",
           view.contains("column.isEmptyOfMatches") && view.contains(#"L("No matches")"#))
     check("every keypress is decided by the rule this file asserts",

@@ -128,7 +128,7 @@ func mcpQueueAccount(_ content: [String: String], input: MCPHookInput,
 }
 
 /// WHATEVER WAS ANSWERED, applied. One answered palette can name either axis, so the two commands
-/// share one way back in rather than each reading only for its own field: a `/tally-model` whose
+/// share one way back in rather than each reading only for its own field: a `/tally` whose
 /// person picked an account row must move the conversation, not report that nothing was chosen.
 ///
 /// The two are told apart by the FIELD the answer arrived under, which is the shape `content(for:)`

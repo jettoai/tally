@@ -13,7 +13,7 @@ import Foundation
 @MainActor
 func runNativePickerChecks(tmp: URL, skill currentSkill: String) throws {
     let binary = URL(fileURLWithPath: "/Applications/Tally.app/Contents/Helpers/tally")
-    let command = IntegrationsStore.modelPromptCommand
+    let command = IntegrationsStore.tallyPromptCommand
     let pair = IntegrationsStore.promptHookEntries(binary, command: command, nativePicker: true)
     let plain = IntegrationsStore.promptHookEntries(binary, command: command, nativePicker: false)
 
@@ -23,7 +23,7 @@ func runNativePickerChecks(tmp: URL, skill currentSkill: String) throws {
           pair.count == 2 && pair[0]["type"] as? String == "mcp_tool"
               && pair[1]["type"] as? String == "command")
     check("the tool hook names Tally's server and this command's tool",
-          pair[0]["server"] as? String == "tally" && pair[0]["tool"] as? String == "pick_model")
+          pair[0]["server"] as? String == "tally" && pair[0]["tool"] as? String == "pick")
     // The literals, verbatim: an unrecognised variable is substituted with the EMPTY STRING, which
     // is indistinguishable from a command typed bare, so a misspelling here would open the picker
     // on every invocation with nothing anywhere to say why.
@@ -45,7 +45,7 @@ func runNativePickerChecks(tmp: URL, skill currentSkill: String) throws {
               && (pair[0]["timeout"] as? Int ?? 0) > 600)
     check("the backstop runs this command's own subcommand under the flag",
           pair[1]["command"] as? String
-              == "\"\(binary.path)\" hook-model \(promptHookBackstopFlag)")
+              == "\"\(binary.path)\" hook-tally \(promptHookBackstopFlag)")
     // The gate's whole promise: a machine that cannot use the pair keeps exactly what it has today.
     check("without the picker it is the single plain command, byte for byte what shipped before",
           plain.count == 1

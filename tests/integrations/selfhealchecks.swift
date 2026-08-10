@@ -92,8 +92,10 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     // in it right now - which is precisely the case this feature exists for.
     let manifest = tmp.appendingPathComponent("heal-manifest.json")
     let recorded: [String: Any] = [
-        "claudeSwitchHook": ["paths": ["/Users/u/.claude/settings.json"]],
-        "claudeModelHook": ["paths": ["/Users/u/.claude/settings.json",
+        // One command, so one key, and the same physical file recorded twice under it: what a
+        // shared settings.json produces on a machine with two config homes.
+        "claudeTallyHook": ["paths": ["/Users/u/.claude/settings.json",
+                                      "/Users/u/.claude/settings.json",
                                       "/Users/u/.claude2/settings.json"]],
     ]
     try JSONSerialization.data(withJSONObject: recorded).write(to: manifest)
@@ -101,8 +103,7 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
         .map(\.path)
     check("every settings file a hook was registered in is watched, by its directory",
           Set(directories) == Set(["/Users/u/.claude", "/Users/u/.claude2"]))
-    check("…and one file recorded under both commands is watched once, not twice",
-          directories.count == 2)
+    check("…and one file recorded twice is watched once, not twice", directories.count == 2)
     check("no manifest at all means nothing to watch, which the caller reads as fail-open",
           IntegrationsStore.watchedSettingsDirectories(
             manifest: tmp.appendingPathComponent("heal-absent.json")).isEmpty)
@@ -115,7 +116,7 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     // healed within seconds (codex review of 512303b).
     let bothHalves = tmp.appendingPathComponent("heal-manifest-mcp.json")
     try JSONSerialization.data(withJSONObject: [
-        "claudeSwitchHook": ["paths": ["/Users/u/.claude/settings.json"]],
+        "claudeTallyHook": ["paths": ["/Users/u/.claude/settings.json"]],
         "claudeMCPServer": ["paths": ["/Users/u/.claude.json", "/Users/u/.claude2/.claude.json"]],
     ]).write(to: bothHalves)
     let watchedBoth = Set(IntegrationsStore.watchedSettingsDirectories(manifest: bothHalves)
@@ -149,7 +150,7 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
         withDestinationURL: physical.appendingPathComponent("settings.json"))
     let linkManifest = tmp.appendingPathComponent("heal-link-manifest.json")
     try JSONSerialization.data(withJSONObject: [
-        "claudeSwitchHook": ["paths": [linked.appendingPathComponent("settings.json").path]],
+        "claudeTallyHook": ["paths": [linked.appendingPathComponent("settings.json").path]],
     ]).write(to: linkManifest)
     let resolved = IntegrationsStore.watchedSettingsDirectories(manifest: linkManifest).map(\.path)
     check("a settings path recorded through a symlink is watched where the file really is",
@@ -166,8 +167,8 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     // Two homes, one physical file: the shared target is watched once, and each home's own
     // directory once, so nothing is watched twice.
     try JSONSerialization.data(withJSONObject: [
-        "claudeSwitchHook": ["paths": [linked.appendingPathComponent("settings.json").path]],
-        "claudeModelHook": ["paths": [physical.appendingPathComponent("settings.json").path]],
+        "claudeTallyHook": ["paths": [linked.appendingPathComponent("settings.json").path,
+                                      physical.appendingPathComponent("settings.json").path]],
     ]).write(to: linkManifest)
     check("two homes sharing one physical file add no duplicate directories",
           Set(IntegrationsStore.watchedSettingsDirectories(manifest: linkManifest).map(\.path))
@@ -176,7 +177,7 @@ func runSelfHealChecks(tmp: URL, skill currentSkill: String) throws {
     // On an ordinary machine, where nothing is linked, the two collapse to one.
     let plainManifest = tmp.appendingPathComponent("heal-plain-manifest.json")
     try JSONSerialization.data(withJSONObject: [
-        "claudeSwitchHook": ["paths": [physical.appendingPathComponent("settings.json").path]],
+        "claudeTallyHook": ["paths": [physical.appendingPathComponent("settings.json").path]],
     ]).write(to: plainManifest)
     check("with nothing linked at all, the two parents are one directory",
           IntegrationsStore.watchedSettingsDirectories(manifest: plainManifest).map(\.path)

@@ -409,6 +409,10 @@ struct PickRowView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
+                        // ONE LINE, ALWAYS: the height family assumes a two-line row is exactly two
+                        // lines (`pickDetailRowHeight`), so a detail that wraps is a row taller than
+                        // anything computing this panel's size knows about.
+                        .lineLimit(1)
                 }
             }
             Spacer(minLength: 8)

@@ -54,12 +54,12 @@ func runRenameChecks(tmp: URL, hookCommand: String) throws {
     let matchers = expansion(migrated).compactMap { $0["matcher"] as? String }
     check("the hook entry under the old name is gone, the new one is there, once",
           matchers.filter { $0 == "tally-switch" }.isEmpty
-              && matchers.filter { $0 == "tally-account" }.count == 1)
+              && matchers.filter { $0 == "tally" }.count == 1)
     check("…and the user's own entry beside it is untouched",
           matchers.contains("someone-elses") && commands(migrated).contains("their-hook.sh"))
     check("no orphan is left in the commands folder",
           (try? FileManager.default.contentsOfDirectory(
-              atPath: oldCommandFile.deletingLastPathComponent().path)) == ["tally-account.md"])
+              atPath: oldCommandFile.deletingLastPathComponent().path)) == ["tally.md"])
     // Idempotent: the second launch has nothing left to migrate, so it must not report a change
     // (which is what would make every launch rewrite settings.json for nobody).
     check("a second sync over the migrated home changes nothing",

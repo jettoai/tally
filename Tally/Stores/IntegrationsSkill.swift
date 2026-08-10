@@ -158,24 +158,24 @@ extension IntegrationsStore {
         shows, case-insensitively.
 
         THE USER HAS A CHEAPER WAY, and it is worth telling them about the first time they
-        ask you to move accounts. Tally installs a `/tally-account` command with this skill,
-        and a prompt hook answers it before any model is woken:
+        ask you to move accounts. Tally installs a `/tally` command with this skill, and a
+        prompt hook answers it before any model is woken:
 
         ```
-        /tally-account Claude 4       # zero turns: the hook queues the move and stops there
-        /tally-account                # zero turns: the hook OFFERS the fleet, they pick a row
-        /tally-account --auto         # zero turns: releases the pin again
+        /tally Claude 4               # zero turns: the hook queues the move and stops there
+        /tally                        # zero turns: the hook OFFERS accounts AND models to pick from
+        /tally opus high              # zero turns: a model instead, since the line names one
         ! tally account "Claude 4"    # zero turns too, under respondToBashCommands: false
         ```
 
-        Note the second line: `/tally-account` with no account named does NOT reach a model.
-        The hook reads the snapshot itself and offers every account with its remaining
-        windows, marking the one with the most headroom: on a recent Claude Code that is a
-        native picker they answer with the arrow keys, and where one cannot be drawn it is
-        the same reading as text, answered with a second `/tally-account <name>`. Either
-        way, no turn. That matters because the usual reason to move accounts is that this
-        one has no model left to answer with, and an escape hatch may not depend on the
-        thing it is escaping.
+        Note the second line: `/tally` with nothing named does NOT reach a model. The hook
+        reads the snapshot itself and offers every account with its remaining windows,
+        marking the one with the most headroom, beside the models this session can run: on a
+        recent Claude Code that is a native panel they answer with the arrow keys, and where
+        one cannot be drawn it is the same reading as text, answered with a second
+        `/tally <name>`. Either way, no turn. That matters because the usual reason to move
+        accounts is that this one has no model left to answer with, and an escape hatch may
+        not depend on the thing it is escaping.
 
         The `!` line is the fallback worth naming when the command is not installed: it
         runs in their shell, and with `respondToBashCommands: false` in settings its output
@@ -196,8 +196,8 @@ extension IntegrationsStore {
         model windows as the description, the account with the most headroom first and
         marked Recommended. Then run `tally account` on the one they picked. This is the
         path for a request made IN CONVERSATION, where a turn is already running and the
-        picker is the fastest way to answer it; `/tally-account` typed by the user is the
-        free path and needs nothing from you.
+        picker is the fastest way to answer it; `/tally` typed by the user is the free path
+        and needs nothing from you.
 
         What happens next, and what to tell the user:
 

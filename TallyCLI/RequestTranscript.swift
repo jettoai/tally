@@ -13,8 +13,8 @@ import Foundation
 // describes, and while such a candidate exists `isQuiet` answers false so no non-urgent relaunch
 // resumes an id the conversation may have just left. The hold is right and it stays.
 //
-// What it had no way out of is the one command that arrives inside that very window. `/tally-account`
-// and `/tally-model` are answered by a prompt hook and cost no model turn BY DESIGN (SwitchHook.swift
+// What it had no way out of is the one command that arrives inside that very window. `/tally` is
+// answered by a prompt hook and costs no model turn BY DESIGN (SwitchHook.swift
 // states why an escape hatch may not depend on the thing it exists to escape), so a session that is
 // cleared and then only asked to move never writes another assistant event: the candidate stays
 // unresolved, the hold never lifts, and the request sits in `~/.tally/switch/<pid>` until the session

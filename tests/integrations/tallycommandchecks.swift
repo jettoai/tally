@@ -1,18 +1,18 @@
 import Foundation
 
-// `/tally-account` and the prompt hook behind it: the command file's prose, the file surgery either
-// half needs, and the settings.json merge. Split from main.swift for file size.
+// `/tally` and the prompt hook behind it: the command file's prose, the file surgery either half
+// needs, and the settings.json merge. Split from main.swift for file size.
 //
 // The hook is what makes the feature worth having (a named account moves without waking a model),
 // but the risk lives in the other half: the merge writes into settings.json, which is the user's
 // entire harness configuration and, on shared setups, one physical file behind several accounts.
 // So most of what is asserted below is what comes out UNCHANGED.
-// The `/tally-account` descriptor applied to the shared machinery. The install, the hook surgery and
-// the group decision moved to IntegrationsPromptCommand.swift when a second command arrived
-// (`/tally-model`); every property they had is this command's property still, so these checks name
-// them the way they always did and supply the descriptor here, once.
+// The command descriptor applied to the shared machinery. These checks were written when there
+// were two commands and the account one was called `switchCommand`; the machinery is the same
+// machinery and the merged command is the one descriptor there is, so they keep their names and
+// point at it here, once.
 extension IntegrationsStore {
-    static var switchCommand: PromptCommand { switchPromptCommand }
+    static var switchCommand: PromptCommand { tallyPromptCommand }
     static func switchCommandMarkdown() -> String { switchCommand.markdown }
     static var switchCommandMarker: String { promptCommandMarker }
     static func switchCommandFile(inHome home: URL) -> URL {
@@ -61,12 +61,12 @@ extension IntegrationsStore {
 }
 
 @MainActor
-func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
-    // MARK: /tally-account - the command file, which is the FALLBACK half of the feature.
+func runTallyCommandChecks(tmp: URL, skill currentSkill: String) throws {
+    // MARK: /tally - the command file, which is the FALLBACK half of the feature.
     //
-    // The hook answers a named account without waking a model at all; this file is what runs when
-    // it did not (not registered, shell execution off, or no account named). So it has to stand
-    // alone, and it has to describe the hook rather than assume it.
+    // The hook answers a named account or model without waking a model at all; this file is what
+    // runs when it did not (not registered, shell execution off, or nothing named). So it has to
+    // stand alone, and it has to describe the hook rather than assume it.
     let command = IntegrationsStore.switchCommandMarkdown()
     let commandProse = command.split(separator: "\n")
         .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
@@ -76,7 +76,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
           IntegrationsStore.switchCommandMarker == "tally-command v\(IntegrationsStore.skillVersion)")
     check("command carries no em dash", !command.contains("\u{2014}"))
     check("command declares its argument hint and the tool it needs",
-          command.contains("argument-hint: [account name | --auto]")
+          command.contains("argument-hint: [account name] | [model] [effort]")
               && command.contains("allowed-tools: Bash(tally:*)"))
     // Spelled as it must be RUN. `$ARGUMENTS` is the whole rest of the typed line, quoted because
     // account labels contain spaces ("Claude 4").
@@ -98,36 +98,37 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
           commandProse.contains("Do not run anything and do not open a picker"))
     check("…and hands the user the two lines that work without any of it",
           commandProse.contains("tally account \"<account>\"")
-              && commandProse.contains("Try `/tally-account` again"))
+              && commandProse.contains("Try `/tally` again"))
     // Both reasons, neutrally: a dialog left open past the hook's deadline lets the expansion
     // through with the server perfectly healthy, so "restart the session" alone is advice for a
     // problem that user does not have (main.swift states the incident).
     check("…and names both ways a prompt can reach it, without diagnosing the wrong one",
-          commandProse.contains("it is not connected, or the dialog was left")
+          commandProse.contains("it is not connected, or the panel was left")
               && commandProse.contains("restart the session if it keeps happening"))
     check("command relays the timing, which is the thing a user gets wrong",
-          commandProse.contains("The move happens when this turn ENDS"))
-    check("…and that the pin sticks rather than being a one-shot nudge",
-          commandProse.contains("the pin sticks for the rest of the session"))
+          commandProse.contains("The change happens when this turn ENDS"))
+    check("…and that the conversation comes through it",
+          commandProse.contains("the conversation survives it"))
     check("…and never says the old one-shot promise", !commandProse.contains("It is one shot"))
     check("…and that a non-zero exit means nothing was queued",
           commandProse.contains("A non-zero exit means nothing was queued"))
-    // The release path goes through the SAME line as a move, because the CLI reads the flag itself
-    // (SwitchCommand.swift `switchIntent`). A command file that special-cased it here would be a
-    // second mapping to keep in step.
-    check("command says --auto rides the same line the hook hands over",
-          commandProse.contains("`--auto` needs no special case"))
+    // THE ONE FORM THE MERGE CANNOT READ, handed back rather than guessed at: `auto` releases a
+    // pin and this command sets two, so the file names both terminal spellings instead.
+    check("command hands `auto` back with both axes named",
+          commandProse.contains("`auto` on its own")
+              && commandProse.contains("tally model auto")
+              && commandProse.contains("tally account --auto"))
     // The property all of that shortening was FOR, asserted rather than assumed: a fallback long
     // enough to need a plan is a fallback that costs several turns.
     check("…and the whole file is short enough to answer inside one turn",
-          command.split(separator: "\n").count < 45)
+          command.split(separator: "\n").count < 60)
 
     // Command-file surgery: the same rules the skill file gets, because it lands in the same
     // user-owned tree. A file that is not ours is never touched, in either direction.
     let commandHome = tmp.appendingPathComponent("home-a")
     let commandFile = IntegrationsStore.switchCommandFile(inHome: commandHome)
     check("the command file lands where Claude Code looks for it",
-          commandFile.path == commandHome.appendingPathComponent("commands/tally-account.md").path)
+          commandFile.path == commandHome.appendingPathComponent("commands/tally.md").path)
     check("the home is read back off a skill path, which is what pairs the two",
           IntegrationsStore.claudeHome(
             ofSkillFile: commandHome.appendingPathComponent("skills/tally/SKILL.md")).path
@@ -172,7 +173,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     let helper = URL(fileURLWithPath: "/Applications/Tally.app/Contents/Helpers/tally")
     let hookCommand = IntegrationsStore.switchHookCommand(helper)
     check("the registration quotes the binary path and names the subcommand",
-          hookCommand == "\"/Applications/Tally.app/Contents/Helpers/tally\" hook-switch")
+          hookCommand == "\"/Applications/Tally.app/Contents/Helpers/tally\" hook-tally")
     func expansion(_ settings: [String: Any]) -> [[String: Any]] {
         ((settings["hooks"] as? [String: Any])?["UserPromptExpansion"] as? [[String: Any]]) ?? []
     }
@@ -184,7 +185,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     let registered = IntegrationsStore.settingsRegisteringSwitchHook([:], command: hookCommand)
     check("an empty settings file gets exactly one entry, matched on the command name",
           registered.map(expansion)?.count == 1
-              && expansion(registered ?? [:]).first?["matcher"] as? String == "tally-account")
+              && expansion(registered ?? [:]).first?["matcher"] as? String == "tally")
     check("…running our subcommand", commands(registered ?? [:]) == [hookCommand])
     check("re-registering the same thing changes nothing",
           IntegrationsStore.settingsRegisteringSwitchHook(registered ?? [:],
@@ -401,7 +402,7 @@ func runSwitchCommandChecks(tmp: URL, skill currentSkill: String) throws {
     // what this did) overwrote the neighbour on every update and deleted it on uninstall, with
     // nothing anywhere to say where it went.
     let sharedEntry: [String: Any] = ["hooks": ["UserPromptExpansion": [
-        ["matcher": "tally-account", "hooks": [
+        ["matcher": "tally", "hooks": [
             ["type": "command", "command": hookCommand],
             ["type": "command", "command": "log-my-switches.sh"],
         ]],

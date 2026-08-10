@@ -106,56 +106,73 @@ try MainActor.assumeIsolated {
     check("the skill teaches that the native command is adopted",
           currentSkill.contains("Tally adopts Claude Code's own `/model`"))
     check("…and the command file no longer teaches that it gets put back",
-          !IntegrationsStore.modelPromptCommand.markdown.contains("puts the original model back"))
+          !IntegrationsStore.tallyPromptCommand.markdown.contains("puts the original model back"))
     // The skill carries that contract alone now: the command file behind it is a short answer for a
-    // machine where nothing else worked (IntegrationsModelCommand.swift), not a second copy of the
+    // machine where nothing else worked (IntegrationsTallyCommand.swift), not a second copy of the
     // model rules.
     check("…and the skill still names `auto` as the only way out of an adopted pin",
           currentSkill.contains("including out of an adopted one"))
-    // A SECOND slash command ships with the skill now, and every surface that walks the commands
-    // walks one list: a command added to the sync and forgotten by the uninstall (or by the "is
-    // this install current" check) is exactly the failure the list exists to make impossible.
-    check("both slash commands are managed",
-          IntegrationsStore.promptCommands.map(\.name) == ["tally-account", "tally-model"])
-    check("each has its own hook subcommand, file and manifest keys",
-          Set(IntegrationsStore.promptCommands.map(\.hookMarker)).count == 2
-              && Set(IntegrationsStore.promptCommands.map(\.commandManifest)).count == 2
-              && Set(IntegrationsStore.promptCommands.map(\.hookManifest)).count == 2)
-    check("…and both carry the version marker the skill shares",
+    // ONE slash command ships with the skill now, and the list every surface walks still exists for
+    // the reason it always did: a command added to the sync and forgotten by the uninstall (or by
+    // the "is this install current" check) is exactly the failure the list makes impossible.
+    check("one slash command is managed, and it is the merged one",
+          IntegrationsStore.promptCommands.map(\.name) == ["tally"])
+    check("…and it carries the version marker the skill shares",
           IntegrationsStore.promptCommands.allSatisfy {
               $0.markdown.contains(IntegrationsStore.promptCommandMarker)
           })
-    let modelCommand = IntegrationsStore.modelPromptCommand.markdown
-    // THE FALLBACK BEHIND A FALLBACK. Two hooks answer `/tally-model` now (the native picker and
-    // its backstop), so reaching this file means neither did, and the turn it costs is the one the
-    // whole command exists to avoid. It therefore spends that turn on ONE answer rather than on a
-    // second implementation of the picker.
-    check("the model command says, first, that Tally did not answer",
-          modelCommand.contains("READING THIS MEANS TALLY DID NOT ANSWER")
-              && modelCommand.contains("/tally-model"))
+    // THE TWO IT REPLACED ARE STILL ANSWERED FOR, which is what makes the merge cleanable rather
+    // than a pair of orphans: the old names, the old subcommands and the old tools are all carried,
+    // because that is what the entries and files left on a user's disk say.
+    let tallyCommand = IntegrationsStore.tallyPromptCommand
+    check("the merged command answers for what it replaced",
+          tallyCommand.formerNames == ["tally-account", "tally-model", "tally-switch"]
+              && tallyCommand.formerHookMarkers == ["hook-switch", "hook-model"]
+              && tallyCommand.formerTools == [.pickAccount, .pickModel])
+    check("…and runs one subcommand and calls one tool of its own",
+          tallyCommand.hookMarker == "hook-tally" && tallyCommand.mcpTool == .pick
+              && !tallyCommand.formerHookMarkers.contains(tallyCommand.hookMarker)
+              && !tallyCommand.formerTools.contains(tallyCommand.mcpTool))
+    // Normalised the way the other suite reads its own file: the markdown is hard-wrapped, so a
+    // sentence to assert on crosses a line break and a literal `contains` would be asserting the
+    // wrapping rather than the words.
+    let commandFile = tallyCommand.markdown.split(whereSeparator: \.isWhitespace)
+        .joined(separator: " ")
+    // THE FALLBACK BEHIND A FALLBACK. Two hooks answer `/tally` (the native picker and its
+    // backstop), so reaching this file means neither did, and the turn it costs is the one the whole
+    // command exists to avoid. It therefore spends that turn on ONE answer rather than on a second
+    // implementation of the picker.
+    check("the command file says, first, that Tally did not answer",
+          commandFile.contains("READING THIS MEANS TALLY DID NOT ANSWER")
+              && commandFile.contains("/tally"))
     check("…and that this turn is the cost the command exists to avoid",
-          modelCommand.contains("SPEND IT ON ONE SHORT ANSWER"))
-    check("…passes the arguments through rather than quoting them as one word",
-          modelCommand.contains("tally model $ARGUMENTS"))
-    check("…and says naming only a model leaves the effort alone",
-          modelCommand.contains("leaves the effort exactly as it is"))
+          commandFile.contains("SPEND IT ON ONE SHORT ANSWER"))
+    check("…passes a model through as words and an account as one quoted word",
+          commandFile.contains("tally model $ARGUMENTS")
+              && commandFile.contains("tally account \"$ARGUMENTS\""))
+    check("…and says naming only a model leaves the depth alone",
+          commandFile.contains("leaves the depth exactly as it is"))
+    check("…hands back the one form the merge cannot read rather than guessing at it",
+          commandFile.contains("`auto` on its own")
+              && commandFile.contains("tally model auto")
+              && commandFile.contains("tally account --auto"))
     check("…tells an agent with nothing to act on to run nothing at all",
-          modelCommand.contains("Do not run anything and do not open a picker"))
+          commandFile.contains("Do not run anything and do not open a picker"))
     check("…and hands the user the lines that work without any of it",
-          modelCommand.contains("tally model <model> [effort]")
-              && modelCommand.contains("Try `/tally-model` again"))
+          commandFile.contains("tally model <model> [effort]")
+              && commandFile.contains("Try `/tally` again"))
     // BOTH REASONS, NEUTRALLY. The body used to say the picker "did not answer this session" and
     // send the user off to restart it - which is right when the server is not connected and wrong
-    // when it is: a dialog left open past the hook's deadline lets the expansion through with the
+    // when it is: a panel left open past the hook's deadline lets the expansion through with the
     // server perfectly healthy, and telling that user to restart their session is advice for a
     // problem they do not have (Albert, 2026-08-07: 36 minutes on an open dialog).
     check("…and names both ways a prompt can reach it, without diagnosing the wrong one",
-          modelCommand.contains("it is not connected, or the dialog was left")
-              && modelCommand.contains("restart the session if it keeps happening"))
+          commandFile.contains("it is not connected, or the panel was left")
+              && commandFile.contains("restart the session if it keeps happening"))
     // The property that shortening was FOR, asserted rather than assumed.
-    check("…and both command files are short enough to answer inside one turn",
+    check("…and the command file is short enough to answer inside one turn",
           IntegrationsStore.promptCommands.allSatisfy {
-              $0.markdown.split(separator: "\n").count < 45
+              $0.markdown.split(separator: "\n").count < 60
           })
     check("no slash command carries an em dash",
           IntegrationsStore.promptCommands.allSatisfy { !$0.markdown.contains("\u{2014}") })
@@ -267,7 +284,7 @@ try MainActor.assumeIsolated {
     // turn to ask for spends part of what it saves, and the whole point of the hook is that asking
     // is free. Spelled exactly as the user must type them, because a paraphrase is not runnable.
     check("skill hands the user the zero-turn slash command",
-          currentSkill.contains("/tally-account Claude 4"))
+          currentSkill.contains("/tally Claude 4"))
     check("…names the bang path and the setting that makes it free too",
           currentSkill.contains("! tally account \"Claude 4\"")
               && skillProse.contains("respondToBashCommands: false"))
@@ -276,11 +293,11 @@ try MainActor.assumeIsolated {
     // believed it costs a turn would talk the user out of the one command that still works when
     // their model quota is gone.
     check("skill says the bare command offers the fleet without a turn",
-          currentSkill.contains("/tally-account                # zero turns: the hook OFFERS the "
-              + "fleet, they pick a row"))
+          currentSkill.contains("/tally                        # zero turns: the hook OFFERS "
+              + "accounts AND models to pick from"))
     check("…and says the picker is native where one can be drawn, and text where it cannot",
-          skillProse.contains("a native picker they answer with the arrow keys")
-              && skillProse.contains("answered with a second `/tally-account <name>`"))
+          skillProse.contains("a native panel they answer with the arrow keys")
+              && skillProse.contains("answered with a second `/tally <name>`"))
     check("…and says why that matters",
           skillProse.contains("an escape hatch may not depend on the thing it is escaping"))
     check("…and keeps the terminal menu out of Claude Code",
@@ -397,8 +414,9 @@ try MainActor.assumeIsolated {
 
     // The other half of the skill integration: the `/tally-account` command file and the prompt hook
     // that answers it without a model turn (switchcommandchecks.swift).
-    try runSwitchCommandChecks(tmp: tmp, skill: currentSkill)
+    try runTallyCommandChecks(tmp: tmp, skill: currentSkill)
     // And keeping that hook there once something takes it out (selfhealchecks.swift).
+    try runMergeChecks(tmp: tmp)
     try runSelfHealChecks(tmp: tmp, skill: currentSkill)
     // The registration those checks deliberately leave out: the native picker pair, the MCP server
     // it calls, and the gate in front of both (nativepickerchecks.swift).

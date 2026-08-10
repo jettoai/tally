@@ -1,9 +1,9 @@
 import Foundation
 
 // The slash commands Tally installs beside its skill, and the prompt hooks that make them free.
-// Split from IntegrationsSwitchCommand.swift when a second command arrived: everything here is about
-// "a command file plus a hook entry" and nothing about which command, so the two descriptors
-// (`switchPromptCommand`, `modelPromptCommand`) are all their own files still hold.
+// Split from the command's own file when a second command arrived: everything here is about "a
+// command file plus a hook entry" and nothing about WHICH command, so the descriptor itself
+// (`tallyPromptCommand`, IntegrationsTallyCommand.swift) is all that file still holds.
 //
 // Why each command has both halves:
 //
@@ -51,6 +51,17 @@ struct PromptCommand: Sendable {
     /// and keeping it steady is what lets an entry written by the old name still be recognised as
     /// ours while its matcher is read from here.
     var formerNames: [String] = []
+    /// Subcommands this command's hook used to run, and tools it used to call.
+    ///
+    /// A RENAME KEEPS ITS SUBCOMMAND; A MERGE CANNOT. The rename cleanup finds an old entry by its
+    /// matcher and recognises it as ours by what it RUNS, which is why the subcommand was
+    /// deliberately held steady across a rename (see `formerNames`). Two commands folded into one
+    /// have no such luxury: the entries left behind run `hook-model` and `hook-switch` and call
+    /// `pick_model` and `pick_account`, and a merged command that only knew its own would walk past
+    /// them - leaving hooks that intercept slash commands nobody is offered any more, forever,
+    /// since nothing else will ever come looking.
+    var formerHookMarkers: [String] = []
+    var formerTools: [PromptHookTool] = []
 }
 
 extension IntegrationsStore {

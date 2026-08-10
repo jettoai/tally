@@ -1,10 +1,10 @@
 import Darwin
 import Foundation
 
-// `tally mcp-serve` - the MCP server behind the native `/tally-account` and `/tally-model` pickers.
+// `tally mcp-serve` - the MCP server behind the native `/tally` panel.
 //
 // WHY A SERVER AT ALL, when both commands are already answered for free by a command-type hook
-// (SwitchHook.swift, ModelHook.swift): a command hook can only PRINT. A bare `/tally-account` lists
+// (SwitchHook.swift, ModelHook.swift): a command hook can only PRINT. A bare `/tally` lists
 // the fleet as text and the person then types a second command with a name in it. Claude Code will
 // call an MCP tool from the same hook event, and a tool may raise the same native dialog the
 // built-in `/mcp` uses - so the same reading becomes a list they answer with the arrow keys, in one
@@ -121,15 +121,20 @@ func mcpToolDescriptors() -> [[String: Any]] {
     let schema: [String: Any] = ["type": "object", "properties": properties,
                                  "additionalProperties": true]
     return [
+        ["name": PromptHookTool.pick.rawValue,
+         "title": "Pick an account or a model",
+         "description": "Answers /tally: queues the move or the pair when one is named, and "
+             + "otherwise offers the accounts and the models on one panel.",
+         "inputSchema": schema],
         ["name": PromptHookTool.pickAccount.rawValue,
          "title": "Pick an account",
-         "description": "Answers /tally-account: queues the move when one is named, and otherwise "
-             + "asks which account this conversation should continue on.",
+         "description": "Answers a registration written before /tally: queues the move when an "
+             + "account is named, and otherwise asks which one this conversation continues on.",
          "inputSchema": schema],
         ["name": PromptHookTool.pickModel.rawValue,
          "title": "Pick a model",
-         "description": "Answers /tally-model: queues the pair when one is named, and otherwise "
-             + "asks which model and effort this conversation should run.",
+         "description": "Answers a registration written before /tally: queues the pair when one "
+             + "is named, and otherwise asks which model and effort this conversation runs.",
          "inputSchema": schema],
     ]
 }
@@ -241,6 +246,8 @@ final class MCPServer {
                                  claudeCodePID: claudeCodePID)
         let text: String
         switch PromptHookTool(rawValue: params["name"] as? String ?? "") {
+        case .pick:
+            text = mcpPickTally(input: input, world: world, ask: ask)
         case .pickModel:
             text = mcpPickModel(input: input, world: world, ask: ask)
         case .pickAccount:

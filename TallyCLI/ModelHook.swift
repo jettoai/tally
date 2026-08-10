@@ -202,8 +202,8 @@ func modelStatusLines(_ status: ModelStatus, efforts: [String] = claudeEffortNam
             + "\(sessionModelDescription(status.project))")
     }
     lines.append("\(modelLayerFleet): \(sessionModelDescription(status.fleet))")
-    return lines + ["pin this conversation with `/tally-model <model> [effort]`, or "
-        + "`/tally-model auto` to follow the layers below again",
+    return lines + ["pin this conversation with `/tally <model> [effort]`, or "
+        + "`tally model auto` to follow the layers below again",
                     "efforts: \(efforts.joined(separator: ", "))"]
 }
 

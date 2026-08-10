@@ -61,7 +61,7 @@ func runModelSurfaceChecks() {
           lines.contains { $0.hasPrefix("\(modelLayerProject) (/repo):") }
               && lines.contains { $0.hasPrefix("\(modelLayerFleet):") })
     check("…closes with what may be typed, including the closed set of efforts",
-          lines[lines.count - 2].contains("/tally-model <model> [effort]")
+          lines[lines.count - 2].contains("/tally <model> [effort]")
               && lines.last == "efforts: low, high")
     // Running something the layers do not resolve to is the case worth a sentence: it means
     // something moved the session, and a reader comparing the two halves would otherwise conclude

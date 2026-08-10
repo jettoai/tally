@@ -404,9 +404,15 @@ case "account", "switch":
     exit(runSwitch(args: Array(arguments.dropFirst())))
 case "model":
     exit(runModel(args: Array(arguments.dropFirst())))
-case "hook-switch":   // internal: the `/tally-account` prompt hook (SwitchHook.swift)
+case "hook-tally":    // internal: the `/tally` prompt hook (TallyHook.swift)
+    exit(runHookTally(args: Array(arguments.dropFirst())))
+// The two the merge replaced. Still answered, because a registration written by an older app is in
+// somebody's settings.json until the self-heal rewrites it, and a hook that runs a subcommand this
+// binary does not have prints usage and lets the expansion through - a model turn, for a command
+// whose whole point is not spending one.
+case "hook-switch":   // internal: the pre-merge `/tally-account` prompt hook (SwitchHook.swift)
     exit(runHookSwitch(args: Array(arguments.dropFirst())))
-case "hook-model":    // internal: the `/tally-model` prompt hook (ModelHook.swift)
+case "hook-model":    // internal: the pre-merge `/tally-model` prompt hook (ModelHook.swift)
     exit(runHookModel(args: Array(arguments.dropFirst())))
 case mcpServeCommand:   // internal: the MCP server behind the native pickers (MCPServe.swift)
     exit(runMCPServe())
@@ -466,9 +472,9 @@ default:
                                 nowhere to go. No project profile is touched: for "this project
                                 always runs
                                 there", use `tally project set --account`. Inside Claude Code,
-                                typing `/tally-account <account>` does the same without waking a
-                                model (installed with the Claude Code skill integration). Also
-                                answers to `tally switch`, the name it shipped under
+                                typing `/tally <account>` does the same without waking a model
+                                (installed with the Claude Code skill integration). Also answers to
+                                `tally switch`, the name it shipped under
       tally account --auto      release that pin: this session follows automatic account selection
                                 again (the project profile, then the app's pin or smart pick)
       tally model <model> [effort]
@@ -480,7 +486,7 @@ default:
                                 effort is left alone. `tally model auto` hands the session back to
                                 this project's profile and then the app's default; bare, in a
                                 terminal, it shows what is running and offers a menu. Inside Claude
-                                Code, `/tally-model opus xhigh` does the same without waking a model
+                                Code, `/tally opus xhigh` does the same without waking a model
                                 (installed with the Claude Code skill integration)
       tally reload [--now]      restart every supervised session at its next idle moment, so edited
                                 hooks, skills, and instructions take effect everywhere without

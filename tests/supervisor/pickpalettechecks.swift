@@ -31,6 +31,7 @@ func runPickPaletteChecks() {
             return .declined
         }
         switch tool {
+        case .pick: _ = mcpPickTally(input: input, world: world, ask: ask)
         case .pickModel: _ = mcpPickModel(input: input, world: world, ask: ask)
         case .pickAccount: _ = mcpPickAccount(input: input, world: world, ask: ask)
         }
@@ -380,7 +381,8 @@ func runPickPaletteChecks() {
           pickPanelWidth(both) == pickColumnWidth(.account) + pickColumnWidth(.model)
               + pickColumnGap + 2 * PanelGeometry.contentPadding)
     check("the fleet column is the wider of the two, since its rows carry three windows and a tag",
-          pickColumnWidth(.account) > pickColumnWidth(.model))
+          pickColumnWidth(.account) > pickColumnWidth(.model)
+              && pickColumnWidth(.account) >= 372)
     check("…and one column on its own keeps the width this panel has always had",
           pickColumnWidth(.model, alone: true) == pickLoneColumnWidth
               && pickColumnWidth(.account, alone: true) == pickLoneColumnWidth)

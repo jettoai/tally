@@ -254,7 +254,12 @@ func pickPaletteColumnsHeight(_ palette: PickPalette, measured: [PickKind: CGFlo
 func pickColumnWidth(_ kind: PickKind, alone: Bool = false) -> CGFloat {
     guard !alone else { return pickLoneColumnWidth }
     switch kind {
-    case .account: return 340
+    // Measured against a real fleet (2026-08-10): five accounts at 100% put "fable 100% · session
+    // 100% · weekly 100%" beside a "most headroom" tag, which wrapped at 340 - and a wrapped detail
+    // line is not merely untidy, it is a row two lines tall where the arithmetic says one
+    // (`pickDetailRowHeight`). The row holds itself to one line as well, so a longer label truncates
+    // rather than breaking the height contract.
+    case .account: return 372
     case .model: return 300
     }
 }

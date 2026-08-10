@@ -1,6 +1,7 @@
 import Foundation
 
-// The two things `tally mcp-serve` can be asked to do: offer the models, and offer the accounts.
+// What `tally mcp-serve` can be asked to do: offer the accounts and the models on one panel, and
+// answer a line that names one of them.
 // The transport around them is MCPServe.swift; what is here is the part with opinions - which
 // options a bare command offers, what the person's answer means, and the one sentence that goes
 // back to them.
@@ -11,7 +12,7 @@ import Foundation
 // exiting 2 (ModelHook.swift states the economics). The reason IS the user-facing surface: it is
 // the only thing they see, so it is written to stand alone.
 //
-// AND THE ARGUMENT PATH NEVER OPENS A DIALOG. `/tally-model opus xhigh` already said everything;
+// AND THE ARGUMENT PATH NEVER OPENS A DIALOG. `/tally opus xhigh` already said everything;
 // asking again would be a picker in front of an instruction. Only a bare command asks, which is
 // the same division the typed surfaces make (`modelEntry`, `switchEntry`).
 
@@ -310,6 +311,17 @@ func mcpAccountOptions(accounts: [Snapshot.Account], ranked rows: [SwitchFleetRo
     }
 }
 
+/// The dialog those rows are the options of: ONE field, because moving a conversation is one
+/// decision (the second axis the model dialog carries is that axis's own meaning, `mcpModelSchema`).
+/// The counterpart to that one, and here for the same reason `mcpAccountPrompt` is: two tools raise
+/// this dialog now, and a sentence spelled out at both is two sentences the day one is reworded.
+func mcpAccountSchema(accounts: [Snapshot.Account],
+                      ranked rows: [SwitchFleetRow]) -> [String: Any] {
+    mcpEnumSchema(field: mcpAccountField, title: "Account",
+                  description: "Where this conversation continues, from the end of this turn",
+                  options: mcpAccountOptions(accounts: accounts, ranked: rows))
+}
+
 /// The three windows one account reads as, in the order the PANEL draws them (flagship, 5-hour,
 /// weekly - measured against the app 2026-08-07). One formatter, because the form's option list and
 /// the native picker's rows both show them and a person reading the two would notice a difference
@@ -357,6 +369,58 @@ func mcpPaletteAccountRows(_ world: MCPPickerWorld, _ input: MCPHookInput) -> [P
     let (accounts, ranked, _) = world.fleetRows(input)
     guard let ranked, !ranked.isEmpty else { return [] }
     return mcpAccountPickRows(accounts, ranked: ranked)
+}
+
+/// `pick`: the one tool `/tally` calls, and the merge of the two below.
+///
+/// THE TYPED PATH IS ANSWERED WITHOUT A PANEL, exactly as it was on both commands it replaces: what
+/// changed is only that the line is read for WHICH axis it names rather than being told by which
+/// command was typed (`tallyPromptIntent`). The bare path opens the palette that already holds both.
+///
+/// THE FLEET IS WHAT THE KEYBOARD OPENS ON, which is this command's one arbitrary choice and is
+/// made here rather than left to the panel: a person who typed a command with no axis in its name
+/// is reading, and the accounts column is the one that reads left to right first. A machine with no
+/// fleet to offer opens on the models instead, because a focused column with nothing in it would be
+/// a panel that answers nothing.
+func mcpPickTally(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> String {
+    let status = world.modelStatus(input)
+    if !input.isBare {
+        switch tallyPromptIntent(input.commandArgs,
+                                 models: mcpModelOptions(status).map(\.value)) {
+        case .model(let intent):
+            let attempt = world.applyModel(intent, input)
+            return mcpBlockDecision(mcpAttemptText(attempt.message, notes: attempt.notes))
+        case .account(let name):
+            let attempt = world.applyAccount(.pin(name), input)
+            return mcpBlockDecision(mcpAttemptText(attempt.message, notes: attempt.notes))
+        case .release:
+            return mcpBlockDecision(tallyPromptReleaseRefusal)
+        case .palette:
+            break   // a line of nothing but spaces, which is a bare command to whoever typed it
+        }
+    }
+    let (accounts, ranked, problem) = world.fleetRows(input)
+    let accountRows = ranked.map { mcpAccountPickRows(accounts, ranked: $0) } ?? []
+    let focus: PickKind = accountRows.isEmpty ? .model : .account
+    // The sentence above the panel and the form behind it both describe the FOCUSED axis: the form
+    // has one field per axis and no way to say "this field alone is the answer", so offering both
+    // would be a dialog a person can submit half of (the design's §1). One ternary, so the two can
+    // never end up describing different axes.
+    let (message, schema): (String, [String: Any]) = focus == .account
+        ? (mcpAccountPrompt(offering: ranked?.count ?? 0, provider: providers[0].id,
+                            problem: problem),
+           mcpAccountSchema(accounts: accounts, ranked: ranked ?? []))
+        : (mcpModelPrompt(status),
+           mcpModelSchema(models: mcpModelOptions(status), efforts: claudeEffortNames()))
+    let offer = MCPPickOffer(
+        kind: focus, message: message,
+        sections: mcpPickSections(focus: focus, model: mcpModelPickRows(status),
+                                  account: accountRows),
+        schema: schema)
+    guard case .accepted(let content) = ask(offer) else {
+        return mcpBlockDecision(mcpNothingChanged)
+    }
+    return mcpQueuePick(content, input: input, world: world)
 }
 
 /// `pick_model`: queue what was named, or ask.
@@ -407,10 +471,6 @@ func mcpPickAccount(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> 
             hookSwitchListing(rows: rows, provider: providers[0].id, problem: problem)
                 .joined(separator: "\n"))
     }
-    let options = mcpAccountOptions(accounts: accounts, ranked: rows)
-    let schema = mcpEnumSchema(field: mcpAccountField, title: "Account",
-                               description: "Where this conversation continues, from the end of "
-                                   + "this turn", options: options)
     // Counting the ROWS rather than the accounts: the release is one of the options and is not an
     // account, and an account the ranking excluded is not in the pool being offered.
     let prompt = mcpAccountPrompt(offering: rows.count, provider: providers[0].id, problem: problem)
@@ -422,7 +482,7 @@ func mcpPickAccount(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> 
                                 focus: .account,
                                 model: mcpModelPickRows(world.modelStatus(input)),
                                 account: mcpAccountPickRows(accounts, ranked: rows)),
-                             schema: schema)
+                             schema: mcpAccountSchema(accounts: accounts, ranked: rows))
     guard case .accepted(let content) = ask(offer) else {
         return mcpBlockDecision(mcpNothingChanged)
     }

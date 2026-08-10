@@ -62,9 +62,13 @@ func runMCPPickerChecks() {
                                      "command_args": "${command_args}",
                                      "session_id": "${session_id}", "cwd": "${cwd}",
                                      "transcript_path": "${transcript_path}"])
+    // ONE COMMAND CALLS ONE TOOL, and the two beside it are the compatibility surface: a
+    // registration written before the merge is in somebody's settings.json until the self-heal
+    // rewrites it, and a tool this server does not have is answered with an error the expansion
+    // walks straight past - which costs the model turn the hook exists to save.
     check("the server and its tools are named the way the hooks call them",
           tallyMCPServerName == "tally"
-              && PromptHookTool.allCases.map(\.rawValue) == ["pick_account", "pick_model"])
+              && PromptHookTool.allCases.map(\.rawValue) == ["pick", "pick_account", "pick_model"])
     check("…and the subcommand that runs it is one spelling", mcpServeCommand == "mcp-serve")
 
     // MARK: - Reading that block back

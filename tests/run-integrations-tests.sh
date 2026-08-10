@@ -8,14 +8,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/integrations/main.swift tests/integrations/switchcommandchecks.swift \
+swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandchecks.swift \
   tests/integrations/statuslinechecks.swift tests/integrations/switchgroupchecks.swift tests/integrations/selfhealchecks.swift \
-  tests/integrations/localizationchecks.swift tests/integrations/renamechecks.swift \
+  tests/integrations/localizationchecks.swift tests/integrations/renamechecks.swift tests/integrations/mergechecks.swift \
   tests/integrations/nativepickerchecks.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsSkill.swift \
-  Tally/Stores/IntegrationsSwitchCommand.swift Tally/Stores/IntegrationsPromptCommand.swift \
+  Tally/Stores/IntegrationsTallyCommand.swift Tally/Stores/IntegrationsPromptCommand.swift \
   Tally/Stores/IntegrationsPromptHook.swift Tally/Stores/IntegrationsMCPServer.swift \
-  Tally/Stores/IntegrationsModelCommand.swift Tally/Stores/IntegrationsSelfHeal.swift \
+  Tally/Stores/IntegrationsSelfHeal.swift \
   Tally/Core/PromptHookInput.swift Tally/Core/CLIRunner.swift \
   Tally/Core/UsageSnapshot.swift \
   Tally/Core/AppLocale.swift Tally/Providers/ProviderModels.swift \

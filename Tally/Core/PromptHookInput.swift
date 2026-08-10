@@ -24,7 +24,7 @@ import Foundation
 
 /// One variable a prompt hook passes through to its tool.
 enum PromptHookInputField: String, CaseIterable, Sendable {
-    /// The slash command that fired, without its leading slash ("tally-model").
+    /// The slash command that fired, without its leading slash ("tally").
     case commandName = "command_name"
     /// Everything typed after the command, VERBATIM: quotes kept, whitespace kept, `$HOME` not
     /// expanded, nothing tokenised. Splitting it is the reader's business, under the same rule the
@@ -59,8 +59,17 @@ func promptHookInputBlock() -> [String: String] {
 /// is a model turn rather than an error.
 let tallyMCPServerName = "tally"
 
-/// The tools that server offers, one per slash command Tally installs.
+/// The tools that server offers.
+///
+/// ONE COMMAND, THREE TOOLS, and the two that are not called any more are the compatibility surface
+/// rather than an oversight. `/tally` calls `pick`; `pick_account` and `pick_model` answered the two
+/// commands it replaced, and they stay because a registration written by an older app is still in
+/// somebody's settings.json until the self-heal rewrites it (IntegrationsSelfHeal.swift), and a tool
+/// hook naming a tool this server does not have is answered with an error the expansion then walks
+/// straight past - which costs the model turn the hook exists to save.
 enum PromptHookTool: String, CaseIterable, Sendable {
+    /// The merged picker: both axes on one panel, and the typed forms of both commands.
+    case pick
     case pickAccount = "pick_account"
     case pickModel = "pick_model"
 }

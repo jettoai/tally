@@ -1,10 +1,10 @@
 import Foundation
 
 // The HOOK half of a slash command: the `UserPromptExpansion` entry in a user's settings.json that
-// answers `/tally-account` and `/tally-model` before any model is woken, and the surgery that puts
-// it there and takes it back out. Split from IntegrationsPromptCommand.swift on file size; the
-// command file it falls back to, the sync that installs the pair and the uninstall that removes it
-// are all still in that file, and the descriptors are in their own.
+// answers `/tally` before any model is woken, and the surgery that puts it there and takes it back
+// out. Split from IntegrationsPromptCommand.swift on file size; the command file it falls back to,
+// the sync that installs the pair and the uninstall that removes it are all still in that file, and
+// the descriptor is in its own.
 //
 // settings.json is the user's own file, shared by symlink across accounts on some setups, and it
 // holds their whole harness. So every write here is read-modify-write over the parsed document,
@@ -88,10 +88,15 @@ extension IntegrationsStore {
     /// would silently replace their hook with a Tally registration and delete it on uninstall. The
     /// tool half is exact on both fields for the same reason - somebody else's MCP server may
     /// perfectly well offer a tool called `pick_model`.
+    ///
+    /// AND WHAT IT USED TO BE, which is what makes a merge cleanable. An entry written before two
+    /// commands became one runs the old subcommand and calls the old tool, and is ours by exactly
+    /// the same reasoning as one written yesterday (`PromptCommand.formerHookMarkers`).
     private static func isOurHook(_ hook: [String: Any], command: PromptCommand) -> Bool {
         if hook["type"] as? String == mcpHookTypeToken {
+            let tools = ([command.mcpTool] + command.formerTools).map(\.rawValue)
             return hook["server"] as? String == tallyMCPServerName
-                && hook["tool"] as? String == command.mcpTool.rawValue
+                && tools.contains(hook["tool"] as? String ?? "")
         }
         guard let line = hook["command"] as? String else { return false }
         // The flag is stripped before the marker is looked for, so one rule covers both command
@@ -99,7 +104,9 @@ extension IntegrationsStore {
         // written before the flag existed is still ours to this one.
         let bare = line.hasSuffix(" \(promptHookBackstopFlag)")
             ? String(line.dropLast(promptHookBackstopFlag.count + 1)) : line
-        return bare.hasSuffix(" \(command.hookMarker)")
+        return ([command.hookMarker] + command.formerHookMarkers).contains {
+            bare.hasSuffix(" \($0)")
+        }
     }
 
     /// An entry that HOLDS our hook. Ownership stops here: what may be rewritten or deleted is the

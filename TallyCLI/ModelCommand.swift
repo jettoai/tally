@@ -6,7 +6,7 @@ import Foundation
 // about one; ModelRequest.swift addresses it to a session.
 //
 // Three surfaces come through here and must get the same answer: `tally model` typed (or run as a
-// tool call) inside the session, the `/tally-model` prompt hook (ModelHook.swift), and the arrow-key
+// tool call) inside the session, the `/tally` prompt hook (TallyHook.swift), and the arrow-key
 // picker behind a bare `tally model` in a terminal (ModelMenu.swift).
 
 /// What asking to change this session's pair came to, decided but not yet said: one decision, one
@@ -53,7 +53,7 @@ enum ModelIntent: Equatable {
 /// Pure, so the grammar is testable: at most two words, the first a model, the second an effort.
 ///
 /// `auto` is accepted both bare and as `--auto`. The flag spelling is what the request file carries
-/// and what `tally switch` uses; the bare word is what a person types after `/tally-model`, where a
+/// and what `tally switch` uses; the bare word is what a person types after `/tally`, where a
 /// leading dash is awkward and every other argument is a bare word. One extra spelling of one token
 /// is cheaper than the support question.
 func modelIntent(_ args: [String]) -> ModelIntent? {

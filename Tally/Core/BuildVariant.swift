@@ -14,7 +14,7 @@ enum BuildVariant {
     /// RELEASE configuration built locally carries the release bundle id, so it read as the
     /// installed app and let itself rewrite the shared config homes - registering every prompt hook
     /// at a path inside DerivedData. A build tree holds no `Contents/Helpers/tally` (the CLI is
-    /// embedded by the release pipeline), so from then on every `/tally-account` answered "No such
+    /// embedded by the release pipeline), so from then on every `/tally` answered "No such
     /// file or directory" and fell through to a model turn, on a machine whose actual installed app
     /// was fine.
     ///

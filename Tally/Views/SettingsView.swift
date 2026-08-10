@@ -336,7 +336,7 @@ struct SettingsView: View {
         rowDivider
         integrationRow(
             title: L("Claude Code skill"),
-            caption: L("Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json, and adds two commands: /tally-account moves a session to another account, /tally-model runs it on a different model, both without spending a turn. One skill file, two command files and two hook entries per Claude account; all removed just as cleanly."),
+            caption: L("Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json, and adds one command: /tally moves a session to another account or runs it on a different model, without spending a turn. One skill file, one command file and one hook entry per Claude account; all removed just as cleanly."),
             status: integrations.skillStatus,
             install: integrations.installSkill,
             remove: integrations.removeSkill)

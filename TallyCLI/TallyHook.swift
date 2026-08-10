@@ -43,7 +43,10 @@ func runHookTally(args: [String] = []) -> Int32 {
     case .palette:
         // One element, so the whole thing prints as a block under a single tag rather than one tag
         // per line - and as one `reason` rather than a decision per line on the other channel.
-        lines = [(switchFleetListing(cwd: cwd, marker: marker)
+        // The fleet rows close with how to act on them, and that sentence belongs to the command
+        // that raised them: `/tally <name>` here, and the release named in a terminal because
+        // `/tally auto` is refused rather than resolved (`SwitchListingCommand`).
+        lines = [(switchFleetListing(cwd: cwd, marker: marker, command: .tally)
                     + modelStatusLines(status)).joined(separator: "\n")]
     }
     return emitPromptHookOutput(promptHookOutput(lines, backstop: backstop))

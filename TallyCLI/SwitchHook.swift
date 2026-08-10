@@ -155,9 +155,38 @@ func switchFleetRows(accounts: [Snapshot.Account], provider: String,
     }
 }
 
-/// The same reading as text, which is all a hook has: one line per account, and the two commands
-/// that act on it. `rows` is nil when there was no readable snapshot to rank, which is NOT an empty
-/// fleet: it means Tally is not publishing, and saying so is the actionable answer.
+/// Which command the reader of this listing typed, and therefore how they act on what it prints.
+///
+/// The ROWS are one reading whoever asked for them; the sentence under them is not, because the two
+/// commands spell a direct pick differently and only one of them still takes a release.
+enum SwitchListingCommand {
+    /// `/tally`. A name is typed straight after the command, and `auto` is REFUSED there rather
+    /// than resolved (`tallyPromptReleaseRefusal`: it releases a pin and this command sets two), so
+    /// the release is named on the surface that still has one - the terminal command, which is not
+    /// going anywhere.
+    case tally
+    /// `/tally-account`, the command the merge replaced. Still registered on every machine the sync
+    /// has not reached yet, and on THOSE machines both old forms exist and work, so this listing
+    /// goes on naming them: telling that reader to type `/tally` would name a command their
+    /// settings file has never heard of.
+    case tallyAccount
+
+    /// What to do with the rows above.
+    var pickLine: String {
+        switch self {
+        case .tally:
+            return "pick one with `/tally <name>`, or `tally account --auto` in a terminal to "
+                + "follow automatic selection"
+        case .tallyAccount:
+            return "pick one with `/tally-account <name>`, or `/tally-account --auto` to follow "
+                + "automatic selection"
+        }
+    }
+}
+
+/// The same reading as text, which is all a hook has: one line per account, and how to act on it.
+/// `rows` is nil when there was no readable snapshot to rank, which is NOT an empty fleet: it means
+/// Tally is not publishing, and saying so is the actionable answer.
 ///
 /// `problem` is what the snapshot read itself had to say (`loadSnapshot`), and it LEADS the listing
 /// rather than being dropped. The whole claim of this path is that it answers from the file on disk
@@ -166,7 +195,8 @@ func switchFleetRows(accounts: [Snapshot.Account], provider: String,
 /// them is an hour old too. The terminal menu has always warned (`pickSwitchTarget`); this surface
 /// silently did not.
 func hookSwitchListing(rows: [SwitchFleetRow]?, provider: String,
-                       problem: String? = nil) -> [String] {
+                       problem: String? = nil,
+                       command: SwitchListingCommand = .tally) -> [String] {
     // With no rows at all the problem IS the answer, and it is the more specific one: "snapshot is
     // 74m old" says what to do about it, where the generic line only guesses at the cause.
     guard let rows else {
@@ -185,8 +215,7 @@ func hookSwitchListing(rows: [SwitchFleetRow]?, provider: String,
             "  \($0.label)  \($0.windows)"
                 + ($0.tags.isEmpty ? "" : "  (\($0.tags.joined(separator: ", ")))")
         }
-        + ["pick one with `/tally-account <name>`, or `/tally-account --auto` to follow "
-            + "automatic selection"]
+        + [command.pickLine]
 }
 
 /// The account this session is running on, or nil when nothing can say - which both manual-pick
@@ -269,9 +298,11 @@ func accountsInPanelOrder(_ accounts: [Snapshot.Account],
 /// The same listing, read off this machine, with whatever the snapshot read had to say about
 /// itself carried into it rather than discarded.
 func switchFleetListing(cwd: String = FileManager.default.currentDirectoryPath,
-                        marker: SessionMarkerTrust = .trusted(liveSessionMarker())) -> [String] {
+                        marker: SessionMarkerTrust = .trusted(liveSessionMarker()),
+                        command: SwitchListingCommand = .tally) -> [String] {
     let (rows, problem) = liveSwitchFleetRows(cwd: cwd, marker: marker)
-    return hookSwitchListing(rows: rows, provider: providers[0].id, problem: problem)
+    return hookSwitchListing(rows: rows, provider: providers[0].id, problem: problem,
+                             command: command)
 }
 
 /// `tally hook-switch`: the hook entry. Registered by the app with the skill (IntegrationsStore),
@@ -301,7 +332,11 @@ func runHookSwitch(args: [String] = []) -> Int32 {
     case .list:
         // One element, so the rows print as a block under a single tag rather than one tag per
         // line - and as one `reason` rather than a decision per line on the other channel.
-        lines = [switchFleetListing(cwd: cwd, marker: marker).joined(separator: "\n")]
+        // Named explicitly, and it is the OLD spelling: reaching this entry at all means the
+        // machine still has `/tally-account` registered, so that is the command its reader can act
+        // with (`SwitchListingCommand`).
+        lines = [switchFleetListing(cwd: cwd, marker: marker, command: .tallyAccount)
+            .joined(separator: "\n")]
     }
     return emitPromptHookOutput(promptHookOutput(lines, backstop: backstop))
 }

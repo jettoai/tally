@@ -468,8 +468,8 @@ func mcpPickAccount(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> 
     // the two reasons it is (no snapshot at all, or no account signed in) and what to do about it.
     guard let rows, !rows.isEmpty else {
         return mcpBlockDecision(
-            hookSwitchListing(rows: rows, provider: providers[0].id, problem: problem)
-                .joined(separator: "\n"))
+            hookSwitchListing(rows: rows, provider: providers[0].id, problem: problem,
+                              command: .tallyAccount).joined(separator: "\n"))
     }
     // Counting the ROWS rather than the accounts: the release is one of the options and is not an
     // account, and an account the ranking excluded is not in the pool being offered.

@@ -110,9 +110,19 @@ func runSwitchHookChecks() {
     check("…carries one line per usable account, best first",
           listing.count == 5 && listing[1].contains("Claude 2")
               && listing[1].contains("(this session)") && listing[2].contains("(most headroom)"))
-    check("…and closes with both commands that act on it",
-          listing.last == "pick one with `/tally-account <name>`, or `/tally-account --auto` to "
-              + "follow automatic selection")
+    // IT CLOSES WITH WHAT TO TYPE, and that sentence belongs to the command that raised the rows
+    // rather than to the rows. `/tally` is the one that exists now; `auto` is refused there (it
+    // releases a pin and that command sets two), so the release is named where it still works.
+    check("…and closes with the command that raised it, and a release that still exists",
+          listing.last == "pick one with `/tally <name>`, or `tally account --auto` in a terminal "
+              + "to follow automatic selection")
+    // The pre-merge command is still registered on every machine the sync has not reached, and on
+    // THOSE the old spellings are the ones that answer: telling that reader to type `/tally` would
+    // name a command their settings file has never heard of.
+    check("…while the command it replaced still names its own two forms",
+          hookSwitchListing(rows: rows, provider: "claude", command: .tallyAccount).last
+              == "pick one with `/tally-account <name>`, or `/tally-account --auto` to follow "
+                  + "automatic selection")
     // Nothing to choose from is still an answer, and both shapes of it are actionable.
     check("no snapshot names the thing to fix",
           hookSwitchListing(rows: nil, provider: "claude")

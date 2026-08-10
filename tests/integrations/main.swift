@@ -99,7 +99,7 @@ try MainActor.assumeIsolated {
 
     // MARK: skill content - the advisor guidance, its tier contract, and the no-em-dash rule.
     let currentSkill = IntegrationsStore.skillMarkdown()
-    check("skill is at version 15", IntegrationsStore.skillVersion == 15)
+    runSkillVersionChecks()   // the version, and the text it stands for, pinned to each other
     // The native `/model` is adopted now, not overwritten. The command file used to teach the
     // opposite, which was true when it was written and became a lie the moment the supervisor
     // learned to read that event (geo session 7cfa11a4, 2026-08-06).

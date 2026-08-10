@@ -86,7 +86,33 @@ func runTallyPromptChecks() {
     check("the panel's release row is not a model this can be pinned to",
           !tallyPromptNamesModel(mcpModelAutoValue, among: offered))
 
-    // MARK: - 38f. The tool behind the command, end to end
+    // MARK: - 38f. A short label is not the model it happens to sit inside
+
+    // THE READING IS ONE-DIRECTIONAL, and this is the direction it must not have. A label is
+    // arbitrary text somebody typed into Settings, so short ones are ordinary - and while this
+    // asked `modelsAgree`, which agrees whenever either string contains the other, every one of
+    // them was swallowed by the model that spells it out.
+    check("an account whose whole label sits inside a model name is still an account",
+          read("son") == .account("son"))
+    check("…including one that sits inside a model only this session was offered",
+          tallyPromptIntent("GPT", models: withProject) == .account("GPT"))
+    check("…and the models those two nearly were are still models",
+          read("sonnet") == .model(.pin(model: "sonnet", effort: nil))
+              && tallyPromptIntent("gpt-5.6-sol", models: withProject)
+                  == .model(.pin(model: "gpt-5.6-sol", effort: nil)))
+    check("…whatever case an alias is typed in",
+          read("SONNET") == .model(.pin(model: "SONNET", effort: nil)))
+    // The other direction is what the id form needs, and it is kept: the panel folds an id into the
+    // alias it belongs to, so `claude-opus-4-8` is never a row to match exactly (checked at 38b).
+    check("an id built from an offered name is that model, part by part",
+          tallyPromptNamesModel("claude-opus-4-8", among: offered)
+              && !tallyPromptNamesModel("claude", among: offered))
+    // A label that merely BEGINS like one is not one: nothing is split off a word that has no
+    // separators in it, so the label survives whole.
+    check("…while a label that merely starts like a model is left alone",
+          read("sonnet2") == .account("sonnet2") && read("haikus") == .account("haikus"))
+
+    // MARK: - 38g. The tool behind the command, end to end
 
     // A named account moves the session, and a named model pins the pair, THROUGH THE SAME TOOL:
     // the difference is the words, which is the whole of the merge.

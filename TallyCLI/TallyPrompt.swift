@@ -40,8 +40,33 @@ func tallyPromptIsRelease(_ word: String) -> Bool {
 /// THE LIST IS THE PALETTE'S OWN (`mcpModelOptions`), which is what makes this decidable instead of
 /// a guess: the direct path recognises exactly the models the panel would have offered, so a name
 /// that is a row up there is a model down here, and anything else is a label.
+///
+/// MATCHED WHOLE, AND IN ONE DIRECTION ONLY, which is the whole of the rule:
+///
+///   - The word IS an offered name, ignoring case. This is the ordinary reading, `/tally sonnet`.
+///   - Or an offered name is one WHOLE part of the word, split at the punctuation an id is built
+///     with: `claude-opus-4-8` is the id a transcript carries for `opus`, and the panel folds the
+///     two into a single row (`mcpModelOptions` deduplicates by agreement), so the id itself is
+///     never in the list to be matched exactly.
+///
+/// The direction that is missing is the one a containment test would have added, and it reads an
+/// ACCOUNT as a model whenever the label somebody chose happens to sit inside a model name: an
+/// account called `son` is not `sonnet` and one called `GPT` is not `gpt-5.6-sol`, but both were
+/// swallowed while this asked `modelsAgree` (review of the merge, 1455ccb). A label is arbitrary
+/// text and short ones are the common ones, so the reading that costs an account its name is the
+/// reading to give up. What is left of it, said plainly: a label that spells a model out as one of
+/// its own parts (`opus-work`) still reads as a model, which is the price of keeping the id form
+/// typeable at all.
 func tallyPromptNamesModel(_ word: String, among models: [String]) -> Bool {
-    models.contains { $0 != mcpModelAutoValue && modelsAgree($0, word) }
+    let typed = word.lowercased()
+    // The separators an id is spelled with, so `claude-opus-4-8` and `gpt-5.6-sol` come apart into
+    // the names they are built from and a label like `sonnet2` does not come apart at all.
+    let parts = typed.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+    return models.contains { model in
+        guard model != mcpModelAutoValue else { return false }
+        let offered = model.lowercased()
+        return offered == typed || parts.contains { $0 == offered }
+    }
 }
 
 /// The model reading of a typed line, or nil when this line is not one.

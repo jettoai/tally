@@ -8,7 +8,14 @@ extension IntegrationsStore {
 
     /// Bump when the skill markdown changes; older installs are flagged in Settings and brought
     /// up to date by `autoUpdateSkill()` at the next launch.
-    nonisolated static let skillVersion = 15
+    ///
+    /// THIS NUMBER IS THE ONLY THING THAT MAKES AN EDIT TRAVEL. An install already on disk is
+    /// rewritten when, and only when, its marker differs from this one, so text changed without a
+    /// bump reaches every fresh install and nobody who already has the skill: the machines that
+    /// keep the old text are exactly the ones that have been running longest. The text and this
+    /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
+    /// forgotten bump is a red suite rather than a silent one.
+    nonisolated static let skillVersion = 16
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.

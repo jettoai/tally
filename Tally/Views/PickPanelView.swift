@@ -40,6 +40,11 @@ struct PickPanelView: View {
     /// What the pointer is over, per column, so a row can say it is clickable without that being
     /// mistaken for the circle. Only the drawing reads it: hovering changes nothing that gets sent.
     @State private var hovered: [PickKind: Int] = [:]
+    /// WHERE THE KEYBOARD JUST SENT THE CIRCLE, per column, and nothing the pointer does is written
+    /// here. It is what tells the column's scrolling region that a circle moved by a key has to be
+    /// brought into view while one moved by a click must not be (`pickScrollFollowsKeyboard`, which
+    /// carries the defect and why a destination is recorded rather than a flag raised).
+    @State private var keyboardLanded: [PickKind: Int] = [:]
     @FocusState private var focused: Bool
     /// What each column's rows actually laid out at, or zero before the first pass. Read through
     /// `pickPaletteListHeight`, which is where "zero is not a measurement" is decided.
@@ -196,6 +201,14 @@ struct PickPanelView: View {
                 // `pickPaletteListHeight` is where both live.
                 .frame(height: listHeight)
                 .onChange(of: selections[column.kind] ?? 0) { _, now in
+                    // THE LIST FOLLOWS THE KEYBOARD AND NEVER THE POINTER, which is the whole rule
+                    // (`pickScrollFollowsKeyboard` carries the defect: a clicked row is already on
+                    // screen, so re-centring it slid the column out from under the pointer that had
+                    // just landed on it). Consumed here whether or not it fires, so a request the
+                    // keyboard left standing cannot outlive one move.
+                    let asked = keyboardLanded[column.kind]
+                    keyboardLanded[column.kind] = nil
+                    guard pickScrollFollowsKeyboard(asked: asked, landedOn: now) else { return }
                     // Only what scrolls can be scrolled to: the pinned row is not in this region,
                     // and it does not need to be brought into view because it never leaves.
                     guard now < column.items.count else { return }
@@ -357,13 +370,14 @@ struct PickPanelView: View {
         case .move(let step):
             // Where an arrow key lands, including from a column circling nothing, is the rule this
             // panel is asserted by rather than arithmetic written here (`pickMovedSelection`).
-            selections[kind] = pickMovedSelection(from: selections[kind], step: step,
-                                                  count: column.rows.count)
+            circleFromKeyboard(pickMovedSelection(from: selections[kind], step: step,
+                                                  count: column.rows.count), in: kind)
         case .moveColumn(let step):
             let landed = pickColumnFocus(palette, from: kind, step: step)
             focus = landed
             if let next = palette.column(landed) {
-                selections[landed] = pickColumnSelection(next, remembered: selections[landed])
+                circleFromKeyboard(pickColumnSelection(next, remembered: selections[landed]),
+                                   in: landed)
             }
         case .commit:
             submit()
@@ -375,6 +389,16 @@ struct PickPanelView: View {
             return false
         }
         return true
+    }
+
+    /// MOVING A CIRCLE FROM THE KEYBOARD, which is the one door every such path uses: the arrows,
+    /// the step across to the other column, and the reselection a query forces. What separates it
+    /// from a click is the destination it records - that is what the column's scrolling region
+    /// follows, and a click deliberately records none (`pickScrollFollowsKeyboard` carries why). One
+    /// writer, so a path that moved a circle without telling the list cannot exist by oversight.
+    private func circleFromKeyboard(_ index: Int?, in kind: PickKind) {
+        keyboardLanded[kind] = index
+        selections[kind] = index
     }
 
     /// EVERYTHING THE PANEL ANSWERS WITH goes through here: both circles, the COMMAND'S axis first,
@@ -400,13 +424,18 @@ struct PickPanelView: View {
     /// does not promise is visible yet, and the panel showed exactly that: clearing a filter left
     /// the cursor on the first row instead of walking back to the row the session is on, because
     /// the column it asked about was still the FILTERED one (live keyboard check, 2026-08-10).
+    ///
+    /// TYPING IS THE KEYBOARD, so the circle this leaves is one the list follows: a query narrowing
+    /// thirty rows to twenty can push the circled row below the fold, and Enter on a row nobody can
+    /// see is the thing worth avoiding here. Nothing is under the pointer being clicked while
+    /// somebody types, which is the case the rule was written for (`pickScrollFollowsKeyboard`).
     private func edited(_ typed: String, in kind: PickKind) {
         let circled = palette.column(kind)?.choice(at: selections[kind])?.row
         queries[kind] = typed
         var filters = queries
         filters[kind] = typed
         if let column = pickPalette(request, filters: filters).column(kind) {
-            selections[kind] = pickReselected(column, keeping: circled)
+            circleFromKeyboard(pickReselected(column, keeping: circled), in: kind)
         }
     }
 

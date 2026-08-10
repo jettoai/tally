@@ -109,6 +109,47 @@ func runPickSurfaceChecks() {
     // what leaves the panel is every circle at once, so both axes can move on one press.
     check("a chosen row is circled in its own column",
           view.contains(".onTapGesture { selections[column.kind] = index }"))
+
+    // MARK: - 37g3. …and the list follows the keyboard rather than the click
+
+    // THE DEFECT (Albert, 2026-08-10): every change of circle re-centred the column, so clicking a
+    // row - a row that is on screen by definition, since it was clicked - slid the whole list out
+    // from under the pointer. It read as the panel jumping. The rule is pure, so the three cases are
+    // asserted here; that the panel ASKS it is locked by source, the way the rest of this surface is.
+    check("a row the keyboard sent the circle to is brought into view",
+          pickScrollFollowsKeyboard(asked: 4, landedOn: 4))
+    check("a row the pointer circled is not, because it is already on screen",
+          !pickScrollFollowsKeyboard(asked: nil, landedOn: 4))
+    // THE STALE REQUEST, which is why a destination is recorded rather than a flag raised: a key
+    // that circles the row already circled changes nothing, so nothing consumes what it wrote. A
+    // flag left standing there would fire on the next CLICK - the very case the rule exists to
+    // refuse - while a destination cannot, since it equals the index being moved away from.
+    check("a request the keyboard left standing cannot scroll a later click",
+          !pickScrollFollowsKeyboard(asked: 4, landedOn: 7))
+    check("the panel asks that rule rather than scrolling on every change",
+          view.contains("guard pickScrollFollowsKeyboard(asked: asked, landedOn: now) else { return }"))
+    // …and it is consumed on every move, so "stale for at most one move" is a property of the code
+    // rather than of the wording above: the read and the clearing are the two lines before the guard.
+    check("…consuming the request whether or not it fires",
+          view.contains("let asked = keyboardLanded[column.kind]\n                    keyboardLanded[column.kind] = nil"))
+    // EVERY KEYBOARD PATH THAT MOVES A CIRCLE GOES THROUGH ONE DOOR, and there are three of them:
+    // the walk down a column, the step across to the next one, and the reselection a query forces. A
+    // path that moved the circle without telling the list would be an arrow key that walks off
+    // screen and stays there, so the destination is written where the circle is rather than beside
+    // each caller.
+    check("one writer records the destination, next to the circle it moves",
+          view.contains("private func circleFromKeyboard(_ index: Int?, in kind: PickKind) {\n        keyboardLanded[kind] = index\n        selections[kind] = index\n    }"))
+    check("the walk down a column goes through it",
+          view.contains("circleFromKeyboard(pickMovedSelection(from: selections[kind], step: step,"))
+    check("…so does the step to the other column",
+          view.contains("circleFromKeyboard(pickColumnSelection(next, remembered: selections[landed]),"))
+    check("…and so does the circle a query moves",
+          view.contains("circleFromKeyboard(pickReselected(column, keeping: circled), in: kind)"))
+    // AND THE POINTER GOES NOWHERE NEAR IT, which is the whole of the fix: the tap gesture asserted
+    // just above writes the circle directly, so it leaves no destination behind.
+    check("…while a click writes no destination at all",
+          !view.contains("keyboardLanded[column.kind] = index")
+              && !view.contains("onTapGesture { circleFromKeyboard"))
     // THE DEV TAG, which is why it is on this panel at all: two instances of it can be on one
     // machine, and a build nobody installed must be tellable from the installed one BEFORE a click
     // moves somebody's conversation. Reused from the popover's header rather than drawn again.

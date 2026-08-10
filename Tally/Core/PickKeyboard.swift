@@ -70,6 +70,23 @@ func pickPressIsElsewhere(command: Bool, control: Bool, option: Bool) -> Bool {
     command || control || option
 }
 
+/// WHETHER A CIRCLE THAT HAS JUST MOVED IS ONE THE LIST SHOULD SCROLL TO. The keyboard's, always;
+/// the pointer's, never.
+///
+/// THE DEFECT (Albert, 2026-08-10): every change of circle re-centred the column, and a row that was
+/// CLICKED is by definition already on screen - so the whole list slid under the pointer that had
+/// just landed on it, which reads as the panel jumping. An arrow key is the opposite case and the
+/// reason this exists at all: it can walk the circle onto a row that is not drawn yet, and nothing
+/// else would bring it into view.
+///
+/// A DESTINATION RATHER THAN A FLAG, which is what makes the request safe to leave standing. The
+/// keyboard writes where it is sending the circle, and a keypress that lands on the row already
+/// circled changes nothing - so no observer runs, and the request is still there when the POINTER
+/// next moves the circle. It cannot fire then: a stale request equals the index being moved away
+/// from, which is the one index the new one cannot be. Consumed on every move regardless, so it is
+/// stale for at most one of them.
+func pickScrollFollowsKeyboard(asked: Int?, landedOn now: Int) -> Bool { asked == now }
+
 /// Which column the focus lands on when it is stepped sideways. Clamped rather than wrapped, like
 /// the walk down a column: a held arrow key must come to rest somewhere rather than cycle.
 func pickColumnFocus(_ palette: PickPalette, from kind: PickKind, step: Int) -> PickKind {

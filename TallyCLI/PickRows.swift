@@ -52,9 +52,8 @@ func mcpAccountPickRows(_ accounts: [Snapshot.Account], ranked rows: [SwitchFlee
 /// A SECTION WITH NO ROWS IS NOT DRAWN AT ALL: a machine with one account has nothing to offer on
 /// that axis, and a heading over an empty list is a promise the panel is not keeping.
 func mcpPickSections(focus: PickKind, model: [PickRow], account: [PickRow]) -> [PickSection] {
-    let sections = [PickSection(kind: .model, heading: pickSectionHeading(.model), rows: model),
-                    PickSection(kind: .account, heading: pickSectionHeading(.account),
-                                rows: account)]
+    let sections = [PickSection(kind: .model, rows: model),
+                    PickSection(kind: .account, rows: account)]
     return pickSectionsFocusFirst(sections.filter { !$0.rows.isEmpty }, focus: focus)
 }
 

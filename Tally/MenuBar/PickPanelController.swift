@@ -277,7 +277,7 @@ final class PickPanelController: NSObject, NSWindowDelegate {
     /// decides is which section leads and which way out is pinned, which is the whole difference
     /// between the two commands.
     static func previewRequest(kind: String) -> PickRequest? {
-        let accounts = PickSection(kind: .account, heading: pickSectionHeading(.account), rows: [
+        let accounts = PickSection(kind: .account, rows: [
             PickRow(value: "claude:.claude", label: "Claude",
                     detail: "fable 54% · session 86% · weekly 47%",
                     tags: [switchCurrentSessionTag], isCurrent: true),
@@ -299,7 +299,7 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         }
         modelRows.append(PickRow(value: "auto", label: "auto  (follow this project's profile, then "
             + "the fleet default)"))
-        let models = PickSection(kind: .model, heading: pickSectionHeading(.model), rows: modelRows)
+        let models = PickSection(kind: .model, rows: modelRows)
         switch kind {
         case "account":
             return PickRequest(

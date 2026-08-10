@@ -1,54 +1,37 @@
 import CoreGraphics
 import Foundation
 
-// WHAT THE PICK PANEL DRAWS, as a list of items rather than as a view. The panel is two sections and
-// a filter now (PickSection states why both axes are on one surface), and all three of the things
-// that used to be simple stop being simple at once:
+// WHAT THE PICK PANEL DRAWS: two columns, accounts on the left and models on the right, each one a
+// whole picker in its own right (PickSection says why both axes are on one surface at all).
 //
-//   - WHICH ROWS ARE THERE depends on what has been typed, so it cannot be `request.rows`.
-//   - WHAT IS PINNED under the list is the FOCUS section's release row, so it cannot be "the last
-//     row" either: the other section's release row is one of its own rows, inline, where it means
-//     "hand this axis back" rather than "hand back the axis you came here for".
-//   - HOW TALL IT IS has to agree with what was drawn to the point, which is the property the
-//     height family was rebuilt around after a panel came up as a message with nothing under it
-//     (PickPanelMetrics.swift carries that incident).
+// SIDE BY SIDE RATHER THAN STACKED, which is the correction of the first attempt at this. Stacked,
+// the two axes ran together: one scrolling region held both lists, one filter narrowed both, and the
+// two ways out ("release the model pin" and "release the account pin") were a divider apart with
+// nothing but their own wording to tell them apart. Read as columns, they cannot be confused,
+// because everything one axis has is inside its own column: its name, its filter, its scrolling
+// region, and the row that hands that axis back, pinned at its foot.
 //
-// So the drawing and the arithmetic read ONE structure, built here, in the file both can be
-// asserted against without a screen. The view walks `items` and draws them; the arithmetic sums the
-// same items; the keyboard walks `choices`. Nothing recomputes any of it a second way.
+// THE ORDER IS FIXED and the command does not move it: accounts left, models right, whichever of
+// the two was typed. A surface that reshuffles itself by how it was opened has to be re-read every
+// time; what the command decides is only which column the keyboard starts in.
+//
+// SO THE STRUCTURE IS: a palette is columns, a column is rows and the one pinned under them, and the
+// filter is a property of the column rather than of the panel. The arithmetic sums exactly these
+// (PickPanelMetrics.swift), the view draws exactly these, and both can be asserted without a screen.
 
-/// One entry in the drawn list: a section's name, or a row.
+/// One row as the panel draws it: the row itself, and the space above it.
 struct PickPaletteItem: Equatable, Sendable {
-    enum Body: Equatable, Sendable {
-        case heading(String)
-        case row(PickRow)
-    }
-
-    let body: Body
-    /// Which section this came from: what choosing it answers with, and which axis a heading names.
-    let kind: PickKind
-    /// The space above this item, decided once (`pickRowGap`) so the drawing and the sum agree.
+    let row: PickRow
+    /// The space above this row, decided once (`pickRowGap`) so the drawing and the sum agree.
     let gapAbove: CGFloat
-    /// Whether that space carries a rule: the way out of a section, set apart from its choices.
+    /// Whether that space carries a rule: the way out of the column, set apart from its choices.
     let ruled: Bool
-    /// Where this row sits in the keyboard's walk, or nil for a heading, which is not a choice.
-    let choiceIndex: Int?
 
-    var row: PickRow? {
-        if case .row(let row) = body { return row }
-        return nil
-    }
-
-    var heading: String? {
-        if case .heading(let text) = body { return text }
-        return nil
-    }
-
-    /// How tall this item is drawn, which is what the arithmetic adds up.
-    var height: CGFloat { row.map(pickRowHeight) ?? pickSectionHeadingHeight }
+    /// How tall this row is drawn, which is what the arithmetic adds up.
+    var height: CGFloat { pickRowHeight(row) }
 }
 
-/// A row and the section it came from: everything choosing it decides.
+/// A row and the column it came from: everything choosing it decides.
 struct PickChoice: Equatable, Sendable {
     let kind: PickKind
     let row: PickRow
@@ -58,35 +41,62 @@ struct PickChoice: Equatable, Sendable {
     var answer: PickAnswer { PickAnswer(value: row.value, effort: row.effort, kind: kind) }
 }
 
-/// The whole surface: what scrolls, what is pinned under it, and what the keyboard walks.
-struct PickPalette: Equatable, Sendable {
-    /// Everything in the scrolling region, in draw order.
+/// One column: one axis, answered on its own.
+struct PickColumn: Equatable, Sendable {
+    let kind: PickKind
+    /// What scrolls, in draw order, after this column's own filter.
     let items: [PickPaletteItem]
-    /// The FOCUS section's release row, pinned below the scrolling region and outside the filter.
+    /// The way out of this axis, pinned under the scrolling region.
     ///
-    /// OUTSIDE THE FILTER ON PURPOSE: it is the way out of the question that was asked, so a query
-    /// matching nothing must still leave it reachable. A person who typed four letters that hit no
-    /// row would otherwise be left with an empty panel and Escape.
+    /// NEVER FILTERED AWAY, and never the other column's: it is how a person hands back the axis
+    /// they are looking at, so a query matching nothing still has to leave it reachable, and it
+    /// belongs to the column whose rows sit above it rather than to the panel.
     let sticky: PickPaletteItem?
-    /// The rows a keyboard walks, in the order it walks them: the scrolling rows, then the pinned
-    /// one. One flat array, so the arrow keys need no special case at the boundary.
-    let choices: [PickChoice]
+    /// Whether this column's own field has something in it.
+    let filtering: Bool
+
+    /// Every row the keyboard walks here, in order: what scrolls, then what is pinned under it.
+    var rows: [PickPaletteItem] { items + (sticky.map { [$0] } ?? []) }
+
+    /// The same walk as choices, which is what a selection in this column indexes into.
+    var choices: [PickChoice] { rows.map { PickChoice(kind: kind, row: $0.row) } }
+
+    /// Where the pinned row sits in that walk, or nil when there is nothing pinned.
+    var stickyIndex: Int? { sticky == nil ? nil : items.count }
+
+    /// Whether the query emptied this column. A column is never removed for having no hits (the two
+    /// columns would then swap places under the pointer), so this is what the panel says instead.
+    var isEmptyOfMatches: Bool { items.isEmpty && filtering }
 }
 
-/// The gap between one section and the next, above its heading. Wider than the gap between two
-/// subjects inside a section (`pickRowGroupSpacing`), because it separates two questions rather
-/// than two answers to one.
-let pickSectionGap: CGFloat = 14
+/// The whole surface: the columns, left to right.
+struct PickPalette: Equatable, Sendable {
+    let columns: [PickColumn]
 
-/// How tall a section heading is drawn, its air underneath included. Drawn at exactly this height
-/// (`PickPanelView.heading`) rather than measured, so the sum below cannot drift from the layout.
-let pickSectionHeadingHeight: CGFloat = 20
+    func column(_ kind: PickKind) -> PickColumn? { columns.first { $0.kind == kind } }
 
-/// What the search field says before anything has been typed.
-let pickSearchPlaceholder = "Type to filter"
+    /// Whether this palette is the single list an older CLI's request draws (`PickRequest.sections`
+    /// carries both skews).
+    var isSingleColumn: Bool { columns.count < 2 }
+}
 
-/// How tall that field is drawn, its own padding included.
-let pickSearchFieldHeight: CGFloat = 26
+/// Left to right, and it does not move: the fleet first, because moving a conversation is the
+/// heavier of the two decisions and the wider of the two lists.
+let pickColumnOrder: [PickKind] = [.account, .model]
+
+/// What a column is called, as the English key its translations are filed under
+/// (`Localizable.xcstrings`). A KEY rather than a finished string, because this file is compiled
+/// into the assertion suite as well as the app, and the suite has no bundle to resolve against: the
+/// panel is where `L(...)` turns it into the language the person set.
+///
+/// Plural, because it names a run of rows rather than the panel's axis (`pickPanelKindName` names
+/// that, once, on the identity line).
+func pickColumnHeadingKey(_ kind: PickKind) -> String {
+    switch kind {
+    case .model: return "Models"
+    case .account: return "Accounts"
+    }
+}
 
 /// Whether a row answers what has been typed.
 ///
@@ -98,106 +108,120 @@ let pickSearchFieldHeight: CGFloat = 26
 /// A blank query matches everything, whitespace included: a space is a character in "Claude 2", but
 /// a query that is ONLY spaces is somebody who has not started typing yet.
 func pickRowMatches(_ row: PickRow, query: String) -> Bool {
-    guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return true }
+    guard pickIsFiltering(query) else { return true }
     let needle = query.lowercased()
-    let fields = [pickPanelLabel(row), row.label, row.effort, pickPanelDetail(row)]
+    // THE TAGS ARE MATCHED TOO, because they are words on the screen: "most headroom" and "this
+    // session" are drawn beside the name, and a person typing what they can see and watching that
+    // very row disappear is being told the filter is broken (codex review, 2026-08-10).
+    let fields = [pickPanelLabel(row), row.label, row.effort, pickPanelDetail(row)] + row.tags
     return fields.compactMap { $0 }.contains { $0.lowercased().contains(needle) }
 }
 
-/// The palette a request draws, filtered by what has been typed.
-func pickPalette(_ request: PickRequest, filter: String = "") -> PickPalette {
-    pickPalette(sections: pickRequestSections(request), focus: request.kind, filter: filter)
+/// Whether a query is one at all. One place, because "is this column filtered" decides three
+/// different things: what it lists, where its cursor rests, and what Escape does.
+func pickIsFiltering(_ query: String) -> Bool {
+    !query.trimmingCharacters(in: .whitespaces).isEmpty
 }
 
-/// The palette one list of rows draws: the single-section shape, which is what a request from
-/// before the palette IS and what the height family's fixtures are written in. The kind it is given
-/// decides nothing here, since a lone section is drawn without a heading and answers with whatever
-/// the request said it was.
+/// The palette a request draws, each column narrowed by its own query.
+func pickPalette(_ request: PickRequest, filters: [PickKind: String] = [:]) -> PickPalette {
+    pickPalette(sections: pickRequestSections(request), filters: filters)
+}
+
+/// One list of rows as a column: the single-column shape, which is what a request from before the
+/// palette IS and what the height family's fixtures are written in.
+func pickColumn(rows: [PickRow], filter: String = "") -> PickColumn {
+    pickColumn(PickSection(kind: .model, rows: rows), filter: filter)
+}
+
+/// The palette that one column makes.
 func pickPalette(rows: [PickRow]) -> PickPalette {
-    pickPalette(sections: [PickSection(kind: .model, heading: "", rows: rows)], focus: .model,
-                filter: "")
+    PickPalette(columns: [pickColumn(rows: rows)])
 }
 
 /// The sections a request draws: the ones it carries, or the single section an older CLI's request
-/// is. Focus first either way (`pickSectionsFocusFirst`).
+/// is.
 func pickRequestSections(_ request: PickRequest) -> [PickSection] {
     guard let sections = request.sections, !sections.isEmpty else {
-        return [PickSection(kind: request.kind, heading: pickSectionHeading(request.kind),
-                            rows: request.rows)]
+        return [PickSection(kind: request.kind, rows: request.rows)]
     }
-    return pickSectionsFocusFirst(sections, focus: request.kind)
+    return sections
 }
 
-/// Build the list, in the order it is drawn.
-///
-/// A SINGLE SECTION COMES OUT EXACTLY AS IT DID, which is what keeps the older request shape a
-/// degradation rather than a difference: no heading is drawn (there is nothing to tell it apart
-/// from), the gaps are the ones `pickRowGap` has always given, and the release row is pinned. The
-/// pinned measurements the height suite carries (221 and 371 points, read off the window) are the
-/// lock on that.
-func pickPalette(sections: [PickSection], focus: PickKind, filter: String) -> PickPalette {
-    // A heading is what tells two sections apart, so one section has nothing to say with one.
-    let headed = sections.count > 1
+/// Build the columns, in the order they are drawn rather than the order they arrived in: the request
+/// is written focus-first for the sake of an older app's `rows` field, and this surface is not.
+func pickPalette(sections: [PickSection], filters: [PickKind: String] = [:]) -> PickPalette {
+    PickPalette(columns: pickColumnOrder.compactMap { kind in
+        sections.first { $0.kind == kind }
+            .map { pickColumn($0, filter: filters[kind] ?? "") }
+    })
+}
+
+/// One column, after its own filter.
+func pickColumn(_ section: PickSection, filter: String = "") -> PickColumn {
+    // LAST IS THE TEST, because last is what the release row is: every builder appends it after
+    // everything else and says so (`pickRowIsRelease`).
+    let release = section.rows.indices.last.flatMap {
+        pickRowIsRelease(index: $0, of: section.rows) ? $0 : nil
+    }
     var items: [PickPaletteItem] = []
-    var choices: [PickChoice] = []
-    var stickyRow: (kind: PickKind, row: PickRow)?
-
-    for (position, section) in sections.enumerated() {
-        let release = section.rows.indices.last.flatMap {
-            pickRowIsRelease(index: $0, of: section.rows) ? $0 : nil
-        }
-        // The focus section's way out is pinned rather than listed, and the other section's is a
-        // row of its own: releasing the axis you did not come here for is a choice among that
-        // section's choices, not the standing escape from the one you did.
-        let pinned = position == 0 ? release : nil
-        if let pinned { stickyRow = (section.kind, section.rows[pinned]) }
-        let listed = section.rows.indices.filter { index in
-            index != pinned && pickRowMatches(section.rows[index], query: filter)
-        }
-        // A section nothing matched hides whole, its name with it: a heading over no rows is a
-        // promise the list is not keeping.
-        guard !listed.isEmpty else { continue }
-        if headed {
-            items.append(PickPaletteItem(body: .heading(section.heading), kind: section.kind,
-                                         gapAbove: items.isEmpty ? 0 : pickSectionGap,
-                                         ruled: false, choiceIndex: nil))
-        }
-        var previous: PickRow?
-        for index in listed {
-            let row = section.rows[index]
-            let ruled = index == release
-            items.append(PickPaletteItem(
-                body: .row(row), kind: section.kind,
-                gapAbove: pickRowGap(above: row, after: previous, ruled: ruled,
-                                     atTop: items.isEmpty),
-                ruled: ruled, choiceIndex: choices.count))
-            choices.append(PickChoice(kind: section.kind, row: row))
-            previous = row
-        }
+    var previous: PickRow?
+    for index in section.rows.indices where index != release {
+        let row = section.rows[index]
+        guard pickRowMatches(row, query: filter) else { continue }
+        // Grouped against the row ABOVE IT AS DRAWN, not as listed: a filter that removed the two
+        // rows in between must not leave the gap that belonged to them.
+        items.append(PickPaletteItem(row: row,
+                                     gapAbove: pickRowGap(above: row, after: previous, ruled: false,
+                                                          atTop: items.isEmpty),
+                                     ruled: false))
+        previous = row
     }
-
-    // LAST IN THE WALK, wherever it is drawn: the arrow keys leave the last scrolling row and land
-    // on the way out, which is where a list of escapes belongs.
-    var sticky: PickPaletteItem?
-    if let stickyRow {
-        sticky = PickPaletteItem(body: .row(stickyRow.row), kind: stickyRow.kind,
-                                 gapAbove: pickRowGap(above: stickyRow.row, after: nil, ruled: true,
-                                                      atTop: false),
-                                 ruled: true, choiceIndex: choices.count)
-        choices.append(PickChoice(kind: stickyRow.kind, row: stickyRow.row))
+    let sticky = release.map { index in
+        PickPaletteItem(row: section.rows[index],
+                        gapAbove: pickRowGap(above: section.rows[index], after: nil, ruled: true,
+                                             atTop: false),
+                        ruled: true)
     }
-    return PickPalette(items: items, sticky: sticky, choices: choices)
+    return PickColumn(kind: section.kind, items: items, sticky: sticky,
+                      filtering: pickIsFiltering(filter))
 }
 
-/// Where the cursor rests.
+/// Where the cursor rests in a column.
 ///
-/// ON THE ROW THE SESSION IS ALREADY ON while nothing has been typed, which is what makes the
-/// keyboard path short for the change people actually make. ON THE FIRST HIT once something has,
-/// which is what every filter box does: the query IS the aim, so Enter has to take what the typing
-/// pointed at rather than something that scrolled off it.
-func pickPaletteSelection(_ palette: PickPalette, filtering: Bool) -> Int {
-    guard !filtering else { return 0 }
-    return palette.choices.firstIndex { $0.row.isCurrent } ?? 0
+/// WHAT IT WAS LEFT ON, if that row is still there, so stepping across to the other column and back
+/// returns to where somebody was rather than to the top. ON THE ROW THE SESSION IS ALREADY ON when
+/// there is nothing to return to, which is what makes the keyboard path short for the change people
+/// actually make. ON THE FIRST HIT while something is typed, because the query IS the aim.
+func pickColumnSelection(_ column: PickColumn, remembered: Int? = nil) -> Int {
+    if let remembered, column.rows.indices.contains(remembered) { return remembered }
+    guard !column.filtering else { return 0 }
+    return column.choices.firstIndex { $0.row.isCurrent } ?? 0
+}
+
+/// WHETHER A HOVER IS A PERSON MOVING THE POINTER, or the panel having been raised underneath one
+/// that never moved.
+///
+/// THE DEFECT THIS EXISTS FOR (seen on the first two-column capture, 2026-08-10): `/tally-model`
+/// came up with the ACCOUNTS column lit and listening. The panel is centred on the screen the
+/// pointer is on (`centerOnPointerScreen`), so it frequently appears under the pointer, and SwiftUI
+/// reports a hover the instant a row lands beneath it. The pointer had not moved and the person had
+/// not looked yet, and the command's own choice of column was already gone.
+///
+/// So a hover inside the window the panel was raised in decides nothing. It is THE SAME WINDOW the
+/// dismissal judgement uses and the same reasoning: a panel that has just been raised is not yet
+/// being used, and what it reports about itself in that moment describes the raising rather than
+/// the person.
+func pickHoverMovesFocus(shownAt: Date, now: Date = Date()) -> Bool {
+    pickDismissalIsFromPerson(shownAt: shownAt, now: now)
+}
+
+/// Which column the focus lands on when it is stepped sideways. Clamped rather than wrapped, like
+/// the walk down a column: a held arrow key must come to rest somewhere rather than cycle.
+func pickColumnFocus(_ palette: PickPalette, from kind: PickKind, step: Int) -> PickKind {
+    guard let index = palette.columns.firstIndex(where: { $0.kind == kind }) else { return kind }
+    let landed = min(max(index + step, 0), palette.columns.count - 1)
+    return palette.columns[landed].kind
 }
 
 // MARK: - The keyboard
@@ -208,6 +232,8 @@ func pickPaletteSelection(_ palette: PickPalette, filtering: Bool) -> Int {
 enum PickKey: Equatable, Sendable {
     case up
     case down
+    case left
+    case right
     case enter
     case escape
     case delete
@@ -216,20 +242,29 @@ enum PickKey: Equatable, Sendable {
 
 /// What a keypress does to the panel.
 enum PickKeyAction: Equatable, Sendable {
+    /// Up or down the column the keyboard is in.
     case move(Int)
+    /// Across to the next column.
+    case moveColumn(Int)
     case commit
     case cancel
-    /// The query, after this keypress. Covers typing, backspace and the clearing half of Escape.
+    /// The FOCUSED column's query, after this keypress. Covers typing, backspace and the clearing
+    /// half of Escape.
     case edit(String)
     case ignore
 }
 
 /// THE WHOLE KEYBOARD, as one total function.
 ///
+/// SIDEWAYS IS FREE HERE, which is what pays for the columns: this field has no caret to walk, so
+/// left and right can mean the only other thing a two-column surface needs them to mean. The cost is
+/// stated rather than discovered: no caret means no editing in the middle of a query, only typing
+/// and backspace, which is what a filter of a dozen model names is answered with anyway.
+///
 /// ESCAPE HAS TWO ANSWERS and the order is the point: a filter that is showing three rows out of
 /// thirty is a state a person wants OUT of more often than they want the panel gone, and losing the
 /// whole panel to a stray Escape means retyping the command. So the first Escape clears what was
-/// typed and the second one closes, which is the same escalation a search field has anywhere else.
+/// typed IN THE COLUMN THE KEYBOARD IS IN, and the second one closes.
 ///
 /// A MODIFIER MEANS SOMEBODY IS DOING SOMETHING ELSE (copying, switching windows), so those presses
 /// are handed back untouched rather than typed into the filter; the caller decides what carries a
@@ -238,6 +273,12 @@ func pickKeyAction(_ key: PickKey, query: String) -> PickKeyAction {
     switch key {
     case .up: return .move(-1)
     case .down: return .move(1)
+    // SIDEWAYS MEANS TWO THINGS, and the query decides which: with something typed there is a
+    // caret in the field and left and right walk it, which is what anybody who has just typed
+    // expects; with the field empty there is no caret to walk, so they are free to mean the only
+    // other thing a two-column surface needs (`.ignore` hands the key back to the field).
+    case .left: return query.isEmpty ? .moveColumn(-1) : .ignore
+    case .right: return query.isEmpty ? .moveColumn(1) : .ignore
     case .enter: return .commit
     case .escape: return query.isEmpty ? .cancel : .edit("")
     case .delete: return query.isEmpty ? .ignore : .edit(String(query.dropLast()))

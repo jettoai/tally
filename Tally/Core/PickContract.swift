@@ -76,21 +76,15 @@ struct PickRow: Codable, Equatable, Sendable {
 /// other had to escape it and type the second command. A section is what makes the second question
 /// reachable without making the first one longer: the axis that was asked for is on top, and a row
 /// still decides everything about itself, so there is still nothing to confirm.
+/// NO NAME ON THE WIRE, which is the one thing this does not carry and the reason is the app's
+/// languages: the CLI writes English (`pickAutoLabel` and every other string here), while the panel
+/// draws Traditional Chinese, Simplified, Japanese or Korean depending on what the person set. A
+/// heading sent from here would be the English one on all five. So the axis travels and the WORD is
+/// the panel's own (`pickColumnHeadingKey`), which is the same split `pickPanelLabel` already makes
+/// for the rows: what the surfaces draw differently belongs to the drawing.
 struct PickSection: Codable, Equatable, Sendable {
     let kind: PickKind
-    /// What the section is called above its rows. Written by the CLI, like every other string on
-    /// this wire, so one end decides the vocabulary.
-    let heading: String
     let rows: [PickRow]
-}
-
-/// What a section is called. Plural, because it names a run of rows rather than the panel's axis
-/// (`pickPanelKindName` names that, once, on the identity line).
-func pickSectionHeading(_ kind: PickKind) -> String {
-    switch kind {
-    case .model: return "Models"
-    case .account: return "Accounts"
-    }
 }
 
 /// The sections in the order they are drawn: the one that was asked for, then the rest.

@@ -234,6 +234,26 @@ struct TallyWordmarkView: View {
     }
 }
 
+/// The DEV tag that rides beside the wordmark, so a test instance can never be mistaken for the
+/// installed app.
+///
+/// ONE STYLE, TWO SURFACES: the popover header wears it and so does the pick panel, and a second
+/// hand-drawn capsule would be two badges free to drift into looking like two different things. The
+/// CONDITION stays at each call site rather than inside here, because each header lays its brand
+/// cluster out differently and a view that draws nothing still has to be spaced by somebody.
+///
+/// (The menu-bar strip has its own: that one is rendered into a monochrome template image, so it is
+/// a stroke rather than a colour and cannot share this.)
+struct TallyDevTagView: View {
+    var body: some View {
+        Text(verbatim: "DEV")
+            .font(.system(size: 9, weight: .heavy))
+            .foregroundStyle(TallyColor.warning)
+            .padding(.horizontal, 4).padding(.vertical, 1)
+            .overlay(Capsule().stroke(TallyColor.warning.opacity(0.6), lineWidth: 1))
+    }
+}
+
 /// A provider's brand mark for SwiftUI, falling back to the SF Symbol when no mark is registered.
 /// The mark is rasterized to a template image once and cached - filling its ~160-element path live on
 /// every card render / layout pass was a real cost on popover open.

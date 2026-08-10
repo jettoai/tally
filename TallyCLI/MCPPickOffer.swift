@@ -49,8 +49,7 @@ struct MCPPickOffer {
     /// clearest way to assert a rule about one list.
     init(kind: PickKind, message: String, rows: [PickRow], schema: [String: Any]) {
         self.init(kind: kind, message: message,
-                  sections: [PickSection(kind: kind, heading: pickSectionHeading(kind), rows: rows)],
-                  schema: schema)
+                  sections: [PickSection(kind: kind, rows: rows)], schema: schema)
     }
 
     /// The focus section's rows, which is what the request carries for an app that predates the

@@ -129,7 +129,12 @@ private func pickRowText(_ row: PickRow) -> (label: String, detail: String?) {
 let pickEffortSeparator = " · "
 let pickNoteSeparator = "  ("
 
-/// What the list is given before anything has been laid out.
+/// How tall one row is drawn: a line, or two when it has something under it.
+func pickRowHeight(_ row: PickRow) -> CGFloat {
+    pickPanelDetail(row) == nil ? pickPlainRowHeight : pickDetailRowHeight
+}
+
+/// WHAT ONE COLUMN'S SCROLLING REGION IS GIVEN before anything has been laid out.
 ///
 /// Arithmetic from the row shapes, with the two row heights taken from what this panel actually
 /// renders at. Measured 2026-08-10 by raising the cap out of the way and reading the window: the
@@ -138,63 +143,121 @@ let pickNoteSeparator = "  ("
 /// GUESSED window chrome and was wrong in both of them by amounts that cancelled; the cap was moved
 /// to 200 and then to 1000 to measure the chrome instead of assuming it.) A SEED, not an authority:
 /// the moment the rows report their real height that is what the list uses, so an inaccuracy here
-/// costs at most a slightly wrong first frame and never a wrong panel. What it buys is that the first frame is already the right size, and that a
-/// measurement which never arrives still leaves a usable list rather than a sliver.
-func pickPaletteSeedHeight(_ palette: PickPalette, cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
-    guard !palette.items.isEmpty else { return 0 }
-    // Each item as the panel will draw it, gaps included: a row's second line is whatever
-    // `pickPanelDetail` decides it is, a heading is drawn at exactly the height it reports, and the
-    // space above each is the gap the palette already decided. Nothing here reads the rows a second
-    // time, which is what keeps it from drifting away from the layout. The pinned row is not in
-    // here, because it is not in the scrolling region either (`pickPaletteStickyHeight`).
-    let stacked = palette.items.reduce(pickRowsPadding * 2) { total, item in
+/// costs at most a slightly wrong first frame and never a wrong panel. What it buys is that the
+/// first frame is already the right size, and that a measurement which never arrives still leaves a
+/// usable list rather than a sliver.
+func pickColumnSeedHeight(_ column: PickColumn, cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
+    // A column its own filter emptied still draws one line saying so, and that line is measured
+    // like any other (`pickNoMatchesText`): an empty region and a broken one look the same.
+    guard !column.items.isEmpty else {
+        return column.isEmptyOfMatches ? pickRowsPadding * 2 + pickPlainRowHeight : 0
+    }
+    // Each row as the panel will draw it, gaps included: the second line is whatever
+    // `pickPanelDetail` decides it is, and the space above each row is the gap the column already
+    // decided. Nothing here reads the rows a second time, which is what keeps it from drifting away
+    // from the layout. The pinned row is not in here, because it is not in the scrolling region
+    // either (`pickColumnStickyHeight`).
+    let stacked = column.items.reduce(pickRowsPadding * 2) { total, item in
         total + item.gapAbove + item.height
     }
     return min(stacked, cap)
 }
 
-/// The same seed for one list of rows: the single-section shape a request without sections has.
+/// The same seed for one list of rows: the single-column shape a request without sections has.
 func pickRowsSeedHeight(_ rows: [PickRow], cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
-    pickPaletteSeedHeight(pickPalette(rows: rows), cap: cap)
+    pickColumnSeedHeight(pickColumn(rows: rows), cap: cap)
 }
 
-/// How tall one row is drawn: a line, or two when it has something under it.
-func pickRowHeight(_ row: PickRow) -> CGFloat {
-    pickPanelDetail(row) == nil ? pickPlainRowHeight : pickDetailRowHeight
-}
-
-/// The block pinned under the scrolling region: the rule that sets it apart, and the row itself.
-/// Zero when there is nothing to pin, which is a list whose focus section has no way out of its own.
+/// The block pinned under one column's scrolling region: the rule that sets it apart, and the row
+/// itself. Zero when that column has no way out of its own.
 ///
 /// THE WAY OUT DOES NOT SCROLL AWAY, which is what this is for: a fleet or an effort table can be
 /// taller than the cap, and the row that releases the pin is the one a person reaches for when the
 /// list is not what they wanted. Below the scrolling region it is always on screen; inside it, it is
-/// wherever the list happens to have been left. It stays a member of `PickPalette.choices`, so the
-/// keyboard walks off the last scrolling row straight onto it with nothing to special case.
-func pickPaletteStickyHeight(_ palette: PickPalette) -> CGFloat {
-    guard let sticky = palette.sticky else { return 0 }
+/// wherever the list happens to have been left. It stays the last member of `PickColumn.rows`, so
+/// the keyboard walks off the last scrolling row straight onto it with nothing to special case.
+func pickColumnStickyHeight(_ column: PickColumn) -> CGFloat {
+    guard let sticky = column.sticky else { return 0 }
     return sticky.gapAbove + sticky.height
 }
 
 /// The same block for one list of rows.
 func pickStickyHeight(_ rows: [PickRow]) -> CGFloat {
-    pickPaletteStickyHeight(pickPalette(rows: rows))
+    pickColumnStickyHeight(pickColumn(rows: rows))
 }
 
-/// The height the list is drawn at: what it measured, or the seed until that lands, capped either
-/// way.
+/// THE HEIGHT BOTH SCROLLING REGIONS ARE DRAWN AT: the taller of them, capped.
 ///
-/// One authority at a time, which is the rule this whole family of bugs is about: the measurement
-/// wins whenever there is one, and the seed is only ever the answer before the first layout pass has
-/// happened. A measurement of zero is not a measurement (it is what a collapsed layout reports), so
-/// it does not count as one.
-func pickPaletteHeight(measured: CGFloat, palette: PickPalette,
-                       cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
-    min(measured > 0 ? measured : pickPaletteSeedHeight(palette, cap: cap), cap)
+/// ONE HEIGHT FOR BOTH COLUMNS, so the two ways out line up along the foot of the panel instead of
+/// hanging at two different heights, and so a filter emptying one column does not make the panel
+/// jump. The shorter column simply has room under its rows.
+///
+/// One authority at a time, which is the rule this whole family of bugs is about: a column's
+/// MEASURED height wins whenever there is one, and the seed is only ever the answer before the
+/// first layout pass has happened. A measurement of zero is not a measurement (it is what a
+/// collapsed layout reports), so it does not count as one.
+func pickPaletteListHeight(_ palette: PickPalette, measured: [PickKind: CGFloat] = [:],
+                           cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
+    let tallest = palette.columns.map { column -> CGFloat in
+        let seen = measured[column.kind] ?? 0
+        return seen > 0 ? seen : pickColumnSeedHeight(column, cap: cap)
+    }.max() ?? 0
+    return min(tallest, cap)
 }
 
-/// The same reading for one list of rows.
-func pickRowsHeight(measured: CGFloat, rows: [PickRow],
-                    cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
-    pickPaletteHeight(measured: measured, palette: pickPalette(rows: rows), cap: cap)
+/// What one column comes to all told: its name, its own field, the rows, and the way out.
+func pickColumnHeight(_ column: PickColumn, listHeight: CGFloat) -> CGFloat {
+    pickColumnHeadingHeight + pickSearchBlockHeight + listHeight + pickColumnStickyHeight(column)
 }
+
+/// What the columns come to, which is the tallest of them. The panel adds its own chrome around
+/// this (the wordmark line and the sentence under it), which AppKit measures rather than this file.
+func pickPaletteColumnsHeight(_ palette: PickPalette, measured: [PickKind: CGFloat] = [:],
+                              cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
+    let list = pickPaletteListHeight(palette, measured: measured, cap: cap)
+    return palette.columns.map { pickColumnHeight($0, listHeight: list) }.max() ?? 0
+}
+
+// MARK: - How wide
+
+/// How wide one column's rows are drawn.
+///
+/// TWO WIDTHS, BECAUSE THE TWO ROWS ARE NOT THE SAME SHAPE: an account row carries three windows on
+/// its second line and a tag beside its name, while a model row carries a word and a chip. Measured
+/// against the panel as it was drawn at 460 points wide: the account detail line reaches about 195
+/// points and its tag about 90, and the model release row's sentence about 235.
+///
+/// A LONE COLUMN KEEPS THE WIDTH THIS PANEL HAS ALWAYS HAD, which is the older request shape
+/// (`PickRequest.sections`): degrading to one list must not also narrow it.
+func pickColumnWidth(_ kind: PickKind, alone: Bool = false) -> CGFloat {
+    guard !alone else { return pickLoneColumnWidth }
+    switch kind {
+    case .account: return 340
+    case .model: return 300
+    }
+}
+
+/// The row width a single-column panel draws at: the 460 points this surface has always been, less
+/// its content line either side.
+let pickLoneColumnWidth: CGFloat = 460 - 2 * PanelGeometry.contentPadding
+
+/// The gap between the two columns. Wider than the gap between two groups of rows, because it
+/// separates two questions rather than two answers to one.
+let pickColumnGap: CGFloat = 12
+
+/// How wide the panel is: its content line either side, the columns, and the gaps between them.
+func pickPanelWidth(_ palette: PickPalette) -> CGFloat {
+    let widths = palette.columns.map { pickColumnWidth($0.kind, alone: palette.isSingleColumn) }
+    guard !widths.isEmpty else { return 2 * PanelGeometry.contentPadding + pickLoneColumnWidth }
+    return 2 * PanelGeometry.contentPadding + widths.reduce(0, +)
+        + pickColumnGap * CGFloat(widths.count - 1)
+}
+
+/// How tall a column's name is drawn, the air under it included. Drawn at exactly this height
+/// (`PickPanelView.heading`) rather than measured, so the sum cannot drift from the layout.
+let pickColumnHeadingHeight: CGFloat = 20
+
+/// The column's own search field, and the air under it. Same rule: drawn at exactly this height.
+let pickSearchFieldHeight: CGFloat = 26
+let pickSearchFieldGap: CGFloat = 6
+let pickSearchBlockHeight = pickSearchFieldHeight + pickSearchFieldGap

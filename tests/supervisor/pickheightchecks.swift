@@ -75,11 +75,11 @@ func runPickHeightChecks() {
     // scroll must not be able to push the release row off the bottom, so its height is added to the
     // panel rather than taken out of the scrolling region's budget.
     check("the release row is not one of the rows that scroll",
-          pickPalette(rows: modelRows).items.count == modelRows.count - 1
-              && pickPalette(rows: accountRows).items.count == accountRows.count - 1)
+          pickColumn(rows: modelRows).items.count == modelRows.count - 1
+              && pickColumn(rows: accountRows).items.count == accountRows.count - 1)
     check("…and a list with nothing to pin scrolls all of itself",
-          pickPalette(rows: plain(1)).items.count == 1
-              && pickPalette(rows: plain(1)).sticky == nil)
+          pickColumn(rows: plain(1)).items.count == 1
+              && pickColumn(rows: plain(1)).sticky == nil)
     check("the pinned block is the rule plus the row it sets apart",
           pickStickyHeight(modelRows)
               == pickRowGap(before: modelRows.count - 1, rows: modelRows)
@@ -139,19 +139,22 @@ func runPickHeightChecks() {
 
     // MARK: - 36h2. One authority at a time
 
-    check("a measured height is what the list is drawn at",
-          pickRowsHeight(measured: 123, rows: plain(10)) == 123)
+    /// The reading the panel actually makes, asked of one column (`pickPalette(rows:)` builds the
+    /// single-column shape, whose kind is the model one).
+    func drawn(_ measured: CGFloat, _ rows: [PickRow]) -> CGFloat {
+        pickPaletteListHeight(pickPalette(rows: rows), measured: [.model: measured])
+    }
+    check("a measured height is what the list is drawn at", drawn(123, plain(10)) == 123)
     check("…capped, however tall the rows turned out to be",
-          pickRowsHeight(measured: 900, rows: plain(2)) == pickRowsMaxHeight)
+          drawn(900, plain(2)) == pickRowsMaxHeight)
     // ZERO IS NOT A MEASUREMENT. It is what a collapsed layout reports, which is exactly the state
     // this whole change exists to refuse, so it falls back to the arithmetic rather than being
     // believed.
     check("nothing measured yet means the seed, not nothing",
-          pickRowsHeight(measured: 0, rows: plain(4)) == pickRowsSeedHeight(plain(4)))
-    check("…and that is never zero for a list with rows",
-          pickRowsHeight(measured: 0, rows: plain(1)) > 0)
+          drawn(0, plain(4)) == pickRowsSeedHeight(plain(4)))
+    check("…and that is never zero for a list with rows", drawn(0, plain(1)) > 0)
     check("a nonsense measurement is refused the same way",
-          pickRowsHeight(measured: -50, rows: plain(3)) == pickRowsSeedHeight(plain(3)))
+          drawn(-50, plain(3)) == pickRowsSeedHeight(plain(3)))
 
     // MARK: - 36h3. The view asks the way this file says it does
 
@@ -161,7 +164,8 @@ func runPickHeightChecks() {
     let view = (try? String(contentsOfFile: "Tally/Views/PickPanelView.swift", encoding: .utf8)) ?? ""
     check("the panel view is readable from this suite", !view.isEmpty)
     check("the list is told its height by the rule above",
-          view.contains(".frame(height: pickPaletteHeight(measured: rowsHeight, palette: palette))"))
+          view.contains("pickPaletteListHeight(palette, measured: listHeights)")
+              && view.contains(".frame(height: listHeight)"))
     check("…measured off an EAGER stack, which is the only kind that measures whole",
           view.contains("VStack(spacing: 0)") && !view.contains("LazyVStack"))
     check("…and nothing asks the scrolling container for a height it does not have",
@@ -174,9 +178,9 @@ func runPickHeightChecks() {
     check("…and the way out is set apart by the same flag the arithmetic reads",
           view.contains("if item.ruled"))
     check("only the scrolling items are inside the scroll region",
-          view.contains("ForEach(Array(palette.items.enumerated())"))
+          view.contains("ForEach(Array(column.items.enumerated())"))
     check("…and the pinned row is drawn after it, outside",
-          view.contains("if let sticky = palette.sticky { entry(sticky) }"))
+          view.contains("if let sticky = column.sticky"))
     check("each row is drawn with the name and the second line the rule decides",
           view.contains("pickPanelLabel(row)") && view.contains("pickPanelDetail(row)"))
 }

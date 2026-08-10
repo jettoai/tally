@@ -16,6 +16,11 @@ import Foundation
 //   - the filter has to be able to empty a section without emptying the way out of the panel.
 //   - the arithmetic has to sum exactly what was drawn, which is the defect the height family was
 //     rebuilt around (pickheightchecks carries that incident).
+/// The languages Tally ships, spelled here because `AppLocale` is an app-only file this suite
+/// does not compile (it reaches UserDefaults and Bundle). Kept in step by the check below, which
+/// fails the moment the catalogue stops carrying one of them.
+let AppLocaleSupported = ["zh-Hant", "zh-Hans", "ja", "ko"]
+
 func runPickPaletteChecks() {
     /// The offer a bare command builds, without answering it.
     func offer(_ tool: PromptHookTool, world: MCPPickerWorld = pickWorld()) -> MCPPickOffer? {
@@ -50,8 +55,6 @@ func runPickPaletteChecks() {
     check("…and they really are that command's own rows, not the other section's",
           fromModel?.rows.contains { $0.value == mcpModelAutoValue } == true
               && fromAccount?.rows.contains { $0.value == switchAutoRequest } == true)
-    check("each section is named for a person to read",
-          fromModel?.sections.map(\.heading) == ["Models", "Accounts"])
     // A MACHINE WITH NOTHING ON THE OTHER AXIS DRAWS NO SECTION FOR IT. `mcpAccountPickRows` would
     // hand back a lone release row, and a heading over "release the account pin" alone is noise on
     // a panel somebody opened to change a model.
@@ -67,11 +70,9 @@ func runPickPaletteChecks() {
 
     // MARK: - 37b. Which section was answered, and what happens when nobody says
 
-    let models = PickSection(kind: .model, heading: "Models",
-                             rows: [PickRow(value: "opus", effort: "high", label: "opus · high"),
+    let models = PickSection(kind: .model, rows: [PickRow(value: "opus", effort: "high", label: "opus · high"),
                                     PickRow(value: mcpModelAutoValue, label: "auto")])
-    let accounts = PickSection(kind: .account, heading: "Accounts",
-                               rows: [PickRow(value: "claude:.claude2", label: "Claude 2"),
+    let accounts = PickSection(kind: .account, rows: [PickRow(value: "claude:.claude2", label: "Claude 2"),
                                       PickRow(value: switchAutoRequest, label: pickAutoLabel)])
     let palette = MCPPickOffer(kind: .model, message: "", sections: [models, accounts], schema: [:])
     check("a row answered from the other section comes back under that section's field",
@@ -149,8 +150,7 @@ func runPickPaletteChecks() {
     check("an older app decodes the request it always could",
           legacy == LegacyPickRequest(id: "abc", kind: .model, message: "what runs this",
                                       rows: models.rows))
-    check("…and what it draws is the focus section, not a mixture",
-          legacy?.rows == models.rows)
+    check("…and what it draws is the focus section, not a mixture", legacy?.rows == models.rows)
     // The other skew: a session still running the CLI it launched with writes no sections at all.
     let older = #"{"id":"abc","kind":"model","message":"m","rows":"#
         + #"[{"value":"opus","label":"opus","tags":[],"isCurrent":false},"#
@@ -159,48 +159,91 @@ func runPickPaletteChecks() {
     check("a request from before the palette is still readable, and says it has no sections",
           read?.sections == nil && read?.rows.count == 2)
     let single = read.map { pickPalette($0) }
-    check("…and draws as one section: no heading, and the way out pinned exactly as before",
-          single?.items.allSatisfy { $0.heading == nil } == true
-              && single?.items.count == 1 && single?.sticky?.row?.value == "auto")
-    check("…with the cursor still resting where the session already is",
-          single.map { pickPaletteSelection($0, filtering: false) } == 1)
+    check("…and draws as ONE column, at the width this panel has always had",
+          single?.columns.map(\.kind) == [.model] && single?.isSingleColumn == true
+              && single.map(pickPanelWidth) == 2 * PanelGeometry.contentPadding
+                  + pickLoneColumnWidth)
+    check("…with its way out pinned under it exactly as before",
+          single?.columns.first?.items.count == 1
+              && single?.columns.first?.sticky?.row.value == "auto")
+    check("…and the cursor still resting where the session already is",
+          single?.columns.first.map { pickColumnSelection($0) } == 1)
 
-    // MARK: - 37d. The filter
+    // MARK: - 37d. Two columns, and everything one axis has inside its own
 
-    let both = pickPalette(PickRequest(id: "p", kind: .model, message: "m", rows: models.rows,
-                                       sections: [models, accounts]))
-    check("both sections are drawn, each under its own name",
-          both.items.compactMap(\.heading) == ["Models", "Accounts"])
-    check("…the focus section's way out is pinned, and the other section's is one of its rows",
-          both.sticky?.row?.value == mcpModelAutoValue
-              && both.items.last?.row?.value == switchAutoRequest)
-    check("…and the pinned row is last in the keyboard's walk, wherever it is drawn",
-          both.choices.last?.row.value == mcpModelAutoValue
-              && both.choices.count == both.items.compactMap(\.row).count + 1)
-    // THE ORDER IS PUT RIGHT AT THE DRAWING END TOO, not merely trusted: a request whose sections
-    // arrived the other way round would otherwise pin the wrong section's way out under the list,
-    // and the pinned row is the one a person reaches for when the list is not what they wanted.
-    let backwards = pickPalette(PickRequest(id: "p", kind: .model, message: "m", rows: models.rows,
-                                            sections: [accounts, models]))
-    check("a request whose sections arrived out of order is drawn focus first anyway",
-          backwards.items.compactMap(\.heading) == ["Models", "Accounts"]
-              && backwards.sticky?.row?.value == mcpModelAutoValue)
+    // The two lists as they really come: a fleet whose rows carry three windows and a tag, and a
+    // model table of pairs. Both end in the way out of their own axis, which is what the columns
+    // pin.
+    let fleet = PickSection(kind: .account, rows: [
+        PickRow(value: "claude:.claude", label: "Claude", detail: "fable 54% · session 86%",
+                tags: [switchCurrentSessionTag], isCurrent: true),
+        PickRow(value: "claude:.claude2", label: "Claude 2", detail: "fable 91% · session 74%",
+                tags: [switchRecommendedTag]),
+        PickRow(value: "claude:.claude3", label: "Claude 3", detail: "fable 12% · session 40%"),
+        PickRow(value: switchAutoRequest, label: pickAutoLabel),
+    ])
+    var depthRows: [PickRow] = []
+    for model in ["fable", "opus", "sonnet"] {
+        depthRows.append(PickRow(value: model, label: model))
+        depthRows.append(PickRow(value: model, effort: "high", label: "\(model) · high"))
+    }
+    depthRows.append(PickRow(value: mcpModelAutoValue, label: "auto"))
+    let depths = PickSection(kind: .model, rows: depthRows)
+    let request = PickRequest(id: "p", kind: .model, message: "m", rows: depths.rows,
+                              sections: [depths, fleet])
+    let both = pickPalette(request)
+    // THE ORDER DOES NOT MOVE. The request is written focus-first for the sake of an older app's
+    // `rows` field; this surface is accounts-left, models-right whichever command opened it, so a
+    // person is not re-reading the panel every time.
+    check("the fleet is the left column and the models the right, whichever command opened it",
+          both.columns.map(\.kind) == [.account, .model])
+    check("…including the account command, whose request leads with the other section",
+          pickPalette(PickRequest(id: "p", kind: .account, message: "m", rows: fleet.rows,
+                                  sections: [fleet, depths])).columns.map(\.kind)
+              == [.account, .model])
+    check("each column is named for a person to read",
+          both.columns.map { pickColumnHeadingKey($0.kind) } == ["Accounts", "Models"])
+    // EACH COLUMN'S OWN WAY OUT, at its own foot: this is what the stacked shape could not do, and
+    // where its two release rows were a divider apart with only their wording to tell them apart.
+    check("each column pins its own way out, and neither is in the other's list",
+          both.column(.account)?.sticky?.row.value == switchAutoRequest
+              && both.column(.model)?.sticky?.row.value == mcpModelAutoValue
+              && both.columns.allSatisfy { column in
+                  !column.items.contains { $0.row.value == column.sticky?.row.value }
+              })
+    check("…and it is last in that column's own walk, wherever it is drawn",
+          both.columns.allSatisfy { $0.choices.last?.row.value == $0.sticky?.row.value }
+              && both.column(.model)?.stickyIndex == both.column(.model)?.items.count)
+    check("a choice carries the column it came from, which is the axis it answers",
+          both.column(.account)?.choices.allSatisfy { $0.kind == .account } == true
+              && both.column(.model)?.choices.allSatisfy { $0.kind == .model } == true)
 
-    // A hit in one section only: the other one goes, its name with it.
-    let filtered = pickPalette(PickRequest(id: "p", kind: .model, message: "m", rows: models.rows,
-                                           sections: [models, accounts]), filter: "opus")
-    check("a query that hits one section hides the other, heading and all",
-          filtered.items.compactMap(\.heading) == ["Models"]
-              && filtered.items.compactMap(\.row).map(\.value) == ["opus"])
-    check("…while the way out of the panel is never filtered away",
-          filtered.sticky?.row?.value == mcpModelAutoValue)
-    // A query that hits nothing leaves the way out and nothing else, which is what stops a typo
-    // from leaving a panel with no answer on it.
-    let nothing = pickPalette(PickRequest(id: "p", kind: .model, message: "m", rows: models.rows,
-                                          sections: [models, accounts]), filter: "zzzz")
-    check("a query that hits nothing still leaves the way out reachable",
-          nothing.items.isEmpty && nothing.choices.count == 1
-              && nothing.sticky?.row?.value == mcpModelAutoValue)
+    // MARK: - 37d2. Each column filters only itself
+
+    let typedLeft = pickPalette(request, filters: [.account: "claude 2"])
+    check("a query in one column narrows that column",
+          typedLeft.column(.account)?.items.map(\.row.value) == ["claude:.claude2"])
+    check("…and leaves the other one exactly as it was",
+          typedLeft.column(.model)?.items == both.column(.model)?.items)
+    check("…and says which of them is filtered, since that is what Escape acts on",
+          typedLeft.column(.account)?.filtering == true
+              && typedLeft.column(.model)?.filtering == false)
+    let typedRight = pickPalette(request, filters: [.model: "opus"])
+    check("the same holds the other way round",
+          typedRight.column(.model)?.items.map(\.row.value) == ["opus", "opus"]
+              && typedRight.column(.account)?.items == both.column(.account)?.items)
+    // A COLUMN IS NEVER REMOVED FOR HAVING NO HITS: the two columns would swap places under the
+    // pointer, and the way out of that axis would go with it.
+    let missed = pickPalette(request, filters: [.model: "zzzz"])
+    check("a query that hits nothing leaves the column standing, and says so",
+          missed.columns.map(\.kind) == [.account, .model]
+              && missed.column(.model)?.items.isEmpty == true
+              && missed.column(.model)?.isEmptyOfMatches == true)
+    check("…with its way out still reachable",
+          missed.column(.model)?.sticky?.row.value == mcpModelAutoValue
+              && missed.column(.model)?.choices.count == 1)
+    check("a column nobody typed into is not empty of matches, it is just empty of a query",
+          both.column(.model)?.isEmptyOfMatches == false)
     // WHAT IS MATCHED: the name, the depth beside it, and the second line under it.
     let account = PickRow(value: "claude:.claude2", label: "Claude 2",
                           detail: "fable 91% · session 74%", tags: [switchRecommendedTag])
@@ -211,63 +254,132 @@ func runPickPaletteChecks() {
                          query: "xhigh"))
     check("…and by the line under it, which is where the percentages are",
           pickRowMatches(account, query: "session 74"))
+    // THE TAGS ARE ON THE SCREEN, so they are matched too: typing what you can read and watching
+    // that very row vanish is the filter telling you it is broken (codex review, 2026-08-10).
+    check("…and by the tags drawn beside it, which are words a person can read",
+          pickRowMatches(account, query: "most headroom")
+              && pickRowMatches(PickRow(value: "a", label: "A", tags: [switchCurrentSessionTag]),
+                                query: "this session"))
     check("a row that answers none of it is not offered", !pickRowMatches(account, query: "gpt"))
     check("nothing typed matches everything, and so does a query of only spaces",
           pickRowMatches(account, query: "") && pickRowMatches(account, query: "   "))
-    // THE CURSOR FOLLOWS THE TYPING: on the row the session is on while nothing has been typed, and
-    // on the first hit once something has, because the query is the aim.
-    let resting = pickPalette(PickRequest(id: "p", kind: .account, message: "m",
-                                          rows: [PickRow(value: "a", label: "A"),
-                                                 PickRow(value: "b", label: "B", isCurrent: true),
-                                                 PickRow(value: switchAutoRequest, label: "auto")]))
-    check("the cursor rests where the session already is", pickPaletteSelection(resting,
-                                                                               filtering: false) == 1)
-    check("…and on the first hit as soon as something is typed",
-          pickPaletteSelection(resting, filtering: true) == 0)
+    // The gap above a row is decided against what is drawn above it, not what was listed there: a
+    // filter that removed the rows in between must not leave their spacing behind.
+    // The last model in the table, so the rows it was grouped after are gone: the first row drawn
+    // is at the top of the list whatever its position in the section was.
+    let onlySonnet = pickPalette(request, filters: [.model: "sonnet"]).column(.model)
+    check("a filtered list keeps no gaps for the rows it dropped",
+          onlySonnet?.items.count == 2 && onlySonnet?.items.first?.gapAbove == 0
+              && onlySonnet?.items.last?.gapAbove == pickRowSpacing)
+
+    // MARK: - 37d3. Which column the keyboard is in
+
+    check("the left and right arrows step between the columns",
+          pickColumnFocus(both, from: .account, step: 1) == .model
+              && pickColumnFocus(both, from: .model, step: -1) == .account)
+    // Clamped rather than wrapped, like the walk down a column: a held arrow key comes to rest.
+    check("…and stop at the ends rather than wrapping round",
+          pickColumnFocus(both, from: .model, step: 1) == .model
+              && pickColumnFocus(both, from: .account, step: -1) == .account)
+    check("a single-column palette has nowhere sideways to go",
+          single.map { pickColumnFocus($0, from: .model, step: -1) } == .model)
+    // WHERE THE CURSOR LANDS ON ARRIVAL: what it was left on, the row the session is on when there
+    // is nothing to return to, and the first hit while that column is filtered.
+    let left = both.column(.account)!
+    check("the cursor rests on the row the session is already on",
+          pickColumnSelection(left) == 0
+              && left.choices[0].row.tags.contains(switchCurrentSessionTag))
+    check("…returns to where it was left when the focus comes back",
+          pickColumnSelection(left, remembered: 2) == 2)
+    check("…and a remembered row the filter has removed is not restored",
+          pickColumnSelection(typedLeft.column(.account)!, remembered: 5) == 0)
+    check("a filtered column rests on its first hit, because the query is the aim",
+          pickColumnSelection(typedRight.column(.model)!) == 0)
+
+    // A HOVER AT THE MOMENT THE PANEL APPEARS IS NOT A CHOICE. The panel is centred on the screen
+    // the pointer is on, so it often lands under it, and the first capture of this surface came up
+    // with the accounts column lit for a `/tally-model` nobody had touched.
+    let raised = Date(timeIntervalSince1970: 1_800_000_000)
+    check("a hover in the moment the panel was raised decides nothing",
+          !pickHoverMovesFocus(shownAt: raised,
+                               now: raised.addingTimeInterval(pickPanelActivationGrace / 2)))
+    check("…and one after that is a person moving the pointer",
+          pickHoverMovesFocus(shownAt: raised,
+                              now: raised.addingTimeInterval(pickPanelActivationGrace + 0.01)))
 
     // MARK: - 37e. The arithmetic sums exactly what was drawn
 
-    // THE SUM IS THE DRAWING, item for item: every heading, every row and every gap the panel puts
-    // on screen, and nothing that is not on screen. Stated as the sum itself rather than as a
-    // number, because the numbers that ARE fixtures live in the height suite, measured off a window.
-    check("the height is what the items add up to, gaps and headings included",
-          pickPaletteSeedHeight(both, cap: 1000)
-              == both.items.reduce(pickRowsPadding * 2) { $0 + $1.gapAbove + $1.height })
-    check("…and two sections are taller than the focus one on its own",
-          pickPaletteSeedHeight(both, cap: 1000)
-              > pickPaletteSeedHeight(pickPalette(rows: models.rows), cap: 1000))
-    check("a heading is drawn at the height the sum gives it",
-          both.items.first(where: { $0.heading != nil })?.height == pickSectionHeadingHeight)
-    check("the second section is set apart by more than two rows of one section are",
-          both.items.first(where: { $0.heading == "Accounts" })?.gapAbove == pickSectionGap
-              && pickSectionGap > pickRowGroupSpacing)
-    check("filtering a section away takes its height with it",
-          pickPaletteSeedHeight(filtered, cap: 1000) < pickPaletteSeedHeight(both, cap: 1000))
+    check("a column's height is what its rows add up to, gaps included",
+          pickColumnSeedHeight(both.column(.model)!, cap: 1000)
+              == both.column(.model)!.items.reduce(pickRowsPadding * 2) {
+                  $0 + $1.gapAbove + $1.height
+              })
+    // ONE HEIGHT FOR BOTH SCROLLING REGIONS: the taller of the two, so the two ways out line up
+    // along the foot of the panel and a filter emptying one column does not make the panel jump.
+    let tallest = max(pickColumnSeedHeight(both.column(.account)!),
+                      pickColumnSeedHeight(both.column(.model)!))
+    check("both columns scroll at the same height, which is the taller one's",
+          pickPaletteListHeight(both) == tallest && tallest > 0)
+    check("…and that height does not move when one column is emptied by its filter",
+          pickPaletteListHeight(pickPalette(request, filters: [.account: "zzzz"]))
+              == pickPaletteListHeight(both))
+    // A measured column replaces ITS OWN seed and nothing else, so the pair is still the taller of
+    // what each column now says about itself.
+    check("a measured column is what wins once there is one, and zero is not one",
+          pickPaletteListHeight(both, measured: [.model: 120])
+              == max(pickColumnSeedHeight(both.column(.account)!), 120)
+              && pickPaletteListHeight(both, measured: [.model: 0]) == tallest)
+    check("…capped however tall the rows turned out to be",
+          pickPaletteListHeight(both, measured: [.model: 900]) == pickRowsMaxHeight)
+    // A column emptied by its filter still draws the line that says so, and it is measured like any
+    // other row: an empty region and a broken one look the same otherwise.
+    check("a column with no matches is one line tall, not nothing",
+          pickColumnSeedHeight(missed.column(.model)!)
+              == pickRowsPadding * 2 + pickPlainRowHeight)
+    check("…while a column with no rows at all is nothing",
+          pickColumnSeedHeight(pickColumn(PickSection(kind: .model, rows: []))) == 0)
     check("the pinned block is the rule plus the row it sets apart, filter or no filter",
-          pickPaletteStickyHeight(both) == pickPaletteStickyHeight(nothing)
-              && pickPaletteStickyHeight(both)
+          pickColumnStickyHeight(both.column(.model)!)
+              == pickColumnStickyHeight(missed.column(.model)!)
+              && pickColumnStickyHeight(both.column(.model)!)
                   == pickRowGroupSpacing * 2 + pickRowDividerHeight
-                      + pickRowHeight(models.rows[models.rows.count - 1]))
-    // The cap is the cap however many sections there are: a palette is still a summoned dialog.
-    let long = PickSection(kind: .account, heading: "Accounts",
-                           rows: (0 ..< 30).map { PickRow(value: "a\($0)", label: "Account \($0)",
-                                                          detail: "session 90%") })
-    check("a palette long enough to need it still scrolls at the cap",
-          pickPaletteSeedHeight(pickPalette(sections: [models, long], focus: .model, filter: ""))
-              == pickRowsMaxHeight)
-    check("a measurement is still what wins once there is one, and zero is not one",
-          pickPaletteHeight(measured: 123, palette: both) == 123
-              && pickPaletteHeight(measured: 0, palette: both)
-                  == pickPaletteSeedHeight(both))
+                      + pickRowHeight(depths.rows[depths.rows.count - 1]))
+    check("a column is its name, its own field, its rows and its way out",
+          pickColumnHeight(both.column(.model)!, listHeight: 200)
+              == pickColumnHeadingHeight + pickSearchBlockHeight + 200
+                  + pickColumnStickyHeight(both.column(.model)!))
+    check("…and the columns come to the tallest of them",
+          pickPaletteColumnsHeight(both)
+              == both.columns.map { pickColumnHeight($0, listHeight: pickPaletteListHeight(both)) }
+                  .max())
+    // THE WIDTH IS ARITHMETIC, not a number in the view: two lists of different shapes, the gap
+    // between them, and the content line either side.
+    check("the panel is as wide as its columns, its gap and its margins",
+          pickPanelWidth(both) == pickColumnWidth(.account) + pickColumnWidth(.model)
+              + pickColumnGap + 2 * PanelGeometry.contentPadding)
+    check("the fleet column is the wider of the two, since its rows carry three windows and a tag",
+          pickColumnWidth(.account) > pickColumnWidth(.model))
+    check("…and one column on its own keeps the width this panel has always had",
+          pickColumnWidth(.model, alone: true) == pickLoneColumnWidth
+              && pickColumnWidth(.account, alone: true) == pickLoneColumnWidth)
 
-    // MARK: - 37f. The keyboard, which now has typing in it
+    // MARK: - 37f. The keyboard, which now has typing and two columns in it
 
-    check("the arrow keys move the cursor",
+    check("the up and down arrows move the cursor in the column it is in",
           pickKeyAction(.up, query: "") == .move(-1) && pickKeyAction(.down, query: "") == .move(1))
+    // SIDEWAYS MEANS TWO THINGS, and the query is what decides which: an empty field has no caret
+    // to walk, so the arrows are free to change columns; a field with something in it has one, and
+    // the key goes back to the field (`.ignore`) so it walks the caret like anywhere else.
+    check("the left and right arrows move between the columns while nothing is typed",
+          pickKeyAction(.left, query: "") == .moveColumn(-1)
+              && pickKeyAction(.right, query: "") == .moveColumn(1))
+    check("…and go back to the field once there is a caret in it to walk",
+          pickKeyAction(.left, query: "op") == .ignore
+              && pickKeyAction(.right, query: "op") == .ignore)
     check("Enter takes what the cursor is on", pickKeyAction(.enter, query: "op") == .commit)
     // ESCAPE HAS TWO ANSWERS, and the order is the point: losing the whole panel to a stray Escape
     // means retyping the command, while a filter is a state people want out of far more often.
-    check("Escape clears what was typed before it closes anything",
+    check("Escape clears the focused column's query before it closes anything",
           pickKeyAction(.escape, query: "op") == .edit(""))
     check("…and closes the panel once there is nothing left to clear",
           pickKeyAction(.escape, query: "") == .cancel)
@@ -276,43 +388,7 @@ func runPickPaletteChecks() {
           pickKeyAction(.delete, query: "op") == .edit("o")
               && pickKeyAction(.delete, query: "") == .ignore)
     // A control character in the query would narrow the list to nothing with no way to see why.
-    check("a control character is not typing", pickKeyAction(.text("\u{1B}"), query: "") == .ignore
+    check("a control character is not typing",
+          pickKeyAction(.text("\u{1B}"), query: "") == .ignore
               && pickKeyAction(.text(""), query: "") == .ignore)
-
-    // MARK: - 37g. The panel draws what this file says it draws
-
-    // The layout needs a screen, so the wiring is carried by the source: the same lock the height
-    // suite uses, for the same reason (a pure rule nobody calls is the defect this feature has been
-    // bitten by before).
-    let view = (try? String(contentsOfFile: "Tally/Views/PickPanelView.swift", encoding: .utf8)) ?? ""
-    check("the panel view is readable from this suite", !view.isEmpty)
-    check("the list is the palette's own items, headings included",
-          view.contains("ForEach(Array(palette.items.enumerated())"))
-    check("…the pinned row is the palette's, drawn outside the scrolling region",
-          view.contains("if let sticky = palette.sticky { entry(sticky) }"))
-    check("…and its height comes from the palette rather than from the rows a second time",
-          view.contains("pickPaletteHeight(measured: rowsHeight, palette: palette)")
-              && !view.contains(".frame(maxHeight:"))
-    check("what is typed reaches the palette as its filter",
-          view.contains("pickPalette(request, filter: query)"))
-    check("…and every keypress is decided by the rule this file asserts",
-          view.contains("pickKeyAction(key, query: query)"))
-    check("the field says what it is for before anything is typed",
-          view.contains("pickSearchPlaceholder"))
-    check("a chosen row carries the section it came from",
-          view.contains("choose(PickChoice(kind: item.kind, row: row))"))
-    // …and the answer written from that choice names the section, which is the field the CLI routes
-    // on. Pure, so it is asserted rather than read.
-    check("the answer a choice becomes names its own section",
-          PickChoice(kind: .account, row: PickRow(value: "claude:.claude2", label: "Claude 2"))
-              .answer == PickAnswer(value: "claude:.claude2", effort: nil, kind: .account))
-    let controller = (try? String(contentsOfFile: "Tally/MenuBar/PickPanelController.swift",
-                                  encoding: .utf8)) ?? ""
-    check("…and the panel writes exactly that answer",
-          controller.contains("finish(with: choice?.answer ?? .cancelled)"))
-    check("a request with rows in any section is drawn rather than refused",
-          controller.contains("!request.everyRow.isEmpty"))
-    check("the dev preview shows the whole palette, which is what a person actually sees",
-          controller.contains("sections: [accounts, models]")
-              && controller.contains("sections: [models, accounts]"))
 }

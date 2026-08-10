@@ -56,11 +56,7 @@ extension PopoverRootView {
                 // The dev variant tags every surface (menu bar strip + panel header), so a test
                 // instance can never be mistaken for the installed app.
                 if BuildVariant.isDev {
-                    Text(verbatim: "DEV")
-                        .font(.system(size: 9, weight: .heavy))
-                        .foregroundStyle(TallyColor.warning)
-                        .padding(.horizontal, 4).padding(.vertical, 1)
-                        .overlay(Capsule().stroke(TallyColor.warning.opacity(0.6), lineWidth: 1))
+                    TallyDevTagView()
                 }
                 }
                 // The leading padding is inside the grab area on purpose: the margin that seats the

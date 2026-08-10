@@ -54,7 +54,7 @@ struct PickPanelView: View {
 
     var body: some View {
         let palette = self.palette
-        let listHeight = pickPaletteListHeight(palette, measured: listHeights)
+        let listHeight = pickPanelListHeight(request, filters: queries, measured: listHeights)
         VStack(alignment: .leading, spacing: 0) {
             header
             // THREE SIZES, THREE JOBS: the header is the anchor, this is the situation it is
@@ -175,12 +175,15 @@ struct PickPanelView: View {
                     // points made ten rows read as ten unrelated ones.
                     VStack(spacing: 0) {
                         if column.isEmptyOfMatches {
+                            // Said in the middle of the space the column keeps, because it keeps it:
+                            // the rows are hidden by the query rather than gone, and the panel does
+                            // not resize while somebody is typing into it (`pickPanelListHeight`).
                             Text(L("No matches"))
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
-                                .frame(height: pickPlainRowHeight, alignment: .center)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, TallyMetrics.cardPaddingH)
+                                .frame(maxWidth: .infinity,
+                                       minHeight: max(0, listHeight - pickRowsPadding * 2),
+                                       alignment: .center)
                         }
                         ForEach(Array(column.items.enumerated()), id: \.offset) { index, item in
                             separator(item)
@@ -300,6 +303,11 @@ struct PickPanelView: View {
     private func heightReporter(_ kind: PickKind) -> some View {
         GeometryReader { proxy in
             Color.clear.onChange(of: proxy.size.height, initial: true) { _, height in
+                // A MEASUREMENT ONLY COUNTS WHILE THE COLUMN IS SHOWING EVERYTHING. A filtered stack
+                // measures the rows that survived the query, and believing it would resize the panel
+                // on every keystroke - which is the defect `pickPanelListHeight` is the other half
+                // of. The last full measurement stands until the query is cleared.
+                guard !pickIsFiltering(queries[kind] ?? "") else { return }
                 listHeights[kind] = height
             }
         }

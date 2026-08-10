@@ -78,8 +78,9 @@ struct PickSearchField: NSViewRepresentable {
                   window.firstResponder !== field.currentEditor() else { return }
             window.makeFirstResponder(field)
             // The caret lands at the END rather than over a selected query: coming back to a column
-            // and typing must add to what is there, not replace it.
-            field.currentEditor()?.selectedRange = NSRange(location: field.stringValue.count,
+            // and typing must add to what is there, not replace it. Counted the way an `NSRange`
+            // counts (`pickCaretEnd` says what goes wrong when it is not).
+            field.currentEditor()?.selectedRange = NSRange(location: pickCaretEnd(field.stringValue),
                                                            length: 0)
         }
     }

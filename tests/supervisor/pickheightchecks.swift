@@ -164,7 +164,7 @@ func runPickHeightChecks() {
     let view = (try? String(contentsOfFile: "Tally/Views/PickPanelView.swift", encoding: .utf8)) ?? ""
     check("the panel view is readable from this suite", !view.isEmpty)
     check("the list is told its height by the rule above",
-          view.contains("pickPaletteListHeight(palette, measured: listHeights)")
+          view.contains("pickPanelListHeight(request, filters: queries, measured: listHeights)")
               && view.contains(".frame(height: listHeight)"))
     check("…measured off an EAGER stack, which is the only kind that measures whole",
           view.contains("VStack(spacing: 0)") && !view.contains("LazyVStack"))

@@ -216,6 +216,16 @@ func pickHoverMovesFocus(shownAt: Date, now: Date = Date()) -> Bool {
     pickDismissalIsFromPerson(shownAt: shownAt, now: now)
 }
 
+/// WHERE THE CARET GOES when a column takes the keyboard back: the end of what is already typed, so
+/// coming back to a column adds to the query rather than replacing it.
+///
+/// UTF-16, BECAUSE THAT IS WHAT AN `NSRange` COUNTS. `String.count` counts what a person calls
+/// characters, and the two disagree the moment a query holds an emoji or a composed syllable: an
+/// offset measured in graphemes lands short of the end, and the next keystroke is inserted into the
+/// middle of the query instead of after it (codex review, 2026-08-10). Nothing about the panel's
+/// vocabulary rules those out - an account is called whatever somebody typed into Settings.
+func pickCaretEnd(_ text: String) -> Int { text.utf16.count }
+
 /// Which column the focus lands on when it is stepped sideways. Clamped rather than wrapped, like
 /// the walk down a column: a held arrow key must come to rest somewhere rather than cycle.
 func pickColumnFocus(_ palette: PickPalette, from kind: PickKind, step: Int) -> PickKind {

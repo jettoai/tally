@@ -205,6 +205,28 @@ func pickPaletteListHeight(_ palette: PickPalette, measured: [PickKind: CGFloat]
     return min(tallest, cap)
 }
 
+/// THE HEIGHT THE PANEL KEEPS FOR AS LONG AS IT IS UP, which is the height of the UNFILTERED lists.
+///
+/// THE DEFECT THIS EXISTS FOR (codex review, 2026-08-10): the shared height was read off the columns
+/// AS FILTERED, so every keystroke that narrowed the longer column shortened the panel, and a person
+/// typing four letters watched the window jump under their hands four times. A summoned dialog that
+/// resizes while it is being typed into is also a moving target for the pointer that is about to
+/// click a row in it.
+///
+/// So the filter narrows what is IN the lists and never how tall they are. A column the query
+/// emptied keeps its space and says "No matches" inside it, which is the honest shape anyway: the
+/// rows are hidden, not gone.
+///
+/// `filters` is taken and deliberately not read. The call site has them and a reader will reach for
+/// them, so they are named here and refused here, in the one place that can say why - rather than
+/// left as an argument nobody passed and a rule nobody can see.
+func pickPanelListHeight(_ request: PickRequest, filters: [PickKind: String] = [:],
+                         measured: [PickKind: CGFloat] = [:],
+                         cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
+    _ = filters
+    return pickPaletteListHeight(pickPalette(request), measured: measured, cap: cap)
+}
+
 /// What one column comes to all told: its name, its own field, the rows, and the way out.
 func pickColumnHeight(_ column: PickColumn, listHeight: CGFloat) -> CGFloat {
     pickColumnHeadingHeight + pickSearchBlockHeight + listHeight + pickColumnStickyHeight(column)

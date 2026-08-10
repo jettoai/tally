@@ -29,8 +29,8 @@ func runPickSurfaceChecks() {
     check("each column lists its own rows and pins its own way out",
           view.contains("ForEach(Array(column.items.enumerated())")
               && view.contains("if let sticky = column.sticky"))
-    check("…both scrolling at the height the rule above decides",
-          view.contains("pickPaletteListHeight(palette, measured: listHeights)")
+    check("…both scrolling at the height the rule above decides, filter or no filter",
+          view.contains("pickPanelListHeight(request, filters: queries, measured: listHeights)")
               && view.contains(".frame(height: listHeight)") && !view.contains(".frame(maxHeight:"))
     check("…measured off an EAGER stack, which is the only kind that measures whole",
           view.contains("VStack(spacing: 0)") && !view.contains("LazyVStack"))
@@ -39,6 +39,10 @@ func runPickSurfaceChecks() {
     check("…and the column being typed into says so",
           view.contains("isFocused ? AnyShapeStyle(TallyColor.ai)")
               && view.contains("stroke(TallyColor.ai.opacity(0.35)"))
+    // The other half of the frozen height: a filtered stack measures only what survived the query,
+    // so believing it would resize the panel from underneath.
+    check("…and a measurement taken while a column is filtered is not believed",
+          view.contains(#"guard !pickIsFiltering(queries[kind] ?? "") else { return }"#))
     check("a column its filter emptied says that rather than showing a gap",
           view.contains("column.isEmptyOfMatches") && view.contains(#"L("No matches")"#))
     check("every keypress is decided by the rule this file asserts",
@@ -90,6 +94,9 @@ func runPickSurfaceChecks() {
     // the first row rather than walking back to the session's own).
     check("the cursor is placed against the column the edit makes, not the one state still holds",
           view.contains("var filters = queries") && view.contains("filters[kind] = typed"))
+    check("the caret is placed in the units an NSRange counts, not in what a person calls one",
+          field.contains("pickCaretEnd(field.stringValue)")
+              && !field.contains("stringValue.count"))
     check("a click in the other column's field moves the panel's focus with it",
           field.contains("controlTextDidBeginEditing") && view.contains("onFocus: { focus ="))
 

@@ -325,6 +325,28 @@ func runPickPaletteChecks() {
               == pickPaletteListHeight(both))
     // A measured column replaces ITS OWN seed and nothing else, so the pair is still the taller of
     // what each column now says about itself.
+    // THE PANEL DOES NOT MOVE WHILE IT IS BEING TYPED INTO. The shared height is read off the
+    // UNFILTERED lists for as long as the panel is up: a filter narrows what is in a column, never
+    // how tall it is, or four letters would resize the window four times under the hands typing
+    // them (codex review, 2026-08-10).
+    check("typing does not move the panel",
+          pickPanelListHeight(request, filters: [.model: "zzzz"])
+              == pickPanelListHeight(request)
+              && pickPanelListHeight(request, filters: [.model: "opus", .account: "claude 2"])
+                  == pickPanelListHeight(request))
+    check("…and what it keeps is what the whole lists asked for",
+          pickPanelListHeight(request) == pickPaletteListHeight(both))
+    // …which is strictly more than the filtered reading would have given, so the check above is
+    // watching a difference that really exists.
+    check("…which the filtered reading would not have kept",
+          pickPaletteListHeight(pickPalette(request, filters: [.model: "zzzz",
+                                                              .account: "zzzz"]))
+              < pickPanelListHeight(request))
+    check("a measurement still wins over the arithmetic, and zero is still not one",
+          pickPanelListHeight(request, measured: [.model: 900]) == pickRowsMaxHeight
+              && pickPanelListHeight(request, measured: [.model: 0])
+                  == pickPanelListHeight(request))
+
     check("a measured column is what wins once there is one, and zero is not one",
           pickPaletteListHeight(both, measured: [.model: 120])
               == max(pickColumnSeedHeight(both.column(.account)!), 120)
@@ -364,6 +386,18 @@ func runPickPaletteChecks() {
               && pickColumnWidth(.account, alone: true) == pickLoneColumnWidth)
 
     // MARK: - 37f. The keyboard, which now has typing and two columns in it
+
+    // THE CARET IS PLACED IN THE UNITS AN NSRange COUNTS, which is not what a person calls
+    // characters: a query holding an emoji or a composed syllable would put the caret short of the
+    // end, and the next keystroke into the middle of the query.
+    check("the caret lands at the end of a plain query", pickCaretEnd("opus") == 4)
+    // The two shapes that break a count of what a person calls characters: one grapheme made of two
+    // UTF-16 units, and one made of a surrogate pair.
+    check("…and at the end of a composed one, which is two units and one character",
+          pickCaretEnd("e\u{301}") == 2 && "e\u{301}".count == 1)
+    check("…and at the end of one carrying a surrogate pair",
+          pickCaretEnd("opus \u{1F680}") == 7 && "opus \u{1F680}".count == 6)
+    check("an empty query puts it at the start", pickCaretEnd("") == 0)
 
     check("the up and down arrows move the cursor in the column it is in",
           pickKeyAction(.up, query: "") == .move(-1) && pickKeyAction(.down, query: "") == .move(1))

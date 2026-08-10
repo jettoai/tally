@@ -294,17 +294,29 @@ func runPendingNoticeChecks() {
                                         encoding: .utf8)) ?? ""
     check("the manual-move source is readable from the pending-notice checks",
           !manualMoveSource.isEmpty)
-    if let queuedSwitch = section(manualMoveSource, from: "case .none, .queued:",
-                                  to: "case .alreadyThere:") {
+    if let queuedSwitch = section(manualMoveSource, from: "case .queued:",
+                                  to: "case .unavailable:") {
         check("a queued switch says nothing on the terminal", !queuedSwitch.contains("warn("))
-        // The branch that CAN outlast the turn says it in the one place a live child allows.
-        // Three shapes of badge now (a dormant account, one the fleet has momentarily stopped
-        // listing, and no snapshot at all), so they live in `switchWaitBadge` and the assertion is
-        // that this branch raises one rather than that it is spelled here.
-        check("a switch held for an unavailable account raises a badge instead",
-              queuedSwitch.contains("state.waiting = switchWaitBadge("))
+        // It is not silent everywhere any more, and that is the point of the split: the picker
+        // writes the same request from a surface with no terminal output of its own, so the wait
+        // goes to the one place a live child allows something to be said (2026-08-10).
+        check("but it does raise a badge, so the wait is not invisible",
+              queuedSwitch.contains("state.waiting = PendingBadge("))
     } else {
         check("the queued switch branch was found", false)
+    }
+    // The branch that CAN outlast the turn says it in that same place. Three shapes of badge there
+    // (a dormant account, one the fleet has momentarily stopped listing, and no snapshot at all), so
+    // they live in `switchWaitBadge` and the assertion is that this branch raises one rather than
+    // that it is spelled here.
+    if let heldSwitch = section(manualMoveSource, from: "case .unavailable:",
+                                to: "case .cancelled:") {
+        check("a switch held for an unavailable account stays off the terminal too",
+              !heldSwitch.contains("warn("))
+        check("a switch held for an unavailable account raises a badge of its own",
+              heldSwitch.contains("state.waiting = switchWaitBadge("))
+    } else {
+        check("the held switch branch was found", false)
     }
     // The speaking half: every one of these is printed as the child is being terminated, so the
     // terminal is about to be redrawn from scratch and the user needs to know why.

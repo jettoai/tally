@@ -324,8 +324,10 @@ func runRequestTranscriptChecks() {
     let blind = switchTick(SwitchRequest(epoch: 200, accountID: "B"))
     check("THE DEFECT: a `/tally-account` after a `/clear` is queued and never carried out",
           blind == nil)
-    check("…with nothing on the status line to say so, because a queued move raises no badge",
-          moves.waiting == nil && moves.servedEpoch == 100)
+    // …sitting behind a turn-end that will not come, which is what the badge now says while it
+    // waits - the same reading the model axis gives the identical state a few lines down.
+    check("…held, and saying on the status line that it is waiting for the turn to end",
+          moves.waiting?.badge == switchQueuedBadge && moves.servedEpoch == 100)
     let named = switchTick(SwitchRequest(epoch: 200, accountID: "B", transcriptID: "cleared"))
     check("THE FIX: the same request, naming the conversation it came from, moves the session",
           named?.target.id == "B" && named?.reason == "switch")

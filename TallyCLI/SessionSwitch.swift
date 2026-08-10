@@ -162,6 +162,15 @@ private func launchableAccount(_ id: String?, provider: String,
     return switchTargetState(id, provider: provider, accounts: accounts()).account
 }
 
+/// The status-line badge a switch leaves while it waits out the turn that asked for it. A constant
+/// because the wording is asserted in a test and read by a person on the same line, and a copy of it
+/// drifting in one of the two would assert nothing - the model axis keeps its own for that reason
+/// (`sessionModelWaitingBadge`), and this is the same wait one axis over.
+///
+/// Short because it shares its row with the quota meters, like every badge on this track: WHICH
+/// account the session is moving to, and which one it sits on until then, are the detail's job.
+let switchQueuedBadge = "switch: after this turn"
+
 /// What a held switch says on the status line: one badge per REASON the move has not happened, and
 /// they are kept apart because the reader can only act on one of them.
 ///
@@ -251,12 +260,34 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
                             keyboardQuiet: keyboardIdle(manualMoveIdleSeconds))
     switch switchDecision(served: state.servedEpoch, request: request, target: target,
                           onTarget: named?.id == account.id, isQuiet: quiet) {
-    case .none, .queued:
-        // Queued raises nothing at all: the wait is at most the rest of the turn that asked for the
-        // switch, and what the person who typed it needs to know was printed by the command itself.
-        // Nothing may be said on the TERMINAL either - the child is drawing this very turn there
-        // (PendingNotice.swift: only a message that precedes a tear-down may use it).
+    case .none:
+        // Nothing to serve, so nothing to say. Unreachable from here in practice: the epoch guard
+        // above has already returned for every request this supervisor has served.
         state.waiting = nil
+    case .queued:
+        // THE WAIT THAT USED TO RAISE NOTHING. The reasoning was that it lasts at most the rest of
+        // the turn that asked for the switch, and that whoever typed the command had already read
+        // the timing in its own output. The second half is what does not hold: the panel's picker
+        // writes this very request from a surface with no terminal output at all, so the person who
+        // had just chosen an account watched the session sit there with nothing anywhere saying it
+        // had been heard - a wait nobody can see is indistinguishable from a click that did nothing
+        // (owner report, 2026-08-10). The typed command gains the badge too, and loses nothing by
+        // it: it repeats what the command said, on the surface its user is looking at meanwhile.
+        //
+        // The wait itself is untouched - the move still happens at the end of the turn, on the same
+        // quiet bar - and so is the rule about the TERMINAL: the child is drawing this very turn
+        // there, so the badge is the one place a live child allows something to be said
+        // (PendingNotice.swift: only a message that precedes a tear-down may use stderr).
+        //
+        // Nothing has to take it down by hand either. It is re-derived on every tick that still
+        // reads a pending request, so the relaunch that ends the wait clears it as it consumes the
+        // request (`PendingSwitchConsumption.commit`), a request that vanishes takes it with it
+        // (the guard at the top of this function), and an account that stops being launchable
+        // replaces it with the badge for that (`switchWaitBadge`, below).
+        state.waiting = PendingBadge(
+            switchQueuedBadge,
+            detail: "switching to \(named?.label ?? request.accountID) when this turn ends; "
+                + "staying on \(account.label) until then")
     case .unavailable:
         // The one wait worth a badge: it can outlast the turn, and nobody has been told. Held rather
         // than announced for the same reason - the child is alive, so a line here would land in the

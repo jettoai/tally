@@ -220,6 +220,15 @@ func runSwitchChecks() {
     check("and the request is not consumed while it waits", state.servedEpoch == 100)
     check("so it is still on disk for the next tick",
           readSwitchRequest(sessionKey: session, dir: tickDir) == pendingRequest)
+    // AND THE WAIT IS VISIBLE WHILE IT LASTS. The panel's picker writes this same request from a
+    // surface with no terminal output of its own, so without a badge the person who has just chosen
+    // an account has nothing anywhere telling them it was heard (owner report, 2026-08-10).
+    check("the queued move says so on the status line", state.waiting?.badge == switchQueuedBadge)
+    check("naming where it is going, and where it stays until then",
+          state.waiting?.detail?.contains("switching to Claude 2") == true
+              && state.waiting?.detail?.contains("staying on A") == true)
+    check("and that badge fits the row beside the quota meters",
+          (state.waiting?.badge.count ?? 99) <= 24)
 
     // Same session, same request, once the turn has ended: the transcript is quiet and the move
     // happens in the gap after the answer.
@@ -241,6 +250,7 @@ func runSwitchChecks() {
     check("committing at the execution point consumes the stamp",
           state.servedEpoch == pendingRequest.epoch)
     check("and unlinks the request", readSwitchRequest(sessionKey: session, dir: tickDir) == nil)
+    check("the badge goes with the move it was describing", state.badge == nil)
     check("so the very next tick plans nothing", tick(&idle, request: pendingRequest).plan == nil)
 
     // Two switches in quick succession, which is what the millisecond stamps exist for: the second
@@ -327,7 +337,11 @@ func runSwitchChecks() {
           tick(&deleted, request: nil).plan == nil && state.badge?.badge == "switch: account removed")
     let afterCancel = SwitchRequest(epoch: state.servedEpoch + 1, accountID: "B")
     _ = tick(&deleted, request: afterCancel, keyboardIdle: false)
-    check("but a fresh request takes it down", state.badge == nil)
+    // The news is gone: it described a request that has been superseded. What stands in its place is
+    // the new request's own wait, which is the live thing to say about this session now - it is the
+    // keyboard holding this tick, and the badge for that is the queued one.
+    check("but a fresh request takes it down", state.cancelled == nil)
+    check("leaving the wait that request is actually in", state.badge?.badge == switchQueuedBadge)
 
     // …and so does the user coming back, which is the bound this notice was missing: nothing
     // re-derives it, so before it was given an end it stayed on the status line for the life of the

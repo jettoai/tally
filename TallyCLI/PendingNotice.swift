@@ -134,9 +134,12 @@ struct PendingBadge: Equatable {
 /// with nowhere to land outranks one that is merely queued; and a capped session waiting for a
 /// sibling is last because the transcript already told them the turn failed.
 ///
-/// The typed model change sits under the switch and over the reload for the reason the order is
-/// about: a held switch is STUCK and nobody has been told, while a queued model change is waiting
-/// out the turn that asked for it and ends on its own.
+/// The typed model change sits under the switch and over the reload, and both halves of that hold
+/// now that the switch axis badges its queued wait as well (SessionSwitch.swift). A held switch is
+/// STUCK and nobody has been told, which outranks anything that ends on its own; and when the two
+/// are merely queued together, the switch is still the one worth the row, because it is the one
+/// deciding the tick - the model change folds onto the relaunch the switch plans rather than
+/// planning one of its own (SessionModel.swift), so the badge that names the move names both.
 struct PendingBadges: Equatable {
     var manualMove: PendingBadge?
     var sessionModel: PendingBadge?

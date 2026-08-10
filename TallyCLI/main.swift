@@ -204,7 +204,16 @@ func statusSessions() -> [String: StatusReport.SessionSummary] {
 func runStatus(json: Bool = false) {
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
-    guard let snapshot else { exit(1) }
+    guard let snapshot else {
+        // THE RUN WITH NO REPORT IN IT IS THE ONE THAT NEEDS THE WAY OUT MOST: there is no snapshot
+        // before the app has run once, so this is what somebody typing the binary's own name gets on
+        // a fresh machine, and the warning above it names a file rather than a command. Same line as
+        // the full report ends on and on the same stream, so it is read in the same place whichever
+        // way this command came out - the human output is prose either way, and the JSON shape is
+        // the contract, so it stays silent here as it does at the foot of the report.
+        if !json { print(tallyStatusHelpHint) }
+        exit(1)
+    }
     let advisor = loadAdvisorReadings(plans: accountPlans(snapshot))
     // The arrow marks the account a launch WOULD land on, so it has to skip what the launcher
     // skips: a quarantined account (see Quarantine.swift). Read once for both output shapes.

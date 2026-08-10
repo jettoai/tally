@@ -112,10 +112,30 @@ let hintStatements = statusBody.components(separatedBy: "\n").filter {
 check("the report ends by naming the way into everything else", hintStatements.count == 1)
 check("…and that line names a command that exists rather than a flag to guess at",
       tallyStatusHelpHint.contains("tally help"))
+// AND THE REPORT THAT COULD NOT BE PRINTED SAYS IT TOO, which is the run that needs it most: there
+// is no snapshot until the app has run once, so a fresh machine reached the early exit and got a
+// warning naming a file, with the tail of this function - and the only pointer to the rest of the
+// binary - never reached at all (2026-08-10). Read as the slice between the guard and its exit, so
+// the check is about THAT path rather than about the word appearing somewhere in the function.
+if let guarded = statusBody.range(of: "guard let snapshot else {"),
+   let failed = statusBody.range(of: "exit(1)") {
+    let earlyExit = String(statusBody[guarded.upperBound ..< failed.lowerBound])
+    // One statement carrying both halves: it is said, and the machine-readable shape is exempt for
+    // the reason the tail statement returns before its own - a script reading the contract must not
+    // have to parse prose on either exit.
+    check("the report that could not be printed still names the way into everything else",
+          earlyExit.contains("if !json { print(tallyStatusHelpHint) }"))
+} else {
+    check("the report that could not be printed still names the way into everything else", false)
+}
 // The machine-readable shape must not grow a sentence: it returns before the hint, which is what
-// the early `return` in the `if json` branch is for.
+// the early `return` in the `if json` branch is for. THE TAIL STATEMENT IN PARTICULAR, named by the
+// line it sits on rather than by its text: the early exit above prints the same line and prints it
+// FIRST, so a plain search for the word now finds the wrong one and this check passed on a
+// coincidence of order (caught by the early exit landing, 2026-08-10). That path guards itself with
+// `!json`, which is the same promise made a different way.
 if let jsonReturn = statusBody.range(of: "return\n    }"),
-   let hint = statusBody.range(of: "print(tallyStatusHelpHint)") {
+   let hint = statusBody.range(of: "\n    print(tallyStatusHelpHint)") {
     check("the JSON shape returns before it, so no script has to parse prose",
           jsonReturn.upperBound < hint.lowerBound)
 } else {

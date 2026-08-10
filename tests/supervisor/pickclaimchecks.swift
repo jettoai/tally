@@ -16,16 +16,39 @@ func runPickClaimChecks() {
 
     // MARK: - 36c5. A build nobody installed does not answer for the machine
 
+    let fresh: TimeInterval = 60
     check("the app somebody installed claims, which is the whole point of the panel",
-          pickMayBeClaimed(isUnshipped: false, overridden: false))
+          pickMayBeClaimed(isUnshipped: false, overridden: false, overrideAge: fresh))
     check("a build nobody installed stands down instead",
-          !pickMayBeClaimed(isUnshipped: true, overridden: false))
+          !pickMayBeClaimed(isUnshipped: true, overridden: false, overrideAge: fresh))
     // The escape hatch, for the one person the rule above costs anything: a developer driving the
     // picker end to end has to be able to claim, or the path can only ever be tested by shipping it.
     check("…until the launch asks for it back, which is what the override is for",
-          pickMayBeClaimed(isUnshipped: true, overridden: true))
+          pickMayBeClaimed(isUnshipped: true, overridden: true, overrideAge: fresh))
     check("and the override changes nothing for a build that was claiming anyway",
-          pickMayBeClaimed(isUnshipped: false, overridden: true))
+          pickMayBeClaimed(isUnshipped: false, overridden: true, overrideAge: fresh))
+
+    // MARK: - 36c5b. …and the escape hatch closes itself
+
+    // THE INCIDENT (2026-08-10, twice in one day): the flag was carried by a dev instance started
+    // to test one thing and then left running, and it answered real picks for the rest of the day.
+    // Nobody closes a window they have stopped thinking about, so the override stops instead.
+    let stale = CaptureLaunch.pickClaimOverrideLifetime + 1
+    check("an override older than its lifetime is read as a launch that never carried one",
+          !pickMayBeClaimed(isUnshipped: true, overridden: true, overrideAge: stale))
+    check("…and the last moment of the lifetime still claims, so the bound is not off by a launch",
+          pickMayBeClaimed(isUnshipped: true, overridden: true,
+                           overrideAge: CaptureLaunch.pickClaimOverrideLifetime))
+    // THE SHIPPED BUILD IS UNTOUCHED BY THE CLOCK, which is the half an expiry is easy to break: it
+    // never looked at the override to begin with, so no amount of age may stop the installed app
+    // from answering the machine's picks.
+    check("the installed app answers picks however long it has been running",
+          pickMayBeClaimed(isUnshipped: false, overridden: false, overrideAge: stale)
+              && pickMayBeClaimed(isUnshipped: false, overridden: true, overrideAge: stale))
+    // Long enough to drive the picker by hand, short enough to expire inside an afternoon.
+    check("the lifetime is minutes rather than seconds or days",
+          CaptureLaunch.pickClaimOverrideLifetime >= 10 * 60
+              && CaptureLaunch.pickClaimOverrideLifetime <= 2 * 60 * 60)
 
     // MARK: - 36c6. And the gate is asked BEFORE the claim, not beside it
 
@@ -38,7 +61,12 @@ func runPickClaimChecks() {
     check("the controller asks the stand-down question at all",
           controller.contains("guard pickMayBeClaimed(isUnshipped: BuildVariant.isUnshipped,"))
     check("…reading the override from the flag that is classified, not a second spelling of it",
-          controller.contains("overridden: CaptureLaunch.carries(CaptureLaunch.pickClaimOverride))"))
+          controller.contains("overridden: CaptureLaunch.carries(CaptureLaunch.pickClaimOverride),"))
+    // AND AGEING IT AGAINST THE LAUNCH, which is the wiring the expiry above is worth nothing
+    // without: the age has to come from when this build started, not from when it first looked.
+    check("…and ageing that override against this launch rather than a stamp taken on demand",
+          controller.contains("overrideAge: Self.launchAge())")
+              && controller.contains("NSRunningApplication.current.launchDate ?? .distantPast"))
 
     func at(_ needle: String) -> Int? {
         controller.range(of: needle).map {

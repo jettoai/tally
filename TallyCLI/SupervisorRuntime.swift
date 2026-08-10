@@ -52,7 +52,7 @@ func spawnChild(_ argv: [String], environment: [String: String],
 /// else; `launchEnv` returning nil is the DEFAULT home, which must launch with the variable unset
 /// (Snapshot.swift explains why).
 func supervisedChildEnvironment(provider: Provider, home: String, supervisorVersion: String?,
-                                supervisorPID: String, relaunch: Bool,
+                                supervisorPID: String,
                                 base: [String: String] = ProcessInfo.processInfo.environment)
     -> [String: String] {
     var environment = base
@@ -60,10 +60,10 @@ func supervisedChildEnvironment(provider: Provider, home: String, supervisorVers
     environment["TALLY_LAUNCHED"] = "1"
     if let supervisorVersion { environment["TALLY_SUPERVISOR_VERSION"] = supervisorVersion }
     environment["TALLY_SUPERVISOR_PID"] = supervisorPID
-    // A relaunch resumes by id with nobody at the keyboard, so it must not stop at Claude Code's
-    // "resume the whole conversation?" prompt; the user's own first launch keeps it
-    // (ResumePrompt.swift).
-    for (key, value) in resumePromptSuppression(environment, relaunch: relaunch) {
+    // No spawn from here stops at Claude Code's "resume the whole conversation?" prompt: a relaunch
+    // resumes by id with nobody at the keyboard, and a first launch was asked for by somebody who
+    // typed the command (ResumePrompt.swift carries the reversal and the way back to the prompt).
+    for (key, value) in resumePromptSuppression(environment) {
         environment[key] = value
     }
     if let env = launchEnv(provider, home: home) { environment[env.key] = env.value }

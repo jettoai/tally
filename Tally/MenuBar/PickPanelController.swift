@@ -65,6 +65,22 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         Task { @MainActor in self.present(id: id) }
     }
 
+    /// HOW LONG THIS LAUNCH HAS BEEN RUNNING, which is what ages a handed-back claim out
+    /// (`CaptureLaunch.pickClaimOverrideLifetime`).
+    ///
+    /// Read off the process rather than stamped at start-up. A `static let` initialised on first
+    /// use would start its clock at the first pick request instead, which is the one moment that
+    /// makes any build look freshly launched however long it has been sitting in the corner of
+    /// somebody's screen: exactly the reading the lifetime exists to refuse.
+    ///
+    /// A launch date AppKit declines to give reads as long ago, so an unreadable clock retires the
+    /// override rather than granting it forever. That failure lands in front of the developer who
+    /// asked for the override (their own build stops claiming, while they are driving it) rather
+    /// than behind the back of whoever runs a real pick on this machine.
+    static func launchAge(now: Date = Date()) -> TimeInterval {
+        now.timeIntervalSince(NSRunningApplication.current.launchDate ?? .distantPast)
+    }
+
     private func present(id: String?) {
         // STAND DOWN IF THIS IS NOT THE INSTALLED APP, before anything else is even looked at. The
         // knock is machine-wide, so every Tally running here hears it, and the exclusive claim below
@@ -74,11 +90,16 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         // died in 147ms with an installed 0.42.0 sitting right beside it (`pickMayBeClaimed` carries
         // the trace, the escape hatch, and what standing down costs a DMG launch).
         //
+        // The escape hatch ages out with the launch that carried it, which is the same incident one
+        // step in: a dev build left running answers picks again the moment somebody switches the
+        // stand-down off and then stops thinking about the window (twice on 2026-08-10).
+        //
         // The dev preview is untouched by this: it never comes through here at all
         // (`previewIfRequested` shows the panel directly and writes no answer), so a build that may
         // not answer a real request can still be the one a developer is looking at.
         guard pickMayBeClaimed(isUnshipped: BuildVariant.isUnshipped,
-                               overridden: CaptureLaunch.carries(CaptureLaunch.pickClaimOverride))
+                               overridden: CaptureLaunch.carries(CaptureLaunch.pickClaimOverride),
+                               overrideAge: Self.launchAge())
         else { return }
         guard let id, isPickID(id), current == nil,
               // The same one-answer-per-launch question every other unprompted window asks

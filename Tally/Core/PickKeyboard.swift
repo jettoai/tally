@@ -50,6 +50,26 @@ func pickIsTypable(_ characters: String) -> Bool {
     }
 }
 
+/// WHETHER A PRESS BELONGS TO THE MACHINE RATHER THAN TO THIS PANEL. Command, control and option
+/// are the three that mean somebody is doing something else with it (copying, switching desktops,
+/// walking by word), so a press wearing one is handed back untouched instead of acted on.
+///
+/// THE DEFECT IT CLOSES (Albert, 2026-08-10): the panel's own arrow handlers answered every arrow
+/// they were given, modifiers and all, so Control-Left and Control-Right, which is how macOS moves
+/// between desktops, changed the panel's column and never reached the system. A key the panel does
+/// not own is not the panel's to take just because the key it is spelled with is.
+///
+/// SHIFT IS NOT ONE OF THEM: on this surface it is a direction rather than a different intent
+/// (Shift-Tab is the way back), and it spells no system shortcut this panel could swallow.
+///
+/// Asked of the arrows and of typing, and deliberately not of Tab, Enter or Escape: Command-Tab
+/// never reaches an app at all, and the other combinations there mean nothing macOS would rather
+/// have. The honest limit, since a source scan cannot show it: declining a press is the whole of
+/// what the panel can do about it, and where it goes next is AppKit's to decide.
+func pickPressIsElsewhere(command: Bool, control: Bool, option: Bool) -> Bool {
+    command || control || option
+}
+
 /// Which column the focus lands on when it is stepped sideways. Clamped rather than wrapped, like
 /// the walk down a column: a held arrow key must come to rest somewhere rather than cycle.
 func pickColumnFocus(_ palette: PickPalette, from kind: PickKind, step: Int) -> PickKind {

@@ -79,7 +79,7 @@ func runSwitchSessionChecks() {
     // and every process the child spawns (the agent's shell included) inherits it.
     let childEnv = supervisedChildEnvironment(
         provider: providers[0], home: "/tmp/A", supervisorVersion: "9.9.9", supervisorPID: "4242",
-        relaunch: false, base: ["PATH": "/usr/bin", "CLAUDE_CONFIG_DIR": "/tmp/stale"])
+        base: ["PATH": "/usr/bin", "CLAUDE_CONFIG_DIR": "/tmp/stale"])
     check("the child carries the supervisor pid a switch addresses",
           childEnv["TALLY_SUPERVISOR_PID"] == "4242")
     check("and the Tally marker the status line reads", childEnv["TALLY_LAUNCHED"] == "1")
@@ -88,13 +88,13 @@ func runSwitchSessionChecks() {
     check("the account's own home replaces whatever was exported into this process",
           childEnv["CLAUDE_CONFIG_DIR"] == "/tmp/A")
     check("the rest of the environment is passed through", childEnv["PATH"] == "/usr/bin")
-    check("a first launch keeps Claude Code's own resume prompt",
-          childEnv[resumeTokenThresholdEnvKey] == nil)
+    check("a first launch carries the resume-prompt suppression too (owner ruling, 2026-08-10)",
+          childEnv[resumeTokenThresholdEnvKey] == resumePromptDisabledThreshold)
     // A switch relaunch resumes by id with nobody at the keyboard, so it must not stop at that
-    // prompt - the same suppression every other relaunch gets, carried by the same assembly.
+    // prompt - the same suppression every other spawn gets, carried by the same assembly.
     let relaunchEnv = supervisedChildEnvironment(
         provider: providers[0], home: "/tmp/A", supervisorVersion: nil, supervisorPID: "4242",
-        relaunch: true, base: [:])
+        base: [:])
     check("a relaunch suppresses it",
           relaunchEnv[resumeTokenThresholdEnvKey] == resumePromptDisabledThreshold)
     check("and a supervisor with no version stamps none",

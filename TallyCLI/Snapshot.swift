@@ -224,6 +224,18 @@ func exec(_ cli: String, args: [String], env: (key: String, value: String)?) -> 
     // it so the status line stays quiet instead of nagging "supervisor unknown". The resident
     // supervisor spawns its child without this marker, so it reads as supervised.
     setenv("TALLY_SUPERVISED", "0", 1)
+    // AND NO LAUNCH FROM HERE STOPS AT THE RESUME PROMPT EITHER. The supervised spawn suppresses it
+    // in the environment it assembles (SupervisorRuntime.swift); these are the same launches with
+    // no supervisor in front of them, and leaving them out would make "Tally never asks" true of
+    // `tally claude` and false of `tally claude --account X --continue`, which is the shape a person
+    // reads as a bug rather than as a policy (owner ruling, 2026-08-10).
+    //
+    // The one rule, asked of the environment execvp is about to inherit, rather than a second copy
+    // of it here: that is also where "a value somebody exported is never overwritten" lives, so an
+    // answer at all means this process carries none (ResumePrompt.swift).
+    for (key, value) in resumePromptSuppression(ProcessInfo.processInfo.environment) {
+        setenv(key, value, 1)
+    }
     let argv = [cli] + args
     var cargs: [UnsafeMutablePointer<CChar>?] = argv.map { strdup($0) }
     cargs.append(nil)

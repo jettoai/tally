@@ -120,10 +120,13 @@ struct PickPanelView: View {
         // dropped in silence. The phases matter for the same reason: a held key repeats as
         // `.repeat`, while Enter and Escape stay `.down` only, since a repeat there would commit or
         // cancel several times over.
-        .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in act(.up) }
-        .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in act(.down) }
-        .onKeyPress(.leftArrow, phases: [.down, .repeat]) { _ in act(.left) }
-        .onKeyPress(.rightArrow, phases: [.down, .repeat]) { _ in act(.right) }
+        // AN ARROW WEARING A MODIFIER IS THE MACHINE'S, not this panel's (`pickPressIsElsewhere`):
+        // Control-Left and Control-Right move between desktops, and answering them here meant the
+        // panel changed column while the desktop stayed where it was (Albert, 2026-08-10).
+        .onKeyPress(.upArrow, phases: [.down, .repeat]) { press in act(press, as: .up) }
+        .onKeyPress(.downArrow, phases: [.down, .repeat]) { press in act(press, as: .down) }
+        .onKeyPress(.leftArrow, phases: [.down, .repeat]) { press in act(press, as: .left) }
+        .onKeyPress(.rightArrow, phases: [.down, .repeat]) { press in act(press, as: .right) }
         // Tab is the panel's on this path too, for the reason it is the field's: left to AppKit it
         // walks the key-view loop, and a responder moved behind the panel's back is the disagreement
         // this whole family of defects comes out of. Shift is what tells the two directions apart,
@@ -440,18 +443,30 @@ struct PickPanelView: View {
     /// The named-key path, for the backstop handlers.
     private func act(_ key: PickKey) -> KeyPress.Result { apply(key) ? .handled : .ignored }
 
+    /// THE ONE DOOR EVERY PRESS ON THIS PATH COMES THROUGH: what the key MEANS was decided by the
+    /// handler that caught it, and whether this panel may act on it at all is decided here, once.
+    ///
+    /// A press wearing a modifier belongs to the machine rather than to the panel
+    /// (`pickPressIsElsewhere`, which carries the defect): the arrows are spelled the same way
+    /// whether somebody means the next column or the next desktop, and only the modifiers tell the
+    /// two apart. Asked in one place so the arrows and the typing below cannot come to different
+    /// answers about the same press.
+    private func act(_ press: KeyPress, as key: PickKey) -> KeyPress.Result {
+        guard !pickPressIsElsewhere(command: press.modifiers.contains(.command),
+                                    control: press.modifiers.contains(.control),
+                                    option: press.modifiers.contains(.option))
+        else { return .ignored }
+        return act(key)
+    }
+
     /// Anything the named handlers did not take, which is typing. Reached only when the field never
-    /// became first responder; the field's own editor handles this otherwise. A press carrying a
-    /// command, control or option is somebody doing something else with the machine, so it is handed
-    /// back rather than typed into the filter.
+    /// became first responder; the field's own editor handles this otherwise.
     ///
     /// THIS IS THE LAST HANDLER ON THE PANEL, so everything anything above it declined arrives here
     /// wearing whatever character it happens to carry, and an arrow key carries one
     /// (`pickIsTypable`, which is where that press stops). A handler of last resort cannot be
     /// trusted to only see typing just because everything else was named first.
     private func typed(_ press: KeyPress) -> KeyPress.Result {
-        guard !press.modifiers.contains(.command), !press.modifiers.contains(.control),
-              !press.modifiers.contains(.option) else { return .ignored }
-        return act(.text(press.characters))
+        act(press, as: .text(press.characters))
     }
 }

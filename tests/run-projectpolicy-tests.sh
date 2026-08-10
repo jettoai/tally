@@ -7,6 +7,8 @@
 # files - this suite would otherwise have to compile the whole worktree subsystem to ask what
 # directory it is in), AccountPick/AccountComfort for the pin resolution and the account pick a
 # profile steers, and StatusReport/UsageAdvisor for the `status --json` block it publishes.
+# ResumePrompt joins that closure through Snapshot.swift, whose unsupervised launcher asks it what
+# to hand the exec'd child (`resumePromptSuppression`).
 #
 # Uses real git in a temp directory for the key scenarios: which repository a directory belongs to
 # is git's answer, and a stub would only assert our own idea of it.
@@ -17,6 +19,7 @@ swiftc -o "$out" tests/projectpolicy/main.swift tests/projectpolicy/shellsafetyc
   tests/projectpolicy/matcherchecks.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
   TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift TallyCLI/AccountComfort.swift \
+  TallyCLI/ResumePrompt.swift \
   TallyCLI/ProviderExecutable.swift TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift \
   TallyCLI/LaunchDir.swift TallyCLI/Quarantine.swift
 "$out"

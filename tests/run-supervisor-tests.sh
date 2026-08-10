@@ -7,6 +7,11 @@
 # that profile is keyed by, and StatusReport/UsageAdvisor come along because the profile also
 # publishes itself into `tally status --json`.
 #
+# PickClaimGate is which build may answer the machine's picks (app-side, so the CLI target does not
+# compile it the way it compiles the contract beside it); CaptureLaunch comes with it because that
+# gate asks it two things: which flag hands the capability back to a build nobody installed, and how
+# long that lasts (`pickClaimOverrideLifetime`).
+#
 # The Model*/SessionModel/SessionDirectives files are `tally model`, which is the same shape one
 # axis over: a request file, a tick decision, and the CLI surfaces that write one. LaunchAxisNames
 # is the shared effort enumeration both targets compile, and ResuperviseContract is the exec
@@ -38,7 +43,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/pickclaimchecks.swift tests/supervisor/pickheightchecks.swift \
   tests/supervisor/pickpalettechecks.swift tests/supervisor/pickrowchecks.swift \
   tests/supervisor/pickcirclechecks.swift \
-  tests/supervisor/picksurfacechecks.swift \
+  tests/supervisor/picksurfacechecks.swift tests/supervisor/pickmodifierchecks.swift \
   tests/supervisor/tallypromptchecks.swift \
   tests/supervisor/backstopchecks.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
@@ -56,6 +61,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/ModelMenu.swift Tally/Core/LaunchAxisNames.swift \
   TallyCLI/MCPServe.swift TallyCLI/MCPPicker.swift TallyCLI/MCPAccountOffer.swift TallyCLI/MCPPickOffer.swift TallyCLI/TallyPrompt.swift TallyCLI/NativePick.swift TallyCLI/PickRows.swift Tally/Core/PickContract.swift \
   Tally/Core/PickPanelMetrics.swift Tally/Core/PickPalette.swift Tally/Core/PickKeyboard.swift Tally/Core/PanelGeometry.swift TallyCLI/PromptHookBackstop.swift \
+  Tally/Core/PickClaimGate.swift Tally/Core/CaptureLaunch.swift \
   Tally/Core/PromptHookInput.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift
 "$out"

@@ -142,7 +142,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // surface reads back out of it (SupervisorRuntime.swift).
         let environment = supervisedChildEnvironment(
             provider: provider, home: account.launchHome!, supervisorVersion: supervisorVersion,
-            supervisorPID: supervisorPID, relaunch: relaunching)
+            supervisorPID: supervisorPID)
         // A relaunch inherits a terminal whose reader was just killed, and everything queued on it
         // since - the answer to a query the dead child never collected, a keystroke typed into the
         // gap - would arrive as the first thing the new child reads and land in its prompt box

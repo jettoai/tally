@@ -94,7 +94,7 @@ func runPickSurfaceChecks() {
     // `pickIsTypable` turns it away), and the sideways keys no longer decline in the first place.
     check("what the named handlers declined is typed through the same rule, not straight in",
           view.contains(".onKeyPress(phases: [.down, .repeat]) { press in typed(press) }")
-              && view.contains("return act(.text(press.characters))")
+              && view.contains("act(press, as: .text(press.characters))")
               && !view.contains("edited(press.characters"))
     // A KEYBOARD WITH NOWHERE TO GO IS THE SAME HOLE: the request says which column the keyboard
     // starts in and the sections say which columns exist, and nothing on the wire makes the first

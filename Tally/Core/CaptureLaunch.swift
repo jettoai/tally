@@ -62,6 +62,19 @@ enum CaptureLaunch {
     /// from the one classified here.
     static let pickClaimOverride = "TallyPickClaim"
 
+    /// HOW LONG THAT OVERRIDE LASTS, counted from the launch that carried it.
+    ///
+    /// THE INCIDENT (2026-08-10, twice in one day): a dev instance started to test one thing and
+    /// then left running answered a real `/tally-account`, both times because nobody closes a
+    /// window they have stopped thinking about. An override with no end is a stand-down that lasts
+    /// exactly as long as somebody's attention does. Thirty minutes outlasts a session of driving
+    /// the picker by hand and expires well inside an afternoon: too short costs a developer one
+    /// relaunch of a build they are sitting in front of, too long costs somebody else's
+    /// conversation, silently. Asked as arithmetic when a request knocks (`pickMayBeClaimed`)
+    /// rather than by a timer that switches the flag off, so nothing has to fire and nothing has
+    /// to be cancelled, and a build that slept for an hour is answered like one that was busy.
+    static let pickClaimOverrideLifetime: TimeInterval = 30 * 60
+
     /// Flags that exist so something can be DRIVEN by hand rather than looked at, which is the other
     /// answer to the family's one question. Driving something means being in front of it, so these
     /// are not the family, and that is a statement about purpose rather than about cost (a plain

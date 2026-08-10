@@ -1,7 +1,9 @@
 import SwiftUI
 
-// The palette itself. One row is one whole decision, so there is no Accept: the click IS the submit,
-// and the keyboard path is Enter on the row the arrow keys are resting on.
+// The palette itself. A click CIRCLES a row in its column, Enter or Apply submits every axis whose
+// circle has moved off what is already the case (PickPalette.swift owns that grammar and says why a
+// click stopped being the whole submit: two columns exist so both axes can move at once, and a
+// surface that answers on the first click can only ever carry the first of the two).
 //
 // TWO COLUMNS, ACCOUNTS LEFT AND MODELS RIGHT (PickPalette.swift builds them and says why they are
 // side by side rather than stacked). Everything one axis has is inside its own column: its name, its
@@ -12,16 +14,18 @@ import SwiftUI
 // starts in the left column and `/tally-model` in the right, and the left and right arrows move
 // between them from there. The focused column is the one that is typed into, and it says so.
 //
-// THE RESTING ROW IS WHERE THE SESSION ALREADY IS (`PickRow.isCurrent`), not the top of a column.
+// THE RESTING CIRCLE IS WHERE THE SESSION ALREADY IS (`PickRow.isCurrent`), not the top of a column.
 // That is what makes the keyboard path short for the change people actually make: one arrow from
-// "the model I am on at the depth I am on" is the same model one level deeper.
+// "the model I am on at the depth I am on" is the same model one level deeper. A column with no
+// current row to rest on circles NOTHING, which is the same statement: no change on that axis.
 
 struct PickPanelView: View {
     let request: PickRequest
-    /// nil is a cancellation. One closure for both, because the panel above treats them as one
-    /// event: something happened and the panel is done. The choice carries its COLUMN, since the two
-    /// axes are applied by different paths at the far end (`PickChoice.answer`).
-    let choose: (PickChoice?) -> Void
+    /// What the panel answers with, nil being a cancellation. One closure for both, because the
+    /// panel above treats them as one event: something happened and the panel is done. The answer
+    /// can name BOTH axes, since the two are applied by different paths at the far end
+    /// (`pickSubmission`).
+    let choose: (PickAnswer?) -> Void
 
     /// Which column the keyboard is in. The command decides where it starts; the arrow keys, a
     /// hover and a click on a field all move it.
@@ -29,9 +33,13 @@ struct PickPanelView: View {
     /// What has been typed, per column. Each column filters only itself, which is the whole reason
     /// there are two fields rather than one.
     @State private var queries: [PickKind: String] = [:]
-    /// Where the cursor is in each column, kept per column so stepping across and back returns to
-    /// where somebody was.
+    /// WHAT EACH COLUMN HAS CIRCLED, which is what a submit sends. An index into that column's own
+    /// walk, or absent for "leave this axis alone" (`pickColumnSelection` says why absent is a real
+    /// answer rather than a gap to be filled with row zero).
     @State private var selections: [PickKind: Int] = [:]
+    /// What the pointer is over, per column, so a row can say it is clickable without that being
+    /// mistaken for the circle. Only the drawing reads it: hovering changes nothing that gets sent.
+    @State private var hovered: [PickKind: Int] = [:]
     @FocusState private var focused: Bool
     /// What each column's rows actually laid out at, or zero before the first pass. Read through
     /// `pickPaletteListHeight`, which is where "zero is not a measurement" is decided.
@@ -40,13 +48,15 @@ struct PickPanelView: View {
     /// the panel having been raised underneath one (`pickHoverMovesFocus`).
     @State private var shownAt = Date()
 
-    init(request: PickRequest, choose: @escaping (PickChoice?) -> Void) {
+    init(request: PickRequest, choose: @escaping (PickAnswer?) -> Void) {
         self.request = request
         self.choose = choose
         _focus = State(initialValue: request.kind)
+        // A column with nothing to circle contributes no entry at all, which is how "no change on
+        // this axis" is spelled here: an absent key rather than an index standing in for one.
         _selections = State(initialValue: Dictionary(
-            uniqueKeysWithValues: pickPalette(request).columns.map {
-                ($0.kind, pickColumnSelection($0))
+            uniqueKeysWithValues: pickPalette(request).columns.compactMap { column in
+                pickColumnSelection(column).map { (column.kind, $0) }
             }))
     }
 
@@ -55,6 +65,7 @@ struct PickPanelView: View {
     var body: some View {
         let palette = self.palette
         let listHeight = pickPanelListHeight(request, filters: queries, measured: listHeights)
+        let pending = pickPendingChanges(palette, selections: selections)
         VStack(alignment: .leading, spacing: 0) {
             header
             // THREE SIZES, THREE JOBS: the header is the anchor, this is the situation it is
@@ -71,6 +82,10 @@ struct PickPanelView: View {
                     columnView(column, listHeight: listHeight, alone: palette.isSingleColumn)
                 }
             }
+            // WHAT ONE PRESS WOULD DO, said before it is pressed. Its space is kept whether or not
+            // it has anything in it (`pickApplyBarHeight`): a panel that grew when a row was circled
+            // would move every row under the pointer that just circled it.
+            PickApplyBar(summary: pickPendingSummary(pending)) { submit() }
         }
         // THE PANEL'S OWN CONTENT LINE, which is the popover's and the pinned panel's
         // (`PanelGeometry.contentPadding`): this surface used to keep a wider margin of its own, so
@@ -152,16 +167,17 @@ struct PickPanelView: View {
         .accessibilityLabel("Tally, \(pickPanelKindName(request.kind))")
     }
 
-    /// One column: its name, its own field, its rows, and the way out of its axis.
+    /// One column: its field (which is also where its name is), its rows, and the way out of its
+    /// axis.
+    ///
+    /// THE NAME MOVED INTO THE FIELD, which is what took a line off the top of every column: a
+    /// heading sitting one line above its own search box read as a label FOR the box rather than as
+    /// the name of the column, and the two were close enough to be one object anyway (Albert, on the
+    /// first capture of this panel). As a scope prefix inside the box there is no ambiguity left:
+    /// what is typed there narrows the thing the prefix names.
     private func columnView(_ column: PickColumn, listHeight: CGFloat, alone: Bool) -> some View {
         let isFocused = column.kind == focus
         return VStack(alignment: .leading, spacing: 0) {
-            Text(L(pickColumnHeadingKey(column.kind)))
-                .font(.caption)
-                .foregroundStyle(isFocused ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
-                .frame(height: pickColumnHeadingHeight, alignment: .bottom)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, TallyMetrics.cardPaddingH)
             searchField(column, isFocused: isFocused)
             ScrollViewReader { proxy in
                 ScrollView {
@@ -219,15 +235,33 @@ struct PickPanelView: View {
         .frame(width: pickColumnWidth(column.kind, alone: alone), alignment: .leading)
     }
 
-    /// What this column is filtered by. A real field, for the two reasons PickSearchField.swift
-    /// gives (an account can be called anything, and a key with no character has to be named);
-    /// what stays the panel's is the handful of keys that answer it.
+    /// What this column is filtered by, and what it is called. A real field, for the two reasons
+    /// PickSearchField.swift gives (an account can be called anything, and a key with no character
+    /// has to be named); what stays the panel's is the handful of keys that answer it.
+    ///
+    /// THE NAME IS A SCOPE PREFIX INSIDE THE BOX, in place of the magnifying glass rather than
+    /// beside it: the glass says "you can type here", which is what the placeholder already says in
+    /// words, while the name says WHAT typing here narrows - and that was the thing the panel had
+    /// spent a whole line on. Drawn as a sibling of the field rather than inset into the
+    /// `NSTextField` itself, deliberately: a prefix drawn inside the text view's own area has to
+    /// move with the caret and the marked text an input method is composing, and this panel exists
+    /// partly because an account can be called anything in any script (`PickSearchField`).
+    ///
+    /// AND IT CARRIES THE FOCUS, so the box no longer needs a ring around it: the prefix is accented
+    /// in the column the keyboard is in and quiet in the other, which is one signal in one place
+    /// rather than a name, a fill and an outline all saying "here". The loudest accent on this panel
+    /// belongs to the circles, which are what a press will act on.
     private func searchField(_ column: PickColumn, isFocused: Bool) -> some View {
         let query = queries[column.kind] ?? ""
-        return HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
+        return HStack(spacing: 8) {
+            Text(L(pickColumnHeadingKey(column.kind)))
                 .font(.caption)
-                .foregroundStyle(isFocused ? AnyShapeStyle(TallyColor.ai) : AnyShapeStyle(.tertiary))
+                .foregroundStyle(isFocused ? AnyShapeStyle(TallyColor.ai) : AnyShapeStyle(.secondary))
+                .fixedSize()
+            // The hairline that keeps a name from reading as the first word of the query.
+            Rectangle()
+                .fill(.quaternary)
+                .frame(width: TallyMetrics.hairline, height: 12)
             PickSearchField(text: query, placeholder: L("Type to filter"), isFocused: isFocused,
                             command: { apply($0) },
                             onEdit: { edited($0, in: column.kind) },
@@ -243,43 +277,46 @@ struct PickPanelView: View {
         }
         .frame(height: pickSearchFieldHeight)
         .padding(.horizontal, TallyMetrics.cardPaddingH)
+        // WHICH COLUMN IS LISTENING, in two quiet registers rather than three: this fill, and the
+        // accent on the name at its head. The outline that used to be here as well went with the
+        // heading line - a box that is named, filled and ringed is three ways of saying one thing,
+        // and it was competing with the circles, which are the marks a press acts on.
         .background(
             RoundedRectangle(cornerRadius: TallyMetrics.cardRadius, style: .continuous)
                 .fill(.quaternary.opacity(isFocused ? 0.4 : 0.15)))
-        // WHICH COLUMN IS LISTENING, said quietly and in one place: the same accent the depth chips
-        // wear, as a hairline rather than a fill, so it reads as "here" without becoming the loudest
-        // thing on the panel.
-        .overlay {
-            if isFocused {
-                RoundedRectangle(cornerRadius: TallyMetrics.cardRadius, style: .continuous)
-                    .stroke(TallyColor.ai.opacity(0.35), lineWidth: 1)
-            }
-        }
         .padding(.bottom, pickSearchFieldGap)
         .accessibilityLabel("\(L("Filter")) \(L(pickColumnHeadingKey(column.kind)))")
         .accessibilityValue(query)
     }
 
     /// One row, wherever it is drawn. Shared by the scrolling region and the pinned row so the two
-    /// cannot grow different behaviour: the same click, the same hover, the same resting mark.
+    /// cannot grow different behaviour: the same click, the same hover, the same circle.
     private func rowView(_ column: PickColumn, _ item: PickPaletteItem, index: Int,
                          isFocused: Bool) -> some View {
-        PickRowView(row: item.row, isSelected: selections[column.kind] == index,
-                    isFocusedColumn: isFocused)
+        PickRowView(row: item.row, isCircled: selections[column.kind] == index,
+                    isHovered: hovered[column.kind] == index, isFocusedColumn: isFocused)
             .id(index)
             .contentShape(Rectangle())
-            // ONE CLICK, no second confirmation, and it works in either column: the cost of a
-            // mis-click is a pin to the wrong account, which the same panel undoes in one more
-            // click; the cost of an Accept key is one extra action on every correct pick, for ever.
-            .onTapGesture { choose(PickChoice(kind: column.kind, row: item.row)) }
-            // The pointer moves the keyboard's column with it, so what Enter would take is always
-            // what the pointer is over. UNLESS THE PANEL WAS JUST RAISED UNDER A POINTER THAT NEVER
-            // MOVED, which is not somebody choosing anything and used to take the command's own
-            // column away before it was ever seen (`pickHoverMovesFocus` carries the capture).
+            // A CLICK CIRCLES, IT DOES NOT SUBMIT. The panel exists to carry both axes at once, and
+            // a click that answered could only ever carry the first of them; what it costs is one
+            // press at the end, which is also the press that makes a mis-click harmless.
+            // Clicking the circled row again leaves it circled: this column always has an answer,
+            // and "no change" is said by the row the session is on, not by an empty column.
+            .onTapGesture { selections[column.kind] = index }
+            // The pointer moves the keyboard's column with it, so typing goes where the person is
+            // looking. UNLESS THE PANEL WAS JUST RAISED UNDER A POINTER THAT NEVER MOVED, which is
+            // not somebody choosing anything and used to take the command's own column away before
+            // it was ever seen (`pickHoverMovesFocus` carries the capture).
             .onHover { inside in
-                guard inside, pickHoverMovesFocus(shownAt: shownAt) else { return }
+                guard pickHoverMovesFocus(shownAt: shownAt) else { return }
+                guard inside else {
+                    // Only if it is still ours: the pointer enters the next row before it leaves
+                    // this one, so an unconditional clear would put out the light it just lit.
+                    if hovered[column.kind] == index { hovered[column.kind] = nil }
+                    return
+                }
                 focus = column.kind
-                selections[column.kind] = index
+                hovered[column.kind] = index
             }
     }
 
@@ -322,10 +359,10 @@ struct PickPanelView: View {
         guard let column = palette.column(focus) else { return false }
         switch pickKeyAction(key, query: queries[focus] ?? "") {
         case .move(let step):
-            // Clamped rather than wrapped: a list that jumps from the last row to the first turns a
-            // held arrow key into a lap of the fleet.
-            guard !column.rows.isEmpty else { break }
-            selections[focus] = min(max((selections[focus] ?? 0) + step, 0), column.rows.count - 1)
+            // Where an arrow key lands, including from a column circling nothing, is the rule this
+            // panel is asserted by rather than arithmetic written here (`pickMovedSelection`).
+            selections[focus] = pickMovedSelection(from: selections[focus], step: step,
+                                                   count: column.rows.count)
         case .moveColumn(let step):
             let landed = pickColumnFocus(palette, from: focus, step: step)
             focus = landed
@@ -333,9 +370,7 @@ struct PickPanelView: View {
                 selections[landed] = pickColumnSelection(next, remembered: selections[landed])
             }
         case .commit:
-            let choices = column.choices
-            guard let index = selections[focus], choices.indices.contains(index) else { break }
-            choose(choices[index])
+            submit()
         case .cancel:
             choose(nil)
         case .edit(let typed):
@@ -346,11 +381,19 @@ struct PickPanelView: View {
         return true
     }
 
+    /// EVERYTHING THE PANEL ANSWERS WITH goes through here: both circles, the focused column first,
+    /// and nil when neither has moved off what is already the case (`pickSubmission`, which is where
+    /// "Enter on an unchanged panel is a cancellation" is decided and asserted).
+    private func submit() {
+        choose(pickSubmission(palette, selections: selections, focus: focus))
+    }
+
     /// The query changed, either because it was typed into or because Escape cleared it.
     ///
-    /// THE CURSOR FOLLOWS THE TYPING, in the column that was typed into: what was selected is an
-    /// index into a list the query has just rewritten, so keeping it would leave the cursor on
-    /// whatever happens to sit at that position now.
+    /// THE CIRCLE FOLLOWS THE TYPING, in the column that was typed into, unless the row it is on
+    /// survived the new query: an index into a list the query has rewritten would otherwise point at
+    /// whatever now sits in that position, while a circle that IS still on screen is a choice
+    /// somebody made and clearing a filter must not undo it (`pickReselected`).
     ///
     /// THE COLUMN IS BUILT FROM THE VALUE, NOT FROM THE STATE THAT WAS JUST GIVEN IT. Reading
     /// `queries` back here is reading state written a line earlier from a callback, which SwiftUI
@@ -358,11 +401,12 @@ struct PickPanelView: View {
     /// the cursor on the first row instead of walking back to the row the session is on, because
     /// the column it asked about was still the FILTERED one (live keyboard check, 2026-08-10).
     private func edited(_ typed: String, in kind: PickKind) {
+        let circled = palette.column(kind)?.choice(at: selections[kind])?.row
         queries[kind] = typed
         var filters = queries
         filters[kind] = typed
         if let column = pickPalette(request, filters: filters).column(kind) {
-            selections[kind] = pickColumnSelection(column)
+            selections[kind] = pickReselected(column, keeping: circled)
         }
     }
 
@@ -377,69 +421,5 @@ struct PickPanelView: View {
         guard !press.modifiers.contains(.command), !press.modifiers.contains(.control),
               !press.modifiers.contains(.option) else { return .ignored }
         return act(.text(press.characters))
-    }
-}
-
-/// One row: what it is, what it costs, and what it is to this session.
-struct PickRowView: View {
-    let row: PickRow
-    let isSelected: Bool
-    /// Whether this row's column is the one the keyboard is in. Both columns keep a cursor, so both
-    /// draw one; only the focused column's is the one Enter would take, and it is the stronger mark.
-    var isFocusedColumn = true
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 6) {
-                    // The name only. The depth is the chip beside it and the aside is the line
-                    // below, so a label carrying either has that part taken off rather than saying
-                    // it twice (`pickPanelLabel`).
-                    Text(pickPanelLabel(row))
-                        .font(.body)
-                        .fontWeight(row.isCurrent ? .semibold : .regular)
-                    if let effort = row.effort {
-                        Text(effort)
-                            .font(.caption)
-                            .foregroundStyle(TallyColor.ai)
-                    }
-                }
-                if let detail = pickPanelDetail(row), !detail.isEmpty {
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        // ONE LINE, ALWAYS: the height family assumes a two-line row is exactly two
-                        // lines (`pickDetailRowHeight`), so a detail that wraps is a row taller than
-                        // anything computing this panel's size knows about.
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 8)
-            // The tags the CLI decided, drawn rather than restated: which account this session is on
-            // and which one has the most headroom are one answer for every surface.
-            ForEach(row.tags, id: \.self) { tag in
-                Text(tag)
-                    .font(.caption2)
-                    .foregroundStyle(tag == switchRecommendedTag ? TallyColor.normal : .secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: TallyMetrics.calloutRadius, style: .continuous)
-                            .fill(.quaternary.opacity(isSelected ? 0.35 : 0.25)))
-            }
-        }
-        .padding(.horizontal, TallyMetrics.cardPaddingH)
-        .padding(.vertical, 7)
-        .background(
-            RoundedRectangle(cornerRadius: TallyMetrics.cardRadius, style: .continuous)
-                .fill(background))
-    }
-
-    /// The resting mark: strong in the column the keyboard is in, quiet in the other one.
-    private var background: AnyShapeStyle {
-        guard isSelected else { return AnyShapeStyle(Color.clear) }
-        return isFocusedColumn ? AnyShapeStyle(.selection.opacity(0.55))
-            : AnyShapeStyle(.quaternary.opacity(0.3))
     }
 }

@@ -34,9 +34,10 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/capsessionpinchecks.swift \
   tests/supervisor/modelrequestchecks.swift tests/supervisor/modeltickchecks.swift \
   tests/supervisor/modelsurfacechecks.swift tests/supervisor/nativemodelchecks.swift \
-  tests/supervisor/mcppickerchecks.swift tests/supervisor/pickerchecks.swift tests/supervisor/pickgracechecks.swift \
+  tests/supervisor/mcppickerchecks.swift tests/supervisor/accountwindowchecks.swift tests/supervisor/pickerchecks.swift tests/supervisor/pickgracechecks.swift \
   tests/supervisor/pickclaimchecks.swift tests/supervisor/pickheightchecks.swift \
-  tests/supervisor/pickpalettechecks.swift tests/supervisor/picksurfacechecks.swift \
+  tests/supervisor/pickpalettechecks.swift tests/supervisor/pickcirclechecks.swift \
+  tests/supervisor/picksurfacechecks.swift \
   tests/supervisor/tallypromptchecks.swift \
   tests/supervisor/backstopchecks.swift \
   TallyCLI/Supervisor.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/LaunchFlags.swift TallyCLI/Quarantine.swift TallyCLI/CapDetection.swift TallyCLI/DriftMonitor.swift \
@@ -52,7 +53,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/ChildReaper.swift \
   TallyCLI/SessionDirectives.swift TallyCLI/ModelCommand.swift TallyCLI/ModelHook.swift \
   TallyCLI/ModelMenu.swift Tally/Core/LaunchAxisNames.swift \
-  TallyCLI/MCPServe.swift TallyCLI/MCPPicker.swift TallyCLI/MCPPickOffer.swift TallyCLI/TallyPrompt.swift TallyCLI/NativePick.swift TallyCLI/PickRows.swift Tally/Core/PickContract.swift \
+  TallyCLI/MCPServe.swift TallyCLI/MCPPicker.swift TallyCLI/MCPAccountOffer.swift TallyCLI/MCPPickOffer.swift TallyCLI/TallyPrompt.swift TallyCLI/NativePick.swift TallyCLI/PickRows.swift Tally/Core/PickContract.swift \
   Tally/Core/PickPanelMetrics.swift Tally/Core/PickPalette.swift Tally/Core/PanelGeometry.swift TallyCLI/PromptHookBackstop.swift \
   Tally/Core/PromptHookInput.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift

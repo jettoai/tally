@@ -184,6 +184,9 @@ func runMCPPickerChecks() {
           accountOptions[0].label.contains("fable 54% · session 86% · weekly 47%"))
     check("…and the flagship window is named by the account rather than assumed",
           accountOptions[1].label.contains("fable 90% · session 95% · weekly 80%"))
+
+    // …and WHEN each of those windows comes back, which is the other half of what a percentage
+    // means. Asserted next door (accountwindowchecks), where the countdown family lives.
     // THE FAILURE THIS PREVENTS: "Claude" is a prefix of "Claude 2", so a picker that handed back
     // the label would resolve through the matcher and could land on the wrong account. The row
     // already knows exactly which one it is.

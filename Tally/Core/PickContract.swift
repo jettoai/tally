@@ -130,12 +130,31 @@ struct PickRequest: Codable, Equatable, Sendable {
     }
 }
 
-/// What the person did. A row, or nothing.
+/// ONE AXIS OF AN ANSWER: the row one column had circled when the panel was submitted.
+///
+/// A TYPE OF ITS OWN, so the second axis travels as ONE field rather than as a second set of
+/// siblings beside the first: a reader that gained `value2` but not `effort2` would act on half an
+/// answer, and the pair is meaningless apart (`ModelIntent.pin(model:effort:)`).
+struct PickAxisAnswer: Codable, Equatable, Sendable {
+    var value: String
+    var effort: String?
+    var kind: PickKind
+}
+
+/// What the person did. The axes they changed, or nothing.
 ///
 /// CANCELLED IS A VALUE HERE, not a missing file: the app says "they closed it" by writing this, and
 /// the CLI can then stop waiting immediately instead of sitting out the deadline. An answer file that
 /// cannot be read at all is also a cancellation, decided at the reader - this is the one message on
 /// the channel that pins an account, and a guess about it moves somebody's conversation.
+///
+/// TWO AXES, IN TWO SHAPES AT ONCE, for the reason `PickRequest.sections` carries both of its own:
+/// the far end is whatever is installed. The panel now submits everything that was circled, which
+/// can be a move AND a model change in one press, while a CLI from before that reads three fields
+/// and stops. So the three fields go on carrying ONE axis - the focused column's, which is the one
+/// the person typed the command about - and the other rides in `also`, which an older reader drops
+/// on the floor as JSON does with any unknown key. The degradation is therefore "the axis you asked
+/// for happened, the other one did not", which is the least surprising half of the pair to lose.
 struct PickAnswer: Codable, Equatable, Sendable {
     var value: String?
     var effort: String?
@@ -147,10 +166,35 @@ struct PickAnswer: Codable, Equatable, Sendable {
     /// answers from the only section it ever drew, which is the request's own kind, so nil READS AS
     /// the focus kind rather than as an error (`MCPPickOffer.content`).
     var kind: PickKind?
+    /// The other axis, when one submit changed both. Absent whenever only one was changed, which is
+    /// most picks.
+    var also: PickAxisAnswer?
 
     static let cancelled = PickAnswer()
 
-    var isCancelled: Bool { value == nil }
+    /// Nothing was chosen. BOTH FIELDS, because an answer carrying only the second axis would
+    /// otherwise read as a cancellation and quietly drop a real change - the builder never writes
+    /// one, and this is what makes that a property rather than a habit.
+    var isCancelled: Bool { value == nil && also == nil }
+}
+
+extension PickAnswer {
+    /// The answer a submit with these axes writes: the first into the fields every reader has, the
+    /// second into the one only a current reader looks at. Anything past two is unreachable (there
+    /// are two axes), and dropping it is what the type can say about that.
+    init(axes: [PickAxisAnswer]) {
+        self.init(value: axes.first?.value, effort: axes.first?.effort, kind: axes.first?.kind,
+                  also: axes.dropFirst().first)
+    }
+
+    /// Every axis this answer names, the one an older app could have written first.
+    ///
+    /// `focus` is what a nil `kind` means, and nothing else: an app that predates the palette
+    /// answers from the only section it ever drew.
+    func axes(focus: PickKind) -> [PickAxisAnswer] {
+        let named = value.map { [PickAxisAnswer(value: $0, effort: effort, kind: kind ?? focus)] }
+        return (named ?? []) + (also.map { [$0] } ?? [])
+    }
 }
 
 /// The two tags a row can carry, spelled once for every surface that draws or reads them: the text

@@ -227,9 +227,13 @@ func pickPanelListHeight(_ request: PickRequest, filters: [PickKind: String] = [
     return pickPaletteListHeight(pickPalette(request), measured: measured, cap: cap)
 }
 
-/// What one column comes to all told: its name, its own field, the rows, and the way out.
+/// What one column comes to all told: its field (which carries its name), the rows, and the way out.
+///
+/// NO HEADING LINE ANY MORE, and the sum lost exactly that: the column's name is a scope prefix
+/// inside its own search box now (`PickPanelView.searchField`), which took a line off the top of
+/// both columns.
 func pickColumnHeight(_ column: PickColumn, listHeight: CGFloat) -> CGFloat {
-    pickColumnHeadingHeight + pickSearchBlockHeight + listHeight + pickColumnStickyHeight(column)
+    pickSearchBlockHeight + listHeight + pickColumnStickyHeight(column)
 }
 
 /// What the columns come to, which is the tallest of them. The panel adds its own chrome around
@@ -238,6 +242,25 @@ func pickPaletteColumnsHeight(_ palette: PickPalette, measured: [PickKind: CGFlo
                               cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
     let list = pickPaletteListHeight(palette, measured: measured, cap: cap)
     return palette.columns.map { pickColumnHeight($0, listHeight: list) }.max() ?? 0
+}
+
+/// THE BAR UNDER THE COLUMNS: what one press would do, and the button that does it.
+///
+/// ITS SPACE IS KEPT WHETHER OR NOT IT HAS ANYTHING IN IT, which is the same rule the shared list
+/// height is under (`pickPanelListHeight`) and it is the same defect being refused: a panel that
+/// grows the moment a row is circled moves every row under the pointer that just circled it, and the
+/// next click lands on a row the person did not aim at. So the height is constant for as long as the
+/// panel is up and only the CONTENT appears.
+let pickApplyBarHeight: CGFloat = 26
+/// The air between the columns and that bar.
+let pickApplyBarGap: CGFloat = 10
+let pickApplyBlockHeight = pickApplyBarGap + pickApplyBarHeight
+
+/// The columns and the bar kept under them: everything between the sentence at the top of the panel
+/// and its bottom margin.
+func pickPaletteBodyHeight(_ palette: PickPalette, measured: [PickKind: CGFloat] = [:],
+                           cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
+    pickPaletteColumnsHeight(palette, measured: measured, cap: cap) + pickApplyBlockHeight
 }
 
 // MARK: - How wide
@@ -259,8 +282,14 @@ func pickColumnWidth(_ kind: PickKind, alone: Bool = false) -> CGFloat {
     // line is not merely untidy, it is a row two lines tall where the arithmetic says one
     // (`pickDetailRowHeight`). The row holds itself to one line as well, so a longer label truncates
     // rather than breaking the height contract.
-    case .account: return 372
-    case .model: return 300
+    //
+    // WIDENED TWICE SINCE, and both times for something the row gained rather than for taste: the
+    // circle at the head of every row (`pickRowMarkWidth`, plus its gap), and the reset countdowns
+    // on the windows line, which take "fable 100% · session 100% · weekly 100%" to "fable 100% ·
+    // session 100% (4h59m) · weekly 100% (6d23h)" - about 100 points more of a line that must not
+    // wrap and must not truncate, since the countdown is at the END of it.
+    case .account: return 400
+    case .model: return 322
     }
 }
 
@@ -280,9 +309,10 @@ func pickPanelWidth(_ palette: PickPalette) -> CGFloat {
         + pickColumnGap * CGFloat(widths.count - 1)
 }
 
-/// How tall a column's name is drawn, the air under it included. Drawn at exactly this height
-/// (`PickPanelView.heading`) rather than measured, so the sum cannot drift from the layout.
-let pickColumnHeadingHeight: CGFloat = 20
+/// The slot at the head of every row that carries its circle (`PickRowView.mark`). Always there
+/// rather than only under the circled row: a glyph that appears when a row is circled would shift
+/// every name in the column sideways at the moment somebody circles one.
+let pickRowMarkWidth: CGFloat = 14
 
 /// The column's own search field, and the air under it. Same rule: drawn at exactly this height.
 let pickSearchFieldHeight: CGFloat = 26

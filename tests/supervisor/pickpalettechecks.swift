@@ -367,10 +367,11 @@ func runPickPaletteChecks() {
               && pickColumnStickyHeight(both.column(.model)!)
                   == pickRowGroupSpacing * 2 + pickRowDividerHeight
                       + pickRowHeight(depths.rows[depths.rows.count - 1]))
-    check("a column is its name, its own field, its rows and its way out",
+    // ITS NAME IS INSIDE ITS FIELD, so there is no heading line in the sum any more: the column is
+    // the box (which says what it narrows), the rows, and the way out pinned under them.
+    check("a column is its own field, its rows and its way out",
           pickColumnHeight(both.column(.model)!, listHeight: 200)
-              == pickColumnHeadingHeight + pickSearchBlockHeight + 200
-                  + pickColumnStickyHeight(both.column(.model)!))
+              == pickSearchBlockHeight + 200 + pickColumnStickyHeight(both.column(.model)!))
     check("…and the columns come to the tallest of them",
           pickPaletteColumnsHeight(both)
               == both.columns.map { pickColumnHeight($0, listHeight: pickPaletteListHeight(both)) }

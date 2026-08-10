@@ -135,10 +135,10 @@ final class PickPanelController: NSObject, NSWindowDelegate {
         panel.animationBehavior = .utilityWindow
         panel.delegate = self
         panel.onCancel = { [weak self] in self?.finish(with: .cancelled) }
-        let hosting = PickHostingView(rootView: PickPanelView(request: request) { [weak self] choice in
-            // The choice carries the section it came from, which is what tells the CLI whether this
-            // click moved the conversation or changed what answers it (`PickChoice.answer`).
-            self?.finish(with: choice?.answer ?? .cancelled)
+        let hosting = PickHostingView(rootView: PickPanelView(request: request) { [weak self] answer in
+            // The answer names its axes, which is what tells the CLI whether this submit moved the
+            // conversation, changed what answers it, or did both (`pickSubmission`).
+            self?.finish(with: answer ?? .cancelled)
         })
         // ONE SIZE AUTHORITY, and this is the one. The content decides how big the panel is (the
         // list caps its own height and scrolls past it), so nothing here may set a frame or a
@@ -277,15 +277,18 @@ final class PickPanelController: NSObject, NSWindowDelegate {
     /// decides is which section leads and which way out is pinned, which is the whole difference
     /// between the two commands.
     static func previewRequest(kind: String) -> PickRequest? {
+        // The windows read exactly as the CLI writes them, countdowns included (`mcpAccountWindows`):
+        // this fixture is what the panel is looked at and captured through, so a shape it cannot
+        // produce here is a shape nobody sees until a real fleet is in front of it.
         let accounts = PickSection(kind: .account, rows: [
             PickRow(value: "claude:.claude", label: "Claude",
-                    detail: "fable 54% · session 86% · weekly 47%",
+                    detail: "fable 54% · session 86% (2h14m) · weekly 47% (5d7h)",
                     tags: [switchCurrentSessionTag], isCurrent: true),
             PickRow(value: "claude:.claude2", label: "Claude 2",
-                    detail: "fable 91% · session 74% · weekly 63%",
+                    detail: "fable 91% · session 74% (46m) · weekly 63% (6d23h)",
                     tags: [switchRecommendedTag]),
             PickRow(value: "claude:.claude3", label: "Claude 3",
-                    detail: "fable 12% · session 40% · weekly 22%"),
+                    detail: "fable 12% · session 40% (3h1m) · weekly 22% (2d4h)"),
             PickRow(value: "--auto", label: pickAutoLabel),
         ])
         var modelRows: [PickRow] = []

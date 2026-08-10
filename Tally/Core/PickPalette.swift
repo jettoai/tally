@@ -18,6 +18,15 @@ import Foundation
 // SO THE STRUCTURE IS: a palette is columns, a column is rows and the one pinned under them, and the
 // filter is a property of the column rather than of the panel. The arithmetic sums exactly these
 // (PickPanelMetrics.swift), the view draws exactly these, and both can be asserted without a screen.
+//
+// CIRCLING, THEN SUBMITTING, which is the correction of the first two-column panel. A click was the
+// whole answer there, and that made the one thing the columns were built for impossible: "move me to
+// Claude 2 AND run opus" is two decisions, and the surface could only ever carry the first one to be
+// clicked. So a click now CIRCLES a row in its column and nothing leaves the panel until Enter or
+// Apply, which submits every axis whose circle is not already where it is (`pickSubmission`). Each
+// column has exactly one circle and it always has a value: the row the session is on, some other
+// row, or nothing at all - and the first and last of those mean the same thing, no change on this
+// axis.
 
 /// One row as the panel draws it: the row itself, and the space above it.
 struct PickPaletteItem: Equatable, Sendable {
@@ -31,14 +40,17 @@ struct PickPaletteItem: Equatable, Sendable {
     var height: CGFloat { pickRowHeight(row) }
 }
 
-/// A row and the column it came from: everything choosing it decides.
+/// A row and the column it came from: everything circling it decides.
 struct PickChoice: Equatable, Sendable {
     let kind: PickKind
     let row: PickRow
 
-    /// What the app writes when this row is chosen. The kind travels with it, because the CLI has
-    /// two apply paths and the value alone does not say which one this is (`PickAnswer.kind`).
-    var answer: PickAnswer { PickAnswer(value: row.value, effort: row.effort, kind: kind) }
+    /// This choice as one axis of an answer. The kind travels with it, because the CLI has two
+    /// apply paths and the value alone does not say which one this is (`PickAnswer.kind`).
+    var axis: PickAxisAnswer { PickAxisAnswer(value: row.value, effort: row.effort, kind: kind) }
+
+    /// What the app writes when this row is the only thing that changed.
+    var answer: PickAnswer { PickAnswer(axes: [axis]) }
 }
 
 /// One column: one axis, answered on its own.
@@ -63,6 +75,14 @@ struct PickColumn: Equatable, Sendable {
 
     /// Where the pinned row sits in that walk, or nil when there is nothing pinned.
     var stickyIndex: Int? { sticky == nil ? nil : items.count }
+
+    /// What is at that place in the walk, when there is one there. Takes an OPTIONAL index because
+    /// every caller has one: a column's circle is "some row or none at all" (`pickColumnSelection`),
+    /// and a filter can leave an index pointing past the end of the list it was taken from.
+    func choice(at index: Int?) -> PickChoice? {
+        guard let index, choices.indices.contains(index) else { return nil }
+        return choices[index]
+    }
 
     /// Whether the query emptied this column. A column is never removed for having no hits (the two
     /// columns would then swap places under the pointer), so this is what the panel says instead.
@@ -187,16 +207,103 @@ func pickColumn(_ section: PickSection, filter: String = "") -> PickColumn {
                       filtering: pickIsFiltering(filter))
 }
 
-/// Where the cursor rests in a column.
+// MARK: - What is circled, and what that comes to
+
+/// WHAT A COLUMN HAS CIRCLED, or nil for "leave this axis alone".
+///
+/// NIL IS A REAL ANSWER AND THE COMMONEST ONE. A person who opened the palette to change the model
+/// is not also moving their conversation, so the accounts column has to have a resting state that
+/// means NO CHANGE. There are two of them and they are the same thing: circled on the row the
+/// session is already on (an account column, where one row says `isCurrent`), and circled on nothing
+/// at all (a model column, which frequently has no current row to rest on). Falling back to the
+/// first row instead - which is what the cursor did while a click was the whole submit - would
+/// arm a change nobody asked for the moment the panel came up.
 ///
 /// WHAT IT WAS LEFT ON, if that row is still there, so stepping across to the other column and back
-/// returns to where somebody was rather than to the top. ON THE ROW THE SESSION IS ALREADY ON when
-/// there is nothing to return to, which is what makes the keyboard path short for the change people
-/// actually make. ON THE FIRST HIT while something is typed, because the query IS the aim.
-func pickColumnSelection(_ column: PickColumn, remembered: Int? = nil) -> Int {
+/// returns to where somebody was. ON THE FIRST HIT while something is typed, because the query IS
+/// the aim: typing three letters and pressing Enter is the fast path, and it has to circle what the
+/// query narrowed to. A query that hit nothing circles NOTHING rather than the pinned row underneath
+/// - that row hands the axis back, and typing a word that matches no account must not arm a release.
+func pickColumnSelection(_ column: PickColumn, remembered: Int? = nil) -> Int? {
     if let remembered, column.rows.indices.contains(remembered) { return remembered }
-    guard !column.filtering else { return 0 }
-    return column.choices.firstIndex { $0.row.isCurrent } ?? 0
+    guard !column.filtering else { return column.items.isEmpty ? nil : 0 }
+    return column.choices.firstIndex { $0.row.isCurrent }
+}
+
+/// Where a column's circle lands after its own query changed.
+///
+/// ON THE SAME ROW WHENEVER THE NEW LIST STILL HOLDS IT, which is what keeps a filter from quietly
+/// undoing a choice: somebody who clicked "Claude 2" and then typed into the same field to look for
+/// something else, and cleared it again, still has Claude 2 circled. Only when the row they circled
+/// is gone does the column rest where a fresh one would.
+func pickReselected(_ column: PickColumn, keeping circled: PickRow?) -> Int? {
+    if let circled, let index = column.choices.firstIndex(where: { $0.row == circled }) {
+        return index
+    }
+    return pickColumnSelection(column)
+}
+
+/// Where the circle lands when an arrow key moves it.
+///
+/// FROM NOTHING IT LANDS ON THE END IT CAME FROM - the first row going down, the last going up -
+/// rather than one row in: a column circling nothing has no position to step from, and stepping
+/// from an imagined -1 would skip the row the person is aiming at. Clamped rather than wrapped, so
+/// a held arrow key comes to rest instead of lapping the fleet.
+func pickMovedSelection(from circled: Int?, step: Int, count: Int) -> Int? {
+    guard count > 0 else { return nil }
+    guard let circled else { return step < 0 ? count - 1 : 0 }
+    return min(max(circled + step, 0), count - 1)
+}
+
+/// WHAT THIS PANEL WOULD SUBMIT: every column whose circle is on something other than what is
+/// already the case, in the order the columns are drawn.
+///
+/// A ROW THAT SAYS `isCurrent` IS NOT A CHANGE, which is the whole of the test: circling the account
+/// the session is already on and circling nothing at all are two ways of saying the same thing, and
+/// both have to come out of here empty. The release row is never current, so circling it IS a change
+/// (handing that axis back is a thing that happens).
+func pickPendingChanges(_ palette: PickPalette, selections: [PickKind: Int]) -> [PickChoice] {
+    palette.columns.compactMap { column in
+        guard let choice = column.choice(at: selections[column.kind]), !choice.row.isCurrent
+        else { return nil }
+        return choice
+    }
+}
+
+/// THE ANSWER A SUBMIT WRITES, or nil when nothing was circled that is not already the case.
+///
+/// NIL IS A CANCELLATION and that is deliberate rather than a gap: Enter on a panel nobody changed
+/// means the person looked and left, and the CLI already has one sentence for that ("nothing was
+/// changed"). Inventing a second state for "submitted, but empty" would be a second sentence saying
+/// the same thing.
+///
+/// FOCUS FIRST, because the three fields every reader has can only carry one axis and an older CLI
+/// applies exactly them: the axis the person typed the command about is the one that survives the
+/// skew (`PickAnswer`).
+func pickSubmission(_ palette: PickPalette, selections: [PickKind: Int],
+                    focus: PickKind) -> PickAnswer? {
+    let changes = pickPendingChanges(palette, selections: selections)
+    let ordered = changes.filter { $0.kind == focus } + changes.filter { $0.kind != focus }
+    guard !ordered.isEmpty else { return nil }
+    return PickAnswer(axes: ordered.map(\.axis))
+}
+
+/// HOW ONE PENDING CHANGE READS in the bar under the columns: the name, and the depth when the row
+/// carries one. The panel's own reading of the row rather than the wire's, so a model row does not
+/// say its depth twice (`pickPanelLabel`).
+func pickChangeSummary(_ choice: PickChoice) -> String {
+    let label = pickPanelLabel(choice.row)
+    return choice.row.effort.map { "\(label) \($0)" } ?? label
+}
+
+/// WHAT THE BAR SAYS, or nil when there is nothing to say and it draws nothing.
+///
+/// One line for what one press will do, in the order the columns stand, because the whole point of
+/// putting both axes on one panel is that both can move at once and a person about to press Enter
+/// deserves to see both.
+func pickPendingSummary(_ changes: [PickChoice]) -> String? {
+    guard !changes.isEmpty else { return nil }
+    return "→ " + changes.map(pickChangeSummary).joined(separator: pickEffortSeparator)
 }
 
 /// WHETHER A HOVER IS A PERSON MOVING THE POINTER, or the panel having been raised underneath one
@@ -256,6 +363,8 @@ enum PickKeyAction: Equatable, Sendable {
     case move(Int)
     /// Across to the next column.
     case moveColumn(Int)
+    /// Submit everything both columns have circled (`pickSubmission`), which is nothing on a panel
+    /// where neither circle has moved off what is already the case.
     case commit
     case cancel
     /// The FOCUSED column's query, after this keypress. Covers typing, backspace and the clearing
@@ -270,6 +379,11 @@ enum PickKeyAction: Equatable, Sendable {
 /// left and right can mean the only other thing a two-column surface needs them to mean. The cost is
 /// stated rather than discovered: no caret means no editing in the middle of a query, only typing
 /// and backspace, which is what a filter of a dozen model names is answered with anyway.
+///
+/// ENTER IS THE SUBMIT, WHEREVER THE CURSOR IS, because the circles are what it sends and they are
+/// on the screen: the row it takes is not "the one under the cursor" any more, it is everything both
+/// columns have circled. On a panel where nothing has been circled off the current state it sends
+/// nothing, which is a cancellation and says so ("nothing was changed").
 ///
 /// ESCAPE HAS TWO ANSWERS and the order is the point: a filter that is showing three rows out of
 /// thirty is a state a person wants OUT of more often than they want the panel gone, and losing the

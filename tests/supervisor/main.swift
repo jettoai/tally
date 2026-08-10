@@ -692,11 +692,13 @@ func runAuditSinkChecks() {
 
 runNativeModelChecks()
 runMCPPickerChecks()
+runAccountWindowChecks()
 runPickerChecks()
 runPickGraceChecks()
 runPickClaimChecks()
 runPickHeightChecks()
 runPickPaletteChecks()
+runPickCircleChecks()
 runPickSurfaceChecks()
 runTallyPromptChecks()
 runBackstopChecks()

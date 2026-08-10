@@ -61,29 +61,34 @@ struct MCPPickOffer {
     /// it in.
     ///
     /// WHICH AXIS WAS ANSWERED comes from the answer when it names one, because one palette offers
-    /// both and the same click can move a conversation or change what answers it. An answer that
-    /// names no kind is from an app that only ever drew the focus section, so that IS what it means
-    /// (`PickAnswer.kind`), and reading it any other way would silently repoint older apps' picks.
+    /// both and the same submit can move a conversation, change what answers it, or do BOTH. An
+    /// answer that names no kind is from an app that only ever drew the focus section, so that IS
+    /// what it means (`PickAnswer.kind`), and reading it any other way would silently repoint older
+    /// apps' picks.
     ///
-    /// AND THE VALUE HAS TO BE A ROW WE OFFERED THERE. The panel is another process, and the case
+    /// BOTH AXES LAND IN ONE DICTIONARY, which is why the form's shape survived the change: the two
+    /// axes were always different KEYS, so a submit carrying both is the same map with one more
+    /// entry in it, and every caller below reads the key it cares about exactly as before.
+    ///
+    /// AND EVERY VALUE HAS TO BE A ROW WE OFFERED THERE. The panel is another process, and the case
     /// this whole seal-and-claim family exists for is a stale one answering on somebody's behalf
     /// (`pickMayBeClaimed`): a value naming no row we drew, or naming a row from the other section
-    /// than the kind claims, is not a pick and is answered as nothing chosen rather than acted on.
+    /// than the kind claims, is not a pick and is dropped rather than acted on. Dropped one axis at
+    /// a time, so a stranger's second axis cannot cancel a first one we did offer.
     func content(for answer: PickAnswer) -> [String: String] {
-        guard let value = answer.value else { return [:] }
-        let kind = answer.kind ?? self.kind
-        guard sections.contains(where: { section in
-            section.kind == kind && section.rows.contains { $0.value == value }
-        }) else { return [:] }
-        switch kind {
-        case .account:
-            return [mcpAccountField: value]
-        case .model:
-            var content = [mcpModelField: value]
-            // An effort the row did not name stays ABSENT rather than empty, which is the third
-            // state this axis has and the one the form expresses by leaving the field unfilled.
-            if let effort = answer.effort { content[mcpEffortField] = effort }
-            return content
+        answer.axes(focus: kind).reduce(into: [:]) { content, axis in
+            guard sections.contains(where: { section in
+                section.kind == axis.kind && section.rows.contains { $0.value == axis.value }
+            }) else { return }
+            switch axis.kind {
+            case .account:
+                content[mcpAccountField] = axis.value
+            case .model:
+                content[mcpModelField] = axis.value
+                // An effort the row did not name stays ABSENT rather than empty, which is the third
+                // state this axis has and the one the form expresses by leaving the field unfilled.
+                if let effort = axis.effort { content[mcpEffortField] = effort }
+            }
         }
     }
 }
@@ -96,6 +101,10 @@ typealias MCPAsk = (MCPPickOffer) -> MCPPickReply
 
 /// Queue the model an answer names, or nil when it names none.
 ///
+/// THE SENTENCE ONLY, not a whole decision: one submit can carry both axes now, so what comes back
+/// from here is a line that may have another line beside it, and the block is written once around
+/// the pair (`mcpQueuePick`). A dialog answering with one field is that pair with one line missing.
+///
 /// The one combination the grammar refuses that a dialog can produce is answered here rather than
 /// guessed at: the release beside an effort is two opposite instructions (`modelIntent`).
 func mcpQueueModel(_ content: [String: String], input: MCPHookInput,
@@ -106,16 +115,16 @@ func mcpQueueModel(_ content: [String: String], input: MCPHookInput,
     // the effort where it is.
     let effort = content[mcpEffortField]
     guard let intent = modelIntent([model] + (effort.map { [$0] } ?? [])) else {
-        return mcpBlockDecision(
-            "\(mcpModelAutoValue) hands this session back to the layers below, so it cannot carry "
-                + "an effort of its own; nothing was queued. Pick \(mcpModelAutoValue) on its own, "
-                + "or a model with the effort you want")
+        return "\(mcpModelAutoValue) hands this session back to the layers below, so it cannot carry "
+            + "an effort of its own; nothing was queued. Pick \(mcpModelAutoValue) on its own, "
+            + "or a model with the effort you want"
     }
     let attempt = world.applyModel(intent, input)
-    return mcpBlockDecision(mcpAttemptText(attempt.message, notes: attempt.notes))
+    return mcpAttemptText(attempt.message, notes: attempt.notes)
 }
 
-/// Queue the move an answer names, or nil when it names none.
+/// Queue the move an answer names, or nil when it names none. The sentence only, for the reason
+/// above.
 ///
 /// BY ID, not by name: the row already knows exactly which account it is, so the pick skips the
 /// matcher entirely and cannot land on an account whose label merely shares a prefix.
@@ -124,19 +133,28 @@ func mcpQueueAccount(_ content: [String: String], input: MCPHookInput,
     guard let account = content[mcpAccountField] else { return nil }
     let attempt = world.applyAccount(account == switchAutoRequest ? .auto : .pinAccount(account),
                                      input)
-    return mcpBlockDecision(mcpAttemptText(attempt.message, notes: attempt.notes))
+    return mcpAttemptText(attempt.message, notes: attempt.notes)
 }
 
-/// WHATEVER WAS ANSWERED, applied. One answered palette can name either axis, so the two commands
-/// share one way back in rather than each reading only for its own field: a `/tally` whose
-/// person picked an account row must move the conversation, not report that nothing was chosen.
+/// WHATEVER WAS ANSWERED, applied. One answered palette can name either axis OR BOTH, so the two
+/// commands share one way back in rather than each reading only for its own field: a `/tally` whose
+/// person picked an account row must move the conversation, and one who circled a row in each
+/// column must get both.
 ///
-/// The two are told apart by the FIELD the answer arrived under, which is the shape `content(for:)`
+/// BOTH QUEUES RUN, and they are independent by construction: moving a conversation and changing
+/// what answers it are two request files written by two paths that have never known about each
+/// other (`MCPPickerWorld`). Neither result gates the other, so a model axis the grammar refuses
+/// still leaves the move queued, and the person is told both things rather than one.
+///
+/// ONE LINE EACH, in the order the panel lists them (the fleet first, as the columns stand): the
+/// reason IS the user-facing surface, and two events reported as one sentence read as one event.
+///
+/// The axes are told apart by the FIELD the answer arrived under, which is the shape `content(for:)`
 /// already wrote by kind. An answer naming neither is nothing chosen, which is also what Escape,
 /// a decline and an answer we could not read all come to.
 func mcpQueuePick(_ content: [String: String], input: MCPHookInput,
                   world: MCPPickerWorld) -> String {
-    mcpQueueAccount(content, input: input, world: world)
-        ?? mcpQueueModel(content, input: input, world: world)
-        ?? mcpBlockDecision(mcpNothingChanged)
+    let queued = [mcpQueueAccount(content, input: input, world: world),
+                  mcpQueueModel(content, input: input, world: world)].compactMap { $0 }
+    return mcpBlockDecision(queued.isEmpty ? mcpNothingChanged : queued.joined(separator: "\n"))
 }

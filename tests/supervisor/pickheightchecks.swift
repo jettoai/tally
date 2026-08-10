@@ -181,6 +181,27 @@ func runPickHeightChecks() {
           view.contains("ForEach(Array(column.items.enumerated())"))
     check("…and the pinned row is drawn after it, outside",
           view.contains("if let sticky = column.sticky"))
+    // The row itself is one file over (PickRowView.swift), split out when it gained the circle.
+    let rowView = (try? String(contentsOfFile: "Tally/Views/PickRowView.swift",
+                               encoding: .utf8)) ?? ""
     check("each row is drawn with the name and the second line the rule decides",
-          view.contains("pickPanelLabel(row)") && view.contains("pickPanelDetail(row)"))
+          rowView.contains("pickPanelLabel(row)") && rowView.contains("pickPanelDetail(row)"))
+
+    // MARK: - 36h7. The bar under the columns takes its own space, always
+
+    // THE PANEL DOES NOT CHANGE SIZE WHILE SOMEBODY IS WORKING IN IT, which is the rule the shared
+    // list height is already under: a bar that appeared when a row was circled would move every row
+    // under the pointer that just circled it, and the next click would land on a row nobody aimed
+    // at.
+    check("the body is the columns plus the bar kept under them",
+          pickPaletteBodyHeight(pickPalette(rows: modelRows))
+              == pickPaletteColumnsHeight(pickPalette(rows: modelRows)) + pickApplyBlockHeight)
+    check("…and that block is real space rather than nothing",
+          pickApplyBlockHeight == pickApplyBarGap + pickApplyBarHeight && pickApplyBarHeight > 0)
+    check("the bar is drawn at exactly the height the sum reserves for it",
+          rowView.contains(".frame(height: pickApplyBarHeight)")
+              && rowView.contains(".padding(.top, pickApplyBarGap)"))
+    // The circle's slot is reserved the same way and for the same reason, one level down.
+    check("every row keeps room for its circle whether or not it has one",
+          rowView.contains(".frame(width: pickRowMarkWidth, alignment: .leading)"))
 }

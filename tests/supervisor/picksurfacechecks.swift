@@ -36,17 +36,29 @@ func runPickSurfaceChecks() {
           view.contains("VStack(spacing: 0)") && !view.contains("LazyVStack"))
     check("each column is typed into on its own",
           view.contains("queries[column.kind]") && view.contains("filters: queries"))
-    check("…and the column being typed into says so",
-          view.contains("isFocused ? AnyShapeStyle(TallyColor.ai)")
-              && view.contains("stroke(TallyColor.ai.opacity(0.35)"))
+    // WHICH COLUMN IS LISTENING, said on the name at the head of its own box. The outline that used
+    // to say it as well is gone with the heading line: a box that is named, filled and ringed says
+    // one thing three times, and it was competing with the circles a press acts on.
+    check("…and the column being typed into says so, on its own name",
+          view.contains("Text(L(pickColumnHeadingKey(column.kind)))")
+              && view.contains("isFocused ? AnyShapeStyle(TallyColor.ai)")
+              && !view.contains("stroke(TallyColor.ai"))
+    check("…and that name is inside the field's own box rather than on a line above it",
+          view.contains("PickSearchField(text: query")
+              && !view.contains("frame(height: pickColumnHeadingHeight"))
     // The other half of the frozen height: a filtered stack measures only what survived the query,
     // so believing it would resize the panel from underneath.
     check("…and a measurement taken while a column is filtered is not believed",
           view.contains(#"guard !pickIsFiltering(queries[kind] ?? "") else { return }"#))
     // A DETAIL LINE THAT WRAPS IS A ROW THE ARITHMETIC CANNOT SEE, so the row refuses to wrap: a
     // real fleet at 100% across three windows plus a tag did exactly that on the first live run.
+    // The row itself lives one file over now (PickRowView.swift), split out when it gained the
+    // circle; what the panel owns is the columns around it.
+    let rowView = (try? String(contentsOfFile: "Tally/Views/PickRowView.swift",
+                               encoding: .utf8)) ?? ""
+    check("the row view is readable from this suite", !rowView.isEmpty)
     check("a row's second line is held to one line, which is what the height family assumes",
-          view.contains(".lineLimit(1)"))
+          rowView.contains(".lineLimit(1)"))
     check("a column its filter emptied says that rather than showing a gap",
           view.contains("column.isEmptyOfMatches") && view.contains(#"L("No matches")"#))
     check("every keypress is decided by the rule this file asserts",
@@ -54,9 +66,11 @@ func runPickSurfaceChecks() {
               && view.contains("pickColumnFocus(palette, from: focus, step: step)"))
     check("the pointer moves the keyboard's column with it, once the panel is really up",
           view.contains("focus = column.kind")
-              && view.contains("guard inside, pickHoverMovesFocus(shownAt: shownAt)"))
-    check("a chosen row carries the column it came from",
-          view.contains("choose(PickChoice(kind: column.kind, row: item.row))"))
+              && view.contains("guard pickHoverMovesFocus(shownAt: shownAt) else { return }"))
+    // A CLICK CIRCLES, IT DOES NOT ANSWER (pickcirclechecks carries the grammar and the reason):
+    // what leaves the panel is every circle at once, so both axes can move on one press.
+    check("a chosen row is circled in its own column",
+          view.contains(".onTapGesture { selections[column.kind] = index }"))
     // THE DEV TAG, which is why it is on this panel at all: two instances of it can be on one
     // machine, and a build nobody installed must be tellable from the installed one BEFORE a click
     // moves somebody's conversation. Reused from the popover's header rather than drawn again.
@@ -133,8 +147,8 @@ func runPickSurfaceChecks() {
               .answer == PickAnswer(value: "claude:.claude2", effort: nil, kind: .account))
     let controller = (try? String(contentsOfFile: "Tally/MenuBar/PickPanelController.swift",
                                   encoding: .utf8)) ?? ""
-    check("…and the panel writes exactly that answer",
-          controller.contains("finish(with: choice?.answer ?? .cancelled)"))
+    check("…and the panel writes exactly what was submitted",
+          controller.contains("finish(with: answer ?? .cancelled)"))
     check("a request with rows in any section is drawn rather than refused",
           controller.contains("!request.everyRow.isEmpty"))
     check("the dev preview shows the whole palette, which is what a person actually sees",

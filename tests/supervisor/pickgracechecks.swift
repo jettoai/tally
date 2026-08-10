@@ -154,21 +154,52 @@ func runPickGraceChecks() {
     check("the deadline path is readable", !expireBody.isEmpty)
     check("…and it drops the borrowed foreground before answering, rather than activating into it",
           expireBody.contains("previousApp = nil") && expireBody.contains("finish(with: .cancelled)"))
-    // Both clocks are stopped by an answer, and a panel that has been answered must not be able to
-    // answer again five minutes later.
-    let finishBody = controller.range(of: "private func finish(with answer: PickAnswer)").flatMap {
-        start in
-        controller.range(of: "// MARK: - Dev preview").map { end in
-            String(controller[start.lowerBound ..< end.lowerBound])
-        }
-    } ?? ""
-    check("the answered panel is readable", !finishBody.isEmpty)
-    check("…and answering stops both clocks",
-          finishBody.contains("graceTimer?.invalidate()")
-              && finishBody.contains("deadlineTimer?.invalidate()"))
-    check("…and is idempotent by construction, so a timer that already fired finds nothing to do",
+    // AND IT ANSWERS NOBODY WHO HAS ALREADY GONE. The wait discards the whole request when it ends
+    // (`discard`, NativePick.swift), and it can end before this deadline does - a client that closed
+    // its stdin, a session killed, a machine that slept through the wait. An answer written then is
+    // a file under `~/.tally/pick` that nothing reads and nothing removes, because the reader that
+    // does the cleaning is the one that left. The panel still comes down; it comes down silently.
+    check("the deadline asks whether anybody is still waiting before it answers",
+          expireBody.contains("FileManager.default.fileExists(atPath: "
+              + "pickRequestFile(id: request.id, dir: dir).path)"))
+    check("…and takes the panel down without answering when nobody is",
+          expireBody.contains("dismiss()"))
+    // The signal it reads has to be the one the wait actually removes: this guard is only as true as
+    // the discard is, so the discard's own file list is pinned from here.
+    let nativePickSource = (try? String(contentsOfFile: "TallyCLI/NativePick.swift",
+                                        encoding: .utf8)) ?? ""
+    check("the wait's discard is readable from this suite", !nativePickSource.isEmpty)
+    check("…and it is the request file that a wait ending takes away",
+          nativePickSource.contains("for file in [pickRequestFile(id: id), pickClaimFile(id: id)"))
+    // Both clocks are stopped either way out, and a panel that is gone must not be able to answer
+    // five minutes later.
+    func body(_ from: String, _ to: String) -> String {
+        controller.range(of: from).flatMap { start in
+            controller.range(of: to).map { end in
+                String(controller[start.lowerBound ..< end.lowerBound])
+            }
+        } ?? ""
+    }
+    let finishBody = body("private func finish(with answer: PickAnswer)", "private func dismiss()")
+    let dismissBody = body("private func dismiss()", "private func takeDown()")
+    let takeDownBody = body("private func takeDown()", "// MARK: - Dev preview")
+    check("the answered panel, the silent one and their shared teardown are all readable",
+          !finishBody.isEmpty && !dismissBody.isEmpty && !takeDownBody.isEmpty)
+    check("the teardown stops both clocks, whichever way the panel went",
+          takeDownBody.contains("graceTimer?.invalidate()")
+              && takeDownBody.contains("deadlineTimer?.invalidate()"))
+    check("…and hands the borrowed foreground back", takeDownBody.contains("previousApp?.activate()"))
+    check("…and both ways out go through it rather than each stopping its own clocks",
+          finishBody.contains("takeDown()") && dismissBody.contains("takeDown()"))
+    check("only the answering path writes an answer and knocks",
+          finishBody.contains("pickAnswerFile(id: request.id, dir: dir)")
+              && finishBody.contains("postNotificationName")
+              && !dismissBody.contains("pickAnswerFile") && !dismissBody.contains("encodePick"))
+    check("…and both are idempotent by construction, so a timer that already fired finds nothing",
           finishBody.contains("guard let request = current else { return }")
-              && finishBody.contains("current = nil"))
+              && finishBody.contains("current = nil")
+              && dismissBody.contains("guard current != nil else { return }")
+              && dismissBody.contains("current = nil"))
 
     // MARK: - 36e2d. The ways out, and that one of them can be seen
 

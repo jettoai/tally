@@ -236,6 +236,24 @@ final class PickPanelController: NSObject {
     /// they moved on to, for a panel they had already forgotten.
     private func expire() {
         previousApp = nil
+        guard let request = current else { return }
+        // AND NOBODY IS ANSWERED WHO IS NO LONGER THERE. The wait discards the whole request the
+        // moment it ends - request, claim, seal and answer together (`discard`, NativePick.swift) -
+        // and it can end before this deadline does: a client that closed its stdin, a session that
+        // was killed, a machine that slept through the wait and came back past the CLI's own clock.
+        // Writing an answer then creates a file under `~/.tally/pick` that no process will read and
+        // none will remove either, because the reader that cleans up is precisely the one that has
+        // gone. The panel is the last owner of that id.
+        //
+        // The REQUEST FILE is the liveness signal rather than a guess about it: it is written before
+        // the knock and removed by that same discard, so its absence is the wait having ended. The
+        // panel still comes down - it is five minutes stale on somebody's screen either way - it
+        // just comes down without speaking (`dismiss`).
+        guard FileManager.default.fileExists(atPath: pickRequestFile(id: request.id, dir: dir).path)
+        else {
+            dismiss()
+            return
+        }
         finish(with: .cancelled)
     }
 
@@ -251,6 +269,23 @@ final class PickPanelController: NSObject {
                 Notification.Name(pickAnsweredNotification), object: request.id,
                 userInfo: nil, deliverImmediately: true)
         }
+        takeDown()
+    }
+
+    /// Take the panel down WITHOUT answering, for the one case where there is nobody left to answer
+    /// (`expire`). Idempotent through the same field as `finish`, and for the same reason.
+    private func dismiss() {
+        guard current != nil else { return }
+        current = nil
+        takeDown()
+    }
+
+    /// What both ways out do: stop both clocks, so a panel that is gone cannot answer five minutes
+    /// later; take the window off the screen; and hand back whatever foreground was borrowed -
+    /// without this last part every pick would leave the person in Tally instead of the terminal
+    /// they typed the command into. Shared rather than copied, because a second copy is how one of
+    /// the two paths ends up leaving a timer running.
+    private func takeDown() {
         graceTimer?.invalidate()
         graceTimer = nil
         deadlineTimer?.invalidate()
@@ -258,8 +293,6 @@ final class PickPanelController: NSObject {
         prompted = true
         panel?.orderOut(nil)
         panel = nil
-        // Handed back to whoever had it. Without this, every pick would leave the person in Tally
-        // instead of the terminal they typed the command into.
         previousApp?.activate()
         previousApp = nil
     }

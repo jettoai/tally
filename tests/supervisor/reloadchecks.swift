@@ -145,6 +145,18 @@ func runReloadChecks() {
                                        hasTranscript: false, childAge: 3, bar: 120)
     check("a session too young to have written a transcript says that",
           youngReason.short == "starting up" && youngReason.full == "no transcript yet")
+    // THE SHARED CLAUSE NAMES ALL OF WHAT THAT ARM MIGHT BE, which is the rule `QuietGate.transcript`
+    // states about itself: one Bool covers a live turn, an unanswered tool call, an unresolved fork
+    // and a subagent still writing (`TranscriptWatcher.isQuiet`), and a fork nobody has typed into
+    // has no turn running at all - so a clause that named a turn was telling a person about
+    // something that is not there (codex review of fe4462d). Vague on purpose, exactly as the reload
+    // axis's own full form above is.
+    check("the shared clause for that arm claims no particular one of them",
+          quietGateHolding(.transcript) == "this session or a subagent is still writing")
+    check("…and the other three arms still say what they are",
+          quietGateHolding(.keyboard).contains("prompt")
+              && quietGateHolding(.startup).contains("no turn yet")
+              && quietGateHolding(.unknown).contains("in use"))
     // The short form has to survive being pasted into "reload waiting (...)" on a line that already
     // carries the quota meters.
     for reason in [writingReason, keyboardReason, youngReason] {

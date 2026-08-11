@@ -162,26 +162,32 @@ private func launchableAccount(_ id: String?, provider: String,
     return switchTargetState(id, provider: provider, accounts: accounts()).account
 }
 
-/// The status-line badge a switch leaves while it waits out the turn that asked for it. A constant
-/// because the wording is asserted in a test and read by a person on the same line, and a copy of it
-/// drifting in one of the two would assert nothing - the model axis keeps its own for that reason
+/// The status-line badge a switch leaves while the gate holds it. A constant because the wording is
+/// asserted in a test and read by a person on the same line, and a copy of it drifting in one of the
+/// two would assert nothing - the model axis keeps its own for that reason
 /// (`sessionModelWaitingBadge`), and this is the same wait one axis over.
 ///
 /// Short because it shares its row with the quota meters, like every badge on this track: WHICH
 /// account the session is moving to, and which one it sits on until then, are the detail's job.
-let switchQueuedBadge = "switch: after this turn"
+///
+/// THE STATE, NOT A DEADLINE, which is the rule the long form already follows (`quietGateHolding`
+/// carries the review): "after this turn" told the reader WHEN, and the gate reports only the first
+/// term that said no, so the named moment arrived with nothing happening. It also promised a turn
+/// this arm cannot promise - one Bool covers a live turn, an open tool call, an unresolved fork and
+/// a subagent, so the badge says what the reload axis's short form has always said about the same
+/// term (`reloadWaitReason`): the session is busy (codex review of fe4462d).
+let switchQueuedBadge = "switch: session busy"
 
-/// The other two waits the same gate produces, because "after this turn" is a promise only ONE of
-/// them can keep. `reloadQuiet` is three terms (SessionSwitch asks it through `reloadQuiet` itself),
-/// and only the first is a turn: a prompt being typed and a session that has not written a turn at
-/// all both hold the move too, and both used to say a turn was ending when none was running. The
+/// The other two waits the same gate produces, described the same way. `reloadQuiet` is three terms
+/// (SessionSwitch asks it through `reloadQuiet` itself) and only the first is the transcript: a
+/// prompt being typed and a session that has not written a turn at all both hold the move too. The
 /// reader can only act on one of the three, which is the whole reason the reload axis names its gate
 /// as well (`reloadWaitReason`).
-let switchQueuedTypingBadge = "switch: after typing"
-let switchQueuedStartupBadge = "switch: after startup"
+let switchQueuedTypingBadge = "switch: typing"
+let switchQueuedStartupBadge = "switch: starting up"
 /// The fourth arm of `QuietGate`, which no caller can reach today: a gate term added there and not
 /// here would land on a badge that is vague rather than wrong.
-let switchQueuedIdleBadge = "switch: when idle"
+let switchQueuedIdleBadge = "switch: in use"
 
 /// Which of the four badges above a gate wears. Apart from the wording below because the SHORT form
 /// is a constant a test pins and a person reads on the same row, while the long form is composed.

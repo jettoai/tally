@@ -143,7 +143,14 @@ func quietGate(transcriptQuiet: Bool, keyboardQuiet: Bool, hasTranscript: Bool,
 /// descriptive already and are left exactly as they are.
 func quietGateHolding(_ gate: QuietGate) -> String {
     switch gate {
-    case .transcript: return "a turn is still running here"
+    // NAMING ALL OF WHAT IT MIGHT BE, which is the rule this arm's own definition states: one Bool
+    // covers a live turn, an unanswered tool call, an unresolved fork and a subagent still writing
+    // (`TranscriptWatcher.isQuiet`), and a fork that nobody has typed into has no turn running at
+    // all - so "a turn is still running here" was a description that could be flatly untrue, in the
+    // one clause this family rewrote to stop making claims it cannot support (codex review of
+    // fe4462d). Deliberately vague, on the same terms as the reload axis's own wording for this arm
+    // (`reloadWaitReason`), because the vagueness is what makes it true of all four.
+    case .transcript: return "this session or a subagent is still writing"
     case .keyboard: return "a prompt is being typed here"
     case .startup: return "this session has only just started and has written no turn yet"
     case .unknown: return "this session is in use"

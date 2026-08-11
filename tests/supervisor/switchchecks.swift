@@ -10,6 +10,18 @@ import Foundation
 // lands the session is mid-turn by construction, and the thing that must never happen is the
 // supervisor killing the child in the middle of the turn that asked for the switch.
 
+/// Whether a badge names a MOMENT rather than the state it is in. The wording rule both waiting
+/// axes are held to (`quietGateHolding`, Reload.swift): the gate reports the first term that said
+/// no, so any promise about when a wait lifts is a promise the second term can break, and the badge
+/// is the half a person actually reads.
+///
+/// On WORDS rather than substrings, so a badge is not failed for the letters inside one of its own
+/// (a `.contains("when")` would fail "whenever" and, less obviously, would pass "afterwards").
+func promisesAMoment(_ badge: String) -> Bool {
+    let promises: Set<String> = ["after", "once", "when", "until", "till", "soon", "then"]
+    return badge.lowercased().split { !$0.isLetter }.contains { promises.contains(String($0)) }
+}
+
 func switchAccount(_ id: String, label: String? = nil,
                            home: String? = nil) -> Snapshot.Account {
     Snapshot.Account(id: id, provider: "claude", label: label ?? id,
@@ -365,6 +377,14 @@ func runSwitchChecks() {
         check("\(gate): fits the row beside the quota meters", wait.badge.count <= 24)
         check("\(gate): says switch, so the row says which axis is waiting",
               wait.badge.hasPrefix("switch: "))
+        // THE BADGE DESCRIBES, LIKE THE CLAUSE BESIDE IT. The gate names the first term that said
+        // no and a second can be shut at the same moment, so a badge that named WHEN the move
+        // happens named a moment at which nothing does - and the short form is what is read on the
+        // status line, so fixing only the long one left the promise on screen (codex review of
+        // fe4462d). Asserted as a property of every arm rather than as four strings, because the
+        // next term added is where a promise would come back.
+        check("\(gate): describes the state, promising no moment it cannot keep",
+              !promisesAMoment(wait.badge))
     }
 
     // The account SIGNED OUT between the command and the tick: nothing is relaunched into a config

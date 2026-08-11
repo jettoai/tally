@@ -355,22 +355,24 @@ func sessionModelNotice(_ pair: SessionModelPin, movingTo label: String?,
            : "; `tally model --auto` to follow the default again")
 }
 
-/// The status-line badge a queued model change leaves while a TURN is what holds it. Constants
-/// because the wording is asserted in a test and read by a person on the same line, and a copy of it
-/// drifting in one of the two would assert nothing.
+/// The status-line badge a queued model change leaves while the gate holds it. Constants because the
+/// wording is asserted in a test and read by a person on the same line, and a copy of it drifting in
+/// one of the two would assert nothing.
 ///
-/// FOUR, BECAUSE THE GATE HAS FOUR TERMS (`QuietGate`, Reload.swift) and only the first of them is a
-/// turn. The wording is the account axis's one word over (`switchQueuedWait`, SessionSwitch.swift):
-/// the two waits sit in the same row of the same status line, and one of them saying "after typing"
-/// while the other said "waiting for turn end" about the same held keyboard would be two accounts of
-/// one fact. It also brings this badge inside the width that row is worth (24 characters, which the
-/// old wording was three over).
-let sessionModelWaitingBadge = "model: after this turn"
-let sessionModelTypingBadge = "model: after typing"
-let sessionModelStartupBadge = "model: after startup"
+/// FOUR, BECAUSE THE GATE HAS FOUR TERMS (`QuietGate`, Reload.swift), and each names the state it is
+/// in rather than the moment it ends: the gate reports only the first term that said no, so a badge
+/// that named a moment named one at which nothing would happen (`switchQueuedBadge` carries the
+/// review). The wording is the account axis's one word over (`switchQueuedWait`,
+/// SessionSwitch.swift): the two waits sit in the same row of the same status line, and one of them
+/// saying "typing" while the other said "waiting for turn end" about the same held keyboard would be
+/// two accounts of one fact. It also brings this badge inside the width that row is worth (24
+/// characters, which the wording before last was three over).
+let sessionModelWaitingBadge = "model: session busy"
+let sessionModelTypingBadge = "model: typing"
+let sessionModelStartupBadge = "model: starting up"
 /// The fourth arm, which no caller can reach today: a term added to the gate and not here would land
 /// on a badge that is vague rather than wrong.
-let sessionModelIdleBadge = "model: when idle"
+let sessionModelIdleBadge = "model: in use"
 
 /// Which of the four badges above a gate wears, apart from the wording for the reason the account
 /// axis states beside its own (`queuedSwitchBadge`): the short form is pinned, the long form is

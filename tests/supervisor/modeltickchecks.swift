@@ -286,6 +286,10 @@ func runModelTickChecks() {
         check("\(gate): fits the row beside the quota meters", wait.badge.count <= 24)
         check("\(gate): says model, so the row says which axis is waiting",
               wait.badge.hasPrefix("model: "))
+        // The account axis's rule one word over (`promisesAMoment`, switchchecks): the short form
+        // is the one on the status line, and it may not name a moment the gate cannot keep.
+        check("\(gate): describes the state, promising no moment it cannot keep",
+              !promisesAMoment(wait.badge))
     }
 
     // MARK: - 33e. Which account the new model lands on

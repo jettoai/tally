@@ -84,8 +84,11 @@ func runPickClaimChecks() {
 
     // The preview path is deliberately on the other side of this: it shows the panel directly and
     // writes no answer, so a build that may not answer a real request can still be looked at.
+    // Read as the prefix rather than the whole call: the preview also decides what the panel comes
+    // up with circled (`CaptureLaunch.modifierKeys` classifies that flag), and what this is about is
+    // that nothing on this path was prompted or claimed.
     check("the dev preview does not come through the gate at all",
-          controller.contains("shared.show(request, prompted: false)"))
+          controller.contains("shared.show(request, prompted: false"))
 
     // MARK: - 36c7. The copies that were ALREADY RUNNING, which no gate of ours can reach
 

@@ -201,20 +201,31 @@ func runPickHeightChecks() {
     check("each row is drawn with the name and the second line the rule decides",
           rowView.contains("pickPanelLabel(row)") && rowView.contains("pickPanelDetail(row)"))
 
-    // MARK: - 36h7. The bar under the columns takes its own space, always
+    // MARK: - 36h7. The bar under the columns takes space only when it has something to say
 
-    // THE PANEL DOES NOT CHANGE SIZE WHILE SOMEBODY IS WORKING IN IT, which is the rule the shared
-    // list height is already under: a bar that appeared when a row was circled would move every row
-    // under the pointer that just circled it, and the next click would land on a row nobody aimed
-    // at.
-    check("the body is the columns plus the bar kept under them",
-          pickPaletteBodyHeight(pickPalette(rows: modelRows))
-              == pickPaletteColumnsHeight(pickPalette(rows: modelRows)) + pickApplyBlockHeight)
-    check("…and that block is real space rather than nothing",
-          pickApplyBlockHeight == pickApplyBarGap + pickApplyBarHeight && pickApplyBarHeight > 0)
-    check("the bar is drawn at exactly the height the sum reserves for it",
+    // IT USED TO TAKE THAT SPACE EITHER WAY, and the reason was real: a bar that appears when a row
+    // is circled makes the panel taller, and a panel that grows moves every row under the pointer
+    // that just circled one. What it cost was a permanent band of air under a panel that spends
+    // most of its life with nothing pending (Albert, 2026-08-11).
+    //
+    // THE DEFECT IS PAID FOR BY THE WINDOW NOW: the panel holds its TOP edge through a content
+    // resize (asserted in tests/windowanchor), so the growth is all below the rows and nothing that
+    // is already drawn moves at all. An idle panel ends at its own content margin.
+    let palette = pickPalette(rows: modelRows)
+    check("an idle panel's body is the columns and nothing else",
+          pickPaletteBodyHeight(palette) == pickPaletteColumnsHeight(palette)
+              && pickApplyBlockHeight(pending: false) == 0)
+    check("…and one with something to submit is that plus the bar and its air",
+          pickPaletteBodyHeight(palette, pending: true)
+              == pickPaletteColumnsHeight(palette) + pickApplyBarGap + pickApplyBarHeight
+              && pickApplyBarHeight > 0)
+    // The drawing has to make the same answer, which is why the bar is nothing rather than an empty
+    // row: a zero-height stack still carries the padding, and the padding is what was given back.
+    check("the bar is drawn at exactly the height the sum gives it, when it is drawn at all",
           rowView.contains(".frame(height: pickApplyBarHeight)")
               && rowView.contains(".padding(.top, pickApplyBarGap)"))
+    check("…and a panel with nothing pending draws no bar, not an empty one",
+          rowView.contains("if let summary = pickPendingSummary(changes) {\n            HStack("))
     // The circle's slot is reserved the same way and for the same reason, one level down.
     check("every row keeps room for its circle whether or not it has one",
           rowView.contains(".frame(width: pickRowMarkWidth, alignment: .leading)"))

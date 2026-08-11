@@ -102,6 +102,61 @@ func pickSectionsFocusFirst(_ sections: [PickSection], focus: PickKind) -> [Pick
     return ordered
 }
 
+/// WHICH PROJECT A PICK IS ABOUT, so a panel that arrives out of the air says whose conversation it
+/// is about to move.
+///
+/// WHY IT HAS TO TRAVEL. One app answers every session on the machine, and several are usually open
+/// at once in several repositories; the panel is raised by a knock carrying an id and nothing else,
+/// so the only thing that knows which session asked is the process that asked. Two panels for two
+/// projects were previously identical down to the sentence on them, and the answer moves a
+/// conversation - a mis-read one moves the wrong conversation.
+///
+/// A TYPE OF ITS OWN rather than fields beside each other, for the reason `PickAxisAnswer` states:
+/// a name without its path is half an identity, and a struct is what makes "all of it or none of
+/// it" a property of the wire rather than a habit of the two ends.
+struct PickProject: Codable, Equatable, Sendable {
+    /// What the project is called: the MAIN repo's directory name, so every parallel line of one
+    /// repository reads as that repository (the line itself is named below).
+    var name: String
+    /// The checkout this session is in, whole. Not drawn on the line - a path is longer than
+    /// everything else on it together - but kept for the surface that has room for it on hover.
+    var path: String
+    /// The parallel line, when this checkout is not the main one. `tally worktree` lands them beside
+    /// the repo as `<repo>-<branch>` (`worktreePath`), so three lines of one repository would
+    /// otherwise raise three panels that say exactly the same thing.
+    var worktree: String?
+}
+
+/// The identity, built from the two answers git gives about a directory. Pure, so the rule can be
+/// asserted without a repository on disk; the asking is the CLI's (`pickProjectForCwd`).
+///
+/// A DIRECTORY THAT IS NOT A REPOSITORY STILL HAS A NAME, and it is the one the person sees in
+/// their terminal, so nothing here fails: an unanswerable git is a project called after its own
+/// folder, which is exactly what the launch profile does with the same question
+/// (`projectPolicyKey`).
+func pickProject(cwd: String, mainRepo: String?, checkout: String?) -> PickProject {
+    let home = checkout ?? cwd
+    let name = ((mainRepo ?? home) as NSString).lastPathComponent
+    guard let mainRepo, let checkout, checkout != mainRepo else {
+        return PickProject(name: name, path: home, worktree: nil)
+    }
+    // The line's own name rather than its folder: the folder is `<repo>-<branch>` by construction,
+    // and a panel that said "tally-feat-cart" beside "tally" would be saying the repository twice.
+    // A checkout somewhere else entirely (a worktree made by hand) keeps its folder name, which is
+    // all anyone can say about it.
+    let folder = (checkout as NSString).lastPathComponent
+    let prefix = name + "-"
+    let line = folder.hasPrefix(prefix) ? String(folder.dropFirst(prefix.count)) : folder
+    return PickProject(name: name, path: checkout, worktree: line.isEmpty ? nil : line)
+}
+
+/// What the panel draws at the head of its sentence: the project, and the parallel line when there
+/// is one. One string, so the drawn lead and anything else reading this identity cannot come apart.
+func pickProjectLead(_ project: PickProject) -> String {
+    guard let worktree = project.worktree else { return project.name }
+    return project.name + pickEffortSeparator + worktree
+}
+
 /// One request to draw a picker.
 struct PickRequest: Codable, Equatable, Sendable {
     let id: String
@@ -121,6 +176,11 @@ struct PickRequest: Codable, Equatable, Sendable {
     /// once: a new CLI's request reaching an old app (which reads `rows`), and an old CLI's request
     /// reaching a new app (which finds this nil and draws a single section, exactly as before).
     var sections: [PickSection]?
+    /// Whose conversation this is, when the CLI that asked was able to say (`PickProject`). Optional
+    /// for the reason the sections above are, and read the same way: a request from a CLI that
+    /// predates this field draws the panel exactly as it drew before, with no lead on its sentence.
+    /// Additive only, which is the rule every file under `~/.tally` is under.
+    var project: PickProject?
 
     /// Every row the request offers, whichever section it is in. What "there is something to draw"
     /// means for a request that may carry either shape.
@@ -203,6 +263,13 @@ extension PickAnswer {
 /// listing that invented them, because they now cross a process boundary.
 let switchCurrentSessionTag = "this session"
 let switchRecommendedTag = "most headroom"
+
+/// THE MIDDOT THIS FAMILY JOINS TWO SHORT THINGS WITH: a model and its depth, a project and the
+/// parallel line it is on, two pending changes in one sentence. On the contract rather than beside
+/// the panel's own arithmetic because BOTH ENDS write labels with it - the CLI builds "opus · high"
+/// and the panel takes it apart again (`pickPanelLabel`) - and a second copy of a glyph is how the
+/// building and the taking apart come to disagree.
+let pickEffortSeparator = " · "
 
 /// What the release row is called wherever it is offered.
 let pickAutoLabel = "automatic selection  (release this session's pin)"

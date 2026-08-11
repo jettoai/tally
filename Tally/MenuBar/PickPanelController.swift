@@ -124,7 +124,8 @@ final class PickPanelController: NSObject {
     /// same panel raised by a launch flag for a look, where taking the foreground would walk over
     /// whoever is using the machine. Both answers come from one place (CaptureLaunch), so neither
     /// path can quietly grow its own policy.
-    private func show(_ request: PickRequest, prompted: Bool = true) {
+    private func show(_ request: PickRequest, prompted: Bool = true,
+                      circled: [PickKind: Int]? = nil) {
         let activating = CaptureLaunch.mayTakeForeground(
             prompted: prompted, activeKeys: CaptureLaunch.activeKeys())
         current = request
@@ -160,7 +161,8 @@ final class PickPanelController: NSObject {
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .utilityWindow
         panel.onCancel = { [weak self] in self?.finish(with: .cancelled) }
-        let hosting = PickHostingView(rootView: PickPanelView(request: request) { [weak self] answer in
+        let hosting = PickHostingView(rootView: PickPanelView(request: request,
+                                                              circled: circled) { [weak self] answer in
             // The answer names its axes, which is what tells the CLI whether this submit moved the
             // conversation, changed what answers it, or did both (`pickSubmission`).
             self?.finish(with: answer ?? .cancelled)
@@ -174,6 +176,11 @@ final class PickPanelController: NSObject {
         // ORIGIN ONLY, which is why it does not fight the line above: the house rule for a window
         // the user summoned is the screen the pointer is on, at the standard dialog height.
         panel.centerOnPointerScreen()
+        // FROM HERE ON THE TOP EDGE IS THE ONE THAT STAYS (`PickPanel.setFrame`). Armed after the
+        // placement rather than at construction, because everything before this line is the panel
+        // getting its first size at all - held from the zero rect it was created with, it would
+        // anchor itself to the bottom of the screen.
+        panel.keepsTopEdge = true
         // `orderFront` rather than `makeKeyAndOrderFront` when the foreground is not ours: a panel
         // nobody asked for must not take the keyboard away from whatever the person is typing in.
         if activating {
@@ -309,7 +316,14 @@ final class PickPanelController: NSObject {
               let request = previewRequest(kind: kind) else { return }
         shared.answersOnDisk = false
         // Nobody asked for this one: it is a launch flag putting the panel up to be looked at.
-        shared.show(request, prompted: false)
+        //
+        // WITH A ROW ALREADY CIRCLED, if asked for. That is the state the apply bar exists for, and
+        // the panel cannot rest in it: the circle starts on the row the session is already on, so
+        // nothing is pending until somebody clicks. The alternative to this flag is synthesized
+        // clicks on a real desktop, which is what the capture family exists to avoid
+        // (`CaptureLaunch.modifierKeys`). Index 1 of the fleet is the account the fixture is NOT on.
+        let pending = UserDefaults.standard.bool(forKey: "TallyPickPending")
+        shared.show(request, prompted: false, circled: pending ? [.account: 1] : nil)
     }
 
     /// The fixture the flag names: BOTH sections, in the order the named one opens them.
@@ -340,24 +354,35 @@ final class PickPanelController: NSObject {
             // is this same list): a fixture drawing two of them is a picture of a panel nobody sees,
             // and the length of the real list is exactly what a capture is looked at for.
             for effort in claudeEffortNames() {
+                // …and the resting pair wears the tag the real builder gives it, which is the same
+                // word the fleet's own current row wears (`mcpModelPickRows`): the capture is what
+                // the two columns are compared on.
+                let isCurrent = model == "fable" && effort == "high"
                 modelRows.append(PickRow(value: model, effort: effort,
                                          label: "\(model) · \(effort)",
-                                         isCurrent: model == "fable" && effort == "high"))
+                                         tags: isCurrent ? [switchCurrentSessionTag] : [],
+                                         isCurrent: isCurrent))
             }
         }
         modelRows.append(PickRow(value: "auto", label: "auto  (follow this project's profile, then "
             + "the fleet default)"))
         let models = PickSection(kind: .model, rows: modelRows)
+        // …AND WHOSE SESSION IT IS, which is drawn at the head of the sentence (`PickProject`). The
+        // fixture carries a parallel line as well, because that is the shape a capture is looked at
+        // for: the lead is the one part of this panel that is different for every session on the
+        // machine, and a preview naming no project would be a picture of the panel nobody gets.
+        let project = PickProject(name: "tally", path: "/Users/you/workspace/tally-feat-cart",
+                                  worktree: "feat-cart")
         switch kind {
         case "account":
             return PickRequest(
                 id: "preview", kind: .account,
                 message: "Claude ×3 · Move this conversation to another account",
-                rows: accounts.rows, sections: [accounts, models])
+                rows: accounts.rows, sections: [accounts, models], project: project)
         case "model":
             return PickRequest(id: "preview", kind: .model,
                                message: "This session's last response was served by claude-fable-5",
-                               rows: models.rows, sections: [models, accounts])
+                               rows: models.rows, sections: [models, accounts], project: project)
         default:
             return nil
         }
@@ -392,8 +417,45 @@ private final class PickHostingView<Content: View>: NSHostingView<Content> {
 final class PickPanel: NSPanel {
     var onCancel: (() -> Void)?
 
+    /// Whether a change of HEIGHT keeps the top edge where it is. Off until the panel has been
+    /// placed, because before that its frame is the zero rect it was created with and there is no
+    /// edge worth holding - the placement itself is the first height it ever has (`show`).
+    var keepsTopEdge = false
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// THE TOP EDGE IS WHAT STAYS STILL when the content changes height, so the panel grows
+    /// DOWNWARD: the apply bar appears under the columns when a row is circled
+    /// (`pickApplyBlockHeight`), and a surface that grew upward would take every row out from under
+    /// the pointer that had just circled one. That is the defect the bar's reserved space used to
+    /// be avoiding, and it is why the space could stop being reserved.
+    ///
+    /// WHAT WAS MEASURED, rather than what is assumed (instrumented launch, 2026-08-11): a launch
+    /// makes exactly ONE frame write reach this panel, `(1024, 768, 0, 0)` to `(1024, 202, 758,
+    /// 566)`, and AppKit's own proposal already held the old top edge (768 = 202 + 566). So this is
+    /// a GUARANTEE rather than a correction on that path: the write it produced was identical. The
+    /// resize that happens when the bar appears on a panel already on screen could not be observed
+    /// without synthesized clicks on a real desktop, which is exactly what is not done here - so the
+    /// property is pinned rather than left resting on undocumented behaviour that was checked once.
+    ///
+    /// THE SIZE AUTHORITY IS UNTOUCHED, which is the red line on this repo's SwiftUI-in-AppKit
+    /// surfaces (~/.claude/docs/patterns/swiftui-appkit.md, and the pinned panel's stack overflow
+    /// that paid for it): the size in this write is AppKit's, passed through byte for byte. Only the
+    /// ORIGIN is rewritten, and only in the one case that has an origin worth correcting.
+    ///
+    /// A MOVE PASSES STRAIGHT THROUGH, which is what keeps the panel draggable: this surface is
+    /// movable by its background, and a frame write that keeps its height is the person dragging it
+    /// rather than the content resizing (`ResizeAnchor.changesHeight`).
+    override func setFrame(_ frameRect: NSRect, display displays: Bool) {
+        guard keepsTopEdge, ResizeAnchor.changesHeight(from: frame.size, to: frameRect.size) else {
+            super.setFrame(frameRect, display: displays)
+            return
+        }
+        var held = frameRect
+        held.origin = ResizeAnchor.origin(for: frameRect, edges: resizeEdges, corner: .topLeading)
+        super.setFrame(held, display: displays)
+    }
 
     /// Escape, at the AppKit level as well as the SwiftUI one: the list handles it while it has
     /// focus, and this catches the case where it does not.

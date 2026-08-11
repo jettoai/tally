@@ -170,6 +170,52 @@ func runPickPaletteChecks() {
     check("…and the cursor still resting where the session already is",
           single?.columns.first.map { pickColumnSelection($0) } == 1)
 
+    // MARK: - 37c2. …and which project the pick is about, added the same way
+
+    // ONE APP ANSWERS EVERY SESSION ON THE MACHINE, and somebody with three projects open was shown
+    // three panels that read identically while the answer moves a conversation (Albert, 2026-08-11).
+    // So the identity travels, under the rule every file in `~/.tally` is under: added, never
+    // changed, and read as absent by both skews of the far end.
+    check("a request from before this field says it names no project", read?.project == nil)
+    let addressed = PickRequest(id: "abc", kind: .model, message: "what runs this",
+                                rows: models.rows, sections: [models, accounts],
+                                project: PickProject(name: "tally", path: "/w/tally-feat",
+                                                     worktree: "feat"))
+    check("a request that names one carries it whole, there and back",
+          decodePick(PickRequest.self, from: encodePick(addressed))?.project
+              == addressed.project)
+    check("…and an older app decodes exactly the fields it always did",
+          decodePick(LegacyPickRequest.self, from: encodePick(addressed))
+              == LegacyPickRequest(id: "abc", kind: .model, message: "what runs this",
+                                   rows: models.rows))
+
+    // THE IDENTITY ITSELF, from the two answers git gives. The main repo names the project, so every
+    // parallel line of one repository reads as that repository.
+    check("an ordinary checkout is named after itself, on no line",
+          pickProject(cwd: "/w/tally", mainRepo: "/w/tally", checkout: "/w/tally")
+              == PickProject(name: "tally", path: "/w/tally", worktree: nil))
+    // `tally worktree` lands a line beside the repo as `<repo>-<branch>`, so the folder says the
+    // repository twice and the panel says it once.
+    check("a parallel line is that repository, on the line's own name",
+          pickProject(cwd: "/w/tally-feat-cart", mainRepo: "/w/tally",
+                      checkout: "/w/tally-feat-cart")
+              == PickProject(name: "tally", path: "/w/tally-feat-cart", worktree: "feat-cart"))
+    check("…and one made by hand somewhere else keeps the only name it has",
+          pickProject(cwd: "/elsewhere/hotfix", mainRepo: "/w/tally",
+                      checkout: "/elsewhere/hotfix").worktree == "hotfix")
+    // A directory that is not a repository still has a name, and it is the one in their terminal:
+    // the same fallback the launch profile makes of the same question (`projectPolicyKey`).
+    check("a directory git cannot answer for is called after itself",
+          pickProject(cwd: "/w/scratch", mainRepo: nil, checkout: nil)
+              == PickProject(name: "scratch", path: "/w/scratch", worktree: nil))
+    check("…and a session inside a repo git answered for is placed at its checkout",
+          pickProject(cwd: "/w/tally/Tally/Views", mainRepo: "/w/tally", checkout: "/w/tally").path
+              == "/w/tally")
+    check("the lead names the project alone, or the project and its line",
+          pickProjectLead(PickProject(name: "tally", path: "/w/tally")) == "tally"
+              && pickProjectLead(PickProject(name: "tally", path: "/w/t", worktree: "feat-cart"))
+                  == "tally · feat-cart")
+
     // MARK: - 37d. Two columns, and everything one axis has inside its own
 
     // The two lists as they really come: a fleet whose rows carry three windows and a tag, and a

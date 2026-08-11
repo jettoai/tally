@@ -342,6 +342,25 @@ func runPickerChecks() {
     // of those - but the axis is read from the installed CLI's own help at runtime
     // (`EffortLevels`), so a level this build has never heard of is still reachable and still has to
     // leave the person a resting row.
+    // AND IT SAYS SO IN THE WORD THE OTHER COLUMN USES. Weight alone was the whole marking, and
+    // beside a fleet whose current account wears a chip it read as nothing (Albert, 2026-08-11).
+    // Asked of the tag rather than of the drawing, because the tag is what both columns render
+    // through and the panel needed no change to show it.
+    let onPair = rowsRunning("opus", "high")
+    check("the pair a session is running is tagged the way its account is",
+          onPair.filter { $0.tags.contains(switchCurrentSessionTag) }
+              .map { ($0.value, $0.effort) } .map { "\($0.0) \($0.1 ?? "-")" } == ["opus high"])
+    check("…which is the resting row itself, and only it",
+          onPair.filter(\.isCurrent).count == 1
+              && onPair.allSatisfy { $0.isCurrent == $0.tags.contains(switchCurrentSessionTag) })
+    check("…and a list nothing is running on tags nothing",
+          mcpModelPickRows(ModelStatus()).allSatisfy { $0.tags.isEmpty })
+    // BOTH ENTRIES SEE IT, because both commands build the model column from this one builder: what
+    // the command decides is which section leads, not what a row says about itself.
+    let picker = (try? String(contentsOfFile: "TallyCLI/MCPPicker.swift", encoding: .utf8)) ?? ""
+    check("both commands draw the model column from this same builder",
+          picker.components(separatedBy: "mcpModelPickRows(").count >= 3)
+
     let onUnknown = rowsRunning("opus", "turbo")
     check("a session at a depth the list does not draw rests on the model's own row",
           onUnknown.filter(\.isCurrent).map(\.value) == ["opus"]

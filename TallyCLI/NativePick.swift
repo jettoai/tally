@@ -125,3 +125,24 @@ struct NativePickChannel {
 /// A fresh id for one pick. A uuid rather than a counter: two sessions can ask at the same moment,
 /// and the id names files in a directory they share.
 func newPickID() -> String { UUID().uuidString }
+
+/// WHOSE CONVERSATION THIS PICK IS ABOUT, asked of git here and drawn by the panel there
+/// (`PickProject`, which states why it has to travel at all and builds the identity from these two
+/// answers).
+///
+/// THE SERVER'S OWN DIRECTORY IS THE SESSION'S. An MCP server is spawned by the client with the
+/// session's working directory, so this process is already standing in the project it is being
+/// asked about; three servers running here at once sit in three different repositories (verified
+/// against the live processes, 2026-08-11). Nothing on the MCP wire carries the client's cwd, so
+/// this is the only answer available - and it is the same one the launch profile is keyed by
+/// (`projectPolicyKey`), which is what keeps "which project" one answer across the app.
+///
+/// Two git calls per pick, on a path that is already about to put a window on somebody's screen.
+func pickProjectForCwd(_ cwd: String = FileManager.default.currentDirectoryPath) -> PickProject {
+    // The CHECKOUT this session is in, which is the worktree rather than the repository: the two
+    // differ exactly when the session is on a parallel line, and that difference is the line's name.
+    let top = runGit(["rev-parse", "--path-format=absolute", "--show-toplevel"], cwd: cwd)
+    let checkout = top.code == 0 && !top.out.isEmpty ? realpathString(top.out) : nil
+    return pickProject(cwd: realpathString(cwd), mainRepo: resolveMainRepo(cwd: cwd),
+                       checkout: checkout)
+}

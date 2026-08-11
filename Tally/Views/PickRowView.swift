@@ -190,17 +190,21 @@ func pickEffortWeight(_ effort: String) -> Font.Weight {
 /// as, so the sentence is assembled from the same reading the rows are drawn from
 /// (`pickChangeSummary`).
 ///
-/// ITS SPACE IS KEPT EVEN WHEN IT SAYS NOTHING (`pickApplyBarHeight`), which is the same rule the
-/// shared list height is under: the panel must not change size while somebody is working in it.
+/// IT TAKES NO SPACE UNTIL IT HAS SOMETHING TO SAY (`pickApplyBlockHeight`, which carries why the
+/// space used to be reserved and what pays for that defect now): a panel with nothing pending ends
+/// at its own content margin, and the growth when a row is circled happens BELOW every row, because
+/// the window holds its top edge through the resize (`PickPanel.setFrame`).
 struct PickApplyBar: View {
     /// What would be submitted, in the order the columns stand. Empty on a panel that would submit
-    /// nothing, which is what draws no sentence and no button.
+    /// nothing, which is what draws no bar at all.
     let changes: [PickChoice]
     let apply: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            if let summary = pickPendingSummary(changes) {
+        // Nothing rather than an empty row: a zero-height `HStack` still carries its padding, which
+        // is the band of air this exists to give back.
+        if let summary = pickPendingSummary(changes) {
+            HStack(spacing: 8) {
                 sentence
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -226,10 +230,10 @@ struct PickApplyBar: View {
                 .focusable(false)
                 .accessibilityLabel("\(L("Apply")) \(summary)")
             }
+            .frame(height: pickApplyBarHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, pickApplyBarGap)
         }
-        .frame(height: pickApplyBarHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, pickApplyBarGap)
     }
 
     /// THE SAME SENTENCE `pickPendingSummary` WRITES, in pieces so the depth in it carries the

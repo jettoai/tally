@@ -76,6 +76,14 @@ enum ResizeAnchor {
         abs(size.width - reported.width) > tolerance || abs(size.height - reported.height) > tolerance
     }
 
+    /// The same question again for the vertical alone, which is what a surface holding its TOP edge
+    /// has to separate: a frame write that only MOVES the window is the user dragging it, and
+    /// correcting the origin of a drag would pin the window in place. Height is the axis because the
+    /// edge being held is horizontal (the pick panel's, `PickPanel.setFrame`).
+    static func changesHeight(from size: CGSize, to reported: CGSize) -> Bool {
+        abs(size.height - reported.height) > tolerance
+    }
+
     /// Half a point: below this, two numbers are the same place on a screen that can only draw
     /// whole points, and acting on the difference is acting on noise.
     private static let tolerance: CGFloat = 0.5

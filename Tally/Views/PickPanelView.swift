@@ -42,8 +42,8 @@ struct PickPanelView: View {
     @State private var hovered: [PickKind: Int] = [:]
     /// WHERE THE KEYBOARD JUST SENT THE CIRCLE, per column, and nothing the pointer does is written
     /// here. It is what tells the column's scrolling region that a circle moved by a key has to be
-    /// brought into view while one moved by a click must not be (`pickScrollFollowsKeyboard`, which
-    /// carries the defect and why a destination is recorded rather than a flag raised).
+    /// brought into view while one moved by a click must not be (`pickScrollTarget`, which carries
+    /// both defects and why the destination is what the list watches rather than the circle).
     @State private var keyboardLanded: [PickKind: Int] = [:]
     @FocusState private var focused: Bool
     /// What each column's rows actually laid out at, or zero before the first pass. Read through
@@ -53,13 +53,19 @@ struct PickPanelView: View {
     /// the panel having been raised underneath one (`pickHoverMovesFocus`).
     @State private var shownAt = Date()
 
-    init(request: PickRequest, choose: @escaping (PickAnswer?) -> Void) {
+    /// `circled` is for CAPTURE ONLY and is nil on every path a person reaches (`CaptureLaunch
+    /// .modifierKeys` classifies the flag that passes it): a panel at rest circles the row the
+    /// session is already on, so "something is pending" is a state no fixture can be built into and
+    /// only a click can produce. Photographing it otherwise means synthesized input on somebody's
+    /// desktop, which is what a dev-only flag exists to avoid.
+    init(request: PickRequest, circled: [PickKind: Int]? = nil,
+         choose: @escaping (PickAnswer?) -> Void) {
         self.request = request
         self.choose = choose
         _focus = State(initialValue: request.kind)
         // A column with nothing to circle contributes no entry at all, which is how "no change on
         // this axis" is spelled here: an absent key rather than an index standing in for one.
-        _selections = State(initialValue: Dictionary(
+        _selections = State(initialValue: circled ?? Dictionary(
             uniqueKeysWithValues: pickPalette(request).columns.compactMap { column in
                 pickColumnSelection(column).map { (column.kind, $0) }
             }))
@@ -79,10 +85,13 @@ struct PickPanelView: View {
             // answering, and the rows are the answer. Everything was one weight of grey before, so
             // the panel read as two paragraphs with a list under them. It stays one line across the
             // whole panel: what it says is about the session, which is what both columns are about.
-            Text(request.message)
+            messageLine
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+                // The whole path, where there is room for it and only if somebody asks: the line
+                // itself stays one line (`PickProject.path`).
+                .help(request.project?.path ?? "")
                 .padding(.bottom, TallyMetrics.headerToCard + 4)
             HStack(alignment: .top, spacing: pickColumnGap) {
                 ForEach(palette.columns, id: \.kind) { column in
@@ -152,6 +161,25 @@ struct PickPanelView: View {
         .onKeyPress(phases: [.down, .repeat]) { press in typed(press) }
     }
 
+    /// THE SENTENCE ABOVE THE LIST, led by the project it is about.
+    ///
+    /// WHY THE LEAD IS THERE (Albert, 2026-08-11): this panel is raised by one app on behalf of
+    /// whichever session asked, and somebody working in three projects at once was shown three
+    /// panels that read identically - while the answer moves a conversation. The name is set in
+    /// semibold and the rest of the sentence is left as it was, so it is an ADDRESS on a line that
+    /// already exists rather than a second line of chrome.
+    ///
+    /// A REQUEST THAT NAMES NO PROJECT DRAWS EXACTLY WHAT IT ALWAYS DREW, which is the older CLI
+    /// still running inside a session that started before the update (`PickRequest.project`).
+    ///
+    /// `Text` + `Text` rather than two views, because this is one wrapping sentence: laid out as an
+    /// `HStack` the name would be a column of its own and the message would wrap beside it.
+    private var messageLine: Text {
+        guard let project = request.project else { return Text(request.message) }
+        return Text(verbatim: pickProjectLead(project)).fontWeight(.semibold)
+            + Text(verbatim: pickEffortSeparator) + Text(request.message)
+    }
+
     /// One column: its field (which is also where its name is), its rows, and the way out of its
     /// axis.
     ///
@@ -200,19 +228,22 @@ struct PickPanelView: View {
                 // under it. The height comes from the columns now, measured or computed, and
                 // `pickPaletteListHeight` is where both live.
                 .frame(height: listHeight)
-                .onChange(of: selections[column.kind] ?? 0) { _, now in
-                    // THE LIST FOLLOWS THE KEYBOARD AND NEVER THE POINTER, which is the whole rule
-                    // (`pickScrollFollowsKeyboard` carries the defect: a clicked row is already on
-                    // screen, so re-centring it slid the column out from under the pointer that had
-                    // just landed on it). Consumed here whether or not it fires, so a request the
-                    // keyboard left standing cannot outlive one move.
-                    let asked = keyboardLanded[column.kind]
+                // THE LIST FOLLOWS THE KEYBOARD AND NEVER THE POINTER, which is the whole rule, and
+                // it watches WHERE THE KEYBOARD SENT THE CIRCLE rather than the circle itself
+                // (`pickScrollTarget` carries both defects that shaped this). Watching the circle
+                // missed every keypress that moves the circle to where it already is - the step back
+                // to a column's remembered row, an arrow clamped at the end of a list - and those
+                // are exactly the presses that can be aimed at a row below the fold.
+                .onChange(of: keyboardLanded[column.kind]) { _, landed in
+                    // CONSUMED FIRST AND UNCONDITIONALLY, which is what lets the very next press
+                    // write the same destination again and still be seen. Clearing what is already
+                    // clear changes nothing and therefore observes nothing, so this cannot chase
+                    // its own tail.
                     keyboardLanded[column.kind] = nil
-                    guard pickScrollFollowsKeyboard(asked: asked, landedOn: now) else { return }
-                    // Only what scrolls can be scrolled to: the pinned row is not in this region,
-                    // and it does not need to be brought into view because it never leaves.
-                    guard now < column.items.count else { return }
-                    withAnimation(.linear(duration: 0.08)) { proxy.scrollTo(now, anchor: .center) }
+                    guard let target = pickScrollTarget(landed: landed,
+                                                        rowCount: column.items.count)
+                    else { return }
+                    withAnimation(.linear(duration: 0.08)) { proxy.scrollTo(target, anchor: .center) }
                 }
                 .onAppear { proxy.scrollTo(selections[column.kind] ?? 0, anchor: .center) }
             }
@@ -406,7 +437,7 @@ struct PickPanelView: View {
     /// MOVING A CIRCLE FROM THE KEYBOARD, which is the one door every such path uses: the arrows,
     /// the step across to the other column, and the reselection a query forces. What separates it
     /// from a click is the destination it records - that is what the column's scrolling region
-    /// follows, and a click deliberately records none (`pickScrollFollowsKeyboard` carries why). One
+    /// follows, and a click deliberately records none (`pickScrollTarget` carries why). One
     /// writer, so a path that moved a circle without telling the list cannot exist by oversight.
     private func circleFromKeyboard(_ index: Int?, in kind: PickKind) {
         keyboardLanded[kind] = index
@@ -440,7 +471,7 @@ struct PickPanelView: View {
     /// TYPING IS THE KEYBOARD, so the circle this leaves is one the list follows: a query narrowing
     /// thirty rows to twenty can push the circled row below the fold, and Enter on a row nobody can
     /// see is the thing worth avoiding here. Nothing is under the pointer being clicked while
-    /// somebody types, which is the case the rule was written for (`pickScrollFollowsKeyboard`).
+    /// somebody types, which is the case the rule was written for (`pickScrollTarget`).
     private func edited(_ typed: String, in kind: PickKind) {
         let circled = palette.column(kind)?.choice(at: selections[kind])?.row
         queries[kind] = typed

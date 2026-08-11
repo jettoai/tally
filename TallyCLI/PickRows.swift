@@ -88,15 +88,30 @@ func mcpModelPickRows(_ status: ModelStatus, efforts: [String] = pickerExpandedE
     let depthIsDrawn = runningEffort.map { effort in
         efforts.contains { $0.lowercased() == effort }
     } ?? false
+    // THE RESTING ROW SAYS SO IN THE SAME WORDS THE OTHER COLUMN USES. It used to say it in weight
+    // alone (`PickRowView` sets the label semibold), which beside a fleet whose current account
+    // wears a chip read as nothing at all - the two columns are side by side, so one axis marked
+    // with a tag and the other with a shade of bold is one panel answering the same question two
+    // ways (Albert, on the panel, 2026-08-11).
+    //
+    // THE ACCOUNT AXIS'S OWN WORD rather than a second one for the same idea: "this session" is
+    // already what the fleet listing, the arrow-key menu and the panel all say for "where this
+    // session is" (`switchCurrentSessionTag`), and it reads exactly as true of the pair that answers
+    // it. A `current` beside a `this session` would be two vocabularies on one surface.
+    func currentTags(_ isCurrent: Bool) -> [String] {
+        isCurrent ? [switchCurrentSessionTag] : []
+    }
     for option in options where option.value != mcpModelAutoValue {
         let isRunningModel = modelsAgree(option.value, status.running?.model)
         // The model on its own: changes what answers, leaves the depth where it is.
+        let bareIsCurrent = isRunningModel && !depthIsDrawn
         rows.append(PickRow(value: option.value, effort: nil, label: option.label,
-                            isCurrent: isRunningModel && !depthIsDrawn))
+                            tags: currentTags(bareIsCurrent), isCurrent: bareIsCurrent))
         for effort in efforts {
+            let pairIsCurrent = isRunningModel && runningEffort == effort.lowercased()
             rows.append(PickRow(value: option.value, effort: effort,
                                 label: "\(option.value) · \(effort)",
-                                isCurrent: isRunningModel && runningEffort == effort.lowercased()))
+                                tags: currentTags(pairIsCurrent), isCurrent: pairIsCurrent))
         }
     }
     // Last, and alone: the one row that hands both axes back, which is why it carries no effort.

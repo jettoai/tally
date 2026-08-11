@@ -290,8 +290,12 @@ final class MCPServer {
         // BOTH SHAPES ON THE WIRE: `rows` is the focus section, which is the whole of what an app
         // from before the palette can read, and `sections` is the palette itself for one that can
         // (`PickRequest.sections` states why both skews are live at once).
+        // …AND WHOSE SESSION IT IS. Several projects are usually open at once and the panel is one
+        // app answering all of them, so the request is the only thing that can say which
+        // conversation a submit would move (`pickProjectForCwd`).
         guard pick.publish(PickRequest(id: id, kind: offer.kind, message: offer.message,
-                                       rows: offer.rows, sections: offer.sections))
+                                       rows: offer.rows, sections: offer.sections,
+                                       project: pickProjectForCwd()))
         else { return nil }
         // Whatever happens next, the files go: one left behind would raise a panel for a question
         // nobody is waiting on any more.

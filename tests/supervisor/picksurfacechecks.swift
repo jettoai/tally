@@ -83,6 +83,28 @@ func runPickSurfaceChecks() {
     // not (`PickEffortHeat.mode`).
     check("…and the mode the CLI does not document is told apart by weight, in both of them",
           rowView.components(separatedBy: ".fontWeight(pickEffortWeight(effort))").count == 3)
+    // WHOSE CONVERSATION THIS IS, at the head of the sentence the panel already draws. One app
+    // answers every session on the machine, so two projects raised two identical panels while the
+    // answer moves a conversation (Albert, 2026-08-11). Locked as one `Text` chain rather than a
+    // stack: the sentence wraps, and a name laid out beside it would be a column of its own.
+    check("the sentence is led by the project, set apart by weight",
+          view.contains("Text(verbatim: pickProjectLead(project)).fontWeight(.semibold)")
+              && view.contains("+ Text(verbatim: pickEffortSeparator) + Text(request.message)"))
+    check("…and a request that names no project draws the sentence it always drew",
+          view.contains("guard let project = request.project else { return Text(request.message) }"))
+    check("…with the path kept for the hover rather than put on the line",
+          view.contains(".help(request.project?.path ?? \"\")")
+              && !view.contains("Text(project.path"))
+    // The panel is asked by a process standing in the session's own directory, which is the only
+    // thing on this path that knows which project asked (`pickProjectForCwd`).
+    let serve = (try? String(contentsOfFile: "TallyCLI/MCPServe.swift", encoding: .utf8)) ?? ""
+    check("the CLI puts that identity on every request it publishes",
+          serve.contains("project: pickProjectForCwd()"))
+    let native = (try? String(contentsOfFile: "TallyCLI/NativePick.swift", encoding: .utf8)) ?? ""
+    check("…resolved from the checkout git names, through the rule asserted without a repository",
+          native.contains("return pickProject(cwd: realpathString(cwd), mainRepo: "
+              + "resolveMainRepo(cwd: cwd),"))
+
     check("a column its filter emptied says that rather than showing a gap",
           view.contains("column.isEmptyOfMatches") && view.contains(#"L("No matches")"#))
     check("every keypress is decided by the rule this file asserts",
@@ -120,24 +142,37 @@ func runPickSurfaceChecks() {
 
     // THE DEFECT (Albert, 2026-08-10): every change of circle re-centred the column, so clicking a
     // row - a row that is on screen by definition, since it was clicked - slid the whole list out
-    // from under the pointer. It read as the panel jumping. The rule is pure, so the three cases are
+    // from under the pointer. It read as the panel jumping. The rule is pure, so the cases are
     // asserted here; that the panel ASKS it is locked by source, the way the rest of this surface is.
     check("a row the keyboard sent the circle to is brought into view",
-          pickScrollFollowsKeyboard(asked: 4, landedOn: 4))
-    check("a row the pointer circled is not, because it is already on screen",
-          !pickScrollFollowsKeyboard(asked: nil, landedOn: 4))
-    // THE STALE REQUEST, which is why a destination is recorded rather than a flag raised: a key
-    // that circles the row already circled changes nothing, so nothing consumes what it wrote. A
-    // flag left standing there would fire on the next CLICK - the very case the rule exists to
-    // refuse - while a destination cannot, since it equals the index being moved away from.
-    check("a request the keyboard left standing cannot scroll a later click",
-          !pickScrollFollowsKeyboard(asked: 4, landedOn: 7))
-    check("the panel asks that rule rather than scrolling on every change",
-          view.contains("guard pickScrollFollowsKeyboard(asked: asked, landedOn: now) else { return }"))
-    // …and it is consumed on every move, so "stale for at most one move" is a property of the code
-    // rather than of the wording above: the read and the clearing are the two lines before the guard.
-    check("…consuming the request whether or not it fires",
-          view.contains("let asked = keyboardLanded[column.kind]\n                    keyboardLanded[column.kind] = nil"))
+          pickScrollTarget(landed: 4, rowCount: 9) == 4)
+    check("a column the keyboard has sent nowhere scrolls to nothing",
+          pickScrollTarget(landed: nil, rowCount: 9) == nil)
+    // The way out of an axis is pinned UNDER its column rather than in it, so the arrows can circle
+    // a row the scrolling region does not contain. Asked of the region's own count, which is what
+    // makes "one past the last row" the pinned one.
+    check("the pinned way out is not something the scrolling region can scroll to",
+          pickScrollTarget(landed: 9, rowCount: 9) == nil
+              && pickScrollTarget(landed: -1, rowCount: 9) == nil)
+    // THE SECOND DEFECT (codex review of 1667555), and the reason the destination is what is
+    // watched: a keypress that lands the circle where it already is changes no circle at all - the
+    // step back to a column's remembered row, an arrow clamped at the end of a list - so an observer
+    // on the CIRCLE never ran, the list stayed where it was, and Enter could submit a row that was
+    // scrolled out of sight. The destination is written on every one of those presses, so the same
+    // index twice is still two events.
+    check("a keypress that lands where the circle already is still scrolls there",
+          pickScrollTarget(landed: 4, rowCount: 9) == pickScrollTarget(landed: 4, rowCount: 9))
+    check("the panel watches where the keyboard sent the circle, not the circle",
+          view.contains(".onChange(of: keyboardLanded[column.kind]) { _, landed in")
+              && !view.contains(".onChange(of: selections[column.kind]"))
+    check("…and asks that rule rather than scrolling to whatever it was handed",
+          view.contains("guard let target = pickScrollTarget(landed: landed,")
+              && view.contains("proxy.scrollTo(target, anchor: .center)"))
+    // Consumed BEFORE the rule is asked rather than after it passes, which is what makes the next
+    // press writing the same destination a second event: a value left standing is a value the next
+    // write cannot change.
+    check("…consuming the destination whether or not it scrolls",
+          view.contains("keyboardLanded[column.kind] = nil\n                    guard let target"))
     // EVERY KEYBOARD PATH THAT MOVES A CIRCLE GOES THROUGH ONE DOOR, and there are three of them:
     // the walk down a column, the step across to the next one, and the reselection a query forces. A
     // path that moved the circle without telling the list would be an arrow key that walks off
@@ -292,6 +327,23 @@ func runPickSurfaceChecks() {
     check("the dev preview shows the whole palette, which is what a person actually sees",
           controller.contains("sections: [accounts, models]")
               && controller.contains("sections: [models, accounts]"))
+    // …AND CAN BE SHOWN WITH A ROW ALREADY CIRCLED, which is the one state of this panel no fixture
+    // can be built into: the circle rests on the row the session is already on, so nothing is
+    // pending until somebody clicks (`pickColumnSelection`). Without this the apply bar could only
+    // be photographed by synthesizing clicks on a real desktop.
+    check("the preview can raise the panel with something already pending",
+          controller.contains(#"UserDefaults.standard.bool(forKey: "TallyPickPending")"#)
+              && controller.contains("circled: pending ? [.account: 1] : nil"))
+    check("…which the panel seeds its circles from, and only when it is given one",
+          view.contains("_selections = State(initialValue: circled ?? Dictionary("))
+    // The flag is classified with the rest of the capture family, which is what keeps a background
+    // launch from taking somebody's foreground (`CaptureLaunch`, whose own rule is that leaving one
+    // out is the direction that breaks silently).
+    check("…and that flag is one the capture family knows about",
+          CaptureLaunch.modifierKeys.contains("TallyPickPending")
+              && CaptureLaunch.allFlagKeys.contains("TallyPickPending")
+              && !CaptureLaunch.mayTakeForeground(activeKeys: ["TallyPickPreview",
+                                                               "TallyPickPending"]))
     // …AND THE WHOLE OF THE MODEL LIST, since this fixture is what the panel is captured through: two
     // depths here while the CLI expands the axis (`pickerExpandedEfforts`) would be a picture of a
     // panel nobody sees, and how long that list runs is exactly what a capture is looked at for.

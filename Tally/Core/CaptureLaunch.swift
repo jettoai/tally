@@ -54,7 +54,14 @@ enum CaptureLaunch {
     /// Flags that qualify another flag and show nothing on their own. Inert alone, and the flag
     /// each of them qualifies is in `backgroundKeys`, so a launch carrying one is answered by its
     /// parent.
-    static let modifierKeys = ["TallyUpdateChipReady", "TallyUpdateChipBusy", "TallyTokenGraphHover"]
+    static let modifierKeys = ["TallyUpdateChipReady", "TallyUpdateChipBusy", "TallyTokenGraphHover",
+                               // The pick panel with a row already circled, which is the state its
+                               // apply bar exists for and the one state of it no fixture can reach:
+                               // the circle rests on the row the session is already on, so a panel
+                               // that has never been touched has nothing pending by construction
+                               // (`pickColumnSelection`). Reaching it otherwise means synthesized
+                               // clicks on somebody's desktop.
+                               "TallyPickPending"]
 
     /// The override that hands the pick claim back to a build that has stood down
     /// (`pickMayBeClaimed`). Named for the same reason `loginItemPreview` is: the panel's gate asks

@@ -124,9 +124,9 @@ private func pickRowText(_ row: PickRow) -> (label: String, detail: String?) {
     return (String(label[label.startIndex ..< opening.lowerBound]), String(note))
 }
 
-/// How a label spells the depth it already names, and how it opens a trailing aside. Here so the
-/// panel takes apart exactly what the builders put together.
-let pickEffortSeparator = " · "
+/// How a label opens a trailing aside. Beside the reader that takes one apart, so the panel undoes
+/// exactly what the builders put together. The middot the same labels are joined with lives on the
+/// contract instead, because the CLI writes labels too (`pickEffortSeparator`).
 let pickNoteSeparator = "  ("
 
 /// WHAT A MODEL NAMED WITHOUT A DEPTH MEANS, as the English key its translations are filed under
@@ -315,22 +315,36 @@ func pickPaletteColumnsHeight(_ palette: PickPalette, measured: [PickKind: CGFlo
 }
 
 /// THE BAR UNDER THE COLUMNS: what one press would do, and the button that does it.
-///
-/// ITS SPACE IS KEPT WHETHER OR NOT IT HAS ANYTHING IN IT, which is the same rule the shared list
-/// height is under (`pickPanelListHeight`) and it is the same defect being refused: a panel that
-/// grows the moment a row is circled moves every row under the pointer that just circled it, and the
-/// next click lands on a row the person did not aim at. So the height is constant for as long as the
-/// panel is up and only the CONTENT appears.
 let pickApplyBarHeight: CGFloat = 26
 /// The air between the columns and that bar.
 let pickApplyBarGap: CGFloat = 10
-let pickApplyBlockHeight = pickApplyBarGap + pickApplyBarHeight
 
-/// The columns and the bar kept under them: everything between the sentence at the top of the panel
-/// and its bottom margin.
-func pickPaletteBodyHeight(_ palette: PickPalette, measured: [PickKind: CGFloat] = [:],
+/// What the bar adds to the panel: itself and its air when there is something to say, and NOTHING
+/// AT ALL when there is not.
+///
+/// ITS SPACE USED TO BE KEPT EITHER WAY, and the reason was real: a panel that grows the moment a
+/// row is circled moves every row under the pointer that just circled it, so the next click lands
+/// on a row nobody aimed at. What that cost was a permanent band of empty air under the columns of
+/// a panel that spends most of its life with nothing pending (Albert, 2026-08-11).
+///
+/// THE DEFECT IS PAID FOR SOMEWHERE ELSE NOW, which is what makes the reserve unnecessary rather
+/// than merely unwanted: the panel's TOP edge is what stays still through a content resize
+/// (`PickPanel.setFrame`, which carries what was measured and what was not), so the growth happens
+/// below everything that is drawn - the sentence, the fields and every row stay where they were, and
+/// only the bottom edge moves. An idle panel therefore ends at its own content margin
+/// (`PanelGeometry.contentPadding`) instead of at a band of air: 36 points of it, measured on the
+/// live panel as 566 with the bar reserved and 530 without (2026-08-11).
+func pickApplyBlockHeight(pending: Bool) -> CGFloat {
+    pending ? pickApplyBarGap + pickApplyBarHeight : 0
+}
+
+/// The columns and whatever the bar under them comes to: everything between the sentence at the top
+/// of the panel and its bottom margin.
+func pickPaletteBodyHeight(_ palette: PickPalette, pending: Bool = false,
+                           measured: [PickKind: CGFloat] = [:],
                            cap: CGFloat = pickRowsMaxHeight) -> CGFloat {
-    pickPaletteColumnsHeight(palette, measured: measured, cap: cap) + pickApplyBlockHeight
+    pickPaletteColumnsHeight(palette, measured: measured, cap: cap)
+        + pickApplyBlockHeight(pending: pending)
 }
 
 // MARK: - How wide

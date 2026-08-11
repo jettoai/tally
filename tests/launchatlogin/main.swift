@@ -455,8 +455,8 @@ check("every flag spelled in the source is classified",
       scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
 check("and every flag classified is spelled in the source",
       Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-check("which comes to twenty, in three buckets",
-      CaptureLaunch.allFlagKeys.count == 20 && scanned.count == 20)
+check("which comes to twenty-one, in three buckets",
+      CaptureLaunch.allFlagKeys.count == 21 && scanned.count == 21)
 check("with nothing counted twice",
       Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
 check("a launch carrying none of them does",

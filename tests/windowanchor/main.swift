@@ -239,6 +239,56 @@ check("the popover is never told a resize will hold a corner it does not impleme
 check("…and it says so on its own, not by sharing a case with a host that does place itself",
       !rule.contains("case .popover, ") && !rule.contains(", .popover"))
 
+// 10b. THE PICK PANEL HOLDS ITS TOP EDGE, and it is the one surface here that does so from inside
+//      its own `setFrame` rather than through the shared sizing contract: it is sized by
+//      `sizingOptions` (one authority, and the only one), so there is no resize notification to
+//      answer and nothing here may write a size back. What it corrects is the ORIGIN of a frame
+//      AppKit has already decided, in the one case that has an origin worth correcting.
+//
+//      WHY IT HOLDS ANYTHING AT ALL: the apply bar appears under the columns when a row is circled
+//      (`pickApplyBlockHeight`), and AppKit holding the bottom-left origin would push every row up
+//      by that much - out from under the pointer that had just circled one.
+check("a taller frame keeps the top edge, so the surface grows downward",
+      near(ResizeAnchor.origin(for: grown, edges: edges, corner: .topLeading).y + grown.height,
+           edges.top))
+check("…and a height change is what tells a resize from a drag",
+      ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
+                                 to: CGSize(width: 400, height: 336)))
+check("…a move of the same window is not one",
+      !ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
+                                  to: CGSize(width: 400, height: 300)))
+check("…nor is sub-point rounding, which would move a window for nothing",
+      !ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
+                                  to: CGSize(width: 400, height: 300.4)))
+// A width-only write is a move as far as this edge is concerned: the edge being held is horizontal,
+// and the left one is where it was already (`ResizeAnchor.origin`).
+check("…and a change of width alone leaves the held edge nothing to do",
+      !ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
+                                  to: CGSize(width: 480, height: 300)))
+let pickSource = code(of: "Tally/MenuBar/PickPanelController.swift")
+check("the pick panel holds that edge through its own frame writes",
+      pickSource.contains("guard keepsTopEdge, ResizeAnchor.changesHeight(from: frame.size, "
+          + "to: frameRect.size) else {")
+          && pickSource.contains(
+              "held.origin = ResizeAnchor.origin(for: frameRect, edges: resizeEdges, "
+              + "corner: .topLeading)"))
+// The size is AppKit's, passed through: a panel that wrote one back would be the two-authorities
+// crash this repo has already paid for once (~/.claude/docs/patterns/swiftui-appkit.md).
+check("…rewriting the origin only, never the size",
+      pickSource.contains("var held = frameRect") && !pickSource.contains("held.size")
+          && !pickSource.contains("setContentSize"))
+check("…and its one size authority is still the hosting view's own option",
+      pickSource.contains("hosting.sizingOptions = [.intrinsicContentSize]"))
+// Armed after the placement, because everything before it is the panel getting its first size from
+// the zero rect it was created with - held from that, it would anchor to the bottom of the screen.
+// Read as an ORDER rather than as adjacent lines: what matters is that the placement has happened
+// first, and a comment between the two is not a change of behaviour.
+let armedAfterPlacement = pickSource.range(of: "panel.centerOnPointerScreen()").flatMap { placed in
+    pickSource.range(of: "panel.keepsTopEdge = true").map { placed.upperBound <= $0.lowerBound }
+} ?? false
+check("…armed only once the panel has been placed, and off until then",
+      pickSource.contains("var keepsTopEdge = false") && armedAfterPlacement)
+
 // 11. And the claim has exactly one claimant. If any view other than the card could report the
 //     pointer, the open set would be back: something in the reading region could hold the card's
 //     corner without anyone noticing until a surface jumped.

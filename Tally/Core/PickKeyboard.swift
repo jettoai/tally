@@ -70,22 +70,35 @@ func pickPressIsElsewhere(command: Bool, control: Bool, option: Bool) -> Bool {
     command || control || option
 }
 
-/// WHETHER A CIRCLE THAT HAS JUST MOVED IS ONE THE LIST SHOULD SCROLL TO. The keyboard's, always;
-/// the pointer's, never.
+/// WHICH ROW A COLUMN SCROLLS TO when the keyboard has just sent its circle somewhere. The
+/// keyboard's destination, always; the pointer's, never; and nil for anything that is not a row of
+/// the scrolling region.
 ///
-/// THE DEFECT (Albert, 2026-08-10): every change of circle re-centred the column, and a row that was
-/// CLICKED is by definition already on screen - so the whole list slid under the pointer that had
-/// just landed on it, which reads as the panel jumping. An arrow key is the opposite case and the
-/// reason this exists at all: it can walk the circle onto a row that is not drawn yet, and nothing
-/// else would bring it into view.
+/// THE FIRST DEFECT (Albert, 2026-08-10): every change of CIRCLE re-centred the column, and a row
+/// that was clicked is by definition already on screen - so the whole list slid out from under the
+/// pointer that had just landed on it, which reads as the panel jumping. An arrow key is the
+/// opposite case and the reason any of this exists: it can walk the circle onto a row that is not
+/// drawn yet, and nothing else would bring it into view.
 ///
-/// A DESTINATION RATHER THAN A FLAG, which is what makes the request safe to leave standing. The
-/// keyboard writes where it is sending the circle, and a keypress that lands on the row already
-/// circled changes nothing - so no observer runs, and the request is still there when the POINTER
-/// next moves the circle. It cannot fire then: a stale request equals the index being moved away
-/// from, which is the one index the new one cannot be. Consumed on every move regardless, so it is
-/// stale for at most one of them.
-func pickScrollFollowsKeyboard(asked: Int?, landedOn now: Int) -> Bool { asked == now }
+/// THE SECOND (codex review of 1667555) is why the question is asked of the DESTINATION rather than
+/// of the circle. Watching the circle means watching a value that a keyboard move does not always
+/// change: stepping to the other column and back lands on the row that column remembers, and an
+/// arrow at the end of a list is clamped onto the row it is already on. Both are keypresses that
+/// move nothing, and both can be aimed at a row scrolled out of sight, so the list stayed where it
+/// was and Enter submitted a row nobody could see. The destination is WRITTEN on every one of those
+/// presses (`circleFromKeyboard`), so watching it catches the presses that change no circle - and a
+/// click, which writes no destination at all, cannot reach this by construction rather than by a
+/// test against the index it landed on.
+///
+/// nil IS ALSO THE HANDLER'S OWN ECHO: the destination is cleared as it is consumed, and that write
+/// comes back through the same observer. Nothing to scroll to is the honest answer to it.
+func pickScrollTarget(landed: Int?, rowCount: Int) -> Int? {
+    // Only what scrolls can be scrolled to. The way out of an axis is pinned under the column
+    // rather than in it (`PickColumn.sticky`), so the keyboard can circle it - it is the last row
+    // the arrows walk onto - while the scrolling region has no such row to bring into view.
+    guard let landed, (0 ..< rowCount).contains(landed) else { return nil }
+    return landed
+}
 
 /// Which column the focus lands on when it is stepped sideways. Clamped rather than wrapped, like
 /// the walk down a column: a held arrow key must come to rest somewhere rather than cycle.

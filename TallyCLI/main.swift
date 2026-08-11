@@ -190,17 +190,6 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     exec(provider.cli, args: args, env: launchEnv(provider, home: account.launchHome!))
 }
 
-/// The live sessions as `status --json` reports them: the published reading per account
-/// (SessionContext.swift) turned into the report's own value type. Here rather than in either file,
-/// because StatusReport.swift is a pure value type that must not learn where a supervisor publishes
-/// anything, and SessionContext.swift must not learn what the JSON contract looks like.
-func statusSessions() -> [String: StatusReport.SessionSummary] {
-    supervisedSessionsByAccount().mapValues {
-        StatusReport.SessionSummary(contextTokens: $0.contextTokens, model: $0.sessionModel,
-                                    effort: $0.sessionEffort)
-    }
-}
-
 func runStatus(json: Bool = false) {
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
@@ -232,10 +221,13 @@ func runStatus(json: Bool = false) {
     let profile = statusProjectProfile(projectFile, key: projectKey)
     if json {
         // Only the JSON shape carries the live sessions: the human output is a fleet summary, and
-        // this is a per-conversation number a script asks for by name (SessionContext.swift).
+        // these are per-conversation answers a script asks for by name (SessionInventory.swift) -
+        // how big the conversation on each account is, and where every session on the machine is
+        // running.
         print(encodeStatusReport(statusReport(snapshot, policies: policies, advisor: advisor,
                                               quarantined: quarantined,
-                                              sessions: statusSessions(),
+                                              accountSessions: statusSessions(),
+                                              sessions: liveSessionInventory(),
                                               projectPolicy: profile)))
         return
     }

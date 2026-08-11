@@ -222,7 +222,8 @@ check("quarantine: a manual pin still launches, so it keeps the marker",
 // MARK: live sessions - the context a resume would reload, per account (SessionContext.swift)
 let sessions = parse(encodeStatusReport(statusReport(
     snapshot, policies: ["claude": LaunchPolicy()],
-    sessions: ["claude:.claude": .init(contextTokens: 477_070, model: "opus", effort: "xhigh")],
+    accountSessions: ["claude:.claude": .init(contextTokens: 477_070, model: "opus",
+                                              effort: "xhigh")],
     now: now)))
 check("a supervised account carries its context reading",
       account(sessions, "claude:.claude")["sessionContextTokens"] as? Int == 477_070)
@@ -239,12 +240,55 @@ check("…and carries what that session was pinned to run",
 check("a session following the defaults reports no pair at all, rather than a guess",
       { let unpinned = parse(encodeStatusReport(statusReport(
             snapshot, policies: ["claude": LaunchPolicy()],
-            sessions: ["claude:.claude": .init(contextTokens: 1_000)], now: now)))
+            accountSessions: ["claude:.claude": .init(contextTokens: 1_000)], now: now)))
         let row = account(unpinned, "claude:.claude")
         return row["sessionContextTokens"] as? Int == 1_000 && row["sessionModel"] == nil
             && row["sessionEffort"] == nil }())
 check("and neither does anything when no session is running",
       accounts(auto).allSatisfy { $0["sessionContextTokens"] == nil })
+
+// MARK: the session inventory - which conversations are running, and where to reach them
+
+func inventory(_ top: [String: Any]) -> [[String: Any]] {
+    top["sessions"] as? [[String: Any]] ?? []
+}
+let inventoried = parse(encodeStatusReport(statusReport(
+    snapshot, policies: ["claude": LaunchPolicy()],
+    sessions: [.init(accountID: "claude:.claude", pid: 4_242,
+                     directory: "/Users/u/code/tally", project: "/Users/u/code/tally",
+                     messagingSocket: "/tmp/cc-socks/4242.sock"),
+               .init(accountID: "claude:.claude2", pid: 5_050,
+                     directory: "/Users/u/code/tally-cart", project: "/Users/u/code/tally",
+                     worktree: "cart")],
+    now: now)))
+check("every running session is listed, not one per account",
+      inventory(inventoried).count == 2)
+check("a session names the account it runs on, so it joins the rows above",
+      inventory(inventoried).map { $0["accountID"] as? String }
+          == ["claude:.claude", "claude:.claude2"])
+check("…and the Claude Code pid to address",
+      inventory(inventoried).first?["pid"] as? Int == 4_242)
+check("a socket that is really there is published whole",
+      inventory(inventoried).first?["messagingSocket"] as? String == "/tmp/cc-socks/4242.sock")
+// Absent rather than empty: a reader takes no key as "not addressable this way" and falls back to
+// its file channel, where an empty string is an address it would try to dial.
+check("a session with no socket carries no key at all",
+      inventory(inventoried).last?["messagingSocket"] == nil)
+// The two project fields are not one field twice: a parallel line reports its own checkout AND the
+// repository every line of it shares, which is what lets a caller address the LINE rather than the
+// trunk (a worktree keeps its own inbox).
+check("a worktree session reports its own checkout beside the repo key",
+      inventory(inventoried).last?["directory"] as? String == "/Users/u/code/tally-cart"
+          && inventory(inventoried).last?["project"] as? String == "/Users/u/code/tally"
+          && inventory(inventoried).last?["worktree"] as? String == "cart")
+check("a session on the trunk names no line at all",
+      inventory(inventoried).first?["worktree"] == nil
+          && inventory(inventoried).first?["directory"] as? String
+              == inventory(inventoried).first?["project"] as? String)
+// The one block that is published empty rather than omitted: absence has to keep meaning "this
+// Tally cannot answer", or a reader falls back to its slower channel without ever learning why.
+check("a machine with nothing running still publishes the list",
+      auto["sessions"] as? [Any] != nil && inventory(auto).isEmpty)
 
 // MARK: fleet pass-through - the pooled view rides along untouched, and only when present
 let fleetTop = auto["fleet"] as? [String: [String: Any]] ?? [:]

@@ -86,7 +86,18 @@ let projectPoliciesURL = FileManager.default.homeDirectoryForCurrentUser
 /// told again which model it runs would be a worktree that silently runs the wrong one. It is also
 /// the only key that survives the worktree being removed and made again under the same name.
 func projectPolicyKey(cwd: String = FileManager.default.currentDirectoryPath) -> String {
-    resolveMainRepo(cwd: cwd) ?? realpathString(cwd)
+    projectPolicyKey(cwd: cwd, mainRepo: resolveMainRepo(cwd: cwd))
+}
+
+/// The rule itself, with git's answer already in hand.
+///
+/// For a caller that had to ask git about this directory anyway: the session rows of
+/// `tally status --json` want the parallel line's NAME as well as the key, and both are built from
+/// the same two answers, so asking twice would double the subprocesses for one directory and, worse,
+/// could key a project one way while naming it another if the two calls disagreed (a worktree
+/// removed between them). Pure, so the rule can be asserted without a repository on disk.
+func projectPolicyKey(cwd: String, mainRepo: String?) -> String {
+    mainRepo ?? realpathString(cwd)
 }
 
 // MARK: - Reading and writing

@@ -61,6 +61,19 @@ struct StatusReport: Encodable {
     /// the collecting threshold is impossible - a young reading is emitted with `verdict:
     /// "collecting"`. English headline; the numbers behind it let scripts phrase their own.
     var advisor: [String: Advisor]?
+    /// Every supervised session running on this machine, across every account, oldest first.
+    ///
+    /// THE ACCOUNT BLOCK ANSWERS A DIFFERENT QUESTION and keeps a different number of sessions.
+    /// `sessionContextTokens` and the pair beside it describe ONE session per account (the largest
+    /// conversation on it), because what they are asked is "what would a resume here cost". This
+    /// list is asked "which sessions are running, and where do I reach that one", so it drops
+    /// nothing: ten sessions on two accounts are ten entries here and two readings up there.
+    ///
+    /// ALWAYS PUBLISHED, empty list and all, unlike the optional blocks around it. Absence has to
+    /// keep meaning "this Tally is too old to answer", because a reader that cannot tell that from
+    /// "nothing is running" falls back to its slower channel for the wrong reason and never learns
+    /// it was asking the wrong version.
+    var sessions: [Session]
     /// The per-project launch profile in force for the directory this command ran in
     /// (`tally project`, ProjectPolicy.swift), absent when that directory declares none. Present
     /// here because it changes what the rest of this report MEANS: an account marked `best` under a
@@ -91,6 +104,46 @@ struct StatusReport: Encodable {
         /// token count writes `.init(contextTokens:)`, which is every session that pinned nothing.
         var model: String?
         var effort: String?
+    }
+
+    /// One running session: which account it is on, which project it is in, and how to reach it.
+    ///
+    /// WHAT THIS BLOCK IS FOR. Claude Code partitions the roster sessions publish about each other
+    /// by config home (`$CLAUDE_CONFIG_DIR/sessions/`), so two sessions on two accounts are
+    /// invisible to one another, while the sockets they listen on all sit in one machine-wide
+    /// directory (MessagingSocket.swift). Tally supervises every account, so it can answer what
+    /// neither session can ask: which conversations are open, where, and at which address. A caller
+    /// looks its project up here and talks to the pid it finds.
+    struct Session: Encodable {
+        /// The account this session is running on right now, rewritten by a handoff. The join back
+        /// to the `accounts` block above, which is where its quota lives.
+        var accountID: String
+        /// The Claude Code process itself, not the Tally supervising it. Absent when it cannot be
+        /// proved: the pid is published at spawn and read back only while that process is alive and
+        /// still a child of that supervisor, so what is here is a running Claude Code rather than a
+        /// number that was one (SwitchRequest.swift).
+        var pid: Int?
+        /// The directory the session was launched in, fully resolved: the exact checkout, so two
+        /// parallel lines of one repository are told apart (a worktree keeps its own inbox, and a
+        /// message meant for the line is not a message for the trunk). Absent from a supervisor too
+        /// old to have published one.
+        var directory: String?
+        /// The same session at repository grain: the MAIN repo's working tree, which every parallel
+        /// line of it reports identically. In the currency `projectPolicy.path` is written in
+        /// (ProjectPolicy.swift), on purpose, so the two blocks can be matched without a second
+        /// notion of what a project is. Equal to `directory` when this checkout IS the main one, and
+        /// for a directory that is not a repository at all.
+        var project: String?
+        /// The parallel line's own name (`tally worktree` lands them as `<repo>-<branch>`, and this
+        /// is what is left after the repository's name is taken off), or absent when the session is
+        /// on the trunk. Named by the one rule the pick panel names them by (`pickProject`).
+        var worktree: String?
+        /// The unix socket that Claude Code is listening on, published ONLY while a socket is really
+        /// there (MessagingSocket.swift). Absent means "not addressable this way": the reader falls
+        /// back to whatever file-level channel it has rather than dialling an address nothing is
+        /// behind, which is what keeps this field honest across a Claude Code that changes where it
+        /// listens.
+        var messagingSocket: String?
     }
 
     struct Advisor: Encodable {
@@ -156,13 +209,17 @@ func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPoli
 /// rather than a file read so the report stays a pure function, but callers must pass it: `best`
 /// promises "would launch", and a report that named an account the launcher is currently skipping
 /// would be a lie scripts act on.
-/// `sessions` is the live reading per account id (SessionContext.swift), a parameter for the same
-/// reason `quarantined` is one: the report stays a pure function of what it is handed, and this file
-/// never learns where a supervisor publishes anything.
+/// `accountSessions` is the live reading per account id (SessionContext.swift), a parameter for the
+/// same reason `quarantined` is one: the report stays a pure function of what it is handed, and this
+/// file never learns where a supervisor publishes anything. `sessions` is the machine's whole
+/// inventory on the same terms, and the two are separate arguments because they are separate
+/// answers: one session per account against every session there is (SessionInventory.swift builds
+/// both from a single scan, so they cannot describe different moments).
 /// `projectPolicy` likewise: the caller resolved which project this is, this only publishes it.
 func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                   advisor: [UsageAdvisor.Reading] = [], quarantined: [String: Set<String>] = [:],
-                  sessions: [String: StatusReport.SessionSummary] = [:],
+                  accountSessions: [String: StatusReport.SessionSummary] = [:],
+                  sessions: [StatusReport.Session] = [],
                   projectPolicy: StatusReport.ProjectProfile? = nil,
                   now: Date = Date()) -> StatusReport {
     let advisorByProvider = Dictionary(uniqueKeysWithValues: advisor.map { reading in
@@ -204,9 +261,9 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                 modelRemaining: account.modelRemaining,
                 modelResetsAt: account.modelResetsAt,
                 resetCreditsAvailable: account.resetCreditsAvailable,
-                sessionContextTokens: sessions[account.id]?.contextTokens,
-                sessionModel: sessions[account.id]?.model,
-                sessionEffort: sessions[account.id]?.effort))
+                sessionContextTokens: accountSessions[account.id]?.contextTokens,
+                sessionModel: accountSessions[account.id]?.model,
+                sessionEffort: accountSessions[account.id]?.effort))
         }
     }
     return StatusReport(
@@ -216,6 +273,7 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
         fleet: snapshot.fleet,
         fleetPools: snapshot.fleetPools,
         advisor: advisorByProvider.isEmpty ? nil : advisorByProvider,
+        sessions: sessions,
         projectPolicy: projectPolicy)
 }
 

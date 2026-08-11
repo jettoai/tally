@@ -284,6 +284,43 @@ struct SessionContextWriter {
 
 // MARK: - Reading it back
 
+/// One live session as anything outside its supervisor sees it: the reading that supervisor
+/// published, and WHICH supervisor published it.
+///
+/// The pid is the file's name rather than a field inside it, so a reader that wants to ask anything
+/// else about the same session (which Claude Code it is running, which directory it is in, both of
+/// them documents keyed by that pid) has no way to get there from the reading alone. Carried
+/// together for the reason the reading is one value type: a caller holding a pid and a session it
+/// paired up itself could ask about one session while reporting another's numbers.
+struct LiveSupervisedSession: Equatable {
+    let supervisorPid: String
+    let session: SupervisedSession
+}
+
+/// Every live session on this machine, oldest supervisor first so the answer is stable.
+///
+/// A file whose supervisor is gone is ignored rather than trusted, the same rule the drift badge
+/// follows: the startup sweep unlinks it, but a reader running in between must not paint a session
+/// that has already exited.
+func liveSupervisedSessions(dir: URL = supervisorStateDir) -> [LiveSupervisedSession] {
+    let files = (try? FileManager.default.contentsOfDirectory(at: dir,
+        includingPropertiesForKeys: nil)) ?? []
+    var live: [(pid: pid_t, session: SupervisedSession)] = []
+    for file in files {
+        // Through the shared name reader (PendingNotice.swift), so one place knows how a document
+        // on this track maps back to the supervisor that wrote it.
+        let name = file.lastPathComponent
+        guard name.hasSuffix(sessionContextSuffix), let pid = supervisorStatePid(ofFile: name),
+              supervisorAlive(pid),
+              let session = readSessionContext(pid: String(pid), dir: dir) else { continue }
+        live.append((pid, session))
+    }
+    // On the pid as a NUMBER: the directory listing has no order worth relying on, and sorting the
+    // names as text would put 9000 after 10000 in a report people read.
+    return live.sorted { $0.pid < $1.pid }
+        .map { LiveSupervisedSession(supervisorPid: String($0.pid), session: $0.session) }
+}
+
 /// The live published reading per account: every supervisor still running, keyed by the account it
 /// is on, carrying both the context a resume would reload and the pair a `tally model` pinned that
 /// session to.
@@ -293,20 +330,13 @@ struct SessionContextWriter {
 /// about the session a person would be thinking of. One value type per account rather than a field
 /// at a time, so a caller cannot pair one session's token count with another's pinned model.
 ///
-/// A file whose supervisor is gone is ignored rather than trusted, the same rule the drift badge
-/// follows: the startup sweep unlinks it, but a reader running in between must not paint a session
-/// that has already exited.
+/// A FOLD OF THE LIST ABOVE, not a second scan: this map answers "what is on this account" and
+/// therefore drops every session but one, so a reader asking "which sessions are running" has to
+/// start from the list or it will be told about two of the ten.
 func supervisedSessionsByAccount(dir: URL = supervisorStateDir) -> [String: SupervisedSession] {
-    let files = (try? FileManager.default.contentsOfDirectory(at: dir,
-        includingPropertiesForKeys: nil)) ?? []
     var byAccount: [String: SupervisedSession] = [:]
-    for file in files {
-        // Through the shared name reader (PendingNotice.swift), so one place knows how a document
-        // on this track maps back to the supervisor that wrote it.
-        let name = file.lastPathComponent
-        guard name.hasSuffix(sessionContextSuffix), let pid = supervisorStatePid(ofFile: name),
-              supervisorAlive(pid),
-              let session = readSessionContext(pid: String(pid), dir: dir) else { continue }
+    for live in liveSupervisedSessions(dir: dir) {
+        let session = live.session
         if let seen = byAccount[session.accountID], seen.contextTokens >= session.contextTokens {
             continue
         }

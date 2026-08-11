@@ -183,29 +183,30 @@ let switchQueuedStartupBadge = "switch: after startup"
 /// here would land on a badge that is vague rather than wrong.
 let switchQueuedIdleBadge = "switch: when idle"
 
+/// Which of the four badges above a gate wears. Apart from the wording below because the SHORT form
+/// is a constant a test pins and a person reads on the same row, while the long form is composed.
+private func queuedSwitchBadge(_ gate: QuietGate) -> String {
+    switch gate {
+    case .transcript: return switchQueuedBadge
+    case .keyboard: return switchQueuedTypingBadge
+    case .startup: return switchQueuedStartupBadge
+    case .unknown: return switchQueuedIdleBadge
+    }
+}
+
 /// What a queued switch says on the status line, and at length beside it: the gate that is actually
 /// holding the move, named. `target` is where the session is going and `staying` where it sits until
 /// then, which is the question behind every badge on this track.
+///
+/// DESCRIBED, NOT PROMISED. The long form used to finish each arm with when the move would happen
+/// ("once the keyboard is quiet"), and the gate cannot support that: it reports the first term that
+/// said no, and a second term can be false at the same moment, so the promised moment arrived with
+/// nothing happening (`quietGateHolding` carries the review and the reasoning). The clause comes
+/// from that one place now, and this axis words only what it is waiting to DO.
 func switchQueuedWait(gate: QuietGate, target: String, staying: String) -> PendingBadge {
-    let until = "staying on \(staying) until then"
-    switch gate {
-    case .transcript:
-        return PendingBadge(switchQueuedBadge,
-                            detail: "switching to \(target) when this turn ends; \(until)")
-    case .keyboard:
-        return PendingBadge(switchQueuedTypingBadge,
-                            detail: "a prompt is being typed here, so the move waits: switching to "
-                                + "\(target) once the keyboard is quiet; \(until)")
-    case .startup:
-        return PendingBadge(switchQueuedStartupBadge,
-                            detail: "this session has only just started and has written no turn "
-                                + "yet, so the move waits for it to settle: switching to \(target) "
-                                + "in a moment; \(until)")
-    case .unknown:
-        return PendingBadge(switchQueuedIdleBadge,
-                            detail: "switching to \(target) as soon as this session is idle; "
-                                + "\(until)")
-    }
+    PendingBadge(queuedSwitchBadge(gate),
+                 detail: "\(quietGateHolding(gate)), so the move waits: switching to \(target); "
+                     + "staying on \(staying) until then")
 }
 
 /// What a held switch says on the status line: one badge per REASON the move has not happened, and

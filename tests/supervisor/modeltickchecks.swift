@@ -247,6 +247,30 @@ func runModelTickChecks() {
                policy: fleetDefault, launchArgs: [], watcher: &starting, fleet: [onA],
                childAge: 9999).plan?.reason == "model")
 
+    // TWO GATES SHUT AT ONCE, the same case the account axis carries: the gate reports the first
+    // term that said no, so a young session being typed into reports the keyboard while the startup
+    // term holds the change as well. "It takes effect once the keyboard is quiet" named a moment at
+    // which nothing would happen, and the second tick here is that moment (codex review of 1f0c1a6).
+    var gatedState = SessionModelState(sessionKey: "5513", servedEpoch: 0, dir: tickDir)
+    var gatedFollow = FollowState(launchArgs: [])
+    var gatedShut = startupWatcher("model-both-shut")
+    let onBoth = ModelRequest(epoch: 1200, model: "opus", effort: nil)
+    check("a young session being typed into holds the change",
+          tick(&gatedState, follow: &gatedFollow, request: onBoth, policy: fleetDefault,
+               launchArgs: [], watcher: &gatedShut, fleet: [onA], childAge: 1,
+               keyboardIdle: false).plan == nil)
+    check("…and names the keyboard, which is the term the gate reports",
+          gatedState.waiting?.badge == sessionModelTypingBadge)
+    check("…describing what holds it rather than promising when it lifts",
+          gatedState.waiting?.detail?.contains("a prompt is being typed here") == true
+              && gatedState.waiting?.detail?.contains("once the keyboard is quiet") == false)
+    check("the keyboard going quiet does not release a change the other term still holds",
+          tick(&gatedState, follow: &gatedFollow, request: onBoth, policy: fleetDefault,
+               launchArgs: [], watcher: &gatedShut, fleet: [onA], childAge: 1,
+               keyboardIdle: true).plan == nil)
+    check("…and the badge has moved on to the term that is holding it now",
+          gatedState.waiting?.badge == sessionModelStartupBadge)
+
     // THE FOUR ARE FOUR, one wording per gate rather than one gate wearing four names. Asked of the
     // whole enum rather than of the three a tick can reach: a term added to `QuietGate` and not
     // worded here would be a model change that says nothing about what it is waiting for.

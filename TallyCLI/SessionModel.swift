@@ -372,27 +372,28 @@ let sessionModelStartupBadge = "model: after startup"
 /// on a badge that is vague rather than wrong.
 let sessionModelIdleBadge = "model: when idle"
 
-/// What a queued `tally model` says on the status line, and at length beside it: the gate that is
-/// actually holding the change, named, and the pair that is coming once it lifts.
-func sessionModelWait(gate: QuietGate, pair: SessionModelPin) -> PendingBadge {
-    let asked = "`tally model` asked for \(sessionModelDescription(pair))"
+/// Which of the four badges above a gate wears, apart from the wording for the reason the account
+/// axis states beside its own (`queuedSwitchBadge`): the short form is pinned, the long form is
+/// composed.
+private func queuedModelBadge(_ gate: QuietGate) -> String {
     switch gate {
-    case .transcript:
-        return PendingBadge(sessionModelWaitingBadge,
-                            detail: "\(asked); it takes effect when this turn ends")
-    case .keyboard:
-        return PendingBadge(sessionModelTypingBadge,
-                            detail: "a prompt is being typed here, so the change waits: \(asked), "
-                                + "and it takes effect once the keyboard is quiet")
-    case .startup:
-        return PendingBadge(sessionModelStartupBadge,
-                            detail: "this session has only just started and has written no turn "
-                                + "yet, so the change waits: \(asked), and it takes effect in a "
-                                + "moment")
-    case .unknown:
-        return PendingBadge(sessionModelIdleBadge,
-                            detail: "\(asked); it takes effect as soon as this session is idle")
+    case .transcript: return sessionModelWaitingBadge
+    case .keyboard: return sessionModelTypingBadge
+    case .startup: return sessionModelStartupBadge
+    case .unknown: return sessionModelIdleBadge
     }
+}
+
+/// What a queued `tally model` says on the status line, and at length beside it: the gate that is
+/// actually holding the change, named, and the pair that is waiting behind it.
+///
+/// DESCRIBED, NOT PROMISED, which is the account axis's rule one word over: "it takes effect once
+/// the keyboard is quiet" is a promise the gate cannot keep, because it names only the first term
+/// that said no and the terms can be false together (`quietGateHolding`).
+func sessionModelWait(gate: QuietGate, pair: SessionModelPin) -> PendingBadge {
+    PendingBadge(queuedModelBadge(gate),
+                 detail: "\(quietGateHolding(gate)), so the change waits: `tally model` asked for "
+                     + sessionModelDescription(pair))
 }
 
 /// The pair as a person reads it. `default` for an axis nobody names, the word the follow adoption

@@ -124,6 +124,32 @@ func quietGate(transcriptQuiet: Bool, keyboardQuiet: Bool, hasTranscript: Bool,
     return .unknown
 }
 
+/// WHAT IS HOLDING THIS BAR RIGHT NOW, as the state it is rather than as a promise about when it
+/// lifts. The clause the waiting axes build their long form around.
+///
+/// THE DEFECT IT REFUSES (codex review of 1f0c1a6): this gate names the FIRST term that said no,
+/// and the terms are not exclusive - a session that has written no turn yet can also have somebody
+/// typing into it. Worded as "it takes effect once the keyboard is quiet", the long form promised
+/// something the gate never said: the keyboard goes quiet, the startup term is still holding the
+/// move, and nothing happens at the moment a person was told it would. A description of the present
+/// cannot come apart from the facts that way. It also keeps up on its own, because every tick
+/// re-derives the badge from the gate as it is then.
+///
+/// ONE PHRASING FOR EVERY AXIS, for the reason the gate itself is shared: two accounts of one wait,
+/// in one row of one status line, is the defect this family keeps producing. What each axis words
+/// for itself is the CONSEQUENCE (a move, a model change), which really is different per axis.
+///
+/// The reload axis words the same gate in its own two lengths (`reloadWaitReason`), which were
+/// descriptive already and are left exactly as they are.
+func quietGateHolding(_ gate: QuietGate) -> String {
+    switch gate {
+    case .transcript: return "a turn is still running here"
+    case .keyboard: return "a prompt is being typed here"
+    case .startup: return "this session has only just started and has written no turn yet"
+    case .unknown: return "this session is in use"
+    }
+}
+
 /// How the reload names that gate, in the two lengths its two homes need: a couple of words for the
 /// status line, which shares its row with the quota meters, and the full phrase for the notice
 /// file's `detail`. One function rather than two so the short and long forms cannot come to describe

@@ -329,6 +329,27 @@ func runSwitchChecks() {
     check("the same request fires once the child is old enough",
           tick(&starting, request: onStartup, childAge: 9999).plan?.target.id == "B")
 
+    // TWO GATES SHUT AT ONCE, which is what the promise could not survive (codex review of
+    // 1f0c1a6): the gate reports the FIRST term that said no, and here the keyboard is what it
+    // reports while a session with no transcript is holding the move as well. Worded as "once the
+    // keyboard is quiet" the badge named a moment at which nothing would happen, and the second
+    // tick below is that moment.
+    var bothShut = startupWatcher("both-shut")
+    let onBoth = SwitchRequest(epoch: state.servedEpoch + 3, accountID: "B")
+    check("a young session being typed into queues the switch",
+          tick(&bothShut, request: onBoth, keyboardIdle: false, childAge: 1).plan == nil)
+    check("…and names the keyboard, which is the term the gate reports",
+          state.waiting?.badge == switchQueuedTypingBadge)
+    check("…describing what holds it rather than promising when it lifts",
+          state.waiting?.detail?.contains("a prompt is being typed here") == true
+              && state.waiting?.detail?.contains("once the keyboard is quiet") == false)
+    // The keyboard goes quiet and the move still does not happen, because the other term was shut
+    // the whole time. This is the tick the old wording had promised the move away at.
+    check("the keyboard going quiet does not release a move the other term still holds",
+          tick(&bothShut, request: onBoth, keyboardIdle: true, childAge: 1).plan == nil)
+    check("…and the badge has moved on to the term that is holding it now",
+          state.waiting?.badge == switchQueuedStartupBadge)
+
     // THE THREE ARE THREE, and one wording per gate rather than one gate wearing three names.
     check("no two sources say the same thing",
           Set([switchQueuedBadge, switchQueuedTypingBadge, switchQueuedStartupBadge,

@@ -40,8 +40,15 @@ case "$1 $2" in
     exit 0
     ;;
   "completion data")
-    [ "$3" = accounts ] && [ "$4" = claude ] || exit 2
-    printf 'Stub One\nStub Two\n'
+    # One answer per provider, and they share no name: `tally project set --account` picks its
+    # provider off the whole line, so a suite where both providers answered the same words could
+    # not tell a right answer from a left-of-the-cursor guess.
+    [ "$3" = accounts ] || exit 2
+    case "$4" in
+      claude) printf 'Stub One\nStub Two\n' ;;
+      codex) printf 'Codex Only\n' ;;
+      *) exit 2 ;;
+    esac
     exit 0
     ;;
 esac

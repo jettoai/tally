@@ -206,6 +206,13 @@ for internalCommand in ["hook-tally", "hook-switch", "hook-model", "mcp-serve", 
     check("`\(internalCommand)` is not offered at the cursor",
           !offered.contains(internalCommand) && !tallyCompletionZsh.contains(internalCommand))
 }
+// The two things that make a file on disk THIS script: the tag zsh autoloads on, and the marker the
+// app looks for before it rewrites or deletes a `_tally` in a site-functions directory
+// (IntegrationsCompletion.swift). Somebody else's completion for this command has the tag too, so
+// the marker is what keeps their file theirs.
+check("the script announces itself to zsh and to the installer",
+      tallyCompletionZsh.hasPrefix("#compdef tally\n")
+          && tallyCompletionZsh.contains("tally-completion"))
 // The dynamic helpers ask this machine questions, at the cursor of a line somebody is typing. Every
 // such helper has to survive the binary being absent and the command answering nothing, because a
 // completion that prints a diagnostic there has broken the line it was helping with.
@@ -250,6 +257,15 @@ check("the claude launch completes claude accounts",
 // candidates follow that word rather than a constant.
 check("the project profile completes the provider the line named",
       accountCallSites.contains { $0.contains("_tally_accounts $provider") })
+// AND IT READS THE WHOLE LINE FOR IT, because the command does: `optionValue` scans the entire
+// argument list and takes the first match (ProjectPolicy.swift), so `--provider codex` written after
+// the account is a legal Codex profile - and a scan stopping at the cursor offered claude accounts
+// to it, which is the command refusing its own suggestion (review, 2026-08-11).
+check("the provider is read off the whole line, not the half left of the cursor",
+      tallyCompletionZsh.contains("for (( i = 1; i <= $#words; i++ ))")
+          && !tallyCompletionZsh.contains("for (( i = 1; i < CURRENT; i++ ))"))
+check("…first occurrence and a claude default, the way `optionValue` answers",
+      tallyCompletionZsh.contains("{ provider=${words[i+1]:-claude}; break }"))
 
 // MARK: - The names the completion is allowed to offer
 
@@ -343,6 +359,22 @@ check("resume is named, with nothing to offer", tallyCompletionZsh.contains("(re
 check("the teaching list is built from the specs themselves",
       tallyCompletionZsh.contains("_tally_teach \"launch option\" $_tally_specs")
           && tallyCompletionZsh.contains("_arguments $_tally_specs \"*: :_tally_rest\""))
+// The lesson stays away from a foreign flag's values, ALL of them: eleven of the child's flags take
+// a list rather than one word (`--add-dir a b`, LaunchFlags.swift), so a guard reading only the word
+// before the cursor let the second value be taught at, inserting `--account` into the middle of the
+// list and truncating it (review, 2026-08-11). The nearest dash word to the left is the flag whose
+// run this is; what that looks like at the cursor is checked in a real shell (tests/completion).
+check("the quiet position is judged from the nearest flag, not the previous word",
+      tallyCompletionZsh.contains("for (( i = CURRENT - 1; i > 1; i-- ))")
+          && tallyCompletionZsh.contains("[[ ${words[i]} == -* ]] && { previous=${words[i]}; break }")
+          && !tallyCompletionZsh.contains("local previous=${words[CURRENT-1]}"))
+// And the question asked of that flag is whether it is OURS, of any arity: `_arguments` binds the
+// value position of every flag in the specs, so reaching this function means ours is satisfied,
+// while a foreign one may still be eating words. A test for "takes nothing" instead would have gone
+// quiet after `-w wt-alpha`, which is a completed pair of our own.
+check("the nearest flag is judged by whether it is one of ours",
+      tallyCompletionZsh.contains("[[ ${spec%%\\[*} == \"$previous\" ]] && { ours=1; break }")
+          && !tallyCompletionZsh.contains("# this one takes a value"))
 // Two spellings of one flag are one lesson, recognised through the exclusion group the alias set
 // already carries for `_arguments` - so nothing is declared twice to say they belong together. What
 // the merged line LOOKS like is checked where it can be seen, in a real shell (tests/completion).
@@ -362,7 +394,19 @@ check("every style this script sets is asked about first", probes == 3 && sets =
 // The menu answer is not just kept out of the style, it decides the behaviour: respecting `menu no`
 // in the zstyle and then forcing the insertion anyway was respecting nothing (review, 2026-08-11).
 check("the forced menu reads the same answer the probe already has",
-      tallyCompletionZsh.contains("${_tally_menu:l} != (no|false|off|0) ]] && compstate[insert]=menu"))
+      tallyCompletionZsh.contains("_tally_menu_wanted \"$_tally_menu\" && compstate[insert]=menu"))
+// And it reads the WHOLE of zsh's vocabulary for that style, not the four words it started with:
+// `menu no=1` and `menu no no-select` are a user saying no in forms the exact comparison missed, so
+// they got the menu they had turned off (review, 2026-08-11). The conditional TRUE forms are
+// refusals here too, because this line runs before any match exists and the count they are about
+// cannot be known. What each value does at the cursor is checked in a real shell (tests/completion).
+for refusal in ["(no|false|off|0) return 1", "(no=*|false=*|off=*|0=*) return 1",
+                "(yes=*|true=*|on=*|1=*) return 1"] {
+    check("`\(refusal)` keeps this script from forcing a menu", tallyCompletionZsh.contains(refusal))
+}
+check("…and only an unconditional yes lets it force one",
+      tallyCompletionZsh.contains("(yes|true|on|1|select) wanted=1")
+          && tallyCompletionZsh.contains("return $(( ! wanted ))"))
 check("the styles say tally rather than everything",
       !tallyCompletionZsh.contains("zstyle ':completion:*' "))
 // `tally model auto high` is usage and exit 2 (`modelIntent` refuses two words when either is the

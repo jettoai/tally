@@ -85,6 +85,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the guidance ships with the app. Only files that are already installed and ours are
         // touched: never an install, never someone else's skill of the same name.
         IntegrationsStore.shared.autoUpdateSkill()
+        // Same upkeep for the tab completion installed beside the command: an app that updated
+        // itself carries a new CLI, and the script asks that binary its questions, so a stale copy
+        // of it would offer words the new one refuses (IntegrationsCompletion.swift).
+        Task { await IntegrationsStore.shared.autoUpdateCompletion() }
         // And keep them there: the sync above runs once, while the file it writes into is the
         // user's and can be rewritten by anything (IntegrationsSelfHeal.swift).
         IntegrationsStore.shared.refreshSettingsWatcher()

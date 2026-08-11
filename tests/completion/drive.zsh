@@ -58,11 +58,16 @@ pty_read() {
 # there (it did, for a whole round of review).
 tab() {
   # $3, when given, is a line of setup run before the probe: what a user's own zshrc would have said.
-  local mode=$1 line=$2 extra=${3:-:} presses=${4:-1} ready='' answer=''
+  # $5 is how many characters to walk back before pressing Tab, which is the only way to ask about a
+  # cursor with words still to its RIGHT (Ctrl-B, in the emacs keymap forced below).
+  local mode=$1 line=$2 extra=${3:-:} presses=${4:-1} left=${5:-0} ready='' answer=''
   integer waited=0
   zpty -d tally 2>/dev/null
   zpty tally zsh -f -i
-  zpty -w tally "export PATH=$stubdir:\$PATH TALLY_STUB_MODE=$mode; fpath=($fpathdir \$fpath); autoload -Uz compinit; compinit -u -d $fpathdir/.zcompdump; PROMPT='%%'; RPROMPT=''; LISTMAX=999; setopt nolistbeep; cd $workdir; $extra; print SHELL-READY"
+  # `bindkey -e` because the default keymap follows $EDITOR: on a machine whose editor is vi this
+  # shell starts in viins, where Ctrl-B is not backward-char, and the probe would tab at the end of
+  # the line while claiming to have asked about the middle of it.
+  zpty -w tally "export PATH=$stubdir:\$PATH TALLY_STUB_MODE=$mode; fpath=($fpathdir \$fpath); autoload -Uz compinit; compinit -u -d $fpathdir/.zcompdump; bindkey -e; PROMPT='%%'; RPROMPT=''; LISTMAX=999; setopt nolistbeep; cd $workdir; $extra; print SHELL-READY"
   # Waited for rather than slept off, so the setup echo is swallowed here instead of arriving in the
   # middle of the answer and being read as part of it.
   while (( waited < 40 )); do
@@ -72,7 +77,9 @@ tab() {
   done
   # `presses` exists for the one contract that is about the SECOND press: a shell with the menu
   # turned off grows the common prefix first and lists after, like every other completion it has.
-  zpty -w -n tally "$line$(printf '\t%.0s' {1..$presses})"
+  zpty -w -n tally "$line"
+  (( left )) && zpty -w -n tally "$(printf '\002%.0s' {1..$left})"
+  zpty -w -n tally "$(printf '\t%.0s' {1..$presses})"
   answer=$(pty_read)
   zpty -w -n tally $'\e'      # leave the menu
   zpty -w -n tally $'\003'    # abandon the line, unrun
@@ -170,5 +177,58 @@ out=$(tab bare "tally claude -w ")
 check "with no worktrees, the flag offers nothing" "$([[ $out != *"wt-alpha"* ]] && print 1)"
 check "…and says nothing about it either" \
   "$([[ $out != *"no worktrees"* && $out != *"not inside"* ]] && print 1)"
+
+# 9. THE PROVIDER IS READ OFF THE WHOLE LINE, because the command reads it that way: `optionValue`
+#    scans the entire argument list (ProjectPolicy.swift), so `--provider codex` written after the
+#    account is a legal Codex profile - and a completion that only read left of the cursor offered
+#    claude accounts to it, words that command then refuses (review, 2026-08-11). The stub answers
+#    each provider with names of its own, so the two answers cannot be confused.
+out=$(tab full "tally project set --account ")
+plain=${out//\\ / }
+check "the project profile completes claude accounts by default" \
+  "$([[ $plain == *"Stub One"* ]] && print 1)"
+out=$(tab full "tally project set --account  --provider codex" ":" 1 17)
+plain=${out//\\ / }
+check "…and the provider named to the RIGHT of the cursor is still the provider" \
+  "$([[ $plain == *"Codex Only"* ]] && print 1)"
+check "…so the other provider's accounts are not offered there" \
+  "$([[ $plain != *"Stub One"* ]] && print 1)"
+
+# 10. A CHILD FLAG'S WHOLE RUN OF VALUES, not just the word next to it. `--add-dir a b` and
+#     `--allowedTools Read Write` keep consuming until the next flag (LaunchFlags.swift), so the
+#     second value is a value too - and the lesson is INSERTED, which truncated the list and changed
+#     the argv the child was launched with (review, 2026-08-11).
+out=$(tab full "tally claude --add-dir one ")
+# The anchor these three negatives need: every one of them passes on a probe that never reached the
+# shell at all, which is this suite's own failure mode (check 5 carries the same line).
+check "the press reached the shell at all" "$([[ $out == *"--add-dir"* ]] && print 1)"
+check "the second value of a variadic child flag is not taught at" \
+  "$([[ $out != *"launch option"* ]] && print 1)"
+check "…and nothing is inserted into the list" \
+  "$([[ $out != *"one --account"* ]] && print 1)"
+out=$(tab full "tally claude --allowedTools Read Write ")
+check "…the same after two values of another one" \
+  "$([[ $out != *"launch option"* && $out != *"Write --account"* ]] && print 1)"
+# The run ends where one of ours begins: silence past a foreign flag must not swallow the lesson
+# for the rest of the line.
+out=$(tab full "tally claude --add-dir one --new ")
+check "one of our own flags ends the run and the lesson comes back" \
+  "$([[ $out == *"launch option"* && $out == *"--account"* ]] && print 1)"
+
+# 11. `menu no` in every form zsh accepts for it, not the four words it started as: `no=1` turns the
+#     menu off at one match or more, and a false value can sit beside `no-select` in one style value
+#     (man zshcompsys). Both got a forced menu anyway (review, 2026-08-11).
+out=$(tab full "tally claude ")
+check "with the menu left alone, the first option is inserted as the menu opens" \
+  "$([[ $out == *"claude --account"* ]] && print 1)"
+out=$(tab full "tally claude " "zstyle ':completion:*' menu no=1")
+check "a count-conditional no is a no, and nothing is inserted" \
+  "$([[ $out != *"claude --account"* ]] && print 1)"
+out=$(tab full "tally claude " "zstyle ':completion:*' menu no no-select")
+check "…and so is a no sitting beside another value" \
+  "$([[ $out != *"claude --account"* ]] && print 1)"
+out=$(tab full "tally claude " "zstyle ':completion:*' menu no=1" 2)
+check "…with every option still reachable, a press later" \
+  "$([[ $out == *"--worktree"* && $out == *"--account"* ]] && print 1)"
 
 exit $(( failures > 0 ))

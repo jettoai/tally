@@ -20,7 +20,8 @@ func runLocalizationKeyChecks() {
         .deletingLastPathComponent()                   // repo root
     let sources = ["Tally/Stores/IntegrationsPromptCommand.swift",
                    "Tally/Stores/IntegrationsSkill.swift",
-                   "Tally/Stores/IntegrationsStore.swift"]
+                   "Tally/Stores/IntegrationsStore.swift",
+                   "Tally/Stores/IntegrationsCompletion.swift"]
 
     var keys: [String] = []
     var unreadable: [String] = []

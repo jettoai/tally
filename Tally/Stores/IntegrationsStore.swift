@@ -79,6 +79,11 @@ final class IntegrationsStore {
     private(set) var shimStatuses: [Shim: Status] = [:]
     private(set) var statusLineStatus: Status = .notInstalled
     private(set) var skillStatus: Status = .notInstalled
+    /// Whether zsh tab completion for `tally` is present (IntegrationsCompletion.swift). Not a
+    /// `Status` and not a row of its own: it has no install button, because it goes in with the
+    /// command line tool. False while that tool IS installed is what the row's extra sentence is
+    /// for. Setter internal (not private): the completion extension file writes it too.
+    var completionInstalled = false
     /// Set when an install/remove fails (e.g. /usr/local/bin not writable); shown inline.
     /// Setter internal (not private): the skill extension file writes it too.
     var lastError: String?
@@ -92,6 +97,7 @@ final class IntegrationsStore {
         shimStatuses = Dictionary(uniqueKeysWithValues: Shim.allCases.map { ($0, Self.detectShim($0)) })
         statusLineStatus = Self.detectStatusLine()
         skillStatus = Self.detectSkill()
+        completionInstalled = Self.detectCompletion()
     }
 
     func shimStatus(_ shim: Shim) -> Status { shimStatuses[shim] ?? .notInstalled }
@@ -155,6 +161,11 @@ final class IntegrationsStore {
             try? fm.removeItem(at: Self.cliSymlinkURL)
             try fm.createSymbolicLink(at: Self.cliSymlinkURL, withDestinationURL: Self.bundledCLIURL)
             recordManifest("cliTool", paths: [Self.cliSymlinkURL.path])
+            // Tab completion goes in with the command, not through a button of its own: it is the
+            // same integration, and one nobody knows to ask for (IntegrationsCompletion.swift).
+            // Detached from the press because it asks two processes for their answers; the link
+            // above is already installed and the row already says so.
+            Task { await installCompletion(explicit: true) }
         } catch {
             lastError = error.localizedDescription
         }
@@ -165,6 +176,7 @@ final class IntegrationsStore {
         guard guardNotDev() else { return }
         lastError = nil
         do {
+            removeCompletion()
             try FileManager.default.removeItem(at: Self.cliSymlinkURL)
             recordManifest("cliTool", paths: nil)
         } catch {

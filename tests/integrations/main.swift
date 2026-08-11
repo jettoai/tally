@@ -427,6 +427,9 @@ try MainActor.assumeIsolated {
     try runNativePickerChecks(tmp: tmp, skill: currentSkill)
     // Neither of which can be localized through a key it built for itself (localizationchecks.swift).
     runLocalizationKeyChecks()
+    // And the one integration with no row of its own: the tab completion that goes in with the
+    // command line tool (completionchecks.swift).
+    try runCompletionChecks(tmp: tmp)
 
     try? FileManager.default.removeItem(at: tmp)
 }

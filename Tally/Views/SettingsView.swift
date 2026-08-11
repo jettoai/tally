@@ -308,7 +308,7 @@ struct SettingsView: View {
         rowDivider
         integrationRow(
             title: L("Command line tool"),
-            caption: L("Links the tally command into /usr/local/bin so any terminal can use it."),
+            caption: integrations.cliToolCaption,
             status: integrations.cliToolStatus,
             install: integrations.installCLITool,
             remove: integrations.removeCLITool)

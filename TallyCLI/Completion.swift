@@ -22,7 +22,12 @@ import Foundation
 let tallyCompletionZsh = #"""
 #compdef tally
 
-# Tab completion for tally. Printed by `tally completion zsh`; install it either way:
+# tally-completion: tab completion for tally, printed by `tally completion zsh`. Installing the
+# command line tool (Tally.app, Settings -> Integrations) writes this file into the zsh
+# site-functions directory beside it, and removing that command deletes it again; the marker on this
+# line is how the app tells a file it wrote from one somebody else put there. Yours to delete.
+#
+# By hand, either way:
 #
 #   eval "$(tally completion zsh)"                 in ~/.zshrc, after compinit has run
 #   tally completion zsh > "${fpath[1]}/_tally"    picked up by compinit through the tag above
@@ -188,27 +193,69 @@ _tally_rest() {
   # (the menu below), so `tally claude --add-dir <Tab>` handed the child `--add-dir --account` and a
   # launch that fails for want of a directory (review, 2026-08-11).
   #
-  # THE TEST IS A HEURISTIC AND WORTH NAMING AS ONE: a preceding word that starts with a dash and is
-  # not one of OUR flags that take nothing is treated as a flag that might be waiting for a value,
-  # and we stay quiet. It is deliberately biased toward silence, because the two mistakes are not
-  # the same size - a lesson withheld costs a keystroke, a lesson inserted costs a launch. Our own
-  # flags that DO take a value never reach here at all: `_arguments` binds their value position
-  # first. The list of which of ours take nothing is read off the same specs (a spec whose
-  # description is the end of it takes nothing after it), so it cannot drift from them either.
+  # THE TEST IS A HEURISTIC AND WORTH NAMING AS ONE: the nearest flag to the LEFT decides, and it
+  # decides on one question - is it ours. Ours are fully described to `_arguments`, which binds each
+  # one's value position itself, so reaching this function at all means whatever it wanted has been
+  # given and the position is free. Anything else is a flag belonging to the child CLI, whose arity
+  # this script does not know, so we stay quiet until one of ours ends the run. It is deliberately
+  # biased toward silence, because the two mistakes are not the same size: a lesson withheld costs a
+  # keystroke, a lesson inserted costs a launch.
+  #
+  # THE WHOLE RUN OF ITS VALUES, not just the first. A child flag can take several words: claude's
+  # `--add-dir a b` and `--allowedTools Read Write` keep consuming until the next flag
+  # (LaunchFlags.swift lists eleven as variadic). Looking only at the word immediately before the
+  # cursor made the second value a place to teach, so `tally claude --add-dir one <TAB>` inserted
+  # `--account` into the middle of the directory list and truncated it (review, 2026-08-11).
+  #
+  # THE NAMES ARE READ OFF THE SAME SPECS `_arguments` IS GIVEN, so they cannot drift from what is
+  # actually bound: a flag renamed there is renamed here, and one added there is recognised here
+  # without anything being written down twice.
   [[ -n ${words[CURRENT]} ]] && return 0
-  local previous=${words[CURRENT-1]} spec valueless=0
-  if [[ $previous == -* ]]; then
+  local previous='' spec ours=0
+  integer i
+  for (( i = CURRENT - 1; i > 1; i-- )); do
+    [[ ${words[i]} == -* ]] && { previous=${words[i]}; break }
+  done
+  if [[ -n $previous ]]; then
     for spec in $_tally_specs; do
       spec=${spec#\(*\)}
-      [[ -n ${spec#*\]} ]] && continue                        # this one takes a value
-      [[ ${spec%%\[*} == "$previous" ]] && { valueless=1; break }
+      [[ ${spec%%\[*} == "$previous" ]] && { ours=1; break }
     done
-    (( valueless )) || return 0
+    (( ours )) || return 0
   fi
   # `_tally_specs` is the caller's array, reached the way this whole system reaches `words` and
   # `CURRENT`: an action runs inside the function that called `_arguments`.
   _tally_teach "launch option" $_tally_specs
   return 0
+}
+
+_tally_menu_wanted() {
+  # Whether the user's `menu` style asks for a menu UNCONDITIONALLY, which is the only answer that
+  # lets the line below force one: forcing over any other value is overriding them, and this whole
+  # style block exists to avoid that.
+  #
+  # THE VALUE IS A LIST, NOT A WORD, and zsh's own vocabulary for it is wider than the four words
+  # this used to compare against (man zshcompsys, `menu`): `no` `false` `off` `0` turn it off, their
+  # `=num` forms turn it off above a match count, `yes` `true` `on` `1` turn it on and have the same
+  # `=num` and `=long` forms, and `select` `no-select` `interactive` `search` may sit alongside any
+  # of them. So `menu no=1` and `menu no no-select` are both a user saying no, and both got a menu
+  # anyway (review, 2026-08-11).
+  #
+  # EVERY CONDITIONAL FORM IS A REFUSAL HERE, including the `yes=num` ones. This runs before any
+  # match exists (it is `_tally` itself, above `_arguments`), so the count those conditions are about
+  # is not knowable at this point. Refusing to force leaves the user's own setting to do exactly what
+  # it says on the press that follows; forcing on a guess is the one outcome that cannot be undone.
+  local word
+  integer wanted=0
+  for word in ${=${1:l}}; do
+    case $word in
+      (no|false|off|0) return 1 ;;
+      (no=*|false=*|off=*|0=*) return 1 ;;
+      (yes=*|true=*|on=*|1=*) return 1 ;;
+      (yes|true|on|1|select) wanted=1 ;;
+    esac
+  done
+  return $(( ! wanted ))
 }
 
 _tally_model_effort() {
@@ -261,13 +308,16 @@ _tally_project_command() {
     (args)
       case $words[1] in
         (set)
-          # Which provider's accounts may be named depends on what this line has already said:
-          # `--provider` defaults to claude (ProjectPolicy.swift), and a `--provider` typed after
-          # the account is not on the line yet to be read, which is the same order the command
-          # itself would refuse in.
+          # Which provider's accounts may be named depends on what this line says, and THE WHOLE
+          # LINE says it: `runProjectSet` reads the flag with `optionValue`, which scans the entire
+          # argument list and takes the first occurrence, so `--provider codex` written AFTER the
+          # account is a perfectly legal Codex profile. Reading only what is left of the cursor
+          # offered claude accounts to a line that had already said codex, and the command then
+          # refuses the name it was handed (review, 2026-08-11). First match and a claude default
+          # for a dangling flag, because that is what `optionValue` answers.
           local provider=claude i
-          for (( i = 1; i < CURRENT; i++ )); do
-            [[ $words[i] == --provider ]] && provider=${words[i+1]:-claude}
+          for (( i = 1; i <= $#words; i++ )); do
+            [[ $words[i] == --provider ]] && { provider=${words[i+1]:-claude}; break }
           done
           _arguments \
             "--model[the model every launch in this project runs]:model:_tally_models" \
@@ -321,8 +371,9 @@ _tally() {
   # the common prefix grows and the list arrives on the next press, exactly as it does for every
   # other command they complete. (A `compstate[list]=list` to show it a press earlier was tried and
   # dropped: `_main_complete` settles that value after this runs, so the line was dead code that
-  # looked like a promise.)
-  [[ -z ${words[CURRENT]} && ${_tally_menu:l} != (no|false|off|0) ]] && compstate[insert]=menu
+  # looked like a promise.) What counts as "off" is the whole of zsh's vocabulary for this style
+  # rather than the four words it started as (`_tally_menu_wanted`).
+  [[ -z ${words[CURRENT]} ]] && _tally_menu_wanted "$_tally_menu" && compstate[insert]=menu
   local -a commands
   commands=(
     "claude:launch Claude Code on the account with the most headroom"

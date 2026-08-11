@@ -122,18 +122,52 @@ _tally_teach() {
   #
   # BUILT FROM THE VERY SPEC STRINGS `_arguments` IS GIVEN, handed in by the caller, so what is
   # taught cannot drift from what works: a flag renamed in the spec is renamed in the lesson.
-  local label=$1 spec name desc
-  local -a names displays
+  # TWO SPELLINGS OF ONE FLAG ARE ONE LESSON. `-w` and `--worktree` reach this function as a spec
+  # each (the caller writes them as one brace expansion), carrying the same sentence, and listing
+  # both was the same sentence twice in a lesson five lines long (Albert, seeing it, 2026-08-11).
+  # They are recognised by the exclusion group every alias set already carries for `_arguments`,
+  # so nothing has to be declared twice to say they belong together. Shown `-w, --worktree` the way
+  # gh and docker show theirs: the spelling you type first, the one that says what it means second.
+  local label=$1 spec group name desc alias
+  local -a names displays seen aliases short long
   shift
   for spec in "$@"; do
-    spec=${spec#\(*\)}                  # the exclusion group, when the spec carries one
+    group=''
+    if [[ $spec == \(*\)* ]]; then
+      group=${${spec#\(}%%\)*}
+      spec=${spec#\(*\)}
+    fi
     name=${spec%%\[*}
     # Anything without a description is not a lesson: positional specs and bare flags are skipped
     # rather than listed with an empty explanation.
     [[ $name == -* && $name != $spec ]] || continue
     desc=${spec#*\[}
-    displays+=("$name  --  ${desc%%\]*}")
+    desc=${desc%%\]*}
+    # ALREADY ON THE LINE, UNDER ANY OF ITS SPELLINGS: not a lesson any more. `_arguments` drops a
+    # flag once it has been used and drops a whole exclusion group with it, and this path went round
+    # that, so a second `--account` was offered - and the launcher strips only the FIRST one
+    # (main.swift), so the extra reaches the child (review, 2026-08-11).
+    for alias in ${(z)group} $name; do
+      (( ${words[(Ie)$alias]} )) && continue 2
+    done
+    # A group that does not contain this flag is an exclusion of OTHER flags, not an alias set.
+    if [[ -n $group ]] && (( ${${(z)group}[(Ie)$name]} )); then
+      (( ${seen[(Ie)$group]} )) && continue
+      seen+=("$group")
+      short=()
+      long=()
+      for alias in ${(z)group}; do
+        [[ $alias == --* ]] && long+=("$alias") || short+=("$alias")
+      done
+      aliases=($short $long)
+      # The long spelling is what gets inserted: a line somebody reads back a week later says what
+      # it does, and both spellings mean the same thing to the binary.
+      names+=("${long[1]:-${short[1]}}")
+      displays+=("${(j:, :)aliases}  --  $desc")
+      continue
+    fi
     names+=("$name")
+    displays+=("$name  --  $desc")
   done
   (( $#names )) || return 0
   _wanted tally-options expl $label compadd -d displays -a names
@@ -149,9 +183,31 @@ _tally_rest() {
   # 2026-08-11). Silence does not stop anyone typing; a wrong suggestion accepted does become a
   # command, which is how a file name once turned into a worktree branch.
   #
+  # AN EMPTY WORD IS NOT ENOUGH TO MEAN "WHAT IS THERE". It is also what the word after somebody
+  # else's flag looks like while it waits for a value, and the lesson is not just shown but INSERTED
+  # (the menu below), so `tally claude --add-dir <Tab>` handed the child `--add-dir --account` and a
+  # launch that fails for want of a directory (review, 2026-08-11).
+  #
+  # THE TEST IS A HEURISTIC AND WORTH NAMING AS ONE: a preceding word that starts with a dash and is
+  # not one of OUR flags that take nothing is treated as a flag that might be waiting for a value,
+  # and we stay quiet. It is deliberately biased toward silence, because the two mistakes are not
+  # the same size - a lesson withheld costs a keystroke, a lesson inserted costs a launch. Our own
+  # flags that DO take a value never reach here at all: `_arguments` binds their value position
+  # first. The list of which of ours take nothing is read off the same specs (a spec whose
+  # description is the end of it takes nothing after it), so it cannot drift from them either.
+  [[ -n ${words[CURRENT]} ]] && return 0
+  local previous=${words[CURRENT-1]} spec valueless=0
+  if [[ $previous == -* ]]; then
+    for spec in $_tally_specs; do
+      spec=${spec#\(*\)}
+      [[ -n ${spec#*\]} ]] && continue                        # this one takes a value
+      [[ ${spec%%\[*} == "$previous" ]] && { valueless=1; break }
+    done
+    (( valueless )) || return 0
+  fi
   # `_tally_specs` is the caller's array, reached the way this whole system reaches `words` and
   # `CURRENT`: an action runs inside the function that called `_arguments`.
-  [[ -z ${words[CURRENT]} ]] && _tally_teach "launch option" $_tally_specs
+  _tally_teach "launch option" $_tally_specs
   return 0
 }
 
@@ -242,9 +298,10 @@ _tally() {
   # purpose and would then have the menu forced back on. `-s` answers the question actually being
   # asked, which is whether anything the user wrote already applies here.
   zmodload -i zsh/complist 2>/dev/null
-  local _tally_style
-  zstyle -s ':completion:*:*:tally:*' menu _tally_style \
-    || zstyle ':completion:*:*:tally:*' menu select
+  local _tally_style _tally_menu
+  # The menu's answer is kept, because one line below it decides more than a style does.
+  zstyle -s ':completion:*:*:tally:*' menu _tally_menu \
+    || { zstyle ':completion:*:*:tally:*' menu select; _tally_menu=select }
   zstyle -s ':completion:*:*:tally:*' group-name _tally_style \
     || zstyle ':completion:*:*:tally:*' group-name ''
   zstyle -s ':completion:*:*:tally:*:descriptions' format _tally_style \
@@ -255,7 +312,17 @@ _tally() {
   # this whole change is about. Asked for only where the word is empty, which is the press that
   # means "what is there"; once something is typed, the ordinary prefix behaviour is what a person
   # is expecting.
-  [[ -z ${words[CURRENT]} ]] && compstate[insert]=menu
+  #
+  # AND ONLY WHERE THE MENU IS ACTUALLY WANTED. This line is the one that decides, so respecting the
+  # user's preference in the zstyle above and then forcing the behaviour here was respecting nothing
+  # at all: `menu no` kept its value and got a menu anyway (review, 2026-08-11). Read off the same
+  # answer the probe above already has, so there is one judgement rather than two that can disagree.
+  # Somebody who turned the menu off gets their shell's ordinary behaviour here and nothing forced:
+  # the common prefix grows and the list arrives on the next press, exactly as it does for every
+  # other command they complete. (A `compstate[list]=list` to show it a press earlier was tried and
+  # dropped: `_main_complete` settles that value after this runs, so the line was dead code that
+  # looked like a promise.)
+  [[ -z ${words[CURRENT]} && ${_tally_menu:l} != (no|false|off|0) ]] && compstate[insert]=menu
   local -a commands
   commands=(
     "claude:launch Claude Code on the account with the most headroom"
@@ -355,74 +422,3 @@ else
   print -u2 -- "tally: run compinit (autoload -Uz compinit && compinit) before this script"
 fi
 """#
-
-/// `tally completion <shell>` - print a completion script on stdout, for eval or for fpath.
-///
-/// Named rather than defaulted: bare `tally completion` is a usage error rather than zsh, so the
-/// day a second shell arrives nothing that was written down changes meaning. Same shape as the
-/// other subcommands with a list: the text goes to stderr with exit 2, since a word this command
-/// does not know is a mistake rather than a request.
-func runCompletion(args: [String]) -> Int32 {
-    switch args.first {
-    case "zsh":
-        print(tallyCompletionZsh)
-        return 0
-    case "data":
-        return runCompletionData(args: Array(args.dropFirst()))
-    default:
-        warn("usage: tally completion zsh")
-        return 2
-    }
-}
-
-/// The names `--account` will accept for one provider's accounts, one per line: what the completion
-/// script offers at the cursor.
-///
-/// ASKED OF THE MATCHER ITSELF rather than assembled beside it. A name is offered only when
-/// `accountMatching` resolves it to exactly this account, which makes the suggestion true by
-/// construction: the completion cannot offer a Codex account to `tally claude --account` (the
-/// matcher filters on the provider first), and it cannot offer a label two accounts share, which
-/// the matcher answers with "name one of them exactly" - the one answer a suggestion must never be.
-///
-/// The label is preferred and the config-dir name is the fallback, in the order a person reads them
-/// off `tally status`: one name per account, and the directory appears only for the accounts whose
-/// label cannot pick them out. An account neither name resolves is offered under neither, because
-/// there is nothing to type that would land on it.
-func completionAccountNames(_ snapshot: Snapshot?, provider: String) -> [String] {
-    var names: [String] = []
-    for account in snapshot?.accounts ?? [] where account.provider == provider {
-        guard let home = account.launchHome else { continue }
-        let candidates = [account.label, URL(fileURLWithPath: home).lastPathComponent]
-        // A newline cannot be a candidate on a line-per-candidate channel, and a label is free text
-        // (the rename popover accepts anything). Dropped rather than escaped: nothing could type it
-        // back in anyway.
-        guard let name = candidates.first(where: { candidate in
-            guard !candidate.isEmpty, !candidate.contains("\n") else { return false }
-            guard case .one(let match) = accountMatching(candidate, provider: provider,
-                                                         in: snapshot) else { return false }
-            return match.id == account.id
-        }) else { continue }
-        names.append(name)
-    }
-    return names
-}
-
-/// `tally completion data <what> [args]` - the plumbing the completion script asks its questions
-/// through. Not in `tally help` and not offered at the cursor: it is one program talking to itself,
-/// and a person reading the list of commands has nothing to do with it.
-///
-/// A SUBCOMMAND RATHER THAN A SHELL PARSE OF `status --json`. That report is pretty-printed JSON
-/// carrying free text a user typed, so a shell reader has to get quoting and escaping right to hand
-/// back a name that matches; here the binary that owns the matcher answers with the words that
-/// resolve. Silent about every failure, including a snapshot it could not read: this runs at a
-/// cursor, where the only two outcomes allowed are suggestions and no suggestions.
-func runCompletionData(args: [String]) -> Int32 {
-    guard args.first == "accounts", let providerID = args.dropFirst().first,
-          providers.contains(where: { $0.id == providerID }) else {
-        warn("usage: tally completion data accounts <\(providers.map(\.id).joined(separator: "|"))>")
-        return 2
-    }
-    let (snapshot, _) = loadSnapshot()
-    for name in completionAccountNames(snapshot, provider: providerID) { print(name) }
-    return 0
-}

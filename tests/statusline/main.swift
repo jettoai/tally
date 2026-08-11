@@ -343,13 +343,26 @@ check("resume is named, with nothing to offer", tallyCompletionZsh.contains("(re
 check("the teaching list is built from the specs themselves",
       tallyCompletionZsh.contains("_tally_teach \"launch option\" $_tally_specs")
           && tallyCompletionZsh.contains("_arguments $_tally_specs \"*: :_tally_rest\""))
+// Two spellings of one flag are one lesson, recognised through the exclusion group the alias set
+// already carries for `_arguments` - so nothing is declared twice to say they belong together. What
+// the merged line LOOKS like is checked where it can be seen, in a real shell (tests/completion).
+check("alias sets are found through the group they already declare",
+      tallyCompletionZsh.contains("(( ${${(z)group}[(Ie)$name]} ))"))
 // Presentation styles are scoped to this command and asked about before being set, so a preference
 // the user already expressed here is not overwritten (`-s` tests whether a style is SET; `-t` tests
 // whether it is TRUE, which reads "unset" for somebody who chose `menu no`).
-for style in ["menu", "group-name"] {
-    check("the \(style) style is asked about before it is set",
-          tallyCompletionZsh.contains("zstyle -s ':completion:*:*:tally:*' \(style) _tally_style \\\n    || zstyle ':completion:*:*:tally:*' \(style)"))
-}
+// Counted rather than sampled: what matters is that NO style is set without being asked about
+// first, and a per-style example says nothing about the one somebody adds next.
+let styleLines = tallyCompletionZsh.components(separatedBy: "\n")
+let probes = styleLines.filter { $0.contains("zstyle -s ':completion:*:*:tally:*") }.count
+let sets = styleLines.filter {
+    $0.contains("|| ") && $0.contains("zstyle ':completion:*:*:tally:*")
+}.count
+check("every style this script sets is asked about first", probes == 3 && sets == 3)
+// The menu answer is not just kept out of the style, it decides the behaviour: respecting `menu no`
+// in the zstyle and then forcing the insertion anyway was respecting nothing (review, 2026-08-11).
+check("the forced menu reads the same answer the probe already has",
+      tallyCompletionZsh.contains("${_tally_menu:l} != (no|false|off|0) ]] && compstate[insert]=menu"))
 check("the styles say tally rather than everything",
       !tallyCompletionZsh.contains("zstyle ':completion:*' "))
 // `tally model auto high` is usage and exit 2 (`modelIntent` refuses two words when either is the
@@ -369,7 +382,7 @@ check("the provider suggestions are the providers this binary launches",
 // Asked for, so it answers on stdout with a zero exit: `eval "$(tally completion zsh)"` reads
 // exactly that, and a script written into somebody's ~/.zshrc is the last place an error belongs.
 check("the completion is printed to stdout with a zero exit",
-      (try? String(contentsOfFile: "TallyCLI/Completion.swift", encoding: .utf8))?
+      (try? String(contentsOfFile: "TallyCLI/CompletionData.swift", encoding: .utf8))?
           .contains("print(tallyCompletionZsh)\n        return 0") == true)
 
 exit(failures == 0 ? 0 : 1)

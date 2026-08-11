@@ -1857,31 +1857,31 @@
         }
       }
     },
-    "Tab completion was not installed here; add it with: tally completion zsh > \"${fpath[1]}/_tally\"": {
+    "Tab completion is not installed here; add it with: [[ -e \"${fpath[1]}/_tally\" ]] || tally completion zsh > \"${fpath[1]}/_tally\"": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這裡沒能裝上 Tab 補全；手動安裝：tally completion zsh > \"${fpath[1]}/_tally\""
+            "value": "這裡沒有 Tab 補全；手動安裝：[[ -e \"${fpath[1]}/_tally\" ]] || tally completion zsh > \"${fpath[1]}/_tally\""
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这里没能装上 Tab 补全；手动安装：tally completion zsh > \"${fpath[1]}/_tally\""
+            "value": "这里没有 Tab 补全；手动安装：[[ -e \"${fpath[1]}/_tally\" ]] || tally completion zsh > \"${fpath[1]}/_tally\""
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ここではタブ補完を設置できませんでした。手動で追加するには：tally completion zsh > \"${fpath[1]}/_tally\""
+            "value": "ここにはタブ補完がありません。手動で追加するには：[[ -e \"${fpath[1]}/_tally\" ]] || tally completion zsh > \"${fpath[1]}/_tally\""
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "여기에는 탭 자동완성을 설치하지 못했습니다. 직접 추가하려면: tally completion zsh > \"${fpath[1]}/_tally\""
+            "value": "여기에는 탭 자동완성이 없습니다. 직접 추가하려면: [[ -e \"${fpath[1]}/_tally\" ]] || tally completion zsh > \"${fpath[1]}/_tally\""
           }
         }
       }

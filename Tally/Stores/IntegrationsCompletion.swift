@@ -27,9 +27,11 @@ extension IntegrationsStore {
     /// The manifest component, so the uninstall deletes what THIS app wrote and nothing else.
     nonisolated static let completionManifest = "cliCompletion"
 
-    /// The word in the script's header that says a file on disk came out of this binary. Ownership
-    /// is asked before every write and before every delete, so a `_tally` somebody else wrote (a
-    /// package manager's, a hand-rolled one) is left exactly as it is.
+    /// The word in the script's header that says a file on disk came out of THIS BINARY - which is
+    /// not the same as saying it was put there by this app, because the binary prints the script to
+    /// anybody who runs `tally completion zsh`. What it is actually good for is noticing that a file
+    /// we did record has since been replaced by somebody else's (`completionFileIsOurs`); the
+    /// manifest is what says whose the file is.
     nonisolated static let completionMarker = "tally-completion"
 
     /// Where a zsh completion belongs on this machine, Homebrew's prefix first.
@@ -112,29 +114,73 @@ extension IntegrationsStore {
 
     // MARK: Whose file is this, and does it need writing
 
-    /// Whether a `_tally` on disk is one of ours. Both halves are required: the tag alone is in
-    /// every completion for this command anybody could write, and the marker alone could appear in
-    /// a file that is not a completion at all.
+    /// Whether a `_tally` on disk still has the SHAPE of the script this app writes.
+    ///
+    /// NOT A PROOF OF OWNERSHIP, and reading it as one was a defect: `tally completion zsh` prints
+    /// this marker to anybody who asks, so a Homebrew formula shipping that output, or a user who
+    /// once ran the line in the row's own caption, has a file that answers yes here. Ownership is
+    /// what the MANIFEST records, and nothing else (`completionMayBeWritten`); this question is only
+    /// ever asked about a file the manifest ALREADY names, where it answers a different one: has the
+    /// file we wrote since been replaced by somebody else's (review, 2026-08-11).
     static func completionFileIsOurs(_ content: String) -> Bool {
         content.hasPrefix("#compdef tally\n") && content.contains(completionMarker)
     }
 
-    /// Whether to write the completion, given what is at that path.
+    /// Whether this app may put its script at that path.
     ///
-    /// - `existing` nil: nothing is there. A first install writes; an absence where we HAVE
-    ///   installed before is somebody having deleted the file, which is the only way to say no to
-    ///   this (there is no button of its own), and it is respected. An Install press says otherwise
-    ///   by passing `installedBefore: false`.
-    /// - not ours: never touched, at any time, for any reason.
-    /// - `script` nil: the binary has not been asked yet. Answering "yes, ours and possibly stale"
-    ///   here is what lets the launch-time pass skip the process spawn in every case where the
-    ///   answer cannot depend on the script's contents.
-    static func completionWriteIsWanted(existing: String?, installedBefore: Bool,
-                                        script: String?) -> Bool {
-        guard let existing else { return !installedBefore }
-        guard completionFileIsOurs(existing) else { return false }
-        guard let script else { return true }
-        return existing != script
+    /// THE MANIFEST IS THE ONLY TITLE DEED. `ownedHere` is "this exact path is in our manifest",
+    /// which is written in one place only: after a write of ours succeeded. So the rule the whole
+    /// feature rests on holds by construction - a file this app never wrote is never written over
+    /// and never deleted, however much it looks like ours.
+    ///
+    /// - `existing` nil: nothing is there. A first install writes; an absence where we DO hold the
+    ///   path is somebody having deleted the file, which is the only way to say no to this (there is
+    ///   no button of its own), and it is respected until an Install press says otherwise.
+    /// - `existing` present and not ours to hold: left alone at any time, for any reason, INCLUDING
+    ///   an Install press. The row's caption then offers a hand-install line that refuses it too.
+    /// - `existing` present, ours to hold, but no longer our shape: somebody replaced our file with
+    ///   theirs. It is theirs now, so it is left alone as well - and, having never been rewritten,
+    ///   never re-recorded either.
+    static func completionMayBeWritten(existing: String?, ownedHere: Bool, explicit: Bool) -> Bool {
+        guard let existing else { return explicit || !ownedHere }
+        return ownedHere && completionFileIsOurs(existing)
+    }
+
+    /// Whether the `tally` on the PATH is one THIS app put there.
+    ///
+    /// `detectCLITool` answers a different question - is there a symlink whose target exists - and
+    /// a Homebrew install answers yes to it, so using it as the launch-time gate had the app writing
+    /// into a shared directory for a user who never pressed anything of ours (review, 2026-08-11).
+    ///
+    /// TWO PROOFS, EITHER WILL DO. The link pointing at the CLI inside this bundle is the direct
+    /// one; the manifest naming the link is the one that survives the app moving, which changes
+    /// `bundledCLIURL` under a link we really did make. Neither is satisfied by a package manager's.
+    static func cliToolIsOurs(recorded: [String], destination: String?, bundled: String,
+                              link: String) -> Bool {
+        guard let destination else { return false }     // a real file, or nothing at all
+        return destination == bundled || recorded.contains(link)
+    }
+
+    /// `cliToolIsOurs` for this machine.
+    static func cliToolIsAppManaged() -> Bool {
+        cliToolIsOurs(recorded: manifestPaths(cliToolManifest),
+                      destination: try? FileManager.default
+                          .destinationOfSymbolicLink(atPath: cliSymlinkURL.path),
+                      bundled: bundledCLIURL.path,
+                      link: cliSymlinkURL.path)
+    }
+
+    /// Whether the launch-time pass has anything to look at, which is the gate that keeps the steady
+    /// state free of processes.
+    ///
+    /// The stamp moves on every reconciliation, INCLUDING one that decided this app owns nothing
+    /// here (`recorded` empty). That case is a machine whose `_tally` belongs to somebody else, and
+    /// without a stamp of its own it would send every single launch back to ask the CLI for a script
+    /// it is never going to write.
+    static func completionNeedsReconciling(stamp: String?, version: String, recorded: [String],
+                                           exists: (String) -> Bool) -> Bool {
+        guard stamp == version else { return true }
+        return recorded.contains { !exists($0) }
     }
 
     /// The version stamp the manifest already records for a component, which is what makes an app
@@ -191,11 +237,18 @@ extension IntegrationsStore {
     /// cannot serve, and saying nothing there would leave a feature that silently did not
     /// happen. Composed here rather than in the view because the sentence is about what this store
     /// installs, and the view already asks it what is installed.
+    ///
+    /// THE LINE IT OFFERS REFUSES A FILE THAT IS ALREADY THERE, because the commonest reason this
+    /// sentence is on screen at all is that one is: a plain `>` truncates whatever a package manager
+    /// or the user put at that path, and truncates it BEFORE `tally completion zsh` has run, so a
+    /// binary that then fails leaves an empty file where a working completion used to be (review,
+    /// 2026-08-11). Written on one line with `L(` because a key split across lines is a key the
+    /// interpolation lock cannot see (localizationchecks.swift).
     var cliToolCaption: String {
         let base = L("Links the tally command into /usr/local/bin so any terminal can use it.")
         guard cliToolStatus == .installed, !completionInstalled else { return base }
         return base + " "
-            + L("Tab completion was not installed here; add it with: tally completion zsh > \"${fpath[1]}/_tally\"")
+            + L("Tab completion is not installed here; add it with: [[ -e \"${fpath[1]}/_tally\" ]] || tally completion zsh > \"${fpath[1]}/_tally\"")
     }
 
     // MARK: The two moments it happens
@@ -205,17 +258,20 @@ extension IntegrationsStore {
     /// - Parameter explicit: an Install press, which writes even where the launch-time pass would
     ///   read an absent file as a deliberate delete.
     ///
+    /// ONLY BESIDE A COMMAND THIS APP INSTALLED. The gate is `cliToolIsAppManaged`, not "is there a
+    /// tally on the PATH": a Homebrew tally passes the second and nobody pressed anything of ours.
+    ///
     /// EVERY FAILURE IS SILENT, on purpose. A completion is a convenience attached to an install
     /// that has already succeeded, so an unwritable directory must not surface as an error under the
     /// row that says the command line tool is installed, which it is. What the user gets instead is
     /// the row's own sentence with the hand-install line in it.
     func installCompletion(explicit: Bool) async {
-        guard !BuildVariant.isUnshipped else { return }
-        let recorded = Self.manifestPaths(Self.completionManifest).first
+        guard !BuildVariant.isUnshipped, Self.cliToolIsAppManaged() else { return }
+        let recorded = Self.manifestPaths(Self.completionManifest)
         // A recorded path is preferred over a fresh choice, so a file already installed keeps being
         // rewritten where it is; a directory that has since gone (a Homebrew prefix removed) sends
         // the choice back to whatever the machine has now.
-        let recordedDirectory = recorded
+        let recordedDirectory = recorded.first
             .map { URL(fileURLWithPath: $0).deletingLastPathComponent().path }
             .flatMap { FileManager.default.fileExists(atPath: $0) ? $0 : nil }
         var directory = recordedDirectory
@@ -223,25 +279,39 @@ extension IntegrationsStore {
         guard let directory else { return }
         let file = URL(fileURLWithPath: directory).appendingPathComponent(Self.completionFileName)
         let existing = try? String(contentsOf: file, encoding: .utf8)
-        let installedBefore = recorded != nil && !explicit
-        // Asked without the script first: the spawn below is worth avoiding on every launch where
-        // nothing it could say would change the answer.
-        guard Self.completionWriteIsWanted(existing: existing, installedBefore: installedBefore,
-                                           script: nil),
-              let script = await Self.completionScript() else { return }
-        if Self.completionWriteIsWanted(existing: existing, installedBefore: installedBefore,
-                                        script: script) {
+        let ownedHere = recorded.contains(file.path)
+        guard Self.completionMayBeWritten(existing: existing, ownedHere: ownedHere,
+                                          explicit: explicit) else {
+            // Somebody else's file, and it stays somebody else's: the stamp moves so no later launch
+            // asks about it again, and the record claims NO path, so the uninstall below has nothing
+            // of theirs to delete. The two go together - a stamp with a path in it would be this
+            // app taking title to a file it never wrote (review, 2026-08-11).
+            if !ownedHere { recordManifest(Self.completionManifest, paths: []) }
+            refresh()
+            return
+        }
+        guard let script = await Self.completionScript() else { return }
+        // ASKED AGAIN AFTER THE LAST AWAIT, and nothing between here and the write may suspend. The
+        // press that starts this hands the main actor back twice while it waits on child processes,
+        // and a Remove pressed in that window found no manifest to delete from and then watched this
+        // task put the completion back beside a command that was gone (review, 2026-08-11). The same
+        // predicate that decides whether to start decides whether to finish: after a Remove the
+        // symlink is not there, so it answers no.
+        guard !Task.isCancelled, Self.cliToolIsAppManaged() else { return }
+        if existing != script {
             do { try Self.writeCompletion(script, to: file) } catch { return }
         }
         // Recorded even when nothing was written, because the record carries the app version this
         // file was last reconciled against: without the stamp moving, every launch after an update
-        // would spawn the CLI again to be told the same thing.
+        // would spawn the CLI again to be told the same thing. Only reachable for a path this app
+        // has just written or wrote before, which is what makes the manifest a title deed.
         recordManifest(Self.completionManifest, paths: [file.path])
         refresh()
     }
 
-    /// Take it away with the command it completes. Only what the manifest records, and only if the
-    /// bytes are still ours: a file somebody replaced in the meantime is theirs now.
+    /// Take it away with the command it completes. Only what the manifest records - which is only
+    /// ever a path this app wrote - and only if the bytes are still ours: a file somebody replaced
+    /// in the meantime is theirs now.
     func removeCompletion() {
         guard !BuildVariant.isUnshipped else { return }
         for path in Self.manifestPaths(Self.completionManifest) {
@@ -256,14 +326,16 @@ extension IntegrationsStore {
     /// somebody deleted.
     ///
     /// The version stamp is the gate, so the steady state costs two file reads and no process at
-    /// all: same app version, file still there, nothing to do.
+    /// all: same app version, everything we hold still there, nothing to do. Whether this app may
+    /// write here at all is asked once, inside `installCompletion`, rather than twice with two
+    /// spellings that could disagree.
     func autoUpdateCompletion() async {
-        guard !BuildVariant.isUnshipped, cliToolStatus == .installed else { return }
-        if let recorded = Self.manifestPaths(Self.completionManifest).first,
-           Self.manifestVersion(Self.completionManifest) == (BuildVariant.version ?? "dev"),
-           FileManager.default.fileExists(atPath: recorded) {
-            return
-        }
+        guard !BuildVariant.isUnshipped else { return }
+        guard Self.completionNeedsReconciling(
+            stamp: Self.manifestVersion(Self.completionManifest),
+            version: BuildVariant.version ?? "dev",
+            recorded: Self.manifestPaths(Self.completionManifest),
+            exists: { FileManager.default.fileExists(atPath: $0) }) else { return }
         await installCompletion(explicit: false)
     }
 }

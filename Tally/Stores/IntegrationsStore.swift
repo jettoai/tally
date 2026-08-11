@@ -24,6 +24,10 @@ final class IntegrationsStore {
     /// What that watcher is currently pointed at, so a manifest change can tell whether the stream
     /// has to be rebuilt or left alone (`settingsWatcherNeedsRestart`).
     @ObservationIgnored var settingsWatcherRoots: [URL] = []
+    /// The tab completion install still in flight, HELD so a Remove can cancel it. It outlives the
+    /// press that started it because it waits on two child processes, and an unheld task is one
+    /// nothing can call off (IntegrationsCompletion.swift).
+    @ObservationIgnored var completionTask: Task<Void, Never>?
 
     enum Status: Equatable {
         case installed
@@ -45,6 +49,11 @@ final class IntegrationsStore {
 
     nonisolated static let binDirURL = UsageSnapshot.directory.appendingPathComponent("bin", isDirectory: true)
     nonisolated static let cliSymlinkURL = URL(fileURLWithPath: "/usr/local/bin/tally")
+    /// The manifest component the symlink is recorded under. A constant because it is read as
+    /// PROVENANCE as well as written as bookkeeping: the completion install asks it whether the
+    /// `tally` on the PATH is one of ours (`cliToolIsOurs`), and a second spelling of the key would
+    /// answer no for every install this app ever made.
+    nonisolated static let cliToolManifest = "cliTool"
     nonisolated static let manifestURL = UsageSnapshot.directory.appendingPathComponent("manifest.json")
     nonisolated static let zshenvURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".zshenv")
@@ -160,12 +169,13 @@ final class IntegrationsStore {
             }
             try? fm.removeItem(at: Self.cliSymlinkURL)
             try fm.createSymbolicLink(at: Self.cliSymlinkURL, withDestinationURL: Self.bundledCLIURL)
-            recordManifest("cliTool", paths: [Self.cliSymlinkURL.path])
+            recordManifest(Self.cliToolManifest, paths: [Self.cliSymlinkURL.path])
             // Tab completion goes in with the command, not through a button of its own: it is the
             // same integration, and one nobody knows to ask for (IntegrationsCompletion.swift).
             // Detached from the press because it asks two processes for their answers; the link
-            // above is already installed and the row already says so.
-            Task { await installCompletion(explicit: true) }
+            // above is already installed and the row already says so. HELD, so the Remove button
+            // can call it off - it is still running long after this press returns.
+            completionTask = Task { await installCompletion(explicit: true) }
         } catch {
             lastError = error.localizedDescription
         }
@@ -176,9 +186,15 @@ final class IntegrationsStore {
         guard guardNotDev() else { return }
         lastError = nil
         do {
+            // The install this press is undoing may still be in flight: it waits on two child
+            // processes, so a Remove pressed straight after an Install arrives while that task is
+            // suspended. Cancelling is the polite half; the half that actually holds is the task
+            // re-asking whether the CLI is still ours before it writes, which this whole block
+            // answers for, being one synchronous run of the main actor (IntegrationsCompletion.swift).
+            completionTask?.cancel()
             removeCompletion()
             try FileManager.default.removeItem(at: Self.cliSymlinkURL)
-            recordManifest("cliTool", paths: nil)
+            recordManifest(Self.cliToolManifest, paths: nil)
         } catch {
             lastError = error.localizedDescription
         }

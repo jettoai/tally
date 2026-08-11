@@ -455,6 +455,19 @@ final class PickPanel: NSPanel {
         var held = frameRect
         held.origin = ResizeAnchor.origin(for: frameRect, edges: resizeEdges, corner: .topLeading)
         super.setFrame(held, display: displays)
+        // AND BACK ONTO THE SCREEN IT GREW OFF, which is the other half of holding a top edge: this
+        // panel is movable by its background, so a person can leave it against the bottom of the
+        // display, and the 36pt the apply bar adds when a row is circled would then put the summary
+        // and the Apply button below the edge - the very thing they were just given. The shared
+        // sizing contract runs this after every content-driven resize
+        // (`WindowPlacement.clampOnScreen`), and this surface resizes inside its own `setFrame`
+        // rather than through it, so it is the one place that has to say so (codex review of
+        // 46b09ec).
+        //
+        // ORIGIN ONLY, so the size authority is still `sizingOptions` alone, and bounded: the clamp
+        // moves the window without changing its height, so a frame write it produced would take the
+        // pass-through branch above rather than arriving back here with a corner to hold.
+        clampOnScreen()
     }
 
     /// Escape, at the AppKit level as well as the SwiftUI one: the list handles it while it has

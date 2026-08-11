@@ -277,6 +277,20 @@ check("the pick panel holds that edge through its own frame writes",
 check("…rewriting the origin only, never the size",
       pickSource.contains("var held = frameRect") && !pickSource.contains("held.size")
           && !pickSource.contains("setContentSize"))
+// AND BACK ON SCREEN AFTERWARDS, which is the other half of holding a top edge: the panel is
+// draggable, so it can be sitting on the bottom edge of the display when the apply bar adds its 36pt
+// (`pickApplyBlockHeight`) and pushes the Apply button off the screen. The shared sizing contract
+// does this after every content-driven resize (`clampOnScreen`, and its own comment says why), and
+// this is the one surface that resizes inside its own `setFrame` rather than through that contract -
+// so it is the one place that has to call it itself.
+let heldWrite = pickSource.range(of: "super.setFrame(held, display: displays)")
+check("…and the grown panel is put back on the screen it grew off",
+      heldWrite.map { pickSource[$0.upperBound...].contains("clampOnScreen()") } ?? false)
+// Origin only, so the clamp cannot become a second size authority, and bounded: the frame write it
+// makes keeps the height, which is the pass-through branch above rather than another corner to hold.
+check("…through the shared origin-only clamp, not a frame write of its own",
+      code(of: "Tally/Core/WindowPlacement.swift")
+          .contains("if origin != frame.origin { setFrameOrigin(origin) }"))
 check("…and its one size authority is still the hosting view's own option",
       pickSource.contains("hosting.sizingOptions = [.intrinsicContentSize]"))
 // Armed after the placement, because everything before it is the panel getting its first size from

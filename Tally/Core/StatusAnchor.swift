@@ -26,4 +26,34 @@ enum StatusAnchor {
         guard !buttonWindow.isEmpty else { return false }
         return screen.contains(CGPoint(x: buttonWindow.midX, y: buttonWindow.midY))
     }
+
+    /// Where a popover has to be put back to when its content changed size against an anchor nobody
+    /// can see: the top edge and the horizontal centre it already had, at its new `size`.
+    ///
+    /// Declining to hand the anchor back is not enough on its own, because HANDING NSPOPOVER A
+    /// CONTENT SIZE IS ITSELF A PLACEMENT: it re-derives the anchor from the positioning view's
+    /// window on every write, and while the bar is hidden that window is in the strip. Measured
+    /// (2026-08-12): with a display stacked above, the surface was thrown 350pt up onto that
+    /// display; with nothing above the strip it landed at the host display's top-left corner with
+    /// its arrow pointing at the corner, which is the report this answers.
+    ///
+    /// The top edge, because the popover hangs off the bar and grows downward - the same rule a
+    /// visible anchor would have given it. The centre, because that is where the arrow is: a popover
+    /// is centred on the item it points at, so a surface that widens has to widen about that point
+    /// rather than off one of its own edges.
+    ///
+    /// `screen` is the bar's own display and the horizontal clamp is measured against it, NOT
+    /// against whichever display the widened surface now mostly covers: an item near the right of
+    /// the bar puts more than half of a wide popover onto the display next door, and a clamp that
+    /// asked the window where it was would answer "that one" and tidily park it there. Too wide to
+    /// fit keeps the left edge, which is the edge the content is read from (`clampOnScreen`).
+    ///
+    /// Nothing clamps the vertical: a surface taller than the display is pinned to the top and keeps
+    /// its overflow below, which is the rule the whole app sizes to (`ScreenFitStack`), and a bottom
+    /// clamp here would be a second answer to the question the held top edge just answered.
+    static func heldOrigin(previous: CGRect, size: CGSize, within screen: CGRect) -> CGPoint {
+        let centred = previous.midX - size.width / 2
+        let rightmost = max(screen.maxX - size.width, screen.minX)
+        return CGPoint(x: min(max(centred, screen.minX), rightmost), y: previous.maxY - size.height)
+    }
 }

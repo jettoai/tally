@@ -133,7 +133,7 @@ final class StatusItemController: NSObject {
         } else {
             NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            let window = popover.contentViewController?.view.window
+            let window = popoverWindow
             window?.makeKey()
             // Nothing should start focused, the same clear `PinnedPanelController.show` makes on its
             // way in. The tab switch keeps focus through a surface going quiet so a keyboard user
@@ -184,7 +184,21 @@ final class StatusItemController: NSObject {
             // Suppress the animation just for the resize - show/close keep theirs.
             let animated = self.popover.animates
             self.popover.animates = false
+            // WRITING THE SIZE IS ITSELF A PLACEMENT, so declining the one below cannot be the whole
+            // answer: this is the resize the guard let through, and handing NSPopover a contentSize
+            // is what throws the surface at the corner (`StatusAnchor.heldOrigin` has the measured
+            // numbers). The frame it is standing at has to be read BEFORE that write, because after
+            // it there is nothing left to read - AppKit has already moved it.
+            let held = self.popover.isShown && !self.anchorIsPlaceable ? self.popoverWindow?.frame : nil
             self.popover.contentSize = size
+            if let held, let window = self.popoverWindow, let screen = self.menuBarScreen() {
+                // Origin only, put back against the bar's own display. The arrow keeps whatever
+                // offset AppKit drew it at until the bar comes back and the owed placement re-places
+                // the surface properly: a triangle a few points out, against a jump to another
+                // display, and only for as long as the bar it points at is invisible anyway.
+                window.setFrameOrigin(StatusAnchor.heldOrigin(previous: held, size: window.frame.size,
+                                                             within: screen.visibleFrame))
+            }
             self.fitShownPopoverToScreen()
             self.popover.animates = animated
         }
@@ -227,15 +241,28 @@ final class StatusItemController: NSObject {
             repositionOwed = false
             return
         }
-        guard let button = statusItem?.button, let window = button.window,
-              let screen = menuBarScreen(),
-              StatusAnchor.isOnScreen(buttonWindow: window.frame, screen: screen.frame) else {
+        guard anchorIsPlaceable, let button = statusItem?.button else {
             repositionOwed = true
             return
         }
         popover.positioningRect = button.bounds
         repositionOwed = false
     }
+
+    /// Whether the status item is somewhere a popover can be placed against right now.
+    ///
+    /// Stated ONCE, because two callers need the same answer for opposite reasons: the placement
+    /// above declines to make one, and the sizing pass has to undo one AppKit made anyway. Asked
+    /// twice, the two would drift apart invisibly - each half would still read correctly on its own,
+    /// while the surface was being put back to fit a question the guard no longer agreed with.
+    private var anchorIsPlaceable: Bool {
+        guard let window = statusItem?.button?.window, let screen = menuBarScreen() else { return false }
+        return StatusAnchor.isOnScreen(buttonWindow: window.frame, screen: screen.frame)
+    }
+
+    /// The window AppKit draws the popover in. Meaningful only while it is shown: after a close the
+    /// content view keeps an off-screen window attached (see `popoverContentTopLeft`).
+    private var popoverWindow: NSWindow? { popover.contentViewController?.view.window }
 
     /// The display the popover opens on, which is the one the menu bar is on.
     ///
@@ -297,7 +324,7 @@ final class StatusItemController: NSObject {
     /// popover" would misread every later pin from the main window.
     private func popoverContentTopLeft() -> CGPoint? {
         guard popover.isShown else { return nil }
-        guard let view = popover.contentViewController?.view, let window = view.window else { return nil }
+        guard let view = popover.contentViewController?.view, let window = popoverWindow else { return nil }
         let inWindow = view.convert(view.bounds, to: nil)
         let onScreen = window.convertToScreen(inWindow)
         return CGPoint(x: onScreen.minX, y: onScreen.maxY)

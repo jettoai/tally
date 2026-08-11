@@ -151,7 +151,8 @@ func runPickCircleChecks() {
 
     // MARK: - 38d. What the far end does with two axes
 
-    let offer = MCPPickOffer(kind: .model, message: "", sections: [depths, fleet], schema: [:])
+    let offer = MCPPickOffer(kind: .model, message: "", sections: [depths, fleet], schema: [:],
+                             directory: "/x/repo")
     check("both axes come back under their own fields, in one map",
           offer.content(for: submitted!)
               == [mcpModelField: "opus", mcpEffortField: "xhigh",

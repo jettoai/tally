@@ -130,11 +130,15 @@ func newPickID() -> String { UUID().uuidString }
 /// (`PickProject`, which states why it has to travel at all and builds the identity from these two
 /// answers).
 ///
-/// THE SERVER'S OWN DIRECTORY IS THE SESSION'S. An MCP server is spawned by the client with the
-/// session's working directory, so this process is already standing in the project it is being
-/// asked about; three servers running here at once sit in three different repositories (verified
-/// against the live processes, 2026-08-11). Nothing on the MCP wire carries the client's cwd, so
-/// this is the only answer available - and it is the same one the launch profile is keyed by
+/// ASKED OF THE DIRECTORY THE PROMPT REPORTED, which the caller passes in
+/// (`MCPPickOffer.directory`). THE SERVER'S OWN IS THE FALLBACK, and only that: an MCP server is
+/// spawned once per Claude Code session and lives for all of it, so its working directory is
+/// whatever that session was launched in - usually right, and quietly wrong for a session that has
+/// moved since. The wire does carry the client's answer, in the hook payload every tool call brings
+/// with it (`MCPHookInput.sessionDirectory`, which is where the four other answers on the same call
+/// come from); a comment here once said it did not, and the panel could therefore name the project a
+/// session had left (codex review of 46b09ec). The default below is for a caller that has no hook
+/// reading at all, and the answer it gives is the same one the launch profile is keyed by
 /// (`projectPolicyKey`), which is what keeps "which project" one answer across the app.
 ///
 /// Two git calls per pick, on a path that is already about to put a window on somebody's screen.

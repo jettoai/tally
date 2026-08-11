@@ -95,11 +95,16 @@ func runPickSurfaceChecks() {
     check("…with the path kept for the hover rather than put on the line",
           view.contains(".help(request.project?.path ?? \"\")")
               && !view.contains("Text(project.path"))
-    // The panel is asked by a process standing in the session's own directory, which is the only
-    // thing on this path that knows which project asked (`pickProjectForCwd`).
+    // The identity comes from the directory THIS PROMPT reported, which the offer carries
+    // (`MCPPickOffer.directory`): the server's own directory is where its session was LAUNCHED, and
+    // a session that has moved since would raise a panel naming the project it left.
     let serve = (try? String(contentsOfFile: "TallyCLI/MCPServe.swift", encoding: .utf8)) ?? ""
     check("the CLI puts that identity on every request it publishes",
-          serve.contains("project: pickProjectForCwd()"))
+          serve.contains("project: pickProjectForCwd(offer.directory)"))
+    let picker = (try? String(contentsOfFile: "TallyCLI/MCPPicker.swift", encoding: .utf8)) ?? ""
+    check("…and every offer carries the hook's own reading of it, never this process's",
+          picker.components(separatedBy: "directory: input.sessionDirectory").count == 4
+              && !picker.contains("directory: FileManager.default.currentDirectoryPath"))
     let native = (try? String(contentsOfFile: "TallyCLI/NativePick.swift", encoding: .utf8)) ?? ""
     check("…resolved from the checkout git names, through the rule asserted without a repository",
           native.contains("return pickProject(cwd: realpathString(cwd), mainRepo: "

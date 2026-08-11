@@ -42,6 +42,14 @@ func runPickPaletteChecks() {
 
     let fromModel = offer(.pickModel)
     let fromAccount = offer(.pickAccount)
+    // WHOSE SESSION IS ASKING, carried on the offer itself. The hook reports the directory of THIS
+    // prompt; this process's own is where the SERVER was launched, which is the same distinction the
+    // four answers behind these rows are already built on (`MCPPickerWorld`, MCPPicker.swift). Built
+    // from the wrong one, the panel names the project a session has left while the submit moves the
+    // session it is really in (codex review of 46b09ec).
+    check("every offer carries the directory the prompt reported, not this process's",
+          [fromModel, fromAccount, offer(.pick)].allSatisfy { $0?.directory == "/tmp/work" }
+              && FileManager.default.currentDirectoryPath != "/tmp/work")
     check("a bare /tally-model offers the accounts too",
           fromModel?.sections.map(\.kind) == [.model, .account])
     check("…and a bare /tally-account offers the models, the other way up",
@@ -75,7 +83,8 @@ func runPickPaletteChecks() {
                                     PickRow(value: mcpModelAutoValue, label: "auto")])
     let accounts = PickSection(kind: .account, rows: [PickRow(value: "claude:.claude2", label: "Claude 2"),
                                       PickRow(value: switchAutoRequest, label: pickAutoLabel)])
-    let palette = MCPPickOffer(kind: .model, message: "", sections: [models, accounts], schema: [:])
+    let palette = MCPPickOffer(kind: .model, message: "", sections: [models, accounts],
+                               schema: [:], directory: "/x/repo")
     check("a row answered from the other section comes back under that section's field",
           palette.content(for: PickAnswer(value: "claude:.claude2", kind: .account))
               == [mcpAccountField: "claude:.claude2"])
@@ -95,7 +104,8 @@ func runPickPaletteChecks() {
     check("…nor is one whose section says it came from somewhere it is not",
           palette.content(for: PickAnswer(value: "opus", kind: .account)).isEmpty)
     check("…nor an answer naming a section this offer never drew",
-          MCPPickOffer(kind: .model, message: "", sections: [models], schema: [:])
+          MCPPickOffer(kind: .model, message: "", sections: [models], schema: [:],
+                       directory: "/x/repo")
               .content(for: PickAnswer(value: "claude:.claude2", kind: .account)).isEmpty)
     check("a cancellation still carries nothing at all",
           palette.content(for: .cancelled).isEmpty)

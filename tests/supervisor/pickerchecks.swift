@@ -453,7 +453,7 @@ func runPickerChecks() {
                                   rows: [PickRow(value: "opus", effort: "xhigh",
                                                  label: "opus · xhigh"),
                                          PickRow(value: "opus", label: "opus")],
-                                  schema: [:])
+                                  schema: [:], directory: "/x/repo")
     check("a model row answers with the pair it carried",
           modelOffer.content(for: PickAnswer(value: "opus", effort: "xhigh"))
               == ["model": "opus", "effort": "xhigh"])
@@ -461,7 +461,7 @@ func runPickerChecks() {
           modelOffer.content(for: PickAnswer(value: "opus")) == ["model": "opus"])
     let accountOffer = MCPPickOffer(kind: .account, message: "",
                                     rows: [PickRow(value: "claude:.claude2", label: "Claude 2")],
-                                    schema: [:])
+                                    schema: [:], directory: "/x/repo")
     check("an account row answers under the account field",
           accountOffer.content(for: PickAnswer(value: "claude:.claude2"))
               == ["account": "claude:.claude2"])

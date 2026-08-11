@@ -331,7 +331,7 @@ func mcpPickTally(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> St
         kind: focus, message: message,
         sections: mcpPickSections(focus: focus, model: mcpModelPickRows(status),
                                   account: accountRows),
-        schema: schema)
+        schema: schema, directory: input.sessionDirectory)
     guard case .accepted(let content) = ask(offer) else {
         return mcpBlockDecision(mcpNothingChanged)
     }
@@ -358,7 +358,8 @@ func mcpPickModel(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> St
                                                        model: mcpModelPickRows(status),
                                                        account: mcpPaletteAccountRows(world, input)),
                              schema: mcpModelSchema(models: mcpModelOptions(status),
-                                                    efforts: claudeEffortNames()))
+                                                    efforts: claudeEffortNames()),
+                             directory: input.sessionDirectory)
     guard case .accepted(let content) = ask(offer) else {
         return mcpBlockDecision(mcpNothingChanged)
     }
@@ -397,7 +398,8 @@ func mcpPickAccount(input: MCPHookInput, world: MCPPickerWorld, ask: MCPAsk) -> 
                                 focus: .account,
                                 model: mcpModelPickRows(world.modelStatus(input)),
                                 account: mcpAccountPickRows(accounts, ranked: rows)),
-                             schema: mcpAccountSchema(accounts: accounts, ranked: rows))
+                             schema: mcpAccountSchema(accounts: accounts, ranked: rows),
+                             directory: input.sessionDirectory)
     guard case .accepted(let content) = ask(offer) else {
         return mcpBlockDecision(mcpNothingChanged)
     }

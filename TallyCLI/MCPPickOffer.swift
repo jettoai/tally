@@ -36,20 +36,34 @@ struct MCPPickOffer {
     /// Every section the panel draws, focus first (`mcpPickSections`).
     let sections: [PickSection]
     let schema: [String: Any]
+    /// WHICH SESSION IS ASKING, as the directory the hook reported for THIS prompt
+    /// (`MCPHookInput.sessionDirectory`). Carried on the offer rather than read where the panel is
+    /// raised, because the process that raises it is a long-lived child of Claude Code and its own
+    /// working directory is whatever that session was launched in - right until the session moves,
+    /// and quietly wrong after (`MCPPicker.swift` states the rule the other four answers on this
+    /// call already follow; codex review of 46b09ec).
+    ///
+    /// NOT OPTIONAL, and no default: every caller has the hook's reading in hand, and a default
+    /// would be this process's own directory wearing the same label as the answer.
+    let directory: String
 
-    init(kind: PickKind, message: String, sections: [PickSection], schema: [String: Any]) {
+    init(kind: PickKind, message: String, sections: [PickSection], schema: [String: Any],
+         directory: String) {
         self.kind = kind
         self.message = message
         self.sections = sections
         self.schema = schema
+        self.directory = directory
     }
 
     /// One section, which is the whole of what an offer was before the palette. Kept because the
     /// form has one axis whatever the panel draws, and because a fixture with one list is still the
     /// clearest way to assert a rule about one list.
-    init(kind: PickKind, message: String, rows: [PickRow], schema: [String: Any]) {
+    init(kind: PickKind, message: String, rows: [PickRow], schema: [String: Any],
+         directory: String) {
         self.init(kind: kind, message: message,
-                  sections: [PickSection(kind: kind, rows: rows)], schema: schema)
+                  sections: [PickSection(kind: kind, rows: rows)], schema: schema,
+                  directory: directory)
     }
 
     /// The focus section's rows, which is what the request carries for an app that predates the

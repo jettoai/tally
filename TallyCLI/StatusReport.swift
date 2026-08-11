@@ -116,8 +116,11 @@ struct StatusReport: Encodable {
     /// looks its project up here and talks to the pid it finds.
     struct Session: Encodable {
         /// The account this session is running on right now, rewritten by a handoff. The join back
-        /// to the `accounts` block above, which is where its quota lives.
-        var accountID: String
+        /// to the `accounts` block above, which is where its quota lives. Absent only from a
+        /// supervisor too old to have published one at its spawn AND whose conversation has not had
+        /// a turn yet: an entry with no account is still a session that is running, and dropping it
+        /// would be the roster losing the sessions that just started (SwitchRequest.swift).
+        var accountID: String?
         /// The Claude Code process itself, not the Tally supervising it. Absent when it cannot be
         /// proved: the pid is published at spawn and read back only while that process is alive and
         /// still a child of that supervisor, so what is here is a running Claude Code rather than a
@@ -213,8 +216,8 @@ func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPoli
 /// same reason `quarantined` is one: the report stays a pure function of what it is handed, and this
 /// file never learns where a supervisor publishes anything. `sessions` is the machine's whole
 /// inventory on the same terms, and the two are separate arguments because they are separate
-/// answers: one session per account against every session there is (SessionInventory.swift builds
-/// both from a single scan, so they cannot describe different moments).
+/// answers: one session per account against every session there is (`sessionReadings` hands the
+/// caller both out of a single scan, so they cannot describe different moments).
 /// `projectPolicy` likewise: the caller resolved which project this is, this only publishes it.
 func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                   advisor: [UsageAdvisor.Reading] = [], quarantined: [String: Set<String>] = [:],

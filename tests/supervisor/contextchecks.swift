@@ -149,9 +149,17 @@ func runSessionContextChecks() {
 
     /// The token figure alone, which is what these assertions are about; the rest of the reading is
     /// asserted where it is published (statusjson).
+    ///
+    /// THROUGH THE ROSTER, because the fold is a fold of it rather than a scan of its own: a session
+    /// whose supervisor is not in the presence registry is not a session at all, and reading the
+    /// files directly would fold a reading nobody is running.
     func tokens() -> [String: Int] {
-        supervisedSessionsByAccount(dir: dir).mapValues(\.contextTokens)
+        supervisedSessionsByAccount(liveSupervisors(dir: dir)).mapValues(\.contextTokens)
     }
+    // The presence entries the roster is built from. Every one of these supervisors registered
+    // before it published anything, which is the order a real one does it in (Supervisor.swift).
+    markSupervisorLive(pid: siblingPid, dir: dir)
+    markSupervisorLive(pid: deadPid, dir: dir)
     writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 12_000,
                                           updatedAt: at), pid: siblingPid, dir: dir)
     check("two sessions on one account report the largest", tokens() == ["claude:.claude": 477_070])

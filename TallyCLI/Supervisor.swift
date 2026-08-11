@@ -163,6 +163,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // turn (SwitchRequest.swift states the whole rule). Written here rather than at start-up so
         // a relaunch replaces the pid of the child it just ended.
         writeSupervisorChild(childPID, pid: supervisorPID)
+        // AND WHICH ACCOUNT IT IS ON, published on the same terms and for the same reason: the
+        // inventory `tally status --json` answers with is a roster of live supervisors, and the
+        // reading next door cannot attribute one until the conversation has had a turn
+        // (SwitchRequest.swift). Written beside the pid rather than derived from it so a handoff
+        // names the account this child is really running on.
+        writeSupervisorAccount(account.id, pid: supervisorPID)
 
         // What became of this child, remembered because a reaped pid cannot be waited on twice
         // and three places here ask (ChildReaper.swift).

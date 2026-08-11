@@ -23,17 +23,33 @@ func runSessionInventoryChecks() {
     let child = getpid()
     let trunkSupervisor = String(getppid())
     let lineSupervisor = String(getpid())
+    // A third live supervisor, and the one this block exists for: it has registered and published
+    // where it is, and its conversation has not had a turn yet. pid 1 is alive on every machine
+    // this runs on (`supervisorAlive` counts EPERM), which is the whole of what is needed here.
+    let freshSupervisor = "1"
     let deadPid = String((30_000 ... 99_999).first { !supervisorAlive(pid_t($0)) } ?? 99_999)
 
+    // THE PRESENCE ENTRY IS THE ROSTER, written before a supervisor spawns anything, so every
+    // fixture here registers the way a real one does (`markSupervisorLive`, Supervisor.swift).
+    for pid in [trunkSupervisor, lineSupervisor, freshSupervisor, deadPid] {
+        markSupervisorLive(pid: pid, dir: dir)
+    }
     writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 400_000,
                                           updatedAt: at), pid: trunkSupervisor, dir: dir)
     writeSupervisorChild(child, pid: trunkSupervisor, dir: dir)
     writeSupervisorCwd("/x/repo", pid: trunkSupervisor, dir: dir)
+    writeSupervisorAccount("claude:.claude", pid: trunkSupervisor, dir: dir)
     // The parallel line, on the SAME account: two lines of one repository is the case the whole
-    // block exists for, and it is also the case the per-account reading cannot express.
+    // block exists for, and it is also the case the per-account reading cannot express. NO account
+    // document, deliberately: this is what a supervisor from a build before that file looks like,
+    // and its reading is all such a session can be attributed by.
     writeSessionContext(SupervisedSession(accountID: "claude:.claude", contextTokens: 12_000,
                                           updatedAt: at), pid: lineSupervisor, dir: dir)
     writeSupervisorCwd("/x/repo-cart", pid: lineSupervisor, dir: dir)
+    // The session with nothing published about it yet, launched from a SUBDIRECTORY of its
+    // checkout, which is the ordinary way `tally claude` is typed inside a repository.
+    writeSupervisorCwd("/x/other/deep", pid: freshSupervisor, dir: dir)
+    writeSupervisorAccount("claude:.claude3", pid: freshSupervisor, dir: dir)
     // A session whose supervisor has exited: swept eventually, but a reader running before the
     // sweep must not publish an address for a conversation that is over.
     writeSessionContext(SupervisedSession(accountID: "claude:.claude2", contextTokens: 90_000,
@@ -50,27 +66,69 @@ func runSessionInventoryChecks() {
         tally.lock()
         asked.append(cwd)
         tally.unlock()
-        return cwd == "/x/repo-cart" ? (mainRepo: "/x/repo", checkout: "/x/repo-cart")
-                                     : (mainRepo: "/x/repo", checkout: "/x/repo")
+        switch cwd {
+        case "/x/repo-cart": return (mainRepo: "/x/repo", checkout: "/x/repo-cart")
+        // A directory INSIDE a checkout: git answers with the checkout, which is what the session
+        // has to be published at.
+        case "/x/other/deep": return (mainRepo: "/x/other", checkout: "/x/other")
+        default: return (mainRepo: "/x/repo", checkout: "/x/repo")
+        }
     }
-    func inventory(sockets: String) -> [StatusReport.Session] {
-        liveSessionInventory(dir: dir, socketDir: sockets, identity: identity)
+    /// Both shapes, from the one scan that produced them: asking for either alone is what this
+    /// assembly is not allowed to do.
+    func readings(sockets: String) -> SessionReadings {
+        sessionReadings(dir: dir, socketDir: sockets, identity: identity)
     }
+    func inventory(sockets: String) -> [StatusReport.Session] { readings(sockets: sockets).sessions }
 
-    let listed = inventory(sockets: empty)
+    let first = readings(sockets: empty)
+    let listed = first.sessions
+    // What ONE pass asked git, captured before any later pass adds to it.
+    let askedOnce = asked
     check("every live session is listed, including two on one account",
-          listed.count == 2 && listed.allSatisfy { $0.accountID == "claude:.claude" })
+          listed.count == 3
+              && listed.filter { $0.accountID == "claude:.claude" }.count == 2)
     check("a supervisor that has exited is not listed at all",
           !listed.contains { $0.directory == "/x/gone" })
+    // THE ROSTER IS THE PRESENCE ENTRY, NOT THE READING. A session publishes no context until its
+    // conversation has had a turn with usage in it, and the commonest moment to ask what is running
+    // is right after starting one - so a roster keyed on the reading answers with everything except
+    // the session being asked about (codex review of d2d620e).
+    let fresh = listed.first { $0.accountID == "claude:.claude3" }
+    check("a session that has not written a turn yet is on the roster all the same",
+          fresh != nil && listed.count == liveSupervisorPids(dir: dir).count)
+    check("…named by the account its spawn published, which exists from that instant",
+          fresh?.accountID == "claude:.claude3")
+    check("…and a supervisor too old to publish one is still attributed by its reading",
+          listed.first { $0.directory == "/x/repo-cart" }?.accountID == "claude:.claude")
+    // THE CHECKOUT, WHICH IS WHAT THE FIELD PROMISES. `tally claude` typed in a subdirectory
+    // supervises the session from there, and publishing that cwd would put two sessions of one
+    // checkout at two addresses - so a peer matching on checkout finds neither.
+    check("a session launched inside its checkout is published at the checkout, not at its cwd",
+          fresh?.directory == "/x/other" && fresh?.project == "/x/other")
     // The per-account reading is the same scan folded, and it keeps ONE of those two: the assertion
     // is that the two shapes disagree by design, which is why a reader asking "which sessions are
     // running" has to start from the list.
     check("…while the per-account reading keeps only the largest of them",
-          supervisedSessionsByAccount(dir: dir).count == 1
-              && supervisedSessionsByAccount(dir: dir)["claude:.claude"]?.contextTokens == 400_000)
+          first.accountSessions["claude:.claude"]?.contextTokens == 400_000)
+    // …and the session with nothing published is in the roster without being on that map at all:
+    // there is no reading to attribute, which is not the same as there being no session.
+    check("a session with no reading is on the roster and on no account row",
+          first.accountSessions["claude:.claude3"] == nil)
+    // ONE SCAN FOR BOTH BLOCKS, asserted where the report is actually assembled, because that is
+    // the only place the invariant can be broken: a supervisor exiting, starting, or handing its
+    // session to another account between two scans is a report saying a session is on an account in
+    // one block and does not exist in the other (codex review of d2d620e). The type makes the whole
+    // of it available at once; this is what keeps the caller from going around it.
+    let cli = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
+    check("the report is handed both blocks out of a single scan",
+          cli.contains("let live = sessionReadings()")
+              && cli.contains("accountSessions: live.accountSessions")
+              && cli.contains("sessions: live.sessions"))
     check("the list is ordered by supervisor pid, not by whatever the directory returned",
           listed.map(\.directory)
-              == (getpid() < getppid() ? ["/x/repo-cart", "/x/repo"] : ["/x/repo", "/x/repo-cart"]))
+              == ["/x/other"] + (getpid() < getppid() ? ["/x/repo-cart", "/x/repo"]
+                                                      : ["/x/repo", "/x/repo-cart"]))
 
     let trunk = listed.first { $0.directory == "/x/repo" }
     let line = listed.first { $0.directory == "/x/repo-cart" }
@@ -82,7 +140,7 @@ func runSessionInventoryChecks() {
     check("…and the trunk reports the two as the same directory, with no line name",
           trunk?.project == "/x/repo" && trunk?.worktree == nil)
     check("git is asked once per directory, not once per session",
-          asked.sorted() == ["/x/repo", "/x/repo-cart"])
+          askedOnce.sorted() == ["/x/other/deep", "/x/repo", "/x/repo-cart"])
 
     // THE PID, and the reason it is only on one of them: the other supervisor published no child, so
     // there is nothing proved to address. Absent reads as "cannot say" rather than as a guess.

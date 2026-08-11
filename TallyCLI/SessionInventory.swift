@@ -11,6 +11,10 @@ import Foundation
 // Two shapes come out of ONE scan, deliberately: the per-account reading the `accounts` rows carry
 // (the largest conversation on each account) and the inventory of every session there is. Two scans
 // would let the same report say a session is on an account in one block and not exist in the other.
+// SAID IN THE TYPE rather than in this paragraph (codex review of d2d620e): the caller is handed
+// both shapes at once, so there is no way left to take the roster twice - a supervisor that exits,
+// starts, or hands its session to another account between two scans is what the paragraph was
+// describing, and prose does not serialise anything.
 
 /// What git can say about a session's directory: the main repo it belongs to, and the checkout it
 /// stands in. The two differ exactly when the session is on a parallel line, which is what names
@@ -27,10 +31,35 @@ typealias SessionDirectoryIdentity = @Sendable (String) -> SessionDirectoryAnswe
 
 typealias SessionDirectoryAnswer = (mainRepo: String?, checkout: String?)
 
-func gitSessionDirectoryIdentity(_ cwd: String) -> SessionDirectoryAnswer {
+/// `@Sendable` on the declaration rather than at each use: it is the default the callers below take,
+/// and a plain function converted to that type is a warning at every one of them.
+@Sendable func gitSessionDirectoryIdentity(_ cwd: String) -> SessionDirectoryAnswer {
     let top = runGit(["rev-parse", "--path-format=absolute", "--show-toplevel"], cwd: cwd)
     return (resolveMainRepo(cwd: cwd),
             top.code == 0 && !top.out.isEmpty ? realpathString(top.out) : nil)
+}
+
+/// Both shapes the report publishes about sessions, folded from one roster.
+///
+/// A value type rather than two returns, because the invariant is that they describe the SAME
+/// moment: a caller holding this cannot have taken the roster twice.
+struct SessionReadings {
+    /// The per-account reading the `accounts` rows carry.
+    let accountSessions: [String: StatusReport.SessionSummary]
+    /// Every session there is.
+    let sessions: [StatusReport.Session]
+}
+
+/// THE ONE SCAN, AND BOTH FOLDS OF IT. The only door in: the folds below are private, so a caller
+/// that wanted one of them cannot take a roster of its own to get it.
+func sessionReadings(dir: URL = supervisorStateDir,
+                     socketDir: String = claudeMessagingSocketDir,
+                     identity: SessionDirectoryIdentity = gitSessionDirectoryIdentity)
+    -> SessionReadings {
+    let live = liveSupervisors(dir: dir)
+    return SessionReadings(accountSessions: statusSessions(live),
+                           sessions: liveSessionInventory(live, dir: dir, socketDir: socketDir,
+                                                          identity: identity))
 }
 
 /// Every live session, as the report's own value type.
@@ -39,29 +68,40 @@ func gitSessionDirectoryIdentity(_ cwd: String) -> SessionDirectoryAnswer {
 /// the Claude Code pid only while that process is alive and still that supervisor's child
 /// (SwitchRequest.swift), the socket only while one is really there (MessagingSocket.swift). So an
 /// entry names an address that can be dialled, or names none at all; it never names a stale one.
-func liveSessionInventory(dir: URL = supervisorStateDir,
-                          socketDir: String = claudeMessagingSocketDir,
-                          identity: SessionDirectoryIdentity = gitSessionDirectoryIdentity)
+private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = supervisorStateDir,
+                                  socketDir: String = claudeMessagingSocketDir,
+                                  identity: SessionDirectoryIdentity = gitSessionDirectoryIdentity)
     -> [StatusReport.Session] {
     // What every session says about itself, from files and the process table: cheap, and the same
-    // order the report publishes.
-    let live = liveSupervisedSessions(dir: dir).map {
-        (accountID: $0.session.accountID,
+    // order the report publishes. The account comes from the document the SPAWN wrote and falls
+    // back to the reading, which is all a supervisor from an older build published
+    // (`writeSupervisorAccount` states why the two cannot disagree).
+    let sessions = live.map {
+        (accountID: readSupervisorAccount(pid: $0.supervisorPid, dir: dir)
+            ?? $0.session?.accountID,
          pid: readSupervisorChild(pid: $0.supervisorPid, dir: dir),
          cwd: readSupervisorCwd(pid: $0.supervisorPid, dir: dir))
     }
-    let answers = sessionDirectoryIdentities(Set(live.compactMap(\.cwd)), identity: identity)
-    return live.map { session in
+    let answers = sessionDirectoryIdentities(Set(sessions.compactMap(\.cwd)), identity: identity)
+    return sessions.map { session in
+        var directory: String?
         var project: String?
         var worktree: String?
         if let cwd = session.cwd, let git = answers[cwd] {
             // Both from the one pair of answers: the key the launch profile is written in, and the
-            // line's name as the pick panel writes it. Two callers, one resolution.
+            // line's identity as the pick panel writes it. Two callers, one resolution.
             project = projectPolicyKey(cwd: cwd, mainRepo: git.mainRepo)
-            worktree = pickProject(cwd: cwd, mainRepo: git.mainRepo, checkout: git.checkout).worktree
+            // THE CHECKOUT, WHICH IS WHAT THIS FIELD PROMISES, and the supervisor's own cwd only
+            // when git can say nothing about it: `tally claude` run from a subdirectory supervises
+            // the session from there, so publishing that cwd would put two lines of one repository
+            // at two addresses one of which no peer can match (codex review of d2d620e). Through
+            // `pickProject`, which is where the rule already lives (`let home = checkout ?? cwd`).
+            let line = pickProject(cwd: cwd, mainRepo: git.mainRepo, checkout: git.checkout)
+            directory = line.path
+            worktree = line.worktree
         }
         return StatusReport.Session(
-            accountID: session.accountID, pid: session.pid, directory: session.cwd,
+            accountID: session.accountID, pid: session.pid, directory: directory,
             project: project, worktree: worktree,
             messagingSocket: session.pid.flatMap {
                 claudeMessagingSocket(childPid: $0, dir: socketDir)
@@ -109,8 +149,8 @@ private final class SessionIdentitySink: @unchecked Sendable {
 
 /// The per-account reading the `accounts` rows carry: the published figure per account
 /// (SessionContext.swift) turned into the report's own value type.
-func statusSessions(dir: URL = supervisorStateDir) -> [String: StatusReport.SessionSummary] {
-    supervisedSessionsByAccount(dir: dir).mapValues {
+private func statusSessions(_ live: [LiveSupervisor]) -> [String: StatusReport.SessionSummary] {
+    supervisedSessionsByAccount(live).mapValues {
         StatusReport.SessionSummary(contextTokens: $0.contextTokens, model: $0.sessionModel,
                                     effort: $0.sessionEffort)
     }

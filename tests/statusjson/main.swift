@@ -285,6 +285,19 @@ check("a session on the trunk names no line at all",
       inventory(inventoried).first?["worktree"] == nil
           && inventory(inventoried).first?["directory"] as? String
               == inventory(inventoried).first?["project"] as? String)
+// A SESSION NOTHING CAN ATTRIBUTE IS STILL A SESSION. The roster is every live supervisor, and one
+// from a build too old to publish its account at the spawn has nothing to join on until its
+// conversation has had a turn (SessionInventory.swift) - dropping it would lose exactly the sessions
+// somebody has just started, which is when they are looked for.
+let anonymous = parse(encodeStatusReport(statusReport(
+    snapshot, policies: ["claude": LaunchPolicy()],
+    sessions: [.init(directory: "/Users/u/code/fresh", project: "/Users/u/code/fresh")],
+    now: now)))
+check("a session with no account is listed all the same",
+      inventory(anonymous).count == 1
+          && inventory(anonymous).first?["directory"] as? String == "/Users/u/code/fresh")
+check("…with no account key at all, rather than a null or an empty string",
+      inventory(anonymous).first?["accountID"] == nil)
 // The one block that is published empty rather than omitted: absence has to keep meaning "this
 // Tally cannot answer", or a reader falls back to its slower channel without ever learning why.
 check("a machine with nothing running still publishes the list",

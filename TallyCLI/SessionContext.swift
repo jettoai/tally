@@ -284,41 +284,40 @@ struct SessionContextWriter {
 
 // MARK: - Reading it back
 
-/// One live session as anything outside its supervisor sees it: the reading that supervisor
-/// published, and WHICH supervisor published it.
+/// One live session as anything outside its supervisor sees it: WHICH supervisor it is, and the
+/// reading that supervisor has published about it so far.
 ///
 /// The pid is the file's name rather than a field inside it, so a reader that wants to ask anything
-/// else about the same session (which Claude Code it is running, which directory it is in, both of
-/// them documents keyed by that pid) has no way to get there from the reading alone. Carried
-/// together for the reason the reading is one value type: a caller holding a pid and a session it
-/// paired up itself could ask about one session while reporting another's numbers.
-struct LiveSupervisedSession: Equatable {
+/// else about the same session (which Claude Code it is running, which directory it is in, which
+/// account it was launched on, all of them documents keyed by that pid) has no way to get there from
+/// the reading alone. Carried together for the reason the reading is one value type: a caller
+/// holding a pid and a session it paired up itself could ask about one session while reporting
+/// another's numbers.
+///
+/// THE READING IS OPTIONAL BECAUSE THE SESSION IS NOT. A conversation that has not had a turn with
+/// usage in it publishes nothing here (`SessionContextWriter.sync` returns on a nil token count,
+/// deliberately), and it is running all the same - so a roster keyed on the reading loses exactly
+/// the sessions somebody has just started (codex review of d2d620e). nil is "nothing measured yet",
+/// never "no session".
+struct LiveSupervisor: Equatable {
     let supervisorPid: String
-    let session: SupervisedSession
+    let session: SupervisedSession?
 }
 
 /// Every live session on this machine, oldest supervisor first so the answer is stable.
 ///
-/// A file whose supervisor is gone is ignored rather than trusted, the same rule the drift badge
-/// follows: the startup sweep unlinks it, but a reader running in between must not paint a session
-/// that has already exited.
-func liveSupervisedSessions(dir: URL = supervisorStateDir) -> [LiveSupervisedSession] {
-    let files = (try? FileManager.default.contentsOfDirectory(at: dir,
-        includingPropertiesForKeys: nil)) ?? []
-    var live: [(pid: pid_t, session: SupervisedSession)] = []
-    for file in files {
-        // Through the shared name reader (PendingNotice.swift), so one place knows how a document
-        // on this track maps back to the supervisor that wrote it.
-        let name = file.lastPathComponent
-        guard name.hasSuffix(sessionContextSuffix), let pid = supervisorStatePid(ofFile: name),
-              supervisorAlive(pid),
-              let session = readSessionContext(pid: String(pid), dir: dir) else { continue }
-        live.append((pid, session))
-    }
+/// FROM THE PRESENCE ENTRY, which is what a supervisor writes before it spawns anything
+/// (`markSupervisorLive`) and keeps until it exits, so this roster is complete from the first
+/// instant of a session rather than from its first answer. A supervisor that is gone is ignored
+/// rather than trusted, the same rule the drift badge follows: the startup sweep unlinks its files,
+/// but a reader running in between must not paint a session that has already exited.
+func liveSupervisors(dir: URL = supervisorStateDir) -> [LiveSupervisor] {
     // On the pid as a NUMBER: the directory listing has no order worth relying on, and sorting the
     // names as text would put 9000 after 10000 in a report people read.
-    return live.sorted { $0.pid < $1.pid }
-        .map { LiveSupervisedSession(supervisorPid: String($0.pid), session: $0.session) }
+    liveSupervisorPids(dir: dir).sorted().map {
+        LiveSupervisor(supervisorPid: String($0),
+                       session: readSessionContext(pid: String($0), dir: dir))
+    }
 }
 
 /// The live published reading per account: every supervisor still running, keyed by the account it
@@ -330,13 +329,16 @@ func liveSupervisedSessions(dir: URL = supervisorStateDir) -> [LiveSupervisedSes
 /// about the session a person would be thinking of. One value type per account rather than a field
 /// at a time, so a caller cannot pair one session's token count with another's pinned model.
 ///
-/// A FOLD OF THE LIST ABOVE, not a second scan: this map answers "what is on this account" and
-/// therefore drops every session but one, so a reader asking "which sessions are running" has to
-/// start from the list or it will be told about two of the ten.
-func supervisedSessionsByAccount(dir: URL = supervisorStateDir) -> [String: SupervisedSession] {
+/// A FOLD OF THE LIST ABOVE, not a second scan: it takes the roster rather than reading the
+/// directory again, because this map answers "what is on this account" and therefore drops every
+/// session but one - so a reader asking "which sessions are running" has to start from the list or
+/// it will be told about two of the ten, and the two answers have to describe the same moment.
+/// A session with nothing published yet is not on any account here: this is the READING per account,
+/// and there is no reading to attribute.
+func supervisedSessionsByAccount(_ live: [LiveSupervisor]) -> [String: SupervisedSession] {
     var byAccount: [String: SupervisedSession] = [:]
-    for live in liveSupervisedSessions(dir: dir) {
-        let session = live.session
+    for entry in live {
+        guard let session = entry.session else { continue }
         if let seen = byAccount[session.accountID], seen.contextTokens >= session.contextTokens {
             continue
         }

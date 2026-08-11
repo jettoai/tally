@@ -223,11 +223,13 @@ func runStatus(json: Bool = false) {
         // Only the JSON shape carries the live sessions: the human output is a fleet summary, and
         // these are per-conversation answers a script asks for by name (SessionInventory.swift) -
         // how big the conversation on each account is, and where every session on the machine is
-        // running.
+        // running. ONE VALUE for both blocks, which is one scan: asked separately they could
+        // describe different moments.
+        let live = sessionReadings()
         print(encodeStatusReport(statusReport(snapshot, policies: policies, advisor: advisor,
                                               quarantined: quarantined,
-                                              accountSessions: statusSessions(),
-                                              sessions: liveSessionInventory(),
+                                              accountSessions: live.accountSessions,
+                                              sessions: live.sessions,
                                               projectPolicy: profile)))
         return
     }

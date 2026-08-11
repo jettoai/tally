@@ -221,11 +221,53 @@ func readSupervisorChild(pid: String, dir: URL = supervisorStateDir) -> Int? {
     return child
 }
 
+/// One line a supervisor published beside its presence entry, or nil when there is none - and when
+/// there is an empty one, which reads the same way: a write that got as far as the file and no
+/// further said nothing.
+private func supervisorStateLine(_ file: URL) -> String? {
+    guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+    let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    return line.isEmpty ? nil : line
+}
+
 func readSupervisorCwd(pid: String, dir: URL = supervisorStateDir) -> String? {
-    guard let raw = try? String(contentsOf: supervisorCwdFile(pid: pid, dir: dir), encoding: .utf8)
-    else { return nil }
-    let path = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    return path.isEmpty ? nil : path
+    supervisorStateLine(supervisorCwdFile(pid: pid, dir: dir))
+}
+
+/// The suffix of the file naming the account a supervisor spawned its child on.
+let supervisorAccountSuffix = ".account"
+
+func supervisorAccountFile(pid: String, dir: URL = supervisorStateDir) -> URL {
+    dir.appendingPathComponent(pid + supervisorAccountSuffix)
+}
+
+/// Publish the account this supervisor just launched its child on.
+///
+/// THE SAME REASON THE CHILD PID IS A FILE OF ITS OWN, one question over: it is known at the spawn
+/// and true from that instant, where the context reading next door does not exist until the
+/// conversation has had a turn with usage in it. A roster built from the reading alone therefore
+/// omits every session that has not answered yet, which is exactly the session somebody is looking
+/// for when they ask what is running (codex review of d2d620e). Written at each spawn rather than
+/// once at start-up, so a handoff republishes the account its next child actually runs on.
+///
+/// IT CANNOT CONTRADICT THE READING, which is what keeps two documents from becoming two answers:
+/// a handoff writes both (this at the spawn, `SessionContextWriter.accountChanged` beside it), and
+/// the only moment they differ is the one where the reading does not exist at all. So a reader
+/// prefers this and falls back to the reading, which is all an older supervisor published.
+///
+/// Best-effort like everything else on this track: failing to write it costs the entry's account,
+/// never the session.
+func writeSupervisorAccount(_ accountID: String, pid: String, dir: URL = supervisorStateDir) {
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try? accountID.write(to: supervisorAccountFile(pid: pid, dir: dir), atomically: true,
+                         encoding: .utf8)
+}
+
+/// The account that supervisor's child was launched on, or nil when nothing was published (a
+/// supervisor from a build before this file existed, which reads as "cannot say" rather than as "no
+/// account").
+func readSupervisorAccount(pid: String, dir: URL = supervisorStateDir) -> String? {
+    supervisorStateLine(supervisorAccountFile(pid: pid, dir: dir))
 }
 
 /// The live supervisors running in `cwd`, sorted so the answer is stable. Fully resolved on both

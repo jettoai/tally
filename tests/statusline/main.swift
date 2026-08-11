@@ -211,15 +211,134 @@ for internalCommand in ["hook-tally", "hook-switch", "hook-model", "mcp-serve", 
 // completion that prints a diagnostic there has broken the line it was helping with.
 check("the helpers ask the binary being completed, and give up when there is none",
       tallyCompletionZsh.contains("command -v -- \"$bin\" > /dev/null 2>&1 || return 1"))
-for probe in ["\"$bin\" status --json 2>/dev/null", "\"$bin\" worktree list 2>/dev/null"] {
+for probe in ["\"$bin\" completion data accounts $provider 2>/dev/null",
+              "\"$bin\" worktree list 2>/dev/null"] {
     check("`\(probe)` cannot spill an error onto the line", tallyCompletionZsh.contains(probe))
 }
-// The account labels come out of `status --json`, which is PRETTY-PRINTED: a reader keyed on
-// `"label":"` finds nothing in `"label" : "Claude"`, and finding nothing is indistinguishable on
-// screen from a machine with no accounts. Found by running the helper against the real report
-// (2026-08-11), so what is pinned is the skipping rather than the absence of the wrong needle.
-check("the label reader skips whatever spacing the report is printed with",
-      tallyCompletionZsh.contains("while [[ $rest == [[:space:]]* ]]; do rest=${rest#?}; done"))
+// The accounts are ASKED FOR rather than parsed out of `status --json`: a label is free text from
+// the rename popover, so it can carry a quote that JSONEncoder escapes, and a shell reader that
+// stops at the next `"` hands back a name no account answers to (review, 2026-08-11).
+// Named by the CALL rather than by the words: the comment above the helper still says what it
+// stopped doing and why, which a search for the report's name would read as the thing itself.
+check("no JSON is parsed in the shell any more",
+      !tallyCompletionZsh.contains("\"$bin\" status") && !tallyCompletionZsh.contains("_tally_json"))
+// The plumbing is one program talking to itself: it must not appear where a person is reading.
+check("the plumbing is not offered at the cursor",
+      !offered.contains("data") && tallyCompletionZsh.contains("(completion) _arguments \":shell:(zsh)\""))
+check("…nor documented as something to type", !tallyUsage.contains("completion data"))
+
+// EVERY CALL SITE NAMES ITS PROVIDER. The helper defaults to claude when asked without one, which
+// is the pre-fix behaviour for whichever site forgets, so "it still completes something" is exactly
+// what a regression here looks like. Written as a sweep over the call sites rather than as one
+// example, because the failure is per-site.
+let accountCallSites = tallyCompletionZsh.components(separatedBy: "\n")
+    .filter { $0.contains("_tally_accounts") && !$0.contains("_tally_accounts()") }
+check("the account call sites were found", accountCallSites.count == 4)
+for site in accountCallSites {
+    let named = site.contains(" _tally_accounts claude") || site.contains(" _tally_accounts codex")
+        || site.contains(" _tally_accounts $provider")
+    check("a call site names the provider it is completing for (\(site.trimmingCharacters(in: .whitespaces).prefix(28)))",
+          named)
+}
+// The two launches, by name: a codex launch offering claude accounts is the defect this closed, and
+// it is invisible unless the codex site is asserted on its own.
+check("the codex launch completes codex accounts",
+      accountCallSites.contains { $0.contains("_tally_accounts codex") })
+check("the claude launch completes claude accounts",
+      accountCallSites.contains { $0.contains("_tally_accounts claude") })
+// `tally project set --account` writes a profile for whichever provider the line named, so its
+// candidates follow that word rather than a constant.
+check("the project profile completes the provider the line named",
+      accountCallSites.contains { $0.contains("_tally_accounts $provider") })
+
+// MARK: - The names the completion is allowed to offer
+
+// ASKED OF THE MATCHER ITSELF, so a suggestion is true by construction. Each case below is a name
+// the CLI would answer differently, and the completion has to agree with that answer.
+func testAccount(_ id: String, provider: String, label: String, home: String?) -> Snapshot.Account {
+    Snapshot.Account(id: id, provider: provider, label: label, launchHome: home, isStale: false)
+}
+func fleet(_ accounts: [Snapshot.Account]) -> Snapshot {
+    Snapshot(version: 2, generatedAt: Date(), accounts: accounts)
+}
+let mixed = fleet([
+    testAccount("c1", provider: "claude", label: "Claude", home: "/u/.claude"),
+    testAccount("c2", provider: "claude", label: "Claude 2", home: "/u/.claude2"),
+    testAccount("x1", provider: "codex", label: "Codex", home: "/u/.codex"),
+])
+check("a launch is offered its own provider's accounts",
+      completionAccountNames(mixed, provider: "claude") == ["Claude", "Claude 2"])
+// The one that made this a defect rather than a tidy-up: `accountMatching` filters on the provider
+// before anything else, so a Codex name offered to `tally claude --account` is a word the command
+// refuses by construction.
+check("…and never the other provider's", !completionAccountNames(mixed, provider: "claude")
+    .contains("Codex"))
+check("the other provider gets its own", completionAccountNames(mixed, provider: "codex") == ["Codex"])
+// Two accounts under one label: the label resolves to neither ("name one of them exactly"), so what
+// is offered is the name that does resolve - the config-dir name, which is what the ambiguity
+// message itself prints beside each candidate (accountMatchCandidates).
+let twins = fleet([
+    testAccount("t1", provider: "claude", label: "Work", home: "/u/.claude"),
+    testAccount("t2", provider: "claude", label: "Work", home: "/u/.claude2"),
+])
+check("a shared label is replaced by the names that do resolve",
+      completionAccountNames(twins, provider: "claude") == [".claude", ".claude2"])
+for name in completionAccountNames(twins, provider: "claude") {
+    guard case .one = accountMatching(name, provider: "claude", in: twins) else {
+        check("every offered name resolves to exactly one account (\(name))", false)
+        continue
+    }
+    check("every offered name resolves to exactly one account (\(name))", true)
+}
+// A signed-out account has no launch home, which is the matcher's other precondition: there is no
+// word that would land on it, so there is nothing to suggest.
+check("an account with no launch home is offered under no name",
+      completionAccountNames(fleet([testAccount("d", provider: "claude", label: "Dormant",
+                                                home: nil)]), provider: "claude").isEmpty)
+// The label that started this: free text, quotes and all, handed back exactly as the matcher will
+// read it. Nothing here escapes or truncates it, which was the whole point of moving the question
+// out of the shell.
+let quoted = fleet([testAccount("q", provider: "claude", label: "Work \"Main\"",
+                                home: "/u/.claude")])
+check("a label carrying a quote survives verbatim",
+      completionAccountNames(quoted, provider: "claude") == ["Work \"Main\""])
+check("…and the CLI resolves the very name that was offered",
+      { if case .one = accountMatching("Work \"Main\"", provider: "claude", in: quoted)
+        { return true } else { return false } }())
+// A name with a newline in it cannot travel a line-per-candidate channel, so it is dropped rather
+// than sent half-way.
+check("a label with a newline is dropped rather than split",
+      completionAccountNames(fleet([testAccount("n", provider: "claude", label: "two\nlines",
+                                                home: "/u/.claude")]),
+                             provider: "claude") == [".claude"])
+
+// MARK: - Positions that must NOT fall back to file names
+
+// The word after -w/--worktree is a worktree NAME, not a path: `extractWorktreeFlag` takes any
+// non-flag word, so accepting `README.md` there has the launch create a branch and a directory
+// called that (review, 2026-08-11). WRITING THE ARGUMENT AS REQUIRED IS THE FIX AND THE ONLY ONE
+// AVAILABLE: an optional argument makes zsh complete the position twice, once as the name and once
+// as though it were already given, and the second parse is indistinguishable from the ordinary next
+// position - so no guard on the fallback can tell them apart (measured at the cursor, 2026-08-11).
+// One character, which is exactly why it is pinned here.
+// THE SPEC LINE, not the file: the comment above it names the wrong spelling in order to warn
+// about it, and a search of the whole script finds that sentence (it did, twice in one session -
+// the same shape as the `print(tallyStatusHelpHint)` check above).
+let worktreeSpec = tallyCompletionZsh.components(separatedBy: "\n")
+    .first { $0.contains("{-w,--worktree}") } ?? ""
+check("the worktree flag spec was found on a line of its own", !worktreeSpec.isEmpty)
+check("the worktree argument is required, so the position has one reading",
+      worktreeSpec.contains("]:worktree:_tally_worktrees") && !worktreeSpec.contains("::worktree:"))
+// `resume` had no branch at all, so its arguments completed to nothing whatsoever - not even file
+// names - while `runResume` appends them to the claude invocation exactly as a launch does.
+check("resume completes its passthrough like a launch does",
+      tallyCompletionZsh.contains("(resume) _arguments \"*: :_default\""))
+// `tally model auto high` is usage and exit 2 (`modelIntent` refuses two words when either is the
+// release), so the depth is not offered once the release has been named.
+check("no depth is offered after the release word",
+      tallyCompletionZsh.contains("[[ ${(L)words[2]} == (auto|--auto) ]] && return 0"))
+check("…and the model position still routes through that gate",
+      tallyCompletionZsh.contains("\":effort:_tally_model_effort\""))
 // The axis names come from the one list both targets compile (LaunchAxisNames.swift), so the
 // suggestions cannot name an effort the CLI would refuse.
 check("the effort suggestions are the list the CLI validates against",

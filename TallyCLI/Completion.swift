@@ -41,47 +41,25 @@ _tally_bin() {
   print -r -- "$bin"
 }
 
-_tally_json_field() {
-  # Every value of one string field in a JSON document, one per line, using shell builtins only:
-  # jq is not on every machine, and /usr/bin/python3 on a Mac without the command line tools opens
-  # an installer dialog, which is not a thing a Tab press may do. A value carrying an escaped quote
-  # would come out truncated; the one field read here (an account label) has none.
-  #
-  # THE SPACING IS SKIPPED RATHER THAN ASSUMED. `status --json` is pretty-printed, so a key and its
-  # value read `"label" : "Claude"`, and a reader keyed on `"label":"` finds nothing whatsoever in
-  # it - which on screen is indistinguishable from a machine with no accounts. Found by running
-  # this against the real report rather than by reading it.
-  local field=$1 rest=$2 needle
-  local -a out
-  needle="\"$field\""
-  while [[ $rest == *$needle* ]]; do
-    rest=${rest#*$needle}
-    while [[ $rest == [[:space:]]* ]]; do rest=${rest#?}; done
-    [[ $rest == :* ]] || continue
-    rest=${rest#:}
-    while [[ $rest == [[:space:]]* ]]; do rest=${rest#?}; done
-    # Not a string value (a number, an object, or a key of the same name nested somewhere else):
-    # skipped rather than guessed at.
-    [[ $rest == \"* ]] || continue
-    rest=${rest#\"}
-    out+=("${rest%%\"*}")
-    rest=${rest#*\"}
-  done
-  (( $#out )) && print -rl -- "${out[@]}"
-  return 0
-}
-
 _tally_accounts() {
-  # The fleet as this machine has it. No snapshot yet (the app has never run), no binary, or a
-  # report this parse does not recognise all end the same way: nothing offered, nothing said.
-  local bin json
-  local -a labels
+  # $1 is the provider whose accounts may be named HERE. It is not optional in spirit: `tally claude
+  # --account` offering a Codex account offers a word `accountMatching` refuses by construction
+  # (AccountPick.swift filters on the provider first), and an account you cannot pick is worse than
+  # one you had to type out.
+  #
+  # ASKED OF THE BINARY RATHER THAN PARSED OUT OF `status --json`. A label is free text somebody
+  # typed into the rename popover, so it can carry a quote or a backslash, which `JSONEncoder` then
+  # escapes; a shell reader that stops at the next `"` hands the cursor a name no account answers to.
+  # The binary already owns the matcher that decides which names resolve, so it says which words are
+  # answers and this asks. The cost is that script and binary must be of one version, which they are:
+  # this script comes out of that binary, and a mismatch prints nothing rather than the wrong thing.
+  local bin provider=${1:-claude}
+  local -a names
   bin=$(_tally_bin) || return 0
-  json=$("$bin" status --json 2>/dev/null) || return 0
-  labels=(${(f)"$(_tally_json_field label "$json")"})
-  labels=(${(M)labels:#?*})
-  (( $#labels )) || return 0
-  _wanted accounts expl account compadd -a labels
+  names=(${(f)"$("$bin" completion data accounts $provider 2>/dev/null)"})
+  names=(${(M)names:#?*})
+  (( $#names )) || return 0
+  _wanted accounts expl account compadd -a names
 }
 
 _tally_worktrees() {
@@ -133,6 +111,14 @@ _tally_providers() {
   _wanted providers expl provider compadd -a ids
 }
 
+_tally_model_effort() {
+  # `auto` releases the pin and takes nothing after it: `modelIntent` returns nil for two words when
+  # either is the release, so `tally model auto high` is usage and exit 2 (run, 2026-08-11). Both
+  # spellings, because both are accepted (`auto` and `--auto`, ModelCommand.swift).
+  [[ ${(L)words[2]} == (auto|--auto) ]] && return 0
+  _tally_efforts
+}
+
 _tally_worktree_command() {
   local curcontext="$curcontext" state line
   local -a subcommands
@@ -175,10 +161,18 @@ _tally_project_command() {
     (args)
       case $words[1] in
         (set)
+          # Which provider's accounts may be named depends on what this line has already said:
+          # `--provider` defaults to claude (ProjectPolicy.swift), and a `--provider` typed after
+          # the account is not on the line yet to be read, which is the same order the command
+          # itself would refuse in.
+          local provider=claude i
+          for (( i = 1; i < CURRENT; i++ )); do
+            [[ $words[i] == --provider ]] && provider=${words[i+1]:-claude}
+          done
           _arguments \
             "--model[the model every launch in this project runs]:model:_tally_models" \
             "--effort[the depth those launches run at]:effort:_tally_efforts" \
-            "--account[the account those launches land on]:account:_tally_accounts" \
+            "--account[the account those launches land on]:account: _tally_accounts $provider" \
             "--provider[which CLI this profile is for]:provider:_tally_providers"
           ;;
         (clear)
@@ -219,13 +213,24 @@ _tally() {
     (command) _describe -t commands "tally command" commands ;;
     (args)
       case $words[1] in
+        # tally's own flags only, and the accounts of the provider being launched. Everything else
+        # on the line belongs to the child CLI, which has its own dozens and publishes them itself,
+        # so the rest of the line falls back to the default completer rather than to a hand-copied
+        # half of somebody else's flag list.
+        #
+        # THE WORKTREE ARGUMENT IS WRITTEN AS REQUIRED (`:worktree:`, not `::worktree:`) EVEN THOUGH
+        # A BARE -w IS LEGAL, and that is the whole protection: with an optional argument zsh
+        # completes this position twice, once as the worktree name and once as though the name were
+        # already given, and the union put every file in the directory among the branch names. A file
+        # name accepted there is not passed to claude at all - `extractWorktreeFlag` takes any
+        # non-flag word as a worktree NAME, so the launch goes and creates a branch and a directory
+        # called `README.md` (Worktree.swift; leak reported by review 2026-08-11, and the second
+        # parse is invisible to any guard the fallback could carry - it looks exactly like the
+        # ordinary next position). Bare `-w` still works; it is completion, not validation.
         (claude)
-          # tally's own flags only. The rest of the line belongs to the child CLI, which has its
-          # own dozens and publishes them itself, so the fallback is the default completer rather
-          # than a hand-copied half of somebody else's flag list.
           _arguments \
-            "--account[pin a specific account, by label or config-dir name]:account:_tally_accounts" \
-            "(-w --worktree)"{-w,--worktree}"[launch in a git worktree, bare lists the existing ones]::worktree:_tally_worktrees" \
+            "--account[pin a specific account, by label or config-dir name]:account: _tally_accounts claude" \
+            "(-w --worktree)"{-w,--worktree}"[launch in a git worktree, bare lists the existing ones]:worktree:_tally_worktrees" \
             "--new[start a fresh conversation, ignoring a continue-by-default setting]" \
             "--no-handoff[run unsupervised, with no automatic move when this account caps]" \
             "--no-follow[keep this session on its model when the Settings default changes]" \
@@ -233,20 +238,25 @@ _tally() {
           ;;
         (codex)
           _arguments \
-            "--account[pin a specific account, by label or config-dir name]:account:_tally_accounts" \
+            "--account[pin a specific account, by label or config-dir name]:account: _tally_accounts codex" \
             "*: :_default"
           ;;
+        # Everything typed here is appended to the claude invocation `runResume` execs (main.swift),
+        # exactly as on a launch line, so it gets the same fallback rather than nothing at all.
+        (resume) _arguments "*: :_default" ;;
         (worktree) _tally_worktree_command ;;
         (project) _tally_project_command ;;
         (status) _arguments "--json[versioned machine-readable report for scripts and hooks]" ;;
         # `switch` is the name `account` shipped under. Still answered here, as the dispatch still
         # answers it, but deliberately absent from the list above: it is not the name to learn.
         (account|switch)
+          # Claude only, as the command is: a codex launch is a plain exec with no supervisor
+          # resident to move anything (SwitchCommand.swift takes `providers[0]`).
           _arguments \
             "--auto[release the pin, following automatic account selection again]" \
-            ":account:_tally_accounts"
+            ":account: _tally_accounts claude"
           ;;
-        (model) _arguments ":model:_tally_model_targets" ":effort:_tally_efforts" ;;
+        (model) _arguments ":model:_tally_model_targets" ":effort:_tally_model_effort" ;;
         (add)
           _arguments \
             ":provider:_tally_providers" \
@@ -284,8 +294,62 @@ func runCompletion(args: [String]) -> Int32 {
     case "zsh":
         print(tallyCompletionZsh)
         return 0
+    case "data":
+        return runCompletionData(args: Array(args.dropFirst()))
     default:
         warn("usage: tally completion zsh")
         return 2
     }
+}
+
+/// The names `--account` will accept for one provider's accounts, one per line: what the completion
+/// script offers at the cursor.
+///
+/// ASKED OF THE MATCHER ITSELF rather than assembled beside it. A name is offered only when
+/// `accountMatching` resolves it to exactly this account, which makes the suggestion true by
+/// construction: the completion cannot offer a Codex account to `tally claude --account` (the
+/// matcher filters on the provider first), and it cannot offer a label two accounts share, which
+/// the matcher answers with "name one of them exactly" - the one answer a suggestion must never be.
+///
+/// The label is preferred and the config-dir name is the fallback, in the order a person reads them
+/// off `tally status`: one name per account, and the directory appears only for the accounts whose
+/// label cannot pick them out. An account neither name resolves is offered under neither, because
+/// there is nothing to type that would land on it.
+func completionAccountNames(_ snapshot: Snapshot?, provider: String) -> [String] {
+    var names: [String] = []
+    for account in snapshot?.accounts ?? [] where account.provider == provider {
+        guard let home = account.launchHome else { continue }
+        let candidates = [account.label, URL(fileURLWithPath: home).lastPathComponent]
+        // A newline cannot be a candidate on a line-per-candidate channel, and a label is free text
+        // (the rename popover accepts anything). Dropped rather than escaped: nothing could type it
+        // back in anyway.
+        guard let name = candidates.first(where: { candidate in
+            guard !candidate.isEmpty, !candidate.contains("\n") else { return false }
+            guard case .one(let match) = accountMatching(candidate, provider: provider,
+                                                         in: snapshot) else { return false }
+            return match.id == account.id
+        }) else { continue }
+        names.append(name)
+    }
+    return names
+}
+
+/// `tally completion data <what> [args]` - the plumbing the completion script asks its questions
+/// through. Not in `tally help` and not offered at the cursor: it is one program talking to itself,
+/// and a person reading the list of commands has nothing to do with it.
+///
+/// A SUBCOMMAND RATHER THAN A SHELL PARSE OF `status --json`. That report is pretty-printed JSON
+/// carrying free text a user typed, so a shell reader has to get quoting and escaping right to hand
+/// back a name that matches; here the binary that owns the matcher answers with the words that
+/// resolve. Silent about every failure, including a snapshot it could not read: this runs at a
+/// cursor, where the only two outcomes allowed are suggestions and no suggestions.
+func runCompletionData(args: [String]) -> Int32 {
+    guard args.first == "accounts", let providerID = args.dropFirst().first,
+          providers.contains(where: { $0.id == providerID }) else {
+        warn("usage: tally completion data accounts <\(providers.map(\.id).joined(separator: "|"))>")
+        return 2
+    }
+    let (snapshot, _) = loadSnapshot()
+    for name in completionAccountNames(snapshot, provider: providerID) { print(name) }
+    return 0
 }

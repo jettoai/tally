@@ -175,27 +175,28 @@ func runSessionInventoryChecks() {
     check("and neither is a directory that has never held Claude Code",
           claudeMessagingSocket(childPid: Int(child), dir: empty) == nil)
 
-    // MARK: - THE HANDOFF WINDOW, where the two documents about one account disagree
+    // MARK: - A HANDOFF THE READING DID NOT KEEP UP WITH
 
-    // A handoff republishes the READING the moment it decides, and the spawn document not until the
-    // replacement child is up: for that one tear-down the sidecar names the account the session has
-    // just left. Both blocks of this report are built here, so a scan landing in the window with the
-    // sidecar preferred would say the context is on the new account and the session is on the old
-    // one - the two-moments defect this whole assembly exists to make impossible (codex review of
-    // 005b5f2). The fixture is exactly that instant: reading moved, sidecar not yet.
-    writeSupervisorAccount("claude:.claudeBEFORE", pid: trunkSupervisor, dir: dir)
-    let midHandoff = readings(sockets: empty)
-    check("a session mid-handoff is reported on the account its reading names",
-          midHandoff.sessions.first { $0.directory == "/x/repo" }?.accountID == "claude:.claude")
-    check("…so the roster and the per-account block name the same account, never two",
-          midHandoff.accountSessions["claude:.claude"]?.contextTokens == 400_000
-              && midHandoff.accountSessions["claude:.claudeBEFORE"] == nil
-              && !midHandoff.sessions.contains { $0.accountID == "claude:.claudeBEFORE" })
-    // …while the session with no reading is still answered by that same document, which is the only
-    // thing that can answer for it. The two rules are one rule: whoever has a reading is described
-    // by it, and the spawn document speaks for the sessions the reading cannot.
-    check("…and a session with no reading is still named by its spawn document",
-          midHandoff.sessions.first { $0.directory == "/x/other" }?.accountID == "claude:.claude3")
+    // Both documents naming this session's account move at the handoff itself now (Supervisor.swift
+    // writes the sidecar beside `accountChanged`, asserted in contextchecks), so on the ordinary
+    // path they agree and there is no window to land in. What is left is the reading going STALE ON
+    // ITS OWN: it is published best-effort through a writer holding an in-memory copy of what it
+    // believes is on disk, so a write that silently fails leaves the old account in the file while
+    // the copy moves on - and the thousand-token delta then suppresses every retry, so an idle
+    // session keeps the old account for as long as it runs (codex review of ff5b2a0). The sidecar
+    // has no memory to disagree with: each write replaces the whole of it. The fixture is that
+    // failure: sidecar moved, reading did not.
+    writeSupervisorAccount("claude:.claudeMOVED", pid: trunkSupervisor, dir: dir)
+    let afterHandoff = readings(sockets: empty)
+    check("a session whose reading went stale is reported on the account the sidecar names",
+          afterHandoff.sessions.first { $0.directory == "/x/repo" }?.accountID
+              == "claude:.claudeMOVED")
+    // …and a session with no sidecar at all is still attributed by its reading, which is the whole
+    // of what a supervisor from an older build published. The two rules are one rule: ask the
+    // document written for this question, and fall back to the one that has to answer it in passing.
+    check("…while a supervisor with no sidecar is still named by its reading",
+          afterHandoff.sessions.first { $0.directory == "/x/repo-cart" }?.accountID
+              == "claude:.claude")
 
     try? FileManager.default.removeItem(at: dir)
     try? FileManager.default.removeItem(atPath: socketDir)

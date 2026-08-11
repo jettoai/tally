@@ -75,17 +75,18 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
     // What every session says about itself, from files and the process table: cheap, and the same
     // order the report publishes.
     //
-    // THE ACCOUNT COMES FROM THE READING THIS SCAN ALREADY HOLDS, and from the spawn document only
-    // when there is no reading at all. Both name the account, and the reading is the fresher of the
-    // two: a handoff republishes it the instant it decides (`SessionContextWriter.accountChanged`)
-    // while the sidecar is not rewritten until the next child is spawned, so a scan landing in that
-    // window would put the context on the new account in one block and the session on the old one
-    // in the other - which is the single thing `SessionReadings` exists to make impossible (codex
-    // review of 005b5f2). Reading first means the two blocks are one answer by construction; the
-    // sidecar answers exactly the sessions the other block cannot see anyway.
+    // THE ACCOUNT COMES FROM THE DOCUMENT WRITTEN FOR THAT ONE QUESTION, and from the context
+    // reading only when a supervisor too old to publish one is being asked about. The two move
+    // together now - a handoff writes both where it decides, and the spawn rewrites the sidecar
+    // again - so this is a question of which one can be WRONG rather than which is fresher: the
+    // reading is written best-effort while its writer's in-memory copy moves on regardless, so a
+    // publish that silently fails leaves the old account on disk with the delta suppressing every
+    // retry (codex review of ff5b2a0). The sidecar is rewritten whole at both moments and has no
+    // such memory. Preferring it is also what keeps this block and the per-account one describing
+    // the same instant, because both are folded from this one scan.
     let sessions = live.map {
-        (accountID: $0.session?.accountID
-            ?? readSupervisorAccount(pid: $0.supervisorPid, dir: dir),
+        (accountID: readSupervisorAccount(pid: $0.supervisorPid, dir: dir)
+            ?? $0.session?.accountID,
          pid: readSupervisorChild(pid: $0.supervisorPid, dir: dir),
          cwd: readSupervisorCwd(pid: $0.supervisorPid, dir: dir))
     }

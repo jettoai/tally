@@ -403,6 +403,19 @@ func runSessionContextChecks() {
     check("…and so does the republish a handoff makes",
           loop.contains("transcript: watcher.transcriptSessionID,\n"
               + "                                              pid: supervisorPID"))
+    // AND THE ACCOUNT SIDECAR MOVES IN THE SAME BREATH AS THAT REPUBLISH. Written only at the spawn,
+    // it named the account the session had just left for the whole of a child tear-down, and the two
+    // documents about one account described different moments (codex review of 005b5f2). Both
+    // moments write it now: this one, and the spawn that follows.
+    check("a handoff republishes the account beside the reading, not a tear-down later",
+          loop.range(of: "sessionContext.accountChanged").map { moved in
+              loop.range(of: "writeSupervisorAccount(account.id, pid: supervisorPID)",
+                         range: moved.upperBound ..< loop.endIndex) != nil
+          } == true)
+    check("…and the spawn writes it again for the child that actually starts",
+          loop.range(of: "spawnChild").map { spawned in
+              loop.range(of: "writeSupervisorAccount", range: spawned.upperBound ..< loop.endIndex)
+                  != nil } == true)
     // AND THE CHILD IS PUBLISHED AT THE SPAWN, not with a reading. A unit test can assert the
     // writer stores what it is handed while the loop publishes it too late to be any use, which is
     // exactly the defect this round fixes.

@@ -369,6 +369,23 @@ func precedes(_ first: String, _ second: String, in body: String) -> Bool {
 }
 check("…and that question is asked BEFORE the anchor is handed back",
       precedes("StatusAnchor.isOnScreen", "popover.positioningRect", in: fit))
+// AND DECLINING IT LEAVES A DEBT. The size has already been applied by the time this declines, so
+// the surface is standing where a smaller one fitted; without the debt the next report is the same
+// size, the guard below returns on it, and nothing ever calls this again - the popover stayed off
+// screen until it was resized once more or closed and reopened (codex review of 06d734f). The two
+// guards cancelled each other out, and the assertion below used to pin that as the intent.
+// Read as two halves of the anchor question, so each assertion is about the branch it names: what
+// the declining branch leaves behind, and what the placement that happened takes away.
+let declined = fit.range(of: "StatusAnchor.isOnScreen").map { String(fit[$0.upperBound...]) } ?? ""
+check("an anchor nobody can see leaves a placement owed",
+      precedes("repositionOwed = true", "popover.positioningRect", in: declined))
+check("…and a placement that really happened clears it",
+      precedes("popover.positioningRect", "repositionOwed = false", in: declined))
+// A debt cannot outlive the surface that incurred it: NSPopover places itself from scratch when it
+// is shown, so a closed popover owes nothing.
+let beforeAnchor = fit.range(of: "StatusAnchor.isOnScreen").map { String(fit[..<$0.lowerBound]) } ?? ""
+check("…and a closed popover owes nothing at all",
+      precedes("guard popover.isShown else", "repositionOwed = false", in: beforeAnchor))
 
 // The second half, and the one that keeps the first from ever being needed on this path: a content
 // report that is the size the popover already is stops before any of it. Switching the gauges
@@ -387,6 +404,19 @@ check("a report of the size the popover already is applies nothing",
 check("…checked before the size is written and the anchor is handed back",
       precedes("ResizeAnchor.needsResize", "self.popover.contentSize = size", in: apply)
           && apply.contains("self.fitShownPopoverToScreen()"))
+// …EXCEPT WHEN A PLACEMENT IS OWED, which is the one thing that guard may not swallow: the size it
+// compares against was applied while the anchor was off screen, so "nothing changed" is true of the
+// size and false of the position. This report is the only thing that pays that debt, so it has to be
+// collected INSIDE the early return rather than after it.
+check("…unless a placement is owed, which that return may not swallow",
+      precedes("guard ResizeAnchor.needsResize", "if self.repositionOwed", in: apply)
+          && precedes("if self.repositionOwed { self.fitShownPopoverToScreen() }",
+                      "self.popover.contentSize = size", in: apply))
+// One owner, and exactly one place that can put a debt on the books: a second writer of the true
+// value would be a placement owed by a path that never skipped one.
+check("…and the debt is this controller's own state, incurred in one place",
+      statusSource.contains("private var repositionOwed = false")
+          && statusSource.components(separatedBy: "repositionOwed = true").count == 2)
 // Sub-point rounding is not a resize here either, for the same reason it is not a move: the tolerance
 // is stated once, in ResizeAnchor.
 check("…and the sameness it uses is the shared one, tolerance included",

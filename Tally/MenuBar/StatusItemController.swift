@@ -17,6 +17,17 @@ final class StatusItemController: NSObject {
     private var popoverHost: NSHostingController<PopoverRootView>?
     /// The popover's own Usage / Tokens selection, kept here so the pin hand-off can read it.
     private let popoverTab = SurfaceTabState()
+    /// A RE-PLACEMENT THIS POPOVER STILL OWES. A resize that lands while the menu bar is hidden
+    /// applies the new size and skips the placement (`fitShownPopoverToScreen` has nothing on screen
+    /// to place against), so the surface is now a size that was never fitted to the display: wider
+    /// than the anchor it kept, possibly off the right of it.
+    ///
+    /// It has to be REMEMBERED rather than left to the next report, which is what the comment here
+    /// used to promise: the next report is usually the same size, the guard below returns on it, and
+    /// nothing would ever call the placement again - the popover stayed off screen until it was
+    /// resized once more or closed and reopened (codex review of 06d734f). With the debt written
+    /// down, the same report that used to be the end of it is what pays it.
+    private var repositionOwed = false
 
     private static let symbolCandidates = ["gauge.medium", "gauge", "chart.bar.fill"]
 
@@ -158,7 +169,16 @@ final class StatusItemController: NSObject {
             // anyway would hand the anchor back to AppKit for a resize that isn't one. Layout reports
             // the same size on plenty of changes that are not resizes at all - switching the gauges
             // between used and remaining is one - so this is where most reposition requests stop.
-            guard ResizeAnchor.needsResize(from: self.popover.contentSize, to: size) else { return }
+            //
+            // UNLESS A PLACEMENT IS OWED, which is the one thing this return may not swallow: the
+            // size it is comparing against was applied while the anchor was off screen, so the
+            // popover is standing at a position that fits an older, smaller surface. This is the
+            // report that pays that debt - it arrives on every layout the content measures again,
+            // including all the ones that change nothing this guard can see.
+            guard ResizeAnchor.needsResize(from: self.popover.contentSize, to: size) else {
+                if self.repositionOwed { self.fitShownPopoverToScreen() }
+                return
+            }
             // NSPopover animates contentSize changes with a springy bounce; for in-place content
             // changes (collapsing a provider's cards) the bounce reads as the popover "jumping".
             // Suppress the animation just for the resize - show/close keep theirs.
@@ -192,14 +212,29 @@ final class StatusItemController: NSObject {
     /// pointing back at the corner (reported 2026-08-11, from switching the gauges between used and
     /// remaining while the bar was hidden). A popover already open is already placed correctly, so
     /// the safe answer for an anchor nobody can see is to leave it where it is and resize in place.
-    /// That trades away the right-edge fit for the one case where a surface changes width WHILE the
-    /// bar is hidden - rarer than the jump, and unlike the jump it corrects itself the moment the
-    /// bar comes back and the next report re-places the popover.
+    ///
+    /// AND TO WRITE DOWN THAT IT IS OWED ONE. The size was applied either way, so declining the
+    /// placement leaves a surface standing where a smaller one fitted; the debt is what makes the
+    /// next report pay it (`repositionOwed`, and `applyPopoverSize` is where it is collected). The
+    /// earlier version of this comment claimed the next report would re-place the popover on its
+    /// own, and it could not: that report is the same size, and the guard up there returns before
+    /// this is ever reached (codex review of 06d734f).
+    ///
+    /// A CLOSED POPOVER OWES NOTHING: NSPopover works its position out when it is shown, from the
+    /// size it has then, so the debt cannot outlive the surface that incurred it.
     private func fitShownPopoverToScreen() {
-        guard popover.isShown, let button = statusItem?.button, let window = button.window,
+        guard popover.isShown else {
+            repositionOwed = false
+            return
+        }
+        guard let button = statusItem?.button, let window = button.window,
               let screen = menuBarScreen(),
-              StatusAnchor.isOnScreen(buttonWindow: window.frame, screen: screen.frame) else { return }
+              StatusAnchor.isOnScreen(buttonWindow: window.frame, screen: screen.frame) else {
+            repositionOwed = true
+            return
+        }
         popover.positioningRect = button.bounds
+        repositionOwed = false
     }
 
     /// The display the popover opens on, which is the one the menu bar is on.

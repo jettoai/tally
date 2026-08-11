@@ -510,6 +510,15 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                               axes: nextAxes,
                                               transcript: watcher.transcriptSessionID,
                                               pid: supervisorPID)
+                // THE ACCOUNT SIDECAR MOVES IN THE SAME BREATH, so the two documents naming this
+                // session's account can never describe different moments. Left to the spawn below,
+                // it would name the account the session has just left for the whole tear-down; and
+                // the reading beside it cannot be relied on to lead instead, because a publish that
+                // fails is silent while the writer's in-memory copy moves on regardless - after
+                // which the delta suppresses the retry and the file keeps the old account for as
+                // long as the session idles (codex review of ff5b2a0). Written here rather than
+                // only at the spawn, so neither document has to be the fresher one.
+                writeSupervisorAccount(account.id, pid: supervisorPID)
                 // Last, so an exec that fails falls through to the respawn below with this plan
                 // fully applied: a failed upgrade can cost the new build, never the account switch.
                 execPlannedSelfUpdate(upgrade, attempted: &selfUpdateAttempted, target: plan.target,

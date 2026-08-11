@@ -250,15 +250,21 @@ func supervisorAccountFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 /// for when they ask what is running (codex review of d2d620e). Written at each spawn rather than
 /// once at start-up, so a handoff republishes the account its next child actually runs on.
 ///
-/// IT LAGS THE READING BY A RESPAWN, and a reader has to prefer the reading because of it. A handoff
-/// publishes the new account the moment it decides (`SessionContextWriter.accountChanged`, which
-/// runs before the child is terminated), where this is not rewritten until the replacement child is
-/// spawned - a window of one child tear-down, and this file names the account the session has just
-/// LEFT for the whole of it. An earlier version of this comment claimed the two could not disagree;
-/// they can, exactly there (codex review of 005b5f2). So the rule is the other way round: whoever
-/// has a reading answers from it, and this answers the sessions that have none - which is every
-/// session before its first turn, the case it was added for, and a case the reading cannot dispute
-/// because it does not exist yet.
+/// WRITTEN AT BOTH MOMENTS THE ACCOUNT MOVES, which is what makes it the first witness on this axis.
+/// A handoff writes it where it decides, beside the reading's own republish
+/// (`SessionContextWriter.accountChanged`, Supervisor.swift), and the spawn writes it again for the
+/// child that actually starts. It used to be written only at the spawn, and this comment used to
+/// claim the two documents could not disagree: they could, for the whole of a child tear-down, and
+/// the reader was made to prefer the reading because of it (codex review of 005b5f2).
+///
+/// AND WHY IT LEADS THE READING NOW THAT THEY MOVE TOGETHER: the reading is published best-effort
+/// through a writer that keeps an in-memory copy of what it believes is on disk, so a write that
+/// silently fails leaves the OLD account in the file while the copy moves on - after which the
+/// thousand-token delta suppresses every retry and an idle session keeps naming an account it has
+/// left for as long as it runs (codex review of ff5b2a0). This file has no such memory: each write
+/// replaces the whole of it, and a failed one leaves nothing rather than something stale (below).
+/// So the inventory asks this first and falls back to the reading, which is all a supervisor from a
+/// build before this file ever published.
 ///
 /// TAKEN AWAY FIRST, like the child pid beside it and for the same reason (`writeSupervisorChild`
 /// carries the incident): `write(atomically:)` renames a temporary over the destination, so a

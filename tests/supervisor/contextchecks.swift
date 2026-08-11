@@ -339,6 +339,39 @@ func runSessionContextChecks() {
               publishBody.range(of: "atomically", range: removal.upperBound ..< publishBody.endIndex)
                   != nil
           } == true)
+    // THE ACCOUNT SIDECAR IS HELD TO THE SAME RULE, and it needs it more than this one does: the
+    // child pid has a liveness check that refuses any stale value, and the account has no such
+    // second witness - a session with no reading yet would be reported on the account it has left
+    // for as long as it runs (codex review of 005b5f2). Same shape, same window, pinned the same way
+    // because the failures that reach it are ones this suite cannot produce.
+    let accountBody = requestSource.range(of: "func writeSupervisorAccount").map {
+        String(requestSource[$0.lowerBound...].prefix(400))
+    } ?? ""
+    check("…and so does the account published beside it",
+          accountBody.range(of: "removeItem").map { removal in
+              accountBody.range(of: "atomically", range: removal.upperBound ..< accountBody.endIndex)
+                  != nil
+          } == true)
+    // The half that IS observable: on the ordinary path the new value replaces the old whole, and a
+    // handoff to another account leaves nothing of the first behind.
+    writeSupervisorAccount("claude:.claudeA", pid: "5154", dir: fresh)
+    writeSupervisorAccount("claude:.claudeB", pid: "5154", dir: fresh)
+    check("a republished account replaces the old one rather than joining it",
+          readSupervisorAccount(pid: "5154", dir: fresh) == "claude:.claudeB")
+    // AND THE RESIDUAL LIMIT, stated rather than left to be discovered: a directory that has become
+    // unwritable defeats both halves, exactly as it does for the child pid above. What removing
+    // first buys is the failure that reaches the WRITE alone (a full disk, a quota, an I/O error).
+    let jammedAccount = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-account-jammed-\(UUID().uuidString)")
+    writeSupervisorAccount("claude:.claudeA", pid: "5155", dir: jammedAccount)
+    try! FileManager.default.setAttributes([.posixPermissions: 0o500],
+                                           ofItemAtPath: jammedAccount.path)
+    writeSupervisorAccount("claude:.claudeB", pid: "5155", dir: jammedAccount)
+    check("a publish that cannot even remove leaves the old account, which no reader can refuse",
+          readSupervisorAccount(pid: "5155", dir: jammedAccount) == "claude:.claudeA")
+    try! FileManager.default.setAttributes([.posixPermissions: 0o700],
+                                           ofItemAtPath: jammedAccount.path)
+    try? FileManager.default.removeItem(at: jammedAccount)
     // On the swept track like every other document beside a supervisor, or a dead session's copy
     // outlives it and answers for a pid the OS has since handed to somebody else.
     check("the witness is swept with the rest of a dead supervisor's state",

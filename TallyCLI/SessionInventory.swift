@@ -73,12 +73,19 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
                                   identity: SessionDirectoryIdentity = gitSessionDirectoryIdentity)
     -> [StatusReport.Session] {
     // What every session says about itself, from files and the process table: cheap, and the same
-    // order the report publishes. The account comes from the document the SPAWN wrote and falls
-    // back to the reading, which is all a supervisor from an older build published
-    // (`writeSupervisorAccount` states why the two cannot disagree).
+    // order the report publishes.
+    //
+    // THE ACCOUNT COMES FROM THE READING THIS SCAN ALREADY HOLDS, and from the spawn document only
+    // when there is no reading at all. Both name the account, and the reading is the fresher of the
+    // two: a handoff republishes it the instant it decides (`SessionContextWriter.accountChanged`)
+    // while the sidecar is not rewritten until the next child is spawned, so a scan landing in that
+    // window would put the context on the new account in one block and the session on the old one
+    // in the other - which is the single thing `SessionReadings` exists to make impossible (codex
+    // review of 005b5f2). Reading first means the two blocks are one answer by construction; the
+    // sidecar answers exactly the sessions the other block cannot see anyway.
     let sessions = live.map {
-        (accountID: readSupervisorAccount(pid: $0.supervisorPid, dir: dir)
-            ?? $0.session?.accountID,
+        (accountID: $0.session?.accountID
+            ?? readSupervisorAccount(pid: $0.supervisorPid, dir: dir),
          pid: readSupervisorChild(pid: $0.supervisorPid, dir: dir),
          cwd: readSupervisorCwd(pid: $0.supervisorPid, dir: dir))
     }

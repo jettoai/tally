@@ -175,6 +175,28 @@ func runSessionInventoryChecks() {
     check("and neither is a directory that has never held Claude Code",
           claudeMessagingSocket(childPid: Int(child), dir: empty) == nil)
 
+    // MARK: - THE HANDOFF WINDOW, where the two documents about one account disagree
+
+    // A handoff republishes the READING the moment it decides, and the spawn document not until the
+    // replacement child is up: for that one tear-down the sidecar names the account the session has
+    // just left. Both blocks of this report are built here, so a scan landing in the window with the
+    // sidecar preferred would say the context is on the new account and the session is on the old
+    // one - the two-moments defect this whole assembly exists to make impossible (codex review of
+    // 005b5f2). The fixture is exactly that instant: reading moved, sidecar not yet.
+    writeSupervisorAccount("claude:.claudeBEFORE", pid: trunkSupervisor, dir: dir)
+    let midHandoff = readings(sockets: empty)
+    check("a session mid-handoff is reported on the account its reading names",
+          midHandoff.sessions.first { $0.directory == "/x/repo" }?.accountID == "claude:.claude")
+    check("…so the roster and the per-account block name the same account, never two",
+          midHandoff.accountSessions["claude:.claude"]?.contextTokens == 400_000
+              && midHandoff.accountSessions["claude:.claudeBEFORE"] == nil
+              && !midHandoff.sessions.contains { $0.accountID == "claude:.claudeBEFORE" })
+    // …while the session with no reading is still answered by that same document, which is the only
+    // thing that can answer for it. The two rules are one rule: whoever has a reading is described
+    // by it, and the spawn document speaks for the sessions the reading cannot.
+    check("…and a session with no reading is still named by its spawn document",
+          midHandoff.sessions.first { $0.directory == "/x/other" }?.accountID == "claude:.claude3")
+
     try? FileManager.default.removeItem(at: dir)
     try? FileManager.default.removeItem(atPath: socketDir)
 }

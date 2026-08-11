@@ -250,14 +250,27 @@ func supervisorAccountFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 /// for when they ask what is running (codex review of d2d620e). Written at each spawn rather than
 /// once at start-up, so a handoff republishes the account its next child actually runs on.
 ///
-/// IT CANNOT CONTRADICT THE READING, which is what keeps two documents from becoming two answers:
-/// a handoff writes both (this at the spawn, `SessionContextWriter.accountChanged` beside it), and
-/// the only moment they differ is the one where the reading does not exist at all. So a reader
-/// prefers this and falls back to the reading, which is all an older supervisor published.
+/// IT LAGS THE READING BY A RESPAWN, and a reader has to prefer the reading because of it. A handoff
+/// publishes the new account the moment it decides (`SessionContextWriter.accountChanged`, which
+/// runs before the child is terminated), where this is not rewritten until the replacement child is
+/// spawned - a window of one child tear-down, and this file names the account the session has just
+/// LEFT for the whole of it. An earlier version of this comment claimed the two could not disagree;
+/// they can, exactly there (codex review of 005b5f2). So the rule is the other way round: whoever
+/// has a reading answers from it, and this answers the sessions that have none - which is every
+/// session before its first turn, the case it was added for, and a case the reading cannot dispute
+/// because it does not exist yet.
+///
+/// TAKEN AWAY FIRST, like the child pid beside it and for the same reason (`writeSupervisorChild`
+/// carries the incident): `write(atomically:)` renames a temporary over the destination, so a
+/// publish that fails at a relaunch would leave the PREVIOUS account in place - and for a session
+/// that has no reading yet, there is no second witness to refuse it, so it would be reported on an
+/// account it has left until it exits. Removing first turns that into an absent file, which every
+/// reader takes as "cannot say".
 ///
 /// Best-effort like everything else on this track: failing to write it costs the entry's account,
 /// never the session.
 func writeSupervisorAccount(_ accountID: String, pid: String, dir: URL = supervisorStateDir) {
+    try? FileManager.default.removeItem(at: supervisorAccountFile(pid: pid, dir: dir))
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     try? accountID.write(to: supervisorAccountFile(pid: pid, dir: dir), atomically: true,
                          encoding: .utf8)

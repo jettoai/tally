@@ -78,6 +78,9 @@ usage:
                             visiting each terminal (--now waits only for a 5s quiet gap, so it
                             may land closer to an active turn)
   tally update              check for app updates now (opens the update window)
+  tally completion zsh      print the zsh tab-completion script: add
+                            `eval "$(tally completion zsh)"` to ~/.zshrc, or write it to a
+                            file named _tally in a directory on your fpath
   tally help                print this list (also --help, -h)
 """
 

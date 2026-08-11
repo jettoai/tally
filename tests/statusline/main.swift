@@ -166,4 +166,72 @@ check("help is a command of its own, answering on stdout with a zero exit",
 check("…while a word this binary does not know is still an error on stderr",
       statusSource.contains("default:\n    warn(tallyUsage)\n    exit(2)"))
 
+// MARK: - `tally completion zsh`, and that it offers this binary rather than a past one
+
+// The third way in (Completion.swift): the list arrives at the cursor instead of being asked for.
+// Its failure mode is the usage text's, one degree worse - a command renamed here and nowhere else
+// is a word suggested at the cursor that the binary then answers with usage and exit 2 - so the
+// same invariant is pinned, against the same two sources.
+//
+/// The commands the completion offers at the top level, read off the array it builds them from.
+let offered: [String] = {
+    guard let start = tallyCompletionZsh.range(of: "\n  commands=(\n"),
+          let end = tallyCompletionZsh.range(of: "\n  )\n",
+                                             range: start.upperBound ..< tallyCompletionZsh.endIndex)
+    else { return [] }
+    return tallyCompletionZsh[start.upperBound ..< end.lowerBound]
+        .components(separatedBy: "\n")
+        .compactMap { line -> String? in
+            let entry = line.trimmingCharacters(in: .whitespaces)
+            guard entry.hasPrefix("\"") || entry.hasPrefix("'") else { return nil }
+            return entry.dropFirst().split(separator: ":").first.map(String.init)
+        }
+}()
+// The extractor's own sanity, for the reason the usage extractor states its: a marker that stopped
+// matching would find nothing and pass every check below by saying nothing about anything.
+check("the completion's command list was really found",
+      offered.count >= 14 && offered.contains("status") && offered.contains("completion"))
+// BOTH DIRECTIONS, because each one is a different way for this to rot: a command offered but not
+// dispatched is a suggestion the binary refuses, and a command documented but not offered is the
+// discoverability this file exists for, silently not extended to it.
+check("everything the completion offers is documented in the usage text",
+      Set(offered) == Set(documented))
+for command in Set(offered).sorted() {
+    check("`tally \(command)` is offered AND dispatched", statusSource.contains("case \"\(command)\""))
+}
+// The internal subcommands stay out of it. They are dispatched (a hook registration written by an
+// older app still calls them) and deliberately absent from `tally help`; a completion offering
+// them would put them back in front of the one audience they were kept from.
+for internalCommand in ["hook-tally", "hook-switch", "hook-model", "mcp-serve", "__resupervise"] {
+    check("`\(internalCommand)` is not offered at the cursor",
+          !offered.contains(internalCommand) && !tallyCompletionZsh.contains(internalCommand))
+}
+// The dynamic helpers ask this machine questions, at the cursor of a line somebody is typing. Every
+// such helper has to survive the binary being absent and the command answering nothing, because a
+// completion that prints a diagnostic there has broken the line it was helping with.
+check("the helpers ask the binary being completed, and give up when there is none",
+      tallyCompletionZsh.contains("command -v -- \"$bin\" > /dev/null 2>&1 || return 1"))
+for probe in ["\"$bin\" status --json 2>/dev/null", "\"$bin\" worktree list 2>/dev/null"] {
+    check("`\(probe)` cannot spill an error onto the line", tallyCompletionZsh.contains(probe))
+}
+// The account labels come out of `status --json`, which is PRETTY-PRINTED: a reader keyed on
+// `"label":"` finds nothing in `"label" : "Claude"`, and finding nothing is indistinguishable on
+// screen from a machine with no accounts. Found by running the helper against the real report
+// (2026-08-11), so what is pinned is the skipping rather than the absence of the wrong needle.
+check("the label reader skips whatever spacing the report is printed with",
+      tallyCompletionZsh.contains("while [[ $rest == [[:space:]]* ]]; do rest=${rest#?}; done"))
+// The axis names come from the one list both targets compile (LaunchAxisNames.swift), so the
+// suggestions cannot name an effort the CLI would refuse.
+check("the effort suggestions are the list the CLI validates against",
+      tallyCompletionZsh.contains("efforts=(\(claudeEffortNames().joined(separator: " ")))"))
+check("the model suggestions are the aliases the pickers offer",
+      tallyCompletionZsh.contains("models=(\(claudeModelAliases.joined(separator: " ")))"))
+check("the provider suggestions are the providers this binary launches",
+      tallyCompletionZsh.contains("ids=(\(providers.map(\.id).joined(separator: " ")))"))
+// Asked for, so it answers on stdout with a zero exit: `eval "$(tally completion zsh)"` reads
+// exactly that, and a script written into somebody's ~/.zshrc is the last place an error belongs.
+check("the completion is printed to stdout with a zero exit",
+      (try? String(contentsOfFile: "TallyCLI/Completion.swift", encoding: .utf8))?
+          .contains("print(tallyCompletionZsh)\n        return 0") == true)
+
 exit(failures == 0 ? 0 : 1)

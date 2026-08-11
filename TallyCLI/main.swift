@@ -425,6 +425,8 @@ case mcpServeCommand:   // internal: the MCP server behind the native pickers (M
     exit(runMCPServe())
 case resuperviseCommand:   // internal: a supervisor replacing itself after an app update
     runResupervise(args: Array(arguments.dropFirst()))
+case "completion":
+    exit(runCompletion(args: Array(arguments.dropFirst())))
 case "update":
     runUpdate()
 case "add":

@@ -108,9 +108,18 @@ struct PickRowView: View {
 
     /// The resting mark under the row: strong in the column the keyboard is in, quiet in the other
     /// one, and quieter still where the pointer merely happens to be.
+    ///
+    /// THE CIRCLED FILL IS STATED, NOT INHERITED FROM THE WINDOW'S EMPHASIS. It was `.selection`,
+    /// which AppKit draws grey while the window holding it is not key and accented once it is, and
+    /// that change lands a frame after the window becomes key. This panel stays up rather than being
+    /// raised for one answer, so it rests unfocused, and a click is the same turn as the makeKey it
+    /// triggers: the row went hover grey, then circled grey, then accent, which is three colours for
+    /// one press (Albert, 2026-08-10). A surface that floats there permanently has to say what it has
+    /// circled whether or not it currently holds the keyboard, so the accent is written here. The
+    /// opacity is the one `.selection` was carrying, so the key-window appearance is unchanged.
     private var background: AnyShapeStyle {
         guard !isCircled else {
-            return isFocusedColumn ? AnyShapeStyle(.selection.opacity(0.55))
+            return isFocusedColumn ? AnyShapeStyle(Color.accentColor.opacity(0.55))
                 : AnyShapeStyle(.quaternary.opacity(0.3))
         }
         return isHovered ? AnyShapeStyle(.quaternary.opacity(0.18)) : AnyShapeStyle(Color.clear)

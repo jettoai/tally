@@ -102,13 +102,19 @@ func runPickSurfaceChecks() {
     check("a focus naming no column lands on one that is drawn rather than refusing the key",
           view.contains("guard let column = palette.column(focus) ?? palette.columns.first")
               && view.contains("if kind != focus { focus = kind }"))
+    // Read as the hover's own two lines rather than as `focus = column.kind` anywhere in the file:
+    // the click below sets the same thing now, so a scan of the whole view would pass on the click
+    // alone and say nothing about whether the pointer still moves the keyboard.
     check("the pointer moves the keyboard's column with it, once the panel is really up",
-          view.contains("focus = column.kind")
+          view.contains("focus = column.kind\n                hovered[column.kind] = index")
               && view.contains("guard pickHoverMovesFocus(shownAt: shownAt) else { return }"))
     // A CLICK CIRCLES, IT DOES NOT ANSWER (pickcirclechecks carries the grammar and the reason):
     // what leaves the panel is every circle at once, so both axes can move on one press.
-    check("a chosen row is circled in its own column",
-          view.contains(".onTapGesture { selections[column.kind] = index }"))
+    // AND IT MOVES THE KEYBOARD'S COLUMN ITSELF rather than relying on the hover beside it, which
+    // declines to move the focus at all for the first moments a panel is up (`pickHoverMovesFocus`).
+    check("a chosen row is circled in its own column, and the keyboard moves there with it",
+          view.contains(".onTapGesture {\n                focus = column.kind\n"
+              + "                selections[column.kind] = index\n            }"))
 
     // MARK: - 37g3. …and the list follows the keyboard rather than the click
 

@@ -299,7 +299,19 @@ struct PickPanelView: View {
             // press at the end, which is also the press that makes a mis-click harmless.
             // Clicking the circled row again leaves it circled: this column always has an answer,
             // and "no change" is said by the row the session is on, not by an empty column.
-            .onTapGesture { selections[column.kind] = index }
+            //
+            // AND IT TAKES THE KEYBOARD'S COLUMN WITH IT rather than leaving that to the hover below,
+            // because the two are not the same event: a click is somebody choosing, while a hover is
+            // where the pointer happens to be, and the hover declines to move the focus at all for
+            // the first moments after the panel is raised (`pickHoverMovesFocus`). A click inside
+            // that window circled a row in a column the keyboard was not in, which is drawn as the
+            // quiet of the two circled fills, so the row passed through a colour on the way to the
+            // one it settles on. Typing follows the click too, which is what somebody who has just
+            // chosen a row expects the next keystroke to narrow.
+            .onTapGesture {
+                focus = column.kind
+                selections[column.kind] = index
+            }
             // The pointer moves the keyboard's column with it, so typing goes where the person is
             // looking. UNLESS THE PANEL WAS JUST RAISED UNDER A POINTER THAT NEVER MOVED, which is
             // not somebody choosing anything and used to take the command's own column away before

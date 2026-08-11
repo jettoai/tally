@@ -242,7 +242,8 @@ func runPickCircleChecks() {
     let view = (try? String(contentsOfFile: "Tally/Views/PickPanelView.swift", encoding: .utf8)) ?? ""
     check("the panel view is readable from this suite", !view.isEmpty)
     check("a click circles a row rather than answering the panel",
-          view.contains(".onTapGesture { selections[column.kind] = index }")
+          view.contains(".onTapGesture {\n                focus = column.kind\n"
+              + "                selections[column.kind] = index\n            }")
               && !view.contains("choose(PickChoice"))
     // …AND IT NAMES THE AXIS THE COMMAND WAS ABOUT, not the one the keyboard drifted into. The
     // panel passed `focus` here, which a hover or a Tab moves; the check above says what that costs
@@ -263,6 +264,20 @@ func runPickCircleChecks() {
           row.contains(#"Image(systemName: isCircled ? "checkmark.circle.fill" : "circle")"#))
     check("…and a hover is drawn as something else, so the two cannot be confused",
           row.contains("isHovered ? AnyShapeStyle(.quaternary.opacity(0.18))"))
+    // AND THE CIRCLED FILL IS A COLOUR THIS FILE NAMES, rather than one AppKit picks from whether
+    // the window is key: a persistent panel is usually not key, and `.selection` drawn there is grey
+    // until a frame after the click makes it key, which is a third colour on the way to the circle
+    // (Albert, 2026-08-10; PickRowView carries the mechanism). Locked as an absence as well as a
+    // presence, since what was wrong was the style rather than the shade.
+    //
+    // Asked of the code and not of the file: the paragraph above that fill names the style it
+    // stopped using, and raw text cannot tell a mention from a use.
+    let rowCode = row.split(separator: "\n", omittingEmptySubsequences: false)
+        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        .joined(separator: "\n")
+    check("the circled row's fill is stated rather than taken from the window's emphasis",
+          rowCode.contains("isFocusedColumn ? AnyShapeStyle(Color.accentColor.opacity(0.55))")
+              && !rowCode.contains(".selection"))
     check("the bar keeps its space whether or not it says anything",
           row.contains(".frame(height: pickApplyBarHeight)"))
     // The button and the key do the same thing, which is what makes the keyboard path discoverable.

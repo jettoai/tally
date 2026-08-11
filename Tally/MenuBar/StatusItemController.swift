@@ -154,6 +154,11 @@ final class StatusItemController: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self, size.width.isFinite, size.height.isFinite, size.width > 1, size.height > 1
             else { return }
+            // A report that is the size the popover already is has nothing to apply, and applying it
+            // anyway would hand the anchor back to AppKit for a resize that isn't one. Layout reports
+            // the same size on plenty of changes that are not resizes at all - switching the gauges
+            // between used and remaining is one - so this is where most reposition requests stop.
+            guard ResizeAnchor.needsResize(from: self.popover.contentSize, to: size) else { return }
             // NSPopover animates contentSize changes with a springy bounce; for in-place content
             // changes (collapsing a provider's cards) the bounce reads as the popover "jumping".
             // Suppress the animation just for the resize - show/close keep theirs.
@@ -180,8 +185,20 @@ final class StatusItemController: NSObject {
     /// `show(relativeTo:)` was given, so nothing about where it points changes - only whether the
     /// screen it points on can hold it. The content's own fit (`ScreenFitStack`, `PanelGeometry`)
     /// keeps it small enough for that to succeed; this is what makes the two meet.
+    ///
+    /// Only while the anchor is ON SCREEN, though. With "Automatically hide and show the menu bar"
+    /// on and the bar hidden, the status item's window sits in the strip above the display and
+    /// placing a surface against it puts the popover in the display's top-left corner, arrow
+    /// pointing back at the corner (reported 2026-08-11, from switching the gauges between used and
+    /// remaining while the bar was hidden). A popover already open is already placed correctly, so
+    /// the safe answer for an anchor nobody can see is to leave it where it is and resize in place.
+    /// That trades away the right-edge fit for the one case where a surface changes width WHILE the
+    /// bar is hidden - rarer than the jump, and unlike the jump it corrects itself the moment the
+    /// bar comes back and the next report re-places the popover.
     private func fitShownPopoverToScreen() {
-        guard popover.isShown, let button = statusItem?.button else { return }
+        guard popover.isShown, let button = statusItem?.button, let window = button.window,
+              let screen = menuBarScreen(),
+              StatusAnchor.isOnScreen(buttonWindow: window.frame, screen: screen.frame) else { return }
         popover.positioningRect = button.bounds
     }
 

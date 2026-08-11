@@ -315,5 +315,85 @@ let claimants = viewFiles.filter { file in
 check("only the view-options card itself claims the anchor (found: \(claimants))",
       claimants == ["PopoverFooterView.swift"])
 
+// 12. The popover's anchor, which is the one surface here that AppKit places rather than this code:
+//     it is placed AGAIN on every content-driven resize (`fitShownPopoverToScreen`, so a panel that
+//     widens cannot walk off the right of the display), and a re-placement is only as good as the
+//     anchor it is measured from. With "Automatically hide and show the menu bar" on and the bar
+//     hidden, the status item's window is in the strip ABOVE its display, so AppKit puts the popover
+//     in the display's top-left corner with the arrow pointing back at that corner - what the user
+//     saw on 2026-08-11 by switching the gauges between used and remaining with the bar hidden.
+let display = CGRect(x: 0, y: 0, width: 2048, height: 1152)
+// The status item as the bar draws it: at the top of the display, inside the frame.
+let barShown = CGRect(x: 1700, y: display.maxY - 24, width: 44, height: 24)
+// The same item with the bar hidden: the strip it lives in has slid off the top of the display.
+let barHidden = CGRect(x: 1700, y: display.maxY, width: 44, height: 24)
+check("an item in the visible menu bar is an anchor a popover can be placed against",
+      StatusAnchor.isOnScreen(buttonWindow: barShown, screen: display))
+check("…and the same item in the hidden strip above the display is not",
+      !StatusAnchor.isOnScreen(buttonWindow: barHidden, screen: display))
+// The reason the question takes the bar's OWN screen rather than "some screen": with a display
+// stacked above this one, the hidden strip is inside that display's frame, so a check that scanned
+// the screens would answer yes for the exact case this exists to catch.
+let stackedAbove = CGRect(x: 0, y: display.maxY, width: 2048, height: 1152)
+check("the hidden strip really does fall inside a display stacked above (the trap, stated)",
+      stackedAbove.contains(CGPoint(x: barHidden.midX, y: barHidden.midY)))
+check("…and asking about the bar's own display still answers no",
+      !StatusAnchor.isOnScreen(buttonWindow: barHidden, screen: display))
+// Mid-reveal the strip straddles the top edge; it counts as whichever side most of it is on, so a
+// point of rounding at the edge cannot read as hidden.
+check("a strip mostly back on the display counts as visible",
+      StatusAnchor.isOnScreen(buttonWindow: barShown.offsetBy(dx: 0, dy: 10), screen: display))
+check("…and one mostly still above it does not",
+      !StatusAnchor.isOnScreen(buttonWindow: barShown.offsetBy(dx: 0, dy: 14), screen: display))
+check("a window with no size at all is not an anchor (an item that never installed)",
+      !StatusAnchor.isOnScreen(buttonWindow: .zero, screen: display))
+
+// And the popover asks. Read off the source for the same reason as everything above: the status
+// item's window cannot be driven from here.
+let statusSource = code(of: "Tally/MenuBar/StatusItemController.swift")
+guard let fitStart = statusSource.range(of: "private func fitShownPopoverToScreen()"),
+      let fitEnd = statusSource.range(of: "\n    }\n", range: fitStart.upperBound ..< statusSource.endIndex)
+else {
+    check("the popover's re-placement was found to read", false)
+    exit(1)
+}
+let fit = String(statusSource[fitStart.upperBound ..< fitEnd.lowerBound])
+check("the popover is re-placed only against an anchor that is on its own screen",
+      fit.contains("StatusAnchor.isOnScreen(buttonWindow: window.frame, screen: screen.frame)")
+          && fit.contains("menuBarScreen()"))
+// Order matters as much as presence here: a check made after the anchor has been handed back is a
+// check of nothing at all.
+func precedes(_ first: String, _ second: String, in body: String) -> Bool {
+    guard let a = body.range(of: first), let b = body.range(of: second) else { return false }
+    return a.upperBound <= b.lowerBound
+}
+check("…and that question is asked BEFORE the anchor is handed back",
+      precedes("StatusAnchor.isOnScreen", "popover.positioningRect", in: fit))
+
+// The second half, and the one that keeps the first from ever being needed on this path: a content
+// report that is the size the popover already is stops before any of it. Switching the gauges
+// between used and remaining does not change the surface's size, so the re-placement that jumped
+// was made for a resize that never happened.
+guard let applyStart = statusSource.range(of: "private func applyPopoverSize(_ size: CGSize)"),
+      let applyEnd = statusSource.range(of: "\n    }\n",
+                                        range: applyStart.upperBound ..< statusSource.endIndex)
+else {
+    check("the popover's sizing pass was found to read", false)
+    exit(1)
+}
+let apply = String(statusSource[applyStart.upperBound ..< applyEnd.lowerBound])
+check("a report of the size the popover already is applies nothing",
+      apply.contains("guard ResizeAnchor.needsResize(from: self.popover.contentSize, to: size)"))
+check("…checked before the size is written and the anchor is handed back",
+      precedes("ResizeAnchor.needsResize", "self.popover.contentSize = size", in: apply)
+          && apply.contains("self.fitShownPopoverToScreen()"))
+// Sub-point rounding is not a resize here either, for the same reason it is not a move: the tolerance
+// is stated once, in ResizeAnchor.
+check("…and the sameness it uses is the shared one, tolerance included",
+      !ResizeAnchor.needsResize(from: CGSize(width: 560, height: 700),
+                                to: CGSize(width: 560, height: 700.4))
+          && ResizeAnchor.needsResize(from: CGSize(width: 560, height: 700),
+                                      to: CGSize(width: 834, height: 700)))
+
 print(failures == 0 ? "\nAll window anchor tests passed." : "\n\(failures) anchor test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

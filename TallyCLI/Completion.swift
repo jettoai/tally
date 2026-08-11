@@ -111,6 +111,50 @@ _tally_providers() {
   _wanted providers expl provider compadd -a ids
 }
 
+_tally_teach() {
+  # The flags a command has, shown as a group of their own with what each one is for.
+  #
+  # WHY THIS EXISTS RATHER THAN LEAVING IT TO `_arguments`: at a word that a rest-args spec can also
+  # match, zsh stops offering option names, so `tally claude <TAB>` answered with a listing of the
+  # current directory. Everything the command can do was one keystroke away and invisible, and -w -
+  # the reason most people come to this binary - was reachable only by already knowing it was there
+  # (Albert, 2026-08-11: "I expect tally claude to tell me what I can do, especially worktrees").
+  #
+  # BUILT FROM THE VERY SPEC STRINGS `_arguments` IS GIVEN, handed in by the caller, so what is
+  # taught cannot drift from what works: a flag renamed in the spec is renamed in the lesson.
+  local label=$1 spec name desc
+  local -a names displays
+  shift
+  for spec in "$@"; do
+    spec=${spec#\(*\)}                  # the exclusion group, when the spec carries one
+    name=${spec%%\[*}
+    # Anything without a description is not a lesson: positional specs and bare flags are skipped
+    # rather than listed with an empty explanation.
+    [[ $name == -* && $name != $spec ]] || continue
+    desc=${spec#*\[}
+    displays+=("$name  --  ${desc%%\]*}")
+    names+=("$name")
+  done
+  (( $#names )) || return 0
+  _wanted tally-options expl $label compadd -d displays -a names
+}
+
+_tally_rest() {
+  # Teach at an empty word, and offer nothing at all once the word has a shape: `_arguments` is
+  # already answering anything that starts with a dash, and the rest of a launch line is a prompt or
+  # a flag belonging to the child CLI, which this script does not pretend to know.
+  #
+  # NO FILE COMPLETION, HERE OR ANYWHERE: not one argument of this binary takes a path, so offering
+  # the working directory was offering a whole category of answer that is never right (Albert,
+  # 2026-08-11). Silence does not stop anyone typing; a wrong suggestion accepted does become a
+  # command, which is how a file name once turned into a worktree branch.
+  #
+  # `_tally_specs` is the caller's array, reached the way this whole system reaches `words` and
+  # `CURRENT`: an action runs inside the function that called `_arguments`.
+  [[ -z ${words[CURRENT]} ]] && _tally_teach "launch option" $_tally_specs
+  return 0
+}
+
 _tally_model_effort() {
   # `auto` releases the pin and takes nothing after it: `modelIntent` returns nil for two words when
   # either is the release, so `tally model auto high` is usage and exit 2 (run, 2026-08-11). Both
@@ -189,6 +233,29 @@ _tally() {
   # Captured before `_arguments` rewrites `words`, because every helper that asks this machine a
   # question has to ask THIS binary (see `_tally_bin`).
   local _tally_command=${words[1]}
+  # How this command's answers are PRESENTED: each kind of answer in its own titled group, and an
+  # arrow-key menu to walk them. Scoped to `tally`, so these are statements about this completion
+  # rather than about the user's shell.
+  #
+  # ASKED BEFORE SET, and asked with `-s` rather than `-t`: `-t` tests whether a style is TRUE, and
+  # `menu select` is not a boolean, so a `-t` probe reads "unset" for somebody who set `menu no` on
+  # purpose and would then have the menu forced back on. `-s` answers the question actually being
+  # asked, which is whether anything the user wrote already applies here.
+  zmodload -i zsh/complist 2>/dev/null
+  local _tally_style
+  zstyle -s ':completion:*:*:tally:*' menu _tally_style \
+    || zstyle ':completion:*:*:tally:*' menu select
+  zstyle -s ':completion:*:*:tally:*' group-name _tally_style \
+    || zstyle ':completion:*:*:tally:*' group-name ''
+  zstyle -s ':completion:*:*:tally:*:descriptions' format _tally_style \
+    || zstyle ':completion:*:*:tally:*:descriptions' format '%B%d%b'
+  # AND SHOW IT ON THE PRESS THAT ASKED. At an empty word there is no prefix to grow, so zsh grows
+  # the longest common one instead and waits: with the file fallback gone every candidate here
+  # starts with a dash, so Tab inserted "-" and displayed nothing - the same "it told me nothing"
+  # this whole change is about. Asked for only where the word is empty, which is the press that
+  # means "what is there"; once something is typed, the ordinary prefix behaviour is what a person
+  # is expecting.
+  [[ -z ${words[CURRENT]} ]] && compstate[insert]=menu
   local -a commands
   commands=(
     "claude:launch Claude Code on the account with the most headroom"
@@ -228,22 +295,28 @@ _tally() {
         # parse is invisible to any guard the fallback could carry - it looks exactly like the
         # ordinary next position). Bare `-w` still works; it is completion, not validation.
         (claude)
-          _arguments \
-            "--account[pin a specific account, by label or config-dir name]:account: _tally_accounts claude" \
-            "(-w --worktree)"{-w,--worktree}"[launch in a git worktree, bare lists the existing ones]:worktree:_tally_worktrees" \
-            "--new[start a fresh conversation, ignoring a continue-by-default setting]" \
-            "--no-handoff[run unsupervised, with no automatic move when this account caps]" \
-            "--no-follow[keep this session on its model when the Settings default changes]" \
-            "*: :_default"
+          local -a _tally_specs
+          _tally_specs=(
+            "--account[pin a specific account, by label or config-dir name]:account: _tally_accounts claude"
+            "(-w --worktree)"{-w,--worktree}"[launch in a git worktree: bare lists the lines this repo already has, a new name opens one]:worktree:_tally_worktrees"
+            "--new[start a fresh conversation, ignoring a continue-by-default setting]"
+            "--no-handoff[run unsupervised, with no automatic move when this account caps]"
+            "--no-follow[keep this session on its model when the Settings default changes]"
+          )
+          _arguments $_tally_specs "*: :_tally_rest"
           ;;
         (codex)
-          _arguments \
-            "--account[pin a specific account, by label or config-dir name]:account: _tally_accounts codex" \
-            "*: :_default"
+          local -a _tally_specs
+          _tally_specs=(
+            "--account[pin a specific account, by label or config-dir name]:account: _tally_accounts codex"
+          )
+          _arguments $_tally_specs "*: :_tally_rest"
           ;;
-        # Everything typed here is appended to the claude invocation `runResume` execs (main.swift),
-        # exactly as on a launch line, so it gets the same fallback rather than nothing at all.
-        (resume) _arguments "*: :_default" ;;
+        # Named with nothing to say, on purpose. Everything typed after `resume` is appended to the
+        # claude invocation `runResume` execs (main.swift) and tally has no flag of its own there,
+        # so there is nothing to suggest - and the branch says so out loud, because the last reader
+        # to find it empty filled it with file completion.
+        (resume) ;;
         (worktree) _tally_worktree_command ;;
         (project) _tally_project_command ;;
         (status) _arguments "--json[versioned machine-readable report for scripts and hooks]" ;;

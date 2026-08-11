@@ -329,10 +329,29 @@ let worktreeSpec = tallyCompletionZsh.components(separatedBy: "\n")
 check("the worktree flag spec was found on a line of its own", !worktreeSpec.isEmpty)
 check("the worktree argument is required, so the position has one reading",
       worktreeSpec.contains("]:worktree:_tally_worktrees") && !worktreeSpec.contains("::worktree:"))
-// `resume` had no branch at all, so its arguments completed to nothing whatsoever - not even file
-// names - while `runResume` appends them to the claude invocation exactly as a launch does.
-check("resume completes its passthrough like a launch does",
-      tallyCompletionZsh.contains("(resume) _arguments \"*: :_default\""))
+// NOT ONE ARGUMENT OF THIS BINARY TAKES A PATH, so the working directory is never an answer and the
+// default completer has no place here at all (Albert, 2026-08-11). Asserted as a ban rather than
+// per-branch: the previous shape had three branches falling back to it and a fourth was one edit
+// away. What each position offers instead is checked where it can only be checked, in a real shell
+// (tests/completion).
+check("no position falls back to file completion", !tallyCompletionZsh.contains("_default"))
+// `resume` keeps a branch of its own even with nothing to say, because the last reader who found it
+// missing filled it with file completion.
+check("resume is named, with nothing to offer", tallyCompletionZsh.contains("(resume) ;;"))
+// The lesson at an empty word is built from the same spec strings `_arguments` is handed, so a flag
+// renamed in one is renamed in the other. A teaching list assembled separately is a second list.
+check("the teaching list is built from the specs themselves",
+      tallyCompletionZsh.contains("_tally_teach \"launch option\" $_tally_specs")
+          && tallyCompletionZsh.contains("_arguments $_tally_specs \"*: :_tally_rest\""))
+// Presentation styles are scoped to this command and asked about before being set, so a preference
+// the user already expressed here is not overwritten (`-s` tests whether a style is SET; `-t` tests
+// whether it is TRUE, which reads "unset" for somebody who chose `menu no`).
+for style in ["menu", "group-name"] {
+    check("the \(style) style is asked about before it is set",
+          tallyCompletionZsh.contains("zstyle -s ':completion:*:*:tally:*' \(style) _tally_style \\\n    || zstyle ':completion:*:*:tally:*' \(style)"))
+}
+check("the styles say tally rather than everything",
+      !tallyCompletionZsh.contains("zstyle ':completion:*' "))
 // `tally model auto high` is usage and exit 2 (`modelIntent` refuses two words when either is the
 // release), so the depth is not offered once the release has been named.
 check("no depth is offered after the release word",

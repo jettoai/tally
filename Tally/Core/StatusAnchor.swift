@@ -2,24 +2,29 @@ import CoreGraphics
 
 /// Whether the status item is somewhere a popover can be anchored to right now.
 ///
-/// The menu bar is not always on screen. With "Automatically hide and show the menu bar" on and the
-/// bar hidden, the status item's window is still there but it sits in the strip ABOVE its display,
-/// off screen (the same fact `StatusItemController.menuBarScreen` exists to work around). Anything
-/// that asks AppKit to place a surface against that anchor is asking it to place it off screen, and
-/// AppKit answers by putting the popover in the top-left corner of the display with its arrow
-/// pointing back at the corner it came from - which is what the user sees.
+/// The anchor does not stay put. With "Automatically hide and show the menu bar" on, the status
+/// item's window sits in the strip ABOVE its display while the bar is hidden; and on a machine with
+/// several displays the system PARKS that window on another display entirely when the bar it was
+/// summoned on goes away (measured 2026-08-12: the window moved from the display the user had just
+/// clicked on to the main display's bar strip, 110ms after the popover opened, with nothing in this
+/// app touching it). Anything that asks AppKit to place a surface against that anchor is asking it
+/// to place the surface where the anchor is NOW - off screen in the first case, on another display
+/// in the second - which is the jump the user sees.
 ///
 /// Pure geometry in its own file so a test can compile it without AppKit (tests/windowanchor), and
-/// because the question is about a rectangle and a display, not about a window.
+/// because the question is about rectangles and displays, not about windows.
 enum StatusAnchor {
     /// True when the status button's window is really on `screen` - measured at its centre, so a
     /// point of rounding at the top edge cannot read as hidden while a bar mid-reveal (half in the
     /// strip, half on the display) reads as whichever half it is mostly in.
     ///
-    /// `screen` is the display the bar itself is on (`menuBarScreen`), never the one the window
-    /// frame happens to land in: with a second display stacked above this one, the hidden strip is
-    /// inside THAT display, and asking "is this frame on some screen" would answer yes for the one
-    /// case this exists to catch.
+    /// `screen` is the display THE POPOVER IS STANDING ON, and the caller has to keep it that way.
+    /// Asking against the display the anchor itself is on is self-referential and can only ever
+    /// answer false for an anchor that has fallen off every display: the question "is the anchor on
+    /// the anchor's own screen" answered true for a window the system had parked on a different
+    /// display, which is exactly the case it was written to catch (2026-08-12, two guards blind for
+    /// the same reason). Two independent facts have to meet here: where the anchor is, and where the
+    /// surface the user is reading is.
     /// A window with no size at all has no centre worth asking about (an item that never installed),
     /// and an empty screen answers no on its own - `CGRect.contains` holds nothing.
     static func isOnScreen(buttonWindow: CGRect, screen: CGRect) -> Bool {
@@ -27,33 +32,25 @@ enum StatusAnchor {
         return screen.contains(CGPoint(x: buttonWindow.midX, y: buttonWindow.midY))
     }
 
-    /// Where a popover has to be put back to when its content changed size against an anchor nobody
-    /// can see: the top edge and the horizontal centre it already had, at its new `size`.
+    /// The display `surface` is standing on, by the same centre rule: a surface straddling two
+    /// displays belongs to the one holding its middle, and one standing on none (a window in the
+    /// strip above the desktop, or a display that has been unplugged out from under it) belongs to
+    /// nothing and says so.
     ///
-    /// Declining to hand the anchor back is not enough on its own, because HANDING NSPOPOVER A
-    /// CONTENT SIZE IS ITSELF A PLACEMENT: it re-derives the anchor from the positioning view's
-    /// window on every write, and while the bar is hidden that window is in the strip. Measured
-    /// (2026-08-12): with a display stacked above, the surface was thrown 350pt up onto that
-    /// display; with nothing above the strip it landed at the host display's top-left corner with
-    /// its arrow pointing at the corner, which is the report this answers.
-    ///
-    /// The top edge, because the popover hangs off the bar and grows downward - the same rule a
-    /// visible anchor would have given it. The centre, because that is where the arrow is: a popover
-    /// is centred on the item it points at, so a surface that widens has to widen about that point
-    /// rather than off one of its own edges.
-    ///
-    /// `screen` is the bar's own display and the horizontal clamp is measured against it, NOT
-    /// against whichever display the widened surface now mostly covers: an item near the right of
-    /// the bar puts more than half of a wide popover onto the display next door, and a clamp that
-    /// asked the window where it was would answer "that one" and tidily park it there. Too wide to
-    /// fit keeps the left edge, which is the edge the content is read from (`clampOnScreen`).
-    ///
-    /// Nothing clamps the vertical: a surface taller than the display is pinned to the top and keeps
-    /// its overflow below, which is the rule the whole app sizes to (`ScreenFitStack`), and a bottom
-    /// clamp here would be a second answer to the question the held top edge just answered.
-    static func heldOrigin(previous: CGRect, size: CGSize, within screen: CGRect) -> CGPoint {
-        let centred = previous.midX - size.width / 2
-        let rightmost = max(screen.maxX - size.width, screen.minX)
-        return CGPoint(x: min(max(centred, screen.minX), rightmost), y: previous.maxY - size.height)
+    /// Takes the screen frames rather than reading `NSWindow.screen` on purpose. That property is
+    /// answered by AppKit AFTER whatever just moved the window, which is the trap the shared
+    /// `clampOnScreen` sits in: a surface pushed over a display boundary is tidied onto the display
+    /// it was pushed onto, not the one it belongs to.
+    static func screenFrame(containing surface: CGRect, among screens: [CGRect]) -> CGRect? {
+        guard !surface.isEmpty else { return nil }
+        let centre = CGPoint(x: surface.midX, y: surface.midY)
+        return screens.first { $0.contains(centre) }
     }
+
+    // A popover's ORIGIN is deliberately not computed here any more. Three rounds of this file
+    // corrected the surface's position after AppKit had placed it, and every one of them lost to a
+    // resident model that placed it again; the arithmetic that put it back (`heldOrigin`, with its
+    // held constants and its clamp) went with them when the popover was given an anchor nothing
+    // outside the app can move. What is left is the two questions that decide whether the anchor may
+    // be followed, which is all the app still asks about placement.
 }

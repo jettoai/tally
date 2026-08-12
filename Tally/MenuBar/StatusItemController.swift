@@ -17,17 +17,39 @@ final class StatusItemController: NSObject {
     private var popoverHost: NSHostingController<PopoverRootView>?
     /// The popover's own Usage / Tokens selection, kept here so the pin hand-off can read it.
     private let popoverTab = SurfaceTabState()
-    /// A RE-PLACEMENT THIS POPOVER STILL OWES. A resize that lands while the menu bar is hidden
-    /// applies the new size and skips the placement (`fitShownPopoverToScreen` has nothing on screen
-    /// to place against), so the surface is now a size that was never fitted to the display: wider
-    /// than the anchor it kept, possibly off the right of it.
+    /// THE ANCHOR THIS POPOVER ACTUALLY HANGS FROM, and the whole of the fix.
     ///
-    /// It has to be REMEMBERED rather than left to the next report, which is what the comment here
-    /// used to promise: the next report is usually the same size, the guard below returns on it, and
-    /// nothing would ever call the placement again - the popover stayed off screen until it was
-    /// resized once more or closed and reopened (codex review of 06d734f). With the debt written
-    /// down, the same report that used to be the end of it is what pays it.
-    private var repositionOwed = false
+    /// NSPopover places itself against a positioning view and keeps its own model of where that is,
+    /// re-placing the surface whenever that view's window moves. The status item's window is moved by
+    /// the system, not by this app: into the strip above the display when the bar hides, and onto
+    /// another display entirely when the bar it was summoned on goes away (measured 2026-08-12, four
+    /// separate ways). Three rounds of this file tried to correct the placement afterwards, and every
+    /// one of them lost, because the model is resident and unwritable: it re-placed the surface 1.2s
+    /// after a correct put-back, moved it with no size report at all, and when finally held by force
+    /// it produced 25 put-backs in one session with the arrow pointing at a display the user was not
+    /// looking at.
+    ///
+    /// So the anchor is replaced instead of the placement. This is an invisible window we own, put
+    /// where the status item is, and the popover is shown against IT. Nothing outside this app can
+    /// move it, so the model never has cause to re-place anything: the surface's position has exactly
+    /// one writer (AppKit, as designed), and the anchor's position has exactly one writer (this file).
+    /// The arrow, the transient dismissal and the placement arithmetic all stay native, which is what
+    /// the previous rounds were spending correction code to fake.
+    ///
+    /// Verified before it was built (probe v7, 2026-08-12): a popover shows against an alpha-0 window
+    /// of our own, is placed on it with its arrow chrome, and sees ZERO moves while the real status
+    /// window is dragged across displays.
+    private var decoyAnchor: NSWindow?
+
+    /// The view inside it, which is what `show(relativeTo:of:)` is actually given.
+    private var decoyAnchorView: NSView?
+
+    /// The moment the popover last closed itself, for the toggle (see `handleClick`).
+    private var lastPopoverClose: Date?
+
+    /// Feeding the decoy is watched from the real anchor's own moves.
+    private var anchorObserver: NSObjectProtocol?
+
 
     private static let symbolCandidates = ["gauge.medium", "gauge", "chart.bar.fill"]
 
@@ -56,13 +78,24 @@ final class StatusItemController: NSObject {
         let host = NSHostingController(
             rootView: PopoverRootView(store: UsageStore.shared, settings: SettingsStore.shared,
                                       onContentSize: { [weak self] size in self?.applyPopoverSize(size) },
-                                      // The popover hangs off the status item, so it has to fit the
-                                      // screen the menu bar is on, whichever display that is today.
-                                      hostScreen: { [weak self] in self?.menuBarScreen() },
+                                      // The screen the content has to fit inside, which is the one
+                                      // the surface is actually on (see `contentHostScreen`).
+                                      hostScreen: { [weak self] in self?.contentHostScreen() },
                                       tabState: popoverTab, host: .popover))
         host.sizingOptions = []
         popoverHost = host
         popover.contentViewController = host
+
+        // A transient popover is dismissed by clicking outside it, which never passes through this
+        // file, so the close notification is where the decoy is put away and the moment is written
+        // down for the toggle (`dismissedThisClick`).
+        _ = NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification,
+                                                   object: popover, queue: nil) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.lastPopoverClose = Date()
+                self?.retireDecoyAnchor()
+            }
+        }
 
         UsageStore.shared.onChange = { [weak self] in self?.updateButton() }
         updateButton()
@@ -130,9 +163,18 @@ final class StatusItemController: NSObject {
         }
         if popover.isShown {
             popover.performClose(nil)
+        } else if dismissedThisClick {
+            // THE CLICK THAT CLOSED IT IS NOT A CLICK THAT OPENS IT. The popover hangs off a decoy
+            // now, so the status item is OUTSIDE it and a transient popover dismisses itself on the
+            // mouse-down; the action below arrives on the mouse-up and would open it straight back,
+            // which reads as a flicker and an item that cannot be toggled shut. While the anchor was
+            // the item's own window, NSPopover exempted clicks in it and this could not happen.
         } else {
             NSApp.activate(ignoringOtherApps: true)
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            guard let anchorView = decoyAnchorViewForShow(button: button) else { return }
+            popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+            // The real anchor is watched only to feed the decoy from it.
+            watchRealAnchor()
             let window = popoverWindow
             window?.makeKey()
             // Nothing should start focused, the same clear `PinnedPanelController.show` makes on its
@@ -146,6 +188,16 @@ final class StatusItemController: NSObject {
     /// Dismiss the popover when another Tally window takes the stage: that window steals key and
     /// promotes the activation policy, which defeats the transient popover's own click-outside
     /// dismissal and leaves it stuck on screen. No-op when closed, so callers need no condition.
+    /// Whether the click being handled right now is the one that just dismissed the popover.
+    ///
+    /// A quarter of a second is the window: a mouse-down that dismisses and the mouse-up that fires
+    /// this action are the same physical click and land within a few milliseconds of each other,
+    /// while a deliberate reopen is a second trip to the menu bar.
+    private var dismissedThisClick: Bool {
+        guard let lastPopoverClose else { return false }
+        return Date().timeIntervalSince(lastPopoverClose) < 0.25
+    }
+
     func closePopover() {
         popover.performClose(nil)
     }
@@ -170,13 +222,10 @@ final class StatusItemController: NSObject {
             // the same size on plenty of changes that are not resizes at all - switching the gauges
             // between used and remaining is one - so this is where most reposition requests stop.
             //
-            // UNLESS A PLACEMENT IS OWED, which is the one thing this return may not swallow: the
-            // size it is comparing against was applied while the anchor was off screen, so the
-            // popover is standing at a position that fits an older, smaller surface. This is the
-            // report that pays that debt - it arrives on every layout the content measures again,
-            // including all the ones that change nothing this guard can see.
+            // Nothing else needs saying here any more. A resize is a placement, and this one is
+            // made against the decoy, which is exactly where the surface belongs: the write below is
+            // the whole of it.
             guard ResizeAnchor.needsResize(from: self.popover.contentSize, to: size) else {
-                if self.repositionOwed { self.fitShownPopoverToScreen() }
                 return
             }
             // NSPopover animates contentSize changes with a springy bounce; for in-place content
@@ -184,21 +233,7 @@ final class StatusItemController: NSObject {
             // Suppress the animation just for the resize - show/close keep theirs.
             let animated = self.popover.animates
             self.popover.animates = false
-            // WRITING THE SIZE IS ITSELF A PLACEMENT, so declining the one below cannot be the whole
-            // answer: this is the resize the guard let through, and handing NSPopover a contentSize
-            // is what throws the surface at the corner (`StatusAnchor.heldOrigin` has the measured
-            // numbers). The frame it is standing at has to be read BEFORE that write, because after
-            // it there is nothing left to read - AppKit has already moved it.
-            let held = self.popover.isShown && !self.anchorIsPlaceable ? self.popoverWindow?.frame : nil
             self.popover.contentSize = size
-            if let held, let window = self.popoverWindow, let screen = self.menuBarScreen() {
-                // Origin only, put back against the bar's own display. The arrow keeps whatever
-                // offset AppKit drew it at until the bar comes back and the owed placement re-places
-                // the surface properly: a triangle a few points out, against a jump to another
-                // display, and only for as long as the bar it points at is invisible anyway.
-                window.setFrameOrigin(StatusAnchor.heldOrigin(previous: held, size: window.frame.size,
-                                                             within: screen.visibleFrame))
-            }
             self.fitShownPopoverToScreen()
             self.popover.animates = animated
         }
@@ -220,44 +255,133 @@ final class StatusItemController: NSObject {
     /// screen it points on can hold it. The content's own fit (`ScreenFitStack`, `PanelGeometry`)
     /// keeps it small enough for that to succeed; this is what makes the two meet.
     ///
-    /// Only while the anchor is ON SCREEN, though. With "Automatically hide and show the menu bar"
-    /// on and the bar hidden, the status item's window sits in the strip above the display and
-    /// placing a surface against it puts the popover in the display's top-left corner, arrow
-    /// pointing back at the corner (reported 2026-08-11, from switching the gauges between used and
-    /// remaining while the bar was hidden). A popover already open is already placed correctly, so
-    /// the safe answer for an anchor nobody can see is to leave it where it is and resize in place.
-    ///
-    /// AND TO WRITE DOWN THAT IT IS OWED ONE. The size was applied either way, so declining the
-    /// placement leaves a surface standing where a smaller one fitted; the debt is what makes the
-    /// next report pay it (`repositionOwed`, and `applyPopoverSize` is where it is collected). The
-    /// earlier version of this comment claimed the next report would re-place the popover on its
-    /// own, and it could not: that report is the same size, and the guard up there returns before
-    /// this is ever reached (codex review of 06d734f).
-    ///
-    /// A CLOSED POPOVER OWES NOTHING: NSPopover works its position out when it is shown, from the
-    /// size it has then, so the debt cannot outlive the surface that incurred it.
-    private func fitShownPopoverToScreen() {
-        guard popover.isShown else {
-            repositionOwed = false
-            return
-        }
-        guard anchorIsPlaceable, let button = statusItem?.button else {
-            repositionOwed = true
-            return
-        }
-        popover.positioningRect = button.bounds
-        repositionOwed = false
+    /// Against the DECOY, which is the anchor this popover was shown on and the only one it ever
+    /// sees. Three rounds of conditions lived here - is the anchor on screen, is it on this display,
+    /// is a placement owed - and all of them were asking whether it was safe to hand the anchor back
+    /// to AppKit. With an anchor nothing outside this app can move, it always is.
+        private func fitShownPopoverToScreen() {
+        guard popover.isShown, let anchorView = decoyAnchorView else { return }
+        // No condition left to check. The decoy is on the display the popover is being read on by
+        // construction - it is only ever moved to an anchor that is there - so handing it back is
+        // always a correct placement. The guard that used to stand here existed because the rect
+        // being handed back could be somewhere the surface must not go.
+        popover.positioningRect = anchorView.bounds
     }
 
-    /// Whether the status item is somewhere a popover can be placed against right now.
+    /// Put the decoy where the status item is, and show the popover against it.
     ///
-    /// Stated ONCE, because two callers need the same answer for opposite reasons: the placement
-    /// above declines to make one, and the sizing pass has to undo one AppKit made anyway. Asked
-    /// twice, the two would drift apart invisibly - each half would still read correctly on its own,
-    /// while the surface was being put back to fit a question the guard no longer agreed with.
-    private var anchorIsPlaceable: Bool {
-        guard let window = statusItem?.button?.window, let screen = menuBarScreen() else { return false }
-        return StatusAnchor.isOnScreen(buttonWindow: window.frame, screen: screen.frame)
+    /// Reused rather than rebuilt: a window per showing would be a new positioning view each time,
+    /// and the point of this one is that it is ours and stable. `ignoresMouseEvents` because it sits
+    /// over the menu bar and must never eat a click meant for the item underneath; the status bar
+    /// level and `canJoinAllSpaces` so it is where the item is, on whichever Space the user is on.
+    private func decoyAnchorViewForShow(button: NSStatusBarButton) -> NSView? {
+        guard let anchorRect = anchorScreenRect(button: button) else { return nil }
+        if decoyAnchor == nil {
+            let window = NSWindow(contentRect: anchorRect, styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+            window.alphaValue = 0
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.ignoresMouseEvents = true
+            window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)))
+            window.collectionBehavior = [.canJoinAllSpaces]
+            let view = NSView(frame: NSRect(origin: .zero, size: anchorRect.size))
+            window.contentView = view
+            decoyAnchor = window
+            decoyAnchorView = view
+        }
+        decoyAnchor?.setFrame(anchorRect, display: false)
+        decoyAnchor?.orderFrontRegardless()
+        return decoyAnchorView
+    }
+
+    /// The status item's own rectangle in screen coordinates, which is where the decoy belongs.
+    private func anchorScreenRect(button: NSStatusBarButton) -> CGRect? {
+        guard let window = button.window else { return nil }
+        return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
+
+    /// FOLLOW THE REAL ANCHOR WHILE IT IS SOMEWHERE THE SURFACE MAY GO, AND FREEZE WHEN IT IS NOT.
+    ///
+    /// This is the whole of the open-popover behaviour, and it replaces three rounds of correction
+    /// code. Moving the decoy is a placement AppKit makes for us, correctly and natively: the bar
+    /// sliding 24pt as it hides takes the popover with it and the arrow stays glued, exactly as it
+    /// does today. Freezing is equally passive - nothing moves the decoy, so nothing moves the
+    /// popover, and the surface simply stays where the user is reading it.
+    ///
+    /// The question is the one this file has asked since the third round: is the status item on the
+    /// display the popover is on? An anchor in the strip above the display, or parked on another
+    /// display by the system, is not somewhere this surface may follow it to.
+    private func feedDecoyAnchor() {
+        guard popover.isShown, let button = statusItem?.button else { return }
+        guard anchorMayBeFollowed, let anchorRect = anchorScreenRect(button: button) else {
+            return
+        }
+        guard decoyAnchor?.frame != anchorRect else { return }
+        decoyAnchor?.setFrame(anchorRect, display: false)
+    }
+
+    /// Watch the REAL anchor while the popover is up, because following it is the only thing this
+    /// file still does about placement. Torn down with the popover.
+    private func watchRealAnchor() {
+        if let anchorObserver {
+            NotificationCenter.default.removeObserver(anchorObserver)
+            self.anchorObserver = nil
+        }
+        guard popover.isShown, let window = statusItem?.button?.window else { return }
+        anchorObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: window, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.feedDecoyAnchor() }
+        }
+    }
+
+    /// Put the decoy away with the popover, so nothing of ours is left over the menu bar.
+    private func retireDecoyAnchor() {
+        if let anchorObserver {
+            NotificationCenter.default.removeObserver(anchorObserver)
+            self.anchorObserver = nil
+        }
+        decoyAnchor?.orderOut(nil)
+    }
+
+    /// Whether the real anchor is somewhere the surface may follow it to: on the display the popover
+    /// is being read on.
+    ///
+    /// The question survives from the third round, but what it decides has changed completely. It
+    /// used to gate whether AppKit was allowed to place the surface, which meant fighting a model
+    /// that placed it anyway. Now it gates whether the DECOY follows the real anchor, and both
+    /// answers are passive: follow, and AppKit slides the popover along natively; freeze, and nothing
+    /// moves the popover because nothing is moving its anchor.
+    ///
+    /// Asked of the popover's own display rather than the anchor's, which is the trap the third round
+    /// found: `menuBarScreen` is derived from the anchor window, so asking it whether the anchor is
+    /// on it is asking whether the anchor is where the anchor is. It answered yes for a window the
+    /// system had parked on another display.
+    private var anchorMayBeFollowed: Bool {
+        guard let anchor = statusItem?.button?.window?.frame, let screen = popoverScreenFrame()
+        else { return false }
+        return StatusAnchor.isOnScreen(buttonWindow: anchor, screen: screen)
+    }
+
+    /// The display the popover is standing on right now, by its own frame. Nil when it is not shown
+    /// or is standing on no display at all.
+    private func popoverScreenFrame() -> CGRect? {
+        guard popover.isShown, let frame = popoverWindow?.frame else { return nil }
+        return StatusAnchor.screenFrame(containing: frame, among: NSScreen.screens.map(\.frame))
+    }
+
+    /// The display the CONTENT sizes itself to fit (`ScreenFitStack`).
+    ///
+    /// While the popover is up that is the display it is standing on, not the one the anchor is on:
+    /// those are the same display until the system parks the anchor somewhere else, and then a
+    /// surface open on a 2560x1440 display would shrink itself to fit a 2048x1152 one it is nowhere
+    /// near - and the shrink is a resize, which is another placement. Before it is shown there is no
+    /// surface to ask, and the anchor is the best answer available: that is where it is about to
+    /// open.
+    private func contentHostScreen() -> NSScreen? {
+        guard let standing = popoverScreenFrame() else { return menuBarScreen() }
+        return NSScreen.screens.first { $0.frame == standing } ?? menuBarScreen()
     }
 
     /// The window AppKit draws the popover in. Meaningful only while it is shown: after a close the

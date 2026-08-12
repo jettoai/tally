@@ -1,34 +1,35 @@
 import CoreGraphics
 import Foundation
 
-// The popover's half of the window anchor suite, split out when this file passed 500 lines. It is
-// the one surface here that AppKit places rather than this code, which is also why it is the section
-// that reads a controller's source instead of only exercising arithmetic. The harness itself (check,
-// near, code, precedes) is main.swift's and is shared from there.
+// The popover's half of the window anchor suite. It is the one surface here whose position belongs
+// to AppKit rather than to this code, which is also why it is the section that reads a controller's
+// source instead of only exercising arithmetic. The harness itself (check, near, code, precedes) is
+// main.swift's and is shared from there.
+//
+// THIS SECTION SHRANK ON 2026-08-12, and that is the point. Three rounds of it asserted the shape of
+// machinery that put the popover back after AppKit had moved it: held constants, a clamp, a resident
+// enforcement observer. All of it lost to a resident placement model and all of it is now deleted,
+// replaced by giving the popover an anchor nothing outside this app can move. What is asserted here
+// is what is left: the geometry of the one question still asked, and the shape of the decoy.
 func checkPopoverAnchor() {
-    // 12. The popover's anchor, which is the one surface here that AppKit places rather than this code:
-    //     it is placed AGAIN on every content-driven resize (`fitShownPopoverToScreen`, so a panel that
-    //     widens cannot walk off the right of the display), and a re-placement is only as good as the
-    //     anchor it is measured from. With "Automatically hide and show the menu bar" on and the bar
-    //     hidden, the status item's window is in the strip ABOVE its display, so AppKit puts the popover
-    //     in the display's top-left corner with the arrow pointing back at that corner - what the user
-    //     saw on 2026-08-11 by switching the gauges between used and remaining with the bar hidden.
+    // 12. THE QUESTION THAT SURVIVED. The status item's window moves without this app asking: into
+    //     the strip above the display when the bar hides, and onto another display entirely when the
+    //     system parks it (measured 2026-08-12). It used to gate whether AppKit could place the
+    //     surface; it now gates whether the decoy follows the item there.
     let display = CGRect(x: 0, y: 0, width: 2048, height: 1152)
-    // The status item as the bar draws it: at the top of the display, inside the frame.
     let barShown = CGRect(x: 1700, y: display.maxY - 24, width: 44, height: 24)
-    // The same item with the bar hidden: the strip it lives in has slid off the top of the display.
     let barHidden = CGRect(x: 1700, y: display.maxY, width: 44, height: 24)
-    check("an item in the visible menu bar is an anchor a popover can be placed against",
+    check("an item in the visible menu bar is one the decoy may follow",
           StatusAnchor.isOnScreen(buttonWindow: barShown, screen: display))
     check("…and the same item in the hidden strip above the display is not",
           !StatusAnchor.isOnScreen(buttonWindow: barHidden, screen: display))
-    // The reason the question takes the bar's OWN screen rather than "some screen": with a display
-    // stacked above this one, the hidden strip is inside that display's frame, so a check that scanned
-    // the screens would answer yes for the exact case this exists to catch.
+    // The reason the question takes ONE NAMED display rather than "some screen": with a display
+    // stacked above this one, the hidden strip is inside that display's frame, so a check that
+    // scanned the screens would answer yes for the exact case this exists to catch.
     let stackedAbove = CGRect(x: 0, y: display.maxY, width: 2048, height: 1152)
     check("the hidden strip really does fall inside a display stacked above (the trap, stated)",
           stackedAbove.contains(CGPoint(x: barHidden.midX, y: barHidden.midY)))
-    check("…and asking about the bar's own display still answers no",
+    check("…and asking about the popover's own display still answers no",
           !StatusAnchor.isOnScreen(buttonWindow: barHidden, screen: display))
     // Mid-reveal the strip straddles the top edge; it counts as whichever side most of it is on, so a
     // point of rounding at the edge cannot read as hidden.
@@ -39,120 +40,133 @@ func checkPopoverAnchor() {
     check("a window with no size at all is not an anchor (an item that never installed)",
           !StatusAnchor.isOnScreen(buttonWindow: .zero, screen: display))
 
-    // 12b. A RESIZE IS A PLACEMENT TOO, and that is the half the guard below cannot cover: handing
-    //      NSPopover a contentSize makes it re-derive the anchor from the positioning view's window, so
-    //      a size that really did change re-places the surface against the strip whatever the guard
-    //      decides afterwards. Measured with a real popover on this machine (2026-08-12): with a display
-    //      stacked above the bar's own, the surface was thrown 350pt up onto that display; with nothing
-    //      stacked there it landed at x=0 against the host's top edge, 833pt from where it was being
-    //      read - the corner in the report. So the frame is put back by hand, and this is that
-    //      arithmetic: the top edge and the centre it already had, at the size it now is.
-    //
-    //      The numbers below are the measured ones from that run, so the geometry and the surface it
-    //      corrects cannot drift apart quietly.
-    let hidden = CGRect(x: 0, y: 1152, width: 2048, height: 1152)
-    let readingAt = CGRect(x: 833, y: 1978, width: 426, height: 326)
-    let grownPopover = CGSize(width: 546, height: 386)
-    let held = StatusAnchor.heldOrigin(previous: readingAt, size: grownPopover, within: hidden)
-    check("a widened popover keeps the top edge it was standing on",
-          near(held.y + grownPopover.height, readingAt.maxY))
-    check("…and grows about its centre, which is where its arrow is",
-          near(held.x + grownPopover.width / 2, readingAt.midX))
-    check("…which is the frame AppKit threw to the corner, put back (measured 773, 1918)",
-          near(held.x, 773) && near(held.y, 1918))
-    // A report that changes nothing must not move the surface, for the same reason a resize correction
-    // must not: this runs on a live window, and a move it makes for nothing is a move the user sees.
-    check("a size that did not change corrects to the origin it already has",
-          StatusAnchor.heldOrigin(previous: readingAt, size: readingAt.size, within: hidden) == readingAt.origin)
+    // 12a. WHICH DISPLAY A SURFACE IS STANDING ON, the other half of that question and what makes it
+    //      about two independent facts instead of one. Same centre rule, so a surface straddling a
+    //      boundary belongs to the display holding its middle, and one standing on nothing says so
+    //      rather than picking a neighbour.
+    let machine = [CGRect(x: 0, y: 0, width: 2048, height: 1152),
+                   CGRect(x: 0, y: 1152, width: 2048, height: 1152),
+                   CGRect(x: 2048, y: 1152, width: 2560, height: 1440),
+                   CGRect(x: 2048, y: -288, width: 2560, height: 1440)]
+    check("a popover standing on the big display is found there",
+          StatusAnchor.screenFrame(containing: CGRect(x: 3069, y: 2220, width: 406, height: 257),
+                                   among: machine) == machine[2])
+    check("…and one on the main display is found there instead",
+          StatusAnchor.screenFrame(containing: CGRect(x: 479, y: 869, width: 406, height: 257),
+                                   among: machine) == machine[0])
+    let straddling = CGRect(x: 1800, y: 400, width: 400, height: 200)
+    check("a surface straddling two displays belongs to the one holding its centre",
+          straddling.maxX > machine[0].maxX
+              && StatusAnchor.screenFrame(containing: straddling, among: machine) == machine[0])
+    check("…and the answer moves with the centre, not with the overlap",
+          StatusAnchor.screenFrame(containing: straddling.offsetBy(dx: 200, dy: 0),
+                                   among: machine) == machine[3])
+    check("a surface on a display that is no longer in the list belongs to nothing",
+          StatusAnchor.screenFrame(containing: CGRect(x: 6000, y: 6000, width: 400, height: 200),
+                                   among: machine) == nil)
+    check("…and no display at all is an answer of nothing, not a crash",
+          StatusAnchor.screenFrame(containing: straddling, among: []) == nil)
+    check("…as is a window with no size (an item that never installed)",
+          StatusAnchor.screenFrame(containing: .zero, among: machine) == nil)
 
-    // The clamp is measured against the BAR'S display, not against whichever one the widened surface
-    // now mostly covers: an item near the right of the bar puts more than half of a wide popover onto
-    // the display next door, and a clamp that asked the window where it was would park it there.
-    let nearRight = CGRect(x: 1622, y: 1978, width: 426, height: 326)
-    let wide = CGSize(width: 926, height: 386)
-    let clamped = StatusAnchor.heldOrigin(previous: nearRight, size: wide, within: hidden)
-    check("a surface too wide to stay centred is pulled back onto the bar's own display (measured 1122)",
-          near(clamped.x, 1122) && near(clamped.x + wide.width, hidden.maxX))
-    check("…and one that would run off the left is pulled back the other way",
-          near(StatusAnchor.heldOrigin(previous: CGRect(x: 10, y: 1978, width: 426, height: 326),
-                                       size: wide, within: hidden).x, hidden.minX))
-    // Wider than the display keeps the LEFT edge, the edge the content is read from (`clampOnScreen`),
-    // rather than being pinned to the right by a clamp that ran second.
-    check("…and one wider than the display keeps its left edge",
-          near(StatusAnchor.heldOrigin(previous: readingAt, size: CGSize(width: 2200, height: 386),
-                                       within: hidden).x, hidden.minX))
-    // On a display whose own origin is not zero, because "clamped to the screen" and "clamped to zero"
-    // look identical on the one display where they are the same thing.
-    let offsetDisplay = CGRect(x: 2048, y: -288, width: 2560, height: 1440)
-    check("the clamp is measured from the display's own edges, not from the origin of the desktop",
-          near(StatusAnchor.heldOrigin(previous: CGRect(x: 2060, y: 1000, width: 426, height: 326),
-                                       size: wide, within: offsetDisplay).x, offsetDisplay.minX))
-    // Nothing clamps the vertical: a surface taller than the display is pinned to the top and keeps its
-    // overflow below (`ScreenFitStack`), and a bottom clamp here would be a second answer to the
-    // question the held top edge just answered.
-    let tall = StatusAnchor.heldOrigin(previous: readingAt, size: CGSize(width: 426, height: 1400),
-                                       within: hidden)
-    check("a surface taller than its display still holds the top edge, overflow below",
-          near(tall.y + 1400, readingAt.maxY) && tall.y < hidden.minY)
+    // 12b. THE MACHINE'S OWN NUMBERS. At 02:05:50.694 the popover opened against an item on the big
+    //      display; 110ms later the item's window had been parked on the main display's bar strip and
+    //      the popover was still where it opened. Both shipped guards answered "placeable" - correctly
+    //      for the question they asked, which was whether the anchor was on the ANCHOR's display.
+    let parkedAnchor = CGRect(x: 503, y: 1122, width: 360, height: 30)
+    let popoverStandingOn = machine[2]
+    check("the parked anchor is NOT on the display the popover is standing on, so the decoy freezes",
+          !StatusAnchor.isOnScreen(buttonWindow: parkedAnchor, screen: popoverStandingOn))
+    check("…while the old self-referential question answered yes about it (the bug, stated)",
+          StatusAnchor.isOnScreen(buttonWindow: parkedAnchor, screen: machine[0]))
+    let anchorAtShow = CGRect(x: 3063, y: 2562, width: 360, height: 30)
+    check("the anchor the popover opened against IS one the decoy follows",
+          StatusAnchor.isOnScreen(buttonWindow: anchorAtShow, screen: popoverStandingOn))
 
-    // And the popover asks. Read off the source for the same reason as everything above: the status
-    // item's window cannot be driven from here.
+    // 12c. AND THE CONTROLLER IS BUILT THAT WAY. Read off the source for the same reason as
+    //      everything above: the status item's window cannot be driven from here.
     let statusSource = code(of: "Tally/MenuBar/StatusItemController.swift")
-    guard let fitStart = statusSource.range(of: "private func fitShownPopoverToScreen()"),
-          let fitEnd = statusSource.range(of: "\n    }\n", range: fitStart.upperBound ..< statusSource.endIndex)
-    else {
-        check("the popover's re-placement was found to read", false)
-        exit(1)
-    }
-    let fit = String(statusSource[fitStart.upperBound ..< fitEnd.lowerBound])
-    check("the popover is re-placed only against an anchor that is on its own screen",
-          fit.contains("guard anchorIsPlaceable"))
-    // The question itself, stated ONCE. Two callers need the same answer for opposite reasons - the
-    // placement declines to make one, the sizing pass undoes one AppKit made anyway - and a second
-    // statement of it is how they would drift apart while both halves still read correctly alone.
-    guard let anchorStart = statusSource.range(of: "private var anchorIsPlaceable: Bool"),
-          let anchorEnd = statusSource.range(of: "\n    }\n",
-                                             range: anchorStart.upperBound ..< statusSource.endIndex)
-    else {
-        check("the anchor question was found to read", false)
-        exit(1)
-    }
-    let placeable = String(statusSource[anchorStart.upperBound ..< anchorEnd.lowerBound])
-    check("…and that question is the pure geometry, asked about the bar's own display",
-          placeable.contains("StatusAnchor.isOnScreen(buttonWindow: window.frame, screen: screen.frame)")
-              && placeable.contains("menuBarScreen()"))
-    check("…asked in exactly one place, so the guard and the repair cannot answer differently",
-          statusSource.components(separatedBy: "StatusAnchor.isOnScreen").count == 2)
-    // Order matters as much as presence here: a check made after the anchor has been handed back is a
-    // check of nothing at all.
     func precedes(_ first: String, _ second: String, in body: String) -> Bool {
         guard let a = body.range(of: first), let b = body.range(of: second) else { return false }
         return a.upperBound <= b.lowerBound
     }
-    check("…and that question is asked BEFORE the anchor is handed back",
-          precedes("anchorIsPlaceable", "popover.positioningRect", in: fit))
-    // AND DECLINING IT LEAVES A DEBT. The size has already been applied by the time this declines, so
-    // the surface is standing where a smaller one fitted; without the debt the next report is the same
-    // size, the guard below returns on it, and nothing ever calls this again - the popover stayed off
-    // screen until it was resized once more or closed and reopened (codex review of 06d734f). The two
-    // guards cancelled each other out, and the assertion below used to pin that as the intent.
-    // Read as two halves of the anchor question, so each assertion is about the branch it names: what
-    // the declining branch leaves behind, and what the placement that happened takes away.
-    let declined = fit.range(of: "anchorIsPlaceable").map { String(fit[$0.upperBound...]) } ?? ""
-    check("an anchor nobody can see leaves a placement owed",
-          precedes("repositionOwed = true", "popover.positioningRect", in: declined))
-    check("…and a placement that really happened clears it",
-          precedes("popover.positioningRect", "repositionOwed = false", in: declined))
-    // A debt cannot outlive the surface that incurred it: NSPopover places itself from scratch when it
-    // is shown, so a closed popover owes nothing.
-    let beforeAnchor = fit.range(of: "anchorIsPlaceable").map { String(fit[..<$0.lowerBound]) } ?? ""
-    check("…and a closed popover owes nothing at all",
-          precedes("guard popover.isShown else", "repositionOwed = false", in: beforeAnchor))
 
-    // The second half, and the one that keeps the first from ever being needed on this path: a content
-    // report that is the size the popover already is stops before any of it. Switching the gauges
-    // between used and remaining does not change the surface's size, so the re-placement that jumped
-    // was made for a resize that never happened.
+    // The popover hangs off an anchor of ours, never off the status item's own window. That single
+    // substitution is the fix: the model that re-places the surface follows the positioning view's
+    // window, and this one is a window nothing outside the app can move.
+    guard let toggleStart = statusSource.range(of: "private func togglePopover(button: NSStatusBarButton)"),
+          let toggleEnd = statusSource.range(of: "\n    }\n",
+                                             range: toggleStart.upperBound ..< statusSource.endIndex)
+    else {
+        check("the showing was found to read", false)
+        exit(1)
+    }
+    let toggle = String(statusSource[toggleStart.upperBound ..< toggleEnd.lowerBound])
+    check("the popover is shown against the decoy's view",
+          toggle.contains("popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)"))
+    check("…never against the status item's own window, which is the one the system moves",
+          !toggle.contains("of: button"))
+    check("…and the decoy is put where the item is before the popover is shown",
+          precedes("decoyAnchorViewForShow(button: button)",
+                   "popover.show(relativeTo: anchorView.bounds", in: toggle))
+    check("…with the real anchor watched only so the decoy can follow it",
+          toggle.contains("watchRealAnchor()"))
+
+    // THE DECOY ITSELF: ours, invisible, and unable to eat a click meant for the item under it.
+    guard let decoyStart = statusSource.range(of: "private func decoyAnchorViewForShow(button: NSStatusBarButton)"),
+          let decoyEnd = statusSource.range(of: "\n    }\n",
+                                            range: decoyStart.upperBound ..< statusSource.endIndex)
+    else {
+        check("the decoy was found to read", false)
+        exit(1)
+    }
+    let decoy = String(statusSource[decoyStart.upperBound ..< decoyEnd.lowerBound])
+    check("the decoy is invisible", decoy.contains("window.alphaValue = 0"))
+    check("…and never takes a click meant for the item beneath it",
+          decoy.contains("window.ignoresMouseEvents = true"))
+    check("…sits at the status bar's own level, on every Space, like the item it stands in for",
+          decoy.contains("CGWindowLevelForKey(.statusWindow)")
+              && decoy.contains("collectionBehavior = [.canJoinAllSpaces]"))
+    // Built once and reused: a window per showing would be a new positioning view each time, and the
+    // point of this one is that it is stable and ours.
+    check("…built once and reused, then moved onto the item",
+          decoy.contains("if decoyAnchor == nil") && decoy.contains("decoyAnchor?.setFrame(anchorRect"))
+    check("…at the item's own rectangle in screen coordinates",
+          statusSource.contains("window.convertToScreen(button.convert(button.bounds, to: nil))"))
+
+    // FOLLOW OR FREEZE, and nothing else. Both answers are passive: following moves the decoy and
+    // AppKit slides the popover natively; freezing moves nothing, so nothing moves the popover.
+    guard let feedStart = statusSource.range(of: "private func feedDecoyAnchor()"),
+          let feedEnd = statusSource.range(of: "\n    }\n",
+                                           range: feedStart.upperBound ..< statusSource.endIndex)
+    else {
+        check("the feeding was found to read", false)
+        exit(1)
+    }
+    let feed = String(statusSource[feedStart.upperBound ..< feedEnd.lowerBound])
+    check("the decoy follows the real anchor only where the surface may go",
+          precedes("guard anchorMayBeFollowed", "decoyAnchor?.setFrame(anchorRect", in: feed))
+    check("…and freezing is a return, not a correction of anything",
+          feed.contains("return") && !feed.contains("setFrameOrigin"))
+    check("…with no write at all when the item has not actually moved",
+          feed.contains("guard decoyAnchor?.frame != anchorRect else { return }"))
+    guard let followStart = statusSource.range(of: "private var anchorMayBeFollowed: Bool"),
+          let followEnd = statusSource.range(of: "\n    }\n",
+                                             range: followStart.upperBound ..< statusSource.endIndex)
+    else {
+        check("the following rule was found to read", false)
+        exit(1)
+    }
+    let follows = String(statusSource[followStart.upperBound ..< followEnd.lowerBound])
+    check("the rule compares the anchor against the POPOVER's display, not the anchor's own",
+          follows.contains("StatusAnchor.isOnScreen(buttonWindow: anchor, screen: screen)")
+              && follows.contains("popoverScreenFrame()"))
+    check("…so the derived screen the old question asked about is gone from it",
+          !follows.contains("menuBarScreen"))
+    check("…asked in exactly one place", statusSource.components(separatedBy: "StatusAnchor.isOnScreen").count == 2)
+
+    // A RESIZE IS JUST A RESIZE AGAIN. It re-places the surface against the decoy, which is where the
+    // surface belongs, so there is nothing to undo afterwards.
     guard let applyStart = statusSource.range(of: "private func applyPopoverSize(_ size: CGSize)"),
           let applyEnd = statusSource.range(of: "\n    }\n",
                                             range: applyStart.upperBound ..< statusSource.endIndex)
@@ -163,53 +177,63 @@ func checkPopoverAnchor() {
     let apply = String(statusSource[applyStart.upperBound ..< applyEnd.lowerBound])
     check("a report of the size the popover already is applies nothing",
           apply.contains("guard ResizeAnchor.needsResize(from: self.popover.contentSize, to: size)"))
-    check("…checked before the size is written and the anchor is handed back",
-          precedes("ResizeAnchor.needsResize", "self.popover.contentSize = size", in: apply)
-              && apply.contains("self.fitShownPopoverToScreen()"))
-    // AND THE WRITE THAT GETS THROUGH IS PUT BACK. A size that really changed is a placement AppKit
-    // makes on its own, before anything below it declines one, so the frame the surface is standing at
-    // is read FIRST - and only when it is standing somewhere at all and the anchor is one nobody can
-    // see, because on a visible anchor AppKit's placement is the correct one and undoing it would pin
-    // the popover to a bar it should be following.
-    check("the frame is read before the size is written, and only against an unusable anchor",
-          apply.contains("let held = self.popover.isShown && !self.anchorIsPlaceable "
-              + "? self.popoverWindow?.frame : nil")
-              && precedes("let held", "self.popover.contentSize = size", in: apply))
-    check("…and put back after it, at the size the window now is",
-          precedes("self.popover.contentSize = size", "setFrameOrigin(StatusAnchor.heldOrigin", in: apply)
-              && apply.contains("previous: held, size: window.frame.size"))
-    // Measured against the bar's own display, which is the whole reason this is not the shared
-    // `clampOnScreen`: that one asks the window which screen it is on, and a wide popover put back over
-    // the boundary would be tidied onto the display next door.
-    check("…clamped to the display the bar is on, not to the one the surface now covers",
-          apply.contains("let screen = self.menuBarScreen()") && apply.contains("within: screen.visibleFrame"))
-    // Origin only. A size written from here would be the two-authorities crash this repo has already
-    // paid for once (~/.claude/docs/patterns/swiftui-appkit.md), and the content is the one authority.
-    check("…rewriting the origin only, never the size",
-          !apply.contains("setContentSize") && !apply.contains("window.setFrame("))
-    // Before the debt is settled, because what this pass must not do is write down a debt for a surface
-    // it has not finished putting back. Read off the part AFTER the size write, since the placement is
-    // also called up in the early return that pays an older debt - and a search from the top of the
-    // function would have found that one and passed on it (this assertion did, until it was scoped).
-    let afterWrite = apply.range(of: "self.popover.contentSize = size")
-        .map { String(apply[$0.upperBound...]) } ?? ""
-    check("…and the surface is back where it was before any of that is written down",
-          precedes("StatusAnchor.heldOrigin", "self.fitShownPopoverToScreen()", in: afterWrite))
-    // …EXCEPT WHEN A PLACEMENT IS OWED, which is the one thing that guard may not swallow: the size it
-    // compares against was applied while the anchor was off screen, so "nothing changed" is true of the
-    // size and false of the position. This report is the only thing that pays that debt, so it has to be
-    // collected INSIDE the early return rather than after it.
-    check("…unless a placement is owed, which that return may not swallow",
-          precedes("guard ResizeAnchor.needsResize", "if self.repositionOwed", in: apply)
-              && precedes("if self.repositionOwed { self.fitShownPopoverToScreen() }",
-                          "self.popover.contentSize = size", in: apply))
-    // One owner, and exactly one place that can put a debt on the books: a second writer of the true
-    // value would be a placement owed by a path that never skipped one.
-    check("…and the debt is this controller's own state, incurred in one place",
-          statusSource.contains("private var repositionOwed = false")
-              && statusSource.components(separatedBy: "repositionOwed = true").count == 2)
-    // Sub-point rounding is not a resize here either, for the same reason it is not a move: the tolerance
-    // is stated once, in ResizeAnchor.
+    check("…and a real one writes the size, then hands the anchor back",
+          precedes("self.popover.contentSize = size", "self.fitShownPopoverToScreen()", in: apply))
+    check("…moving nothing itself, which is what three rounds of this pass used to do",
+          !apply.contains("setFrameOrigin") && !apply.contains("setContentSize"))
+    guard let fitStart = statusSource.range(of: "private func fitShownPopoverToScreen()"),
+          let fitEnd = statusSource.range(of: "\n    }\n",
+                                          range: fitStart.upperBound ..< statusSource.endIndex)
+    else {
+        check("the re-placement was found to read", false)
+        exit(1)
+    }
+    let fit = String(statusSource[fitStart.upperBound ..< fitEnd.lowerBound])
+    check("the anchor handed back is the decoy's, unconditionally",
+          fit.contains("popover.positioningRect = anchorView.bounds")
+              && !fit.contains("anchorMayBeFollowed"))
+
+    // THE TOGGLE. With the anchor no longer the item's own window, a click on the item is outside the
+    // popover and dismisses it on the mouse-down; the action arrives on the mouse-up and would open it
+    // straight back. The dismissal's own timestamp is what tells the two apart.
+    check("the click that dismissed the popover does not reopen it",
+          precedes("} else if dismissedThisClick {", "NSApp.activate(ignoringOtherApps: true)", in: toggle))
+    check("…judged by how long ago the popover closed itself, written down by the close",
+          statusSource.contains("Date().timeIntervalSince(lastPopoverClose) < 0.25")
+              && statusSource.contains("self?.lastPopoverClose = Date()"))
+    check("…and the close is also where the decoy is put away",
+          statusSource.contains("self?.retireDecoyAnchor()"))
+
+    // AND THE MACHINERY THAT LOST IS GONE, pinned so it cannot creep back. Each of these was a real
+    // mechanism in this file within the last day, and each one existed to correct a placement after
+    // AppKit had made it. The whole family is what the decoy replaces.
+    for gone in ["heldPlacement", "lastLegitimateFrame", "readingScreenFrame", "StatusAnchor.heldOrigin",
+                 "placementDidMove", "enforceHeldPlacement", "beginHoldingPlacement"] {
+        check("the placement-correction machinery is gone: no `\(gone)`", !statusSource.contains(gone))
+    }
+    // The strongest form of the same claim: this file no longer moves the popover's window at all.
+    // Its position has exactly one writer, which is AppKit, and the anchor's has exactly one, which
+    // is this file.
+    check("nothing here moves the popover's own window any more",
+          !statusSource.contains("window.setFrameOrigin") && !statusSource.contains("popoverWindow?.setFrame"))
+    check("…and the geometry that used to compute where to put it back is gone from the shared file",
+          !code(of: "Tally/Core/StatusAnchor.swift").contains("func heldOrigin"))
+
+    // The content still fits the display the SURFACE is on, not the one the anchor has wandered to.
+    check("the content is fitted to the display the popover is standing on",
+          statusSource.contains("hostScreen: { [weak self] in self?.contentHostScreen() }"))
+    guard let hostStart = statusSource.range(of: "private func contentHostScreen() -> NSScreen?"),
+          let hostEnd = statusSource.range(of: "\n    }\n",
+                                           range: hostStart.upperBound ..< statusSource.endIndex)
+    else {
+        check("the content's host screen was found to read", false)
+        exit(1)
+    }
+    let host = String(statusSource[hostStart.upperBound ..< hostEnd.lowerBound])
+    check("…asked of the surface first, with the anchor's display only as the answer before it opens",
+          precedes("popoverScreenFrame()", "menuBarScreen()", in: host))
+    // Sub-point rounding is not a resize, for the same reason it was never a move: the tolerance is
+    // stated once, in ResizeAnchor.
     check("…and the sameness it uses is the shared one, tolerance included",
           !ResizeAnchor.needsResize(from: CGSize(width: 560, height: 700),
                                     to: CGSize(width: 560, height: 700.4))

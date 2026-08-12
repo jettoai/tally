@@ -164,6 +164,32 @@ func runNotificationHookChecks(tmp: URL) throws {
           try IntegrationsStore.upsertNotificationHook(in: settings, command: ours)
               && commands() == [ours])
 
+    // AN ACCOUNT THAT LOGGED OUT SINCE INSTALL. `claudeSettingsFiles()` answers with the homes
+    // discoverable TODAY, so a home whose login is gone drops out of it - and the hook Tally wrote
+    // there stays, calling a subcommand, after the user pressed Remove and was told it was gone.
+    // The manifest is the only record that home was ever written to, which is why the removal takes
+    // the union (the skill and the prompt hook already do, for this exact reason).
+    let orphan = tmp.appendingPathComponent("logged-out-home-settings.json")
+    try JSONSerialization.data(withJSONObject:
+        ["hooks": ["Notification": [IntegrationsStore.notificationHookEntry(command: ours)]]])
+        .write(to: orphan)
+    // Asked of the pure join rather than of the live discovery, which would need logged-in homes on
+    // whichever machine runs the assertions.
+    let live = tmp.appendingPathComponent("live-home-settings.json")
+    let union = IntegrationsStore.notificationHookSettingsFiles(
+        discovered: [live], remembered: [orphan.path, live.path])
+    check("the union reaches a path only the manifest remembers",
+          union.map(\.lastPathComponent).contains(orphan.lastPathComponent))
+    check("…keeps the discovered ones first", union.first?.path == live.path)
+    check("…and counts one physical file once, however many ways it was named",
+          union.count == 2)
+    check("removing from a remembered path really takes the hook out",
+          try IntegrationsStore.removeNotificationHook(in: orphan)
+              && (((try? JSONSerialization.jsonObject(with: Data(contentsOf: orphan)))
+                  as? [String: Any])?["hooks"]) == nil)
+    check("the manifest component is spelled once, so the install and the removal agree",
+          IntegrationsStore.notificationHookManifest == "claudeNotificationHook")
+
     // THE REFUSAL, which every write into this file is under: a document we cannot read is left
     // exactly as it is. The only safe edit to a shape nobody understands is none.
     check("a hooks block of the wrong shape is refused rather than replaced",

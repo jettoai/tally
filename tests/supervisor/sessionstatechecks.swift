@@ -127,6 +127,115 @@ func runSessionStateChecks() {
     check("…and a record with only the required fields is readable",
           readSessionState(pid: "9002", dir: dir)?.accountID == nil)
 
+    // MARK: the clock a wait is written on
+
+    // THE DEFECT THIS PINS (codex review, 2026-08-13): `at` is compared against a transcript's
+    // mtime, and the two land in the same second as a matter of course - a tool result written at
+    // T.600, the permission prompt for the next call at T.900. Encoded to whole seconds, `at` came
+    // back as T.000, the earlier mtime was greater, and the first tick after the prompt read a
+    // write from BEFORE it as the answer to it. A permission request never reached the board.
+    let atMs = Date(timeIntervalSince1970: 1_786_571_200.5)
+    writeUserNotice(UserNotice(message: "needs permission", at: atMs), pid: "9101", dir: dir)
+    check("an event keeps the sub-second instant it fired at",
+          readUserNotice(pid: "9101", dir: dir)?.at == atMs)
+    check("a transcript written EARLIER in the same second does not answer it",
+          userNoticeStillOpen(readUserNotice(pid: "9101", dir: dir),
+                              transcriptModified: Date(timeIntervalSince1970: 1_786_571_200.25),
+                              keyboardBurstAt: nil))
+    check("…and one written later in that same second does",
+          !userNoticeStillOpen(readUserNotice(pid: "9101", dir: dir),
+                               transcriptModified: Date(timeIntervalSince1970: 1_786_571_200.75),
+                               keyboardBurstAt: nil))
+    // The same second, one axis over: a keystroke burst is compared against the same instant.
+    check("typing earlier in the same second does not answer it either",
+          userNoticeStillOpen(readUserNotice(pid: "9101", dir: dir), transcriptModified: nil,
+                              keyboardBurstAt: Date(timeIntervalSince1970: 1_786_571_200.25)))
+    // A notice on disk across the upgrade that introduced the fractional form is at most one wait
+    // old, but reading it as unparseable would DROP that wait, which is the failure this file is
+    // for. Whole-second files therefore still decode.
+    try? Data(#"{"message":"older build","at":"2026-08-13T09:00:00Z"}"#.utf8)
+        .write(to: dir.appendingPathComponent("9102" + userNoticeSuffix))
+    check("an event written before the fractional clock still reads",
+          readUserNotice(pid: "9102", dir: dir)?.message == "older build")
+    check("…and a stamp that is not an instant at all reads as no event",
+          { try? Data(#"{"message":"x","at":"whenever"}"#.utf8)
+              .write(to: dir.appendingPathComponent("9103" + userNoticeSuffix))
+            return readUserNotice(pid: "9103", dir: dir) == nil }())
+
+    // MARK: a wait is only cleared if it is still the one that was judged
+
+    // Reading an event, deciding it has been answered and unlinking it are three steps with nothing
+    // holding the path still between them, and the hook replaces that file atomically at any
+    // moment. A prompt landing in the gap used to be deleted unread, leaving somebody waiting on a
+    // session the board called idle.
+    //
+    // ASSERTED AGAINST THE GUARD ITSELF rather than against a tick, because a tick reads the file
+    // once and cannot be interrupted from out here: driving `syncSessionState` with a replaced file
+    // exercises the path where the wait is still OPEN, so a mutant that deleted unconditionally
+    // walked straight through it (caught by mutation, 2026-08-13).
+    let judged = UserNotice(message: "first", at: t0)
+    writeUserNotice(judged, pid: "9104", dir: dir)
+    // The hook fires again, in the gap, with a different instant.
+    writeUserNotice(UserNotice(message: "second", at: t0.addingTimeInterval(30)), pid: "9104",
+                    dir: dir)
+    clearAnsweredUserNotice(judged, pid: "9104", dir: dir)
+    check("an event that arrived after the judgement is not swept away with it",
+          readUserNotice(pid: "9104", dir: dir)?.message == "second")
+    // Two events one SECOND apart are told apart only because the instant carries milliseconds,
+    // which is the same fix C1 made: on whole seconds these two would compare equal and the
+    // replacement would be deleted.
+    let close = UserNotice(message: "third", at: t0.addingTimeInterval(30).addingTimeInterval(0.25))
+    writeUserNotice(close, pid: "9104", dir: dir)
+    clearAnsweredUserNotice(UserNotice(message: "second", at: t0.addingTimeInterval(30)),
+                            pid: "9104", dir: dir)
+    check("…even when the replacement landed a fraction of a second later",
+          readUserNotice(pid: "9104", dir: dir)?.message == "third")
+    // And the ordinary case still clears: the same event, answered.
+    clearAnsweredUserNotice(close, pid: "9104", dir: dir)
+    check("an answered event that nothing replaced is taken away",
+          readUserNotice(pid: "9104", dir: dir) == nil)
+    // A file that has already gone is not an event that was replaced: nothing to remove, no throw.
+    clearAnsweredUserNotice(close, pid: "9104", dir: dir)
+    check("clearing an event that is already gone is a no-op",
+          readUserNotice(pid: "9104", dir: dir) == nil)
+
+    // The tick reaches it through the same door, which is what keeps the guard on the live path.
+    var replaced = SessionStateWriter()
+    var watcher = TranscriptWatcher(projectDir: dir, since: t0)
+    writeUserNotice(UserNotice(message: "answered", at: t0), pid: "9106", dir: dir)
+    syncSessionState(&replaced, pid: "9106", project: PickProject(name: "p", path: dir.path),
+                     accountID: "claude:.claude", childPid: nil, model: nil, watcher: &watcher,
+                     keyboardBurstAt: t0.addingTimeInterval(10),
+                     dir: dir, now: t0.addingTimeInterval(20))
+    check("a tick that finds the wait answered takes it away",
+          readUserNotice(pid: "9106", dir: dir) == nil)
+    // …and one that finds it still open leaves it exactly where it is.
+    writeUserNotice(UserNotice(message: "standing", at: t0.addingTimeInterval(60)), pid: "9106",
+                    dir: dir)
+    syncSessionState(&replaced, pid: "9106", project: PickProject(name: "p", path: dir.path),
+                     accountID: "claude:.claude", childPid: nil, model: nil, watcher: &watcher,
+                     keyboardBurstAt: t0.addingTimeInterval(10),
+                     dir: dir, now: t0.addingTimeInterval(70))
+    check("a tick that finds it still open leaves it standing",
+          readUserNotice(pid: "9106", dir: dir)?.message == "standing")
+    check("…and reports the session as blocked while it stands",
+          readSessionState(pid: "9106", dir: dir)?.supervised == .blocked)
+
+    // MARK: a publish that failed is retried rather than believed
+
+    // The guard that suppresses an unchanged write judges against an in-memory copy, so updating
+    // that copy after a write that never landed would suppress every retry for the life of the
+    // session: the state decided correctly, every tick, and published never again.
+    let blocked = dir.appendingPathComponent("not-a-directory")
+    try? Data("".utf8).write(to: blocked)
+    var stubborn = SessionStateWriter()
+    stubborn.sync(.working, reason: nil, identity: SessionIdentity(accountID: "claude:.claude"),
+                  pid: "9105", dir: blocked.appendingPathComponent("under-a-file"), now: t0)
+    stubborn.sync(.working, reason: nil, identity: SessionIdentity(accountID: "claude:.claude"),
+                  pid: "9105", dir: dir, now: t0.addingTimeInterval(2))
+    check("a state whose write failed is published on the next tick, not suppressed",
+          readSessionState(pid: "9105", dir: dir)?.state == "working")
+
     // MARK: the sweep
 
     // The suffix list is what keeps a dead session's files from piling up; a document added to this
@@ -182,6 +291,36 @@ func runSessionStateChecks() {
                       pid: "9003", dir: dir, now: t0.addingTimeInterval(300))
     check("an image that replaced its predecessor knows what already stands",
           readSessionState(pid: "9003", dir: dir) == nil)
+
+    // MARK: the knock a session's END has to send
+
+    // No value assertion can see a distributed notification, so the boundary lives in the source.
+    // Every OTHER knock is posted by the writer as it publishes; a session that has exited
+    // publishes nothing more, so without one here the board hears nothing until an unrelated
+    // supervisor happens to move - and for a session that was BLOCKED that is a red dot in the
+    // menu bar for a conversation that no longer exists.
+    let loopSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("the supervisor source is readable from the session-state checks", !loopSource.isEmpty)
+    let teardown = loopSource.range(of: "removeSupervisorState(pid: supervisorPID)")
+        .map { String(loopSource[$0.lowerBound...]) } ?? ""
+    // The same kind of boundary one file over: whether the TICK routes its clear through the guard
+    // cannot be seen from a value assertion, because the race the guard narrows needs another
+    // process writing between two reads inside one synchronous call. The guard's own behaviour IS
+    // value-asserted above; this is the half that says the live path uses it. Both are needed - a
+    // mutant that swapped the call back to the unconditional clear passed every value assertion
+    // there is (2026-08-13).
+    let syncSource = (try? String(contentsOfFile: "TallyCLI/SessionStateSync.swift",
+                                  encoding: .utf8)) ?? ""
+    check("the sync source is readable from the session-state checks", !syncSource.isEmpty)
+    check("the tick clears an answered wait only through the guard",
+          syncSource.contains("clearAnsweredUserNotice(notice, pid: pid, dir: dir)")
+              && !syncSource.contains("clearUserNotice(pid: pid, dir: dir)"))
+
+    check("a session that has exited knocks, after clearing its files",
+          teardown.range(of: "clearSessionState(pid: supervisorPID)").map { cleared in
+              teardown.range(of: "postSessionStateChanged(pid: supervisorPID)")
+                  .map { $0.lowerBound > cleared.lowerBound } ?? false
+          } ?? false)
 
     // MARK: reading the board back
 

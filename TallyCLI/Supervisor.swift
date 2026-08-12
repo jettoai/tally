@@ -557,6 +557,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         clearSessionContext(pid: supervisorPID)
         clearSessionState(pid: supervisorPID)
         clearUserNotice(pid: supervisorPID)
+        // A SESSION ENDING IS A STATE CHANGE, and the one nothing else can announce. Every other
+        // knock is posted by the writer when it publishes; this session publishes nothing more, so
+        // without this the board hears nothing until some OTHER supervisor happens to move. For a
+        // session that was BLOCKED that is not a stale row, it is a red dot in the menu bar for a
+        // conversation that no longer exists, standing until an unrelated session changes state.
+        postSessionStateChanged(pid: supervisorPID)
         exit(supervisorExitCode(childStatus: status))
     }
 }

@@ -122,16 +122,20 @@ struct SessionStateWriter {
             if unchanged == record { return }
         }
         let moved = current?.state != word
-        writeSessionState(record, pid: pid, dir: dir)
+        // NOTHING IS BELIEVED UNTIL IT IS ON DISK. The guard above judges the next write against
+        // `current`, so updating it after a publish that failed would suppress every retry for the
+        // rest of the session: the state would be decided correctly, every tick, and never
+        // published again. Leaving `current` where it was makes the next tick try once more, which
+        // is what "best-effort" has to mean for a writer that remembers.
+        guard writeSessionState(record, pid: pid, dir: dir) else { return }
         current = record
         // THE KNOCK, and only on a state change. The file is the truth and this is what saves the
         // app from polling a panel nobody has open (SessionState.swift states the rule); a post per
         // model change or per account move would be noise on a machine-wide bus for a reading that
-        // is re-read whenever the panel is looked at anyway.
+        // is re-read whenever the panel is looked at anyway. After the write, for the same reason:
+        // a knock is an invitation to read a file that has to already say the new thing.
         guard moved else { return }
-        DistributedNotificationCenter.default().postNotificationName(
-            Notification.Name(sessionStateChangedNotification), object: pid,
-            userInfo: nil, deliverImmediately: true)
+        postSessionStateChanged(pid: pid)
     }
 }
 
@@ -159,8 +163,10 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
                                       keyboardBurstAt: keyboardBurstAt)
     // An answered event is taken away rather than left to age out: the file's presence IS the
     // blocked signal (UserNotice.swift), so a stale one would be a session reported as waiting for
-    // something that has already happened.
-    if notice != nil, !waiting { clearUserNotice(pid: pid, dir: dir) }
+    // something that has already happened. Only the event this tick actually judged is removed, and
+    // why that qualification is load-bearing (and why it is a narrowing rather than a lock) is
+    // stated on `clearAnsweredUserNotice`.
+    if let notice, !waiting { clearAnsweredUserNotice(notice, pid: pid, dir: dir) }
     let state = supervisedSessionState(blocked: waiting, hasTranscript: file != nil, quiet: quiet)
     // An empty message is a wait with nothing to say about it, which is nil rather than "".
     writer.sync(state, reason: waiting ? (notice?.message).flatMap({ $0.isEmpty ? nil : $0 }) : nil,

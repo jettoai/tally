@@ -182,6 +182,35 @@ extension IntegrationsStore {
         return entries.contains { isCurrentNotificationEntry($0, command: command) }
     }
 
+    /// The manifest component this registration is recorded under, in ONE place: it is written by
+    /// the install as bookkeeping and read by the removal as provenance, and a second spelling
+    /// would mean the removal looked up an entry nothing had ever written.
+    nonisolated static let notificationHookManifest = "claudeNotificationHook"
+
+    /// Every settings.json this registration could be in: the homes discovered now, plus every path
+    /// the manifest remembers, deduplicated by physical file.
+    ///
+    /// THE MANIFEST IS WHAT MAKES A LOGGED-OUT ACCOUNT REACHABLE AT ALL. `claudeSettingsFiles()`
+    /// asks `ClaudeAccounts.discover()`, which answers with the homes that are logged in TODAY, so
+    /// an account signed out since install simply vanishes from it - and the hook Tally wrote into
+    /// that home stays there, calling a subcommand, after the user pressed Remove and was told it
+    /// was gone. The skill and the prompt hook already take exactly this union for exactly this
+    /// reason (`installedSkillFiles`, `installedFiles`).
+    /// The join itself, pure so it can be asserted without logged-in homes on the machine running
+    /// the assertions. Discovered first, so the ordinary case reads in the ordinary order;
+    /// deduplicated by RESOLVED path, because a shared setup symlinks one settings.json into
+    /// several homes and editing it N times is N chances to report a failure that is one file's.
+    static func notificationHookSettingsFiles(discovered: [URL], remembered: [String]) -> [URL] {
+        var seen = Set<String>()
+        return (discovered + remembered.map { URL(fileURLWithPath: $0) })
+            .filter { seen.insert($0.resolvingSymlinksInPath().path).inserted }
+    }
+
+    static func notificationHookSettingsFiles() -> [URL] {
+        notificationHookSettingsFiles(discovered: claudeSettingsFiles(),
+                                      remembered: manifestPaths(notificationHookManifest))
+    }
+
     static func detectNotificationHook() -> Status {
         let files = claudeSettingsFiles()
         guard !files.isEmpty else { return .notInstalled }
@@ -207,7 +236,8 @@ extension IntegrationsStore {
                 _ = try Self.upsertNotificationHook(in: file,
                                                     command: Self.notificationHookCommand)
             }
-            recordManifest("claudeNotificationHook", paths: files.isEmpty ? nil : files.map(\.path))
+            recordManifest(Self.notificationHookManifest,
+                           paths: files.isEmpty ? nil : files.map(\.path))
         } catch {
             lastError = error.localizedDescription
         }
@@ -217,14 +247,17 @@ extension IntegrationsStore {
     func removeNotificationHook() {
         guard guardNotDev() else { return }
         lastError = nil
-        do {
-            for file in Self.claudeSettingsFiles() {
-                try Self.removeNotificationHook(in: file)
-            }
-            recordManifest("claudeNotificationHook", paths: nil)
-        } catch {
-            lastError = error.localizedDescription
+        // Over the union rather than over what is discoverable now (see
+        // `notificationHookSettingsFiles`), and EVERY file is attempted even if one throws: a home
+        // that has become unreadable must not leave the registrations after it in place, and the
+        // first failure is the one reported. The manifest entry is cleared regardless, because it
+        // records the install's intent and that intent is over.
+        var failure: Error?
+        for file in Self.notificationHookSettingsFiles() {
+            do { try Self.removeNotificationHook(in: file) } catch { failure = failure ?? error }
         }
+        recordManifest(Self.notificationHookManifest, paths: nil)
+        lastError = failure?.localizedDescription
         refresh()
     }
 }

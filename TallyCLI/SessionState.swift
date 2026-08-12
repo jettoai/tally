@@ -140,12 +140,37 @@ func sessionStateFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 }
 
 /// Write the reading. Best-effort and atomic, like every other file on this track.
-func writeSessionState(_ record: SessionStateRecord, pid: String, dir: URL = supervisorStateDir) {
+///
+/// IT SAYS WHETHER IT WORKED, unlike its neighbours, and the caller is required to look. The writer
+/// on top of this keeps an in-memory copy of what it believes is on disk and suppresses a write
+/// that would not change it; a failure it never heard about would leave that copy describing a
+/// record that was never published, and the guard would then suppress every retry for the life of
+/// the session. That is the shape of the defect `writeSupervisorAccount` carries a comment about
+/// (a silent publish failure plus a delta that suppresses the retry), one document over.
+@discardableResult
+func writeSessionState(_ record: SessionStateRecord, pid: String,
+                       dir: URL = supervisorStateDir) -> Bool {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
-    guard let data = try? encoder.encode(record) else { return }
-    try? data.write(to: sessionStateFile(pid: pid, dir: dir), options: .atomic)
+    guard let data = try? encoder.encode(record) else { return false }
+    do {
+        try data.write(to: sessionStateFile(pid: pid, dir: dir), options: .atomic)
+    } catch {
+        return false
+    }
+    return true
+}
+
+/// Knock, so a panel that is not polling finds out now rather than at its next glance.
+///
+/// THE FILE IS THE TRUTH AND THIS IS ONLY A KNOCK (SessionState.swift's header states the rule the
+/// whole `~/.tally` channel follows): delivery is not guaranteed, nothing is carried but the pid,
+/// and every reader re-reads the directory when it arrives.
+func postSessionStateChanged(pid: String) {
+    DistributedNotificationCenter.default().postNotificationName(
+        Notification.Name(sessionStateChangedNotification), object: pid,
+        userInfo: nil, deliverImmediately: true)
 }
 
 /// Read a supervisor's state reading, or nil when there is none (or the file is from a format this

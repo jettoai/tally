@@ -44,8 +44,14 @@ final class StatusItemController: NSObject {
     /// The view inside it, which is what `show(relativeTo:of:)` is actually given.
     private var decoyAnchorView: NSView?
 
-    /// The moment the popover last closed itself, for the toggle (see `handleClick`).
-    private var lastPopoverClose: Date?
+    /// WHAT THE LAST DISMISSAL SAW, kept until the click that caused it arrives and spends it.
+    ///
+    /// A press on the status item dismisses the popover on the mouse-down and delivers the item's
+    /// action on the mouse-up, so the two halves are one click and the second has to know about the
+    /// first. Spent rather than timed out: a window expires under a press that is merely HELD, and
+    /// the release then reopened the popover the press had just shut (codex review of ca32b61).
+    /// `TogglePress` states which of these facts decides what.
+    private var lastDismissal: (at: Date, pointerOnItem: Bool, buttonDown: Bool)?
 
     /// Feeding the decoy is watched from the real anchor's own moves.
     private var anchorObserver: NSObjectProtocol?
@@ -88,11 +94,11 @@ final class StatusItemController: NSObject {
 
         // A transient popover is dismissed by clicking outside it, which never passes through this
         // file, so the close notification is where the decoy is put away and the moment is written
-        // down for the toggle (`dismissedThisClick`).
+        // down for the toggle (`noteDismissal`).
         _ = NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification,
                                                    object: popover, queue: nil) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.lastPopoverClose = Date()
+                self?.noteDismissal()
                 self?.retireDecoyAnchor()
             }
         }
@@ -145,16 +151,19 @@ final class StatusItemController: NSObject {
 
     @objc private func handleClick() {
         guard let button = statusItem?.button else { return }
+        // Spent here, once, for whatever kind of click this turns out to be: a dismissal left
+        // unspent by a right-click would still be sitting there for the next left one.
+        let dismissedByThisClick = consumeDismissalOfThisClick()
         let event = NSApp.currentEvent
         let isSecondary = event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true
         if isSecondary {
             showMenu(from: button)
         } else {
-            togglePopover(button: button)
+            togglePopover(button: button, afterDismissal: dismissedByThisClick)
         }
     }
 
-    private func togglePopover(button: NSStatusBarButton) {
+    private func togglePopover(button: NSStatusBarButton, afterDismissal: Bool) {
         // While pinned, the floating panel is the usage view; a status-item click just surfaces it
         // rather than opening a competing popover.
         if SettingsStore.shared.isUsagePanelPinned {
@@ -163,7 +172,7 @@ final class StatusItemController: NSObject {
         }
         if popover.isShown {
             popover.performClose(nil)
-        } else if dismissedThisClick {
+        } else if afterDismissal {
             // THE CLICK THAT CLOSED IT IS NOT A CLICK THAT OPENS IT. The popover hangs off a decoy
             // now, so the status item is OUTSIDE it and a transient popover dismisses itself on the
             // mouse-down; the action below arrives on the mouse-up and would open it straight back,
@@ -188,14 +197,25 @@ final class StatusItemController: NSObject {
     /// Dismiss the popover when another Tally window takes the stage: that window steals key and
     /// promotes the activation policy, which defeats the transient popover's own click-outside
     /// dismissal and leaves it stuck on screen. No-op when closed, so callers need no condition.
-    /// Whether the click being handled right now is the one that just dismissed the popover.
-    ///
-    /// A quarter of a second is the window: a mouse-down that dismisses and the mouse-up that fires
-    /// this action are the same physical click and land within a few milliseconds of each other,
-    /// while a deliberate reopen is a second trip to the menu bar.
-    private var dismissedThisClick: Bool {
-        guard let lastPopoverClose else { return false }
-        return Date().timeIntervalSince(lastPopoverClose) < 0.25
+    /// Whether the click being handled right now is the one that dismissed the popover, SPENDING the
+    /// dismissal either way: it can be answered yes at most once, so nothing left over can swallow a
+    /// later click.
+    private func consumeDismissalOfThisClick() -> Bool {
+        guard let dismissal = lastDismissal else { return false }
+        lastDismissal = nil
+        return TogglePress.suppressesOpen(pointerWasOnItem: dismissal.pointerOnItem,
+                                          buttonWasDown: dismissal.buttonDown,
+                                          elapsed: Date().timeIntervalSince(dismissal.at))
+    }
+
+    /// Record what the dismissal happening right now looks like. Read AT THE CLOSE because that is
+    /// when the click is still in flight: a moment later the button may be up and the pointer moved,
+    /// and neither fact can be recovered afterwards.
+    private func noteDismissal() {
+        let onItem = statusItem?.button
+            .flatMap { anchorScreenRect(button: $0) }?
+            .contains(NSEvent.mouseLocation) ?? false
+        lastDismissal = (Date(), onItem, NSEvent.pressedMouseButtons & 1 == 1)
     }
 
     func closePopover() {
@@ -284,7 +304,10 @@ final class StatusItemController: NSObject {
             window.backgroundColor = .clear
             window.ignoresMouseEvents = true
             window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)))
-            window.collectionBehavior = [.canJoinAllSpaces]
+            // `.fullScreenAuxiliary` for the same reason the pinned panel carries it: without it
+            // this window cannot join a full-screen Space, so a popover opened from the menu bar
+            // of a full-screen app would have no anchor to be shown against at all.
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             let view = NSView(frame: NSRect(origin: .zero, size: anchorRect.size))
             window.contentView = view
             decoyAnchor = window

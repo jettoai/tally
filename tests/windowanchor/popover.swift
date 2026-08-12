@@ -94,7 +94,7 @@ func checkPopoverAnchor() {
     // The popover hangs off an anchor of ours, never off the status item's own window. That single
     // substitution is the fix: the model that re-places the surface follows the positioning view's
     // window, and this one is a window nothing outside the app can move.
-    guard let toggleStart = statusSource.range(of: "private func togglePopover(button: NSStatusBarButton)"),
+    guard let toggleStart = statusSource.range(of: "private func togglePopover(button: NSStatusBarButton, afterDismissal: Bool)"),
           let toggleEnd = statusSource.range(of: "\n    }\n",
                                              range: toggleStart.upperBound ..< statusSource.endIndex)
     else {
@@ -126,7 +126,14 @@ func checkPopoverAnchor() {
           decoy.contains("window.ignoresMouseEvents = true"))
     check("…sits at the status bar's own level, on every Space, like the item it stands in for",
           decoy.contains("CGWindowLevelForKey(.statusWindow)")
-              && decoy.contains("collectionBehavior = [.canJoinAllSpaces]"))
+              && decoy.contains("collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]"))
+    // `.fullScreenAuxiliary` is not decoration: without it the decoy cannot join a full-screen
+    // Space, so a popover opened from the menu bar of a full-screen app has no anchor to be shown
+    // against at all. The pinned panel has carried it for the same reason since it was written, and
+    // the two are asserted together so the pair cannot drift apart.
+    check("…and can join a full-screen Space, the way the pinned panel already does",
+          code(of: "Tally/MenuBar/PinnedPanelController.swift")
+              .contains("collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]"))
     // Built once and reused: a window per showing would be a new positioning view each time, and the
     // point of this one is that it is stable and ours.
     check("…built once and reused, then moved onto the item",
@@ -197,12 +204,43 @@ func checkPopoverAnchor() {
     // popover and dismisses it on the mouse-down; the action arrives on the mouse-up and would open it
     // straight back. The dismissal's own timestamp is what tells the two apart.
     check("the click that dismissed the popover does not reopen it",
-          precedes("} else if dismissedThisClick {", "NSApp.activate(ignoringOtherApps: true)", in: toggle))
-    check("…judged by how long ago the popover closed itself, written down by the close",
-          statusSource.contains("Date().timeIntervalSince(lastPopoverClose) < 0.25")
-              && statusSource.contains("self?.lastPopoverClose = Date()"))
+          precedes("} else if afterDismissal {", "NSApp.activate(ignoringOtherApps: true)", in: toggle))
+    // SPENT, NOT TIMED OUT. A window judged only by elapsed time expires under a press that is
+    // merely HELD, and the release then reopens the popover the press just shut (codex review of
+    // ca32b61). What is recorded instead is what the dismissal SAW, and the next click spends it.
+    check("…judged by what the dismissal saw, recorded at the close while the click is still in flight",
+          statusSource.contains("lastDismissal = (Date(), onItem, NSEvent.pressedMouseButtons & 1 == 1)")
+              && statusSource.contains("self?.noteDismissal()"))
+    check("…and the pointer's position at that moment is part of it, so a click elsewhere leaves nothing",
+          statusSource.contains(".contains(NSEvent.mouseLocation) ?? false"))
+    check("…spent exactly once per click, before the kind of click is even decided",
+          precedes("let dismissedByThisClick = consumeDismissalOfThisClick()",
+                   "let isSecondary", in: statusSource)
+              && statusSource.contains("lastDismissal = nil"))
+    check("…with no elapsed-time judgement left in the controller at all",
+          !statusSource.contains("lastPopoverClose"))
     check("…and the close is also where the decoy is put away",
           statusSource.contains("self?.retireDecoyAnchor()"))
+
+    // THE DECISION ITSELF, which is the one thing here a machine can be held to: the case that
+    // matters is a press HELD, and it cannot be exercised against a real popover (transient
+    // dismissal ignores events posted into the process, probe v7 and its control), so it is pure.
+    check("a press still held when the popover closed suppresses the open, however long it is held",
+          TogglePress.suppressesOpen(pointerWasOnItem: true, buttonWasDown: true, elapsed: 2.0))
+    check("…which is exactly what a timer got wrong: 2 seconds is long past any window",
+          TogglePress.releaseWindow < 2.0)
+    check("a click too short to still be held is caught by the window instead",
+          TogglePress.suppressesOpen(pointerWasOnItem: true, buttonWasDown: false, elapsed: 0.05))
+    check("…and a later, deliberate click on the item is not",
+          !TogglePress.suppressesOpen(pointerWasOnItem: true, buttonWasDown: false, elapsed: 1.0))
+    check("…with the window's own edge outside it, not on it",
+          !TogglePress.suppressesOpen(pointerWasOnItem: true, buttonWasDown: false,
+                                      elapsed: TogglePress.releaseWindow))
+    // Dismissing by clicking somewhere else must leave nothing behind that a later click on the item
+    // could spend, which is the half a pure timer could not express at all.
+    check("a dismissal with the pointer somewhere else suppresses nothing",
+          !TogglePress.suppressesOpen(pointerWasOnItem: false, buttonWasDown: true, elapsed: 0)
+              && !TogglePress.suppressesOpen(pointerWasOnItem: false, buttonWasDown: false, elapsed: 0))
 
     // AND THE MACHINERY THAT LOST IS GONE, pinned so it cannot creep back. Each of these was a real
     // mechanism in this file within the last day, and each one existed to correct a placement after

@@ -52,16 +52,33 @@ func runStatusline(args: [String]) -> Never {
     var driftPiece: String?
     var noticePiece: String?
     // The depth this session is running at, read off the same per-pid track as the two badges
-    // below (SessionContext.swift). The RUNNING reading, not the pin: `runningEffort` is the
-    // `--effort` the live child was actually spawned with, and a `tally model` that moves the pin
-    // rewrites those args and republishes before the next child starts - so this follows a depth
-    // change without predicting one. Absent (an unsupervised launch, a supervisor too old to
-    // publish it, the moment before the first tick) means "cannot say", and the line simply does
-    // not mention the depth: fail-open, like everything else here.
-    var runningEffort: String?
+    // below (SessionContext.swift).
+    //
+    // THE PIN LEADS AND THE COMMAND LINE FILLS IN, because the two ways a session's depth moves
+    // leave their trace in different fields:
+    //
+    //   - `tally model fable high` rewrites the child's arguments and relaunches, so `runningEffort`
+    //     (the `--effort` it was spawned with) is the fresh reading and no pin need exist at all.
+    //     Most sessions are this one, which is why the fallback has to stay.
+    //   - Claude Code's OWN `/model`, moving only the depth, is adopted into the pin with NO
+    //     relaunch (`adoptNativeModelChoice`, SessionModel.swift): the arguments still name the
+    //     depth this child started on, and `sessionEffort` is the only field that moved.
+    //
+    // So a pin, where there is one, is always the later fact. Neither present (an unsupervised
+    // launch, a supervisor too old to publish it, the moment before the first tick) means "cannot
+    // say", and the line does not mention the depth: fail-open, like everything else here.
+    //
+    // WHAT NEITHER FIELD SEES, said rather than left to be found: a depth moved underneath the
+    // session (a safeguard or quota fallback) touches neither, so this names the depth that was
+    // ASKED for. The model beside it does track that, because Claude Code reports the model it is
+    // rendering for and reports no depth. Closing it needs a reading that does not exist yet.
+    var depth: String?
     if let pidStr = ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_PID"],
        let pid = pid_t(pidStr), supervisorAlive(pid) {
-        runningEffort = readSessionContext(pid: pidStr)?.runningEffort
+        // One read, both fields: this is a file, and the two answers have to come from one moment
+        // of it or the pin and the arguments could be read either side of a republish.
+        let context = readSessionContext(pid: pidStr)
+        depth = context?.sessionEffort ?? context?.runningEffort
         if let drift = readDriftState(pid: pidStr) {
             // While a restore is queued the badge says what is about to happen, in the same
             // already-under-way voice as the supervisor's own update note: the session keeps working
@@ -112,10 +129,10 @@ func runStatusline(args: [String]) -> Never {
     ///
     /// TWO SOURCES IN ONE TOKEN, worth saying out loud: the model is what Claude Code reports it
     /// is rendering for (the session JSON below, which tracks a live switch or a degradation),
-    /// while the depth comes from the supervisor's own per-pid reading, the one channel here that
-    /// carries it. So the depth is as current as the last launch or relaunch of this session.
+    /// while the depth comes from the supervisor's own per-pid reading - the only channel that
+    /// carries one, with the precedence and the blind spot stated where it is read above.
     let modelToken = sessionModel.map { model in
-        runningEffort.map { "\(model) \(dim)\($0)\(reset)" } ?? model
+        depth.map { "\(model) \(dim)\($0)\(reset)" } ?? model
     }
     if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
         let now = Date()

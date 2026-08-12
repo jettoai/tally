@@ -122,9 +122,10 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
 - **Shell 整合。** 一鍵安裝 PATH shim，讓連裸的 `claude` / `codex` 指令都遵循你的啟動策略；
   一鍵移除，乾淨不留痕跡。
 - **Status line 整合。** Claude Code 的 status line 會多一個紫色 ✦ Tally 訊號（代表這個
-  session 跑在 Tally 底下）與目前使用的帳號名稱；選擇開啟完整額度線後，整條額度線會用 app
-  同款色板呈現：進度條、百分比與重置倒數，涵蓋這個 session 實際消耗的模型層級窗、5 小時窗，
-  以及每週預算（艦隊儀表開著時顯示合池後的艦隊預算），並跟隨面板的「已用量／剩餘」切換。
+  session 跑在 Tally 底下）、目前使用的帳號名稱，以及這個 session 正在跑的模型與 effort；
+  選擇開啟完整額度線後，整條額度線會用 app 同款色板呈現：進度條、百分比與重置倒數，涵蓋
+  5 小時窗與這個帳號的每週預算，並跟隨面板的「已用量／剩餘」切換。合池後的艦隊視圖留在
+  app 與 `tally status`，那裡才有空間好好呈現。
   既有自訂的 status line 會原封不動繼續執行、只是後面多接一段訊號；移除時逐位元組還原成
   原樣，就算你不解除安裝直接刪掉 Tally 也照常運作。
 - **Claude Code skill。** 一鍵把一個小 skill 放進每個 Claude 帳號的 skills 資料夾，讓 agent

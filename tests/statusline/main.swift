@@ -2,11 +2,11 @@ import Foundation
 
 // Assertion harness for what `tally statusline claude` renders, compiled against the real source.
 //
-// The status line is one row shared by four zones, so its formats are only ever as good as their
-// worst fit: the pool slot used to be the single figure in the row quoted in a unit of its own
-// (accounts' worth, "0.6/5") beside three windows all quoted in percent. These are the pure pieces
-// behind that row; the row itself reads stdin and exits, so what is pinned here is the vocabulary
-// every surface has to agree on.
+// The row is a SESSION reading: this account, the model and depth it runs, and this account's own
+// two windows. The pool slot it used to carry is gone (owner ruling, 2026-08-12) and the pool
+// helpers below now serve `tally status` alone. The row itself reads stdin and exits, so what is
+// pinned here is the vocabulary every surface has to agree on, plus the shape of the row asserted
+// through its source - the same technique the supervisor suite uses for its call-site rules.
 
 var failures = 0
 func check(_ name: String, _ condition: Bool) {
@@ -14,27 +14,91 @@ func check(_ name: String, _ condition: Bool) {
     if !condition { failures += 1 }
 }
 
-// MARK: - The pool label
+/// The status line's own source, which several sections below assert the row's shape through.
+/// Read from the repo root (run-statusline-tests.sh cds there); an unreadable file FAILS rather
+/// than quietly passing every check that reads it.
+let lineSource = (try? String(contentsOfFile: "TallyCLI/Statusline.swift", encoding: .utf8)) ?? ""
+check("the status line source is readable from these checks", !lineSource.isEmpty)
 
-// A model pool says WHICH pool it is, because the panel's gauge focus can re-point this slot and a
-// bare "pool" flipping between budgets reads as a wrong number. Lower-cased, because the rest of the
-// row is.
+// MARK: - The row is this session's, not the fleet's
+
+// THE POOL LEFT THE ROW. It used to take the 7d slot's place whenever the app's fleet gauge was on,
+// on the reasoning that under smart handoff the pool is the binding budget. A person reading the
+// row under their prompt is asking about the session they are in, and the fleet view is the app's
+// (and `tally status`'s) job, so the row now always carries this account's own two windows.
+// Asserted as the ABSENCE of the pool vocabulary in this file, which is what a re-introduction
+// would have to bring back, plus the presence of both windows unconditionally.
+for gone in ["fleetPiece", "poolPieces", "fleetPools", "fleet ✓"] {
+    check("the row no longer builds `\(gone)`", !lineSource.contains(gone))
+}
+check("the 5h and 7d slots are built together, with nothing between them",
+      lineSource.contains("""
+        quota = [piece("5h", account.sessionRemaining, account.sessionResetsAt),
+                 piece("7d", account.weeklyRemaining, account.weeklyResetsAt)]
+"""))
+// AND NEITHER SLOT IS CONDITIONAL ON ANYTHING. The yield was written as a ternary inside the array,
+// so the shape a regression takes here is a `?` between those two lines rather than a new zone.
+check("neither window slot is handed to anything else",
+      !lineSource.contains("piece(\"7d\", account.weeklyRemaining, account.weeklyResetsAt) : nil"))
+// The pool helpers are still compiled, because `tally status` prints a pool: what changed is who
+// calls them. A call from this file is the regression this pins.
+let lineBody = lineSource.range(of: "// MARK: - The fleet pool slot in `tally status`")
+    .map { String(lineSource[lineSource.startIndex ..< $0.lowerBound]) } ?? ""
+check("the row's own body was sliced off from the helpers below it", !lineBody.isEmpty)
+for helper in ["poolLabel(", "poolRemainingFigure("] {
+    check("the row itself never calls `\(helper))`", !lineBody.contains(helper))
+}
+
+// MARK: - The depth beside the model
+
+// The identity says which model AND at what depth, because that is the pair a person sets in one
+// breath (`tally model fable high`). The depth is read off the supervisor's per-pid session context
+// (SessionContext.swift `runningEffort`), which is what the live child was actually spawned with -
+// not the pin, which is a request the relaunch has not necessarily applied yet.
+check("the depth is the running reading, not the pinned one",
+      lineSource.contains("runningEffort = readSessionContext(pid: pidStr)?.runningEffort")
+          && !lineSource.contains("?.sessionEffort"))
+// FAIL-OPEN, LIKE EVERYTHING ELSE HERE: no depth means the model is printed exactly as it was
+// before this existed. A placeholder or a stray separator in that case is the defect this pins,
+// so the token is built by mapping over the depth rather than by interpolating an optional.
+check("an unknown depth leaves the model token untouched",
+      lineSource.contains("""
+    let modelToken = sessionModel.map { model in
+        runningEffort.map { "\\(model) \\(dim)\\($0)\\(reset)" } ?? model
+    }
+"""))
+// And the read is inside the liveness guard the other per-pid readings sit behind: a dead
+// supervisor's leftover file must not paint a depth this session is not running at.
+if let guardRange = lineSource.range(of: "supervisorAlive(pid) {"),
+   let readRange = lineSource.range(of: "readSessionContext(pid: pidStr)") {
+    check("the depth is only read while that supervisor is alive",
+          guardRange.upperBound < readRange.lowerBound)
+} else {
+    check("the depth is only read while that supervisor is alive", false)
+}
+
+// MARK: - The pool label, in the surface that still prints one
+
+// A model pool says WHICH pool it is, because the panel's gauge focus can re-point what a report
+// names and a bare "pool" flipping between budgets reads as a wrong number. Lower-cased, because
+// the rest of the report is.
 check("a model pool names itself", poolLabel("Fable") == "fable pool")
-check("a pool name is lower-cased into the row", poolLabel("OPUS") == "opus pool")
+check("a pool name is lower-cased into the report", poolLabel("OPUS") == "opus pool")
 check("the weekly pool is the unnamed one", poolLabel(nil) == "pool")
 
 // MARK: - The pool figure
 
-// The change this suite was written for: the slot shows the share of the pool still unspent, in the
-// same percent vocabulary as the 5h and 7d slots beside it. Accounts' worth stays in `tally status`
-// and the panel, where there is room to say what the units are.
+// The share of the pool still unspent, as a percent. It reads that way because it was born in the
+// status line's row beside two windows already quoted in percent; the row is gone and the reading
+// stays, since `tally status` prints it next to the same per-account percentages. Accounts' worth
+// stays in the panel, where there is room to say what the units are.
 check("a pool with 60 of 500 account-points left reads as a percent",
       poolRemainingFigure(remaining: 60, capacity: 500) == "12%")
 check("the figure carries no denominator any more",
       !poolRemainingFigure(remaining: 60, capacity: 500).contains("/"))
 check("a full pool is 100%", poolRemainingFigure(remaining: 200, capacity: 200) == "100%")
 check("a dry pool is 0%", poolRemainingFigure(remaining: 0, capacity: 200) == "0%")
-// Whole numbers only: this shares a row with three other figures and a custom status line.
+// Whole numbers only: the report line carries one of these per pool.
 check("a half point rounds rather than truncating",
       poolRemainingFigure(remaining: 25, capacity: 200) == "13%")
 check("and rounds down below the half",
@@ -42,15 +106,16 @@ check("and rounds down below the half",
 check("a fraction of a percent still shows as a percent",
       poolRemainingFigure(remaining: 1, capacity: 500) == "0%")
 // The caller filters these out; the guard exists because `Int(Double.infinity)` traps, which would
-// take the whole status line down rather than dropping one slot from it.
+// take the whole report down rather than dropping one pool from it.
 check("a pool with no capacity is a figure, not a crash",
       poolRemainingFigure(remaining: 5, capacity: 0) == "0%")
 
-// MARK: - The bar beside it
+// MARK: - The bar the figure was drawn beside
 
-// The meter and the figure now read the same ratio, which is the other half of the change: while the
+// The meter and the figure read the same ratio, which was the other half of that change: while the
 // figure was accounts' worth, a bar drawn from the percentage was the only thing in the slot the
-// number did not describe.
+// number did not describe. Kept as the rule for whoever draws a pool bar next - the app's gauge
+// draws one today - because it is the invariant, not the caller.
 func filledCells(_ remaining: Double, _ capacity: Double) -> Int {
     let cells = 6
     let pct = remaining / capacity * 100
@@ -63,23 +128,19 @@ check("an empty pool shows none", filledCells(0, 200) == 0)
 check("the figure agrees with the bar it sits beside",
       poolRemainingFigure(remaining: 100, capacity: 200) == "50%" && filledCells(100, 200) == 3)
 
-// MARK: - One figure for every human surface
+// MARK: - The one human surface that prints a pool
 
-// `tally status`'s fleet line reads the same way as the status line's pool slot, because the app is
-// where the accounts'-worth reading belongs (with the room to say what the units are). Neither
-// surface can be asked for its output here - one prints and exits, the other prints and returns
-// nothing - so the source carries the invariant, the same technique the supervisor suite uses for
-// its call-site rules. Run from the repo root (run-statusline-tests.sh cds there), and a missing
-// file FAILS rather than quietly passing.
+// `tally status`'s fleet line is now the only one, and it reads in percent for the reason above.
+// It cannot be asked for its output here (it prints and returns nothing), so the source carries the
+// invariant, the same technique the supervisor suite uses for its call-site rules. Run from the repo
+// root (run-statusline-tests.sh cds there), and a missing file FAILS rather than quietly passing.
 let statusSource = (try? String(contentsOfFile: "TallyCLI/main.swift", encoding: .utf8)) ?? ""
 check("the status source is readable from the status line checks", !statusSource.isEmpty)
 check("`tally status` prints the same pool figure",
       statusSource.contains("poolRemainingFigure(remaining: pool.remaining, capacity: pool.capacity)"))
 check("and the same pool label", statusSource.contains("poolLabel(pool.poolName)"))
-check("with no accounts'-worth formatting left in either human surface",
-      !statusSource.contains("%.1f/%d")
-          && !((try? String(contentsOfFile: "TallyCLI/Statusline.swift", encoding: .utf8)) ?? "")
-              .contains("%.1f/%d"))
+check("with no accounts'-worth formatting left in either CLI source",
+      !statusSource.contains("%.1f/%d") && !lineSource.contains("%.1f/%d"))
 // The machine-readable side is deliberately untouched: `status --json` carries the pool's raw
 // `remaining` and `capacity` in account-week units, which is a versioned additive contract scripts
 // read (pinned in tests/statusjson). A display change must never reach through to it.

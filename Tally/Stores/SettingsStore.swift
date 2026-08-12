@@ -257,7 +257,7 @@ final class SettingsStore {
         didSet {
             UserDefaults.standard.set(gaugeFocus.rawValue, forKey: "gaugeFocus")
             UsageStore.shared.onChange?()          // the AppKit strip repaints only on a nudge
-            UsageStore.shared.republishSnapshot()  // the status line's fleet follows the same focus
+            UsageStore.shared.republishSnapshot()  // the CLI's fleet line follows the same focus
         }
     }
 

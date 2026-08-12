@@ -53,7 +53,7 @@ extension UsageStore {
 
     /// The model name the display leads with for `providerID`, given the available model window
     /// names - the glue between the pure resolver and the app's stores. One resolution shared by
-    /// the fleet gauge, the menu-bar strip and the status line's fleet.
+    /// the fleet gauge, the menu-bar strip and the CLI's own fleet line.
     static func focusedModel(providerID: String, available: [String]) -> String? {
         FleetFocus.focusedModel(SettingsStore.shared.gaugeFocus,
                                 primaryModel: LaunchPolicyStore.shared.policy(providerID).model,
@@ -61,7 +61,7 @@ extension UsageStore {
                                 flagshipOrder: ModelCatalog.claudeAliases)
     }
 
-    /// The status line's fleet piece follows the SAME switch as the panel's gauge: published
+    /// `tally status`'s fleet line follows the SAME switch as the panel's gauge: published
     /// only while the gauge is on, and only for providers with a real pool (2+ accounts with a
     /// weekly window). Launch mode is deliberately irrelevant - one toggle, one meaning.
     ///
@@ -101,7 +101,7 @@ extension UsageStore {
             if let pool = summary.headline(focusedModel: focused), pool.kind != .session {
                 fleet[summary.providerID] = published(pool)
             }
-            // Mirrors FleetStripView.displayedPools, so the status line shows the same pools
+            // Mirrors FleetStripView.displayedPools, so `tally status` shows the same pools
             // as the panel: "all" renders every weekly-cycle pool in display order, the
             // single-pool modes just the focus-resolved headline.
             let ordered: [FleetPool]

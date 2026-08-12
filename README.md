@@ -141,11 +141,11 @@ subscriptions at once:
 - **Shell integration.** One click installs PATH shims so even bare `claude` / `codex` commands
   follow your launch policy; one click removes them just as cleanly.
 - **Status line integration.** Your Claude Code status line gains a purple ✦ Tally signal (this
-  session runs under Tally) and the active account name; opt in to the full quota line and it
-  carries the whole story in the app's own palette: meter bars, percents and reset countdowns
-  for the model tier this session is actually consuming, the 5-hour window, and the weekly
-  budget (the pooled fleet budget when the fleet gauge is on), following the panel's used/left
-  toggle. An existing custom status line keeps running untouched with Tally's line appended,
+  session runs under Tally), the active account name, and the model and effort this session is
+  running; opt in to the full quota line and it carries the whole story in the app's own
+  palette: meter bars, percents and reset countdowns for the 5-hour window and this account's
+  weekly budget, following the panel's used/left toggle. The pooled fleet view stays in the app
+  and in `tally status`, where there is room for it. An existing custom status line keeps running untouched with Tally's line appended,
   is restored byte-for-byte on removal, and keeps working even if you delete Tally without
   uninstalling.
 - **Claude Code skill.** One click drops a small skill into every Claude account's skills

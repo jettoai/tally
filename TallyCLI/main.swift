@@ -263,10 +263,11 @@ func runStatus(json: Bool = false) {
             print("\(marker) \(account.label): session \(fmt(account.sessionRemaining)) · " +
                   "weekly \(fmt(account.weeklyRemaining)) · model \(fmt(account.modelRemaining))\(state)")
         }
-        // The pooled cross-account view, same vocabulary and units as the status line's fleet
-        // zone: accounts' worth left per pool ("fable pool 0.0/2"), dry forecast or a
-        // sustainable tick. Present only while the app's fleet gauge is on; older snapshots
-        // carry only the single headline pool.
+        // The pooled cross-account view: the share of each pool still unspent ("fable pool 12%"),
+        // with a dry forecast or a sustainable tick. THE ONLY CLI SURFACE THAT PRINTS A POOL - the
+        // status line is a session reading (this account, this model, this account's windows), and
+        // this report is where somebody asks about the fleet. Present only while the app's fleet
+        // gauge is on; older snapshots carry only the single headline pool.
         let pools = (snapshot.fleetPools?[provider.id]
             ?? snapshot.fleet?[provider.id].map { [$0] } ?? [])
             .filter { $0.capacity > 0 }

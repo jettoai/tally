@@ -51,8 +51,17 @@ func runStatusline(args: [String]) -> Never {
     // than two lines that say it twice and land on top of the input box.
     var driftPiece: String?
     var noticePiece: String?
+    // The depth this session is running at, read off the same per-pid track as the two badges
+    // below (SessionContext.swift). The RUNNING reading, not the pin: `runningEffort` is the
+    // `--effort` the live child was actually spawned with, and a `tally model` that moves the pin
+    // rewrites those args and republishes before the next child starts - so this follows a depth
+    // change without predicting one. Absent (an unsupervised launch, a supervisor too old to
+    // publish it, the moment before the first tick) means "cannot say", and the line simply does
+    // not mention the depth: fail-open, like everything else here.
+    var runningEffort: String?
     if let pidStr = ProcessInfo.processInfo.environment["TALLY_SUPERVISOR_PID"],
        let pid = pid_t(pidStr), supervisorAlive(pid) {
+        runningEffort = readSessionContext(pid: pidStr)?.runningEffort
         if let drift = readDriftState(pid: pidStr) {
             // While a restore is queued the badge says what is about to happen, in the same
             // already-under-way voice as the supervisor's own update note: the session keeps working
@@ -95,12 +104,19 @@ func runStatusline(args: [String]) -> Never {
                              cwd: sessionJSON?["cwd"] as? String)
 
     var quota: [String] = []
-    var fleetPiece: String?
-    /// Identity slot 3: the session model, name only, every model the same shape. Its own
-    /// window's numbers live in the panel and the menu bar hover - the line stays ONE shape
-    /// (identity | 5h | pool), and under smart handoff the pool is the budget that binds
-    /// anyway, the same yield that removed the account's own 7d from the line.
-    let modelToken = sessionModel
+    /// Identity slot 3: the model this session is running, with the depth it runs at beside it -
+    /// name only, every model the same shape. The pair is what a person sets in one breath
+    /// (`tally model fable high`), so the line reports it in one; the depth is dim because the
+    /// model is the word being read and the depth qualifies it. No depth, no token of its own: an
+    /// unknown one is left unsaid rather than drawn as a gap or a placeholder.
+    ///
+    /// TWO SOURCES IN ONE TOKEN, worth saying out loud: the model is what Claude Code reports it
+    /// is rendering for (the session JSON below, which tracks a live switch or a degradation),
+    /// while the depth comes from the supervisor's own per-pid reading, the one channel here that
+    /// carries it. So the depth is as current as the last launch or relaunch of this session.
+    let modelToken = sessionModel.map { model in
+        runningEffort.map { "\(model) \(dim)\($0)\(reset)" } ?? model
+    }
     if problem == nil, let account = snapshot?.accounts.first(where: { $0.launchHome == home }) {
         let now = Date()
         // The number and bar follow the panel's used/remaining toggle; the tint always keys
@@ -130,35 +146,16 @@ func runStatusline(args: [String]) -> Never {
             }
             return text
         }
-        // The fleet piece: the provider's pools as ONE zone, each with its own label, the share
-        // of the pool still unspent, plus the pace forecast. Present only while the app's fleet
-        // gauge is on (same switch, same meaning; launch mode is deliberately irrelevant).
-        // `fleetPools` is the panel's own ordered pool list (gauge focus applied app-side), so
-        // the line shows every pool the gauge shows; a snapshot from an older app carries only
-        // the single headline pool.
-        let fleetPools = snapshot?.fleetPools?["claude"]
-            ?? snapshot?.fleet?["claude"].map { [$0] } ?? []
-        let poolPieces: [String] = fleetPools.filter { $0.capacity > 0 }.map { fleet in
-            let remainingPct = fleet.remaining / fleet.capacity * 100
-            let tint = tintFor(remainingPct)
-            let figure = poolRemainingFigure(remaining: fleet.remaining, capacity: fleet.capacity)
-            var text = "\(dim)\(poolLabel(fleet.poolName))\(reset) " +
-                "\(meter(remainingPct, tint)) \(tint)\(figure)\(reset)"
-            if let dryAt = fleet.dryAt, dryAt > now {
-                text += " \(dim)(~\(shortETA(dryAt.timeIntervalSince(now))))\(reset)"
-            } else if fleet.sustainable {
-                // "fleet ✓", not a bare ✓: a lone checkmark in the compact line read as ambiguous
-                // (sustainable WHAT?); this says the fleet as a whole sustains the current pace.
-                text += " \u{1B}[38;5;71mfleet ✓\(reset)"
-            }
-            return text
-        }
-        if !poolPieces.isEmpty { fleetPiece = poolPieces.joined(separator: " · ") }
-        // The account's own 7d yields to the fleet slot when the pool is shown: under smart
-        // handoff the pool IS the weekly budget, and two weekly numbers side by side confuse.
+        // THIS ACCOUNT'S OWN WINDOWS, BOTH OF THEM, ALWAYS. The line used to hand the 7d slot over
+        // to the fleet pool whenever the app's gauge was on, on the reasoning that under smart
+        // handoff the pool is the budget that binds. The pool is a FLEET reading and this line is
+        // a SESSION reading: what a person wants from the row under their prompt is the account
+        // they are on and how much of it is left, and the fleet view is the app's job - the menu
+        // bar and the panel draw it, with the room to say what its units are (owner ruling,
+        // 2026-08-12). Two slots, unconditional, so the row has one shape whatever the app's
+        // gauge is set to.
         quota = [piece("5h", account.sessionRemaining, account.sessionResetsAt),
-                 fleetPiece == nil
-                     ? piece("7d", account.weeklyRemaining, account.weeklyResetsAt) : nil]
+                 piece("7d", account.weeklyRemaining, account.weeklyResetsAt)]
             .compactMap { $0 }
     }
 
@@ -192,9 +189,9 @@ func runStatusline(args: [String]) -> Never {
         // width-padded first line can't be pushed out of shape.
         // Full-quota mode (opt-in via the app): the whole quota line joins on its OWN line
         // beneath the custom status line - for people who drop their own quota rendering and
-        // rely on Tally's. The line is ours, so the account always shows here. Three zones
-        // (identity | this account's windows | the fleet pool), separated by | so the
-        // single-account numbers and the whole-fleet number never read as one list.
+        // rely on Tally's. The line is ours, so the account always shows here. Two zones
+        // (identity | this account's windows), separated by | so the session's names and its
+        // numbers never read as one list.
         if snapshot?.statuslineFullQuota == true, !quota.isEmpty {
             // The session model always rides the identity, same fixed position for every
             // model - one grammar, no conditional homes. The custom line above may show a
@@ -203,7 +200,7 @@ func runStatusline(args: [String]) -> Never {
                                 "\(dim)\(label)\(reset)", modelToken]
                 .compactMap { $0 }
                 .joined(separator: " · ")
-            let richLine = [identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]
+            let richLine = [identityZone, quota.joined(separator: " · ")]
                 .filter { !$0.isEmpty }
                 .joined(separator: " \(dim)|\(reset) ")
             print(body.isEmpty ? richLine : "\(body)\n\(richLine)")
@@ -229,27 +226,29 @@ func runStatusline(args: [String]) -> Never {
     // same one-grammar rule as the wrapped rich line above.
     let identityZone = [identity.isEmpty ? nil : identity, modelToken].compactMap { $0 }
         .joined(separator: " · ")
-    print([identityZone, quota.joined(separator: " · "), fleetPiece ?? ""]
+    print([identityZone, quota.joined(separator: " · ")]
         .filter { !$0.isEmpty }
         .joined(separator: " \(dim)|\(reset) "))
     exit(0)
 }
 
-// MARK: - The fleet pool slot
+// MARK: - The fleet pool slot in `tally status`
+//
+// These two live here for where they came from - the status line used to carry a pool slot of its
+// own - and `tally status` is the one human surface left that prints a pool (main.swift). The
+// status line above is a SESSION reading now: this account, this model, this account's windows.
 
 /// What a pool slot is called. "pool", not "fleet": the DATA label matches the panel's own
 /// ("Weekly pool") - "fleet" stays the FEATURE's name (the gauge, the Settings toggle, the README).
-/// A model pool says WHICH ("fable pool"): the gauge focus can re-point this slot, and a bare "pool"
-/// flipping between budgets read as a wrong number (panel rule: pool names are always spelled out).
-///
-/// Shared with `tally status`'s own fleet line (main.swift), so the two surfaces cannot come to name
-/// the same pool differently.
+/// A model pool says WHICH ("fable pool"): the gauge focus can re-point what a report names, and a
+/// bare "pool" flipping between budgets read as a wrong number (panel rule: pool names are always
+/// spelled out).
 func poolLabel(_ poolName: String?) -> String {
     poolName.map { "\($0.lowercased()) pool" } ?? "pool"
 }
 
-/// The figure the CLI shows for a pool, in the status line and in `tally status` alike: how much of
-/// the WHOLE pool is still unspent, as a percent, rounded to a whole number.
+/// The figure `tally status` shows for a pool: how much of the WHOLE pool is still unspent, as a
+/// percent, rounded to a whole number.
 ///
 /// The pool's own units are accounts' worth (one account's full weekly window = 100), which is how
 /// `capacity` is expressed and what the app's own gauge draws. Reading that out as "0.6/5" needed
@@ -257,9 +256,6 @@ func poolLabel(_ poolName: String?) -> String {
 /// - so the one figure in the row that was not a percentage was also the one nobody could read at a
 /// glance. The share of capacity says the thing the row is for (how much is left) in the row's own
 /// vocabulary, and the app is where the accounts' worth is shown with the space to explain it.
-///
-/// The status line's bar beside it draws this exact ratio, so the two agree by construction rather
-/// than by coincidence.
 ///
 /// `status --json` keeps the raw `remaining`/`capacity` untouched: that is a versioned, additive
 /// contract read by scripts, and the units are part of it. This is the human reading.

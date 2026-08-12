@@ -131,7 +131,7 @@ extension PopoverRootView {
     }
 
     /// The column's disclosure header. The level shown is the LEADING pool's - the same number the
-    /// menu bar and the status line lead with - and the bar directly under it is that pool's, so
+    /// menu bar leads with - and the bar directly under it is that pool's, so
     /// the pairing reads in the normal top-down order; every other pool is named on its own context
     /// line. Whole row is the fold target, exactly like the rows' leading line.
     private func columnHeader(_ summary: FleetSummary, _ leading: FleetPool) -> some View {

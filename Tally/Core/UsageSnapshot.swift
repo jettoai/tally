@@ -59,7 +59,7 @@ struct UsageSnapshot: Codable {
     /// The panel's used/remaining toggle ("used" | "remaining") - the status line follows it.
     var displayMode: String?
     /// Per-provider fleet pool summary (published only while the fleet gauge is on and the
-    /// provider has 2+ accounts) - the status line's fleet piece renders from this. Units match
+    /// provider has 2+ accounts) - `tally status`'s fleet line renders from this. Units match
     /// FleetPool: one account's full weekly window = 100.
     struct Fleet: Codable {
         var remaining: Double
@@ -68,14 +68,14 @@ struct UsageSnapshot: Codable {
         var dryAt: Date?
         var sustainable: Bool
         /// Which pool this is when the gauge focus leads with a model pool ("Fable"); nil = the
-        /// weekly pool. The status line names the pool from this - the bare word "pool" silently
+        /// weekly pool. The CLI names the pool from this - the bare word "pool" silently
         /// changing meaning with the focus read as a wrong number. Added in 0.16.1 (optional, so
         /// older CLIs decode fine - the snapshot schema only ever gains fields).
         var poolName: String?
     }
     var fleet: [String: Fleet]?
     /// The panel's ordered pool list per provider (gauge focus applied app-side): every pool the
-    /// fleet gauge shows, leading pool first - so the status line renders the same pools as the
+    /// fleet gauge shows, leading pool first - so `tally status` reports the same pools as the
     /// panel instead of just the headline. Added in 0.17 (optional; `fleet` keeps publishing the
     /// single headline pool for older CLIs - the snapshot schema only ever gains fields).
     var fleetPools: [String: [Fleet]]?

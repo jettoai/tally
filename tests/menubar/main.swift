@@ -194,9 +194,14 @@ do {
            "per-account: dimming stays per account")
 }
 
-// 11. An account that failed its FIRST fetch (no last-good numbers) is not in the pool, and the
-// badge follows the gauge's own ×N rather than the raw account count - the two surfaces count one
-// fleet one way.
+// 11. AN ACCOUNT MISSING FROM THE POOL STAYS VISIBLE. One that failed its first fetch has no
+// last-good numbers, so `FleetMath` never sees it and the average is over the survivors.
+//
+// This case used to assert the opposite and call it a contract - "the badge counts the accounts the
+// gauge counts" - which made the hole invisible on every surface at once: the badge counted only
+// the contributors and nothing dimmed, so two accounts with one dead read as ONE healthy account,
+// while the same data in the per-account layout showed a "!" segment (codex review, 2026-08-12).
+// The pool may be short; it may not look complete and fresh while it is.
 do {
     let partial = [
         account("c1", metrics: [metric(.weeklyAll, used: 40)]),
@@ -204,8 +209,32 @@ do {
         account("c3", metrics: [], error: "boom"),
     ]
     let segment = pooled(partial)[0]
-    expect(segment.badge == 2, "pooled: the badge counts the accounts the gauge counts")
+    expect(segment.badge == 3, "pooled: the badge counts every account the segment stands for")
+    expect(segment.dimmed, "pooled: a member missing from the pool dims the segment")
     expect(segment.lines == ["50%"], "pooled: an account with no numbers is not averaged in")
+    // The two-account fleet is the case that vanished completely: a badge of 1 is no badge at all.
+    let pair = [account("c1", metrics: [metric(.weeklyAll, used: 40)]),
+                account("c2", metrics: [], error: "boom")]
+    let short = pooled(pair)[0]
+    expect(short.badge == 2, "pooled: two accounts with one dead still read as two")
+    expect(short.dimmed, "pooled: …dimmed, because the figure is one account's, not two")
+    expect(short.lines == ["60%"], "pooled: …over the one account that reported")
+    // What the hover is told, decided here so the two surfaces cannot disagree about who is out.
+    expect(MenuBarSegments.missingFromPool(pair).map { $0.count } == 1
+           && MenuBarSegments.missingFromPool(pair)?.reason == "boom",
+           "pooled: the hover gets how many are missing and why")
+    expect(MenuBarSegments.missingFromPool(partial).map { $0.count } == 1,
+           "pooled: …counted, not just flagged")
+    expect(MenuBarSegments.missingFromPool([account("c1", metrics: [metric(.weeklyAll, used: 40)]),
+                                            account("c2", metrics: [metric(.weeklyAll, used: 60)])])
+            == nil,
+           "pooled: a whole fleet has nothing missing to report")
+    // A STALE member is not missing - its last-good numbers are in the average, and the hover
+    // already has a word for that state ("Outdated"). Reporting it as failed would double-count it.
+    expect(MenuBarSegments.missingFromPool([
+        account("c1", metrics: [metric(.weeklyAll, used: 40)], error: "boom", stale: true),
+        account("c2", metrics: [metric(.weeklyAll, used: 60)])]) == nil,
+           "pooled: a stale member is outdated, not missing")
 }
 
 // 12. Per-account regression: the error mark, and a stale account keeping its numbers.

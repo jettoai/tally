@@ -88,17 +88,17 @@ extension UsageStore {
     }
 
     /// One line per provider: the fleet and its pooled windows ("Claude ×5: Session 41% · …"). The
-    /// ×N is the gauge's own way of naming a fleet size, and the pools come from the same selection
-    /// the segments are built from, so the hover can never name a window the strip is not showing.
+    /// ×N counts every account the segment stands for (the badge's own count, not the pool's), and
+    /// the pools come from the same selection the segments are built from, so the hover can never
+    /// name a window the strip is not showing. Whoever is missing from those figures is named at
+    /// the end - the strip can only say that something is off by dimming.
     private var pooledTooltip: String {
         let mode = SettingsStore.shared.displayMode
         let byProvider = Dictionary(menuBarPools.map { ($0.providerID, $0) },
                                     uniquingKeysWith: { first, _ in first })
         return MenuBarSegments.providerGroups(orderedAccounts).map { providerID, members in
-            let name = ProviderCatalog.displayName(for: providerID)
-            let summary = byProvider[providerID]
-            let head = "\(name) ×\(summary?.accountCount ?? members.count)"
-            guard let summary else {
+            let head = "\(ProviderCatalog.displayName(for: providerID)) ×\(members.count)"
+            guard let summary = byProvider[providerID] else {
                 // No pool means no metrics to pool; the accounts' own error is the answer.
                 return "\(head): \(members.compactMap(\.error).first ?? "—")"
             }
@@ -107,7 +107,19 @@ extension UsageStore {
                 return "\(L(pool.label)) \(Int(value.rounded()))%"
             }
             let stale = members.contains(where: \.isStale) ? " (\(L("Outdated")))" : ""
-            return "\(head): \(parts.joined(separator: " · "))\(stale)"
+            return "\(head): \(parts.joined(separator: " · "))\(stale)\(Self.missingNote(members))"
         }.joined(separator: "\n")
+    }
+
+    /// " · 1 failed: <reason>" for the accounts that contributed nothing to the pool, empty when
+    /// every member is in. Without it the ×N counts an account the figures do not, and the only
+    /// other sign is a dimmed segment that could equally mean "outdated".
+    private static func missingNote(_ members: [AccountUsage]) -> String {
+        guard let missing = MenuBarSegments.missingFromPool(members) else { return "" }
+        // The count interpolated as a String on purpose: an Int makes the catalog key "%lld …",
+        // which matches no entry and silently renders the English source in every other language
+        // (the fleet tooltip's capacity line states the whole trap, FleetStripView.swift).
+        return " · " + String(localized: "\(String(missing.count)) failed: \(missing.reason)",
+                              bundle: AppLocale.bundle)
     }
 }

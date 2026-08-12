@@ -104,27 +104,49 @@ enum MenuBarSegments {
         let byProvider = Dictionary(summaries.map { ($0.providerID, $0) },
                                     uniquingKeysWith: { first, _ in first })
         return providerGroups(accounts).map { providerID, members in
+            let missing = missingFromPool(members)
+            // How many accounts this segment STANDS FOR - every account the provider has, not how
+            // many made it into the pool. Counting only the contributors is what let a hole read as
+            // a whole fleet: two accounts with one dead came back as `1`, which is no badge at all,
+            // so the strip showed a healthy single account (codex review, 2026-08-12).
+            let badge = members.count > 1 ? members.count : nil
             guard let summary = byProvider[providerID] else {
-                let failed = members.allSatisfy { $0.error != nil && !$0.isStale }
-                return MenuBarSegment(providerID: providerID, lines: [failed ? "!" : "—"],
-                                      dimmed: false,
-                                      badge: members.count > 1 ? members.count : nil)
+                return MenuBarSegment(providerID: providerID,
+                                      lines: [missing?.count == members.count ? "!" : "—"],
+                                      dimmed: false, badge: badge)
             }
             let lines = pools(summary, focusedModel: focusedModel).map {
-                // The pool's average, exactly as the gauge's value column reads it: remaining by
-                // default, and in Used mode the complement of the same average - never a second
-                // arithmetic that could round the other way.
+                // The pool's average, read the way the gauge's value column reads it: remaining by
+                // default, its complement in Used mode. Both surfaces clamp where a per-account
+                // meter does not - an account the provider reports at 103% used prints 103% on its
+                // own segment and 100% in a pool, because `remainingPercent` floors at zero before
+                // anything is averaged.
                 percent(used: 100 - $0.averageRemaining, remaining: $0.averageRemaining, mode: mode)
             }
             return MenuBarSegment(
                 providerID: providerID, lines: lines.isEmpty ? ["—"] : lines,
-                // ANY member stale dims the segment: the pooled figure has that account's
-                // last-good numbers inside it, and a bright segment would claim they are fresh.
-                dimmed: members.contains(where: \.isStale),
-                // The fleet size the gauge's own label states (×N), so the two surfaces cannot
-                // count the same fleet two ways.
-                badge: summary.accountCount > 1 ? summary.accountCount : nil)
+                // Either way a pooled figure stops being the whole truth dims the segment. A STALE
+                // member's last-good numbers are inside the average; a member missing from the pool
+                // has no numbers in it at all while the badge still counts it. A bright segment
+                // would claim both away, and the badge alone cannot tell them apart - so the strip
+                // says "not the whole truth" and the tooltip says which.
+                dimmed: missing != nil || members.contains(where: \.isStale),
+                badge: badge)
         }
+    }
+
+    /// The members whose numbers are missing from the pool ENTIRELY: accounts whose fetch failed
+    /// before they ever had a good snapshot to fall back on (`AccountUsage.failure` carries no
+    /// metrics), so `FleetMath` never saw them and the average is over the survivors. Answers how
+    /// many and why the first of them did - the two facts the hover needs; the wording stays with
+    /// the view that owns localization, the way `FleetTooltip` splits the same job.
+    ///
+    /// A STALE member is deliberately not one of these: its last-good numbers ARE in the average.
+    /// That is a different reading and the panel already has a word for it ("Outdated").
+    static func missingFromPool(_ members: [AccountUsage]) -> (count: Int, reason: String)? {
+        let failed = members.filter { $0.error != nil && !$0.isStale }
+        guard let reason = failed.first?.error else { return nil }
+        return (failed.count, reason)
     }
 
     /// The providers present in these accounts, each with its own accounts, in the accounts'

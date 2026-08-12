@@ -22,10 +22,6 @@ extension UsageStore {
         return .noAccounts
     }
 
-    /// Per-account segments for the menu-bar strip. Each account shows its account-wide windows -
-    /// session (5h) on top, weekly below - not a single exhausted model tier (a used-up Fable at 0%
-    /// would read as "the whole account is dead" when session/weekly still have room). Every account
-    /// gets its own segment/mark, so N accounts read as N marks. Model-tier detail stays in the popover.
     /// Accounts in the user's custom drag-reordered order (falls back to discovery order).
     var orderedAccounts: [AccountUsage] {
         let order = SettingsStore.shared.orderedAccountIDs(accounts.map(\.id))
@@ -33,63 +29,85 @@ extension UsageStore {
         return order.compactMap { byID[$0] }
     }
 
-    var menuBarSegments: [MenuBarSegment] {
-        let shown = orderedAccounts.filter { SettingsStore.shared.isShownInMenuBar($0.id) }
-        let mode = SettingsStore.shared.displayMode
-        // Same-provider accounts are visually identical marks, so number them (1, 2, …) - the one
-        // piece of identity the strip needs. A lone account gets no badge.
-        let providerCounts = Dictionary(grouping: shown, by: \.providerID).mapValues(\.count)
-        var runningIndex: [String: Int] = [:]
-        return shown.map { account in
-            let index: Int? = (providerCounts[account.providerID] ?? 0) > 1
-                ? { runningIndex[account.providerID, default: 0] += 1
-                    return runningIndex[account.providerID] }()
-                : nil
-            if account.error != nil && !account.isStale {
-                return MenuBarSegment(providerID: account.providerID, lines: ["!"],
-                                      dimmed: false, accountIndex: index)
-            }
-            let lines = Self.menuBarMetrics(account).map { metric -> String in
-                let value = mode == .used ? metric.usedPercent : metric.remainingPercent
-                return "\(Int(value.rounded()))%"
-            }
-            return MenuBarSegment(providerID: account.providerID,
-                                  lines: lines.isEmpty ? ["—"] : lines,
-                                  dimmed: account.isStale, accountIndex: index)
+    /// The accounts the PER-ACCOUNT strip may show: the display order minus the ones switched off
+    /// in the Settings list's menu-bar column. That switch picks which marks stand in the bar, a
+    /// question the pooled layout does not ask - there the segment is the provider's whole budget,
+    /// and quietly leaving a member out would print a figure no other surface shows.
+    private var menuBarAccounts: [AccountUsage] {
+        orderedAccounts.filter { SettingsStore.shared.isShownInMenuBar($0.id) }
+    }
+
+    /// The pools the POOLED strip sums: `FleetMath` over the same accounts the panel's fleet gauge
+    /// reads, in the same order, differing only in `minMembers: 1` - which adds pools of one (a
+    /// single-account provider, whose segment would otherwise have nothing to show) without
+    /// touching any pool the gauge itself draws.
+    private var menuBarPools: [FleetSummary] {
+        FleetMath.summaries(accounts: orderedAccounts, minMembers: 1) { usage in
+            SettingsStore.shared.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
         }
     }
 
-    /// Hovering the status item names every account with its numbers - the identity that can't fit in
-    /// the strip itself. Doubles as the strip image's VoiceOver description.
-    var menuBarTooltip: String {
-        let shown = orderedAccounts.filter { SettingsStore.shared.isShownInMenuBar($0.id) }
+    /// The strip's segments, in whichever layout the user picked (`MenuBarLayout`). Both are built
+    /// in `MenuBarSegments`; this is only the wiring that hands them the stores' answers.
+    var menuBarSegments: [MenuBarSegment] {
         let mode = SettingsStore.shared.displayMode
-        return shown.map { account in
+        switch SettingsStore.shared.menuBarLayout {
+        case .perAccount:
+            return MenuBarSegments.perAccount(menuBarAccounts, mode: mode,
+                                              focusedModel: Self.focusedModel)
+        case .pooled:
+            return MenuBarSegments.pooled(orderedAccounts, summaries: menuBarPools, mode: mode,
+                                          focusedModel: Self.focusedModel)
+        }
+    }
+
+    /// Hovering the status item spells out what the marks cannot - which accounts, and what each
+    /// number sums. Doubles as the strip image's VoiceOver description.
+    var menuBarTooltip: String {
+        switch SettingsStore.shared.menuBarLayout {
+        case .perAccount: return perAccountTooltip
+        case .pooled: return pooledTooltip
+        }
+    }
+
+    /// One line per account: its name and its windows.
+    private var perAccountTooltip: String {
+        let mode = SettingsStore.shared.displayMode
+        return menuBarAccounts.map { account in
             let label = SettingsStore.shared.displayLabel(accountID: account.id,
                                                           fallback: account.accountLabel)
             if let error = account.error, !account.isStale { return "\(label): \(error)" }
-            let parts = Self.menuBarMetrics(account).map { metric in
-                let value = mode == .used ? metric.usedPercent : metric.remainingPercent
-                return "\(L(metric.label)) \(Int(value.rounded()))%"
-            }
+            let parts = MenuBarSegments.metrics(account, focusedModel: Self.focusedModel)
+                .map { metric in
+                    let value = mode == .used ? metric.usedPercent : metric.remainingPercent
+                    return "\(L(metric.label)) \(Int(value.rounded()))%"
+                }
             let stale = account.isStale ? " (\(L("Outdated")))" : ""
             return "\(label): \(parts.joined(separator: " · "))\(stale)"
         }.joined(separator: "\n")
     }
 
-    /// The strip's stacked numbers: session (5h) first, then the FOCUSED weekly window - the
-    /// model window the gauge focus resolves to (e.g. Fable), or the account-wide weekly when no
-    /// model focus applies. Same resolution as the fleet gauge, so the number in the menu bar is
-    /// the number on the gauge. Falls back to all metrics when neither window exists.
-    private static func menuBarMetrics(_ account: AccountUsage) -> [UsageMetric] {
-        let session = account.metrics.filter { $0.kind == .session }
-        let modelNames = account.metrics
-            .filter { $0.kind == .weeklyModel }.map { $0.modelName ?? $0.label }
-        let focused = focusedModel(providerID: account.providerID, available: modelNames)
-        let weekly = focused.flatMap { name in
-            account.metrics.first { $0.kind == .weeklyModel && ($0.modelName ?? $0.label) == name }
-        } ?? account.metrics.first { $0.kind == .weeklyAll }
-        let picked = session + [weekly].compactMap { $0 }
-        return picked.isEmpty ? account.metrics : picked
+    /// One line per provider: the fleet and its pooled windows ("Claude ×5: Session 41% · …"). The
+    /// ×N is the gauge's own way of naming a fleet size, and the pools come from the same selection
+    /// the segments are built from, so the hover can never name a window the strip is not showing.
+    private var pooledTooltip: String {
+        let mode = SettingsStore.shared.displayMode
+        let byProvider = Dictionary(menuBarPools.map { ($0.providerID, $0) },
+                                    uniquingKeysWith: { first, _ in first })
+        return MenuBarSegments.providerGroups(orderedAccounts).map { providerID, members in
+            let name = ProviderCatalog.displayName(for: providerID)
+            let summary = byProvider[providerID]
+            let head = "\(name) ×\(summary?.accountCount ?? members.count)"
+            guard let summary else {
+                // No pool means no metrics to pool; the accounts' own error is the answer.
+                return "\(head): \(members.compactMap(\.error).first ?? "—")"
+            }
+            let parts = MenuBarSegments.pools(summary, focusedModel: Self.focusedModel).map { pool in
+                let value = mode == .used ? 100 - pool.averageRemaining : pool.averageRemaining
+                return "\(L(pool.label)) \(Int(value.rounded()))%"
+            }
+            let stale = members.contains(where: \.isStale) ? " (\(L("Outdated")))" : ""
+            return "\(head): \(parts.joined(separator: " · "))\(stale)"
+        }.joined(separator: "\n")
     }
 }

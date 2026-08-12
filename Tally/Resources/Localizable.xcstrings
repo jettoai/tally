@@ -10173,6 +10173,93 @@
           }
         }
       }
+    },
+    "Menu bar shows": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選單列顯示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单栏显示"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバー表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대 표시"
+          }
+        }
+      }
+    },
+    "Pool": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合計"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合计"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合計"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "합산"
+          }
+        }
+      }
+    },
+    "Pooled sums each provider's accounts into one segment, like the fleet gauge.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合計會把同一供應商的帳號併成一段，與機隊量表相同。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合计会把同一提供商的账号并成一段，与机队量表相同。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合計はプロバイダーごとのアカウントを1つにまとめ、フリートゲージと同じ値を表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "합산은 제공자별 계정을 한 구간으로 묶어 플릿 게이지와 같은 값을 보여줍니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -132,108 +132,15 @@ struct SettingsView: View {
                 .fill(.quaternary.opacity(0.5)))
     }
 
-    private var rowDivider: some View {
+    /// The row chrome every pane shares. Not private: the Display pane lives in its own file
+    /// (SettingsDisplayPane.swift) and `private` in Swift is file-scoped - copying these per file
+    /// is how two panes end up with rows that no longer line up.
+    var rowDivider: some View {
         Divider().padding(.leading, 14)
     }
 
-    // MARK: Display
 
-    @ViewBuilder
-    private var displayRows: some View {
-        HStack {
-            Text(L("Meters show")).font(.subheadline)
-            Spacer()
-            // Used before Left, matching the panel footer's toggle (which itself mirrors the
-            // meters' geometry: the used portion fills from the track's left edge).
-            Picker("", selection: $settings.displayMode) {
-                Text(L("Used")).tag(DisplayMode.used)
-                Text(L("Left")).tag(DisplayMode.remaining)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-
-        rowDivider
-
-        HStack {
-            Text(L("Panel density")).font(.subheadline)
-            Spacer()
-            // The pane's own segmented control, matching the "Meters show" row above it rather than
-            // the panel's neutral one: this window has no glass for that variant to be quiet
-            // against, and two segmented shapes in one column would read as two kinds of control.
-            Picker("", selection: $settings.panelDensity) {
-                Text(L("Cards")).tag(PanelDensity.cards)
-                Text(L("List")).tag(PanelDensity.list)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-
-        rowDivider
-
-        HStack {
-            Text(L("Panel columns")).font(.subheadline)
-            Spacer()
-            // The same layout tiles the panel's view options show, editing the same per-density
-            // count (`densityColumns`): one control, so the two places that set the column count
-            // cannot describe it two ways, and each density keeps its own number.
-            LayoutColumnPicker(selection: $settings.densityColumns,
-                               maxColumns: settings.densityMaxColumns)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-
-        rowDivider
-
-        // Next to the column count: both settings answer "how are the cards laid out", and the
-        // panel's view options carry the same pair behind one footer icon.
-        toggleRow(L("Group by provider"),
-                  subtitle: L("Cards sit in a section per provider instead of one continuous grid."),
-                  isOn: $settings.groupByProvider)
-
-        // Only shown when some account actually reports more than one model-scoped window -
-        // otherwise the toggle is a visual no-op (Anthropic currently reports a single Fable
-        // window, which is the always-visible headline) that just invites "is this broken?".
-        if store.accounts.contains(where: { $0.metrics.filter(\.isModelScoped).count > 1 }) {
-            rowDivider
-
-            toggleRow(L("Show every model tier"),
-                      subtitle: L("Off shows only the highest-tier model at a glance."),
-                      isOn: $settings.showAllModels)
-        }
-
-        rowDivider
-
-        toggleRow(L("Fleet gauge"),
-                  subtitle: L("One bar per provider summing the weekly quota across accounts, with a pace forecast."),
-                  isOn: $settings.showFleetGauge)
-
-        rowDivider
-
-        toggleRow(L("Usage advisor"),
-                  subtitle: L("A one-line verdict per provider: at your pace, do you need another account?"),
-                  isOn: $settings.showAdvisor)
-
-        rowDivider
-
-        toggleRow(L("Glass pinned panel"),
-                  subtitle: L("The pinned panel shows the desktop through frosted glass."),
-                  isOn: $settings.isPanelTranslucent)
-
-        // Language and refresh cadence live here too: language decides what you read, the
-        // interval decides how fresh it is - and a two-row General pane buried both.
-        rowDivider
-
-        generalRows
-    }
-
-    private func toggleRow(_ title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
+    func toggleRow(_ title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.subheadline)
@@ -246,49 +153,6 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-    }
-
-    // MARK: General
-
-    @ViewBuilder
-    private var generalRows: some View {
-        HStack {
-            Text(L("Language")).font(.subheadline)
-            Spacer()
-            Picker("", selection: Binding(
-                get: { settings.languageOverride ?? "" },
-                set: { settings.languageOverride = $0.isEmpty ? nil : $0 }
-            )) {
-                Text(L("System")).tag("")
-                ForEach(AppLocale.supported, id: \.self) { code in
-                    Text(languageName(code)).tag(code)
-                }
-            }
-            .labelsHidden()
-            .fixedSize()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-
-        rowDivider
-
-        HStack {
-            Text(L("Refresh every")).font(.subheadline)
-            Spacer()
-            Picker("", selection: $settings.refreshIntervalMinutes) {
-                // Short intervals are safe now that reads go through the providers' own CLIs
-                // (first-party identity → the generous rate-limit bucket; Tally's old direct reads
-                // 429'd at 1 min). Each poll spawns the CLIs, so 1 min costs a few seconds of
-                // background CPU per tick - the user's call.
-                ForEach([1, 2, 5, 15], id: \.self) { minutes in
-                    Text(String(localized: "\(minutes) min", bundle: AppLocale.bundle)).tag(minutes)
-                }
-            }
-            .labelsHidden()
-            .fixedSize()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
     }
 
     // MARK: Integrations - everything Tally installs outside its bundle (tracked & reversible).
@@ -486,14 +350,4 @@ struct SettingsView: View {
         SettingsUpdateRows()
     }
 
-    private func languageName(_ code: String) -> String {
-        switch code {
-        case "en": return "English"
-        case "zh-Hant": return "繁體中文"
-        case "zh-Hans": return "简体中文"
-        case "ja": return "日本語"
-        case "ko": return "한국어"
-        default: return code
-        }
-    }
 }

@@ -1,19 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// One account's compact readout in the menu-bar strip: its provider's brand mark + the account-wide
-/// windows (5h session on top, weekly below) stacked. Every account gets its own mark, so N accounts
-/// read as N marks.
-struct MenuBarSegment: Sendable {
-    var providerID: String
-    var lines: [String]        // account-wide window percents, session then weekly; ["!"]/["—"] for error/no-data
-    var dimmed: Bool           // stale (last-good shown after a failed refresh)
-    var accountIndex: Int?     // 1-based badge when the same provider has several accounts; nil otherwise
-}
-
-/// The menu-bar strip, drawn as a single SwiftUI view rendered to a template `NSImage`. Each account
-/// is `mark + stacked percents`; same-provider accounts sit close, different providers spaced further,
-/// so a glance reads how many accounts and how each stands. Monochrome + `isTemplate` tints it.
+/// The menu-bar strip, drawn as a single SwiftUI view rendered to a template `NSImage`. Each segment
+/// is `mark + stacked percents`; same-provider segments sit close, different providers spaced further,
+/// so a glance reads how the fleet stands. Monochrome + `isTemplate` tints it. What each segment
+/// stands for - one account or one provider's pool - is decided in `MenuBarSegments`.
 private struct MenuBarStripView: View {
     let segments: [MenuBarSegment]
     /// Snapshot rendering overrides: the README shot drops the DEV tag and draws white-on-dark
@@ -41,10 +32,11 @@ private struct MenuBarStripView: View {
                 HStack(spacing: 4) {
                     icon(segment.providerID)
                         .overlay(alignment: .bottomTrailing) {
-                            // Same-provider accounts share one mark - a tiny corner digit is the only
-                            // identity the strip carries; the full names live in the tooltip.
-                            if let index = segment.accountIndex {
-                                Text("\(index)")
+                            // Identical marks share one glyph - a tiny corner digit is the only
+                            // identity the strip carries (which account, or how many accounts the
+                            // pool sums); the full story lives in the tooltip.
+                            if let badge = segment.badge {
+                                Text("\(badge)")
                                     .font(.system(size: 7, weight: .heavy))
                                     .offset(x: 3.5, y: 1.5)
                             }
@@ -103,7 +95,7 @@ enum MenuBarStripRenderer {
     @MainActor
     static func stripImage(_ segments: [MenuBarSegment]) -> NSImage? {
         let signature = segments
-            .map { "\($0.providerID):\($0.lines.joined(separator: "/")):\($0.dimmed):\($0.accountIndex ?? 0)" }
+            .map { "\($0.providerID):\($0.lines.joined(separator: "/")):\($0.dimmed):\($0.badge ?? 0)" }
             .joined(separator: "|")
         if signature == lastSignature, let image = lastImage { return image }
 

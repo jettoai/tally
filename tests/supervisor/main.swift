@@ -589,7 +589,9 @@ let cjkAllowances: [String: [String]] = [
     "Tally/Core/AppLocale.swift": ["預設當地 locale"],
     "Tally/Providers/Claude/ClaudeProvider.swift": ["不在範圍"],
     "Tally/Providers/ProviderModels.swift": ["預設顯示最高級模型"],
-    "Tally/Views/SettingsView.swift": ["繁體中文", "简体中文", "日本語", "한국어"],
+    // The language picker's own option names, which stay in their own language by definition.
+    // They moved here with the Display pane when SettingsView.swift reached the 500-line cap.
+    "Tally/Views/SettingsDisplayPane.swift": ["繁體中文", "简体中文", "日本語", "한국어"],
     "Tally/Views/TokenActivityHeatmapView.swift": ["週一"],
 ]
 

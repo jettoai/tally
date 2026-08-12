@@ -55,6 +55,16 @@ final class SettingsStore {
         }
     }
 
+    /// One menu-bar segment per account, or one per provider summing its accounts (see
+    /// `MenuBarLayout`).
+    var menuBarLayout: MenuBarLayout {
+        didSet {
+            UserDefaults.standard.set(menuBarLayout.rawValue, forKey: "menuBarLayout")
+            // The strip is AppKit - it repaints on `onChange`, not through SwiftUI observation.
+            UsageStore.shared.onChange?()
+        }
+    }
+
     /// Show every model-scoped window, or just the highest-tier headline (default).
     var showAllModels: Bool {
         didSet { UserDefaults.standard.set(showAllModels, forKey: "showAllModels") }
@@ -260,6 +270,8 @@ final class SettingsStore {
         menuBarHiddenAccounts = Set(defaults.stringArray(forKey: "menuBarHiddenAccounts") ?? [])
         disabledAccounts = Set(defaults.stringArray(forKey: "disabledAccounts") ?? [])
         displayMode = DisplayMode(rawValue: defaults.string(forKey: "displayMode") ?? "") ?? .remaining
+        menuBarLayout = MenuBarLayout(rawValue: defaults.string(forKey: "menuBarLayout") ?? "")
+            ?? .perAccount
         showAllModels = defaults.object(forKey: "showAllModels") as? Bool ?? false
         // Default 5 minutes: a public-friendly default - each poll spawns the provider CLIs, so
         // faster ticks trade background CPU for freshness. Users can go down to 1 min (reads run

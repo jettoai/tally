@@ -137,7 +137,14 @@ enum FleetFocus {
 enum FleetMath {
     /// Summaries in the accounts' display order. `label` maps an account to its display name
     /// (the user's nickname), injected so this stays free of store dependencies.
-    static func summaries(accounts: [AccountUsage], now: Date = Date(),
+    ///
+    /// `minMembers` is how many accounts a window needs before it is worth pooling. Two on the
+    /// panel, where a pool of one is just that account's own card standing right below it. The
+    /// menu bar's pooled strip asks for ONE, because there a pool is the only reading a
+    /// single-account provider gets. It changes nothing about the arithmetic or about who is in a
+    /// pool - the members of a class are every account reporting it either way - so every pool the
+    /// panel draws comes back from a `minMembers: 1` pass identical, member for member.
+    static func summaries(accounts: [AccountUsage], now: Date = Date(), minMembers: Int = 2,
                           label: (AccountUsage) -> String) -> [FleetSummary] {
         var providerOrder: [String] = []
         var groups: [String: [AccountUsage]] = [:]
@@ -146,13 +153,14 @@ enum FleetMath {
             groups[account.providerID, default: []].append(account)
         }
         return providerOrder.compactMap { providerID in
-            guard let members = groups[providerID], members.count >= 2 else { return nil }
+            guard let members = groups[providerID], members.count >= minMembers else { return nil }
             var pools: [FleetPool] = []
             for kind in [MetricKind.session, .weeklyAll] {
                 let entries = members.compactMap { account in
                     account.metrics.first { $0.kind == kind }.map { (account, $0) }
                 }
-                if let pool = pool(kind: kind, entries: entries, now: now, label: label) {
+                if let pool = pool(kind: kind, entries: entries, now: now, minMembers: minMembers,
+                                   label: label) {
                     pools.append(pool)
                 }
             }
@@ -164,7 +172,7 @@ enum FleetMath {
             let byModel = Dictionary(grouping: modelEntries) { $0.1.modelName ?? $0.1.label }
             for name in byModel.keys.sorted() {
                 if let pool = pool(kind: .weeklyModel, entries: byModel[name]!, now: now,
-                                   label: label) {
+                                   minMembers: minMembers, label: label) {
                     pools.append(pool)
                 }
             }
@@ -173,11 +181,12 @@ enum FleetMath {
         }
     }
 
-    /// One pooled window class, or nil when fewer than two accounts share it (a "pool" of one is
-    /// just that account's own meter, already on its card).
+    /// One pooled window class, or nil when fewer than `minMembers` accounts share it (on the
+    /// panel, a "pool" of one is just that account's own meter, already on its card).
     private static func pool(kind: MetricKind, entries: [(AccountUsage, UsageMetric)], now: Date,
+                             minMembers: Int,
                              label: (AccountUsage) -> String) -> FleetPool? {
-        guard entries.count >= 2 else { return nil }
+        guard entries.count >= minMembers, !entries.isEmpty else { return nil }
         let members = entries.map { account, metric in
             FleetPool.Member(accountLabel: label(account), remaining: metric.remainingPercent,
                              severity: metric.severity, resetsAt: metric.resetsAt)

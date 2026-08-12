@@ -164,22 +164,35 @@ func pinnedLaunchHome(_ snapshot: Snapshot?, policy: LaunchPolicy) -> String? {
 /// One usage window with its sustainable burn rate: how much quota per hour it can spend until
 /// it refreshes. A window about to reset stops being a constraint (its rate soars, and its
 /// leftover quota would evaporate unused) - the "burn the dying quota first" intuition; a window
-/// with days to go binds hard. Missing reset times assume a full window, so old snapshots
-/// degrade to plain headroom ordering instead of gaining a phantom advantage.
+/// with days to go binds hard. A missing reset time is read as a full window, which is the
+/// conservative degradation rather than a reading: the provider assigns each account a FIXED
+/// weekly reset moment that does not move with use (support.claude.com, "What is the Max plan"),
+/// so an absent reset only ever means nobody has read one yet (a v1 snapshot, an account the app
+/// has not polled). Assuming the longest window keeps such an account from gaining a phantom
+/// advantage; old snapshots degrade to plain headroom ordering.
 struct RatedWindow {
     let name: String
     let remaining: Double
+    /// What the PROVIDER reported for this window, and nil when it reported nothing. This is the
+    /// reading a human-facing sentence may quote (`pickReason`) and the one identity-like readers
+    /// key on (the rebalance cycle key, the cap recovery deadline): never inferred, so nothing
+    /// outside this file can quote a time nobody published.
     let resetsAt: Date?
+    /// The reset this window's RATE is measured against: its own when it has one, and otherwise an
+    /// inferred anchor (below). Kept apart from `resetsAt` precisely because it can be inferred -
+    /// a number good enough to rank two accounts by is not automatically good enough to print.
+    let anchor: Date?
     let rate: Double
 }
 
 func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
                   now: Date = Date()) -> [RatedWindow] {
     func window(_ name: String, _ remaining: Double?, _ resetsAt: Date?,
-                fullWindowHours: Double) -> RatedWindow? {
+                inferredAnchor: Date? = nil, fullWindowHours: Double) -> RatedWindow? {
         guard let remaining else { return nil }
-        let hours = resetsAt.map { max($0.timeIntervalSince(now) / 3600, 0.05) } ?? fullWindowHours
-        return RatedWindow(name: name, remaining: remaining, resetsAt: resetsAt,
+        let anchor = resetsAt ?? inferredAnchor
+        let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) } ?? fullWindowHours
+        return RatedWindow(name: name, remaining: remaining, resetsAt: resetsAt, anchor: anchor,
                            rate: remaining / hours)
     }
     var windows = [
@@ -193,19 +206,33 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
     let primary = primaryModel?.lowercased()
     let modelWindowCounts = primary == nil || windowModel == nil
         || windowModel!.contains(primary!) || primary!.contains(windowModel!)
+    // THE FLAGSHIP WINDOW BORROWS THE WEEKLY RESET WHEN IT REPORTS NONE OF ITS OWN. Both turn over
+    // on the account's one fixed weekly moment (above): measured 2026-08-12 across the live fleet,
+    // every account that has opened its week reports `modelResetsAt` EQUAL to `weeklyResetsAt`. So
+    // a null flagship reset is the provider declining to repeat itself rather than a window on some
+    // other cycle, and the 168h fallback understated its rate by up to a week - which reads as
+    // "this account is the scarce one" exactly when it is not. Inferred, so it rides in the anchor;
+    // with no weekly reset to borrow, both stay nil and the full-window assumption stands.
     if modelWindowCounts,
        let model = window(account.modelWindowName ?? "model", account.modelRemaining,
-                          account.modelResetsAt, fullWindowHours: 168) {
+                          account.modelResetsAt, inferredAnchor: account.weeklyResetsAt,
+                          fullWindowHours: 168) {
         windows.append(model)
     }
     return windows
 }
 
-/// One rated window as the nearly-dry gate (AccountComfort.swift) sees it. One conversion for the
-/// whole CLI, so everything that asks the gate about a window weighs it the same way: the account
-/// gate below, and the rebalance cycle key, which has to name the window the gate is reacting to.
+/// One rated window as the nearly-dry gate (AccountComfort.swift) sees it, keyed on the ANCHOR: the
+/// gate asks when the wall comes down, and a flagship window with no reset of its own hits the
+/// account's weekly wall. Reading the reported field instead would exempt the weekly window and
+/// refuse the flagship one for the same moment.
+///
+/// One conversion for the whole CLI, so everything that asks the gate about a window weighs it the
+/// same way: the account gate below, and the rebalance cycle key, which names the window this gate
+/// reacted to - and names it by the REPORTED reset, an identity every supervisor agrees on rather
+/// than a judgement.
 func comfortWindow(_ window: RatedWindow) -> ComfortWindow {
-    ComfortWindow(remaining: window.remaining, resetsAt: window.resetsAt)
+    ComfortWindow(remaining: window.remaining, resetsAt: window.anchor)
 }
 
 /// What the nearly-dry gate weighs for a CLI account: exactly the windows `ratedWindows` counts for
@@ -266,17 +293,6 @@ func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = 
 let smartPickMargin = 1.15
 let smartPickMinGain = 0.05   // %/h
 
-/// Whether the account's weekly clock has never been started: a full window with no reset time,
-/// which is what a usage-anchored week looks like before its first request lands. The provider
-/// starts the seven days on that request, so an untouched account reports 100% and no reset.
-///
-/// Read only by the near-tie tie-breaker in `best`. Deliberately weekly-only: a 5h session window
-/// recycles far too fast for an early start to be worth anything, and the flagship window opens
-/// alongside the weekly one, so the weekly window already stands for both.
-func weeklyClockUnopened(_ account: Snapshot.Account) -> Bool {
-    account.weeklyResetsAt == nil && (account.weeklyRemaining ?? 0) >= 100
-}
-
 func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
           excluding: Set<String> = [], now: Date = Date()) -> Snapshot.Account? {
     // The nearly-dry gate runs first (AccountComfort.swift): a rate cannot tell "healthy" from
@@ -291,24 +307,6 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
     for candidate in candidates.dropFirst() {
         let score = smartScore(candidate, primaryModel: primaryModel, now: now)
         if score > leaderScore * smartPickMargin, score > leaderScore + smartPickMinGain {
-            leader = candidate
-            leaderScore = score
-        } else if score >= leaderScore, weeklyClockUnopened(candidate),
-                  !weeklyClockUnopened(leader) {
-            // Near-tie tie-breaker, ahead of the banked one: inside the noise band, prefer the
-            // account whose weekly clock has not started yet.
-            //
-            // The week is usage-anchored, so an unopened window loses nothing by waiting: the
-            // quota never evaporates while the clock is stopped. What a stopped clock does lose is
-            // the refill it is not scheduling. The day that account is finally needed, its reset is
-            // a full seven days out, where an early start would have left it two. Opening the
-            // window costs exactly one request, so this is upside at no cost when the fleet
-            // saturates and nothing when it does not. Only the score gates above decide a real
-            // difference; this only breaks ties they refused. Owner ruling 2026-08-12.
-            //
-            // Old snapshots (v1, no reset fields) read as "every account unopened", so the leader
-            // is unopened too and this never fires. The pick degrades to plain headroom order,
-            // which is what the missing-reset assumption in `ratedWindows` already intends.
             leader = candidate
             leaderScore = score
         } else if score >= leaderScore,

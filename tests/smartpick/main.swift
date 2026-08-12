@@ -76,6 +76,47 @@ let sessionZero = account("A", session: (0, inHours(1)), weekly: (60, inHours(10
 check("a zero non-model window still excludes regardless of primary",
       !eligible(sessionZero, primaryModel: "sonnet"))
 
+// 5c. THE FLAGSHIP WINDOW BORROWS THE ACCOUNT'S WEEKLY RESET when it reports none of its own. Both
+//     turn over on the same fixed weekly moment (measured across the live fleet 2026-08-12: every
+//     opened account reports the two resets EQUAL), so rating a reset-less flagship window against
+//     the 168h fallback understated its rate by up to a week and made the account read as the
+//     scarce one. The scenario is the owner's: a full flagship window, no reset of its own, and a
+//     weekly reset three days out.
+let anchorBorrowed = account("A", weekly: (100, inHours(72)), model: (100, nil), modelName: "Fable")
+check("a reset-less flagship window is scored off the weekly anchor, 3d out",
+      abs(score(anchorBorrowed) - 100.0 / 72) < 1e-9)
+let anchorless = account("A", weekly: (100, nil), model: (100, nil), modelName: "Fable")
+check("and with no weekly reset to borrow, the 168h assumption still stands (guard the premise)",
+      abs(score(anchorless) - 100.0 / 168) < 1e-9)
+
+// THE BORROWED VALUE IS NOT THE REPORTED ONE, and the two are carried in separate fields for it:
+// the pick and the gate may rank on an inferred anchor, and nothing may print one.
+let borrowedWindows = ratedWindows(anchorBorrowed, primaryModel: nil, now: now)
+let flagship = borrowedWindows.first { $0.name == "Fable" }
+check("the flagship window was found at all (guard the premise)", flagship != nil)
+check("the inferred anchor rides in `anchor`, and `resetsAt` stays as reported",
+      flagship?.anchor == inHours(72) && flagship?.resetsAt == nil)
+// The human sentence quotes the REPORTED field, so a countdown nobody published is never printed.
+// The flagship window binds here (30% against the weekly's 100%), which is what makes it the window
+// the reason names.
+let anchorBinding = account("A", weekly: (100, inHours(72)), model: (30, nil), modelName: "Fable")
+check("the reason names the borrowing window (guard the premise)",
+      pickReason(anchorBinding, primaryModel: nil, now: now).hasPrefix("Fable 30%"))
+check("…and quotes no countdown for it, borrowed or otherwise",
+      pickReason(anchorBinding, primaryModel: nil, now: now) == "Fable 30%")
+
+// The nearly-dry gate reads the anchor too, and must: its question is when the wall comes down, and
+// this window's wall is the account's weekly one. A flagship window at 3% whose weekly resets in
+// five minutes is quota that is already back.
+let dryFlagshipSoonWeekly = account("A", session: (80, inHours(3)), weekly: (50, inHours(0.083)),
+                                    model: (3, nil), modelName: "Fable")
+check("a reset-less flagship window is exempted by the weekly reset it hits",
+      accountIsComfortable(dryFlagshipSoonWeekly, primaryModel: nil, now: now))
+let dryFlagshipNoAnchor = account("A", session: (80, inHours(3)), weekly: (50, nil),
+                                  model: (3, nil), modelName: "Fable")
+check("…and with nothing to borrow the same window still drops the account (guard the premise)",
+      !accountIsComfortable(dryFlagshipNoAnchor, primaryModel: nil, now: now))
+
 // 6. Hysteresis: a tie stays with the first account (stable, not random), and using the leader
 //    down a point must NOT bounce the pick to the idle sibling - only a meaningful advantage
 //    (beyond smartPickMargin) flips it.
@@ -105,51 +146,65 @@ check("exact tie prefers the account with banked resets", pick([noHatch, hatch])
 let betterNoHatch = account("A", weekly: (80, inHours(120)))
 check("banked resets never outvote a real score gap", pick([betterNoHatch, hatch]) == "A")
 
-// 7b. The clock-starter tie-breaker: inside the noise band, prefer the account whose weekly clock
-//     has never been started. Quota does not evaporate while the window is unopened, but a stopped
-//     clock schedules no refill either, and opening it costs one request. These are the live
-//     2026-08-12 numbers: Claude 4 at 55% with 97.5h to run (0.564 %/h) against a Claude 5 account
-//     that has never been launched (100/168 = 0.595 %/h).
+// 7b. A MISSING WEEKLY RESET BUYS NOTHING. It briefly bought a tie-breaker of its own (06c8fbc,
+//     "prefer starting an unopened weekly clock"), on the premise that the seven days start at the
+//     account's first request - so an untouched account could be launched for free and would then
+//     be scheduling a refill. The premise is false: the provider assigns each account a FIXED
+//     weekly reset moment that does not move with use (support.claude.com, "What is the Max plan";
+//     confirmed against the live fleet 2026-08-12, where an account at 100% of its week already
+//     carried a reset 3d11h out rather than 7d). A weekly window with no reset time is therefore
+//     never "not started yet" - it is only ever "nobody has read one": a v1 snapshot, or an account
+//     the app has not polled. So the near-tie band leaves the pick where it was.
+//
+//     These are the live 2026-08-12 numbers the tie-breaker was written from: Claude 4 at 55% with
+//     97.5h to run (0.564 %/h) against a reset-less account reading 100/168 = 0.595 %/h.
 func score(_ account: Snapshot.Account) -> Double {
     smartScore(account, primaryModel: nil, now: now)
 }
 let openedLeader = account("A", weekly: (55, inHours(97.5)))
-let unopenedRival = account("B", weekly: (100, nil))
-check("a near-tie prefers the account whose weekly clock has not started",
-      pick([openedLeader, unopenedRival]) == "B")
-check("and it did not simply clear the score gates (guard the premise)",
-      !(score(unopenedRival) > score(openedLeader) * smartPickMargin
-        && score(unopenedRival) > score(openedLeader) + smartPickMinGain))
+let resetlessRival = account("B", weekly: (100, nil))
+check("a missing weekly reset does not take the lead inside the noise band",
+      pick([openedLeader, resetlessRival]) == "A")
+check("and it really was inside the band, not simply losing on score (guard the premise)",
+      score(resetlessRival) >= score(openedLeader)
+          && !(score(resetlessRival) > score(openedLeader) * smartPickMargin
+               && score(resetlessRival) > score(openedLeader) + smartPickMinGain))
+// The same account listed FIRST still leads, which is the other half of "the band decides nothing":
+// order alone carries it, and no property of the reset-less account is consulted either way.
+check("and it leads when it is listed first, on list order alone",
+      pick([resetlessRival, openedLeader]) == "B")
 
-// The other side of the same rule: an idle clock is worth starting only when nothing real is
-// given up for it, so a genuinely better leader keeps the launch.
+// A reset-less weekly reads as a full 168h window (`ratedWindows`), which is the conservative
+// degradation and not a claim about the account: it must not out-score a real advantage either.
 let strongLeader = account("A", weekly: (30, inHours(24)))
-check("an unopened weekly does not outvote a real score advantage",
-      pick([strongLeader, unopenedRival]) == "A")
+check("a missing weekly reset does not outvote a real score advantage",
+      pick([strongLeader, resetlessRival]) == "A")
 
-// A candidate whose weekly clock is already running is not a clock-starter, however near the tie:
-// same 100% and the same 168h of window, but the week is already ticking.
+// A running weekly clock at the same numbers is treated identically: with the tie-breaker gone,
+// "reset known" and "reset unknown" are the same thing to the pick at equal score.
 let openedRival = account("B", weekly: (100, inHours(168)))
-check("an account whose weekly clock already runs gets no tie-breaker",
-      pick([openedLeader, openedRival]) == "A")
-check("even though its score matched the one that did win (guard the premise)",
-      score(openedRival) == score(unopenedRival))
+check("a known reset and a missing one at the same score both keep the leader",
+      pick([openedLeader, openedRival]) == "A" && pick([openedLeader, resetlessRival]) == "A")
+check("…and those two rivals really do score the same (guard the premise)",
+      score(openedRival) == score(resetlessRival))
 
-// The criterion reads the WEEKLY window only. An untouched session window is not a clock worth
-// starting (5h recycles too fast for the start time to matter), so this candidate stays put even
-// though its score sits in the same noise band above the leader.
-let sessionUnopened = account("B", session: (100, nil), weekly: (60, inHours(100)))
-check("an unopened session window is not a clock worth starting",
-      pick([openedLeader, sessionUnopened]) == "A")
-check("and its score really was inside the band (guard the premise)",
-      score(sessionUnopened) >= score(openedLeader))
+// v1 snapshots carry no reset times at all, so every account looks the same way to this rule. The
+// coarse-percentage case that made removal a fix as well as a correction: 99% vs 100% is one
+// noise-level point, and it used to hand the launch to whichever account reported the rounder
+// number rather than to the leader.
+let v1First = account("A", weekly: (99, nil))
+let v1Second = account("B", weekly: (100, nil))
+check("a one-point difference between two reset-less accounts keeps the list order",
+      pick([v1First, v1Second]) == "A")
+check("and the pair swapped keeps it too (nothing reads the 100)",
+      pick([v1Second, v1First]) == "B")
 
-// Old snapshots (v1) carry no reset times at all, so every account reads as unopened: the leader
-// is one too, the tie-breaker never fires, and list order decides as it did before.
-let unopenedFirst = account("A", weekly: (100, nil))
-let unopenedSecond = account("B", weekly: (100, nil))
-check("two unopened weekly clocks keep the stable list order",
-      pick([unopenedFirst, unopenedSecond]) == "A")
+// 7c. The banked-reset tie-breaker is the one that stayed, and it still decides the same band the
+//     removed one used to take first - including when the challenger is the reset-less account,
+//     which is where the two rules used to disagree.
+let bankedResetless = account("B", weekly: (100, nil), resets: 2)
+check("banked resets still break a near-tie, reset time or no reset time",
+      pick([openedLeader, bankedResetless]) == "B")
 
 // 8. The pick reason names the binding window with its reset ETA.
 let reason = pickReason(dyingA, primaryModel: nil, now: now)

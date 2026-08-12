@@ -265,7 +265,10 @@ final class LaunchPolicyStore {
         }
         let candidates = preferringComfortable(eligibleAccounts, now: now) {
             Self.ratedWindows($0, primaryModel: primary, now: now)
-                .map { ComfortWindow(remaining: $0.remaining, resetsAt: $0.resetsAt) }
+                // The ANCHOR, exactly as the CLI's `comfortWindow` does: the gate asks when the
+                // wall comes down, and a flagship window with no reset of its own hits the
+                // account's weekly one.
+                .map { ComfortWindow(remaining: $0.remaining, resetsAt: $0.anchor) }
         }
         guard var leader = candidates.first else { return nil }
         var leaderScore = Self.smartScore(leader, primaryModel: primary, now: now)
@@ -273,14 +276,6 @@ final class LaunchPolicyStore {
             let score = Self.smartScore(candidate, primaryModel: primary, now: now)
             if score > leaderScore * Self.smartPickMargin,
                score > leaderScore + Self.smartPickMinGain {
-                leader = candidate
-                leaderScore = score
-            } else if score >= leaderScore, Self.weeklyClockUnopened(candidate),
-                      !Self.weeklyClockUnopened(leader) {
-                // Mirror of the CLI's clock-starter tie-breaker (TallyCLI/AccountPick.swift `best`,
-                // which carries the reasoning): an unopened week loses no quota by waiting, but it
-                // schedules no refill either, and starting it costs one request. Ahead of the
-                // banked one, exactly as on the CLI side, so the badge names the same account.
                 leader = candidate
                 leaderScore = score
             } else if score >= leaderScore,
@@ -312,22 +307,31 @@ final class LaunchPolicyStore {
         return windows.min()
     }
 
-    /// Mirror of the CLI's burn-rate scoring (TallyCLI/Snapshot.swift `ratedWindows`): each
-    /// window's sustainable rate is remaining% ÷ hours until it resets (missing reset = assume a
-    /// full window), and the flagship window only counts when the declared primary model is that
-    /// tier. Keep both sides in lockstep.
+    /// Mirror of the CLI's burn-rate scoring (TallyCLI/AccountPick.swift `ratedWindows`): each
+    /// window's sustainable rate is remaining% ÷ hours until it resets, and the flagship window
+    /// only counts when the declared primary model is that tier. Keep both sides in lockstep.
+    ///
+    /// `resetsAt` is what the provider reported and `anchor` is what the rate was measured
+    /// against, which differ for exactly one window: a flagship window reporting no reset borrows
+    /// the account's weekly one, because both turn over on the account's single fixed weekly
+    /// moment (the CLI side carries the measurement). Inferred, so the badge's REASON quotes
+    /// `resetsAt` and never the anchor. Missing both leaves the full-window assumption in place.
     private static func ratedWindows(_ usage: AccountUsage, primaryModel: String?, now: Date)
-        -> [(name: String, remaining: Double, resetsAt: Date?, rate: Double)] {
-        func window(_ name: String, _ metric: UsageMetric?, fullWindowHours: Double)
-            -> (name: String, remaining: Double, resetsAt: Date?, rate: Double)? {
+        -> [(name: String, remaining: Double, resetsAt: Date?, anchor: Date?, rate: Double)] {
+        func window(_ name: String, _ metric: UsageMetric?, inferredAnchor: Date? = nil,
+                    fullWindowHours: Double)
+            -> (name: String, remaining: Double, resetsAt: Date?, anchor: Date?, rate: Double)? {
             guard let metric else { return nil }
-            let hours = metric.resetsAt.map { max($0.timeIntervalSince(now) / 3600, 0.05) }
+            let anchor = metric.resetsAt ?? inferredAnchor
+            let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) }
                 ?? fullWindowHours
-            return (name, metric.remainingPercent, metric.resetsAt, metric.remainingPercent / hours)
+            return (name, metric.remainingPercent, metric.resetsAt, anchor,
+                    metric.remainingPercent / hours)
         }
+        let weekly = usage.metrics.first { $0.kind == .weeklyAll }
         var windows = [
             window("session", usage.metrics.first { $0.kind == .session }, fullWindowHours: 5),
-            window("weekly", usage.metrics.first { $0.kind == .weeklyAll }, fullWindowHours: 168),
+            window("weekly", weekly, fullWindowHours: 168),
         ].compactMap { $0 }
         let model = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
         let windowModel = model?.modelName?.lowercased()
@@ -335,20 +339,11 @@ final class LaunchPolicyStore {
         let modelWindowCounts = primary == nil || windowModel == nil
             || windowModel!.contains(primary!) || primary!.contains(windowModel!)
         if modelWindowCounts,
-           let m = window(model?.modelName?.lowercased() ?? "model", model, fullWindowHours: 168) {
+           let m = window(model?.modelName?.lowercased() ?? "model", model,
+                          inferredAnchor: weekly?.resetsAt, fullWindowHours: 168) {
             windows.append(m)
         }
         return windows
-    }
-
-    /// Mirror of the CLI's `weeklyClockUnopened` (TallyCLI/AccountPick.swift): a full weekly window
-    /// reporting no reset time, which is what a usage-anchored week looks like before its first
-    /// request starts the clock. Weekly only, for the reason given there. Keep both sides in
-    /// lockstep.
-    private static func weeklyClockUnopened(_ usage: AccountUsage) -> Bool {
-        guard let weekly = usage.metrics.first(where: { $0.kind == .weeklyAll })
-        else { return false }
-        return weekly.resetsAt == nil && weekly.remainingPercent >= 100
     }
 
     /// The account's score is its TIGHTEST window's sustainable rate (the binding constraint).

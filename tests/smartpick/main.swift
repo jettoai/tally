@@ -105,6 +105,52 @@ check("exact tie prefers the account with banked resets", pick([noHatch, hatch])
 let betterNoHatch = account("A", weekly: (80, inHours(120)))
 check("banked resets never outvote a real score gap", pick([betterNoHatch, hatch]) == "A")
 
+// 7b. The clock-starter tie-breaker: inside the noise band, prefer the account whose weekly clock
+//     has never been started. Quota does not evaporate while the window is unopened, but a stopped
+//     clock schedules no refill either, and opening it costs one request. These are the live
+//     2026-08-12 numbers: Claude 4 at 55% with 97.5h to run (0.564 %/h) against a Claude 5 account
+//     that has never been launched (100/168 = 0.595 %/h).
+func score(_ account: Snapshot.Account) -> Double {
+    smartScore(account, primaryModel: nil, now: now)
+}
+let openedLeader = account("A", weekly: (55, inHours(97.5)))
+let unopenedRival = account("B", weekly: (100, nil))
+check("a near-tie prefers the account whose weekly clock has not started",
+      pick([openedLeader, unopenedRival]) == "B")
+check("and it did not simply clear the score gates (guard the premise)",
+      !(score(unopenedRival) > score(openedLeader) * smartPickMargin
+        && score(unopenedRival) > score(openedLeader) + smartPickMinGain))
+
+// The other side of the same rule: an idle clock is worth starting only when nothing real is
+// given up for it, so a genuinely better leader keeps the launch.
+let strongLeader = account("A", weekly: (30, inHours(24)))
+check("an unopened weekly does not outvote a real score advantage",
+      pick([strongLeader, unopenedRival]) == "A")
+
+// A candidate whose weekly clock is already running is not a clock-starter, however near the tie:
+// same 100% and the same 168h of window, but the week is already ticking.
+let openedRival = account("B", weekly: (100, inHours(168)))
+check("an account whose weekly clock already runs gets no tie-breaker",
+      pick([openedLeader, openedRival]) == "A")
+check("even though its score matched the one that did win (guard the premise)",
+      score(openedRival) == score(unopenedRival))
+
+// The criterion reads the WEEKLY window only. An untouched session window is not a clock worth
+// starting (5h recycles too fast for the start time to matter), so this candidate stays put even
+// though its score sits in the same noise band above the leader.
+let sessionUnopened = account("B", session: (100, nil), weekly: (60, inHours(100)))
+check("an unopened session window is not a clock worth starting",
+      pick([openedLeader, sessionUnopened]) == "A")
+check("and its score really was inside the band (guard the premise)",
+      score(sessionUnopened) >= score(openedLeader))
+
+// Old snapshots (v1) carry no reset times at all, so every account reads as unopened: the leader
+// is one too, the tie-breaker never fires, and list order decides as it did before.
+let unopenedFirst = account("A", weekly: (100, nil))
+let unopenedSecond = account("B", weekly: (100, nil))
+check("two unopened weekly clocks keep the stable list order",
+      pick([unopenedFirst, unopenedSecond]) == "A")
+
 // 8. The pick reason names the binding window with its reset ETA.
 let reason = pickReason(dyingA, primaryModel: nil, now: now)
 check("reason names the binding window (weekly, 3d)", reason.contains("weekly 60%") && reason.contains("3d"))

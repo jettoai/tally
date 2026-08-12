@@ -266,6 +266,17 @@ func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = 
 let smartPickMargin = 1.15
 let smartPickMinGain = 0.05   // %/h
 
+/// Whether the account's weekly clock has never been started: a full window with no reset time,
+/// which is what a usage-anchored week looks like before its first request lands. The provider
+/// starts the seven days on that request, so an untouched account reports 100% and no reset.
+///
+/// Read only by the near-tie tie-breaker in `best`. Deliberately weekly-only: a 5h session window
+/// recycles far too fast for an early start to be worth anything, and the flagship window opens
+/// alongside the weekly one, so the weekly window already stands for both.
+func weeklyClockUnopened(_ account: Snapshot.Account) -> Bool {
+    account.weeklyResetsAt == nil && (account.weeklyRemaining ?? 0) >= 100
+}
+
 func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
           excluding: Set<String> = [], now: Date = Date()) -> Snapshot.Account? {
     // The nearly-dry gate runs first (AccountComfort.swift): a rate cannot tell "healthy" from
@@ -280,6 +291,24 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
     for candidate in candidates.dropFirst() {
         let score = smartScore(candidate, primaryModel: primaryModel, now: now)
         if score > leaderScore * smartPickMargin, score > leaderScore + smartPickMinGain {
+            leader = candidate
+            leaderScore = score
+        } else if score >= leaderScore, weeklyClockUnopened(candidate),
+                  !weeklyClockUnopened(leader) {
+            // Near-tie tie-breaker, ahead of the banked one: inside the noise band, prefer the
+            // account whose weekly clock has not started yet.
+            //
+            // The week is usage-anchored, so an unopened window loses nothing by waiting: the
+            // quota never evaporates while the clock is stopped. What a stopped clock does lose is
+            // the refill it is not scheduling. The day that account is finally needed, its reset is
+            // a full seven days out, where an early start would have left it two. Opening the
+            // window costs exactly one request, so this is upside at no cost when the fleet
+            // saturates and nothing when it does not. Only the score gates above decide a real
+            // difference; this only breaks ties they refused. Owner ruling 2026-08-12.
+            //
+            // Old snapshots (v1, no reset fields) read as "every account unopened", so the leader
+            // is unopened too and this never fires. The pick degrades to plain headroom order,
+            // which is what the missing-reset assumption in `ratedWindows` already intends.
             leader = candidate
             leaderScore = score
         } else if score >= leaderScore,

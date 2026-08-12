@@ -275,6 +275,14 @@ final class LaunchPolicyStore {
                score > leaderScore + Self.smartPickMinGain {
                 leader = candidate
                 leaderScore = score
+            } else if score >= leaderScore, Self.weeklyClockUnopened(candidate),
+                      !Self.weeklyClockUnopened(leader) {
+                // Mirror of the CLI's clock-starter tie-breaker (TallyCLI/AccountPick.swift `best`,
+                // which carries the reasoning): an unopened week loses no quota by waiting, but it
+                // schedules no refill either, and starting it costs one request. Ahead of the
+                // banked one, exactly as on the CLI side, so the badge names the same account.
+                leader = candidate
+                leaderScore = score
             } else if score >= leaderScore,
                       (candidate.resetCreditsAvailable ?? 0) > (leader.resetCreditsAvailable ?? 0) {
                 // Mirror of the CLI's near-tie tie-breaker: a wall with banked resets behind
@@ -331,6 +339,16 @@ final class LaunchPolicyStore {
             windows.append(m)
         }
         return windows
+    }
+
+    /// Mirror of the CLI's `weeklyClockUnopened` (TallyCLI/AccountPick.swift): a full weekly window
+    /// reporting no reset time, which is what a usage-anchored week looks like before its first
+    /// request starts the clock. Weekly only, for the reason given there. Keep both sides in
+    /// lockstep.
+    private static func weeklyClockUnopened(_ usage: AccountUsage) -> Bool {
+        guard let weekly = usage.metrics.first(where: { $0.kind == .weeklyAll })
+        else { return false }
+        return weekly.resetsAt == nil && weekly.remainingPercent >= 100
     }
 
     /// The account's score is its TIGHTEST window's sustainable rate (the binding constraint).

@@ -129,6 +129,10 @@ struct PopoverRootView: View {
                             launchSummaryStrip
                             fleetStrip
                             advisorStrip
+                            // What is RUNNING, between the fleet's numbers and the accounts they
+                            // belong to (SessionSectionView.swift). Renders nothing when nothing
+                            // is, like the launch strip above it.
+                            sessionsSection
                             // Fully folded WITH nothing left to head the sections skips the card
                             // container entirely: its 12pt padding read as a hollow band between
                             // two dividers (see `showsAccountRegion` - folded sections keep their
@@ -209,6 +213,14 @@ struct PopoverRootView: View {
         // run-loop turn, not just to appear: measured, the host has its window on a screen by the
         // next turn and not one moment sooner (`onAppear` itself still reads nil).
         .onAppear { DispatchQueue.main.async { refreshScreenCap() } }
+        // The session board polls only while a surface is showing it, and this is that surface
+        // saying so. On the ROOT rather than on the section, because the section renders nothing
+        // when the board is empty: hung there, the polling would never start on a machine whose
+        // sessions all began after the panel was opened, and the board would stay empty for as
+        // long as it was being looked at. Counted on the store's side, so the three hosts closing
+        // one at a time do not stop each other's ticking.
+        .onAppear { SessionRosterStore.shared.beginViewing() }
+        .onDisappear { SessionRosterStore.shared.endViewing() }
         .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }
         // A host can go away with its card still up (the popover closes on a click outside, the
         // panel is unpinned), and `onChange` never fires for a view that was torn down: without

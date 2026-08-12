@@ -709,5 +709,6 @@ runTallyPromptChecks()
 runBackstopChecks()
 runLanguageChecks()
 runAuditSinkChecks()
+runSessionStateChecks()
 
 exit(failures == 0 ? 0 : 1)

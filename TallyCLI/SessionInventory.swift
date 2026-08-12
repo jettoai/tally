@@ -88,7 +88,11 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
         (accountID: readSupervisorAccount(pid: $0.supervisorPid, dir: dir)
             ?? $0.session?.accountID,
          pid: readSupervisorChild(pid: $0.supervisorPid, dir: dir),
-         cwd: readSupervisorCwd(pid: $0.supervisorPid, dir: dir))
+         cwd: readSupervisorCwd(pid: $0.supervisorPid, dir: dir),
+         // What that supervisor last decided this session is doing (SessionState.swift). Read
+         // rather than computed here for the reason the whole track exists: the transcript, the
+         // open tool call and the terminal are in the supervisor's hands and in nobody else's.
+         state: readSessionState(pid: $0.supervisorPid, dir: dir))
     }
     let answers = sessionDirectoryIdentities(Set(sessions.compactMap(\.cwd)), identity: identity)
     return sessions.map { session in
@@ -113,7 +117,8 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             project: project, worktree: worktree,
             messagingSocket: session.pid.flatMap {
                 claudeMessagingSocket(childPid: $0, dir: socketDir)
-            })
+            },
+            state: session.state?.state, stateSince: session.state?.since)
     }
 }
 

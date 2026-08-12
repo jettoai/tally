@@ -87,6 +87,8 @@ final class IntegrationsStore {
     private(set) var cliToolStatus: Status = .notInstalled
     private(set) var shimStatuses: [Shim: Status] = [:]
     private(set) var statusLineStatus: Status = .notInstalled
+    /// The `Notification` hook behind the panel's session board (IntegrationsNotificationHook.swift).
+    private(set) var notificationHookStatus: Status = .notInstalled
     private(set) var skillStatus: Status = .notInstalled
     /// Whether zsh tab completion for `tally` is present (IntegrationsCompletion.swift). Not a
     /// `Status` and not a row of its own: it has no install button, because it goes in with the
@@ -105,6 +107,7 @@ final class IntegrationsStore {
         cliToolStatus = Self.detectCLITool()
         shimStatuses = Dictionary(uniqueKeysWithValues: Shim.allCases.map { ($0, Self.detectShim($0)) })
         statusLineStatus = Self.detectStatusLine()
+        notificationHookStatus = Self.detectNotificationHook()
         skillStatus = Self.detectSkill()
         completionInstalled = Self.detectCompletion()
     }

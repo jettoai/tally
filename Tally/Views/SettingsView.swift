@@ -199,6 +199,13 @@ struct SettingsView: View {
             remove: integrations.removeStatusLine)
         rowDivider
         integrationRow(
+            title: L("Claude session board"),
+            caption: L("Lets the panel show which sessions are working, waiting on you, or idle, and puts a red dot in the menu bar while one is waiting. Installs one Notification hook entry per Claude account; anything already registered for that event keeps running, and only Tally's entry is removed."),
+            status: integrations.notificationHookStatus,
+            install: integrations.installNotificationHook,
+            remove: integrations.removeNotificationHook)
+        rowDivider
+        integrationRow(
             title: L("Claude Code skill"),
             caption: L("Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json, and adds one command: /tally moves a session to another account or runs it on a different model, without spending a turn. One skill file, one command file and one hook entry per Claude account; all removed just as cleanly."),
             status: integrations.skillStatus,
@@ -235,6 +242,8 @@ struct SettingsView: View {
              { integrations.removeShim(.codex) }),
             (integrations.statusLineStatus, integrations.installStatusLine,
              integrations.removeStatusLine),
+            (integrations.notificationHookStatus, integrations.installNotificationHook,
+             integrations.removeNotificationHook),
             (integrations.skillStatus, integrations.installSkill, integrations.removeSkill),
         ]
         let missing = entries.filter { $0.0 != .installed }

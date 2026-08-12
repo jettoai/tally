@@ -32,6 +32,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/reloadrepickchecks.swift tests/supervisor/relaunchchecks.swift tests/supervisor/positionalchecks.swift \
   tests/supervisor/safeguardchecks.swift \
   tests/supervisor/followchecks.swift tests/supervisor/pendingnoticechecks.swift \
+  tests/supervisor/sessionstatechecks.swift \
   tests/supervisor/contextchecks.swift tests/supervisor/inventorychecks.swift \
   tests/supervisor/resumepromptchecks.swift \
   tests/supervisor/standdownchecks.swift tests/supervisor/switchchecks.swift \
@@ -53,7 +54,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/Rebalance.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift \
   TallyCLI/KeyboardIdle.swift TallyCLI/OpenTurn.swift TallyCLI/ProviderExecutable.swift \
   TallyCLI/TerminalHandover.swift \
-  TallyCLI/PendingNotice.swift TallyCLI/FollowAdoption.swift TallyCLI/StandDown.swift \
+  TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/HookNotify.swift TallyCLI/SessionStateSync.swift TallyCLI/FollowAdoption.swift TallyCLI/StandDown.swift \
   TallyCLI/SessionContext.swift TallyCLI/SessionInventory.swift TallyCLI/MessagingSocket.swift \
   TallyCLI/ResumePrompt.swift TallyCLI/SessionSwitch.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift TallyCLI/SwitchCommand.swift TallyCLI/SwitchHook.swift TallyCLI/SwitchMenu.swift TallyCLI/WorktreeMenu.swift \
   TallyCLI/ProjectPolicy.swift TallyCLI/GitRepoRoot.swift \
@@ -65,5 +66,6 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/PickPanelMetrics.swift Tally/Core/PickPalette.swift Tally/Core/PickKeyboard.swift Tally/Core/PanelGeometry.swift TallyCLI/PromptHookBackstop.swift \
   Tally/Core/PickClaimGate.swift Tally/Core/CaptureLaunch.swift \
   Tally/Core/PromptHookInput.swift \
-  TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift
+  TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift \
+  Tally/Core/TerminalJump.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift
 "$out"

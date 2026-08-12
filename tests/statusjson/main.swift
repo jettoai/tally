@@ -303,6 +303,25 @@ check("…with no account key at all, rather than a null or an empty string",
 check("a machine with nothing running still publishes the list",
       auto["sessions"] as? [Any] != nil && inventory(auto).isEmpty)
 
+// MARK: what each session is DOING (SessionState.swift)
+
+let board = parse(encodeStatusReport(statusReport(
+    snapshot, policies: ["claude": LaunchPolicy()],
+    sessions: [.init(accountID: "claude:.claude", directory: "/Users/u/code/tally",
+                     project: "/Users/u/code/tally",
+                     state: "blocked", stateSince: parseISO("2026-07-23T11:58:00Z")),
+               .init(accountID: "claude:.claude2", directory: "/Users/u/code/old",
+                     project: "/Users/u/code/old")],
+    now: now)))
+check("a session publishes what it is doing, and since when",
+      inventory(board).first?["state"] as? String == "blocked"
+          && inventory(board).first?["stateSince"] as? String == "2026-07-23T11:58:00Z")
+// ABSENT IS NOT `unknown`: the word means "this session cannot say", absence means "this Tally
+// cannot say", and a supervisor from before the board shipped is the second one while running
+// perfectly well. Collapsing them would report a whole class of live sessions as blank.
+check("a session whose supervisor publishes no state carries no key at all",
+      inventory(board).last?["state"] == nil && inventory(board).last?["stateSince"] == nil)
+
 // MARK: fleet pass-through - the pooled view rides along untouched, and only when present
 let fleetTop = auto["fleet"] as? [String: [String: Any]] ?? [:]
 let claudePools = (auto["fleetPools"] as? [String: [[String: Any]]])?["claude"] ?? []

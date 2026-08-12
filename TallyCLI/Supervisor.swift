@@ -103,6 +103,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// notice file: a self-update exec keeps the pid and leaves its badge behind for the image it
     /// hands over to, which then has to be the one that takes it down (PendingNotice.swift).
     var pendingNotice = PendingNoticeWriter(pid: supervisorPID)   // cleared when it exits
+    /// What this session is DOING, for the status board outside this terminal (SessionState.swift).
+    /// Seeded from this pid's own file for the same reason the notice above is: a self-update keeps
+    /// the pid, and the image it hands over to has to be the one that decides what stands there.
+    var sessionState = SessionStateWriter(pid: supervisorPID)
+    /// Which project this session is in, resolved ONCE: a supervisor's cwd cannot change under it
+    /// (`writeSupervisorCwd` rests on the same fact), and the answer costs two git subprocesses.
+    /// Asked here rather than in the app so a panel that lists ten sessions is ten file reads
+    /// rather than twenty git spawns, and so the board and the pickers name a project by the one
+    /// rule (`pickProject`).
+    let boardProject = pickProjectForCwd(cwd)
     /// What the user has asked for by hand about the account this session runs on, held across
     /// relaunches and across a self-update exec like the fuse (SessionSwitch.swift owns the rules;
     /// `resumed` is what stops a request this same session just made from being seeded away).
@@ -450,6 +460,15 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                               reload: reloadNotice.pending,
                               followDeadEnd: followState.deadEnd, followQueued: followState.queuedNotice,
                               policy: policy, capReason: pendingCap?.reason)
+            // And what it is DOING, for the panel and `tally status --json`: working, waiting on
+            // the user, idle, or nothing-to-say. The rules are in SessionStateSync.swift; the model
+            // published is the one that ANSWERED the last turn where there is one, falling back to
+            // what the child was launched with (SessionContext.swift states why those differ).
+            syncSessionState(&sessionState, pid: supervisorPID, project: boardProject,
+                             accountID: account.id, childPid: Int(childPID),
+                             model: (axes.observedModel ?? axes.runningModel ?? axes.pinnedModel)
+                                 .map(shortModelName),
+                             watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt)
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args. A pending app
@@ -536,6 +555,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         removeSupervisorState(pid: supervisorPID)
         clearPendingNotice(pid: supervisorPID)
         clearSessionContext(pid: supervisorPID)
+        clearSessionState(pid: supervisorPID)
+        clearUserNotice(pid: supervisorPID)
         exit(supervisorExitCode(childStatus: status))
     }
 }

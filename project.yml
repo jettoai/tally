@@ -119,6 +119,13 @@ targets:
       # Same reason, the other exclusion the launcher applies: the badge has to skip accounts the
       # cap quarantine is holding out, so it reads the same records the CLI writes.
       - path: TallyCLI/Quarantine.swift
+      # The session status board's record: what each supervised session is doing, published by the
+      # supervisor (the only process that can decide it) and read by the panel. Both targets
+      # compile the one shape for the reason PickContract.swift gives about its own: these are
+      # separate processes speaking through files, so a drifted field name is a board that draws
+      # nothing while every session reports correctly. Only the record and its reader are here -
+      # everything that DECIDES a state stays in the CLI (SessionStateSync.swift).
+      - path: TallyCLI/SessionState.swift
     dependencies:
       - package: Sparkle
     settings:
@@ -169,4 +176,4 @@ targets:
         # opened through osascript. Apple events are a user-granted permission and macOS reads the
         # reason from the RESPONSIBLE app (this one, not the osascript it spawns), so without this
         # key it has nothing to ask with.
-        NSAppleEventsUsageDescription: "Tally opens a Terminal window to run a provider's own login command when you renew an account's login."
+        NSAppleEventsUsageDescription: "Tally brings a session's own terminal window to the front when you click it in the session list, and opens a Terminal window to run a provider's own login command when you renew an account's login."

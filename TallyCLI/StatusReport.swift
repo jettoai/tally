@@ -147,6 +147,19 @@ struct StatusReport: Encodable {
         /// behind, which is what keeps this field honest across a Claude Code that changes where it
         /// listens.
         var messagingSocket: String?
+        /// What this session is doing right now: `working`, `blocked` (Claude Code has asked for
+        /// something and nobody has answered), `idle`, or `unknown` (running, with nothing to say
+        /// about it yet). Decided by the supervisor, which is the only process that can
+        /// (SessionState.swift).
+        ///
+        /// ABSENT IS NOT `unknown`. The word means "this session cannot say", where absence means
+        /// "this TALLY cannot say" - a supervisor from a build before the board shipped publishes
+        /// nothing here while running perfectly well, and a reader that collapsed the two would
+        /// report a whole class of live sessions as blank rather than as unanswered.
+        var state: String?
+        /// When it entered that state, so a reader can age the wait rather than the poll. Absent on
+        /// the same terms as the word beside it, and always present when that word is.
+        var stateSince: Date?
     }
 
     struct Advisor: Encodable {

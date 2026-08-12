@@ -282,13 +282,13 @@ struct SettingsAccountsView: View {
             .menuIndicator(.hidden)
             .frame(width: 16)
             .help(L("Account actions"))
-            // The rename field lives outside the row layout entirely (see RenamePopover), anchored
+            // The rename field lives outside the row layout entirely (AccountRenamePopover),
             // on the button that opens it.
             .popover(isPresented: Binding(
                 get: { renamingAccountID == item.id },
                 set: { if !$0 { renamingAccountID = nil } }
             )) {
-                RenamePopover(
+                AccountRenamePopover(
                     defaultLabel: item.label,
                     override: Binding(
                         get: { settings.accountLabels[item.id] },
@@ -333,7 +333,7 @@ struct SettingsAccountsView: View {
     /// The row's name, and beside it the config home this account launches from.
     ///
     /// Plain Text + a pencil-popover for renaming: an inline TextField can't live in this layout
-    /// sanely (see RenamePopover) and the popover field behaves normally.
+    /// sanely (see AccountRenamePopover) and the popover field behaves normally.
     ///
     /// The home shares the NAME's line rather than the address's below it, which is where it started.
     /// The address is what tells two logins apart when both are readable, and it is long enough that
@@ -455,9 +455,16 @@ struct SettingsAccountsView: View {
     }
 
     // A labeled mini switch: an icon-only toggle here read as "no idea what this does".
+    //
+    // DEAD IN THE POOLED LAYOUT, and said so rather than left looking alive: that segment sums
+    // every account (the strip never asks this switch there - UsageStorePresentation), so a live
+    // control would be a silent no-op with nothing on screen saying why. The hover carries the way
+    // back; switching Display to Accounts restores it.
     private func menuBarToggle(_ accountID: String) -> some View {
-        HStack(spacing: 6) {
-            Text(L("Menu bar")).font(.caption).foregroundStyle(.secondary).fixedSize()
+        let pooled = settings.menuBarLayout == .pooled
+        return HStack(spacing: 6) {
+            Text(L("Menu bar")).font(.caption).foregroundStyle(.secondary)
+                .opacity(pooled ? 0.55 : 1).fixedSize()
             Toggle(isOn: Binding(
                 get: { settings.isShownInMenuBar(accountID) },
                 set: { settings.setShownInMenuBar(accountID, $0); UsageStore.shared.onChange?() }
@@ -465,32 +472,10 @@ struct SettingsAccountsView: View {
             .labelsHidden()
             .toggleStyle(.switch)
             .controlSize(.mini)
+            .disabled(pooled)
         }
-        .help(L("Show in menu bar"))
-    }
-
-    /// Rename UI in a popover so the field lives outside the row layout entirely. Clearing (or
-    /// typing the default name back) removes the override.
-    private struct RenamePopover: View {
-        let defaultLabel: String
-        @Binding var override: String?
-        let dismiss: () -> Void
-        @State private var text = ""
-
-        var body: some View {
-            TextField("", text: $text, prompt: Text(defaultLabel))
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 180)
-                .padding(12)
-                .onAppear { text = override ?? "" }
-                .onSubmit { commit() }
-                .onDisappear { commit() }
-        }
-
-        private func commit() {
-            let trimmed = text.trimmingCharacters(in: .whitespaces)
-            override = (trimmed.isEmpty || trimmed == defaultLabel) ? nil : trimmed
-            dismiss()
-        }
+        .help(pooled
+              ? L("The menu bar is pooling each provider into one segment, so it shows every account. Set Menu bar shows to Accounts in Display to pick which ones appear.")
+              : L("Show in menu bar"))
     }
 }

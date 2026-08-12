@@ -270,8 +270,13 @@ final class SettingsStore {
         menuBarHiddenAccounts = Set(defaults.stringArray(forKey: "menuBarHiddenAccounts") ?? [])
         disabledAccounts = Set(defaults.stringArray(forKey: "disabledAccounts") ?? [])
         displayMode = DisplayMode(rawValue: defaults.string(forKey: "displayMode") ?? "") ?? .remaining
+        // POOLED IS THE DEFAULT (owner ruling, 2026-08-12): the bar is asked "how much is left",
+        // and one figure per provider answers it at a glance where N marks ask the reader to add
+        // up. `nil` here is "never chosen", not "chose accounts" - this key is written only by the
+        // Display pane's picker (property observers do not run during init), so flipping the
+        // fallback moves everyone who never expressed a preference and nobody who did.
         menuBarLayout = MenuBarLayout(rawValue: defaults.string(forKey: "menuBarLayout") ?? "")
-            ?? .perAccount
+            ?? .pooled
         showAllModels = defaults.object(forKey: "showAllModels") as? Bool ?? false
         // Default 5 minutes: a public-friendly default - each poll spawns the provider CLIs, so
         // faster ticks trade background CPU for freshness. Users can go down to 1 min (reads run

@@ -71,8 +71,10 @@ subscriptions at once:
   quantity, and pooling them produces a number no subscription can be bought against. The hover
   carries the breakdown per tier, the active burn rate, the starved hours, and the next refills;
   `tally status --json` publishes the same split as `tierDemands`.
-- **Menu bar strip.** Per-account brand marks with stacked session/weekly percentages; same-provider
-  accounts get a tiny index badge; hover for every account's full numbers.
+- **Menu bar strip.** One segment per provider by default, summing that provider's accounts into
+  the same pool the fleet gauge draws, badged with how many accounts it stands for; switch it to one
+  mark per account when you want them apart. Either way the segment stacks session over weekly, and
+  hover spells out the accounts, their numbers, and anyone missing from the pool.
 - **Pinnable glass panel.** Pin the dashboard as an always-on-top frosted-glass panel; drag the
   header to place it anywhere. The account cards themselves render as glass over the panel's
   backdrop (solid whenever you turn the translucency off, or the system asks for reduced

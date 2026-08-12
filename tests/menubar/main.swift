@@ -220,21 +220,90 @@ do {
     expect(short.dimmed, "pooled: …dimmed, because the figure is one account's, not two")
     expect(short.lines == ["60%"], "pooled: …over the one account that reported")
     // What the hover is told, decided here so the two surfaces cannot disagree about who is out.
-    expect(MenuBarSegments.missingFromPool(pair).map { $0.count } == 1
-           && MenuBarSegments.missingFromPool(pair)?.reason == "boom",
-           "pooled: the hover gets how many are missing and why")
-    expect(MenuBarSegments.missingFromPool(partial).map { $0.count } == 1,
+    expect(MenuBarSegments.missingFromPool(pair).map(\.label) == ["c2"]
+           && MenuBarSegments.missingFromPool(pair).map(\.reason) == ["boom"],
+           "pooled: the hover gets who is missing and why")
+    expect(MenuBarSegments.missingFromPool(partial).count == 1,
            "pooled: …counted, not just flagged")
     expect(MenuBarSegments.missingFromPool([account("c1", metrics: [metric(.weeklyAll, used: 40)]),
                                             account("c2", metrics: [metric(.weeklyAll, used: 60)])])
-            == nil,
+            .isEmpty,
            "pooled: a whole fleet has nothing missing to report")
     // A STALE member is not missing - its last-good numbers are in the average, and the hover
     // already has a word for that state ("Outdated"). Reporting it as failed would double-count it.
     expect(MenuBarSegments.missingFromPool([
         account("c1", metrics: [metric(.weeklyAll, used: 40)], error: "boom", stale: true),
-        account("c2", metrics: [metric(.weeklyAll, used: 60)])]) == nil,
+        account("c2", metrics: [metric(.weeklyAll, used: 60)])]).isEmpty,
            "pooled: a stale member is outdated, not missing")
+}
+
+// 11b. EVERY MISSING MEMBER BY NAME, WITH ITS OWN REASON. One count carrying the first account's
+// error said one diagnosis for all of them and identified none of them - "2 failed: Login expired"
+// when one is signed out and the other never had the CLI installed (codex review of 266c427).
+do {
+    let mixed = [
+        account("c1", metrics: [metric(.weeklyAll, used: 40)]),
+        account("c2", metrics: [], error: "Login expired"),
+        account("c3", metrics: [], error: "Claude CLI not found"),
+    ]
+    let missing = MenuBarSegments.missingFromPool(mixed)
+    expect(missing.map(\.label) == ["c2", "c3"], "pooled: both missing members are named")
+    expect(missing.map(\.reason) == ["Login expired", "Claude CLI not found"],
+           "pooled: …each with its own reason, not the first one twice")
+    expect(missing.count == 2, "pooled: and the count is still the count")
+    // The order is the members' own display order, so the hover reads down the fleet the way the
+    // rest of the app lists it.
+    expect(MenuBarSegments.missingFromPool([mixed[2], mixed[1]]).map(\.label) == ["c3", "c2"],
+           "pooled: named in the order the accounts are listed")
+    // The label the user reads everywhere else, not the provider's raw one: the hover takes a
+    // renamer, the way FleetMath.summaries does.
+    expect(MenuBarSegments.missingFromPool(mixed) { "renamed-\($0.id)" }.map(\.label)
+            == ["renamed-c2", "renamed-c3"],
+           "pooled: renames reach the hover")
+    // THE SENTENCE ITSELF, which is what a reader actually sees. Pure so it can be asserted here;
+    // the count and the wrapper around it are the view's, because they are localized.
+    expect(MenuBarSegments.missingDetail(missing, noData: "No usage data")
+            == "c2 (Login expired), c3 (Claude CLI not found)",
+           "pooled: the hover's wording names each account with its own reason")
+    expect(MenuBarSegments.missingDetail([], noData: "No usage data") == "",
+           "pooled: nothing missing is nothing said")
+}
+
+// 11c. THE MEMBERSHIP TEST IS THE POOL'S OWN (`metrics.isEmpty`), not a proxy for it. An account
+// that reported nothing WITHOUT failing contributes nothing to the average, exactly like a failed
+// one, and the old "has an error and is not stale" test called it present - the mirror of the hole
+// case 11 closes. Its reason is nil: it never said why, and the wording for that is the view's.
+do {
+    let silent = [
+        account("c1", metrics: [metric(.weeklyAll, used: 40)]),
+        account("c2", metrics: []),
+    ]
+    let missing = MenuBarSegments.missingFromPool(silent)
+    expect(missing.map(\.label) == ["c2"], "pooled: an account with no metrics is missing")
+    expect(missing.first?.reason == nil, "pooled: …with no reason of its own to give")
+    expect(MenuBarSegments.missingDetail(missing, noData: "No usage data")
+            == "c2 (No usage data)",
+           "pooled: and the view's own wording fills that gap")
+    // FleetMath agrees, which is the whole point of asking its question rather than a proxy: the
+    // pool really is over one member here.
+    let pool = stripSummaries(silent).first?.pools.first { $0.kind == .weeklyAll }
+    expect(pool?.members.count == 1, "pooled: FleetMath left that account out too")
+    expect(pooled(silent)[0].dimmed, "pooled: so the segment cannot look complete")
+    expect(pooled(silent)[0].lines == ["60%"], "pooled: over the one account that reported")
+}
+
+// 11d. "!" IS THE ERROR MARK, and stays keyed on errors now that membership is a separate question.
+// A provider with no pool at all whose accounts merely reported nothing has failed at nothing.
+do {
+    let allFailed = [account("c1", metrics: [], error: "boom"),
+                     account("c2", metrics: [], error: "boom")]
+    expect(pooled(allFailed)[0].lines == ["!"], "pooled: every account failing is the error mark")
+    let allSilent = [account("c1", metrics: []), account("c2", metrics: [])]
+    expect(pooled(allSilent)[0].lines == ["—"], "pooled: reporting nothing is no data, not an error")
+    // Mixed: one failed, one silent. Neither reading is "everything failed", so it is no data.
+    expect(pooled([account("c1", metrics: [], error: "boom"), account("c2", metrics: [])])[0].lines
+            == ["—"],
+           "pooled: a partial failure with no pool does not claim the whole provider failed")
 }
 
 // 12. Per-account regression: the error mark, and a stale account keeping its numbers.
@@ -246,6 +315,56 @@ do {
     expect(segments[0].lines == ["!"] && !segments[0].dimmed, "per-account: a fresh error is a mark")
     expect(segments[1].lines == ["80%"] && segments[1].dimmed,
            "per-account: a stale account keeps its last-good numbers, dimmed")
+}
+
+// 13. THE LAYOUT THE STRIP STARTS IN, and the wiring of the hover, checked as text: neither the
+// settings store (@MainActor, @Observable, UserDefaults) nor the tooltip (needs the store) compiles
+// into this harness, and both rules are only worth having if they are really wired up - the same
+// technique tests/accountrow uses on the same two kinds of file. Run from the repo root, which
+// run-menubar-tests.sh guarantees; an unreadable file FAILS rather than quietly passing.
+func readSource(_ path: String) -> String {
+    (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+}
+do {
+    let settingsSource = readSource("Tally/Stores/SettingsStore.swift")
+    expect(!settingsSource.isEmpty, "the settings store is readable from these checks")
+    // POOLED IS WHAT AN UNSET PREFERENCE MEANS. The bar is glanced at to answer "how much is
+    // left", and one figure per provider is that answer where N marks are its raw material.
+    expect(settingsSource.contains("""
+        menuBarLayout = MenuBarLayout(rawValue: defaults.string(forKey: "menuBarLayout") ?? "")
+            ?? .pooled
+"""),
+           "the strip defaults to the pooled layout")
+    // AND ONLY AN UNSET ONE. The flip moves everybody who never chose and nobody who did, which
+    // holds exactly as long as this key is written from one place - the picker's own observer.
+    // (Property observers do not run during init, so reading it above writes nothing.)
+    expect(settingsSource.components(separatedBy: "forKey: \"menuBarLayout\"").count == 3,
+           "the key is read in one place and written in one place, nowhere else")
+    expect(settingsSource.contains("""
+        didSet {
+            UserDefaults.standard.set(menuBarLayout.rawValue, forKey: "menuBarLayout")
+"""),
+           "…and the one writer is the picker's own observer")
+}
+do {
+    let hoverSource = readSource("Tally/Stores/UsageStorePresentation.swift")
+    expect(!hoverSource.isEmpty, "the hover is readable from these checks")
+    // The note is built from the two functions above rather than from a second reading of the
+    // members, so who is out and how they are named cannot drift from what dims the segment.
+    expect(hoverSource.contains("MenuBarSegments.missingDetail(missing, noData: L(\"No usage data\"))"),
+           "the hover words the missing members through the rule that decides them")
+    expect(hoverSource.contains("String(missing.count)"),
+           "…and interpolates the count as a String, so the catalog key is not \"%lld …\"")
+    // BOTH hover branches name the accounts: the no-pool branch had the same one-error-for-all
+    // shape the note just lost, one line further down.
+    expect(hoverSource.contains("Self.missingNamed(members)")
+           && hoverSource.contains("Self.missingNote(members)"),
+           "both branches of the hover ask who is missing")
+    expect(!hoverSource.contains("members.compactMap(\\.error).first"),
+           "…and neither of them stands one account's error in for the rest")
+    // …through ONE resolution of the names, so a rename cannot reach one branch and not the other.
+    expect(hoverSource.components(separatedBy: "MenuBarSegments.missingFromPool").count == 2,
+           "…and both go through one place that resolves the labels")
 }
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

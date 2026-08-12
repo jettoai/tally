@@ -324,5 +324,35 @@ check("the pane starts the discovery it needs",
 check("…once, and never on a demo instance",
       storeSource.contains("guard !hasDiscovered, !DemoUsage.isActive else { return }"))
 
+// MARK: - The menu-bar switch, in the layout where it decides nothing
+
+// The pooled layout's segment sums EVERY account of a provider, so the per-account "Menu bar"
+// switch has nothing to pick between there - the strip reads `orderedAccounts` and never asks it
+// (UsageStorePresentation). Left live it would be a silent no-op: flip it, nothing moves in the
+// bar, and nothing on screen says why. So it is disabled, and the hover carries the way back.
+// Checked as text for the reason the section above gives - a SwiftUI view does not compile in here.
+check("the switch is dead exactly when the layout is pooled",
+      paneSource.contains("let pooled = settings.menuBarLayout == .pooled")
+          && memberBody(paneSource, from: "private func menuBarToggle").contains(".disabled(pooled)"))
+// NOT SILENTLY: a greyed control with no explanation is the same dead end one step later.
+check("…and says why, with the way back in it",
+      paneSource.contains(".help(pooled")
+          && paneSource.contains("Set Menu bar shows to Accounts in Display to pick which ones appear."))
+check("the label greys with the control it labels",
+      memberBody(paneSource, from: "private func menuBarToggle")
+          .contains(".opacity(pooled ? 0.55 : 1)"))
+// And it is still a live switch in the layout that asks the question.
+check("the per-account layout keeps the switch usable",
+      memberBody(paneSource, from: "private func menuBarToggle")
+          .contains("settings.setShownInMenuBar(accountID, $0)")
+          && !memberBody(paneSource, from: "private func menuBarToggle").contains(".disabled(true)"))
+// The sentence names two things the Display pane really shows, so it cannot send anyone looking
+// for a control that is not there.
+let displaySource = readSource("Tally/Views/SettingsDisplayPane.swift")
+check("the display pane is readable from these checks", !displaySource.isEmpty)
+check("the hover points at wording the Display pane actually uses",
+      displaySource.contains("L(\"Menu bar shows\")")
+          && displaySource.contains("Text(L(\"Accounts\")).tag(MenuBarLayout.perAccount)"))
+
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

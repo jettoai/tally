@@ -23,13 +23,17 @@ enum GaugeFocus: String, Sendable, CaseIterable {
     case weekly
 }
 
-/// What one segment of the menu-bar strip counts. `perAccount` (default) gives every visible
-/// account its own mark and its own numbers, so N accounts read as N marks. `pooled` gives every
-/// provider ONE segment summing its accounts - the same pool the panel's fleet gauge draws, so the
-/// two surfaces answer with the same figure - for a fleet whose per-account strip has grown wider
-/// than the bar has room for. It is a different unit, not different facts: both layouts stack the
-/// same two windows (session on top, the focus-resolved weekly below). Persisted in
-/// `SettingsStore`; the segments themselves are built in `MenuBarSegments`.
+/// What one segment of the menu-bar strip counts. `pooled` (default) gives every provider ONE
+/// segment summing its accounts - the same pool the panel's fleet gauge draws, so the two surfaces
+/// answer with the same figure. `perAccount` gives every visible account its own mark and its own
+/// numbers, so N accounts read as N marks.
+///
+/// Pooled leads because of the question the bar is glanced at to answer: "how much is left". One
+/// figure per provider IS that answer, while N marks are the raw material for it and leave the
+/// reader adding up (owner ruling, 2026-08-12; the per-account strip also outgrows the bar first).
+/// It is a different unit, not different facts: both layouts stack the same two windows (session on
+/// top, the focus-resolved weekly below). Persisted in `SettingsStore`; the segments themselves are
+/// built in `MenuBarSegments`.
 enum MenuBarLayout: String, Sendable, CaseIterable {
     case perAccount
     case pooled

@@ -99,8 +99,10 @@ extension UsageStore {
         return MenuBarSegments.providerGroups(orderedAccounts).map { providerID, members in
             let head = "\(ProviderCatalog.displayName(for: providerID)) ×\(members.count)"
             guard let summary = byProvider[providerID] else {
-                // No pool means no metrics to pool; the accounts' own error is the answer.
-                return "\(head): \(members.compactMap(\.error).first ?? "—")"
+                // No pool means no metrics to pool, so EVERY member is a missing one and the same
+                // naming applies: one account's error was standing in for all of them here too.
+                let named = Self.missingNamed(members)
+                return "\(head): \(named.isEmpty ? "—" : named)"
             }
             let parts = MenuBarSegments.pools(summary, focusedModel: Self.focusedModel).map { pool in
                 let value = mode == .used ? 100 - pool.averageRemaining : pool.averageRemaining
@@ -111,15 +113,37 @@ extension UsageStore {
         }.joined(separator: "\n")
     }
 
-    /// " · 1 failed: <reason>" for the accounts that contributed nothing to the pool, empty when
-    /// every member is in. Without it the ×N counts an account the figures do not, and the only
-    /// other sign is a dimmed segment that could equally mean "outdated".
+    /// " · 2 failed: Work (Login expired), Side (No usage data)" for the accounts that contributed
+    /// nothing to the pool, empty when every member is in. Without it the ×N counts accounts the
+    /// figures do not, and the only other sign is a dimmed segment that could equally mean
+    /// "outdated".
+    ///
+    /// EVERY ONE OF THEM BY NAME AND BY ITS OWN REASON: a count with one reason attached applied
+    /// the first account's diagnosis to all of them and identified none, which the per-account
+    /// hover never does (it prints "label: error" per row). Renames are honoured here for the same
+    /// reason - this is the name the user reads everywhere else.
     private static func missingNote(_ members: [AccountUsage]) -> String {
-        guard let missing = MenuBarSegments.missingFromPool(members) else { return "" }
+        let missing = missingFromPool(members)
+        guard !missing.isEmpty else { return "" }
+        let named = MenuBarSegments.missingDetail(missing, noData: L("No usage data"))
         // The count interpolated as a String on purpose: an Int makes the catalog key "%lld …",
         // which matches no entry and silently renders the English source in every other language
         // (the fleet tooltip's capacity line states the whole trap, FleetStripView.swift).
-        return " · " + String(localized: "\(String(missing.count)) failed: \(missing.reason)",
+        return " · " + String(localized: "\(String(missing.count)) failed: \(named)",
                               bundle: AppLocale.bundle)
+    }
+
+    /// Who is out of the pool, under the names the user reads everywhere else - one resolution for
+    /// both places the hover asks, so a rename cannot reach one branch and not the other.
+    private static func missingFromPool(_ members: [AccountUsage]) -> [(label: String, reason: String?)] {
+        MenuBarSegments.missingFromPool(members) {
+            SettingsStore.shared.displayLabel(accountID: $0.id, fallback: $0.accountLabel)
+        }
+    }
+
+    /// Those members, worded. Empty when nothing is missing, which the no-pool branch reads as
+    /// "nothing to say" and prints as the no-data glyph.
+    private static func missingNamed(_ members: [AccountUsage]) -> String {
+        MenuBarSegments.missingDetail(missingFromPool(members), noData: L("No usage data"))
     }
 }

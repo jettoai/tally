@@ -1,6 +1,35 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "The menu bar is pooling each provider into one segment, so it shows every account. Set Menu bar shows to Accounts in Display to pick which ones appear.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選單列正把每個供應商合成一段，因此會顯示所有帳號。想挑選要出現哪些帳號，請到「顯示」把「選單列顯示」改成「帳號」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "菜单栏正把每个提供商合成一段，因此会显示所有账号。想挑选要出现哪些账号，请到「显示」把「菜单栏显示」改成「账号」。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニューバーはプロバイダーごとに1つの区画へまとめているため、すべてのアカウントが対象です。表示するアカウントを選ぶには、「表示」で「メニューバー表示」を「アカウント」に変更してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대가 제공자별로 한 구간에 합산하고 있어 모든 계정이 포함됩니다. 어떤 계정을 표시할지 고르려면 '표시'에서 '메뉴 막대 표시'를 '계정'으로 바꾸세요."
+          }
+        }
+      }
+    },
     "Restarting…": {
       "extractionState": "manual",
       "localizations": {

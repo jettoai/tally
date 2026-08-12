@@ -111,8 +111,13 @@ enum MenuBarSegments {
             // so the strip showed a healthy single account (codex review, 2026-08-12).
             let badge = members.count > 1 ? members.count : nil
             guard let summary = byProvider[providerID] else {
-                return MenuBarSegment(providerID: providerID,
-                                      lines: [missing?.count == members.count ? "!" : "—"],
+                // No pool at all, so the segment is a mark - and WHICH mark the ERRORS decide,
+                // not the pool membership above: a provider whose accounts merely reported nothing
+                // has failed at nothing, and "!" is the error mark. (One question while
+                // `missingFromPool` asked about errors; two now that it asks what `FleetMath` does.)
+                let allFailed = !members.isEmpty
+                    && members.allSatisfy { $0.error != nil && !$0.isStale }
+                return MenuBarSegment(providerID: providerID, lines: [allFailed ? "!" : "—"],
                                       dimmed: false, badge: badge)
             }
             let lines = pools(summary, focusedModel: focusedModel).map {
@@ -130,23 +135,45 @@ enum MenuBarSegments {
                 // has no numbers in it at all while the badge still counts it. A bright segment
                 // would claim both away, and the badge alone cannot tell them apart - so the strip
                 // says "not the whole truth" and the tooltip says which.
-                dimmed: missing != nil || members.contains(where: \.isStale),
+                dimmed: !missing.isEmpty || members.contains(where: \.isStale),
                 badge: badge)
         }
     }
 
-    /// The members whose numbers are missing from the pool ENTIRELY: accounts whose fetch failed
-    /// before they ever had a good snapshot to fall back on (`AccountUsage.failure` carries no
-    /// metrics), so `FleetMath` never saw them and the average is over the survivors. Answers how
-    /// many and why the first of them did - the two facts the hover needs; the wording stays with
-    /// the view that owns localization, the way `FleetTooltip` splits the same job.
+    /// The members whose numbers are missing from the pool ENTIRELY, each with its own name and its
+    /// own reason. Typically a fetch that failed before the account ever had a good snapshot to fall
+    /// back on (`AccountUsage.failure` carries no metrics), so `FleetMath` never saw it and the
+    /// average is over the survivors.
     ///
-    /// A STALE member is deliberately not one of these: its last-good numbers ARE in the average.
-    /// That is a different reading and the panel already has a word for it ("Outdated").
-    static func missingFromPool(_ members: [AccountUsage]) -> (count: Int, reason: String)? {
-        let failed = members.filter { $0.error != nil && !$0.isStale }
-        guard let reason = failed.first?.error else { return nil }
-        return (failed.count, reason)
+    /// THE QUESTION IS THE POOL'S OWN: an account is missing exactly when it carries no metrics,
+    /// the membership test `FleetMath.summaries` runs (`where !account.metrics.isEmpty`). The proxy
+    /// this replaces - "has an error and is not stale" - is equivalent only while every provider
+    /// reports `.failure` when it has nothing; one that reported nothing WITHOUT failing was out of
+    /// the pool and unmentioned, the mirror of the hole this note exists to close (review of
+    /// 266c427). It also excludes a STALE member by construction rather than by a second rule: its
+    /// last-good numbers are in the average, which is the reading the panel calls "Outdated".
+    ///
+    /// EACH ONE BY NAME, because one count with one reason attached says something untrue as soon
+    /// as two accounts are out for two reasons: "2 failed: Login expired" reads as one diagnosis
+    /// for both and identifies neither. `reason` is nil for a member that never said why; the
+    /// wording for that stays with the view that owns localization, the way `FleetTooltip` splits
+    /// the same job.
+    static func missingFromPool(
+        _ members: [AccountUsage],
+        label: (AccountUsage) -> String = { $0.accountLabel }
+    ) -> [(label: String, reason: String?)] {
+        members.filter(\.metrics.isEmpty).map { (label($0), $0.error) }
+    }
+
+    /// Those members as the hover names them: "Work (Login expired), Side (No usage data)". The
+    /// count and the sentence around it are the view's (they are localized); this is the part that
+    /// has to agree with `missingFromPool` about who is out and in what order, so it lives beside
+    /// it and can be asserted without a status item on screen.
+    ///
+    /// `noData` is the caller's localized wording for a member that gave no reason of its own.
+    static func missingDetail(_ missing: [(label: String, reason: String?)],
+                              noData: String) -> String {
+        missing.map { "\($0.label) (\($0.reason ?? noData))" }.joined(separator: ", ")
     }
 
     /// The providers present in these accounts, each with its own accounts, in the accounts'

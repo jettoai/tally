@@ -120,7 +120,11 @@ enum MenuBarSegments {
                 return MenuBarSegment(providerID: providerID, lines: [allFailed ? "!" : "—"],
                                       dimmed: false, badge: badge)
             }
-            let lines = pools(summary, focusedModel: focusedModel).map {
+            // The pools this segment actually DRAWS, held rather than mapped straight to strings:
+            // whether each of them covers everybody is the other half of "is this figure the whole
+            // truth", and only these pools can answer it (the summary may carry others).
+            let drawn = pools(summary, focusedModel: focusedModel)
+            let lines = drawn.map {
                 // The pool's average, read the way the gauge's value column reads it: remaining by
                 // default, its complement in Used mode. Both surfaces clamp where a per-account
                 // meter does not - an account the provider reports at 103% used prints 103% on its
@@ -130,12 +134,14 @@ enum MenuBarSegments {
             }
             return MenuBarSegment(
                 providerID: providerID, lines: lines.isEmpty ? ["—"] : lines,
-                // Either way a pooled figure stops being the whole truth dims the segment. A STALE
+                // Every way a pooled figure stops being the whole truth dims the segment. A STALE
                 // member's last-good numbers are inside the average; a member missing from the pool
-                // has no numbers in it at all while the badge still counts it. A bright segment
-                // would claim both away, and the badge alone cannot tell them apart - so the strip
-                // says "not the whole truth" and the tooltip says which.
-                dimmed: !missing.isEmpty || members.contains(where: \.isStale),
+                // has no numbers in it at all while the badge still counts it; and a member that
+                // reported SOME windows is in one line and not the other, which the badge cannot
+                // show at all. A bright segment would claim all three away - so the strip says "not
+                // the whole truth" and the tooltip says which.
+                dimmed: !missing.isEmpty || !windowGaps(members, pools: drawn).isEmpty
+                    || members.contains(where: \.isStale),
                 badge: badge)
         }
     }
@@ -174,6 +180,71 @@ enum MenuBarSegments {
     static func missingDetail(_ missing: [(label: String, reason: String?)],
                               noData: String) -> String {
         missing.map { "\($0.label) (\($0.reason ?? noData))" }.joined(separator: ", ")
+    }
+
+    /// WHICH DRAWN LINE IS SHORT, AND WHO IS NOT IN IT: one entry per (pool, account) pair where a
+    /// member that DID report usage is absent from that particular pool.
+    ///
+    /// A SECOND KIND OF HOLE FROM `missingFromPool` ABOVE, and the strip cannot show either one.
+    /// That one is an account with nothing at all; this is an account with SOME windows. A provider
+    /// mapper builds metrics per line of the response, so an account can carry a session window and
+    /// no weekly one (Claude parses line by line; Codex skips a window whose percent is nil), and
+    /// `FleetMath` then pools each kind over whoever reported it. The weekly pool is legitimately
+    /// one member while the segment's badge says two, and nothing on screen said so: the second row
+    /// drew one account's number under a mark claiming to stand for both (codex review of 6cd0bde).
+    ///
+    /// ASKED OF THE POOL ITSELF, never re-derived: the members are what `FleetMath.summaries` put
+    /// in, so this states no membership rule of its own - the mistake a proxy for it made once
+    /// already (`missingFromPool` documents that one).
+    ///
+    /// WHETHER there is a gap is decided by COUNT, and only then is anyone NAMED. The two questions
+    /// are not equally safe to answer: a `FleetPool.Member` carries a label rather than an id, so
+    /// naming needs the caller to pass the same labeller the pools were built with, and a caller
+    /// that passes a different one would find nobody seated and report every account as missing
+    /// from every row. That answer drives the segment's dimming, so it must not be reachable: the
+    /// count guard below makes a full pool return nothing whatever labeller arrives, and the
+    /// multiset matching underneath it only ever runs on a pool that really is short. (Multiset
+    /// because two accounts may share a label; the counts stay right either way, and which of a
+    /// duplicated pair gets named is arbitrary in the one case where names cannot tell them apart.)
+    ///
+    /// Accounts that reported nothing at all are excluded: they are `missingFromPool`'s to report,
+    /// and naming them here as well would say the same absence twice in one hover.
+    static func windowGaps(
+        _ members: [AccountUsage],
+        pools: [FleetPool],
+        label: (AccountUsage) -> String = { $0.accountLabel }
+    ) -> [(window: String, label: String)] {
+        let present = members.filter { !$0.metrics.isEmpty }
+        return pools.flatMap { pool -> [(window: String, label: String)] in
+            guard pool.members.count < present.count else { return [] }
+            var seats: [String: Int] = [:]
+            for member in pool.members { seats[member.accountLabel, default: 0] += 1 }
+            return present.compactMap { account in
+                let name = label(account)
+                guard let free = seats[name], free > 0 else { return (pool.label, name) }
+                seats[name] = free - 1
+                return nil
+            }
+        }
+    }
+
+    /// Those gaps as the hover names them: "Weekly (Side), Fable (Other, Third)" - the WINDOW first,
+    /// because it names the row the reader is looking at, then everyone missing from it.
+    ///
+    /// Grouped per window rather than one line per pair, which is the same fact said once instead of
+    /// three times. `windowName` localizes a pool's label (`L(pool.label)` at the call site), the
+    /// same split `missingDetail` makes: the rule decides, the view words it.
+    static func windowGapDetail(_ gaps: [(window: String, label: String)],
+                                windowName: (String) -> String) -> String {
+        var order: [String] = []
+        var byWindow: [String: [String]] = [:]
+        for gap in gaps {
+            if byWindow[gap.window] == nil { order.append(gap.window) }
+            byWindow[gap.window, default: []].append(gap.label)
+        }
+        return order
+            .map { "\(windowName($0)) (\(byWindow[$0]!.joined(separator: ", ")))" }
+            .joined(separator: ", ")
     }
 
     /// The providers present in these accounts, each with its own accounts, in the accounts'

@@ -42,9 +42,15 @@ extension UsageStore {
     /// single-account provider, whose segment would otherwise have nothing to show) without
     /// touching any pool the gauge itself draws.
     private var menuBarPools: [FleetSummary] {
-        FleetMath.summaries(accounts: orderedAccounts, minMembers: 1) { usage in
-            SettingsStore.shared.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
-        }
+        FleetMath.summaries(accounts: orderedAccounts, minMembers: 1, label: Self.displayName)
+    }
+
+    /// The name every fleet reading calls an account by: the user's own. ONE function for the pools
+    /// and for both hover notes, because `FleetPool.Member` records a LABEL rather than an id - a
+    /// note that labels accounts differently from the pools it compares them against cannot match
+    /// them up at all (`MenuBarSegments.windowGaps` states what that would look like).
+    private static func displayName(_ usage: AccountUsage) -> String {
+        SettingsStore.shared.displayLabel(accountID: usage.id, fallback: usage.accountLabel)
     }
 
     /// The strip's segments, in whichever layout the user picked (`MenuBarLayout`). Both are built
@@ -104,12 +110,16 @@ extension UsageStore {
                 let named = Self.missingNamed(members)
                 return "\(head): \(named.isEmpty ? "—" : named)"
             }
-            let parts = MenuBarSegments.pools(summary, focusedModel: Self.focusedModel).map { pool in
+            // The same pools the segment draws, held so the note below can say which of them is
+            // short of members (MenuBarSegments.windowGaps).
+            let drawn = MenuBarSegments.pools(summary, focusedModel: Self.focusedModel)
+            let parts = drawn.map { pool in
                 let value = mode == .used ? 100 - pool.averageRemaining : pool.averageRemaining
                 return "\(L(pool.label)) \(Int(value.rounded()))%"
             }
             let stale = members.contains(where: \.isStale) ? " (\(L("Outdated")))" : ""
-            return "\(head): \(parts.joined(separator: " · "))\(stale)\(Self.missingNote(members))"
+            return "\(head): \(parts.joined(separator: " · "))\(stale)"
+                + Self.missingNote(members) + Self.windowGapNote(members, pools: drawn)
         }.joined(separator: "\n")
     }
 
@@ -133,12 +143,25 @@ extension UsageStore {
                               bundle: AppLocale.bundle)
     }
 
+    /// " · incomplete: Weekly (Side)" for a member that reported SOME windows and so sits in one
+    /// of the drawn lines and not another. A DIFFERENT SENTENCE from the one above, deliberately:
+    /// that account has not failed at anything and is not absent from the segment, so counting it
+    /// among the failures would say something untrue about it. The window comes first because it
+    /// names the row whose figure is short.
+    ///
+    /// No count in the key, so there is no `%lld` trap to sidestep here (the note above explains
+    /// the one it does sidestep).
+    private static func windowGapNote(_ members: [AccountUsage], pools: [FleetPool]) -> String {
+        let gaps = MenuBarSegments.windowGaps(members, pools: pools, label: displayName)
+        guard !gaps.isEmpty else { return "" }
+        let named = MenuBarSegments.windowGapDetail(gaps) { L($0) }
+        return " · " + String(localized: "incomplete: \(named)", bundle: AppLocale.bundle)
+    }
+
     /// Who is out of the pool, under the names the user reads everywhere else - one resolution for
     /// both places the hover asks, so a rename cannot reach one branch and not the other.
     private static func missingFromPool(_ members: [AccountUsage]) -> [(label: String, reason: String?)] {
-        MenuBarSegments.missingFromPool(members) {
-            SettingsStore.shared.displayLabel(accountID: $0.id, fallback: $0.accountLabel)
-        }
+        MenuBarSegments.missingFromPool(members, label: displayName)
     }
 
     /// Those members, worded. Empty when nothing is missing, which the no-pool branch reads as

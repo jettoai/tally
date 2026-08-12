@@ -306,6 +306,107 @@ do {
            "pooled: a partial failure with no pool does not claim the whole provider failed")
 }
 
+/// A provider whose accounts all report the same two windows: the ordinary fleet, and the control
+/// for every gap assertion below.
+let whole = [
+    account("c1", metrics: [metric(.session, used: 60), metric(.weeklyAll, used: 20)]),
+    account("c2", metrics: [metric(.session, used: 40), metric(.weeklyAll, used: 40)]),
+]
+let wholeDrawn = MenuBarSegments.pools(stripSummaries(whole)[0], focusedModel: flagshipFocus)
+
+// 11e. A MEMBER THAT REPORTED SOME WINDOWS, WHICH THE ACCOUNT-LEVEL RULE CANNOT SEE. A provider
+// mapper builds metrics per line of the response, so an account can carry a session window and no
+// weekly one. `FleetMath` then pools each kind over whoever reported it: the session pool has both
+// accounts and the weekly pool legitimately has one, while the badge says two and nothing dimmed -
+// the second row drew ONE account's number under a mark claiming to stand for both (codex review of
+// 6cd0bde; its probe measured `missing=0 dimmed=false badge=2 lines=["50%","80%"]`).
+do {
+    let uneven = [
+        account("c1", metrics: [metric(.session, used: 60), metric(.weeklyAll, used: 20)]),
+        account("c2", metrics: [metric(.session, used: 40)]),
+    ]
+    let segment = pooled(uneven)[0]
+    // The measured shape, asserted first so the case cannot quietly stop being this case.
+    expect(segment.lines == ["50%", "80%"] && segment.badge == 2,
+           "pooled: the session line pools both accounts, the weekly line only one")
+    expect(MenuBarSegments.missingFromPool(uneven).isEmpty,
+           "pooled: and the account-level rule has nothing to say - both accounts reported")
+    // THE FIX: the second row is one account's figure under a badge that says two, so the segment
+    // may not look complete.
+    expect(segment.dimmed, "pooled: a member absent from one drawn pool dims the segment")
+    // …and the hover says WHICH row is short and WHO is not in it.
+    let drawn = MenuBarSegments.pools(stripSummaries(uneven)[0], focusedModel: flagshipFocus)
+    let gaps = MenuBarSegments.windowGaps(uneven, pools: drawn)
+    expect(gaps.map(\.window) == ["Weekly"] && gaps.map(\.label) == ["c2"],
+           "pooled: the gap names the window and the account missing from it")
+    expect(MenuBarSegments.windowGapDetail(gaps) { $0 } == "Weekly (c2)",
+           "pooled: …and the hover's wording puts the window first")
+    // The session pool covers everybody, so it contributes no gap: this is per POOL, not per
+    // account, or every gap would name every row.
+    expect(!gaps.contains { $0.window == "Session" },
+           "pooled: the pool that does cover everybody is not reported")
+    // Renames reach it, like every other name in the hover - through the labeller the POOLS were
+    // built with, which is how the app wires it (`menuBarPools` and the hover share one).
+    let renamedPools = MenuBarSegments.pools(
+        FleetMath.summaries(accounts: uneven, now: now, minMembers: 1) { "renamed-\($0.id)" }[0],
+        focusedModel: flagshipFocus)
+    expect(MenuBarSegments.windowGaps(uneven, pools: renamedPools) { "renamed-\($0.id)" }
+            .map(\.label) == ["renamed-c2"],
+           "pooled: renames reach the gap note")
+    // AND A LABELLER THAT DOES NOT MATCH THE POOLS CANNOT INVENT GAPS, which is the failure mode
+    // that would dim every segment for anybody who has renamed an account: the count decides first,
+    // so a pool covering everybody reports nothing whatever names arrive.
+    expect(MenuBarSegments.windowGaps(whole, pools: wholeDrawn) { "mismatched-\($0.id)" }.isEmpty,
+           "pooled: a full pool reports nothing even under a labeller it does not know")
+}
+
+// 11f. A WHOLE FLEET IS STILL A WHOLE FLEET. The rule above must not dim a segment whose pools all
+// cover everybody, which is the ordinary case and the one a regression here would spoil for every
+// user at once.
+do {
+    let drawn = wholeDrawn
+    expect(MenuBarSegments.windowGaps(whole, pools: drawn).isEmpty,
+           "pooled: every pool covering everybody is no gap at all")
+    expect(!pooled(whole)[0].dimmed, "pooled: …and the segment stays bright")
+    expect(MenuBarSegments.windowGapDetail([]) { $0 } == "",
+           "pooled: no gaps is nothing said")
+}
+
+// 11g. THE TWO KINDS OF HOLE ARE SAID ONCE EACH. An account with NO metrics is `missingFromPool`'s
+// to report; naming it again per window would print the same absence twice in one hover, once for
+// every row the segment happens to draw.
+do {
+    let both = [
+        account("c1", metrics: [metric(.session, used: 60), metric(.weeklyAll, used: 20)]),
+        account("c2", metrics: [metric(.session, used: 40)]),
+        account("c3", metrics: [], error: "Login expired"),
+    ]
+    let drawn = MenuBarSegments.pools(stripSummaries(both)[0], focusedModel: flagshipFocus)
+    expect(MenuBarSegments.missingFromPool(both).map(\.label) == ["c3"],
+           "pooled: the absent account is the account-level rule's")
+    expect(MenuBarSegments.windowGaps(both, pools: drawn).map(\.label) == ["c2"],
+           "pooled: …and the per-window rule names only the partial one")
+    expect(pooled(both)[0].dimmed && pooled(both)[0].badge == 3,
+           "pooled: the segment dims once and still stands for all three")
+}
+
+// 11h. A MODEL WINDOW ONLY ONE SIBLING REPORTS is the same shape one level down: case 8 above shows
+// the strip leading with that account's Fable window, and this is what the segment now says about
+// it - the row is one account's, and the hover names the other.
+do {
+    let mixed = [
+        account("c1", metrics: [metric(.session, used: 20), metric(.weeklyAll, used: 40),
+                                metric(.weeklyModel, used: 90, model: "Fable")]),
+        account("c2", metrics: [metric(.session, used: 60), metric(.weeklyAll, used: 60)]),
+    ]
+    let drawn = MenuBarSegments.pools(stripSummaries(mixed)[0], focusedModel: flagshipFocus)
+    let gaps = MenuBarSegments.windowGaps(mixed, pools: drawn)
+    expect(gaps.map(\.window) == ["Fable"] && gaps.map(\.label) == ["c2"],
+           "pooled: the model row names the sibling that has no such window")
+    expect(pooled(mixed)[0].dimmed,
+           "pooled: …and that segment is not the whole truth either")
+}
+
 // 12. Per-account regression: the error mark, and a stale account keeping its numbers.
 do {
     let segments = perAccount([
@@ -365,6 +466,21 @@ do {
     // …through ONE resolution of the names, so a rename cannot reach one branch and not the other.
     expect(hoverSource.components(separatedBy: "MenuBarSegments.missingFromPool").count == 2,
            "…and both go through one place that resolves the labels")
+    // THE SAME NAME THE POOLS WERE BUILT WITH, everywhere: `FleetPool.Member` records a label, so a
+    // note labelling accounts differently from the pools it compares them against matches nobody.
+    // Asserted as "one labeller, three uses" rather than per site, because the next reading someone
+    // adds is the one that would quietly pass a second one.
+    expect(hoverSource.components(separatedBy: "displayLabel(accountID:").count == 3,
+           "the fleet readings name accounts through one labeller (the per-account hover has its own)")
+    for site in ["FleetMath.summaries(accounts: orderedAccounts, minMembers: 1, label: Self.displayName)",
+                 "MenuBarSegments.windowGaps(members, pools: pools, label: displayName)",
+                 "MenuBarSegments.missingFromPool(members, label: displayName)"] {
+        expect(hoverSource.contains(site), "…and it is the one passed to `\(site.prefix(34))…`")
+    }
+    // The gap note is wired to the pools the row actually draws, and localizes the WINDOW name.
+    expect(hoverSource.contains("Self.windowGapNote(members, pools: drawn)")
+           && hoverSource.contains("MenuBarSegments.windowGapDetail(gaps) { L($0) }"),
+           "the hover says which drawn row is short, with the window name localized")
 }
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

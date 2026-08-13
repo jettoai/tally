@@ -149,10 +149,16 @@ struct SessionStateWriter {
 /// `watcher` is inout because deciding costs a locate and a stat, which is the same scan the tick's
 /// other gates run; `keyboardBurstAt` is the tracker's own reading rather than a fresh stat,
 /// because a burst only exists across successive polls (KeyboardIdle.swift).
+///
+/// IT RETURNS WHAT IT DECIDED, for the one consumer that needs the state as of THIS tick rather than
+/// as of the file: `applySessionInput` (SessionInput.swift) gates on it, and reading the file back
+/// would be reading a record this call may have just declined to rewrite. Discardable because every
+/// other caller is here to publish, not to ask.
+@discardableResult
 func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: PickProject,
                       accountID: String, childPid: Int?, model: String?,
                       watcher: inout TranscriptWatcher, keyboardBurstAt: Date?,
-                      dir: URL = supervisorStateDir, now: Date = Date()) {
+                      dir: URL = supervisorStateDir, now: Date = Date()) -> SupervisedState {
     let quiet = watcher.isQuiet(sessionStateQuietSeconds)
     // AFTER the locate `isQuiet` runs, so this is the file the conversation is actually in: a
     // `/clear` or a fork moves it, and the mtime of the file it left says nothing about the answer
@@ -174,6 +180,7 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
                                           project: project.name, worktree: project.worktree,
                                           model: model, childPid: childPid),
                 pid: pid, dir: dir, now: now)
+    return state
 }
 
 /// When a transcript was last written, or nil when there is none (or it cannot be stat'd).

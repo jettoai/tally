@@ -124,6 +124,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     var sessionModelState = SessionModelState(sessionKey: supervisorPID,
                                               servedEpoch: resumed ? 0 : nil,
                                               pin: sessionModel ?? SessionModelPin())
+    /// What this session has been asked to TYPE on its own behalf (SessionInput.swift owns the
+    /// rules). `resumed` carries the same meaning it does above: a self-update exec keeps the pid
+    /// and is the same session, so a request written moments before it must not be seeded away.
+    var sessionInput = SessionInputState(sessionKey: supervisorPID, servedEpoch: resumed ? 0 : nil)
     // A self-update keeps the pid and gives this state a fresh start, so a cancellation notice the
     // replaced image had just raised lives only in its file - where the seeded writer above would
     // take it down on the first tick, as the honest answer to "this session has nothing pending".
@@ -464,11 +468,18 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // the user, idle, or nothing-to-say. The rules are in SessionStateSync.swift; the model
             // published is the one that ANSWERED the last turn where there is one, falling back to
             // what the child was launched with (SessionContext.swift states why those differ).
-            syncSessionState(&sessionState, pid: supervisorPID, project: boardProject,
-                             accountID: account.id, childPid: Int(childPID),
-                             model: (axes.observedModel ?? axes.runningModel ?? axes.pinnedModel)
-                                 .map(shortModelName),
-                             watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt)
+            let boardState = syncSessionState(
+                &sessionState, pid: supervisorPID, project: boardProject,
+                accountID: account.id, childPid: Int(childPID),
+                model: (axes.observedModel ?? axes.runningModel ?? axes.pinnedModel)
+                    .map(shortModelName),
+                watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt)
+            // `tally session type`: type a pending request into this terminal, if the state just
+            // decided allows it. NOT a relaunch reason - it plans nothing, terminates nothing, and
+            // is gated on this tick's own reading rather than on the published file
+            // (SessionInput.swift owns every rule, the stall it costs included).
+            applySessionInput(&sessionInput, session: boardState,
+                              keyboardIdle: keyboard.idle(sessionInputKeyboardQuietSeconds))
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args. A pending app

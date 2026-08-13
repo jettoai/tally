@@ -710,5 +710,6 @@ runBackstopChecks()
 runLanguageChecks()
 runAuditSinkChecks()
 runSessionStateChecks()
+runSessionInputChecks()
 
 exit(failures == 0 ? 0 : 1)

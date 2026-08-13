@@ -73,6 +73,18 @@ usage:
                             terminal, it shows what is running and offers a menu. Inside Claude
                             Code, `/tally opus xhigh` does the same without waking a model
                             (installed with the Claude Code skill integration)
+  tally session type <text> [--submit] [--session <pid>]
+                            type <text> into a supervised session's own terminal, exactly as if it
+                            had been typed there, and with --submit press Return afterwards. Run it
+                            inside the session it is meant for (the agent in that conversation can
+                            run it as a tool call); --session names another one by the supervisor
+                            pid `tally status --json` lists. It WAITS for the answer: the text is
+                            typed at the first moment that session is waiting on you or idle, so a
+                            request made mid-turn lands when the turn ends, and nothing is typed
+                            while it is working, while it is not reporting what it is doing, or
+                            while somebody is typing in that terminal. At most 200 bytes - a slash
+                            command, an answer to a prompt - and every one of them is recorded in
+                            ~/.tally/logs/input.log
   tally reload [--now]      restart every supervised session at its next idle moment, so edited
                             hooks, skills, and instructions take effect everywhere without
                             visiting each terminal (--now waits only for a 5s quiet gap, so it

@@ -619,26 +619,27 @@ func runSessionInputChecks() {
               && !sessionSendUsage.contains("--submit")
               && sessionUsage == "usage: tally session send [<text>] [--session <pid>]")
 
-    // MARK: - One request per session at a time
+    // MARK: - One send at a time at one address
 
-    // One file addresses one session, so a second request written while the first is still waiting
-    // lands ON it: the first caller then waits for an answer to a request that exists nowhere, is
-    // told nobody answered, and nothing on either end records that an instruction was dropped
-    // (codex review of 18b3174). So the second caller is refused instead.
+    // One address holds one send, so a second one written while the first is still in flight lands
+    // ON it: the first caller then waits for something that exists nowhere, is told nobody answered,
+    // and nothing on either end records that an instruction was dropped (codex review of 18b3174).
+    // So the second caller is refused instead.
     let busyKey = "9301"
     let occupant = request("first")
     check("an address with nothing at it is free",
-          pendingSessionInput(sessionKey: busyKey, dir: dir, now: t0.addingTimeInterval(1)) == nil)
+          sessionInputOccupant(sessionKey: busyKey, dir: dir, now: t0.addingTimeInterval(1)) == nil)
     try? writeSessionInputRequest(occupant, sessionKey: busyKey, dir: dir)
     check("…a request still inside its life occupies it",
-          pendingSessionInput(sessionKey: busyKey, dir: dir, now: t0.addingTimeInterval(1))
-              == occupant)
+          sessionInputOccupant(sessionKey: busyKey, dir: dir, now: t0.addingTimeInterval(1))
+              == .request(occupant))
     // A husk does NOT occupy it: the supervisor refuses it the next time it looks, and treating it
     // as an occupant would take the address away for two minutes over a caller killed mid-wait.
     check("…and one past its life does not",
-          pendingSessionInput(sessionKey: busyKey, dir: dir,
-                              now: t0.addingTimeInterval(sessionInputTTL + 1)) == nil)
-    let busy = sessionInputBusyRefusal(occupant, sessionKey: busyKey, now: t0.addingTimeInterval(20))
+          sessionInputOccupant(sessionKey: busyKey, dir: dir,
+                               now: t0.addingTimeInterval(sessionInputTTL + 1)) == nil)
+    let busy = sessionInputBusyRefusal(.request(occupant), sessionKey: busyKey,
+                                       now: t0.addingTimeInterval(20))
     check("the second caller is told nothing was queued, and how long the first one has left",
           busy.contains(busyKey) && busy.contains("nothing was queued")
               && busy.contains("\(Int(sessionInputTTL) - 20)s"))
@@ -648,6 +649,50 @@ func runSessionInputChecks() {
     check("…and it does not read like one of the gate's refusals",
           !busy.contains("never reached a moment") && !busy.contains("never reported"))
     clearSessionInputRequest(sessionKey: busyKey, dir: dir)
+
+    // THE OTHER HALF OF A SEND'S LIFE, which is the state this check used to be blind to: the
+    // supervisor writes the answer and then unlinks the request, so between two of the first
+    // caller's 250ms polls the address holds an answer and NO request. Reading that as empty is
+    // what let the next caller delete a delivery report for text that was already typed, leaving
+    // the first caller to time out and reasonably send the same line again (codex review of
+    // 3c37831).
+    let servedAnswer = SessionInputResult(epoch: epoch(0), outcome: "submitted", detail: nil)
+    writeSessionInputResult(servedAnswer, sessionKey: busyKey, dir: dir)
+    check("an answer nobody has collected yet occupies the address, with no request in sight",
+          readSessionInputRequest(sessionKey: busyKey, dir: dir) == nil
+              && sessionInputOccupant(sessionKey: busyKey, dir: dir,
+                                      now: t0.addingTimeInterval(1)) == .answer(servedAnswer))
+    // AND IT IS LIVE FOR THE CALLER'S WAIT, NOT THE REQUEST'S TTL. The two differ by 30 seconds and
+    // the difference is not academic: a `refused-expired` answer is written when the request has
+    // just passed the TTL, so under the TTL it would be a husk at birth - deletable out from under
+    // a caller who is still polling for exactly it.
+    check("…and it is still there past the request's own TTL, because the caller waits longer",
+          sessionInputOccupant(sessionKey: busyKey, dir: dir,
+                               now: t0.addingTimeInterval(sessionInputTTL + 5))
+              == .answer(servedAnswer))
+    check("…while past the longest wait anybody makes it is a husk like any other",
+          sessionInputOccupant(sessionKey: busyKey, dir: dir,
+                               now: t0.addingTimeInterval(sessionInputWaitSeconds + 1)) == nil)
+    // A REQUEST OUTRANKS AN ANSWER when both are there (a newer send served while an older answer
+    // sits uncollected): what the caller is told should name the thing that has not happened yet.
+    try? writeSessionInputRequest(request("second", at: 1), sessionKey: busyKey, dir: dir)
+    check("…and a request present alongside an answer is what the address is said to hold",
+          sessionInputOccupant(sessionKey: busyKey, dir: dir, now: t0.addingTimeInterval(2))
+              == .request(request("second", at: 1)))
+    clearSessionInputRequest(sessionKey: busyKey, dir: dir)
+    let uncollected = sessionInputBusyRefusal(.answer(servedAnswer), sessionKey: busyKey,
+                                              now: t0.addingTimeInterval(20))
+    // The two wordings differ because what the caller should do differs: one is "wait, it will be
+    // served or expire", the other is "somebody's delivery report is sitting here and the text is
+    // already in the session".
+    check("an uncollected answer is refused in its own words, naming the outcome and the wait left",
+          uncollected.contains(busyKey) && uncollected.contains("nothing was queued")
+              && uncollected.contains("submitted")
+              && uncollected.contains("\(Int(sessionInputWaitSeconds) - 20)s")
+              && uncollected != busy)
+    check("…and it does not read like one of the gate's refusals either",
+          !uncollected.contains("never reached a moment") && !uncollected.contains("never reported"))
+    clearSessionInputResult(sessionKey: busyKey, dir: dir)
 
     // MARK: - Which pid --session may name
 
@@ -809,7 +854,7 @@ func runSessionInputChecks() {
                                encoding: .utf8)) ?? ""
     check("the command was really read", command.contains("func runSessionSend("))
     if let start = command.range(of: "func runSessionSend("),
-       let occupied = command.range(of: "pendingSessionInput(sessionKey: sessionKey)",
+       let occupied = command.range(of: "sessionInputOccupant(sessionKey: sessionKey)",
                                     range: start.upperBound ..< command.endIndex),
        let cleared = command.range(of: "clearSessionInputResult(sessionKey: sessionKey)",
                                    range: start.upperBound ..< command.endIndex),

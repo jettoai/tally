@@ -94,30 +94,64 @@ func sessionSendProblem(_ intent: SessionSendIntent) -> String? {
     return nil
 }
 
-// MARK: - One request per session at a time
+// MARK: - One send at a time at one address
 
-/// The request already waiting at this session's address, or nil when nothing there could still be
-/// typed.
+/// What is at this session's address, when something is.
 ///
-/// EXPIRED ONES DO NOT COUNT, deliberately: a request past `sessionInputTTL` will be refused by the
-/// supervisor the next time it looks, and until then it is a husk. Treating a husk as an occupant
-/// would take the feature away from a session for two minutes because some earlier caller was killed
-/// mid-wait.
-func pendingSessionInput(sessionKey: String, dir: URL = sessionInputDir, now: Date = Date())
-    -> SessionInputRequest? {
-    guard let waiting = readSessionInputRequest(sessionKey: sessionKey, dir: dir),
-          !sessionInputExpired(epoch: waiting.epoch, now: now) else { return nil }
-    return waiting
+/// TWO FILES, ONE ANSWER, and that is the whole point of this type. A send is in flight from the
+/// moment its request is written until the moment its answer is COLLECTED, and those are two
+/// different documents: the supervisor writes the answer and then unlinks the request, so between
+/// a caller's polls there is a window in which the address looks empty while somebody is very much
+/// still waiting at it. Asking only about requests is asking half the question (codex review of
+/// 3c37831).
+enum SessionInputOccupant: Equatable {
+    /// A line still on its way: written, and not served yet.
+    case request(SessionInputRequest)
+    /// A line already served, whose answer the caller that asked for it has not read yet.
+    case answer(SessionInputResult)
+}
+
+/// What is at this session's address, or nil when nothing there could still be part of a send.
+///
+/// THE ONE DOOR, deliberately: there is no way left to ask about requests alone, because that
+/// question has a right-looking answer that is wrong for half of every send's life.
+///
+/// EXPIRED ONES DO NOT COUNT, and each half has its own clock because each is waited on by a
+/// different thing:
+///
+///   - A REQUEST is live for `sessionInputTTL`, which is how long the supervisor will still act on
+///     it. Past that it is a husk the next tick refuses, and treating it as an occupant would take
+///     the address away for two minutes over a caller that was killed mid-wait.
+///   - An ANSWER is live for `sessionInputWaitSeconds` measured from the same stamp, because what
+///     makes an answer collectable is not the supervisor's willingness to act but the CALLER's
+///     willingness to wait, and that wait is longer than the TTL by design (150s against 120s, so
+///     a refusal of an expired request still reaches the caller it belongs to). Judging an answer
+///     by the TTL would leave exactly the hole this type closes: a `refused-expired` answer is
+///     born already older than the TTL, so it would be a husk at birth and the next caller would
+///     delete it out from under a caller still polling for it.
+func sessionInputOccupant(sessionKey: String, dir: URL = sessionInputDir, now: Date = Date())
+    -> SessionInputOccupant? {
+    if let waiting = readSessionInputRequest(sessionKey: sessionKey, dir: dir),
+       !sessionInputExpired(epoch: waiting.epoch, now: now) {
+        return .request(waiting)
+    }
+    guard let answer = readSessionInputResult(sessionKey: sessionKey, dir: dir),
+          !sessionInputExpired(epoch: answer.epoch, now: now, ttl: sessionInputWaitSeconds)
+    else { return nil }
+    return .answer(answer)
 }
 
 /// What the second caller is told. Pure, so the wording is assertable.
 ///
-/// REFUSED RATHER THAN WRITTEN OVER, and this is the whole of why. One file addresses one session,
-/// so a second request lands on top of the first: the first caller is then waiting for an answer to
-/// a request that no longer exists anywhere, gets nothing until its own timeout, and is told "nobody
-/// answered" for a line that was in fact thrown away by us. Meanwhile the supervisor serves the
-/// second request and writes an answer stamped with ITS epoch, so nothing on either end ever
-/// records that an instruction was dropped (codex review of 18b3174).
+/// REFUSED RATHER THAN WRITTEN OVER, and this is the whole of why. One address holds one send, so
+/// a second one lands on top of the first: the first caller is then waiting for something that no
+/// longer exists anywhere, gets nothing until its own timeout, and is told "nobody answered" for a
+/// line that was in fact thrown away by us. Meanwhile the supervisor serves the second request and
+/// writes an answer stamped with ITS epoch, so nothing on either end ever records that an
+/// instruction was dropped (codex review of 18b3174). The answer half is the same failure with the
+/// same ending, one step later: the text has been typed by then, so the caller that is told nobody
+/// answered may reasonably send it again, and the session gets the line twice (codex review of
+/// 3c37831).
 ///
 /// AND NOT QUEUED, which is the other obvious answer and the more expensive one. Injection is
 /// performed synchronously inside a poll tick, one byte at a time (SessionInput.swift), so a queue
@@ -126,17 +160,35 @@ func pendingSessionInput(sessionKey: String, dir: URL = sessionInputDir, now: Da
 /// designed without (section 10 of the design document). Two callers typing into one composer is
 /// also a thing neither of them can predict the result of.
 ///
-/// The wording has to be TELLABLE APART FROM A GATE REFUSAL by a caller reading stderr: those say
-/// the session was busy or silent and mean "try again, this may work later"; this one means "your
-/// text was never queued, and something else is already using this address".
-func sessionInputBusyRefusal(_ waiting: SessionInputRequest, sessionKey: String,
+/// TWO WORDINGS RATHER THAN ONE, because the two states differ in what the caller should do and in
+/// what is at stake if they force it. A pending request will be served or expire, and waiting costs
+/// the caller a minute; an uncollected answer is somebody's DELIVERY REPORT for text that is
+/// already in the session, and the harm of stepping on it is a duplicated line rather than a lost
+/// one. A caller reading stderr should be able to tell those apart without reading this file.
+/// Both are worded so they cannot be mistaken for a gate refusal (`refused: session is working`
+/// and its neighbours), which mean "try again, this may work later"; these mean "nothing of yours
+/// was queued at all".
+func sessionInputBusyRefusal(_ occupant: SessionInputOccupant, sessionKey: String,
                              now: Date = Date()) -> String {
-    let expiresIn = max(0, Int(TimeInterval(waiting.epoch) / 1000 + sessionInputTTL
-        - now.timeIntervalSince1970))
-    return "session \(sessionKey) already has a line waiting to be typed into it, so nothing was "
-        + "queued for this one: a second request at that address would replace the first, and the "
-        + "caller waiting on it would be told nobody answered. Let that one be served, or wait up "
-        + "to \(expiresIn)s for it to expire, then ask again"
+    /// How long the thing at the address has left, on its own clock.
+    func expiresIn(_ epoch: Int, _ life: TimeInterval) -> Int {
+        max(0, Int(TimeInterval(epoch) / 1000 + life - now.timeIntervalSince1970))
+    }
+    switch occupant {
+    case .request(let waiting):
+        return "session \(sessionKey) already has a line waiting to be typed into it, so nothing "
+            + "was queued for this one: a second request at that address would replace the first, "
+            + "and the caller waiting on it would be told nobody answered. Let that one be served, "
+            + "or wait up to \(expiresIn(waiting.epoch, sessionInputTTL))s for it to expire, then "
+            + "ask again"
+    case .answer(let answer):
+        let left = expiresIn(answer.epoch, sessionInputWaitSeconds)
+        return "session \(sessionKey) was sent a line already and the answer to it "
+            + "(\(answer.outcome)) has not been collected yet, so nothing was queued for this one: "
+            + "that answer is what the caller before you is still polling for, and taking it away "
+            + "would tell them nobody answered for text that was in fact typed. It goes away when "
+            + "they read it, or in \(left)s if they are gone"
+    }
 }
 
 // MARK: - Which session `--session` may name
@@ -302,13 +354,14 @@ func runSessionSend(args: [String]) -> Int32 {
     // file name as a pid outright (SessionInputRequest.swift).
     sweepDeadSessionRequests(dir: sessionInputDir)
     sweepDeadSessionInputResults(dir: sessionInputDir)
-    // ONE AT A TIME AT ONE ADDRESS: refused rather than written over the request already there
-    // (`sessionInputBusyRefusal` argues both halves of that).
+    // ONE SEND AT A TIME AT ONE ADDRESS: refused rather than written over whatever is still there,
+    // where "still there" spans BOTH documents a send uses (`SessionInputOccupant` says why a
+    // request-only question is half a question, and `sessionInputBusyRefusal` argues the refusal).
     //
     // ASKED BEFORE THE CLEAR BELOW, which is not an ordering detail: that answer file may be the one
-    // the other caller is polling for right now, and taking it away on our way to being refused
-    // would turn its delivery into a timeout. After the sweeps, so a husk left by a session that
-    // has since died is not mistaken for an occupant.
+    // another caller is polling for right now, and taking it away on our way to being refused would
+    // turn its delivery into a timeout. After the sweeps, so a husk left by a session that has since
+    // died is not mistaken for an occupant.
     //
     // The window it does not close, said rather than implied: two commands that both read an empty
     // address before either has renamed its file still collide, and the second write still wins.
@@ -316,12 +369,17 @@ func runSessionSend(args: [String]) -> Int32 {
     // retry for the expired-overwrite case), and it is not bought here because the race is two
     // invocations inside the same millisecond while the defect this fixes was two callers inside
     // the same TWO MINUTES - the TTL makes overlap the ordinary case rather than the freak one.
-    if let waiting = pendingSessionInput(sessionKey: sessionKey) {
-        warn(sessionInputBusyRefusal(waiting, sessionKey: sessionKey))
+    if let occupant = sessionInputOccupant(sessionKey: sessionKey) {
+        warn(sessionInputBusyRefusal(occupant, sessionKey: sessionKey))
         return 3
     }
-    // Our own leftover answer, before the request that would make a reader look for a new one:
-    // matching on the epoch already stops it being MISREAD, and taking it away stops it being kept.
+    // Whatever answer is at this address is a HUSK, and that is established rather than assumed: the
+    // check above just refused every answer a caller could still come back for, so what can be left
+    // is one older than the longest wait anybody makes. It was called "our own leftover answer"
+    // when this line was written, and that is exactly the belief this had to stop acting on - the
+    // answer at this address belongs to whoever sent the last line, which is often not us. Taken
+    // away so the next reader cannot find it waiting; the epoch match in `awaitSessionInputResult`
+    // is what stops it being MISREAD in the meantime.
     clearSessionInputResult(sessionKey: sessionKey)
     let request = SessionInputRequest(epoch: Int(Date().timeIntervalSince1970 * 1000),
                                       text: intent.text)

@@ -20,7 +20,14 @@ func runExportedHomeChecks(launcher: String) {
     // local" - a needle that only the fixed shape contains would report the defect and a rename
     // identically, and would go green on the broken tree by simply finding nothing.
     let lines = launcher.components(separatedBy: "\n")
-    let exportedExit = lines.firstIndex { $0.contains("if pinned == nil,") }
+    // Both halves are shared by the broken and the fixed shape. The BINDING is part of the anchor
+    // because `pinned == nil` is not unique in this function: an anchor that matched another test of
+    // it sliced a different block, one that still satisfied the guard below by containing a `getenv`
+    // of its own - the needle missing its target and reporting nothing (found while writing the
+    // leak checks at the foot of this file, 2026-08-13).
+    let exportedExit = lines.firstIndex {
+        $0.contains("if pinned == nil,") && $0.contains("let exported = getenv(provider.envKey)")
+    }
     let defaultsInjection = lines.firstIndex {
         $0.contains("passthrough = applyLaunchDefaults(passthrough,")
     }
@@ -76,4 +83,83 @@ func runExportedHomeChecks(launcher: String) {
     check("codex's effort rides the same injection, in the spelling its own CLI takes",
           after("-c", in: codexArgs) == "model_reasoning_effort=\"high\"")
     check("…as does its model", after("-m", in: codexArgs) == "fable")
+
+    // MARK: - An environment INHERITED from a session is not a hand pin
+
+    // The second half of the same evening's defect: the exit above believes an exported home is the
+    // user choosing an account, and a terminal STARTED from inside a session inherits that session's
+    // whole environment, so every window opened afterwards arrives carrying one account's home - the
+    // machine silently stuck on one account, and every new session's transcript unsaved on top of
+    // it. Three shapes reach this decision and are each asserted directly below: a hand export, a
+    // leak, and a real child session. The fourth, a supervisor relaunching its own child, never
+    // arrives here at all - it assembles the child's environment from the account it chose
+    // (SupervisorRuntime.swift), so there is no exported home for it to read.
+    check("the marker this reads is the one Claude Code actually sets",
+          childSessionMarker == "CLAUDE_CODE_CHILD_SESSION")
+    let leaked = ["CLAUDE_CONFIG_DIR": "/Users/u/.claude2", childSessionMarker: "1"]
+    // Row 2, the leak: a child marker in a launch somebody TYPED contradicts itself, because real
+    // children are spawned through a pipe.
+    check("a child marker in a launch typed at a terminal is a leak, not a child session",
+          inheritedSessionEnvironment(providerID: "claude", stdoutIsTTY: true,
+                                      environment: leaked))
+    // Row 1: nothing contradicts the export, so it stands - the hand pin the exit above exists for.
+    check("an exported home with no marker behind it is still the user's own choice",
+          !inheritedSessionEnvironment(providerID: "claude", stdoutIsTTY: true,
+                                       environment: ["CLAUDE_CONFIG_DIR": "/Users/u/.claude2"]))
+    // Row 3, the one this may not break: a REAL child, spawned by a session's own shell and routed
+    // here by the PATH shim. Following its parent's home is what stops one conversation picking a
+    // second account halfway through.
+    check("the same marker with stdout on a pipe is a real child, which keeps its parent's home",
+          !inheritedSessionEnvironment(providerID: "claude", stdoutIsTTY: false,
+                                       environment: leaked))
+    check("codex reads nothing into a marker that was never about it",
+          !inheritedSessionEnvironment(providerID: "codex", stdoutIsTTY: true,
+                                       environment: ["CODEX_HOME": "/Users/u/.codex2",
+                                                     childSessionMarker: "1"]))
+    // The default argument, which is what the launcher calls: the answer comes from THIS process's
+    // environment, and clearing the marker is therefore what makes a launch stop reading as
+    // inherited - the mechanism the launcher's `unsetenv` relies on for every exec it makes.
+    setenv(childSessionMarker, "1", 1)
+    check("…and it reads the live environment, which is where a leak lands",
+          inheritedSessionEnvironment(providerID: "claude", stdoutIsTTY: true))
+    unsetenv(childSessionMarker)
+    check("…so clearing the marker is what stops a launch reading as inherited",
+          !inheritedSessionEnvironment(providerID: "claude", stdoutIsTTY: true))
+
+    /// The launcher's own call to that predicate, and the name it binds the answer to - read off the
+    /// source rather than written down here, so a rename carries these checks with it instead of
+    /// turning them green by finding nothing.
+    let leakCall = lines.firstIndex { $0.contains("= inheritedSessionEnvironment(") }
+    let leakBinding = leakCall.map {
+        lines[$0].components(separatedBy: "= inheritedSessionEnvironment(")[0]
+            .replacingOccurrences(of: "let ", with: "").trimmingCharacters(in: .whitespaces)
+    }
+    check("the launcher asks whether its environment was inherited at all", leakBinding != nil)
+    check("…handing it the terminal signal the supervision decision reads",
+          leakCall.map { lines[$0 ... min($0 + 1, lines.count - 1)].joined() }?
+              .contains("stdoutIsTTY: stdoutIsTTY") == true)
+    check("…which this launch answers once, so its two readers cannot disagree",
+          launcher.components(separatedBy: "isatty(").count == 2)
+    // THE FIX, in the exit's own condition (the half it SHARES with the broken shape is asserted
+    // above): a leak stands the exit down, and the launch carries on to the pick below - and to the
+    // supervisor, which the exit's own plain exec has to do without.
+    check("the exported-home exit stands down for an inherited environment",
+          leakBinding.map { exportedBlock.contains("!\($0)") } == true)
+
+    /// The branch that acts on a leak, sliced by the same rule as the exit's body.
+    let leakBlock: String = {
+        guard let binding = leakBinding,
+              let start = lines.firstIndex(where: { $0.contains("if \(binding) {") })
+        else { return "" }
+        let end = lines[(start + 1)...].firstIndex { $0 == "    }" } ?? lines.endIndex
+        return lines[start ... min(end, lines.endIndex - 1)].joined(separator: "\n")
+    }()
+    check("the harness really found that branch", !leakBlock.isEmpty)
+    check("a leaked marker is cleared, so the session it starts saves its transcript again",
+          leakBlock.contains("unsetenv(childSessionMarker)"))
+    check("…only there, so a real child keeps the marker it was given",
+          launcher.components(separatedBy: "unsetenv(childSessionMarker)").count == 2)
+    check("…and before every exec below, which is how the child inherits it cleared",
+          (lines.firstIndex { $0.contains("unsetenv(childSessionMarker)") } ?? Int.max)
+              < (lines.firstIndex { $0.contains("exec(provider.cli") } ?? 0))
 }

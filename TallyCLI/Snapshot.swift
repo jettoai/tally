@@ -259,6 +259,30 @@ func launchEnv(_ provider: Provider, home: String) -> (key: String, value: Strin
     return (provider.envKey, home)
 }
 
+/// Claude Code's marker for a session it started itself. It is set on the child's environment, so
+/// every process that inherits that environment carries it too - including one that is not a child
+/// session at all, which is the whole point of the check below.
+let childSessionMarker = "CLAUDE_CODE_CHILD_SESSION"
+
+/// Whether this process's environment was INHERITED from a running Claude Code session rather than
+/// written by the person at the keyboard. The two arrive as the same variables, and only one of them
+/// is a choice.
+///
+/// The tell is Claude Code's own child marker contradicting itself. It marks the sessions Claude
+/// Code spawns, and it spawns them through a pipe; a marker sitting in the environment of a command
+/// somebody TYPED (stdout on a terminal) therefore cannot be describing this process. What it does
+/// describe is a terminal that was itself started from inside a session and took the whole
+/// environment with it, so every window opened afterwards carries that one session's config home
+/// and its child marker (owner-reported 2026-08-13).
+///
+/// Claude only: the marker is Claude Code's, and a codex environment says nothing by carrying it.
+func inheritedSessionEnvironment(
+    providerID: String, stdoutIsTTY: Bool,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) -> Bool {
+    providerID == "claude" && stdoutIsTTY && environment[childSessionMarker] != nil
+}
+
 /// The provider's own config home (~/.claude, ~/.codex) - where a launch that sets no env var
 /// ends up, which is what the bare-CLI fallbacks run under.
 func defaultHome(_ provider: Provider) -> String {

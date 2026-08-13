@@ -116,7 +116,31 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // another account on a cap hit, and a hand-pinned home leaves it nowhere to move to. `--account`
     // still outranks this (the branch below, which the `pinned == nil` guard falls through to):
     // that flag names an account, this variable names a config directory.
-    if pinned == nil, let exported = getenv(provider.envKey) {
+    //
+    // …unless nobody exported it. A terminal started from inside a session inherits that session's
+    // whole environment, so every window opened afterwards arrives carrying one account's home and
+    // reads as a hand pin: the machine silently stuck on one account (owner-reported 2026-08-13, the
+    // same evening as the defect above). What gives a leak away is Claude Code's own child marker in
+    // a launch somebody typed (`inheritedSessionEnvironment`, Snapshot.swift), and a leak is not a
+    // choice - so the exit stands down and this launch picks normally, supervisor and all. The
+    // marker is dropped from the environment as well, because Claude Code reads it as "you are a
+    // child session" and stops saving the transcript. A REAL child (the same marker, stdout on a
+    // pipe) keeps both: following its parent's home is what stops one conversation picking a second
+    // account, and `! tally claude` typed inside a session is the accepted cost of that test - it
+    // reads as a leak and picks by policy, with `--account` still there to pin it by hand.
+    let inheritedEnvironment = inheritedSessionEnvironment(providerID: provider.id,
+                                                           stdoutIsTTY: stdoutIsTTY)
+    if inheritedEnvironment {
+        // Said only when a home was actually inherited: the marker can outlive the variable, and a
+        // launch that was never going to read one has nothing to report.
+        if getenv(provider.envKey) != nil {
+            warn("\(provider.envKey) was inherited from another session rather than exported by "
+                + "you - ignoring it and choosing the account normally")
+        }
+        unsetenv(childSessionMarker)
+    }
+
+    if pinned == nil, !inheritedEnvironment, let exported = getenv(provider.envKey) {
         warn("\(provider.envKey) already set - keeping that account, launch defaults still apply")
         exec(provider.cli, args: startModeArgs(passthrough, home: String(cString: exported)),
              env: nil)

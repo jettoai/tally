@@ -175,8 +175,9 @@ func runCompletionChecks(tmp: URL) throws {
         check("…and nothing between that guard and the write can hand the actor to anybody else",
               !installBody[recheck.upperBound ..< write.lowerBound].contains("await"))
     }
+    // The two presses this task hangs off live with the command they install (clitoolchecks.swift).
     let store = (try? String(contentsOf: root.appendingPathComponent(
-        "Tally/Stores/IntegrationsStore.swift"), encoding: .utf8)) ?? ""
+        "Tally/Stores/IntegrationsCLITool.swift"), encoding: .utf8)) ?? ""
     check("the install is held rather than let go, so there is something to call off",
           store.contains("completionTask = Task { await installCompletion(explicit: true) }"))
     check("…and Remove calls it off before it takes the command away",

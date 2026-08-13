@@ -431,6 +431,10 @@ try MainActor.assumeIsolated {
     // And the one integration with no row of its own: the tab completion that goes in with the
     // command line tool (completionchecks.swift).
     try runCompletionChecks(tmp: tmp)
+    // The command itself, and the one path in this whole set that is shared with the rest of the
+    // machine: whose file is at /usr/local/bin/tally, and what Remove may do about it
+    // (clitoolchecks.swift).
+    try runCLIToolChecks(tmp: tmp)
 
     try? FileManager.default.removeItem(at: tmp)
 }

@@ -5,7 +5,8 @@ import Observation
 ///
 /// Two components today:
 /// - `cliTool`: the `/usr/local/bin/tally` symlink onto the bundled CLI (the VS Code
-///   "install 'code' command" pattern).
+///   "install 'code' command" pattern), in IntegrationsCLITool.swift - the one integration whose
+///   path is shared with the rest of the machine, so whose file is there has to be asked.
 /// - `codexShim`: a `codex` interposer at `~/.tally/bin/codex` plus a marked PATH block in
 ///   `~/.zshenv`, so bare `codex` invocations follow the app's launch policy.
 ///
@@ -97,6 +98,9 @@ final class IntegrationsStore {
     }
 
     private(set) var cliToolStatus: Status = .notInstalled
+    /// What that status word was made from, kept beside it because the row needs the half the word
+    /// throws away: whether the thing at that path is Tally's to take away (`CLIToolPresence`).
+    private(set) var cliToolPresence: CLIToolPresence = .absent
     private(set) var shimStatuses: [Shim: Status] = [:]
     private(set) var statusLineStatus: Status = .notInstalled
     /// The `Notification` hook behind the panel's session board (IntegrationsNotificationHook.swift).
@@ -116,7 +120,8 @@ final class IntegrationsStore {
     // MARK: Status
 
     func refresh() {
-        cliToolStatus = Self.detectCLITool()
+        cliToolPresence = Self.detectCLIToolPresence()
+        cliToolStatus = Self.detectCLITool(cliToolPresence)
         shimStatuses = Dictionary(uniqueKeysWithValues: Shim.allCases.map { ($0, Self.detectShim($0)) })
         statusLineStatus = Self.detectStatusLine()
         notificationHookStatus = Self.detectNotificationHook()
@@ -125,18 +130,6 @@ final class IntegrationsStore {
     }
 
     func shimStatus(_ shim: Shim) -> Status { shimStatuses[shim] ?? .notInstalled }
-
-    private static func detectCLITool() -> Status {
-        let fm = FileManager.default
-        guard let destination = try? fm.destinationOfSymbolicLink(atPath: cliSymlinkURL.path) else {
-            return fm.fileExists(atPath: cliSymlinkURL.path)
-                ? .broken(L("Not a symlink Tally manages"))   // a real file someone else put there
-                : .notInstalled
-        }
-        return fm.fileExists(atPath: destination)
-            ? .installed
-            : .broken(L("Link target is missing"))
-    }
 
     private static func detectShim(_ shim: Shim) -> Status {
         // No script = not installed, full stop. The PATH block is SHARED between shims, so its
@@ -163,57 +156,6 @@ final class IntegrationsStore {
         guard BuildVariant.isUnshipped else { return true }
         lastError = L("Integrations are managed by the installed release app.")
         return false
-    }
-
-    /// The bundled CLI binary (Contents/Helpers/tally, embedded by the release pipeline).
-    /// Internal (not private): the `/tally-account` hook is registered with an absolute path to it,
-    /// so it works whether or not the /usr/local/bin link was ever installed.
-    static var bundledCLIURL: URL {
-        Bundle.main.bundleURL.appendingPathComponent(BuildVariant.bundledCLIRelativePath)
-    }
-
-    func installCLITool() {
-        guard guardNotDev() else { return }
-        lastError = nil
-        let fm = FileManager.default
-        do {
-            guard fm.fileExists(atPath: Self.bundledCLIURL.path) else {
-                throw NSError(domain: "tally", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: L("This build does not bundle the CLI"),
-                ])
-            }
-            try? fm.removeItem(at: Self.cliSymlinkURL)
-            try fm.createSymbolicLink(at: Self.cliSymlinkURL, withDestinationURL: Self.bundledCLIURL)
-            recordManifest(Self.cliToolManifest, paths: [Self.cliSymlinkURL.path])
-            // Tab completion goes in with the command, not through a button of its own: it is the
-            // same integration, and one nobody knows to ask for (IntegrationsCompletion.swift).
-            // Detached from the press because it asks two processes for their answers; the link
-            // above is already installed and the row already says so. HELD, so the Remove button
-            // can call it off - it is still running long after this press returns.
-            completionTask = Task { await installCompletion(explicit: true) }
-        } catch {
-            lastError = error.localizedDescription
-        }
-        refresh()
-    }
-
-    func removeCLITool() {
-        guard guardNotDev() else { return }
-        lastError = nil
-        do {
-            // The install this press is undoing may still be in flight: it waits on two child
-            // processes, so a Remove pressed straight after an Install arrives while that task is
-            // suspended. Cancelling is the polite half; the half that actually holds is the task
-            // re-asking whether the CLI is still ours before it writes, which this whole block
-            // answers for, being one synchronous run of the main actor (IntegrationsCompletion.swift).
-            completionTask?.cancel()
-            removeCompletion()
-            try FileManager.default.removeItem(at: Self.cliSymlinkURL)
-            recordManifest(Self.cliToolManifest, paths: nil)
-        } catch {
-            lastError = error.localizedDescription
-        }
-        refresh()
     }
 
     func installShim(_ shim: Shim) {

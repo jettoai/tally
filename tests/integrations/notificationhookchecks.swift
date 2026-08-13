@@ -250,6 +250,42 @@ func runNotificationHookChecks(tmp: URL) throws {
           IntegrationsStore.detectNotificationHook(discovered: [cleared], remembered: [])
               == .notInstalled)
 
+    // AND THE TWO WAYS OF GETTING NO BYTES OUT OF A PATH ARE NOT THE SAME THING, which is the whole
+    // of what the population's filter asks. A file that is not there is a home that has GONE; a
+    // file that is there and will not open is one this process cannot read RIGHT NOW - a
+    // permissions change, a volume that went away - and it may still be holding our hook. Answering
+    // false for the second dropped it out of the population, which drops the row to "not
+    // installed", which takes the Remove press off the only thing that could ever clear it.
+    check("a path with nothing at it carries nothing of ours",
+          !IntegrationsStore.settingsMayCarryNotificationHook(
+              tmp.appendingPathComponent("no-such-home.json")))
+    let empty = tmp.appendingPathComponent("empty-home-settings.json")
+    try Data().write(to: empty)
+    check("nor does an empty file: a fresh document has no registration in it",
+          !IntegrationsStore.settingsMayCarryNotificationHook(empty))
+    check("bytes that will not parse count as something still to be dealt with",
+          IntegrationsStore.settingsMayCarryNotificationHook(refused))
+    check("…while a document that parses and has no hook of ours does not",
+          !IntegrationsStore.settingsMayCarryNotificationHook(cleared))
+    let sealed = tmp.appendingPathComponent("unreadable-perms-settings.json")
+    try JSONSerialization.data(withJSONObject:
+        ["hooks": ["Notification": [IntegrationsStore.notificationHookEntry(command: ours)]]])
+        .write(to: sealed)
+    try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: sealed.path)
+    if getuid() == 0 {
+        // Root reads a mode-000 file regardless, so there is no unreadable file to make on this
+        // machine. Named rather than silently passed: a skip that reports PASS is a check nobody
+        // knows they lost.
+        print("SKIP present-but-unreadable settings.json (running as root, which reads it anyway)")
+    } else {
+        check("a file that is there and cannot be read is NOT read as absent",
+              IntegrationsStore.settingsMayCarryNotificationHook(sealed))
+        check("…so the row keeps the Remove press that would retry it",
+              IntegrationsStore.detectNotificationHook(discovered: [live],
+                                                       remembered: [sealed.path]).offersRemoval)
+    }
+    try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: sealed.path)
+
     // THE INSTALL MUST NOT FORGET IT EITHER, and Install is exactly the press a stranded row
     // offers. The manifest it writes is the union: what it has just registered PLUS the paths the
     // record already held. Writing only what is discoverable today dropped the failed one for good

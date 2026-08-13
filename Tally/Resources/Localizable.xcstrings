@@ -10839,6 +10839,35 @@
           }
         }
       }
+    },
+    "/usr/local/bin/tally is not a symlink Tally installed, so nothing was removed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin/tally 不是 Tally 建立的符號連結，因此沒有移除任何東西。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin/tally 不是 Tally 创建的符号链接，因此没有移除任何内容。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin/tally は Tally が作成したシンボリックリンクではないため、何も削除していません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "/usr/local/bin/tally 는 Tally가 만든 심볼릭 링크가 아니므로 아무것도 제거하지 않았습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

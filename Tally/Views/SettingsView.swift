@@ -175,7 +175,12 @@ struct SettingsView: View {
             caption: integrations.cliToolCaption,
             status: integrations.cliToolStatus,
             install: integrations.installCLITool,
-            remove: integrations.removeCLITool)
+            remove: integrations.removeCLITool,
+            // The one row whose broken state is not always ours to undo: a `tally` somebody else
+            // put in /usr/local/bin reads broken here, and Remove would delete their program
+            // (`IntegrationsStore.CLIToolPresence`). The store refuses that press whatever this
+            // says; leaving the button off is how the row stops offering it in the first place.
+            removable: integrations.cliToolPresence.mayBeRemoved)
         rowDivider
         integrationRow(
             title: L("Claude shell integration"),
@@ -264,9 +269,13 @@ struct SettingsView: View {
         .padding(.vertical, 10)
     }
 
+    /// - Parameter removable: whether what is installed is this app's to take away. True for every
+    ///   integration that only ever writes files of its own; the command line tool is the exception
+    ///   (it links into a shared directory that another `tally` may already own).
     private func integrationRow(title: String, caption: String, status: IntegrationsStore.Status,
                                 install: @escaping () -> Void,
-                                remove: @escaping () -> Void) -> some View {
+                                remove: @escaping () -> Void,
+                                removable: Bool = true) -> some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -283,11 +292,15 @@ struct SettingsView: View {
             // reads as the only thing worth doing and is not: what makes a row broken can be a
             // registration in a home the app can no longer reach, and the pass that clears one is
             // behind Remove (`Status.offersRemoval`).
+            //
+            // REMOVE SAYS THIS IS OURS, which is why it takes a second answer as well as the
+            // status. Both have to hold: the status says there is something to take back, and
+            // `removable` says the something is this app's (see the parameter's note).
             if status.offersInstall {
                 Button(status == .notInstalled ? L("Install") : L("Reinstall"), action: install)
                     .controlSize(.small)
             }
-            if status.offersRemoval {
+            if status.offersRemoval, removable {
                 Button(L("Remove"), action: remove).controlSize(.small)
             }
         }

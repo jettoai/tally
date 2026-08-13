@@ -205,8 +205,17 @@ extension IntegrationsStore {
     /// "not installed", takes the Remove press off it, and leaves the retry list with nothing that
     /// will ever act on it. A file that is not there, or is empty, has nothing of ours on it: that
     /// is a home that has GONE rather than one still holding a registration.
+    ///
+    /// SO EXISTENCE IS ASKED FIRST, of the filesystem rather than of a read that failed. The two
+    /// ways of getting no bytes out of a path mean opposite things here, and `Data(contentsOf:)`
+    /// answers the same way for both: a home that was deleted, and a document this process cannot
+    /// read right now (a permissions change, a disk that went away). Judging them together put the
+    /// second one back in the case this whole comment is about - out of the population, row to
+    /// "not installed", retry list unreachable - and did it for a file still holding our hook.
     static func settingsMayCarryNotificationHook(_ file: URL) -> Bool {
-        guard let data = try? Data(contentsOf: file), !data.isEmpty else { return false }
+        guard FileManager.default.fileExists(atPath: file.path) else { return false }
+        guard let data = try? Data(contentsOf: file) else { return true }   // there, and unreadable
+        guard !data.isEmpty else { return false }
         guard let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return true }
         let entries = (settings["hooks"] as? [String: Any])?[notificationHookEvent]

@@ -67,6 +67,11 @@ targets:
       # and the sweep that takes a marker away is the only surface left to leave that note.
       - path: Tally/Core/AddAccount.swift
       - path: Tally/Core/SharedHarness.swift
+      # And its other half: `tally share` puts an account that ALREADY EXISTS on that same set of
+      # links, which the Settings "Shared harness" row does too. One engine for both surfaces, for
+      # the reason above - a second copy is how one of them starts backing a file up where the
+      # other overwrites it.
+      - path: Tally/Core/ShareExisting.swift
       - path: Tally/Core/TrustSeed.swift
       - path: Tally/Core/ClaudeOnboarding.swift
       # Where a torn-down worktree came from: `tally worktree remove` writes the note and the app's

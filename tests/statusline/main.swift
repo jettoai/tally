@@ -170,14 +170,17 @@ check("the JSON report formats no percentages of its own",
 // to be all they got: nothing on screen said the binary had any other command, and the list existed
 // only behind a word you had to already know (Albert, 2026-08-10). Asserted through the source for
 // the reason the section above gives: the human surface prints and returns nothing.
+// Ends at the dispatch rather than at `func runResume(`, which is where it used to end: resume
+// moved to ResumeCommand.swift when main.swift reached the 500-line cap (2026-08-13), and an anchor
+// that is no longer in this file makes the slice empty, which passes nothing and fails everything.
 let statusBody = statusSource.range(of: "func runStatus(").flatMap { start in
-    statusSource.range(of: "func runResume(").map { end in
+    statusSource.range(of: "// MARK: - Entry").map { end in
         String(statusSource[start.lowerBound ..< end.lowerBound])
     }
 } ?? ""
 check("the status command is readable on its own", statusBody.contains("func runStatus("))
-check("…and the slice stopped at the next command rather than swallowing the file",
-      !statusBody.contains("func runWorktree("))
+check("…and the slice stopped at the next thing rather than swallowing the file",
+      !statusBody.contains("case \"status\", nil:"))
 // A LINE THAT IS THE STATEMENT, not a line that mentions it: the first version of this check asked
 // whether the text appeared anywhere in the function, and a mutation that commented the print out
 // passed it (2026-08-10, caught by running that mutation rather than by reading the check).

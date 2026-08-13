@@ -935,6 +935,10 @@ check("and keeps no second copy either",
 check("the CLI's login message still promises no wait",
       addSource.contains("as soon as the login completes") && !addSource.contains("within a minute"))
 
+// The other half of the same act: sharing into an account that already exists
+// (shareexistingchecks.swift, Tally/Core/ShareExisting.swift).
+runShareExistingChecks(root: tmp)
+
 try? fm.removeItem(at: tmp)
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

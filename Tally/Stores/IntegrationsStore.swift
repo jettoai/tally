@@ -120,6 +120,17 @@ final class IntegrationsStore {
 
         """ : ""
         let steered = claude ? "{ \(unexported) || (( inherited )); }" : unexported
+        // The account half of the same repair, and it belongs INSIDE the steering branch. `tally
+        // launch-dir` is silent in two cases of its own (policy Off, no eligible account:
+        // LaunchDir.swift), so the eval below produces no `export` at all - and the leaked home,
+        // still in the environment, is then obeyed by the launch this branch decided to steer. The
+        // CLI makes the identical repair with `unsetenv` (Snapshot.swift). Not in the leak clause,
+        // which runs with no tally on PATH, where nothing may be steered anywhere.
+        let dropLeaked = claude
+            ? "  # Steering prints nothing when Tally is Off or has no eligible account, and the\n"
+            + "  # leaked home would then be obeyed by the launch this branch chose to steer.\n"
+            + "  (( inherited )) && unset \(shim.envKey)\n"
+            : ""
         return """
         #!/bin/bash
         # tally-shim v\(shimVersion): route bare `\(shim.rawValue)` through the Tally launch policy.
@@ -128,7 +139,7 @@ final class IntegrationsStore {
         \(precedence)
         set -u
         \(leakClause)if \(steered) && command -v tally > /dev/null 2>&1; then
-          eval "$(tally launch-dir \(shim.rawValue) 2> /dev/null)" || true
+        \(dropLeaked)  eval "$(tally launch-dir \(shim.rawValue) 2> /dev/null)" || true
         fi
         while IFS= read -r candidate; do
           [[ "$candidate" != "$HOME/.tally/bin/\(shim.rawValue)" ]] && exec "$candidate" "$@"
@@ -147,6 +158,9 @@ final class IntegrationsStore {
     /// The `Notification` hook behind the panel's session board (IntegrationsNotificationHook.swift).
     private(set) var notificationHookStatus: Status = .notInstalled
     private(set) var skillStatus: Status = .notInstalled
+    /// Whether the other accounts run on the main account's harness (IntegrationsSharedHarness).
+    /// Optional because a one-account machine has no row here at all, rather than an empty one.
+    private(set) var sharedHarnessStatus: Status?
     /// Whether zsh tab completion for `tally` is present (IntegrationsCompletion.swift). Not a
     /// `Status` and not a row of its own: it has no install button, because it goes in with the
     /// command line tool. False while that tool IS installed is what the row's extra sentence is
@@ -167,6 +181,7 @@ final class IntegrationsStore {
         statusLineStatus = Self.detectStatusLine()
         notificationHookStatus = Self.detectNotificationHook()
         skillStatus = Self.detectSkill()
+        sharedHarnessStatus = Self.detectSharedHarness()
         completionInstalled = Self.detectCompletion()
     }
 

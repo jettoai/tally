@@ -278,7 +278,7 @@ func topLevelFunction(_ name: String, in source: String) -> String {
 let launcher = topLevelFunction("runLaunch", in: source)
 check("the harness really read the launcher", launcher.contains("func runLaunch"))
 check("…and stopped at its end rather than swallowing the rest of the file",
-      !launcher.contains("func runStatus") && !launcher.contains("func runResume"))
+      !launcher.contains("func runStatus"))
 check("the slice survives the functions being reordered",
       topLevelFunction("runLaunch", in: "func runStatus() {}\n" + source)
           .contains("let primaryModel = launchPrimaryModel"))
@@ -301,7 +301,11 @@ runExportedHomeChecks(launcher: launcher)
 // The defect: the account was picked for the project's model and the exec passed the user's args
 // through untouched, so the conversation came back on the CLI's own default. An account pick has no
 // way to recover from that - by the time the session is running, it is already somewhere.
-let resumeSource = topLevelFunction("runResume", in: source)
+// Out of ResumeCommand.swift, where the command moved when main.swift reached the 500-line cap
+// (2026-08-13). Read as its own file rather than sliced out of the launcher's, so the checks below
+// go red if it moves again instead of quietly asserting on an empty string.
+let resumeFile = (try? String(contentsOfFile: "TallyCLI/ResumeCommand.swift", encoding: .utf8)) ?? ""
+let resumeSource = topLevelFunction("runResume", in: resumeFile)
 check("the harness really read resume", resumeSource.contains("newest.account.label"))
 check("resume injects the launch defaults it scored with",
       resumeSource.contains("let resumeArgs = applyLaunchDefaults(args, policy: effective,"))

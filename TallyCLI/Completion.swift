@@ -385,6 +385,7 @@ _tally() {
     "best-dir:print the export line for the best account"
     "launch-dir:like best-dir, but honouring the app's launch policy"
     "add:log in one more account in the next free config home"
+    "share:put an account you already have on the main account's harness"
     "account:pin THIS session to another account, keeping the conversation"
     "model:run THIS conversation on another model and depth, for the rest of its life"
     "session:type a line into a supervised session's own terminal and send it"
@@ -463,6 +464,17 @@ _tally() {
           _arguments \
             ":provider:_tally_providers" \
             "--no-share[do not share the main account's harness and conversations]"
+          ;;
+        # The provider is the word before the account, so the accounts offered are that provider's:
+        # `tally share codex <TAB>` offering claude names would be offering words the command
+        # refuses (`accountMatching` filters on the provider first, AccountPick.swift). Read
+        # positionally rather than by flag name, because here it IS a position.
+        (share)
+          local provider=${words[2]:-claude}
+          _arguments \
+            ":provider:_tally_providers" \
+            ":account: _tally_accounts $provider" \
+            "--all[share every account of that provider, not one named account]"
           ;;
         (best-dir|launch-dir) _arguments ":provider:_tally_providers" ;;
         (reload) _arguments "--now[wait only for a 5s quiet gap rather than for idle]" ;;

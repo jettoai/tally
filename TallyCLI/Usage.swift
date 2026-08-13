@@ -40,6 +40,12 @@ usage:
                             (CLAUDE.md/AGENTS.md, skills, hooks, agents, settings) and
                             conversation record are symlinked in BY DEFAULT: one setup
                             serves every account. Opt out with --no-share
+  tally share <provider> <account>|--all
+                            put an account you ALREADY have on the main account's harness: the
+                            same links `tally add` makes for a new one, applied to a home that is
+                            already full. Nothing is deleted - the conversations, inboxes and
+                            memory notes are merged into the main account, and anything else in
+                            the way is renamed to <name>.local-<date> and left where it is
   tally account <account>   pin THIS session to another account, keeping the conversation: run
                             it inside the session (the agent in it can run it too) and the move
                             happens when the current turn ends. It STAYS there - automatic

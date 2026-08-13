@@ -181,6 +181,17 @@ struct SettingsView: View {
             // (`IntegrationsStore.CLIToolPresence`). The store refuses that press whatever this
             // says; leaving the button off is how the row stops offering it in the first place.
             removable: integrations.cliToolPresence.mayBeRemoved)
+        // Absent rather than empty on a one-account machine: this row's whole subject is the other
+        // accounts, and a permanently grey button is a worse answer than no row (`detectSharedHarness`).
+        if let sharedHarness = integrations.sharedHarnessStatus {
+            rowDivider
+            integrationRow(
+                title: L("Shared harness"),
+                caption: L("Points your other accounts at the main account's instructions, skills, hooks, agents, settings and conversation record, so one setup serves them all. Nothing is deleted: conversations, inboxes and memory notes merge into the main account, anything else in the way is renamed to <name>.local-<date> beside it, and Remove unlinks without touching those backups. Every account can then read every account's conversations."),
+                status: sharedHarness,
+                install: integrations.installSharedHarness,
+                remove: integrations.removeSharedHarness)
+        }
         rowDivider
         integrationRow(
             title: L("Claude shell integration"),
@@ -238,6 +249,12 @@ struct SettingsView: View {
     /// One-click whole-set control: install everything missing, or remove everything installed.
     /// Buttons appear only when they have work to do, so the row doubles as an at-a-glance
     /// "is everything on?" answer.
+    ///
+    /// THE SHARED HARNESS IS DELIBERATELY NOT IN THIS SET. Every entry below writes files of its
+    /// own - a symlink, a shell block, a key in settings.json - and one press putting them all in
+    /// place is a small promise. That one moves the user's conversations between config homes, and
+    /// leaves a backup behind for whatever it could not merge; it is the same act only in the sense
+    /// that both are reversible. A press meaning "turn everything on" may not also mean that.
     private func allIntegrationsRow(_ integrations: IntegrationsStore) -> some View {
         let entries: [(IntegrationsStore.Status, () -> Void, () -> Void)] = [
             (integrations.cliToolStatus, integrations.installCLITool, integrations.removeCLITool),

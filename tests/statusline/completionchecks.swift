@@ -84,7 +84,9 @@ func runCompletionChecks() {
     // example, because the failure is per-site.
     let accountCallSites = tallyCompletionZsh.components(separatedBy: "\n")
         .filter { $0.contains("_tally_accounts") && !$0.contains("_tally_accounts()") }
-    check("the account call sites were found", accountCallSites.count == 4)
+    // Five since `tally share` joined them (2026-08-13): the count is the extractor's own sanity,
+    // so it moves with the script rather than being loosened to an inequality.
+    check("the account call sites were found", accountCallSites.count == 5)
     for site in accountCallSites {
         let named = site.contains(" _tally_accounts claude") || site.contains(" _tally_accounts codex")
             || site.contains(" _tally_accounts $provider")

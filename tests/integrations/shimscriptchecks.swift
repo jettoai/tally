@@ -23,7 +23,12 @@ import Foundation
 /// number installed, so a script edited without a bump reaches fresh installs and nobody else, and
 /// the machines left behind are the ones that have had the shim the longest. (The same pairing, and
 /// the same reasoning, as `pinnedSkillDigest` in skillversionchecks.swift.)
-let pinnedShimDigest = "24f2771111104f52"
+///
+/// Re-pinned WITHOUT a bump on 2026-08-13, which the rule above allows exactly once per version:
+/// v3 is not in any release tag yet (`git tag --contains` on the commit that introduced it answers
+/// nothing), so no machine anywhere has a v3 script to be left behind by this edit. The moment it
+/// ships, the next change to this text costs a bump again.
+let pinnedShimDigest = "68e51af776561ba0"
 
 /// What a bare `claude` inherited, once the shim was done with it.
 private struct ShimRun {
@@ -71,9 +76,14 @@ func runShimScriptChecks(tmp: URL) throws {
     }
     // Standing in for `tally`: it records having been asked (the steering decision) and answers
     // with the one export line the shim evals.
+    //
+    // …unless it is asked to answer with NOTHING, which is not a failure but two ordinary states of
+    // the real command: the launch policy set to Off, and no eligible account (`runLaunchDir`
+    // returns silently for both, LaunchDir.swift). That silence is what the row about it turns on.
     try writeExecutable(tallyDir.appendingPathComponent("tally"), """
     #!/bin/bash
     printf '%s\\n' "$*" >> "$TALLY_TEST_CONSULTED"
+    [ -n "${TALLY_TEST_SILENT:-}" ] && exit 0
     if [ "${2:-}" = codex ]; then key=CODEX_HOME; else key=CLAUDE_CONFIG_DIR; fi
     printf "export %s='%s'\\n" "$key" "\(steeredHome)"
     """)
@@ -167,6 +177,25 @@ func runShimScriptChecks(tmp: URL) throws {
               leaked.steered && leaked.home == steeredHome)
         check("[\(name)] …and the marker goes with it, so the session saves its transcript",
               leaked.marker.isEmpty)
+
+        // THE HALF ROW 4 LEFT BEHIND. Steering the launch is what replaced the leaked home there,
+        // so the leak was answered only in the case where an answer arrived: `tally launch-dir`
+        // prints nothing at all when the policy is Off or nothing is eligible, and the leaked value
+        // then sat untouched in the environment and was obeyed by the very launch this branch
+        // decided to steer. The CLI closed the same hole with an unconditional `unsetenv` (079a50b).
+        let silent = run(.claude, shell: shell, tty: true,
+                         environment: ["CLAUDE_CONFIG_DIR": leakedHome, marker: "1",
+                                       "TALLY_TEST_SILENT": "1"])
+        check("[\(name)] a leaked home is dropped even when the steering has nothing to say",
+              silent.steered && silent.home.isEmpty && silent.marker.isEmpty)
+        // …and dropped for the LEAK only. A home somebody exported by hand never reaches that
+        // branch, and a run that silently unset it would be this shim overruling the one thing it
+        // promises to obey.
+        let silentPin = run(.claude, shell: shell, tty: true,
+                            environment: ["CLAUDE_CONFIG_DIR": leakedHome,
+                                          "TALLY_TEST_SILENT": "1"])
+        check("[\(name)] …while a hand-exported home is still obeyed, silence or not",
+              !silentPin.steered && silentPin.home == leakedHome)
 
         // The same row with the marker set to nothing at all. `tally claude` reads presence rather
         // than value (`environment[childSessionMarker] != nil`), so a shim testing for a non-empty

@@ -74,19 +74,60 @@ final class IntegrationsStore {
     nonisolated static let blockBegin = "# >>> tally integration >>>"
     nonisolated static let blockEnd = "# <<< tally integration <<<"
 
-    /// Bump when the shim script changes; the store flags older installs for reinstall.
-    nonisolated static let shimVersion = 2
+    /// Bump when the shim script changes; the store flags older installs for reinstall. Pinned to
+    /// the script's own text by the suite, so an edit that skips the bump goes red
+    /// (tests/integrations/shimscriptchecks.swift).
+    nonisolated static let shimVersion = 3
+
+    /// Claude Code's marker for a session it started itself, spelled here as well as in the CLI
+    /// (`childSessionMarker`, TallyCLI/Snapshot.swift, which is where the mechanism is written
+    /// down) because the app target does not compile that file. A drift between the two spellings
+    /// would leave the shim watching a variable nothing ever sets, which looks exactly like a
+    /// machine that never leaks, so the suite pins them to each other.
+    nonisolated static let childSessionMarker = "CLAUDE_CODE_CHILD_SESSION"
 
     /// The shim itself: ask `tally launch-dir` (which honours Off/Manual/Auto), then hand off to
     /// the first real binary on PATH that isn't this file. Pure bash, no dependencies; fail open.
+    ///
+    /// The claude shim carries one clause the codex shim does not, and it is the same decision
+    /// `tally claude` makes in `inheritedSessionEnvironment`: an exported config home is the user's
+    /// own choice, UNLESS it was inherited from a session rather than typed. It has to be decided
+    /// here rather than inside `tally launch-dir`, because what gives a leak away is a terminal on
+    /// stdout, and that command prints into a command substitution, which never is one.
     static func shimScript(_ shim: Shim) -> String {
-        """
+        let unexported = "[[ -z \"${\(shim.envKey):-}\" ]]"
+        // Claude only: the marker is Claude Code's, and a codex environment says nothing by
+        // carrying it.
+        let claude = shim == .claude
+        let precedence = claude
+            ? "# An exported \(shim.envKey) wins, unless it was inherited rather than typed (below)."
+            : "# An explicitly exported \(shim.envKey) always wins."
+        let leakClause = claude ? """
+        # A terminal started from inside a Claude Code session inherits that session's config home
+        # AND its child marker, so every window opened afterwards is stuck on that one account.
+        # Claude Code spawns its real children through a pipe: the marker with stdout on a PIPE is a
+        # real child, which follows its parent's home on purpose, while the same marker with stdout
+        # on a TERMINAL cannot be describing this process at all. Dropping the marker is what makes
+        # the session save its transcript again, so it happens whether or not Tally steers as well.
+        # `+x` asks whether the variable is SET, which is the question `inheritedSessionEnvironment`
+        # asks of it: an entrance that read an empty value as no marker would answer differently
+        # from the other one, which is the whole defect this clause exists to close.
+        inherited=0
+        if [[ -t 1 && -n "${\(childSessionMarker)+x}" ]]; then
+          inherited=1
+          unset \(childSessionMarker)
+        fi
+
+        """ : ""
+        let steered = claude ? "{ \(unexported) || (( inherited )); }" : unexported
+        return """
         #!/bin/bash
         # tally-shim v\(shimVersion): route bare `\(shim.rawValue)` through the Tally launch policy.
         # Managed by Tally.app (Settings → Integrations); safe to delete.
-        # An explicitly exported \(shim.envKey) always wins; without Tally this passes straight through.
+        # Without Tally on PATH this passes straight through.
+        \(precedence)
         set -u
-        if [[ -z "${\(shim.envKey):-}" ]] && command -v tally > /dev/null 2>&1; then
+        \(leakClause)if \(steered) && command -v tally > /dev/null 2>&1; then
           eval "$(tally launch-dir \(shim.rawValue) 2> /dev/null)" || true
         fi
         while IFS= read -r candidate; do

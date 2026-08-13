@@ -13,6 +13,7 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   tests/integrations/notificationhookchecks.swift tests/integrations/switchgroupchecks.swift tests/integrations/selfhealchecks.swift \
   tests/integrations/localizationchecks.swift tests/integrations/renamechecks.swift tests/integrations/mergechecks.swift \
   tests/integrations/nativepickerchecks.swift tests/integrations/skillversionchecks.swift \
+  tests/integrations/shimscriptchecks.swift \
   tests/integrations/completionchecks.swift tests/integrations/clitoolchecks.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsCLITool.swift \
   Tally/Stores/IntegrationsCompletion.swift \

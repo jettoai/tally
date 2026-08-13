@@ -435,6 +435,9 @@ try MainActor.assumeIsolated {
     // machine: whose file is at /usr/local/bin/tally, and what Remove may do about it
     // (clitoolchecks.swift).
     try runCLIToolChecks(tmp: tmp)
+    // And the integration that is a shell script rather than a registration: what a bare `claude`
+    // is steered by, executed under both shells (shimscriptchecks.swift).
+    try runShimScriptChecks(tmp: tmp)
 
     try? FileManager.default.removeItem(at: tmp)
 }

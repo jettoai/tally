@@ -445,20 +445,40 @@ func runForkChecks() {
     // The rule is only worth anything where the restart happens, and the order there is the point:
     // forced scan, then the question, then the kill. `performHandoff` forces a scan of its own, but
     // it runs AFTER the SIGTERM, which is too late to change its mind.
+    //
+    // THE SCAN AND THE QUESTION MOVED, and this reads the shape they moved into rather than the one
+    // they left. They used to sit inline at the top of the execution block; a second reader then
+    // appeared for their answer (the input gate, SessionInput.swift), and two places asking the
+    // same question is how the two come to disagree - so both live in `relaunchIsHappening` and the
+    // tick asks once, before either acts. The invariant is unchanged and is now pinned in two
+    // halves: the tick asks before it kills, and the asking still forces a scan.
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     check("the supervisor source is readable from the suite", !loop.isEmpty)
-    if let start = loop.range(of: "if let plan {"),
+    if let start = loop.range(of: "let replacingChild = relaunchIsHappening("),
        let kill = loop.range(of: "performHandoff(to: plan.target",
                              range: start.upperBound ..< loop.endIndex) {
         let preflight = String(loop[start.upperBound ..< kill.lowerBound])
-        check("the plan execution point forces its own fork scan",
-              preflight.contains("locateFile(forceForkCheck: true)"))
-        check("and asks the hold before it terminates anything",
-              preflight.contains("relaunchHeldByUnresolvedFork"))
+        check("the tick asks the hold before it terminates anything",
+              loop.range(of: "if let plan {")!.lowerBound > start.lowerBound)
         check("a held plan stands the tick down rather than falling through to the kill",
-              preflight.contains("continue"))
+              preflight.contains("if !replacingChild {") && preflight.contains("continue"))
+        // And nobody asks it a second time, which is what would let the input gate and the relaunch
+        // disagree about whether this child is being replaced.
+        check("the hold is asked once, not once per reader",
+              !preflight.contains("relaunchHeldByUnresolvedFork")
+                  && !preflight.contains("locateFile(forceForkCheck: true)"))
     } else {
         check("the plan execution point was found", false)
+    }
+    let standDown = (try? String(contentsOfFile: "TallyCLI/StandDown.swift", encoding: .utf8)) ?? ""
+    if let asking = standDown.range(of: "func relaunchIsHappening"),
+       let end = standDown.range(of: "\n}\n", range: asking.upperBound ..< standDown.endIndex) {
+        let body = String(standDown[asking.upperBound ..< end.lowerBound])
+        check("the one asking forces a fork scan of its own",
+              body.contains("locateFile(forceForkCheck: true)")
+                  && body.contains("relaunchHeldByUnresolvedFork"))
+    } else {
+        check("the one asking forces a fork scan of its own", false)
     }
 
     // MARK: - 8c. A line bigger than one scan block must not swallow the evidence behind it

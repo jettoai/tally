@@ -481,9 +481,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // this tick is ABOUT to terminate the child, which is a fact only the loop holds and the
             // state cannot show: an idle session with a plan against it is the very case where
             // typing would be lost and reported as delivered.
+            // The tick's last look, and the one answer both readers below need: a PLANNED relaunch
+            // is not a relaunch, because the fork hold can stand it down and leave this child
+            // running (StandDown.swift carries the whole reasoning, the regression included).
+            let replacingChild = relaunchIsHappening(plan: plan, watcher: &watcher)
             applySessionInput(&sessionInput, session: boardState,
                               keyboardIdle: keyboard.idle(sessionInputKeyboardQuietSeconds),
-                              relaunchPlanned: plan != nil)
+                              relaunchPlanned: replacingChild)
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args. A pending app
@@ -493,14 +497,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // terminated, and against the account the plan moves TO, so the new build resumes the
             // conversation where this handoff is about to put it rather than on the old account.
             if let plan {
-                // Last look before anything is terminated, and a FORCED one: the planners each
-                // asked their own gate, but a `/clear` can land in the microseconds since, and
-                // restarting then resumes the id from before it (TranscriptFork.swift). This may
-                // also adopt a fork that has just stamped its marker, the same insurance seen from
-                // the other side: the relaunch then resumes the file the conversation is in.
-                watcher.locateFile(forceForkCheck: true)
-                if relaunchHeldByUnresolvedFork(reason: plan.reason,
-                                                unresolvedFork: watcher.hasUnresolvedFork) {
+                if !replacingChild {
                     // Hand back what planning committed, so the next tick plans it again rather
                     // than believing it is already done (StandDown.swift).
                     committed.restore(reloadEpoch: &reloadEpoch, reloadNotice: &reloadNotice,

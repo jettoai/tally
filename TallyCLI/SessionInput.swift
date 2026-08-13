@@ -259,6 +259,16 @@ func sessionInputLogLine(pid: String, outcome: String, submit: Bool, text: Strin
 /// this log ever asks; the cost of keeping it is one chmod.
 let sessionInputLogMode = 0o600
 
+/// The line a directory that could not be narrowed leaves (grep `input=directory-mode`): the
+/// requests in it are readable by every account on this machine, and the write went ahead anyway
+/// (`makeSessionInputDirectory` states why). Its own line rather than a served-request one, because
+/// nothing was typed and no session is named.
+func sessionInputDirectoryModeLine(dir: URL, failure: Error, now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) input=directory-mode "
+        + "wanted=\(String(sessionInputDirMode, radix: 8)) failed=\(failure.localizedDescription) "
+        + "dir=\(dir.path)\n"
+}
+
 /// Append one audit line, keeping the log at `sessionInputLogMode`.
 ///
 /// IT CONVERGES AN EXISTING FILE rather than only setting the mode at creation, because the file

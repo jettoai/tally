@@ -14,6 +14,14 @@ import Foundation
 // on (SessionInput.swift carries its measurements) and end-to-end by hand; what the suite pins is
 // everything that DECIDES whether that write happens.
 
+/// A target for the relaunch plans below. Only its existence matters here: what is under test is
+/// whether a plan is STOOD DOWN, which the reason and the fork decide and the account never touches.
+private let sessionInputAccount = Snapshot.Account(
+    id: "A", provider: "claude", label: "A", launchHome: "/tmp/A", sessionRemaining: 90,
+    weeklyRemaining: 90, modelRemaining: 90, sessionResetsAt: nil, weeklyResetsAt: nil,
+    modelResetsAt: nil, modelWindowName: nil, resetCreditsAvailable: nil, isStale: false,
+    error: nil)
+
 func runSessionInputChecks() {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-sessioninput-\(UUID().uuidString)")
@@ -234,6 +242,39 @@ func runSessionInputChecks() {
           typed.count == 1 && typed[0].0 == "during-relaunch"
               && readSessionInputResult(sessionKey: "9208", dir: dir)?.outcome == "submitted")
 
+    // A PLANNED RELAUNCH IS NOT A RELAUNCH, and the difference is the whole of this gate. The fork
+    // hold can stand a plan down and leave the child running, and a gate wired to "is there a plan"
+    // then refuses to type for as long as the fork stays unresolved - while the thing that RESOLVES
+    // a fork is a new turn, which is exactly what the pending line was going to start. The two
+    // cases are asserted side by side because that is the distinction the wiring got wrong
+    // (codex review of 1615990).
+    let forked = ForkFixture("session-input-hold")
+    forked.write("parent.jsonl", ["{}"], born: -3600, wrote: -580)
+    var forkedWatcher = forked.watcher(pinnedTo: "parent")
+    check("the fork fixture starts with nothing to hold on", forkedWatcher.isQuiet(5))
+    forked.write("cleared.jsonl", forked.clearedLines(own: "cleared"), born: 30, wrote: 120)
+    let held = relaunchIsHappening(plan: RelaunchPlan(target: sessionInputAccount, reason: "reload",
+                                                      countsFuse: false),
+                                   watcher: &forkedWatcher)
+    check("a plan an unresolved fork stands down is not a relaunch this tick",
+          !held && forkedWatcher.hasUnresolvedFork)
+    // …and a cap is never held, so THAT plan really does replace the child.
+    var capWatcher = forkedWatcher
+    check("…while a cap handoff, which no fork holds, is one",
+          relaunchIsHappening(plan: RelaunchPlan(target: sessionInputAccount, reason: "cap",
+                                                 countsFuse: true), watcher: &capWatcher))
+    check("…and a tick with no plan at all is not one either",
+          !relaunchIsHappening(plan: nil, watcher: &capWatcher))
+    // The behaviour that closes the loop: the stood-down tick types, so the turn that resolves the
+    // fork can start.
+    var stoodDown = SessionInputState(sessionKey: "9209", servedEpoch: 0)
+    try? writeSessionInputRequest(request("resolve-the-fork", submit: true), sessionKey: "9209",
+                                  dir: dir)
+    typed = tick(state: .idle, relaunchPlanned: held, input: &stoodDown)
+    check("a tick whose relaunch stood down types the line that would end the hold",
+          typed.count == 1 && typed[0].0 == "resolve-the-fork"
+              && readSessionInputResult(sessionKey: "9209", dir: dir)?.outcome == "submitted")
+
     // Expiry, through the tick rather than the pure function, so the consuming half is covered too.
     var expired = SessionInputState(sessionKey: "9203", servedEpoch: 0)
     try? writeSessionInputRequest(request("late"), sessionKey: "9203", dir: dir)
@@ -286,7 +327,7 @@ func runSessionInputChecks() {
 
     let written = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
     check("every served request left a line", written.components(separatedBy: "\n")
-              .filter { $0.contains("input=") }.count == 8)
+              .filter { $0.contains("input=") }.count == 9)
     check("…naming the session, the outcome and whether it was sent",
           written.contains("pid=9201 input=submitted submit=yes bytes=5 text=/help"))
     check("…and a refusal is recorded as loudly as a delivery",
@@ -373,6 +414,35 @@ func runSessionInputChecks() {
     let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: closed.path))?
         .filter { $0.hasPrefix(".") } ?? []
     check("the temporary the atomic write used does not survive it", leftovers.isEmpty)
+    // A directory that cannot be narrowed does not stop the write, but it does not pass in silence
+    // either: the difference between "narrowed" and "could not be narrowed" has to exist somewhere
+    // a person can read it.
+    // AND THE WIRING, not just the sentence: a directory made to refuse a chmod, deterministically
+    // and reversibly. UF_IMMUTABLE is settable by the owner and blocks chmod (measured on this
+    // machine, 2026-08-13), which is the only way a process can make its OWN directory refuse.
+    // Without this the line builder was asserted and nothing checked that anything ever called it.
+    let stubborn = dir.appendingPathComponent("stubborn")
+    try? FileManager.default.createDirectory(at: stubborn, withIntermediateDirectories: true,
+                                             attributes: [.posixPermissions: 0o755])
+    let stubbornLog = dir.appendingPathComponent("stubborn.log")
+    check("the immutable flag really took", chflags(stubborn.path, UInt32(UF_IMMUTABLE)) == 0)
+    try? makeSessionInputDirectory(stubborn, log: stubbornLog)
+    check("a directory that cannot be narrowed is recorded rather than passed over in silence",
+          ((try? String(contentsOf: stubbornLog, encoding: .utf8)) ?? "")
+              .contains("input=directory-mode"))
+    check("…and it really was refused, so the check is about a failure that happened",
+          mode(stubborn) == 0o755)
+    chflags(stubborn.path, 0)
+    check("a chmod that fails leaves a line naming the directory and the reason",
+          sessionInputDirectoryModeLine(dir: URL(fileURLWithPath: "/x/input"),
+                                        failure: sessionInputPOSIXError(EPERM), now: t0)
+              .contains("input=directory-mode wanted=700")
+              && sessionInputDirectoryModeLine(dir: URL(fileURLWithPath: "/x/input"),
+                                               failure: sessionInputPOSIXError(EPERM), now: t0)
+              .hasSuffix("dir=/x/input\n"))
+    check("…and the mode it wanted is the one it is kept at, not a second copy of the number",
+          sessionInputDirectoryModeLine(dir: dir, failure: sessionInputPOSIXError(EPERM), now: t0)
+              .contains("wanted=\(String(sessionInputDirMode, radix: 8))"))
     check("…and the modes are named once, not typed twice",
           sessionInputFileMode == 0o600 && sessionInputDirMode == 0o700
               && sessionInputFileMode == sessionInputLogMode)
@@ -556,9 +626,22 @@ func runSessionInputChecks() {
         // words is satisfied by somebody else's call and says nothing about this one. Caught by
         // mutation - passing a constant here survived until the search was narrowed.
         let call = String(loop[input.lowerBound ..< execution.lowerBound])
-        check("…and it is handed THIS tick's plan rather than a constant",
-              call.contains("relaunchPlanned: plan != nil")
-                  && !call.contains("applySessionDirectives("))
+        // ONE ANSWER, TWO READERS. `plan != nil` is the wiring this had first and it is the defect:
+        // it reads a stood-down tick as a relaunch. What the gate must be handed is the value the
+        // execution block itself branches on, so the two can never disagree about whether this
+        // child is being replaced.
+        check("…and it is handed the hold-aware answer rather than the bare plan",
+              call.contains("relaunchPlanned: replacingChild")
+                  && !call.contains("relaunchPlanned: plan != nil"))
+        // That value comes from the one ask, which is a line ABOVE the call and so outside the
+        // slice: a search for it has to be made against the file.
+        check("…and that answer is the tick's own forced ask",
+              loop.contains("let replacingChild = relaunchIsHappening(plan: plan, "
+                  + "watcher: &watcher)"))
+        check("…which is the same value the relaunch itself branches on",
+              loop.contains("if !replacingChild {")
+                  // and the old duplicate ask is gone, or the two could drift apart again
+                  && !loop.contains("if relaunchHeldByUnresolvedFork("))
     } else {
         check("the input gate is consulted after the planners decide and before the child goes",
               false)
@@ -580,15 +663,42 @@ func runSessionInputChecks() {
                   && !body.contains("data.write(to: file"))
         // And the mode is on the TEMPORARY, since a rename carries the mode of the inode it moves,
         // never the mode of what it replaces (measured on this machine, 2026-08-13).
-        check("…and the mode is put on that file before it is moved, not on what it replaces",
-              body.contains("atPath: temp.path")
-                  && body.contains("attributes: [.posixPermissions: sessionInputFileMode]"))
+        // THE MODE IS AN ARGUMENT OF THE CREATING CALL, which is what `FileManager.createFile`
+        // cannot promise: it creates under the umask and applies the attributes afterwards, so a
+        // file holding the whole of somebody's line exists at 0644 for a moment and every
+        // measurement taken after the fact still reads 0600 (codex review of 1615990). This is a
+        // shape check because the window it refuses can only be caught by watching another process
+        // mid-syscall; what CAN be measured is below, and the two together are the claim.
+        check("…and the temporary is born at that mode rather than chmod'd into it",
+              body.contains("open(temp.path, O_WRONLY | O_CREAT | O_EXCL, "
+                  + "mode_t(sessionInputFileMode))")
+                  && !body.contains("createFile("))
+        // The write loop advances by what the kernel took. A short write is not reachable from
+        // here - the payload is bounded at a couple of hundred bytes, far under any regime that
+        // produces one on a regular file - so this is pinned by shape rather than by value, and
+        // said out loud rather than left looking like a covered case.
+        check("…and the write loop advances by what was actually written",
+              body.contains("offset += written"))
     } else {
         check("the private write reaches the destination only by renaming a finished file over it",
               false)
-        check("…and the mode is put on that file before it is moved, not on what it replaces",
-              false)
+        check("…and the temporary is born at that mode rather than chmod'd into it", false)
     }
+    // The measurable half of that claim: the two mechanisms, asked the same question under the
+    // umask this machine actually runs. `open` with a mode answers it at creation; `createFile`
+    // without attributes shows what the creation mode would otherwise be, which is the window.
+    let birth = dir.appendingPathComponent("birth")
+    let born = open(birth.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(sessionInputFileMode))
+    check("a file opened with the mode is that mode from the instant it exists",
+          born >= 0 && mode(birth) == sessionInputFileMode)
+    if born >= 0 { close(born) }
+    check("…and O_EXCL makes a name collision an error rather than an overwrite",
+          open(birth.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(sessionInputFileMode)) < 0
+              && errno == EEXIST)
+    let umasked = dir.appendingPathComponent("umasked")
+    FileManager.default.createFile(atPath: umasked.path, contents: Data("x".utf8), attributes: nil)
+    check("…while a file created without a mode takes the umask's, which is what the window is",
+          mode(umasked) != sessionInputFileMode)
 
     try? FileManager.default.removeItem(at: dir)
 }

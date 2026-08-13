@@ -77,3 +77,30 @@ struct TickCommitments {
 func relaunchHeldByUnresolvedFork(reason: String, unresolvedFork: Bool) -> Bool {
     unresolvedFork && !reason.hasPrefix("cap")
 }
+
+/// The last look, and the tick's ONE answer to "is this child about to be replaced".
+///
+/// It exists because a second reader appeared for that answer, and the difference between the
+/// question it asks and the one it is tempting to ask instead cost a whole feature: a PLANNED
+/// relaunch is not a relaunch, because the hold above can stand it down and leave the child running.
+/// The input gate (SessionInput.swift) was first wired to `plan != nil`, which reads a stood-down
+/// tick as a relaunch and refuses to type - every tick, for as long as the fork stays unresolved.
+/// And an unresolved fork is resolved by a TURN, which is the very thing `tally session type` is
+/// asked to start: the gate closed the only door out of the state it was waiting on (codex review of
+/// 1615990).
+///
+/// So the forced scan and the hold are asked ONCE, here, before either reader acts. Asking it early
+/// costs the relaunch nothing: the two readers are mutually exclusive by construction (a tick that
+/// relaunches types nothing, and a tick that types is not relaunching), so the gap this opens
+/// between the scan and the tear-down is one file read rather than an injection's worth of seconds.
+///
+/// `watcher` is inout because the scan is forced: a `/clear` can land in the microseconds since the
+/// planners each asked their own gate, and restarting then resumes the id from before it
+/// (TranscriptFork.swift). It may also adopt a fork that has just stamped its marker, which is the
+/// same insurance seen from the other side.
+func relaunchIsHappening(plan: RelaunchPlan?, watcher: inout TranscriptWatcher) -> Bool {
+    guard let plan else { return false }
+    watcher.locateFile(forceForkCheck: true)
+    return !relaunchHeldByUnresolvedFork(reason: plan.reason,
+                                         unresolvedFork: watcher.hasUnresolvedFork)
+}

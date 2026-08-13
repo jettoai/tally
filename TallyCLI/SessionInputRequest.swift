@@ -186,7 +186,10 @@ let sessionInputDirMode = 0o700
 /// gives about the log beside it: the directory that matters is the one an earlier build already
 /// made, and a mode applied only at creation would never reach it. Checked before it is set, so the
 /// ordinary write costs a `stat` rather than a `chmod`.
-func makeSessionInputDirectory(_ dir: URL) throws {
+/// `log` HAS NO DEFAULT, the rule `appendHandoffLine` states about its own sink: this is the one
+/// path here that writes into the user's audit history, and a default is what lets a test reach it
+/// by saying nothing.
+func makeSessionInputDirectory(_ dir: URL, log: URL) throws {
     let manager = FileManager.default
     guard manager.fileExists(atPath: dir.path) else {
         // The leaf only: an intermediate `~/.tally` created on the way is left at its usual mode,
@@ -196,7 +199,17 @@ func makeSessionInputDirectory(_ dir: URL) throws {
     }
     guard (try? manager.attributesOfItem(atPath: dir.path))?[.posixPermissions] as? Int
         != sessionInputDirMode else { return }
-    try? manager.setAttributes([.posixPermissions: sessionInputDirMode], ofItemAtPath: dir.path)
+    do {
+        try manager.setAttributes([.posixPermissions: sessionInputDirMode], ofItemAtPath: dir.path)
+    } catch {
+        // NOT FATAL AND NOT SILENT. The write goes ahead: a directory that cannot be narrowed is
+        // still a directory this session's requests have to pass through, and refusing to type
+        // would take the feature away over a condition the caller cannot fix from where they
+        // stand. But a directory left traversable is exactly what the mode is for, so it leaves a
+        // line rather than nothing - a `try?` here would make the difference between "narrowed"
+        // and "could not be narrowed" invisible on the one channel that records this feature.
+        appendSessionInputLine(sessionInputDirectoryModeLine(dir: dir, failure: error), to: log)
+    }
 }
 
 /// Write `data` to `file` atomically AND privately.
@@ -207,18 +220,58 @@ func makeSessionInputDirectory(_ dir: URL) throws {
 /// destination at 0600 buys nothing at all: the inode that ends up at that path is the one this
 /// process just made under a different name. So the temporary is the thing that has to be created
 /// closed, and `rename(2)` (the same primitive `.atomic` uses) puts it in place with the mode it
-/// was made with. There is no window in which the data exists at either path world-readable.
-func writeSessionInputPrivately(_ data: Data, to file: URL, in dir: URL) throws {
-    try makeSessionInputDirectory(dir)
+/// was made with.
+///
+/// AND IT IS `open(2)` RATHER THAN `FileManager.createFile`, which is a distinction the first
+/// version of this got wrong in a way no measurement of the finished file can see. `createFile`
+/// creates the file under the UMASK and applies the attributes AFTERWARDS, so under the usual 022
+/// there is a real window in which a file holding the whole of somebody's line is 0644 on disk -
+/// and the check that "the mode is 0600" passes anyway, because it runs after the window has
+/// closed (codex review of 1615990). `open` takes the mode as an argument of the creating call, so
+/// the inode has never existed at any other mode; 0600 also survives every ordinary umask, which
+/// only ever clears bits this mode does not set.
+///
+/// `O_EXCL` because the name is ours to own: a collision (a leftover from a killed write, an
+/// unlikely UUID repeat) becomes an error rather than a silent overwrite of a file somebody else is
+/// in the middle of.
+func writeSessionInputPrivately(_ data: Data, to file: URL, in dir: URL,
+                                log: URL = sessionInputLog) throws {
+    try makeSessionInputDirectory(dir, log: log)
     let temp = dir.appendingPathComponent(".\(file.lastPathComponent).\(UUID().uuidString)")
-    guard FileManager.default.createFile(atPath: temp.path, contents: data,
-                                         attributes: [.posixPermissions: sessionInputFileMode])
-    else { throw CocoaError(.fileWriteUnknown) }
-    guard rename(temp.path, file.path) == 0 else {
-        let failure = errno
-        try? FileManager.default.removeItem(at: temp)
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(failure))
+    let handle = open(temp.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(sessionInputFileMode))
+    guard handle >= 0 else { throw sessionInputPOSIXError(errno) }
+    var failure: Int32?
+    data.withUnsafeBytes { bytes in
+        var offset = 0
+        while offset < bytes.count {
+            let written = write(handle, bytes.baseAddress!.advanced(by: offset),
+                                bytes.count - offset)
+            // A short write is not a failure, it is the rest of the loop; only an error ends it,
+            // and EINTR is not even that (a signal landing mid-write must not lose the request).
+            if written < 0 {
+                guard errno == EINTR else { failure = errno; return }
+                continue
+            }
+            offset += written
+        }
     }
+    close(handle)
+    if let failure {
+        try? FileManager.default.removeItem(at: temp)
+        throw sessionInputPOSIXError(failure)
+    }
+    guard rename(temp.path, file.path) == 0 else {
+        let code = errno
+        try? FileManager.default.removeItem(at: temp)
+        throw sessionInputPOSIXError(code)
+    }
+}
+
+/// A failed syscall as something a caller can print. Its own function so the three sites above
+/// cannot describe the same failure two ways.
+func sessionInputPOSIXError(_ code: Int32) -> NSError {
+    NSError(domain: NSPOSIXErrorDomain, code: Int(code),
+            userInfo: [NSLocalizedDescriptionKey: String(cString: strerror(code))])
 }
 
 /// This session's pending request, or nil when there is none (or it cannot be read).

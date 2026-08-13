@@ -13,16 +13,19 @@ import Foundation
 // (a second copy would leave one surface sharing what the other does not).
 
 /// What a shared add links from the main account into a new one: the HARNESS (instructions,
-/// skills, hooks, agents, settings) plus the conversation record - one setup maintained
-/// once, and cross-account resume/handoff continues the same history with no copying. An
-/// allowlist on purpose: identity (credentials, .claude.json / auth.json) and runtime state
-/// (tasks, caches, sqlite stores - concurrent writers would fight over them) must stay
-/// per-account, and new runtime directories the CLIs grow later must default to
-/// independent, not shared.
+/// skills, hooks, agents, settings) plus what sessions leave for each other: the
+/// conversation record, and `inboxes`, the messages one session drops for the next - one
+/// setup maintained once, and cross-account resume/handoff continues the same history with
+/// no copying. An allowlist on purpose: identity (credentials, .claude.json / auth.json)
+/// and runtime state (tasks, caches, sqlite stores - concurrent writers would fight over
+/// them) must stay per-account, and new runtime directories the CLIs grow later must
+/// default to independent, not shared. `inboxes` sits on the shared side of that line
+/// because it is a directory of files rather than a store two accounts lock, and a message
+/// dropped while on one account has to be there when the next session lands on another.
 let sharedHarnessItems = [
     "CLAUDE.md", "settings.json", "settings.local.json",
     "agents", "skills", "hooks", "commands", "plugins",
-    "memory", "projects",
+    "memory", "projects", "inboxes",
 ]
 
 /// The codex face of the same idea. `sessions` plus `archived_sessions` are codex's

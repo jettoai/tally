@@ -95,6 +95,22 @@ _ = linkSharedHarness(from: source, to: ownProjects)
 check("an account with its OWN projects does not report as shared",
       !sharesConversations(providerID: "claude", source: source, target: ownProjects))
 
+// Cross-session inboxes ride along with the harness (2026-08-13): each account home used to
+// grow its own, so a message left while on one account was invisible to every other one.
+try! fm.createDirectory(at: source.appendingPathComponent("inboxes/tally"),
+                        withIntermediateDirectories: true)
+try! "a message".write(to: source.appendingPathComponent("inboxes/tally/note.md"),
+                       atomically: true, encoding: .utf8)
+let withInboxes = tmp.appendingPathComponent("claude10")
+try! fm.createDirectory(at: withInboxes, withIntermediateDirectories: true)
+let inboxed = linkSharedHarness(from: source, to: withInboxes)
+check("inboxes are part of the claude share",
+      sharedHarnessItems.contains("inboxes") && inboxed.linked.contains("inboxes"))
+check("a message left on the main account reads through",
+      (try? String(contentsOf: withInboxes.appendingPathComponent("inboxes/tally/note.md"),
+                   encoding: .utf8)) == "a message")
+check("codex has no inbox notion of its own", !codexSharedItems.contains("inboxes"))
+
 // The codex face: its own allowlist, its own conversation entry, identity still out.
 try! "codex instructions".write(to: source.appendingPathComponent("AGENTS.md"),
                                 atomically: true, encoding: .utf8)

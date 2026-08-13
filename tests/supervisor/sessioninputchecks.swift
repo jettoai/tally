@@ -345,6 +345,18 @@ func runSessionInputChecks() {
 
     // MARK: - …and nobody else on this machine may read it
 
+    /// Run `body` with the process umask pinned, and put the old one back whatever happens.
+    ///
+    /// Several checks below are about a mode that a umask could FILTER, and reading the ambient one
+    /// makes them assertions about the machine rather than about the code (codex review of
+    /// 80499b3). Pinning is also what makes them discriminating: under a strict umask a wrong mode
+    /// argument is trimmed into looking right, so the value alone proves nothing.
+    func underUmask<Result>(_ mask: mode_t, _ body: () -> Result) -> Result {
+        let previous = umask(mask)
+        defer { umask(previous) }
+        return body()
+    }
+
     /// The mode a path is at, or nil when there is nothing there.
     func mode(_ url: URL) -> Int? {
         (try? FileManager.default.attributesOfItem(atPath: url.path))?[.posixPermissions] as? Int
@@ -387,6 +399,19 @@ func runSessionInputChecks() {
     check("the directory a request lands in is created 0700", mode(closed) == 0o700)
     check("…the request itself 0600", mode(sessionInputFile(sessionKey: "9301", dir: closed))
               == 0o600)
+    // AND UNDER A UMASK THAT CANNOT FABRICATE THAT ANSWER, which is what makes the line above
+    // evidence rather than a coincidence. A machine at 077 trims any wider request down to 0600 by
+    // itself, so an implementation that asked for the wrong mode would read as correct there and
+    // only there; at 022 a wrong argument comes out 0644. Caught by mutation: the production mode
+    // constant could be replaced with 0666 and every other check here still passed, on a 077 run.
+    let pinned = dir.appendingPathComponent("pinned-umask")
+    underUmask(0o022) {
+        try? writeSessionInputRequest(request("under a known umask"), sessionKey: "9303",
+                                      dir: pinned)
+    }
+    check("…and it is the mode this code asks for, not one a strict umask trimmed into shape",
+          mode(sessionInputFile(sessionKey: "9303", dir: pinned)) == 0o600
+              && mode(pinned) == 0o700)
     writeSessionInputResult(SessionInputResult(epoch: 1, outcome: "submitted", detail: nil),
                             sessionKey: "9301", dir: closed)
     check("…and the answer beside it, which quotes nothing but is addressed the same way",
@@ -679,26 +704,52 @@ func runSessionInputChecks() {
         // said out loud rather than left looking like a covered case.
         check("…and the write loop advances by what was actually written",
               body.contains("offset += written"))
+        // SAME KIND OF PIN, same honesty: a filesystem may hold a write error back until the
+        // descriptor is closed, and this suite cannot make that happen - it needs a filesystem
+        // that defers (a network mount), which a temp directory is not. What can be pinned is that
+        // the answer is taken at all, and that the descriptor is closed exactly once whatever it
+        // says, since it is deallocated even on failure.
+        check("…and the close is judged rather than assumed",
+              body.contains("let closeFailure = close(handle) == 0 ? nil : errno")
+                  && body.contains("failure ?? closeFailure")
+                  && body.components(separatedBy: "close(handle)").count == 2)
     } else {
         check("the private write reaches the destination only by renaming a finished file over it",
               false)
         check("…and the temporary is born at that mode rather than chmod'd into it", false)
     }
-    // The measurable half of that claim: the two mechanisms, asked the same question under the
-    // umask this machine actually runs. `open` with a mode answers it at creation; `createFile`
-    // without attributes shows what the creation mode would otherwise be, which is the window.
-    let birth = dir.appendingPathComponent("birth")
-    let born = open(birth.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(sessionInputFileMode))
-    check("a file opened with the mode is that mode from the instant it exists",
-          born >= 0 && mode(birth) == sessionInputFileMode)
-    if born >= 0 { close(born) }
-    check("…and O_EXCL makes a name collision an error rather than an overwrite",
-          open(birth.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(sessionInputFileMode)) < 0
-              && errno == EEXIST)
+    // The measurable half of that claim: the two mechanisms, asked the same question under a
+    // KNOWN umask rather than whatever this machine runs. That is the whole point of the second
+    // check - it demonstrates that the umask leaks into a creation mode - and reading the ambient
+    // one made it an assertion about the environment instead: on a contributor or a CI runner at
+    // 077, `createFile` produces 0600 by itself and a perfectly correct implementation goes red
+    // (codex review of 80499b3).
+    // A mode passed to `open` is filtered by the umask like any other, so it is asked under two
+    // that could not be more different: one that clears nothing this mode sets, and one that
+    // clears everything for group and other. 0600 survives both, which is the property the
+    // implementation rests on.
+    for mask: mode_t in [0o022, 0o077] {
+        let octal = String(mask, radix: 8)
+        let birth = dir.appendingPathComponent("birth-\(octal)")
+        let born = underUmask(mask) {
+            open(birth.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(sessionInputFileMode))
+        }
+        check("a file opened with the mode is that mode from the instant it exists (umask \(octal))",
+              born >= 0 && mode(birth) == sessionInputFileMode)
+        if born >= 0 { close(born) }
+        check("…and O_EXCL makes a name collision an error rather than an overwrite (umask \(octal))",
+              open(birth.path, O_WRONLY | O_CREAT | O_EXCL, mode_t(sessionInputFileMode)) < 0
+                  && errno == EEXIST)
+    }
+    // And the control, under a pinned umask so the number it produces is a fact rather than a
+    // reading of this machine: 0666 with 022 taken out of it is 0644, which is the window.
     let umasked = dir.appendingPathComponent("umasked")
-    FileManager.default.createFile(atPath: umasked.path, contents: Data("x".utf8), attributes: nil)
+    let made = underUmask(0o022) {
+        FileManager.default.createFile(atPath: umasked.path, contents: Data("x".utf8),
+                                       attributes: nil)
+    }
     check("…while a file created without a mode takes the umask's, which is what the window is",
-          mode(umasked) != sessionInputFileMode)
+          made && mode(umasked) == 0o644 && mode(umasked) != sessionInputFileMode)
 
     try? FileManager.default.removeItem(at: dir)
 }

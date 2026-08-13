@@ -255,8 +255,19 @@ func writeSessionInputPrivately(_ data: Data, to file: URL, in dir: URL,
             offset += written
         }
     }
-    close(handle)
-    if let failure {
+    // CLOSING IS PART OF WRITING, and its answer is not decoration. A filesystem may defer a write
+    // error until the descriptor is closed (EIO is the documented case, and a network mount is
+    // where it actually happens), so bytes that every `write` accepted can still be incomplete
+    // until this returns. Ignoring it publishes a truncated request through the rename below and
+    // tells the caller it was typed (codex review of 80499b3).
+    //
+    // CLOSED EXACTLY ONCE, whatever it answers: the descriptor is deallocated even when close
+    // reports an error, so a retry or a second close on the failure path would be operating on a
+    // number that no longer belongs to this file.
+    let closeFailure = close(handle) == 0 ? nil : errno
+    // The write's own error leads: it says what went wrong first, and a close error following it is
+    // the same failure seen a second time.
+    if let failure = failure ?? closeFailure {
         try? FileManager.default.removeItem(at: temp)
         throw sessionInputPOSIXError(failure)
     }

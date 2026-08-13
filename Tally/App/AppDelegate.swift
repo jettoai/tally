@@ -132,6 +132,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// PopoverRootView in a real window, which `screencapture -o -l <windowID>` can take from the
     /// background.
     ///
+    /// Which page that panel opens on is the other half of the same command, and it is not decided
+    /// here: `-TallyTab <usage|tokens|sessions>` seeds the surface's own selection
+    /// (`SurfaceTabLaunch`), so a capture of the session board needs no click either. Seeded rather
+    /// than switched afterwards, because a tab switched after the panel is up crossfades, and a
+    /// capture racing that animation photographs whichever frame it caught.
+    ///
     /// Gated on the demo data or a dev build, like `-TallyAppearance`: it must never be reachable in
     /// a release instance somebody is actually using, and it deliberately does NOT go through
     /// `setPinned`, which would write the pin into the shared defaults domain and change the real

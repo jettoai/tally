@@ -37,6 +37,7 @@ enum CaptureLaunch {
         "TallyCardStyle",       // which glass variant, judged on screen rather than in a diff
         // Surfaces held open so they can be photographed without synthesized input.
         "TallyPanelCapture",    // the pinned usage panel
+        "TallyTab",             // which of that surface's pages it opens on (SurfaceTabLaunch)
         "TallyTooltipPreview",  // one callout, which otherwise needs a real hover
         "TallyEmptyStatePreview",
         "TallyTokenGraphPreview",

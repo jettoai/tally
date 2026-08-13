@@ -55,10 +55,11 @@ enum SurfaceHost: Sendable {
 @MainActor
 @Observable
 final class SurfaceTabState {
-    /// Usage on every real launch. A design capture that named a project's activity graph
-    /// (`-TallyTokenGraphPreview`, demo and dev builds only) opens on the tab that graph is on
-    /// instead, so the capture needs no click to get there - the flag's whole purpose.
-    var tab: SurfaceTab = TokenGraphPreview.project == nil ? .usage : .tokens
+    /// Usage on every real launch. A capture launch can open on another page instead, either by
+    /// naming it (`-TallyTab`) or by naming a graph that lives on one (`-TallyTokenGraphPreview`),
+    /// so the capture needs no click to get there - those flags' whole purpose. Seeded rather than
+    /// switched after launch, so nothing is ever photographed mid-crossfade (`SurfaceTabLaunch`).
+    var tab: SurfaceTab = SurfaceTabLaunch.initialTab
     /// Which sessions the board lists (`SessionFilter`). Here for the same reasons the tab is: one
     /// per host, so narrowing the pinned panel's board does not narrow the popover's, and never
     /// persisted - it is a question asked while looking, not a preference.

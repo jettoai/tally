@@ -26,6 +26,16 @@ enum TallyColor {
     /// marks the smart pick as "the machine chose this", distinct from the human's orange pin.
     static let ai = Color(red: 0.55, green: 0.36, blue: 0.96)
     static let critical = Color(red: 0.86, green: 0.31, blue: 0.29)  // softened red, not alarm-siren
+    /// THE STATE AXIS'S GREEN: something is alive and running, and nobody has to do anything about
+    /// it. Bright and saturated on purpose, so it cannot be taken for `normal`'s calm sage. The two
+    /// answer different questions and never share a surface: `normal` fills a meter (a continuous
+    /// quantity, "how much is left"), this fills a small dot in a set of discrete categories ("what
+    /// is it doing"). Keeping them different literals is what keeps that distinction honest.
+    ///
+    /// Not `brand` either. That one is the identity mark and asserts nothing about condition, and an
+    /// identity colour standing in for a state is the overload this one was added to undo (the
+    /// reasoning, and what it replaced, is at `stateDot` in SessionBoardView).
+    static let live = Color(red: 0.17, green: 0.75, blue: 0.35)
     /// The Relay T's shoulder green: Tally's own identity colour, not a severity. Anything drawing
     /// the brand (the glyph, the baton beneath it) reads it from here, so the family cannot drift
     /// by having the same literal typed twice.

@@ -351,16 +351,29 @@ extension PopoverRootView {
         return lines.filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
-    /// One dot per state, in the panel's own vocabulary: red for the one that wants somebody, the
-    /// purple that already means "Tally is steering this" (the status line's own mark, the smart
-    /// pick's badge) for work in progress, grey for at rest, and a HOLLOW ring for "cannot say" -
-    /// which is both the published `unknown` and a session that has published nothing (the latter
-    /// reads as `unknown` by construction - `SessionRow.state`), because both are an absence of
-    /// information rather than a further condition.
+    /// One dot per state, along the axis this board is actually read for: does this one need me?
+    /// Red for the session that wants somebody, green for the one that is running and needs nobody,
+    /// grey for at rest, and a HOLLOW ring for "cannot say" - which is both the published `unknown`
+    /// and a session that has published nothing (the latter reads as `unknown` by construction -
+    /// `SessionRow.state`), because both are an absence of information rather than a further
+    /// condition. Red against green is the strongest contrasting pair available at 7pt, and those
+    /// two are the ends of that question.
     ///
-    /// Deliberately NOT the meter palette (sage / amber / red): those three are quota severities
-    /// and they are one tab away, so a green dot here would read as "this session has room" rather
-    /// than as "this session is working".
+    /// WORKING WAS PURPLE, AND THE PURPLE WAS THE MISPLACED ONE. `TallyColor.ai` means "Tally is
+    /// steering this" (the smart pick's badge, the status line's mark), and that is true of EVERY
+    /// supervised card on this board, the idle ones drawn in grey included. Spending the identity
+    /// accent on one activity state overloaded it, and at 7pt it made the board's one real
+    /// distinction two deep warm tones apart.
+    ///
+    /// The standing objection to green was that the meter palette is one tab away, so a green dot
+    /// would read as "this session has room". It does not: the meter's sage fills a bar (a
+    /// continuous quantity), this fills a dot in a set of discrete categories, and a session card
+    /// carries no quota at all. What had to be avoided was the sage VALUE, which is why this is
+    /// `TallyColor.live` rather than `TallyColor.normal`.
+    ///
+    /// AND COLOUR IS NOT THE ONLY CARRIER, which is the precondition for putting red beside green:
+    /// a viewer who cannot separate those two hues still gets the waiting card's state in words and
+    /// its reason line, both in red text (`sessionCardHeadline`, `sessionCard`).
     @ViewBuilder
     private func stateDot(_ row: SessionRosterStore.SessionRow) -> some View {
         let size = Self.stateDotSize
@@ -368,7 +381,7 @@ extension PopoverRootView {
         case .blocked:
             Circle().fill(TallyColor.critical).frame(width: size, height: size)
         case .working:
-            Circle().fill(TallyColor.ai).frame(width: size, height: size)
+            Circle().fill(TallyColor.live).frame(width: size, height: size)
         case .idle:
             Circle().fill(Color.secondary.opacity(0.5)).frame(width: size, height: size)
         case .unknown:

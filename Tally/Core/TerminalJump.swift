@@ -4,13 +4,17 @@ import Darwin
 /// TAKING SOMEBODY TO THE SESSION THEY JUST CLICKED, which is the whole point of a status board: a
 /// row that says a session is waiting and cannot be got to has moved the hunt rather than ended it.
 ///
-/// TWO WAYS, and the second is what makes the first optional.
+/// THREE WAYS, in falling order of how precisely each can answer "which surface".
 ///
-///   1. Ask the terminal emulator to focus the window whose working directory IS that checkout.
-///      Ghostty is the one that can be asked in v1 (its scripting dictionary exposes `terminals`
-///      with a `working directory`, and `focus`), and asking is precise: a repository with four
-///      parallel lines open has four windows, and only this tells them apart.
-///   2. Failing that, walk the Claude Code process's ancestors until one of them is an application,
+///   1. Ask Ghostty for the surface whose `tty` IS the device the session's own process is attached
+///      to. A tty belongs to exactly one surface, so this cannot pick the wrong tab: it is the only
+///      one of the three that survives the ordinary case of one repository open in several tabs,
+///      splits, or windows at once.
+///   2. Failing that, ask for the surface whose working directory IS that checkout, breaking ties
+///      on the session's name. Right repository, arbitrary tab within it. This is what answers when
+///      the session has no child process left to ask about, or is running in a terminal that is not
+///      Ghostty at all and therefore appears in no surface's `tty`.
+///   3. Failing that, walk the Claude Code process's ancestors until one of them is an application,
 ///      and activate it. This knows nothing about windows, so it lands the user in the right APP
 ///      rather than the right tab, and it works for every terminal there is.
 ///
@@ -31,12 +35,17 @@ enum TerminalJump {
     /// and the same reasoning, as `LoginTerminalFallback`).
     private static let scriptTimeout: TimeInterval = 120
 
-    /// Focus the terminal this session is running in. `hint` is the session's own name (the
-    /// repository, or the parallel line), used to break a tie between several windows standing in
-    /// one directory - the ordinary case for a repository somebody has two shells open in.
+    /// Focus the terminal this session is running in. `childPid` is the session's own process, whose
+    /// controlling terminal names the surface exactly; `hint` is the session's own name (the
+    /// repository, or the parallel line), used only to break a tie between several windows standing
+    /// in one directory once that exact answer is unavailable.
     static func jump(directory: String?, hint: String?, childPid: Int?) async {
-        if let directory, !directory.isEmpty, runningApplication(ghosttyBundleID) != nil,
-           await focusGhostty(directory: directory, hint: hint ?? "") {
+        let tty = childPid.flatMap { controllingTTY(of: pid_t($0)) }
+        let directory = directory ?? ""
+        // Nothing to match on at all (no live child, no recorded checkout) means nothing to ask, and
+        // asking anyway would focus whichever surface happens to stand in "".
+        if tty != nil || !directory.isEmpty, runningApplication(ghosttyBundleID) != nil,
+           await focusGhostty(directory: directory, hint: hint ?? "", tty: tty) {
             return
         }
         if let childPid, activateOwningApplication(of: pid_t(childPid)) { return }
@@ -52,43 +61,38 @@ enum TerminalJump {
         NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
     }
 
-    /// Ask Ghostty to focus the terminal standing in `directory`. Returns whether one was found.
-    private static func focusGhostty(directory: String, hint: String) async -> Bool {
+    /// Ask Ghostty to focus the surface this session occupies. Returns whether one was found.
+    private static func focusGhostty(directory: String, hint: String, tty: String?) async -> Bool {
         let result = await CLIRunner.run("/usr/bin/osascript",
-                                         arguments: ["-e", script(directory: directory, hint: hint)],
+                                         arguments: ["-e", script(directory: directory, hint: hint,
+                                                                  tty: tty)],
                                          timeout: scriptTimeout)
         guard result?.exitCode == 0 else { return false }
         return result?.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "ok"
     }
 
-    /// The script, built rather than templated because both values come from a file on disk.
+    /// The script, built rather than templated because every value comes from a file on disk or
+    /// from the process table.
     ///
     /// EVERY LOOKUP IS WRAPPED, because this is written against a scripting dictionary that is not
-    /// this app's: a Ghostty without `terminals`, or without `working directory` on one, raises
-    /// rather than returning nothing, and an unhandled raise is an osascript that exits non-zero
-    /// with the user staring at a row that did nothing. Wrapped, the same version simply reports no
-    /// match and the ancestor walk takes over.
+    /// this app's: a Ghostty without `terminals`, or without `working directory` or `tty` on one,
+    /// raises rather than returning nothing, and an unhandled raise is an osascript that exits
+    /// non-zero with the user staring at a row that did nothing. Wrapped, the same version simply
+    /// reports no match and the pass below it (or the ancestor walk) takes over.
     ///
-    /// THE HINT ONLY BREAKS TIES. The directory is the match; the name is consulted to choose
-    /// AMONG windows that already matched it, and the first match is kept as the answer for when
-    /// none of them carries the name. A tie broken arbitrarily is still the right repository.
-    static func script(directory: String, hint: String) -> String {
-        """
+    /// THE PASSES ARE ORDERED AND EACH ONE STANDS DOWN FOR AN EARLIER ANSWER, which is the whole
+    /// reason the tty pass exists: a match on the device is the surface, and a match on the
+    /// directory is only the repository, so the second must never be allowed to overwrite the
+    /// first. Every pass is guarded by `if matched is missing value`, so the order of the passes IS
+    /// the precedence and nothing downstream can quietly invert it.
+    static func script(directory: String, hint: String, tty: String?) -> String {
+        var passes: [String] = []
+        if let tty, !tty.isEmpty { passes.append(ttyPass(tty)) }
+        if !directory.isEmpty { passes.append(directoryPass(directory: directory, hint: hint)) }
+        return """
         tell application "Ghostty"
             set matched to missing value
-            try
-                repeat with t in terminals
-                    try
-                        if (working directory of t) is equal to \(literal(directory)) then
-                            if matched is missing value then set matched to t
-                            if \(literal(hint)) is not "" and (name of t) contains \(literal(hint)) then
-                                set matched to t
-                                exit repeat
-                            end if
-                        end if
-                    end try
-                end repeat
-            end try
+        \(passes.joined(separator: "\n"))
             if matched is missing value then return ""
             try
                 focus matched
@@ -99,6 +103,53 @@ enum TerminalJump {
         """
     }
 
+    /// One scan over Ghostty's surfaces, running `test` against each and standing down entirely
+    /// for an answer an earlier pass already found.
+    ///
+    /// THE GUARD AND THE TWO WRAPS LIVE HERE AND NOWHERE ELSE, so a pass added later cannot be the
+    /// one that forgets either: not the guard (and so overwrites a precise match with a vaguer
+    /// one), nor the wrap (and so lets an older dictionary's raise out of the script).
+    private static func pass(_ test: String) -> String {
+        """
+            if matched is missing value then
+                try
+                    repeat with t in terminals
+                        try
+        \(test)
+                        end try
+                    end repeat
+                end try
+            end if
+        """
+    }
+
+    /// The exact pass: one device, one surface, so the first hit ends the search outright.
+    private static func ttyPass(_ tty: String) -> String {
+        pass("""
+                            if (tty of t) is equal to \(literal(tty)) then
+                                set matched to t
+                                exit repeat
+                            end if
+        """)
+    }
+
+    /// The approximate pass, kept for the session whose child is gone or is not in Ghostty at all.
+    ///
+    /// THE HINT ONLY BREAKS TIES. The directory is the match; the name is consulted to choose
+    /// AMONG windows that already matched it, and the first match is kept as the answer for when
+    /// none of them carries the name. A tie broken arbitrarily is still the right repository.
+    private static func directoryPass(directory: String, hint: String) -> String {
+        pass("""
+                            if (working directory of t) is equal to \(literal(directory)) then
+                                if matched is missing value then set matched to t
+                                if \(literal(hint)) is not "" and (name of t) contains \(literal(hint)) then
+                                    set matched to t
+                                    exit repeat
+                                end if
+                            end if
+        """)
+    }
+
     /// An AppleScript string literal. Both interpolated values are read off disk (a checkout path,
     /// a repository name), so neither is trusted to be free of the two characters that would end
     /// the literal early and turn the rest into script.
@@ -106,6 +157,35 @@ enum TerminalJump {
         "\"" + value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
+
+    // MARK: The process table
+
+    /// The device a process is attached to, in the form Ghostty reports it ("/dev/ttys001").
+    ///
+    /// ASKED OF THE KERNEL RATHER THAN OF `ps`, because this runs on a click in the panel and a
+    /// spawn is both slower and one more thing that can fail; `proc_pidinfo` is the same call the
+    /// ancestor walk below already makes.
+    ///
+    /// nil IS AN ORDINARY ANSWER, not an error: a session whose child has exited, a child owned by
+    /// another user (the kernel refuses), and a process with no controlling terminal at all (a
+    /// daemon, or anything under launchd) all land here, and all of them are exactly the cases the
+    /// directory pass was written for.
+    static func controllingTTY(of pid: pid_t) -> String? {
+        guard let info = bsdInfo(pid), info.e_tdev != UInt32.max else { return nil }
+        guard let name = devname(dev_t(bitPattern: info.e_tdev), S_IFCHR) else { return nil }
+        let text = String(cString: name)
+        // Older devname reports an unknown device as "??" rather than by returning nothing.
+        guard !text.isEmpty, text != "??" else { return nil }
+        return text.hasPrefix("/") ? text : "/dev/" + text
+    }
+
+    /// A process's kernel record, or nil when the pid is gone or belongs to another user.
+    private static func bsdInfo(_ pid: pid_t) -> proc_bsdinfo? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return info
     }
 
     // MARK: The universal fallback
@@ -137,9 +217,6 @@ enum TerminalJump {
     /// A process's parent, straight from the kernel. nil when the pid is gone or belongs to another
     /// user, both of which end the walk.
     private static func parentProcess(_ pid: pid_t) -> pid_t? {
-        var info = proc_bsdinfo()
-        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
-        return pid_t(info.pbi_ppid)
+        bsdInfo(pid).map { pid_t($0.pbi_ppid) }
     }
 }

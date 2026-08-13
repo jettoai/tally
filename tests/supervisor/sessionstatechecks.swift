@@ -379,7 +379,8 @@ func runSessionStateChecks() {
           TerminalJump.literal("/Users/u/co\"de") == "\"/Users/u/co\\\"de\"")
     check("…nor can a backslash escape the closing one",
           TerminalJump.literal("/Users/u/code\\") == "\"/Users/u/code\\\\\"")
-    let script = TerminalJump.script(directory: "/Users/u/code/tally", hint: "tally · cart")
+    let script = TerminalJump.script(directory: "/Users/u/code/tally", hint: "tally · cart",
+                                     tty: nil)
     check("the script matches on the working directory and breaks ties on the name",
           script.contains("working directory of t) is equal to \"/Users/u/code/tally\"")
               && script.contains("(name of t) contains \"tally · cart\""))
@@ -387,5 +388,66 @@ func runSessionStateChecks() {
     // returning nothing, and an unhandled raise is a row that visibly does nothing.
     check("every lookup against another app's dictionary is guarded",
           script.components(separatedBy: "try").count - 1 >= 3)
+    // A session with no live child to ask about must not have the older dictionary asked for a
+    // property it does not have, so the pass is absent rather than merely guarded.
+    check("a session with no device to match on never asks about one",
+          !script.contains("tty of t"))
+
+    // MARK: matching the surface rather than the repository
+
+    // The bug this answers: one checkout open in several tabs or splits matches the directory in
+    // all of them, the titles rarely carry the repository's name, and the tie-break therefore falls
+    // through to whichever surface the enumeration happened to reach first.
+    let exact = TerminalJump.script(directory: "/Users/u/code/tally", hint: "tally · cart",
+                                    tty: "/dev/ttys001")
+    guard let ttyHit = exact.range(of: "(tty of t) is equal to \"/dev/ttys001\""),
+          let dirHit = exact.range(of: "(working directory of t) is equal to") else {
+        check("the script asks about the device and the directory", false)
+        return
+    }
+    let deviceFirst = ttyHit.upperBound < dirHit.lowerBound
+    check("the device is asked about before the directory", deviceFirst)
+    // Order alone would not settle it: without the guard, a later directory match overwrites the
+    // exact one and the click lands on the wrong tab again. Short-circuited, so an inverted script
+    // reports the line above rather than tearing the harness down on a backwards range.
+    check("a directory match stands down for a device match already found",
+          deviceFirst && String(exact[ttyHit.upperBound ..< dirHit.lowerBound])
+              .contains("if matched is missing value then"))
+    // A device path comes off the process table, so it gets the same treatment as the two values
+    // read off disk rather than being trusted to be free of quotes.
+    check("a device path cannot close the literal either",
+          TerminalJump.script(directory: "", hint: "", tty: "/dev/tty\"s\\1")
+              .contains("is equal to \"/dev/tty\\\"s\\\\1\""))
+    // A Ghostty too old to have `tty` RAISES on the lookup, and the whole point of the fallback is
+    // that such a version still reaches the directory pass instead of exiting non-zero.
+    let beforeTTY = String(exact[..<ttyHit.lowerBound])
+    check("the device lookup is inside a guard the older dictionary's raise cannot escape",
+          beforeTTY.components(separatedBy: "try").count
+              - 2 * (beforeTTY.components(separatedBy: "end try").count - 1) - 1 >= 2)
+
+    // MARK: the device the kernel reports
+
+    // The oracle is `ps`, which reads the same field by another path. Both answers are nil when
+    // this harness runs with no controlling terminal (a CI runner, or a spawn from the app), which
+    // is itself the case the directory pass exists for.
+    func psTTY(_ pid: pid_t) -> String? {
+        let ps = Process()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-o", "tty=", "-p", "\(pid)"]
+        let pipe = Pipe()
+        ps.standardOutput = pipe
+        ps.standardError = Pipe()
+        guard (try? ps.run()) != nil else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        ps.waitUntilExit()
+        let name = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty || name == "??" ? nil : "/dev/" + name
+    }
+    check("the kernel names this process's own terminal the way ps does",
+          TerminalJump.controllingTTY(of: getpid()) == psTTY(getpid()))
+    // pid 1 is launchd: owned by root and attached to nothing, so both refusals answer nil rather
+    // than a device somebody would then be sent to.
+    check("a process with no terminal of its own reports none", TerminalJump.controllingTTY(of: 1) == nil)
     try? FileManager.default.removeItem(at: dir)
 }

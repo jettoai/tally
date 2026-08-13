@@ -114,8 +114,23 @@ func sessionInputExpired(epoch: Int, now: Date, ttl: TimeInterval = sessionInput
 /// served. What the expiry then reports is WHY it never became injectable - `unknown` gets its own
 /// word, because a session that cannot say what it is doing will not become injectable by waiting,
 /// while a busy one would have.
+///
+/// `relaunchPlanned` IS THE GATE THAT CANNOT BE READ OFF THE STATE, and it is the one this tick is
+/// most likely to be wrong without. The poll loop decides on a relaunch (a `tally model`, a reload,
+/// a self-update, a cap handoff) BEFORE it reaches this, and performs it a few lines AFTER: a
+/// session that has just gone quiet enough to be typed into is exactly the session those planners
+/// were waiting for, so the two fire on the same tick. Typing into a child that is about to be
+/// SIGTERMed loses an unsent composer outright, and the caller is told `submitted` for a line that
+/// no conversation ever saw (codex review of 18b3174). So a planned relaunch is a WAIT: nothing is
+/// injected, nothing is consumed, no answer is written, and the next tick decides again against the
+/// new child. The TTL keeps running through it, deliberately - whether that line still belongs in a
+/// conversation whose child has been replaced is the caller's judgement, not this gate's.
+///
+/// It has no default value. A gate that can be forgotten at a call site is one that will be, and the
+/// symptom here is invisible: the injection succeeds, and only the terminal knows it went nowhere.
 func sessionInputDecision(request: SessionInputRequest?, servedEpoch: Int, state: SupervisedState,
-                          keyboardIdle: Bool, now: Date = Date()) -> SessionInputDecision {
+                          keyboardIdle: Bool, relaunchPlanned: Bool,
+                          now: Date = Date()) -> SessionInputDecision {
     // Strictly newer than what this supervisor has served, the rule every request file on this
     // track follows: pids are reused and a served request is not unlinked until after it is served,
     // so "newer" is the only thing that makes a decision idempotent.
@@ -133,6 +148,10 @@ func sessionInputDecision(request: SessionInputRequest?, servedEpoch: Int, state
                       "this session reported nothing about itself for \(Int(sessionInputTTL))s")
             : .refuse(.refusedExpired, "still \(state.rawValue) after \(Int(sessionInputTTL))s")
     }
+    // This child is about to be terminated by the same tick (see above). Ahead of the state gates
+    // because it outranks what they can see: `idle` is precisely the reading a relaunch was waiting
+    // for, so the ready-looking session is the dangerous one.
+    guard !relaunchPlanned else { return .wait }
     guard state == .blocked || state == .idle else { return .wait }
     // Somebody is typing in that terminal: their keystrokes and these bytes would interleave into
     // one line. Waiting costs a tick; interleaving costs whatever the mixture happens to spell.
@@ -277,9 +296,13 @@ func appendSessionInputLine(_ line: String, to log: URL) {
 /// `syncSessionState` for that reason: the gate has to judge the session as it is now, not as it was
 /// two seconds ago - the whole feature turns on noticing the moment a turn ends.
 ///
+/// `relaunchPlanned` is this tick's own answer to "is the child about to be terminated", handed
+/// down rather than looked up: only the poll loop knows, and it knows before it acts
+/// (`sessionInputDecision` carries the whole reasoning). No default, for the reason stated there.
+///
 /// `inject` is injectable so the suite can drive every branch without a terminal.
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
-                       keyboardIdle: Bool, dir: URL = sessionInputDir,
+                       keyboardIdle: Bool, relaunchPlanned: Bool, dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
                        inject: (String, Bool) -> SessionInputInjection = {
                            injectSessionInput($0, submit: $1)
@@ -291,7 +314,11 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     let outcome: SessionInputOutcome
     var detail: String?
     switch sessionInputDecision(request: request, servedEpoch: state.servedEpoch, state: session,
-                                keyboardIdle: keyboardIdle, now: now) {
+                                keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
+                                now: now) {
+    // NOTHING IS WRITTEN ON EITHER, which is what makes a wait a wait: the request stays on disk
+    // exactly as it was, no answer appears for a caller to read, and `servedEpoch` does not move.
+    // Every one of those happens below this return.
     case .ignore, .wait:
         return
     case .refuse(let refusal, let why):

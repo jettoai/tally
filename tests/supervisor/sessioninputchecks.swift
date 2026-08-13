@@ -66,9 +66,11 @@ func runSessionInputChecks() {
 
     /// The decision for one request, with everything else at its permissive setting.
     func decide(_ pending: SessionInputRequest?, served: Int = 0, state: SupervisedState = .idle,
-                keyboardIdle: Bool = true, at offset: TimeInterval = 1) -> SessionInputDecision {
+                keyboardIdle: Bool = true, relaunchPlanned: Bool = false,
+                at offset: TimeInterval = 1) -> SessionInputDecision {
         sessionInputDecision(request: pending, servedEpoch: served, state: state,
-                             keyboardIdle: keyboardIdle, now: t0.addingTimeInterval(offset))
+                             keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
+                             now: t0.addingTimeInterval(offset))
     }
     check("nothing pending, nothing to do", decide(nil) == .ignore)
     check("a request this supervisor already served is not served again",
@@ -90,6 +92,17 @@ func runSessionInputChecks() {
           decide(request("y"), state: .unknown) == .wait)
     check("somebody typing in that terminal is waited for too",
           decide(request("y"), state: .idle, keyboardIdle: false) == .wait)
+    // THE GATE THE STATE CANNOT SHOW: this tick has already decided to terminate the child, and an
+    // idle session is precisely what those planners were waiting for - so the reading that looks
+    // most ready is the one that must not be typed into (codex review of 18b3174).
+    check("a child this tick is about to terminate is not typed into",
+          decide(request("y"), state: .idle, relaunchPlanned: true) == .wait
+              && decide(request("y"), state: .blocked, relaunchPlanned: true) == .wait)
+    // The TTL keeps running through it, deliberately: whether that line still belongs in a
+    // conversation whose child has been replaced is the caller's judgement, not this gate's.
+    check("…and a request that expires during a relaunch is still refused, not held for ever",
+          decide(request("y"), state: .idle, relaunchPlanned: true, at: sessionInputTTL + 1)
+              == .refuse(.refusedExpired, "still idle after 120s"))
 
     // MARK: - What ends the wait
 
@@ -155,12 +168,13 @@ func runSessionInputChecks() {
 
     /// One tick against a session key of its own, with the injection recorded rather than performed.
     /// Returns what was typed, so a check can assert both the outcome and the bytes.
-    func tick(state: SupervisedState, keyboardIdle: Bool = true,
+    func tick(state: SupervisedState, keyboardIdle: Bool = true, relaunchPlanned: Bool = false,
               at offset: TimeInterval = 1, input: inout SessionInputState,
               inject: @escaping (String, Bool) -> SessionInputInjection = { _, _ in .done })
         -> [(String, Bool)] {
         var typed: [(String, Bool)] = []
-        applySessionInput(&input, session: state, keyboardIdle: keyboardIdle, dir: dir, log: log,
+        applySessionInput(&input, session: state, keyboardIdle: keyboardIdle,
+                          relaunchPlanned: relaunchPlanned, dir: dir, log: log,
                           now: t0.addingTimeInterval(offset)) { text, submit in
             typed.append((text, submit))
             return inject(text, submit)
@@ -202,6 +216,23 @@ func runSessionInputChecks() {
     check("the turn ends and the waiting request is typed then",
           typed.count == 1 && typed[0].0 == "hello" && !typed[0].1
               && readSessionInputResult(sessionKey: "9202", dir: dir)?.outcome == "injected")
+
+    // …and through the tick, where what matters is that a wait writes NOTHING: no bytes, no answer
+    // for the caller to read as success, and a request left exactly where it was for the next tick.
+    var planned = SessionInputState(sessionKey: "9208", servedEpoch: 0)
+    try? writeSessionInputRequest(request("during-relaunch", submit: true), sessionKey: "9208",
+                                  dir: dir)
+    check("a tick with a relaunch planned types nothing, even into an idle session",
+          tick(state: .idle, relaunchPlanned: true, input: &planned).isEmpty)
+    check("…and answers nothing, so the caller is never told a lost line was delivered",
+          readSessionInputResult(sessionKey: "9208", dir: dir) == nil
+              && readSessionInputRequest(sessionKey: "9208", dir: dir)
+              == request("during-relaunch", submit: true)
+              && planned.servedEpoch == 0)
+    typed = tick(state: .idle, at: 5, input: &planned)
+    check("…and the next tick, against the new child, types it",
+          typed.count == 1 && typed[0].0 == "during-relaunch"
+              && readSessionInputResult(sessionKey: "9208", dir: dir)?.outcome == "submitted")
 
     // Expiry, through the tick rather than the pure function, so the consuming half is covered too.
     var expired = SessionInputState(sessionKey: "9203", servedEpoch: 0)
@@ -255,7 +286,7 @@ func runSessionInputChecks() {
 
     let written = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
     check("every served request left a line", written.components(separatedBy: "\n")
-              .filter { $0.contains("input=") }.count == 7)
+              .filter { $0.contains("input=") }.count == 8)
     check("…naming the session, the outcome and whether it was sent",
           written.contains("pid=9201 input=submitted submit=yes bytes=5 text=/help"))
     check("…and a refusal is recorded as loudly as a delivery",
@@ -303,6 +334,48 @@ func runSessionInputChecks() {
     check("…and one reopened behind our back is closed again on the next line",
           mode(fresh) == 0o600
               && (try? String(contentsOf: fresh, encoding: .utf8)) == "first line\nsecond line\n")
+
+    // MARK: - …and neither may the requests, which hold the text UNtruncated
+
+    // THE SAME DECISION AS THE LOG, and it has to be or the feature contradicts itself: the log
+    // keeps 40 characters with the control bytes replaced, a request file holds the whole line
+    // verbatim for as long as the TTL. A 0600 log beside a 0644 request would be a lock on the
+    // window and none on the door (codex review of 18b3174).
+    let closed = dir.appendingPathComponent("closed-input")
+    try? writeSessionInputRequest(request("secret text"), sessionKey: "9301", dir: closed)
+    check("the directory a request lands in is created 0700", mode(closed) == 0o700)
+    check("…the request itself 0600", mode(sessionInputFile(sessionKey: "9301", dir: closed))
+              == 0o600)
+    writeSessionInputResult(SessionInputResult(epoch: 1, outcome: "submitted", detail: nil),
+                            sessionKey: "9301", dir: closed)
+    check("…and the answer beside it, which quotes nothing but is addressed the same way",
+          mode(sessionInputResultFile(sessionKey: "9301", dir: closed)) == 0o600)
+    // ATOMIC AND PRIVATE AT ONCE: `.atomic` renames a temporary over the destination and a rename
+    // carries the TEMPORARY's mode, so a destination pre-created at 0600 proves nothing. The check
+    // that separates the two is a write over an existing file: the mode that survives is the one
+    // the new inode was made with.
+    try? FileManager.default.setAttributes(
+        [.posixPermissions: 0o644],
+        ofItemAtPath: sessionInputFile(sessionKey: "9301", dir: closed).path)
+    try? writeSessionInputRequest(request("second", at: 2), sessionKey: "9301", dir: closed)
+    check("a request written over a world-readable one is closed, not left as it found it",
+          mode(sessionInputFile(sessionKey: "9301", dir: closed)) == 0o600)
+    check("…and the write is still atomic, so the content is whole",
+          readSessionInputRequest(sessionKey: "9301", dir: closed) == request("second", at: 2))
+    // A directory an earlier build left at 0755 is brought in, for the reason the log's is: a mode
+    // applied only at creation never reaches the machines that already ran.
+    try? FileManager.default.setAttributes([.posixPermissions: 0o755],
+                                           ofItemAtPath: closed.path)
+    try? writeSessionInputRequest(request("third", at: 3), sessionKey: "9301", dir: closed)
+    check("a directory an earlier build left listable is brought in to 0700", mode(closed) == 0o700)
+    // Nothing of ours is left behind by the rename: a temporary that outlived its write would be a
+    // second copy of the text sitting in the directory under a name nothing sweeps.
+    let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: closed.path))?
+        .filter { $0.hasPrefix(".") } ?? []
+    check("the temporary the atomic write used does not survive it", leftovers.isEmpty)
+    check("…and the modes are named once, not typed twice",
+          sessionInputFileMode == 0o600 && sessionInputDirMode == 0o700
+              && sessionInputFileMode == sessionInputLogMode)
 
     // MARK: - The two sweeps, and the division between them
 
@@ -458,6 +531,64 @@ func runSessionInputChecks() {
                                      now: Date().addingTimeInterval(sessionStateQuietSeconds + 5))
     check("the state a tick publishes is the state it hands the input gate",
           published == readSessionState(pid: "9210", dir: statedir)?.supervised)
+
+
+    // MARK: - Two things no value can be asked about: the wiring, and the shape of the write
+
+    // BOTH OF THESE SURVIVED MUTATION as ordinary assertions, which is why they are read off the
+    // source. The first lives in a `while true` inside a process that spawns children, so nothing
+    // links it into a harness; the second is a difference in a TRANSIENT state (measured: the shape
+    // this refuses leaves the destination existing and EMPTY between two calls) that no reader can
+    // observe after the fact. `tests/statusline` reads main.swift the same way and for the same
+    // reason: a surface no unit can reach is still a surface that can rot.
+    let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("the poll loop was really read", loop.contains("applySessionInput("))
+    if let planners = loop.range(of: "applySessionDirectives("),
+       let input = loop.range(of: "applySessionInput("),
+       let execution = loop.range(of: "\n            if let plan {") {
+        // AFTER the planners, or `plan` is read before anything has decided it; BEFORE the
+        // execution, because that block is what terminates the child, and typing into a child that
+        // is already gone is the other half of the same defect.
+        check("the input gate is consulted after the planners decide and before the child goes",
+              planners.lowerBound < input.lowerBound && input.lowerBound < execution.lowerBound)
+        // READ OFF THIS CALL rather than off the whole file, which is not a detail: `selfUpdateDue`
+        // takes an argument of the same name a hundred lines up, so a file-wide search for the
+        // words is satisfied by somebody else's call and says nothing about this one. Caught by
+        // mutation - passing a constant here survived until the search was narrowed.
+        let call = String(loop[input.lowerBound ..< execution.lowerBound])
+        check("…and it is handed THIS tick's plan rather than a constant",
+              call.contains("relaunchPlanned: plan != nil")
+                  && !call.contains("applySessionDirectives("))
+    } else {
+        check("the input gate is consulted after the planners decide and before the child goes",
+              false)
+        check("…and it is handed THIS tick's plan rather than a constant", false)
+    }
+
+    let channel = (try? String(contentsOfFile: "TallyCLI/SessionInputRequest.swift",
+                               encoding: .utf8)) ?? ""
+    if let start = channel.range(of: "func writeSessionInputPrivately"),
+       let end = channel.range(of: "\n}\n", range: start.upperBound ..< channel.endIndex) {
+        let body = String(channel[start.upperBound ..< end.lowerBound])
+        // The destination is only ever REACHED BY A RENAME. Creating it, truncating it or writing
+        // to it in place all pass a mode check afterwards and all destroy the live request while
+        // they run: a supervisor polling in that window reads an empty file, which parses as no
+        // request at all.
+        check("the private write reaches the destination only by renaming a finished file over it",
+              body.contains("rename(temp.path, file.path)")
+                  && !body.contains("createFile(atPath: file.path")
+                  && !body.contains("data.write(to: file"))
+        // And the mode is on the TEMPORARY, since a rename carries the mode of the inode it moves,
+        // never the mode of what it replaces (measured on this machine, 2026-08-13).
+        check("…and the mode is put on that file before it is moved, not on what it replaces",
+              body.contains("atPath: temp.path")
+                  && body.contains("attributes: [.posixPermissions: sessionInputFileMode]"))
+    } else {
+        check("the private write reaches the destination only by renaming a finished file over it",
+              false)
+        check("…and the mode is put on that file before it is moved, not on what it replaces",
+              false)
+    }
 
     try? FileManager.default.removeItem(at: dir)
 }

@@ -153,6 +153,74 @@ func parseSessionInput<Record: Decodable>(_ data: Data, as type: Record.Type = R
 
 // MARK: - Reading and writing
 
+// MARK: - Kept to this user
+
+// THE SAME DECISION THE AUDIT LOG IS UNDER, and it has to be, or the two contradict each other in
+// one feature. `sessionInputLogMode` (SessionInput.swift) argues that a record of text typed into a
+// live conversation is CONTENT rather than telemetry, and so is not kept at the 0644 the rest of
+// `~/.tally` uses. Everything in this directory is the same content, and less redacted: the log
+// keeps 40 characters with the control bytes replaced, a request file holds the whole line
+// verbatim, and it can sit here for the length of the TTL waiting for a turn to end.
+//
+// The default modes were exactly what that argument refuses. A umask of 022 makes a `Data.write` a
+// 0644 file, `~/.tally` and `$HOME` are both traversable, and the directory was 0755: measured on
+// this machine by review, not deduced.
+//
+// WHAT THIS DOES AND DOES NOT BUY, said plainly so nobody has to rediscover it: it closes READING
+// by other accounts on the machine. It does not close WRITING by this user's own processes, which
+// could forge a request and have it typed into a terminal - anything running as this user can
+// already edit `~/.claude/settings.json`, install a hook or change PATH, and that trade is argued
+// in section 4.1 of the design document rather than being an oversight here. A same-uid bar is
+// still a bar worth having over a same-machine one.
+
+/// The mode every file in this directory is kept at: readable by its owner and by nobody else.
+let sessionInputFileMode = 0o600
+
+/// And the directory itself, which is what stops another account listing the pids that have
+/// requests pending even where it cannot read them.
+let sessionInputDirMode = 0o700
+
+/// Make the request directory, at `sessionInputDirMode`, and bring an existing one in to it.
+///
+/// IT CONVERGES rather than only setting the mode at creation, for the reason `appendSessionInputLine`
+/// gives about the log beside it: the directory that matters is the one an earlier build already
+/// made, and a mode applied only at creation would never reach it. Checked before it is set, so the
+/// ordinary write costs a `stat` rather than a `chmod`.
+func makeSessionInputDirectory(_ dir: URL) throws {
+    let manager = FileManager.default
+    guard manager.fileExists(atPath: dir.path) else {
+        // The leaf only: an intermediate `~/.tally` created on the way is left at its usual mode,
+        // since everything else in it is the 0644 telemetry this directory is deliberately unlike.
+        return try manager.createDirectory(at: dir, withIntermediateDirectories: true,
+                                           attributes: [.posixPermissions: sessionInputDirMode])
+    }
+    guard (try? manager.attributesOfItem(atPath: dir.path))?[.posixPermissions] as? Int
+        != sessionInputDirMode else { return }
+    try? manager.setAttributes([.posixPermissions: sessionInputDirMode], ofItemAtPath: dir.path)
+}
+
+/// Write `data` to `file` atomically AND privately.
+///
+/// BOTH HALVES IN ONE FUNCTION because doing either the obvious way loses the other.
+/// `Data.write(options: .atomic)` writes a temporary and renames it over the destination, and a
+/// rename carries the TEMPORARY's mode - which is the umask's, 0644 - so pre-creating the
+/// destination at 0600 buys nothing at all: the inode that ends up at that path is the one this
+/// process just made under a different name. So the temporary is the thing that has to be created
+/// closed, and `rename(2)` (the same primitive `.atomic` uses) puts it in place with the mode it
+/// was made with. There is no window in which the data exists at either path world-readable.
+func writeSessionInputPrivately(_ data: Data, to file: URL, in dir: URL) throws {
+    try makeSessionInputDirectory(dir)
+    let temp = dir.appendingPathComponent(".\(file.lastPathComponent).\(UUID().uuidString)")
+    guard FileManager.default.createFile(atPath: temp.path, contents: data,
+                                         attributes: [.posixPermissions: sessionInputFileMode])
+    else { throw CocoaError(.fileWriteUnknown) }
+    guard rename(temp.path, file.path) == 0 else {
+        let failure = errno
+        try? FileManager.default.removeItem(at: temp)
+        throw NSError(domain: NSPOSIXErrorDomain, code: Int(failure))
+    }
+}
+
 /// This session's pending request, or nil when there is none (or it cannot be read).
 func readSessionInputRequest(sessionKey: String, dir: URL = sessionInputDir)
     -> SessionInputRequest? {
@@ -161,15 +229,16 @@ func readSessionInputRequest(sessionKey: String, dir: URL = sessionInputDir)
     return parseSessionInput(data)
 }
 
-/// Stamp a request for one session. Atomic (a temp file renamed over the destination), so a
-/// supervisor polling mid-write reads either the previous request or this one, never half of either.
+/// Stamp a request for one session. Atomic and private, on the terms `writeSessionInputPrivately`
+/// states: a supervisor polling mid-write reads either the previous request or this one, never half
+/// of either, and no other account on this machine reads either.
 func writeSessionInputRequest(_ request: SessionInputRequest, sessionKey: String,
                               dir: URL = sessionInputDir) throws {
-    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     guard let data = sessionInputData(request) else {
         throw CocoaError(.coderInvalidValue)
     }
-    try data.write(to: sessionInputFile(sessionKey: sessionKey, dir: dir), options: .atomic)
+    try writeSessionInputPrivately(data, to: sessionInputFile(sessionKey: sessionKey, dir: dir),
+                                   in: dir)
 }
 
 /// The request is served: unlink it. The served stamp in memory is what makes the decision
@@ -190,11 +259,10 @@ func readSessionInputResult(sessionKey: String, dir: URL = sessionInputDir) -> S
 @discardableResult
 func writeSessionInputResult(_ result: SessionInputResult, sessionKey: String,
                              dir: URL = sessionInputDir) -> Bool {
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     guard let data = sessionInputData(result) else { return false }
     do {
-        try data.write(to: sessionInputResultFile(sessionKey: sessionKey, dir: dir),
-                       options: .atomic)
+        try writeSessionInputPrivately(
+            data, to: sessionInputResultFile(sessionKey: sessionKey, dir: dir), in: dir)
     } catch {
         return false
     }

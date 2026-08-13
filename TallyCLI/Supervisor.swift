@@ -477,9 +477,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // `tally session type`: type a pending request into this terminal, if the state just
             // decided allows it. NOT a relaunch reason - it plans nothing, terminates nothing, and
             // is gated on this tick's own reading rather than on the published file
-            // (SessionInput.swift owns every rule, the stall it costs included).
+            // (SessionInput.swift owns every rule, the stall it costs included). It is told whether
+            // this tick is ABOUT to terminate the child, which is a fact only the loop holds and the
+            // state cannot show: an idle session with a plan against it is the very case where
+            // typing would be lost and reported as delivered.
             applySessionInput(&sessionInput, session: boardState,
-                              keyboardIdle: keyboard.idle(sessionInputKeyboardQuietSeconds))
+                              keyboardIdle: keyboard.idle(sessionInputKeyboardQuietSeconds),
+                              relaunchPlanned: plan != nil)
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args. A pending app

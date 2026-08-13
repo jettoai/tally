@@ -44,9 +44,11 @@ extension PopoverRootView {
     private static let quietCardOpacity: Double = 0.55
     /// The narrowest a card may be laid out at, which is what decides how many fit. Measured
     /// against the longest line these cards actually carry - an account, a model id and an effort
-    /// word ("Claude 5 · claude-fable-5 · high") - so a two-column panel seats the identity line
-    /// rather than truncating every card on the page. It also fixes the column counts: the
-    /// two-column panel (480pt of content) takes exactly two, and the single-column one takes one.
+    /// word ("Claude 5 · fable-5 · high", the model as `displayModelName` prints it) - so a
+    /// two-column panel seats the identity line rather than truncating every card on the page. The
+    /// figure did not move when that line lost its vendor prefix, because it also fixes the column
+    /// counts: the two-column panel (480pt of content) takes exactly two, and the single-column one
+    /// takes one.
     private static let compactCardWidth: CGFloat = 210
 
     @ViewBuilder
@@ -172,8 +174,20 @@ extension PopoverRootView {
             VStack(alignment: .leading, spacing: 3) {
                 sessionCardHeadline(row)
                 if let identity = sessionIdentityLine(row) {
-                    Text(identity).font(.caption2).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.tail)
+                    // THE PROVIDER'S MARK LEADS THE LINE, at the size the eight other surfaces
+                    // that name an account already lead with it (`ProviderIconView`, 11-16pt);
+                    // this card was the one that did not. `SessionRow.providerID` says why the
+                    // mark is the only thing on the line that answers "whose model is this".
+                    //
+                    // DRAWN WHENEVER THE LINE IS, without asking whether the provider was legible:
+                    // a mark on some cards and not others would put the identity lines of a grid at
+                    // two different left edges, which reads worse than the catalog's generic glyph
+                    // on the one card whose account id has no head.
+                    HStack(spacing: 4) {
+                        ProviderIconView(providerID: row.providerID ?? "", size: 11)
+                        Text(identity).font(.caption2).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
                 }
                 // THE LAST LINE, AND ONE OF THEM: the two sentences a card can end on take turns in
                 // the same slot rather than stacking. EVERY CARD THE SAME HEIGHT is worth more than
@@ -257,9 +271,21 @@ extension PopoverRootView {
     /// optional - a session that has not had a turn yet has no observed model, and a supervisor from
     /// before the effort axis publishes none - and the card reads fine without any of them, so
     /// nothing is drawn as a placeholder.
+    ///
+    /// THE ACCOUNT IS CALLED WHAT THE USER CALLS IT, through the one function every other surface
+    /// that names an account asks (`displayLabel`, fourteen call sites): the account card, the fleet
+    /// gauge, the menu bar and the advisor all show a renamed account by its new name, and a board
+    /// reading the provider's default straight off the list was the one place a rename did not
+    /// reach. A single source of truth that one surface reads around is not one.
+    ///
+    /// The lookup is still what decides whether there IS a name: an id naming no account this build
+    /// can see contributes no segment (`SessionRow.accountName` says why it is not the raw id), and
+    /// `displayLabel` is asked only about an account that was found - its `fallback` is for "no
+    /// override", not for "no account", and handing it the id would print the id.
     private func sessionIdentityLine(_ row: SessionRosterStore.SessionRow) -> String? {
-        let account = row.accountID.flatMap { id in
-            store.orderedAccounts.first { $0.id == id }?.accountLabel
+        let account = row.accountName { id in
+            store.orderedAccounts.first { $0.id == id }
+                .map { settings.displayLabel(accountID: id, fallback: $0.accountLabel) }
         }
         return joined([account, row.model, row.effort])
     }

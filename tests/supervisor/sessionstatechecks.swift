@@ -400,9 +400,75 @@ func runSessionStateChecks() {
     check("…and both effort answers, so a pin outranks what is merely running",
           read?.sessionEffort == "xhigh" && read?.runningEffort == "high")
     let joined = SessionRosterStore.SessionRow(id: "9201", record: nil, session: read)
-    check("the card prefers the model it was SEEN answering with", joined.model == "claude-fable-5")
+    // The OBSERVED id wins, and it reaches the card without the vendor's name on it: the sidecar
+    // holds `claude-fable-5`, the row draws `fable-5`.
+    check("the card prefers the model it was SEEN answering with", joined.model == "fable-5")
     check("…and the effort somebody pinned over the one the child was launched with",
           joined.effort == "xhigh")
+
+    // MARK: the model as a card prints it
+
+    // THE VENDOR IS NAMED ONCE PER LINE. The account beside it already says Claude, so an identity
+    // line carrying `claude-opus-5` said it twice and spent a truncating line's width on the repeat.
+    check("a card names the model without repeating the vendor the account already names",
+          displayModelName("claude-opus-5") == "opus-5"
+              && displayModelName("claude-fable-5") == "fable-5")
+    // AND NOTHING ELSE IS DROPPED, which is the whole difference from the judgement's normalisation
+    // one file over: `sol` and `terra` are what two Codex sessions are told apart by, and
+    // `shortModelName` would leave both cards reading `gpt`.
+    check("…and keeps every segment two models of one vendor are told apart by",
+          displayModelName("gpt-5.6-sol") == "gpt-5.6-sol"
+              && displayModelName("gpt-5.6-terra") == "gpt-5.6-terra")
+    check("…which is exactly what the drift check's own normalisation would have thrown away",
+          shortModelName("gpt-5.6-sol") == "gpt" && shortModelName("claude-opus-5") == "opus")
+    check("…an id with no vendor on it answers itself",
+          displayModelName("opus") == "opus" && displayModelName("") == "")
+    // A prefix and nothing after it is left whole: dropping it would trade an odd id for an empty
+    // field, and blank is the one answer that says less than the raw string.
+    check("…and a bare prefix is left alone rather than reduced to nothing",
+          displayModelName("claude-") == "claude-")
+    // ONE BOARD, ONE SPELLING. The row's three sources are not spelled alike on disk - the state
+    // record's model was trimmed by its writer, the sidecar's two are raw ids - so the fallback
+    // card and the observed card have to arrive at the same form or the page shows both.
+    check("the model a state record carried is drawn the way the observed one is",
+          SessionRosterStore.SessionRow(
+            id: "9213",
+            record: SessionStateRecord(state: "idle", since: t0, updatedAt: t0, model: "opus"))
+              .model == "opus")
+    check("…and a raw id that only the launch knew arrives trimmed too",
+          SessionRosterStore.SessionRow(
+            id: "9214", record: nil,
+            session: SessionSidecar(runningModel: "claude-sonnet-5")).model == "sonnet-5")
+
+    // MARK: the account the card names, and the provider it marks
+
+    func onAccount(_ accountID: String?) -> SessionRosterStore.SessionRow {
+        SessionRosterStore.SessionRow(id: "9215", record: nil,
+                                      session: SessionSidecar(accountID: accountID))
+    }
+    // The surface's own naming, as `sessionIdentityLine` builds it: the account list this build can
+    // see, each member called what the user calls it.
+    let renamed = ["claude:.claude5": "Work"]
+    let nameOf: (String) -> String? = { renamed[$0] }
+    check("a card calls the account what the user calls it",
+          onAccount("claude:.claude5").accountName(nameOf) == "Work")
+    // THE ACCOUNT WENT AND THE SESSION DID NOT: its config home is in the Trash and the supervisor
+    // is still running. Naming it comes back empty-handed, and the answer is a missing segment -
+    // NOT `claude:.claude9`, which is an address rather than a name, on a line that truncates.
+    check("an account this build cannot see contributes no segment, rather than its raw id",
+          onAccount("claude:.claude9").accountName(nameOf) == nil)
+    check("…and neither does a session that named no account at all",
+          onAccount(nil).accountName(nameOf) == nil)
+
+    // The mark that leads the line, off the id's own head: the one thing there a rename cannot
+    // reach (an account called "Work" says nothing about whose).
+    check("the provider is read off the account id", onAccount("claude:.claude5").providerID == "claude")
+    check("…for either provider", onAccount("codex:.codex2").providerID == "codex")
+    // An id with no head to read gets no mark of its own rather than a wrong one: the card falls
+    // back to the catalog's generic glyph, which keeps every identity line at the same left edge.
+    check("…and an id this build cannot read the head of names no provider",
+          onAccount("claude").providerID == nil && onAccount(":.claude5").providerID == nil
+              && onAccount(nil).providerID == nil)
     // Additive in both directions: a document from before these axes existed, and one from after a
     // field this build has never heard of was added, both have to read rather than be rejected.
     try? Data(#"{"accountID":"claude:.claude","contextTokens":12,"updatedAt":"2026-08-13T10:00:00Z"}"#.utf8)

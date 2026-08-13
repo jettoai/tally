@@ -1,6 +1,33 @@
 import Foundation
 import Observation
 
+/// The one vendor that stamps its own name onto every id it ships.
+private let modelVendorPrefix = "claude-"
+
+/// A model id AS A CARD PRINTS IT: the vendor's name off the front, everything else kept.
+/// `claude-opus-5` -> `opus-5`, `claude-fable-5` -> `fable-5`, `gpt-5.6-sol` unchanged.
+///
+/// WHY THE VENDOR GOES AND NOTHING ELSE DOES. The card already names the vendor one field to the
+/// left - the account serving the session is called "Claude 5" - so an identity line reading
+/// "Claude 5 · claude-opus-5 · high" said Claude twice and spent a truncating line's width doing it.
+/// Every segment after that prefix is kept because every one of them tells two models apart.
+///
+/// NOT `shortModelName`, and the split is by what the answer is FOR rather than by taste.
+/// That one normalises for a JUDGEMENT - "is what is serving this session the model I asked for" -
+/// so it keeps the family and drops the rest (`claude-opus-4-8` -> `opus`), which is exactly the
+/// right coarseness for a comparison and the wrong one here: run a Codex id through it and
+/// `gpt-5.6-sol` reads `gpt`, erasing the only segment that separates it from `gpt-5.6-terra`.
+/// This one is read by a person, so it drops the one segment that is already on screen and nothing
+/// else. Neither may be applied on the writing side: what the supervisor publishes is read by the
+/// drift check and the status line too (`syncSessionState`).
+func displayModelName(_ id: String) -> String {
+    // A bare prefix and nothing after it is left whole: dropping it would trade an odd-looking id
+    // for an empty field, and a blank is the one answer that says less than the raw string.
+    guard id.lowercased().hasPrefix(modelVendorPrefix), id.count > modelVendorPrefix.count
+    else { return id }
+    return String(id.dropFirst(modelVendorPrefix.count))
+}
+
 /// WHICH SESSIONS ARE RUNNING AND WHAT THEY ARE DOING, as the panel draws them.
 ///
 /// A READER AND NOTHING ELSE. Every state on this board was decided by the supervisor that owns the
@@ -89,12 +116,52 @@ final class SessionRosterStore {
         /// The checkout, which is what the terminal jump matches a window against.
         var directory: String? { record?.directory ?? cwd }
         var accountID: String? { record?.accountID ?? session?.accountID }
+
+        /// Which PROVIDER is serving this session, taken off the account id's own head
+        /// (`claude:.claude5` -> `claude`). Read for the mark the identity line leads with, which is
+        /// the one thing on that line the user cannot rename away: the account beside it is called
+        /// whatever they have called it ("Work" says nothing about whose Work), and the model id is
+        /// an open axis - a dated snapshot or a Bedrock arn names no vendor either.
+        ///
+        /// nil rather than a guess when the id has no head to read: no colon at all, or a colon in
+        /// front (`:.claude5`). Both are addresses this build does not understand, and naming a
+        /// provider off one would put a wrong mark on the card rather than no mark.
+        var providerID: String? {
+            guard let accountID, let colon = accountID.firstIndex(of: ":"),
+                  colon != accountID.startIndex else { return nil }
+            return String(accountID[..<colon])
+        }
+
+        /// What the card CALLS the account this session is on, given a way to name one.
+        ///
+        /// THE NAMING IS THE CALLER'S because only the surface holds it: the account list and the
+        /// user's own names for its members live in two app stores, and this row is compiled into
+        /// an assertion harness that has neither. What is fixed HERE is the answer when the naming
+        /// comes back empty-handed - an id naming an account this build cannot see, which is an
+        /// ordinary state rather than an error (a session outlives the account it was started on:
+        /// the config home goes to the Trash and the supervisor keeps running).
+        ///
+        /// AND THAT ANSWER IS NOTHING AT ALL, never the id. `claude:.claude5` is an address, not a
+        /// name; a card printing one would read as a bug on a board whose other cards read as
+        /// sentences, and the segment it would occupy is on a line that truncates. A missing
+        /// segment is what the rest of this row already does with everything it cannot say.
+        func accountName(_ name: (String) -> String?) -> String? {
+            accountID.flatMap(name)
+        }
+
         /// What is SERVING this session, most trustworthy answer first: the model seen answering
         /// the last turn, then the one the child was launched with, then whatever the state record
         /// carried. The order is `SupervisedSession`'s own reasoning - an observation beats a
         /// request, because a fallback or a `/model` moves the answer without moving the argv.
+        ///
+        /// AND ALL THREE ARE SPELLED THE ONE WAY HERE, which is why the normalisation is on the row
+        /// rather than in the view that draws it: only the first two are raw ids (the state record's
+        /// was already trimmed by its writer), so a board reading them straight printed
+        /// `claude-opus-5` on the cards that had been observed and `opus` on the ones that had
+        /// fallen back - two spellings of one answer, side by side, on the same page.
         var model: String? {
             Self.firstAnswer(session?.observedModel, session?.runningModel, record?.model)
+                .map(displayModelName)
         }
         /// The effort it is running at: a pin if one was set for this session, otherwise what the
         /// child is actually running. Absent on a document written before the axis existed, which

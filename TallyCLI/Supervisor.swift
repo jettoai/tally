@@ -474,7 +474,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 model: (axes.observedModel ?? axes.runningModel ?? axes.pinnedModel)
                     .map(shortModelName),
                 watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt)
-            // `tally session type`: type a pending request into this terminal, if the state just
+            // `tally session send`: type a pending request into this terminal, if the state just
             // decided allows it. NOT a relaunch reason - it plans nothing, terminates nothing, and
             // is gated on this tick's own reading rather than on the published file
             // (SessionInput.swift owns every rule, the stall it costs included). It is told whether

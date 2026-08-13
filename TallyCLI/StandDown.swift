@@ -85,7 +85,7 @@ func relaunchHeldByUnresolvedFork(reason: String, unresolvedFork: Bool) -> Bool 
 /// relaunch is not a relaunch, because the hold above can stand it down and leave the child running.
 /// The input gate (SessionInput.swift) was first wired to `plan != nil`, which reads a stood-down
 /// tick as a relaunch and refuses to type - every tick, for as long as the fork stays unresolved.
-/// And an unresolved fork is resolved by a TURN, which is the very thing `tally session type` is
+/// And an unresolved fork is resolved by a TURN, which is the very thing `tally session send` is
 /// asked to start: the gate closed the only door out of the state it was waiting on (codex review of
 /// 1615990).
 ///

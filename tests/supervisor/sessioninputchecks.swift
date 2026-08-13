@@ -1,6 +1,6 @@
 import Foundation
 
-// `tally session type`: the channel (SessionInputRequest.swift), the gate table and the tick that
+// `tally session send`: the channel (SessionInputRequest.swift), the gate table and the tick that
 // serves one (SessionInput.swift), and the command's grammar and wording (SessionInputCommand.swift).
 //
 // Everything here is pure or pointed at a temp directory, like every other suite in this family:
@@ -36,9 +36,8 @@ func runSessionInputChecks() {
     let t0 = Date(timeIntervalSince1970: 1_786_571_200)
     /// The stamp a request written at `offset` seconds from t0 carries.
     func epoch(_ offset: TimeInterval) -> Int { Int((t0.addingTimeInterval(offset)).timeIntervalSince1970 * 1000) }
-    func request(_ text: String, submit: Bool = false, at offset: TimeInterval = 0)
-        -> SessionInputRequest {
-        SessionInputRequest(epoch: epoch(offset), text: text, submit: submit)
+    func request(_ text: String, at offset: TimeInterval = 0) -> SessionInputRequest {
+        SessionInputRequest(epoch: epoch(offset), text: text)
     }
 
     // MARK: - The format on disk
@@ -46,7 +45,7 @@ func runSessionInputChecks() {
     // THE REASON THIS CHANNEL IS JSON AND ITS NEIGHBOURS ARE NOT: the payload is arbitrary text a
     // caller typed, so a newline in it would end the record under the line-per-field reader every
     // other request file here uses.
-    let awkward = request("line one\nline two\t\"quoted\" 中文 🙂", submit: true)
+    let awkward = request("line one\nline two\t\"quoted\" 中文 🙂")
     check("a request survives a round trip through the channel",
           sessionInputData(awkward).flatMap { parseSessionInput($0) as SessionInputRequest? }
               == awkward)
@@ -63,12 +62,18 @@ func runSessionInputChecks() {
           sessionInputData(future).flatMap { parseSessionInput($0) as SessionInputResult? }
               == future)
     check("…and is not read as delivered", !future.delivered && future.resolved == nil)
-    check("the two that are delivered are the two that mean it landed",
-          SessionInputOutcome.submitted.delivered && SessionInputOutcome.injected.delivered
+    // ONE WORD MEANS IT LANDED, because there is now one way for it to: typing and sending are a
+    // single act, so the outcome that used to mean "typed, and sitting in the composer" describes
+    // nothing this build can do and is gone from the vocabulary rather than left as a word a caller
+    // could still be handed.
+    check("the one outcome that is delivered is the one that means it was sent",
+          SessionInputOutcome.submitted.delivered
               && !SessionInputOutcome.refusedExpired.delivered
               && !SessionInputOutcome.refusedNotReporting.delivered
               && !SessionInputOutcome.refusedTooLong.delivered
               && !SessionInputOutcome.failedTTY.delivered)
+    check("…and the composer-only outcome is not a word this build knows at all",
+          SessionInputOutcome(rawValue: "injected") == nil)
 
     // MARK: - The gate table
 
@@ -167,34 +172,39 @@ func runSessionInputChecks() {
     // The failure arm of the writer, on a path that is not a terminal: the errno differs by
     // platform, so what is pinned is that it fails rather than reporting success.
     check("a target that is not a terminal fails rather than pretending",
-          injectSessionInput("a", submit: false, tty: "/dev/null", gap: 0, pause: 0) != .done)
+          injectSessionInput("a", tty: "/dev/null", gap: 0, pause: 0) != .done)
     check("…and so does one that cannot be opened at all",
-          injectSessionInput("a", submit: false, tty: dir.appendingPathComponent("nope").path,
+          injectSessionInput("a", tty: dir.appendingPathComponent("nope").path,
                              gap: 0, pause: 0) != .done)
+    // RETURN IS PRESSED EVEN WITH NOTHING TO TYPE, which this arm can prove without a terminal: an
+    // empty send performs exactly one ioctl, the Return, so a writer that skipped it would have
+    // nothing left to fail at and would answer `.done` on a target that is not a terminal at all.
+    check("an empty send still presses Return, which is the whole of that request",
+          injectSessionInput("", tty: "/dev/null", gap: 0, pause: 0) != .done)
 
     // MARK: - The tick
 
     /// One tick against a session key of its own, with the injection recorded rather than performed.
-    /// Returns what was typed, so a check can assert both the outcome and the bytes.
+    /// Returns what was typed, so a check can assert both the outcome and the bytes. One value per
+    /// injection rather than a pair: whether Return follows is no longer a question anybody asks.
     func tick(state: SupervisedState, keyboardIdle: Bool = true, relaunchPlanned: Bool = false,
               at offset: TimeInterval = 1, input: inout SessionInputState,
-              inject: @escaping (String, Bool) -> SessionInputInjection = { _, _ in .done })
-        -> [(String, Bool)] {
-        var typed: [(String, Bool)] = []
+              inject: @escaping (String) -> SessionInputInjection = { _ in .done }) -> [String] {
+        var typed: [String] = []
         applySessionInput(&input, session: state, keyboardIdle: keyboardIdle,
                           relaunchPlanned: relaunchPlanned, dir: dir, log: log,
-                          now: t0.addingTimeInterval(offset)) { text, submit in
-            typed.append((text, submit))
-            return inject(text, submit)
+                          now: t0.addingTimeInterval(offset)) { text in
+            typed.append(text)
+            return inject(text)
         }
         return typed
     }
 
     var served = SessionInputState(sessionKey: "9201", servedEpoch: 0)
-    try? writeSessionInputRequest(request("/help", submit: true), sessionKey: "9201", dir: dir)
+    try? writeSessionInputRequest(request("/help"), sessionKey: "9201", dir: dir)
     var typed = tick(state: .blocked, input: &served)
     check("a blocked session is typed into, exactly what was asked",
-          typed.count == 1 && typed[0].0 == "/help" && typed[0].1)
+          typed == ["/help"])
     check("…the answer names the request it answers",
           readSessionInputResult(sessionKey: "9201", dir: dir)
               == SessionInputResult(epoch: epoch(0), outcome: "submitted", detail: nil))
@@ -203,7 +213,7 @@ func runSessionInputChecks() {
     check("…and the stamp is remembered", served.servedEpoch == epoch(0))
     // Idempotence from the other side: the same request put back is not served twice, which is what
     // the stamp is for (the file is unlinked, but a supervisor mid-write could still read one).
-    try? writeSessionInputRequest(request("/help", submit: true), sessionKey: "9201", dir: dir)
+    try? writeSessionInputRequest(request("/help"), sessionKey: "9201", dir: dir)
     check("the same request written again is not typed a second time",
           tick(state: .blocked, input: &served).isEmpty)
     clearSessionInputRequest(sessionKey: "9201", dir: dir)
@@ -222,24 +232,23 @@ func runSessionInputChecks() {
     // than refusing.
     typed = tick(state: .idle, at: 5, input: &waiting)
     check("the turn ends and the waiting request is typed then",
-          typed.count == 1 && typed[0].0 == "hello" && !typed[0].1
-              && readSessionInputResult(sessionKey: "9202", dir: dir)?.outcome == "injected")
+          typed == ["hello"]
+              && readSessionInputResult(sessionKey: "9202", dir: dir)?.outcome == "submitted")
 
     // …and through the tick, where what matters is that a wait writes NOTHING: no bytes, no answer
     // for the caller to read as success, and a request left exactly where it was for the next tick.
     var planned = SessionInputState(sessionKey: "9208", servedEpoch: 0)
-    try? writeSessionInputRequest(request("during-relaunch", submit: true), sessionKey: "9208",
-                                  dir: dir)
+    try? writeSessionInputRequest(request("during-relaunch"), sessionKey: "9208", dir: dir)
     check("a tick with a relaunch planned types nothing, even into an idle session",
           tick(state: .idle, relaunchPlanned: true, input: &planned).isEmpty)
     check("…and answers nothing, so the caller is never told a lost line was delivered",
           readSessionInputResult(sessionKey: "9208", dir: dir) == nil
               && readSessionInputRequest(sessionKey: "9208", dir: dir)
-              == request("during-relaunch", submit: true)
+              == request("during-relaunch")
               && planned.servedEpoch == 0)
     typed = tick(state: .idle, at: 5, input: &planned)
     check("…and the next tick, against the new child, types it",
-          typed.count == 1 && typed[0].0 == "during-relaunch"
+          typed == ["during-relaunch"]
               && readSessionInputResult(sessionKey: "9208", dir: dir)?.outcome == "submitted")
 
     // A PLANNED RELAUNCH IS NOT A RELAUNCH, and the difference is the whole of this gate. The fork
@@ -268,11 +277,10 @@ func runSessionInputChecks() {
     // The behaviour that closes the loop: the stood-down tick types, so the turn that resolves the
     // fork can start.
     var stoodDown = SessionInputState(sessionKey: "9209", servedEpoch: 0)
-    try? writeSessionInputRequest(request("resolve-the-fork", submit: true), sessionKey: "9209",
-                                  dir: dir)
+    try? writeSessionInputRequest(request("resolve-the-fork"), sessionKey: "9209", dir: dir)
     typed = tick(state: .idle, relaunchPlanned: held, input: &stoodDown)
     check("a tick whose relaunch stood down types the line that would end the hold",
-          typed.count == 1 && typed[0].0 == "resolve-the-fork"
+          typed == ["resolve-the-fork"]
               && readSessionInputResult(sessionKey: "9209", dir: dir)?.outcome == "submitted")
 
     // Expiry, through the tick rather than the pure function, so the consuming half is covered too.
@@ -288,18 +296,18 @@ func runSessionInputChecks() {
     // consumed: retrying it on the next tick would spend the same six seconds on the same failure.
     var broken = SessionInputState(sessionKey: "9204", servedEpoch: 0)
     try? writeSessionInputRequest(request("x"), sessionKey: "9204", dir: dir)
-    _ = tick(state: .idle, input: &broken, inject: { _, _ in .failed(ENXIO) })
+    _ = tick(state: .idle, input: &broken, inject: { _ in .failed(ENXIO) })
     let failure = readSessionInputResult(sessionKey: "9204", dir: dir)
     check("a terminal that refused the write says so, with the errno",
           failure?.outcome == "failed-tty" && failure?.detail?.contains("errno \(ENXIO)") == true
               && readSessionInputRequest(sessionKey: "9204", dir: dir) == nil)
 
     // THE RACE THE CONSUMPTION GUARD EXISTS FOR: injection takes seconds, and a second `tally
-    // session type` written in that window is a newer stamp at the same path. Unlinking
+    // session send` written in that window is a newer stamp at the same path. Unlinking
     // unconditionally would delete an instruction nobody has carried out.
     var raced = SessionInputState(sessionKey: "9205", servedEpoch: 0)
     try? writeSessionInputRequest(request("first"), sessionKey: "9205", dir: dir)
-    _ = tick(state: .idle, input: &raced, inject: { _, _ in
+    _ = tick(state: .idle, input: &raced, inject: { _ in
         try? writeSessionInputRequest(request("second", at: 2), sessionKey: "9205", dir: dir)
         return .done
     })
@@ -308,7 +316,7 @@ func runSessionInputChecks() {
     check("…and the answer that was written is the one that was served",
           readSessionInputResult(sessionKey: "9205", dir: dir)?.epoch == epoch(0))
     typed = tick(state: .idle, at: 3, input: &raced)
-    check("…which the next tick then serves", typed.count == 1 && typed[0].0 == "second")
+    check("…which the next tick then serves", typed == ["second"])
 
     // The seed: a request addressed to a pid that has come round again is not typed into whoever got
     // it next. `servedEpoch` defaults to whatever is pending at start-up.
@@ -323,23 +331,83 @@ func runSessionInputChecks() {
     check("a request written just before a self-update is still served afterwards",
           tick(state: .idle, at: 2, input: &resumed).count == 1)
 
+    // MARK: - When the answer cannot be written
+
+    // The receipt is the only thing the caller is blocked on, so a write that fails and says nothing
+    // leaves it waiting out its whole timeout for an answer that is not coming - AFTER the text has
+    // been typed. It then reports "nobody answered", and a caller that acts on that by sending the
+    // line again has typed it into that conversation twice (codex review of 18b3174).
+    //
+    // The failure is made by putting a directory where the answer goes, so the rename cannot land:
+    // what an unwritable directory or a full disk look like from here, without needing either.
+    let lostLog = dir.appendingPathComponent("lost.log")
+    let lostKey = "9211"
+    try? FileManager.default.createDirectory(at: sessionInputResultFile(sessionKey: lostKey,
+                                                                       dir: dir),
+                                             withIntermediateDirectories: true)
+    check("a published answer reports no failure",
+          writeSessionInputResult(SessionInputResult(epoch: 1, outcome: "submitted", detail: nil),
+                                  sessionKey: "9212", dir: dir) == nil)
+    check("…and one that cannot be written says why rather than merely failing",
+          writeSessionInputResult(SessionInputResult(epoch: 1, outcome: "submitted", detail: nil),
+                                  sessionKey: lostKey, dir: dir) != nil)
+    clearSessionInputResult(sessionKey: "9212", dir: dir)
+    var lost = SessionInputState(sessionKey: lostKey, servedEpoch: 0)
+    try? writeSessionInputRequest(request("/clear"), sessionKey: lostKey, dir: dir)
+    var lostTyped: [String] = []
+    applySessionInput(&lost, session: .idle, keyboardIdle: true, relaunchPlanned: false, dir: dir,
+                      log: lostLog, now: t0.addingTimeInterval(1)) { text in
+        lostTyped.append(text)
+        return .done
+    }
+    check("the text is typed even though the answer cannot be published",
+          lostTyped == ["/clear"])
+    let lostWritten = (try? String(contentsOf: lostLog, encoding: .utf8)) ?? ""
+    check("…and the lost answer leaves a line, so a session typed into twice can be explained",
+          lostWritten.contains("pid=\(lostKey) input=receipt-lost")
+              && lostWritten.contains("served=submitted")
+              && lostWritten.contains("epoch=\(epoch(0))"))
+    check("…beside the line saying what was typed, in that order",
+          lostWritten.range(of: "pid=\(lostKey) input=submitted").map { typedLine in
+              lostWritten.range(of: "input=receipt-lost").map { typedLine.upperBound < $0.lowerBound }
+                  ?? false
+          } ?? false)
+    // AND THE STAMP MOVED ANYWAY, which is the half that decides whether this failure costs a wait
+    // or a duplicated line: the bytes are on the terminal, so a tick that decided the same request
+    // again would type it a second time.
+    check("…the stamp records what was served, whatever became of the answer",
+          lost.servedEpoch == epoch(0)
+              && readSessionInputRequest(sessionKey: lostKey, dir: dir) == nil)
+    try? writeSessionInputRequest(request("/clear"), sessionKey: lostKey, dir: dir)
+    var lostAgain: [String] = []
+    applySessionInput(&lost, session: .idle, keyboardIdle: true, relaunchPlanned: false, dir: dir,
+                      log: lostLog, now: t0.addingTimeInterval(2)) { text in
+        lostAgain.append(text)
+        return .done
+    }
+    check("…so the same request put back is still not typed a second time", lostAgain.isEmpty)
+
     // MARK: - The audit line
 
     let written = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
     check("every served request left a line", written.components(separatedBy: "\n")
               .filter { $0.contains("input=") }.count == 9)
-    check("…naming the session, the outcome and whether it was sent",
-          written.contains("pid=9201 input=submitted submit=yes bytes=5 text=/help"))
+    check("…naming the session, the outcome and the text",
+          written.contains("pid=9201 input=submitted bytes=5 text=/help"))
+    // NO `submit` COLUMN. It read `yes` on every line ever written once typing and sending became
+    // one act, and a field that cannot vary answers nothing anybody greps a log for.
+    check("…and nothing in it says whether Return was pressed, which is never in question",
+          !written.contains("submit="))
     check("…and a refusal is recorded as loudly as a delivery",
           written.contains("pid=9203 input=refused-expired"))
     // The text is the one field that can contain a space, so it goes last; control bytes are
     // replaced rather than written through, because a log nobody can `cat` safely is not a log.
-    let noisy = sessionInputLogLine(pid: "1", outcome: "submitted", submit: true,
-                                    text: "a\nb\u{1B}[2Jc", now: t0)
+    let noisy = sessionInputLogLine(pid: "1", outcome: "submitted", text: "a\nb\u{1B}[2Jc",
+                                    now: t0)
     check("a control byte in the text cannot reach the log",
           noisy.hasSuffix("text=a·b·[2Jc\n") && noisy.components(separatedBy: "\n").count == 2)
     check("…and a long line is truncated to what a reader needs",
-          sessionInputLogLine(pid: "1", outcome: "submitted", submit: false,
+          sessionInputLogLine(pid: "1", outcome: "submitted",
                               text: String(repeating: "x", count: 120), now: t0)
               .hasSuffix("bytes=120 text=\(String(repeating: "x", count: 40))\n"))
 
@@ -505,56 +573,113 @@ func runSessionInputChecks() {
 
     // MARK: - The command's grammar
 
-    check("one word is the text", sessionTypeIntent(["hello"])
-              == SessionTypeIntent(text: "hello", submit: false, session: nil))
-    check("--submit rides either side of it",
-          sessionTypeIntent(["hello", "--submit"])
-              == SessionTypeIntent(text: "hello", submit: true, session: nil)
-              && sessionTypeIntent(["--submit", "hello"])
-              == SessionTypeIntent(text: "hello", submit: true, session: nil))
-    check("--session names another one", sessionTypeIntent(["--session", "412", "hi"])
-              == SessionTypeIntent(text: "hi", submit: false, session: "412"))
-    // A bare --submit is a request in its own right: press Return, type nothing, which is how a
-    // prompt sitting on its default gets answered.
-    check("--submit on its own presses Return and types nothing",
-          sessionTypeIntent(["--submit"]) == SessionTypeIntent(text: "", submit: true,
-                                                               session: nil))
-    check("nothing at all is a usage error", sessionTypeIntent([]) == nil
-              && sessionTypeIntent(["--session", "412"]) == nil)
+    check("one word is the text", sessionSendIntent(["hello"])
+              == SessionSendIntent(text: "hello", session: nil))
+    check("--session names another one", sessionSendIntent(["--session", "412", "hi"])
+              == SessionSendIntent(text: "hi", session: "412"))
+    // NO TEXT IS A REQUEST IN ITS OWN RIGHT: press Return, type nothing, which is how a prompt
+    // sitting on its default gets answered. It used to be spelled `--submit` with no text; the
+    // absence of an argument is what means it now.
+    check("no text at all presses Return and types nothing",
+          sessionSendIntent([]) == SessionSendIntent(text: "", session: nil))
+    check("…and it can be aimed at another session too",
+          sessionSendIntent(["--session", "412"]) == SessionSendIntent(text: "", session: "412"))
+    // THE FLAG THAT USED TO SAY "AND SEND IT" IS NOT A FLAG ANY MORE, so it is content or an error
+    // like any other unknown word, and never a silently accepted no-op that makes a caller believe
+    // it asked for something.
+    check("--submit is no longer a flag this command knows",
+          sessionSendIntent(["hello", "--submit"]) == nil && sessionSendIntent(["--submit"]) == nil)
     // Two bare words differ from one by exactly the whitespace the shell ate, and there is no
     // reading that is safe to guess at.
     check("two words are a usage error rather than a join",
-          sessionTypeIntent(["hello", "there"]) == nil)
+          sessionSendIntent(["hello", "there"]) == nil)
     check("a flag this command does not know is not content",
-          sessionTypeIntent(["--force"]) == nil && sessionTypeIntent(["-x", "hi"]) == nil)
+          sessionSendIntent(["--force"]) == nil && sessionSendIntent(["-x", "hi"]) == nil)
     check("--session without a value, or twice, is a usage error",
-          sessionTypeIntent(["--session"]) == nil
-              && sessionTypeIntent(["--session", "1", "--session", "2", "hi"]) == nil)
-    // `--` is what makes text that looks like a flag typeable at all.
-    check("-- ends the flags, so a dash can be typed",
-          sessionTypeIntent(["--", "--submit"])
-              == SessionTypeIntent(text: "--submit", submit: false, session: nil)
-              && sessionTypeIntent(["--submit", "--", "--help"])
-              == SessionTypeIntent(text: "--help", submit: true, session: nil))
+          sessionSendIntent(["--session"]) == nil
+              && sessionSendIntent(["--session", "1", "--session", "2", "hi"]) == nil)
+    // `--` is what makes text that looks like a flag sendable at all.
+    check("-- ends the flags, so a dash can be sent",
+          sessionSendIntent(["--", "--submit"]) == SessionSendIntent(text: "--submit", session: nil)
+              && sessionSendIntent(["--session", "9", "--", "--help"])
+              == SessionSendIntent(text: "--help", session: "9"))
 
     check("the command refuses an over-long line before anything is written",
-          sessionTypeProblem(SessionTypeIntent(text: atLimit + "a", submit: false, session: nil))?
+          sessionSendProblem(SessionSendIntent(text: atLimit + "a", session: nil))?
               .contains("201 bytes") == true)
     check("…and says nothing about one that fits",
-          sessionTypeProblem(SessionTypeIntent(text: atLimit, submit: true, session: nil)) == nil)
-    check("an empty line with nothing to send is refused, and says what to do instead",
-          sessionTypeProblem(SessionTypeIntent(text: "", submit: false, session: nil))?
-              .contains("--submit") == true)
-    check("…while an empty line WITH --submit is the Return-only request",
-          sessionTypeProblem(SessionTypeIntent(text: "", submit: true, session: nil)) == nil)
+          sessionSendProblem(SessionSendIntent(text: atLimit, session: nil)) == nil)
+    // An empty line is no longer a problem to report: it is the Return-only request.
+    check("…nor about an empty one, which is the Return-only request",
+          sessionSendProblem(SessionSendIntent(text: "", session: nil)) == nil)
+
+    // The one line a namespace with one verb in it says, and the verb it names.
+    check("the usage text documents the verb that exists",
+          sessionSendUsage.contains("tally session send [<text>] [--session <pid>]")
+              && !sessionSendUsage.contains("--submit")
+              && sessionUsage == "usage: tally session send [<text>] [--session <pid>]")
+
+    // MARK: - One request per session at a time
+
+    // One file addresses one session, so a second request written while the first is still waiting
+    // lands ON it: the first caller then waits for an answer to a request that exists nowhere, is
+    // told nobody answered, and nothing on either end records that an instruction was dropped
+    // (codex review of 18b3174). So the second caller is refused instead.
+    let busyKey = "9301"
+    let occupant = request("first")
+    check("an address with nothing at it is free",
+          pendingSessionInput(sessionKey: busyKey, dir: dir, now: t0.addingTimeInterval(1)) == nil)
+    try? writeSessionInputRequest(occupant, sessionKey: busyKey, dir: dir)
+    check("…a request still inside its life occupies it",
+          pendingSessionInput(sessionKey: busyKey, dir: dir, now: t0.addingTimeInterval(1))
+              == occupant)
+    // A husk does NOT occupy it: the supervisor refuses it the next time it looks, and treating it
+    // as an occupant would take the address away for two minutes over a caller killed mid-wait.
+    check("…and one past its life does not",
+          pendingSessionInput(sessionKey: busyKey, dir: dir,
+                              now: t0.addingTimeInterval(sessionInputTTL + 1)) == nil)
+    let busy = sessionInputBusyRefusal(occupant, sessionKey: busyKey, now: t0.addingTimeInterval(20))
+    check("the second caller is told nothing was queued, and how long the first one has left",
+          busy.contains(busyKey) && busy.contains("nothing was queued")
+              && busy.contains("\(Int(sessionInputTTL) - 20)s"))
+    // TELLABLE APART FROM A GATE REFUSAL, which is the point of wording it separately: those mean
+    // "the session was busy or silent, this may work later", and this one means "your text was
+    // never queued at all, because something else is already using this address".
+    check("…and it does not read like one of the gate's refusals",
+          !busy.contains("never reached a moment") && !busy.contains("never reported"))
+    clearSessionInputRequest(sessionKey: busyKey, dir: dir)
+
+    // MARK: - Which pid --session may name
+
+    // Liveness alone says a process is there and nothing about what it is, so `--session <any live
+    // pid>` used to write a file holding somebody's text to an address nothing would ever read.
+    // The registry a supervisor writes itself into (`markSupervisorLive`) is what tells them apart.
+    let registry = dir.appendingPathComponent("registry")
+    try? FileManager.default.createDirectory(at: registry, withIntermediateDirectories: true)
+    let ownPid = String(getpid())
+    check("a live process with no presence entry is not a session to type into",
+          namedSession(ownPid, dir: registry) == .notSupervised)
+    try? "".write(to: registry.appendingPathComponent(ownPid), atomically: true, encoding: .utf8)
+    check("…and the same pid once it is registered is one",
+          namedSession(ownPid, dir: registry) == .session(ownPid))
+    check("a pid nothing is running under is neither",
+          namedSession(deadPid, dir: registry) == .notRunning)
+    check("…nor is a word that is not a pid at all",
+          namedSession("session-9301", dir: registry) == .notRunning)
+    // Normalised through the pid, so a padded number addresses the same file the bare one does.
+    check("--session 0<pid> addresses the same session <pid> does",
+          namedSession("0" + ownPid, dir: registry) == .session(ownPid))
+    // The registry is asked for THIS machine's supervisors rather than reimplemented: an entry
+    // under a dead pid is not one, whatever the file says.
+    try? "".write(to: registry.appendingPathComponent(deadPid), atomically: true, encoding: .utf8)
+    check("…and an entry left behind by a dead supervisor names nothing",
+          namedSession(deadPid, dir: registry) == .notRunning)
 
     // MARK: - What the caller is told, and what it exits on
 
     check("the four exit codes are kept apart",
           sessionInputExitCode(nil) == 4
               && sessionInputExitCode(SessionInputResult(epoch: 1, outcome: "submitted",
-                                                         detail: nil)) == 0
-              && sessionInputExitCode(SessionInputResult(epoch: 1, outcome: "injected",
                                                          detail: nil)) == 0
               && sessionInputExitCode(SessionInputResult(epoch: 1, outcome: "refused-expired",
                                                          detail: nil)) == 3
@@ -565,21 +690,25 @@ func runSessionInputChecks() {
     check("an unfamiliar outcome exits as a refusal and is quoted back",
           sessionInputExitCode(future) == 3
               && sessionInputMessage(future, sessionKey: "9").contains("\"refused-something-new\""))
-    for outcome in [SessionInputOutcome.submitted, .injected, .refusedTooLong,
-                    .refusedNotReporting, .refusedExpired, .failedTTY] {
+    for outcome in [SessionInputOutcome.submitted, .refusedTooLong, .refusedNotReporting,
+                    .refusedExpired, .failedTTY] {
         let message = sessionInputMessage(SessionInputResult(epoch: 1, outcome: outcome.rawValue,
                                                              detail: "why"),
                                           sessionKey: "9208")
         check("`\(outcome.rawValue)` is worded for the caller, and carries the detail",
               !message.isEmpty && message.contains("(why)"))
     }
-    check("the delivered wordings name the session that got the text",
+    check("the delivered wording names the session that got the text, and says it was sent",
           sessionInputMessage(SessionInputResult(epoch: 1, outcome: "submitted", detail: nil),
-                              sessionKey: "9208").contains("9208"))
-    // The one distinction a caller acts on: sent, or sitting in the composer.
-    check("…and say which of the two happened",
+                              sessionKey: "9208").contains("sent to session 9208"))
+    // A word from a build that still had the composer-only outcome is reported verbatim rather than
+    // read as a delivery: this build cannot produce it, and guessing what somebody else meant by it
+    // is how a caller is told a line landed when it is sitting in a composer.
+    check("…and a build's leftover `injected` is quoted back rather than believed",
           sessionInputMessage(SessionInputResult(epoch: 1, outcome: "injected", detail: nil),
-                              sessionKey: "9").contains("--submit"))
+                              sessionKey: "9").contains("\"injected\"")
+              && sessionInputExitCode(SessionInputResult(epoch: 1, outcome: "injected",
+                                                         detail: nil)) == 3)
 
     // MARK: - The wait
 
@@ -672,6 +801,55 @@ func runSessionInputChecks() {
               false)
         check("…and it is handed THIS tick's plan rather than a constant", false)
     }
+
+    // THE COMMAND'S ORDER OF BUSINESS, read off the source for the same reason as the loop above:
+    // `runSessionSend` waits up to 150 seconds on a supervisor, so nothing links it into a harness,
+    // and both of these defects are matters of WHEN it asks rather than of any value it returns.
+    let command = (try? String(contentsOfFile: "TallyCLI/SessionInputCommand.swift",
+                               encoding: .utf8)) ?? ""
+    check("the command was really read", command.contains("func runSessionSend("))
+    if let start = command.range(of: "func runSessionSend("),
+       let occupied = command.range(of: "pendingSessionInput(sessionKey: sessionKey)",
+                                    range: start.upperBound ..< command.endIndex),
+       let cleared = command.range(of: "clearSessionInputResult(sessionKey: sessionKey)",
+                                   range: start.upperBound ..< command.endIndex),
+       let written = command.range(of: "try writeSessionInputRequest(",
+                                   range: start.upperBound ..< command.endIndex) {
+        check("the command asks whether the address is occupied before it writes to it",
+              occupied.lowerBound < written.lowerBound)
+        // BEFORE THE CLEAR TOO, which is not an ordering detail: that answer file may be the one
+        // the other caller is polling for right now, so taking it away on the way to being refused
+        // would turn its delivery into a timeout.
+        check("…and before it takes away an answer that may be the other caller's",
+              occupied.lowerBound < cleared.lowerBound)
+    } else {
+        check("the command asks whether the address is occupied before it writes to it", false)
+        check("…and before it takes away an answer that may be the other caller's", false)
+    }
+    if let named = command.range(of: "if let named = intent.session {"),
+       let end = command.range(of: "\n    } else {", range: named.upperBound ..< command.endIndex) {
+        let branch = String(command[named.upperBound ..< end.lowerBound])
+        // READ OFF THE BRANCH rather than the file: `supervisorAlive` is a perfectly good question
+        // elsewhere in this command (the marker's own liveness), so a file-wide search would be
+        // satisfied by somebody else's call and say nothing about this one.
+        check("a pid named on the command line is judged by the registry, not by liveness alone",
+              branch.contains("namedSession(named)") && !branch.contains("supervisorAlive("))
+        // Both refusals, so a live stranger is never folded back into "nothing is running there".
+        check("…and the two ways it can name nothing are answered apart",
+              branch.contains("case .notRunning:") && branch.contains("case .notSupervised:"))
+    } else {
+        check("a pid named on the command line is judged by the registry, not by liveness alone",
+              false)
+        check("…and the two ways it can name nothing are answered apart", false)
+    }
+
+    // THE VERB THE NAMESPACE ANSWERS. Read off the source rather than called, because calling it
+    // is the one thing this suite must never do: `runSession` resolves the session it is running
+    // INSIDE, so a check that ran it on a developer's machine would write a request into their own
+    // live conversation and wait two and a half minutes for it to be typed.
+    check("the namespace answers `send`, and the name it shipped under is gone",
+          command.contains("case \"send\":\n        return runSessionSend(")
+              && !command.contains("case \"type\":"))
 
     let channel = (try? String(contentsOfFile: "TallyCLI/SessionInputRequest.swift",
                                encoding: .utf8)) ?? ""

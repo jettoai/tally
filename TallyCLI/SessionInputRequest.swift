@@ -1,6 +1,6 @@
 import Foundation
 
-// How `tally session type` reaches ONE running session: the request file it writes, the answer the
+// How `tally session send` reaches ONE running session: the request file it writes, the answer the
 // supervisor writes back, and the two limits both ends have to agree on. The decision a poll tick
 // makes about a request lives next door in SessionInput.swift; the command that writes one is in
 // SessionInputCommand.swift. That is the same three-way split `tally account` keeps (SwitchRequest /
@@ -63,25 +63,27 @@ let sessionInputDir = FileManager.default.homeDirectoryForCurrentUser
 let sessionInputResultSuffix = ".result"
 
 /// What one invocation asks to be typed.
+///
+/// TYPING AND SENDING ARE ONE ACT, which is why there is no flag here saying which was meant. What
+/// this feature is FOR is triggering the things a session cannot trigger for itself - `/clear`,
+/// `/compact`, an answer to a permission prompt - and text left sitting in a composer triggers
+/// nothing: it waits for a person to press Return, and a person who is there to press it did not
+/// need any of this (Albert, 2026-08-13). So every request is a whole instruction, and the record
+/// has one field for what to type.
 struct SessionInputRequest: Codable, Equatable {
     /// MILLISECONDS since the unix epoch, like the switch stamp and for the same reason: a
     /// supervisor acts only on a stamp strictly newer than the one it has served, and two requests a
     /// second apart are two requests a caller really makes.
     var epoch: Int
-    /// The text to type, verbatim. May be empty, which is a request to press Return and nothing else
-    /// (`submit` is then the whole instruction) - the shape that answers a permission prompt sitting
-    /// on its default.
+    /// The text to type, verbatim, before Return is pressed. May be empty, which is a request to
+    /// press Return and nothing else - the shape that answers a prompt sitting on its default.
     var text: String
-    /// Whether to press Return once the text is in.
-    var submit: Bool
 }
 
 /// What became of one request, in the vocabulary both ends share.
 enum SessionInputOutcome: String {
     /// Typed and sent.
     case submitted
-    /// Typed into the composer and left there, because the request did not ask for Return.
-    case injected
     /// Longer than `sessionInputMaxBytes`. Normally caught by the command before anything is
     /// written; the supervisor checks it again because the channel is a directory anything running
     /// as this user can write into.
@@ -97,8 +99,9 @@ enum SessionInputOutcome: String {
     /// else.
     case failedTTY = "failed-tty"
 
-    /// Whether this outcome means the text reached the session.
-    var delivered: Bool { self == .submitted || self == .injected }
+    /// Whether this outcome means the text reached the session. One word, because there is one way
+    /// for it to land: typed and sent.
+    var delivered: Bool { self == .submitted }
 }
 
 /// The supervisor's answer to one request.
@@ -318,19 +321,26 @@ func readSessionInputResult(sessionKey: String, dir: URL = sessionInputDir) -> S
     return parseSessionInput(data)
 }
 
-/// Publish what became of a request. Best-effort and it says whether it worked, because the caller
-/// is blocked on this file: a failure is worth an audit line rather than silence.
+/// Publish what became of a request. Best-effort, and it answers nil when it landed or WHY when it
+/// did not.
+///
+/// THE REASON RATHER THAN A BARE `false`, because of what a lost answer costs on the other end: the
+/// caller is blocked on this file, so a failure here is a caller that waits out its whole timeout
+/// and then cannot tell "the supervisor never read it" from "the text was typed and the receipt was
+/// lost". Those two want opposite things of it, and only the second makes a retry a duplicate line
+/// in somebody's conversation. The one place that can still say which is this one, at the moment it
+/// fails, so it hands the sentence up rather than a bit (codex review of 18b3174).
 @discardableResult
 func writeSessionInputResult(_ result: SessionInputResult, sessionKey: String,
-                             dir: URL = sessionInputDir) -> Bool {
-    guard let data = sessionInputData(result) else { return false }
+                             dir: URL = sessionInputDir) -> String? {
+    guard let data = sessionInputData(result) else { return "the answer could not be encoded" }
     do {
         try writeSessionInputPrivately(
             data, to: sessionInputResultFile(sessionKey: sessionKey, dir: dir), in: dir)
     } catch {
-        return false
+        return error.localizedDescription
     }
-    return true
+    return nil
 }
 
 /// The answer has been read: unlink it, so the next request cannot find this one waiting.

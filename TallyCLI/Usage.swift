@@ -73,14 +73,17 @@ usage:
                             terminal, it shows what is running and offers a menu. Inside Claude
                             Code, `/tally opus xhigh` does the same without waking a model
                             (installed with the Claude Code skill integration)
-  tally session type <text> [--submit] [--session <pid>]
+  tally session send [<text>] [--session <pid>]
                             type <text> into a supervised session's own terminal, exactly as if it
-                            had been typed there, and with --submit press Return afterwards. Run it
-                            inside the session it is meant for (the agent in that conversation can
-                            run it as a tool call); --session names another one by the supervisor
-                            pid `tally status --json` lists. It WAITS for the answer: the text is
-                            typed at the first moment that session is waiting on you or idle, so a
-                            request made mid-turn lands when the turn ends, and nothing is typed
+                            had been typed there, and press Return. With no text it presses Return
+                            alone, which answers a prompt sitting on its default. It exists to
+                            trigger what a session cannot trigger for itself (`/clear`, `/compact`,
+                            a permission answer), so typing and sending are one act. Run it inside
+                            the session it is meant for (the agent in that conversation can run it
+                            as a tool call); --session names another one by the supervisor pid
+                            `tally status --json` lists. It WAITS for the answer: the text is sent
+                            at the first moment that session is waiting on you or idle, so a
+                            request made mid-turn lands when the turn ends, and nothing is sent
                             while it is working, while it is not reporting what it is doing, or
                             while somebody is typing in that terminal. At most 200 bytes - a slash
                             command, an answer to a prompt - and every one of them is recorded in

@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 // TYPING INTO A SESSION ON ITS OWN BEHALF: what a poll tick does about a pending `tally session
-// type`, and the terminal write that carries it out. The channel is SessionInputRequest.swift and
+// send`, and the terminal write that carries it out. The channel is SessionInputRequest.swift and
 // the command that writes one is SessionInputCommand.swift; this is the supervisor's half, the way
 // SessionSwitch.swift is `tally account`'s.
 //
@@ -43,6 +43,17 @@ let sessionInputByteGap: TimeInterval = 0.030
 /// How long to wait after the last byte before pressing Return, for the same reason and from the
 /// same measurement: a TUI redraws and re-filters between keystrokes, and Return has to arrive after
 /// it has settled rather than during.
+///
+/// MEASURED ON CLAUDE CODE'S COMPOSER, AND ON NOTHING ELSE, which is worth saying because the other
+/// CLI this app supervises has now been measured too and does not agree: Codex CLI's slash popup
+/// was still on an earlier filter state when Return arrived at 400ms AND at 1200ms, so the send
+/// picked the wrong menu entry, while the same text with Return four seconds later ran the command
+/// it named (2026-08-13, section 3.3 of the design document, with the method and the six
+/// combinations tried). Nothing is retuned for it here, and deliberately: `tally codex` is a plain
+/// exec with no supervisor (`runLaunch`, main.swift), so no request can reach a Codex session in
+/// the first place. When one can, the shape this measurement points at is a pause per provider
+/// rather than one number raised until the slowest CLI is happy, since that would slow every
+/// Claude Code send to pay for it.
 let sessionInputSubmitPause: TimeInterval = 0.400
 
 /// How still the keyboard has to be before anything is typed on the session's behalf.
@@ -195,7 +206,13 @@ enum SessionInputInjection: Equatable {
     case failed(Int32)
 }
 
-/// Type `text` into this process's controlling terminal, and press Return if asked.
+/// Type `text` into this process's controlling terminal and press Return.
+///
+/// RETURN IS NOT OPTIONAL, and that is the shape of the whole feature rather than a detail of this
+/// function: what it exists to do is trigger what a session cannot trigger for itself, and text
+/// left in a composer triggers nothing (SessionInputRequest.swift argues it where the record is
+/// defined). An empty `text` is therefore a legitimate request: press Return alone, which is how a
+/// prompt sitting on its default gets answered.
 ///
 /// ONE BYTE AT A TIME WITH A PAUSE, because a TUI is a program that redraws between keystrokes and
 /// filters a menu as they arrive; `sessionInputByteGap` carries the measurement that settled the
@@ -205,7 +222,7 @@ enum SessionInputInjection: Equatable {
 ///
 /// `tty` and the two intervals are injectable so a suite can exercise the loop without a terminal
 /// and without waiting six seconds for it.
-func injectSessionInput(_ text: String, submit: Bool, tty: String = "/dev/tty",
+func injectSessionInput(_ text: String, tty: String = "/dev/tty",
                         gap: TimeInterval = sessionInputByteGap,
                         pause: TimeInterval = sessionInputSubmitPause) -> SessionInputInjection {
     let fd = open(tty, O_RDWR)
@@ -219,7 +236,6 @@ func injectSessionInput(_ text: String, submit: Bool, tty: String = "/dev/tty",
         guard push(byte) else { return .failed(errno) }
         usleep(useconds_t(gap * 1_000_000))
     }
-    guard submit else { return .done }
     usleep(useconds_t(pause * 1_000_000))
     guard push(sessionInputReturnByte) else { return .failed(errno) }
     return .done
@@ -235,14 +251,18 @@ func injectSessionInput(_ text: String, submit: Bool, tty: String = "/dev/tty",
 /// is truncated to 40 characters and stripped of anything that is not printable, because a control
 /// byte written verbatim into a log is a log that reformats somebody's terminal when they `cat` it -
 /// and because this file must show WHAT was typed without becoming a transcript of it.
-func sessionInputLogLine(pid: String, outcome: String, submit: Bool, text: String,
+///
+/// THERE IS NO `submit` FIELD. There was, and it read `yes` on every line ever written once typing
+/// and sending became one act: a column that cannot vary answers nothing anybody greps this file
+/// for, and it costs the eye a stop on every line.
+func sessionInputLogLine(pid: String, outcome: String, text: String,
                          now: Date = Date()) -> String {
     let visible = String(text.unicodeScalars.map { scalar -> Character in
         scalar.properties.isDefaultIgnorableCodePoint || scalar.value < 0x20 || scalar.value == 0x7F
             ? "·" : Character(scalar)
     }.prefix(40))
     return "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=\(outcome) "
-        + "submit=\(submit ? "yes" : "no") bytes=\(text.utf8.count) text=\(visible)\n"
+        + "bytes=\(text.utf8.count) text=\(visible)\n"
 }
 
 /// The mode this log is kept at: readable by its owner and by nobody else.
@@ -258,6 +278,22 @@ func sessionInputLogLine(pid: String, outcome: String, submit: Bool, text: Strin
 /// stripped of what was typed answers "somebody typed something" and nothing a person consulting
 /// this log ever asks; the cost of keeping it is one chmod.
 let sessionInputLogMode = 0o600
+
+/// The line a lost answer leaves (grep `input=receipt-lost`): the request was SERVED, the text is
+/// on the terminal (or the refusal was decided), and the file the caller is polling for could not be
+/// written. So that caller waits out its timeout, is told nobody answered, and may reasonably send
+/// the same line again - which is the one way this feature types a line into a conversation twice.
+///
+/// ITS OWN LINE BESIDE THE SERVED ONE rather than a field inside it, the shape
+/// `sessionInputDirectoryModeLine` uses. The served line's business is what was typed, and it is
+/// what a person greps when asking that; a failure carried as an extra column on it would be
+/// invisible to every one of those greps, and the question this answers ("was I told?") is asked
+/// separately from them.
+func sessionInputReceiptLostLine(pid: String, outcome: String, epoch: Int, failure: String,
+                                 now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=receipt-lost "
+        + "served=\(outcome) epoch=\(epoch) failed=\(failure)\n"
+}
 
 /// The line a directory that could not be narrowed leaves (grep `input=directory-mode`): the
 /// requests in it are readable by every account on this machine, and the write went ahead anyway
@@ -296,7 +332,7 @@ func appendSessionInputLine(_ line: String, to log: URL) {
 
 // MARK: - The tick
 
-/// Serve this session's pending `tally session type`, if there is one to serve.
+/// Serve this session's pending `tally session send`, if there is one to serve.
 ///
 /// The whole of it lives here rather than in the poll loop for the reason `syncSessionState` does:
 /// Supervisor.swift is over its size cap, so the loop hands over the state it has already decided
@@ -314,8 +350,8 @@ func appendSessionInputLine(_ line: String, to log: URL) {
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
                        keyboardIdle: Bool, relaunchPlanned: Bool, dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
-                       inject: (String, Bool) -> SessionInputInjection = {
-                           injectSessionInput($0, submit: $1)
+                       inject: (String) -> SessionInputInjection = {
+                           injectSessionInput($0)
                        }) {
     let pid = state.sessionKey
     // Read once, and nothing to decide without one: every branch below is about a request, so the
@@ -335,9 +371,9 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         outcome = refusal
         detail = why
     case .inject(let asked):
-        switch inject(asked.text, asked.submit) {
+        switch inject(asked.text) {
         case .done:
-            outcome = asked.submit ? .submitted : .injected
+            outcome = .submitted
         case .failed(let code):
             outcome = .failedTTY
             detail = "errno \(code): \(String(cString: strerror(code)))"
@@ -346,20 +382,44 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     // THE ANSWER FIRST, then the request file. The caller is polling for the answer, so writing it
     // first means there is never a moment where the request has vanished and nothing has replaced
     // it - which the caller could only read as "still waiting", right up to its timeout.
+    //
+    // AND THE STAMP BEFORE BOTH, WHETHER OR NOT THE ANSWER LANDS. Both orders were weighed, because
+    // the wrong one is the only way this feature types a line twice:
+    //
+    //   - Advancing it here records the fact that cannot be undone: the bytes are on the terminal,
+    //     or the refusal has been decided. Holding it back until the answer is published would
+    //     leave the request stamped newer than the served epoch, so the NEXT tick would decide the
+    //     same request again and type the same line into a conversation that already has it.
+    //   - The opposite failure - a stamp that moves over a request nothing was done about - cannot
+    //     arise here: `.ignore` and `.wait` return above without touching any of this, so every
+    //     branch that reaches this line has either injected the text or consumed the request with a
+    //     refusal that is about to be published.
+    //
+    // So a lost answer costs the caller its wait and nothing more, and it is not silent: the audit
+    // line below records that the text DID land, which is the sentence somebody needs when a
+    // session turns out to have been typed into twice by a caller that retried (codex review of
+    // 18b3174).
     state.servedEpoch = request.epoch
-    writeSessionInputResult(SessionInputResult(epoch: request.epoch, outcome: outcome.rawValue,
-                                               detail: detail),
-                            sessionKey: pid, dir: dir)
+    let lostReceipt = writeSessionInputResult(
+        SessionInputResult(epoch: request.epoch, outcome: outcome.rawValue, detail: detail),
+        sessionKey: pid, dir: dir)
     // Unlinked only when the file still holds the request that was SERVED, the rule
     // `PendingSwitchConsumption.commit` states: injection takes seconds, and a second `tally session
-    // type` written in that window is a newer stamp at the same path. An unconditional unlink would
+    // send` written in that window is a newer stamp at the same path. An unconditional unlink would
     // delete an instruction nobody has carried out; leaving it means the next tick serves it,
     // because `servedEpoch` records the epoch that was served rather than "whatever is pending".
     if readSessionInputRequest(sessionKey: pid, dir: dir)?.epoch == request.epoch {
         clearSessionInputRequest(sessionKey: pid, dir: dir)
     }
     appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: outcome.rawValue,
-                                               submit: request.submit, text: request.text,
-                                               now: now),
+                                               text: request.text, now: now),
                            to: log)
+    // AFTER the served line, so the two read in the order they happened: what was typed, and then
+    // that nobody was told about it.
+    if let lostReceipt {
+        appendSessionInputLine(sessionInputReceiptLostLine(pid: pid, outcome: outcome.rawValue,
+                                                          epoch: request.epoch,
+                                                          failure: lostReceipt, now: now),
+                               to: log)
+    }
 }

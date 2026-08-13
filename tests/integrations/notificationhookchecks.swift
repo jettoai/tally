@@ -217,6 +217,53 @@ func runNotificationHookChecks(tmp: URL) throws {
     check("a pass that finished remembers nothing at all",
           finished.remembered == nil && finished.failure == nil)
 
+    // AND THE PRESS THAT ACTS ON THE LIST HAS TO BE ON SCREEN, which is what the record is FOR.
+    // Detection asked only the homes discovery can see, so the halfway pass above left the row
+    // reading "not installed": Install and nothing else, over a settings.json that still calls our
+    // subcommand - and the retry list underneath it that nothing could ever reach. The status is
+    // judged over the same union the removal walks, so a file that will not parse is one still to
+    // be dealt with rather than one with no hook in it.
+    let stranded = IntegrationsStore.detectNotificationHook(discovered: [live],
+                                                            remembered: [refused.path])
+    check("a failed path the discovery cannot see keeps the row out of 'not installed'",
+          stranded != .notInstalled)
+    check("…so the Remove press that retries it is still offered", stranded.offersRemoval)
+    // The manifest is not a truth source of its own. A remembered path whose file is clean says
+    // exactly what it did before, or every completed uninstall would leave a row claiming a
+    // registration that is not there any more.
+    check("a remembered path with no hook left in it still reads as not installed",
+          IntegrationsStore.detectNotificationHook(discovered: [live],
+                                                   remembered: [cleared.path]) == .notInstalled)
+    // Nor is a path it remembers a permanent accusation: a home that has GONE is not an account
+    // missing its install, and counting it as one would hold a complete install at "needs
+    // attention" forever, with no press that could ever clear it.
+    let current = tmp.appendingPathComponent("current-home-settings.json")
+    try JSONSerialization.data(withJSONObject:
+        ["hooks": ["Notification": [IntegrationsStore.notificationHookEntry(command: ours)]]])
+        .write(to: current)
+    check("a remembered home that no longer exists leaves a complete install reading installed",
+          IntegrationsStore.detectNotificationHook(
+              discovered: [current],
+              remembered: [current.path, tmp.appendingPathComponent("gone.json").path])
+              == .installed)
+    check("…and a discovered home with no hook anywhere still reads as not installed",
+          IntegrationsStore.detectNotificationHook(discovered: [cleared], remembered: [])
+              == .notInstalled)
+
+    // THE INSTALL MUST NOT FORGET IT EITHER, and Install is exactly the press a stranded row
+    // offers. The manifest it writes is the union: what it has just registered PLUS the paths the
+    // record already held. Writing only what is discoverable today dropped the failed one for good
+    // - the hook stayed in a settings.json calling a subcommand, and nothing knew where it was.
+    let recorded = IntegrationsStore.notificationHookManifestPaths(installed: [live],
+                                                                   remembered: [refused.path])
+    check("an install keeps the path a removal could not finish",
+          recorded?.contains(refused.path) == true && recorded?.contains(live.path) == true)
+    check("…counting one physical file once, however many ways it was named",
+          IntegrationsStore.notificationHookManifestPaths(installed: [live],
+                                                          remembered: [live.path])?.count == 1)
+    check("…and an install with nothing at all to record clears the entry",
+          IntegrationsStore.notificationHookManifestPaths(installed: [], remembered: []) == nil)
+
     // THE REFUSAL, which every write into this file is under: a document we cannot read is left
     // exactly as it is. The only safe edit to a shape nobody understands is none.
     check("a hooks block of the wrong shape is refused rather than replaced",

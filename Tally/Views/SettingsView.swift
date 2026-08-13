@@ -279,10 +279,16 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            switch status {
-            case .installed: Button(L("Remove"), action: remove).controlSize(.small)
-            case .notInstalled: Button(L("Install"), action: install).controlSize(.small)
-            case .broken: Button(L("Reinstall"), action: install).controlSize(.small)
+            // Both answers, whenever both apply. A broken row used to offer the repair alone, which
+            // reads as the only thing worth doing and is not: what makes a row broken can be a
+            // registration in a home the app can no longer reach, and the pass that clears one is
+            // behind Remove (`Status.offersRemoval`).
+            if status.offersInstall {
+                Button(status == .notInstalled ? L("Install") : L("Reinstall"), action: install)
+                    .controlSize(.small)
+            }
+            if status.offersRemoval {
+                Button(L("Remove"), action: remove).controlSize(.small)
             }
         }
         .padding(.horizontal, 14)

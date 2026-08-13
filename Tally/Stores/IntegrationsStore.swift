@@ -34,6 +34,18 @@ final class IntegrationsStore {
         case notInstalled
         /// Present but wrong (dangling symlink, missing PATH block, stale shim) - fix = reinstall.
         case broken(String)
+
+        /// Whether the row offers to put it in place: everything that is not already correct,
+        /// with the button reading Install or Reinstall accordingly.
+        var offersInstall: Bool { self != .installed }
+
+        /// Whether the row offers to take it back out. ANYTHING THE APP KNOWS IS ON DISK, a broken
+        /// one included, and that half is a fix rather than a nicety: broken is exactly the state
+        /// a registration reaches when it cannot be fully accounted for - an account signed out
+        /// since install, a settings.json that will not parse - and the manifest holding those
+        /// paths is a RETRY LIST whose only press is Remove (IntegrationsNotificationHook.swift).
+        /// A row offering Reinstall alone there could never run the pass that clears it.
+        var offersRemoval: Bool { self != .notInstalled }
     }
 
     // MARK: Paths

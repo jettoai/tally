@@ -195,6 +195,25 @@ extension IntegrationsStore {
         return entries.contains { holdsOurNotificationHook($0) }
     }
 
+    /// Whether a settings.json still has a registration of OURS to answer for. What the STATUS asks
+    /// of a path the manifest remembers, as opposed to the plain reading above it.
+    ///
+    /// PRESENT AND UNREADABLE IS NOT ABSENT, which is the rule every write into this file is under
+    /// (`editSettings`) and the reason this predicate exists at all. A removal pass remembers
+    /// exactly the files it threw on, and the commonest way it throws is that the document could
+    /// not be read - so answering "no hook here" out of bytes nobody could parse drops the row to
+    /// "not installed", takes the Remove press off it, and leaves the retry list with nothing that
+    /// will ever act on it. A file that is not there, or is empty, has nothing of ours on it: that
+    /// is a home that has GONE rather than one still holding a registration.
+    static func settingsMayCarryNotificationHook(_ file: URL) -> Bool {
+        guard let data = try? Data(contentsOf: file), !data.isEmpty else { return false }
+        guard let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return true }
+        let entries = (settings["hooks"] as? [String: Any])?[notificationHookEvent]
+            as? [[String: Any]]
+        return entries?.contains { holdsOurNotificationHook($0) } ?? false
+    }
+
     /// Whether this file's registration is the CURRENT one rather than merely present. Read as the
     /// difference between "installed" and "installed correctly": an entry written before the
     /// matcher existed fires our hook for all nine notification types, four of which are not waits
@@ -236,11 +255,46 @@ extension IntegrationsStore {
                                       remembered: manifestPaths(notificationHookManifest))
     }
 
+    /// What the STATUS is judged over, which is the union above with one filter on its second half:
+    /// a remembered path counts while it still has something of ours on it.
+    ///
+    /// THE ASYMMETRY IS THE POINT. A discovered home is an account that should have the hook, so it
+    /// counts whatever its file says. A remembered path is a RETRY LIST entry
+    /// (`removeNotificationHook(from:)`): it counts while the hook is still there or the document
+    /// still refuses to be read, and it counts for nothing once the home it named has gone -
+    /// otherwise a config directory the user deleted would drag an install that is complete
+    /// everywhere it exists down to "not installed for every account", forever.
+    ///
+    /// The removal walks the UNFILTERED union instead, and rightly: attempting a file that turns
+    /// out to be gone costs one no-op, while skipping one that is not is the whole failure.
+    static func notificationHookPopulation(discovered: [URL], remembered: [String]) -> [URL] {
+        let known = Set(discovered.map { $0.resolvingSymlinksInPath().path })
+        return notificationHookSettingsFiles(discovered: discovered, remembered: remembered)
+            .filter { known.contains($0.resolvingSymlinksInPath().path)
+                || settingsMayCarryNotificationHook($0) }
+    }
+
     static func detectNotificationHook() -> Status {
-        let files = claudeSettingsFiles()
+        detectNotificationHook(discovered: claudeSettingsFiles(),
+                               remembered: manifestPaths(notificationHookManifest))
+    }
+
+    /// The same judgement over a given population, pure so it can be asserted without logged-in
+    /// homes on whichever machine runs the assertions.
+    ///
+    /// OVER THE MANIFEST TOO, not only over what discovery can see today, and that is what keeps
+    /// the retry list reachable. `claudeSettingsFiles()` answers with the homes logged in NOW, so a
+    /// pass that failed on an account signed out since install left a settings.json still calling
+    /// our subcommand while this said "not installed" - a row offering Install and nothing else,
+    /// and an Install that then wrote the manifest over the only record of where that file was
+    /// (`installNotificationHook`). What is remembered is asked `settingsMayCarryNotificationHook`,
+    /// so a document that will not parse counts as one still to be dealt with.
+    static func detectNotificationHook(discovered: [URL], remembered: [String]) -> Status {
+        let files = notificationHookPopulation(discovered: discovered, remembered: remembered)
         guard !files.isEmpty else { return .notInstalled }
+        let outstanding = files.filter { settingsMayCarryNotificationHook($0) }.count
+        guard outstanding > 0 else { return .notInstalled }
         let ours = files.filter { settingsCarryNotificationHook($0) }.count
-        if ours == 0 { return .notInstalled }
         guard ours == files.count else { return .broken(L("Not installed for every account")) }
         // Installed everywhere, but at least one of them predates the matcher. Reported as broken
         // rather than as installed so the row offers the repair and "Install all" performs it: the
@@ -252,6 +306,22 @@ extension IntegrationsStore {
         return current == files.count ? .installed : .broken(L("Older version installed"))
     }
 
+    /// What the manifest must say after an install over `files`: the paths just written, plus every
+    /// path it already remembered, deduplicated by physical file.
+    ///
+    /// A UNION RATHER THAN A REWRITE, because the two lists mean different things. What is
+    /// discoverable today is what this press just registered; what the record already held may
+    /// include a path a removal pass could not finish, and it is the only thing that knows where
+    /// that file is. Overwriting dropped it for good - the hook stayed in a settings.json calling a
+    /// subcommand, with nothing left anywhere that could lead a later press back to it. Nil when
+    /// there is nothing at all to record, which is how the entry is cleared.
+    static func notificationHookManifestPaths(installed files: [URL],
+                                              remembered: [String]) -> [String]? {
+        let paths = notificationHookSettingsFiles(discovered: files, remembered: remembered)
+            .map(\.path)
+        return paths.isEmpty ? nil : paths
+    }
+
     func installNotificationHook() {
         guard guardNotDev() else { return }
         lastError = nil
@@ -261,8 +331,13 @@ extension IntegrationsStore {
                 _ = try Self.upsertNotificationHook(in: file,
                                                     command: Self.notificationHookCommand)
             }
+            // The union with what is already recorded, never a rewrite of it: this press may be the
+            // one AFTER a removal that could not finish, and the paths it could not finish are the
+            // retry list (`notificationHookManifestPaths` says what forgetting one costs).
             recordManifest(Self.notificationHookManifest,
-                           paths: files.isEmpty ? nil : files.map(\.path))
+                           paths: Self.notificationHookManifestPaths(
+                               installed: files,
+                               remembered: Self.manifestPaths(Self.notificationHookManifest)))
         } catch {
             lastError = error.localizedDescription
         }

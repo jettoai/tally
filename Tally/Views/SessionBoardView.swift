@@ -27,8 +27,9 @@ enum SessionFilter: String, CaseIterable, Identifiable {
 ///
 /// CARDS RATHER THAN ROWS, because what is worth saying about a session does not fit on a line: the
 /// account and model serving it, the effort it is running at, how big the conversation has grown,
-/// how long ago it last moved, and - for one that is waiting - the WHOLE of what it is waiting for.
-/// A wait nobody can read is a wait nobody answers, which is the entire point of the board.
+/// how long ago it last moved, and - for one that is waiting - what it is waiting for, in words, on
+/// the card. A wait nobody can read is a wait nobody answers, which is the entire point of the
+/// board; the whole sentence is a hover away when the card's line runs out (`sessionTooltip`).
 ///
 /// AND EVERY LIVE SESSION GETS ONE, including a supervisor too old to publish a state: the sidecars
 /// it does write still name its account, its model and its conversation (`SessionSidecar`), so it
@@ -41,7 +42,7 @@ extension PopoverRootView {
     /// quieter than the others" at a glance, not so far that its own text stops being legible -
     /// the card is still the way to that terminal.
     private static let quietCardOpacity: Double = 0.55
-    /// The narrowest a paired card may be laid out at, which is what decides how many fit. Measured
+    /// The narrowest a card may be laid out at, which is what decides how many fit. Measured
     /// against the longest line these cards actually carry - an account, a model id and an effort
     /// word ("Claude 5 · claude-fable-5 · high") - so a two-column panel seats the identity line
     /// rather than truncating every card on the page. It also fixes the column counts: the
@@ -52,10 +53,6 @@ extension PopoverRootView {
     var sessionsPage: some View {
         let roster = SessionRosterStore.shared
         let listed = roster.rows.filter { tabState.sessionFilter == .all || $0.isReporting }
-        // Split once, in the order the page draws: what is waiting takes the width, everything else
-        // pairs up below it.
-        let waiting = listed.filter { $0.state == .blocked }
-        let paired = listed.filter { $0.state != .blocked }
         VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
             if roster.rows.isEmpty {
                 sessionsEmptyState(L("No supervised sessions are running"))
@@ -68,22 +65,27 @@ extension PopoverRootView {
                     // having lost the sessions the summary above is still counting.
                     sessionsEmptyState(L("No sessions are reporting yet"))
                 } else {
-                    // THE WAITING ONES TAKE THE WHOLE WIDTH, at the top, and that is hierarchy
-                    // rather than waste: a card asking for somebody is the reason this page exists,
-                    // and it is the only one carrying a sentence to read (`sessionReason`).
-                    ForEach(waiting) { row in
-                        sessionCard(row, wide: true)
-                    }
-                    // Everything else pairs up. Adaptive rather than a fixed count so one layout
-                    // serves all three hosts: a single-column panel seats one, the two-column panel
-                    // seats two, and the dashboard window seats as many as it is dragged wide
-                    // enough for - the same "ask the display, not the setting" rule the account
-                    // grid's auto mode follows.
+                    // ONE GRID, AND EVERY CARD THE SAME SIZE IN IT, the waiting ones included. A
+                    // waiting card used to take the whole width, which read as hierarchy and cost
+                    // more than it bought: beside a column of paired cards it was a band across the
+                    // page, and a board with three of them was mostly one shape repeated. What makes
+                    // it the card to look at is its red dot, its state in words and its own line
+                    // saying what it waits for - not its width.
+                    //
+                    // THE ORDER IS THE STORE'S (`SessionRosterStore.sorted`, asserted there): what
+                    // needs somebody first, so the waiting cards still fill the top of the grid.
+                    //
+                    // Adaptive rather than a fixed count so one layout serves all three hosts: a
+                    // single-column panel seats one, the two-column panel seats two, and the
+                    // dashboard window seats as many as it is dragged wide enough for - the same
+                    // "ask the display, not the setting" rule the account grid's auto mode follows.
+                    // Cells align to the TOP, which is what lets a waiting card carry a fourth line
+                    // without stretching the three-line cards beside it.
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.compactCardWidth),
                                                  spacing: 8, alignment: .top)],
                               spacing: 8) {
-                        ForEach(paired) { row in
-                            sessionCard(row, wide: false)
+                        ForEach(listed) { row in
+                            sessionCard(row)
                         }
                     }
                 }
@@ -149,10 +151,16 @@ extension PopoverRootView {
         .foregroundStyle(count > 0 ? colour : Color.secondary.opacity(0.5))
     }
 
-    /// One session. `wide` is the waiting card's form, which keeps the state word and the whole of
-    /// what it is waiting for; every other card is one cell of the grid and says the same things in
-    /// three lines, with the state carried by its dot and named in the tooltip.
-    private func sessionCard(_ row: SessionRosterStore.SessionRow, wide: Bool) -> some View {
+    /// Whether this is the card that is ASKING for somebody, which is the only difference left
+    /// between two of them. It names its state in words, ticks the age of the wait on its first
+    /// line, and carries a fourth line saying what the wait is; everything else about it - its
+    /// cell, its width, its other three lines - is what every card has.
+    private func sessionIsWaiting(_ row: SessionRosterStore.SessionRow) -> Bool {
+        row.state == .blocked
+    }
+
+    /// One session, one cell of the grid.
+    private func sessionCard(_ row: SessionRosterStore.SessionRow) -> some View {
         Button {
             // Detached from the press: the jump can stop for up to two minutes inside the system's
             // "may Tally control this app" question the first time, and the panel must not be
@@ -161,22 +169,23 @@ extension PopoverRootView {
                                            childPid: row.childPid) }
         } label: {
             VStack(alignment: .leading, spacing: 3) {
-                sessionCardHeadline(row, wide: wide)
+                sessionCardHeadline(row)
                 if let identity = sessionIdentityLine(row) {
                     Text(identity).font(.caption2).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.tail)
                 }
-                sessionStats(row, wide: wide)
+                sessionStats(row)
                 if let reason = sessionReason(row) {
-                    // WRAPPED RATHER THAN TRUNCATED, which is the whole reason this moved out of the
-                    // Usage tab: a permission request names a command, and a command cut off at the
-                    // width of a strip is the half that says nothing. It is also why the waiting
-                    // card is the one that takes the full width.
+                    // A FOURTH LINE, AND ONE LINE. It is the sentence that says what the wait is,
+                    // and it earns its place on the card: red, under the stats, where a glance at
+                    // the grid finds it. It does not earn the card's WIDTH - a permission request
+                    // names a command, and the whole of one is in the tooltip, which is where a
+                    // card in a grid keeps what it cannot fit.
                     Text(reason)
                         .font(.caption2)
                         .foregroundStyle(TallyColor.critical)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                         .padding(.top, 1)
                 }
             }
@@ -194,20 +203,21 @@ extension PopoverRootView {
         .tallyTooltip(sessionTooltip(row))
     }
 
-    /// The card's first line: what this session is, and - on the waiting card, which has the room -
-    /// what it is doing and for how long. On a grid card the name takes the whole line and truncates
-    /// at the tail: two of these sit side by side, and a name squeezed between two other things is
-    /// how a column of cards stops being scannable.
-    private func sessionCardHeadline(_ row: SessionRosterStore.SessionRow,
-                                     wide: Bool) -> some View {
+    /// The card's first line: what this session is, and - on the waiting card - what it is doing and
+    /// for how long. Every other card gives the whole line to the name, which truncates at the tail:
+    /// these sit side by side, and a name squeezed between two other things is how a column of cards
+    /// stops being scannable. The waiting one spends that room on the two things a wait is read for.
+    private func sessionCardHeadline(_ row: SessionRosterStore.SessionRow) -> some View {
         HStack(spacing: 6) {
             stateDot(row)
             Text(row.title).font(.callout).lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 6)
-            if wide {
-                Text(row.isReporting ? L(row.state.rawValue) : L("not reporting"))
+            if sessionIsWaiting(row) {
+                // Reporting, and red, without asking: `blocked` can only come from a published
+                // record (`SessionRow.state`), so the card carrying this word always has one.
+                Text(L(row.state.rawValue))
                     .font(.caption2)
-                    .foregroundStyle(row.state == .blocked ? TallyColor.critical : .secondary)
+                    .foregroundStyle(TallyColor.critical)
                 sessionDuration(row)
             }
         }
@@ -254,12 +264,12 @@ extension PopoverRootView {
     /// store assigns nothing on a tick that finds the board unchanged, so an age computed in the
     /// body would sit frozen at whatever it said when the surface opened.
     @ViewBuilder
-    private func sessionStats(_ row: SessionRosterStore.SessionRow, wide: Bool) -> some View {
+    private func sessionStats(_ row: SessionRosterStore.SessionRow) -> some View {
         let context = row.contextTokens
             .map { UsageFormat.compactCount(Int64($0)) + " " + L("context") }
-        if sessionTime(row, wide: wide, now: .now) != nil {
+        if sessionTime(row, now: .now) != nil {
             TimelineView(.periodic(from: .now, by: 2)) { tick in
-                statsText(joined([context, sessionTime(row, wide: wide, now: tick.date)]))
+                statsText(joined([context, sessionTime(row, now: tick.date)]))
             }
         } else {
             statsText(context)
@@ -274,13 +284,12 @@ extension PopoverRootView {
         }
     }
 
-    /// The time this card has room to say. A grid card has no state word and no duration on its
+    /// The time this card has room to say. An ordinary card has no state word and no duration on its
     /// first line, so its own duration comes here; the waiting card already ticks one up there and
     /// spends this slot on when the conversation last MOVED instead. A session publishing no state
     /// has no duration to give either way, and answers the same question the only way it can.
-    private func sessionTime(_ row: SessionRosterStore.SessionRow, wide: Bool,
-                             now: Date) -> String? {
-        if !wide, let since = row.since { return sessionAge(since, now: now) }
+    private func sessionTime(_ row: SessionRosterStore.SessionRow, now: Date) -> String? {
+        if !sessionIsWaiting(row), let since = row.since { return sessionAge(since, now: now) }
         return row.lastActivity.map { sessionAge($0, now: now) + " " + L("ago") }
     }
 
@@ -295,20 +304,25 @@ extension PopoverRootView {
     /// said at the moment it asked, and a sentence still standing under a session that has moved on
     /// would be worse than no sentence at all.
     private func sessionReason(_ row: SessionRosterStore.SessionRow) -> String? {
-        guard row.state == .blocked,
+        guard sessionIsWaiting(row),
               let reason = row.reason?.trimmingCharacters(in: .whitespacesAndNewlines),
               !reason.isEmpty else { return nil }
         return reason
     }
 
-    /// What the card cannot show: the state IN WORDS - a grid card gives that line to the name and
-    /// leaves the colour to say it - the checkout in full, and what a click does. The reason is not
-    /// here: the card that has one states it on a line of its own, and a callout repeating it under
-    /// the pointer is noise.
+    /// What the card cannot show: the state IN WORDS - an ordinary card gives that line to the name
+    /// and leaves the colour to say it - the WHOLE of what a waiting session is waiting for, the
+    /// checkout in full, and what a click does.
+    ///
+    /// The reason is here because the card's own line is one line now: a permission request names a
+    /// command, and a command cut off at the width of a cell is the half that says nothing. A wait
+    /// nobody can read is a wait nobody answers, so the full sentence has to be somewhere, and under
+    /// the pointer is where a card in a grid keeps what it cannot fit.
     private func sessionTooltip(_ row: SessionRosterStore.SessionRow) -> String {
         var lines = [row.title,
-                     row.isReporting ? L(row.state.rawValue) : L("not reporting"),
-                     L("Click to bring its terminal to the front")]
+                     row.isReporting ? L(row.state.rawValue) : L("not reporting")]
+        if let reason = sessionReason(row) { lines.append(reason) }
+        lines.append(L("Click to bring its terminal to the front"))
         if let directory = row.directory { lines.append(directory) }
         return lines.filter { !$0.isEmpty }.joined(separator: "\n")
     }

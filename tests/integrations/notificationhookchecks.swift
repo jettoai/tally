@@ -190,6 +190,33 @@ func runNotificationHookChecks(tmp: URL) throws {
     check("the manifest component is spelled once, so the install and the removal agree",
           IntegrationsStore.notificationHookManifest == "claudeNotificationHook")
 
+    // A REMOVAL PASS THAT FAILS HALFWAY, which is the case the manifest is a RETRY LIST for. The
+    // record is the only thing that can lead a later press back to a settings.json the discovery
+    // cannot see any more, so forgetting it because SOME OTHER file failed would strand the hook it
+    // names: it stays on disk calling a subcommand, and nothing ever comes for it again.
+    let cleared = tmp.appendingPathComponent("cleared-home-settings.json")
+    try JSONSerialization.data(withJSONObject:
+        ["hooks": ["Notification": [IntegrationsStore.notificationHookEntry(command: ours)]]])
+        .write(to: cleared)
+    // Bytes that are there and do not parse: the one document `editSettings` refuses to touch, so
+    // this file goes through the pass without losing its hook - exactly the shape a home that has
+    // become unreadable has.
+    let refused = tmp.appendingPathComponent("unreadable-home-settings.json")
+    try Data("{ this is not json".utf8).write(to: refused)
+    let halfway = IntegrationsStore.removeNotificationHook(from: [cleared, refused])
+    check("a removal that could not finish keeps the failed path, and only that one",
+          halfway.remembered == [refused.path] && halfway.failure != nil)
+    check("…while the file it did reach really lost the hook",
+          (((try? JSONSerialization.jsonObject(with: Data(contentsOf: cleared)))
+              as? [String: Any])?["hooks"]) == nil)
+    check("…and the refused file was left exactly as it was",
+          (try? String(contentsOf: refused, encoding: .utf8)) == "{ this is not json")
+    // The other direction, which is the behaviour that must SURVIVE the fix: a pass where every
+    // file was dealt with remembers nothing, so the manifest entry goes.
+    let finished = IntegrationsStore.removeNotificationHook(from: [cleared])
+    check("a pass that finished remembers nothing at all",
+          finished.remembered == nil && finished.failure == nil)
+
     // THE REFUSAL, which every write into this file is under: a document we cannot read is left
     // exactly as it is. The only safe edit to a shape nobody understands is none.
     check("a hooks block of the wrong shape is refused rather than replaced",

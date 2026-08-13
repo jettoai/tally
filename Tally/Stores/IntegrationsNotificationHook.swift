@@ -158,6 +158,31 @@ extension IntegrationsStore {
         try editSettings(file) { settingsWithoutNotificationHook($0) }
     }
 
+    /// One removal pass, and WHAT THE MANIFEST MUST SAY AFTER IT: the paths still carrying our hook
+    /// (nil when the pass finished), plus the first failure. Every file is attempted whatever any
+    /// other one did - a home that has become unreadable must not leave the registrations after it
+    /// in place.
+    ///
+    /// THE MANIFEST IS A RETRY LIST, which is what this return value is for. It is the only record
+    /// that a settings.json the discovery can no longer see was ever written to
+    /// (`notificationHookSettingsFiles`), so clearing it after a pass that failed halfway would put
+    /// that file out of reach for good: the hook stays on disk calling a subcommand, and the next
+    /// press does not even try. What was cleared leaves; what threw stays.
+    ///
+    /// Pure over the files it is handed, so that contract can be asserted without logged-in homes
+    /// on whichever machine runs the assertions.
+    static func removeNotificationHook(from files: [URL]) -> (remembered: [String]?, failure: Error?) {
+        var remembered: [String] = []
+        var failure: Error?
+        for file in files {
+            do { try removeNotificationHook(in: file) } catch {
+                failure = failure ?? error
+                remembered.append(file.path)
+            }
+        }
+        return (remembered.isEmpty ? nil : remembered, failure)
+    }
+
     /// Whether a settings.json carries our hook at all. What DETECTION asks, deliberately ignoring
     /// which path the command points at: an entry that is stale is still installed, and the install
     /// repairs the path in place - the same distinction the prompt hook draws, and what stops a dev
@@ -247,17 +272,14 @@ extension IntegrationsStore {
     func removeNotificationHook() {
         guard guardNotDev() else { return }
         lastError = nil
-        // Over the union rather than over what is discoverable now (see
-        // `notificationHookSettingsFiles`), and EVERY file is attempted even if one throws: a home
-        // that has become unreadable must not leave the registrations after it in place, and the
-        // first failure is the one reported. The manifest entry is cleared regardless, because it
-        // records the install's intent and that intent is over.
-        var failure: Error?
-        for file in Self.notificationHookSettingsFiles() {
-            do { try Self.removeNotificationHook(in: file) } catch { failure = failure ?? error }
-        }
-        recordManifest(Self.notificationHookManifest, paths: nil)
-        lastError = failure?.localizedDescription
+        // Over the union rather than over what is discoverable now, and every file is attempted even
+        // if one throws (see `removeNotificationHook(from:)`, which also decides what the manifest
+        // keeps). The entry goes only when the pass actually finished: a file that threw still
+        // carries our hook, and this record is the only thing that can lead the next press back to
+        // it.
+        let pass = Self.removeNotificationHook(from: Self.notificationHookSettingsFiles())
+        recordManifest(Self.notificationHookManifest, paths: pass.remembered)
+        lastError = pass.failure?.localizedDescription
         refresh()
     }
 }

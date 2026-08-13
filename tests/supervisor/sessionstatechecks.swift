@@ -355,7 +355,117 @@ func runSessionStateChecks() {
           ordered.map(\.state) == [.blocked, .working, .idle, .unknown])
     let aged = SessionRosterStore.sorted([row(.working, 100), row(.working, 0), row(.working, 50)])
     check("inside a state the oldest wait leads",
-          aged.map(\.since) == [t0, t0.addingTimeInterval(50), t0.addingTimeInterval(100)])
+          aged.compactMap(\.since) == [t0, t0.addingTimeInterval(50), t0.addingTimeInterval(100)])
+    // A SESSION THAT HAS PUBLISHED NOTHING SITS BELOW ALL FOUR STATES, unknown included: "running,
+    // with nothing to say yet" is a reading, and this is the absence of one. It is on the board all
+    // the same - a card of its own rather than a number - so the order has to place it.
+    let silent = SessionRosterStore.SessionRow(id: "silent", record: nil,
+                                               session: SessionSidecar(updatedAt: t0),
+                                               cwd: "/Users/u/code/atlas")
+    check("a session with no reading at all comes after the ones that have one",
+          SessionRosterStore.sorted([silent, row(.unknown, 0), row(.blocked, 0)])
+              .map(\.id) == ["blocked-0.0", "unknown-0.0", "silent"])
+    check("…and is named after the directory it runs in, having published no project",
+          silent.title == "atlas")
+    check("…and reports itself as the one thing it knows: not reporting",
+          !silent.isReporting && silent.state == .unknown)
+
+    // MARK: the sidecars the board reads beside the state
+
+    // THE SUFFIXES ARE SPELLED IN TWO PLACES, and this is what stops them drifting: the app cannot
+    // compile the supervisor's own file (project.yml says why), so the panel carries a reader's
+    // copy of these names. A rename on the writer's side with no answer here is a board that
+    // silently loses every account, model and token figure it draws.
+    check("the panel reads the context file the supervisor writes",
+          SessionSidecar.contextSuffix == sessionContextSuffix)
+    check("…the directory file", SessionSidecar.cwdSuffix == supervisorCwdSuffix)
+    check("…and the child file", SessionSidecar.childSuffix == supervisorChildSuffix)
+
+    // Round-tripped through the REAL writer, so the fields are asserted against what is actually on
+    // disk rather than against a fixture written to match the reader.
+    let published = SupervisedSession(accountID: "claude:.claude5", contextTokens: 229_317,
+                                      updatedAt: t0, sessionPin: nil,
+                                      axes: SessionAxes(pinnedModel: nil, pinnedEffort: "xhigh",
+                                                        observedModel: "claude-fable-5",
+                                                        runningModel: "fable",
+                                                        runningEffort: "high"),
+                                      transcript: "abc-123")
+    writeSessionContext(published, pid: "9201", dir: dir)
+    let read = SessionSidecar.read(pid: "9201", dir: dir)
+    check("a context reading written by the supervisor is read back whole",
+          read?.accountID == "claude:.claude5" && read?.contextTokens == 229_317
+              && read?.updatedAt == t0)
+    check("…with both model answers, so the card can prefer the observed one",
+          read?.observedModel == "claude-fable-5" && read?.runningModel == "fable")
+    check("…and both effort answers, so a pin outranks what is merely running",
+          read?.sessionEffort == "xhigh" && read?.runningEffort == "high")
+    let joined = SessionRosterStore.SessionRow(id: "9201", record: nil, session: read)
+    check("the card prefers the model it was SEEN answering with", joined.model == "claude-fable-5")
+    check("…and the effort somebody pinned over the one the child was launched with",
+          joined.effort == "xhigh")
+    // Additive in both directions: a document from before these axes existed, and one from after a
+    // field this build has never heard of was added, both have to read rather than be rejected.
+    try? Data(#"{"accountID":"claude:.claude","contextTokens":12,"updatedAt":"2026-08-13T10:00:00Z"}"#.utf8)
+        .write(to: dir.appendingPathComponent("9202" + SessionSidecar.contextSuffix))
+    let old = SessionSidecar.read(pid: "9202", dir: dir)
+    check("a reading from before the axes existed still reads, with nothing to say about them",
+          old?.contextTokens == 12 && old?.observedModel == nil && old?.runningEffort == nil)
+    try? Data(#"{"contextTokens":5,"updatedAt":"2026-08-13T10:00:00.250Z","somethingNew":true}"#.utf8)
+        .write(to: dir.appendingPathComponent("9203" + SessionSidecar.contextSuffix))
+    check("a field this build never heard of is ignored rather than fatal",
+          SessionSidecar.read(pid: "9203", dir: dir)?.contextTokens == 5)
+    // And the stamp in the form the rest of this track moved to on 2026-08-13: rejecting it would
+    // lose the whole reading, which is exactly the failure the state word's string type avoids.
+    check("…and a stamp carrying fractional seconds is read rather than refused",
+          SessionSidecar.read(pid: "9203", dir: dir)?.updatedAt
+              == Date(timeIntervalSince1970: 1_786_615_200.25))
+    // A file that is not a document reads as no document, like every other best-effort read here.
+    try? Data("half a jso".utf8)
+        .write(to: dir.appendingPathComponent("9204" + SessionSidecar.contextSuffix))
+    check("a corrupt reading reads as none rather than taking the card down",
+          SessionSidecar.read(pid: "9204", dir: dir) == nil)
+    check("…and so does one that was never written",
+          SessionSidecar.read(pid: "9205", dir: dir) == nil)
+    // A zero is not a measurement: the figure comes off an assistant turn's own usage, so nothing
+    // but "no turn yet" produces one, and a card drawing "0" would state a reading nobody took.
+    check("a session with no turn yet has no context figure to draw",
+          SessionRosterStore.SessionRow(id: "x", record: nil,
+                                        session: SessionSidecar(contextTokens: 0))
+              .contextTokens == nil)
+
+    // The directory sidecar, which is where a card with no published project gets its name and the
+    // jump gets its match.
+    writeSupervisorCwd(dir.path, pid: "9206", dir: dir)
+    // Against the writer's own resolution rather than against the path handed in: it publishes a
+    // realpath, which on a temp directory is a different string from the one this harness holds.
+    check("the directory a supervisor published is read back",
+          SessionSidecar.readCwd(pid: "9206", dir: dir) == realpathString(dir.path))
+    try? Data("  \n".utf8).write(to: dir.appendingPathComponent("9207" + SessionSidecar.cwdSuffix))
+    check("a write that got as far as the file and no further says nothing",
+          SessionSidecar.readCwd(pid: "9207", dir: dir) == nil)
+
+    // The child sidecar: the fallback the terminal jump uses for a session whose state record
+    // cannot name one. A DEAD pid is not an answer - it names a process that has exited, and the
+    // jump would match nothing rather than falling through to the directory.
+    writeSupervisorChild(getpid(), pid: "9208", dir: dir)
+    check("a live child is offered to the jump",
+          SessionSidecar.readChildPid(pid: "9208", dir: dir) == Int(getpid()))
+    writeSupervisorChild(999_999, pid: "9209", dir: dir)
+    check("a pid that has exited is not", SessionSidecar.readChildPid(pid: "9209", dir: dir) == nil)
+    check("…and neither is a file holding something that is not a pid at all",
+          { try? Data("not a pid".utf8)
+              .write(to: dir.appendingPathComponent("9210" + SessionSidecar.childSuffix))
+            return SessionSidecar.readChildPid(pid: "9210", dir: dir) == nil }())
+    // The record's own child is the vetted one (the supervisor publishes it only while it can prove
+    // it), so it wins wherever there is one; the sidecar is what reaches a session too old to
+    // publish a state at all.
+    let both = SessionRosterStore.SessionRow(
+        id: "9211",
+        record: SessionStateRecord(state: "idle", since: t0, updatedAt: t0, childPid: 111),
+        child: 222)
+    check("the published child outranks the sidecar", both.childPid == 111)
+    check("…and the sidecar is what a session with no record jumps by",
+          SessionRosterStore.SessionRow(id: "9212", record: nil, child: 222).childPid == 222)
 
     // MARK: the row's own name
 

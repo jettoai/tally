@@ -14,6 +14,10 @@ enum NeutralSegmentedSize {
     var font: Font { .system(size: self == .mini ? 9 : 11) }
     var sidePadding: CGFloat { self == .mini ? 7.5 : 9 }
     var radius: CGFloat { self == .mini ? 5 : 6 }
+    /// The attention dot's diameter (see `badged`). A shade under the state dots the session board
+    /// draws at 7pt: this one sits in the corner of a 16pt chip, where the same size would read as
+    /// a second control rather than as a mark on a tab.
+    var badgeDot: CGFloat { self == .mini ? 5 : 6 }
 }
 
 /// A segmented control that stays grey whatever the window is doing. AppKit's own draws its selection
@@ -38,6 +42,14 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
     /// standing in the middle of that surface's grab strip; the footer's and the token view's own
     /// copies are surrounded by draggable space already and would gain nothing.
     var dragsWindow = false
+    /// Which segments carry an attention dot: something on that page wants somebody, said without
+    /// making them open it (the panel's tab switch marks the session board when a session is
+    /// blocked). Nothing by default, so the copies that have nothing to report are unchanged.
+    ///
+    /// Drawn as an OVERLAY on purpose: a badge must never change what this control measures. The
+    /// header's fit test decides whether the clock still fits from this row's width, so a dot that
+    /// took layout space would move the clock in and out as sessions came and went.
+    var badged: (Value) -> Bool = { _ in false }
     let label: (Value) -> String
 
     @Environment(\.controlActiveState) private var activeState
@@ -167,6 +179,17 @@ struct NeutralSegmentedPicker<Value: Hashable>: View {
             .background(shape(radius: size.radius - 1)
                 .fill(fillColor(option, selected: isSelected))
                 .padding(1))
+            // Inside the chip's own corner rather than over its edge: the row is 16pt tall on the
+            // panel's header and a dot hanging off it would be clipped by the surface above.
+            .overlay(alignment: .topTrailing) {
+                if badged(option) {
+                    Circle()
+                        .fill(TallyColor.critical)
+                        .frame(width: size.badgeDot, height: size.badgeDot)
+                        .padding(.top, 1.5)
+                        .padding(.trailing, 1.5)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

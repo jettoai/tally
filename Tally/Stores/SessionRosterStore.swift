@@ -10,10 +10,11 @@ import Observation
 ///
 /// WHEN IT SCANS, which is the whole of its cost story:
 ///
-///   - While a surface is on screen, every 2 seconds. A directory listing plus one small file per
-///     session is what a scan costs. NOT what makes the durations column tick: a scan that finds
+///   - While a surface is on screen, every 2 seconds. A directory listing plus a handful of small
+///     files per session is what a scan costs (the state reading, and the three sidecars beside it
+///     - see `SessionSidecar`). NOT what makes the durations column tick: a scan that finds
 ///     the board unchanged assigns nothing on purpose (see `refresh`), so the age text is driven by
-///     a timeline in the view instead (`SessionSectionView`).
+///     a timeline in the view instead (`SessionBoardView`).
 ///   - On the supervisors' knock, always, panel or no panel. That is what keeps the menu bar's
 ///     blocked dot honest while every window is closed: a state change posts
 ///     `sessionStateChangedNotification`, and the dot is the one reader that cannot wait for
@@ -26,14 +27,18 @@ import Observation
 final class SessionRosterStore {
     static let shared = SessionRosterStore()
 
-    /// The board, sorted (see `sorted`). Empty means nothing is running, which is what the panel
-    /// renders as no section at all.
+    /// The board, sorted (see `sorted`). EVERY LIVE SESSION IS ON IT, including the ones whose
+    /// supervisor has published no state - a build older than this feature, or one in the two
+    /// seconds between registering and its first tick. They are drawn as their own quiet kind of
+    /// card rather than summarized as a number, for the reason `reloadLegacyNotice` exists one
+    /// question over: the sessions are running, and a board that reduced them to a count would be
+    /// naming a number the user cannot act on. What they still know about themselves comes from the
+    /// sidecars beside the state file (`SessionSidecar`).
     private(set) var rows: [SessionRow] = []
-    /// Live sessions whose supervisor has published no state: one from a build older than this
-    /// feature, or one in the two seconds between registering and its first tick. COUNTED RATHER
-    /// THAN DROPPED, for the reason `reloadLegacyNotice` exists one question over: the sessions are
-    /// running, and a board that silently omitted them would be under-reporting rather than quiet.
-    private(set) var notReporting = 0
+
+    /// How many of them cannot say what they are doing. Derived rather than stored: it is a reading
+    /// of the same rows, and two places holding it would be two places to disagree.
+    var notReporting: Int { rows.filter { !$0.isReporting }.count }
 
     /// Called after every change that a reader outside SwiftUI has to act on: the menu bar's
     /// blocked dot, which is drawn imperatively (`StatusItemController.updateButton`).
@@ -47,39 +52,101 @@ final class SessionRosterStore {
 
     private init() {}
 
-    /// One session's row: the reading its supervisor published, plus the identity a list needs.
+    /// One session's row: the reading its supervisor published, the sidecars beside it, and the
+    /// identity a list needs.
     ///
     /// THE RECORD IS CARRIED WHOLE rather than copied out field by field, which is the difference
     /// between a field added to the contract appearing here for free and a field added to the
     /// contract being silently dropped by a mapping nobody remembered to extend.
+    ///
+    /// AND IT IS OPTIONAL, because the session is not: a supervisor too old to publish a state is
+    /// running all the same, and the sidecars it DOES write still say which account it is on, what
+    /// it is running and how big the conversation is. Every accessor below therefore reads "what is
+    /// known" rather than "what the state file said", and falls back rather than going blank.
     struct SessionRow: Identifiable, Equatable {
         /// The supervisor pid, as a string. Stable for the life of the session, which is what makes
         /// it the row's identity across refreshes.
         let id: String
-        let record: SessionStateRecord
+        /// What this session published about what it is DOING, or nil when it has published none.
+        let record: SessionStateRecord?
+        /// The context reading beside it (`<pid>.session`), which older supervisors write too.
+        var session: SessionSidecar?
+        /// The directory this supervisor was started in (`<pid>.cwd`), written once at startup by
+        /// every build that has ever had the file.
+        var cwd: String?
+        /// The Claude Code this supervisor spawned (`<pid>.child`), used only as the fallback the
+        /// state record's own `childPid` normally provides.
+        var child: Int?
 
-        var state: SupervisedState { record.supervised }
-        /// When it entered that state.
-        var since: Date { record.since }
+        /// Whether this session can say what it is doing. The board's fourth group and its quietest
+        /// kind of card.
+        var isReporting: Bool { record != nil }
+        var state: SupervisedState { record?.supervised ?? .unknown }
+        /// When it entered that state, for a session that has published one.
+        var since: Date? { record?.since }
         /// What it is waiting for, while it is waiting.
-        var reason: String? { record.reason }
+        var reason: String? { record?.reason }
         /// The checkout, which is what the terminal jump matches a window against.
-        var directory: String? { record.directory }
-        var accountID: String? { record.accountID }
-        var model: String? { record.model }
-        var childPid: Int? { record.childPid }
+        var directory: String? { record?.directory ?? cwd }
+        var accountID: String? { record?.accountID ?? session?.accountID }
+        /// What is SERVING this session, most trustworthy answer first: the model seen answering
+        /// the last turn, then the one the child was launched with, then whatever the state record
+        /// carried. The order is `SupervisedSession`'s own reasoning - an observation beats a
+        /// request, because a fallback or a `/model` moves the answer without moving the argv.
+        var model: String? {
+            Self.firstAnswer(session?.observedModel, session?.runningModel, record?.model)
+        }
+        /// The effort it is running at: a pin if one was set for this session, otherwise what the
+        /// child is actually running. Absent on a document written before the axis existed, which
+        /// reads as "cannot say" and is simply not drawn.
+        var effort: String? { Self.firstAnswer(session?.sessionEffort, session?.runningEffort) }
+
+        /// The first of these that actually says something. An empty string is not an answer: a
+        /// field written blank by a build that had nothing to put in it must not outrank the one
+        /// behind it that does.
+        private static func firstAnswer(_ candidates: String?...) -> String? {
+            candidates.compactMap { $0 }.first { !$0.isEmpty }
+        }
+        /// How big the conversation is, when a turn has been read. ZERO IS NOT A READING: the
+        /// figure is published from an assistant turn's own usage, so nothing but "no turn yet"
+        /// produces one, and drawing "0" would state a measurement nobody took.
+        var contextTokens: Int? {
+            guard let tokens = session?.contextTokens, tokens > 0 else { return nil }
+            return tokens
+        }
+        /// When that reading was taken, which is the age of the last turn rather than of the poll.
+        var lastActivity: Date? { session?.updatedAt }
+        /// The Claude Code to jump to. The record's is the vetted one (the supervisor publishes it
+        /// only while it can prove it); the sidecar is the fallback that reaches a session too old
+        /// to publish a state at all, checked for liveness and nothing more (see `readChildPid`).
+        var childPid: Int? { record?.childPid ?? child }
 
         /// What the row is called: the repository, with its parallel line beside it. A session in a
-        /// directory git cannot answer for still has a name (`pickProject` guarantees one), so this
-        /// is only ever empty for a supervisor too old to publish any of it.
+        /// directory git cannot answer for still has a name (`pickProject` guarantees one), so the
+        /// published pair is used whenever there is one; a supervisor that published neither is
+        /// named after the directory it runs in, which is the same name by another route.
         var title: String {
-            guard let project = record.project, !project.isEmpty else { return record.worktree ?? "" }
-            guard let worktree = record.worktree, !worktree.isEmpty else { return project }
-            return project + pickEffortSeparator + worktree
+            let published = [record?.project, record?.worktree]
+                .compactMap { $0 }.filter { !$0.isEmpty }
+            guard published.isEmpty else {
+                return published.joined(separator: pickEffortSeparator)
+            }
+            return cwd.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
         }
     }
 
-    var blockedCount: Int { rows.filter { $0.state == .blocked }.count }
+    /// How many sessions are in each state, over the WHOLE board: what the page's summary says, and
+    /// deliberately not filtered by what the page is currently listing (a count that moved with the
+    /// filter would be answering a different question than the one it is read for).
+    var blockedCount: Int { count(.blocked) }
+    var workingCount: Int { count(.working) }
+    var idleCount: Int { count(.idle) }
+
+    /// Reporting only: a session that cannot say what it is doing is not idle, and counting it as
+    /// any of the three would be inventing the reading its absence IS.
+    private func count(_ state: SupervisedState) -> Int {
+        rows.filter { $0.isReporting && $0.state == state }.count
+    }
 
     // MARK: Lifecycle
 
@@ -123,38 +190,138 @@ final class SessionRosterStore {
     // MARK: The scan
 
     func refresh() {
-        let live = liveSessionStates()
-        let rows = Self.sorted(live.compactMap(Self.row))
-        let missing = live.count - rows.count
+        let rows = Self.sorted(liveSessionStates().map(Self.row))
         // Nothing changed is the ordinary tick, and assigning anyway would re-render every surface
         // twice a second for a board that is standing still.
-        guard rows != self.rows || missing != notReporting else { return }
+        guard rows != self.rows else { return }
         self.rows = rows
-        notReporting = missing
         onChange?()
     }
 
-    private static func row(_ live: LiveSessionState) -> SessionRow? {
-        live.record.map { SessionRow(id: String(live.supervisorPid), record: $0) }
+    /// One live session, joined with everything beside it on disk. Nothing here is required: a
+    /// session with no state, no context reading and no directory is still a session, and reads as
+    /// a card that knows only that it is running.
+    private static func row(_ live: LiveSessionState) -> SessionRow {
+        let pid = String(live.supervisorPid)
+        return SessionRow(id: pid, record: live.record,
+                          session: SessionSidecar.read(pid: pid),
+                          cwd: SessionSidecar.readCwd(pid: pid),
+                          child: SessionSidecar.readChildPid(pid: pid))
     }
 
     /// The board's order: what needs somebody first, then what is moving, then what is not, then
-    /// what cannot say. Within a state the OLDEST leads, because the age of the wait is the thing
-    /// worth acting on and a list that reordered itself as sessions ticked would be unreadable.
+    /// what cannot say, and last of all what cannot say ANYTHING. Within a group the OLDEST leads,
+    /// because the age of the wait is the thing worth acting on and a list that reordered itself as
+    /// sessions ticked would be unreadable.
     /// `nonisolated` because it is a pure function of what it is handed and nothing else, which is
     /// also what lets the assertion harness state the order without an app around it.
     nonisolated static func sorted(_ rows: [SessionRow]) -> [SessionRow] {
         rows.sorted {
-            rank($0.state) != rank($1.state) ? rank($0.state) < rank($1.state) : $0.since < $1.since
+            rank($0) != rank($1) ? rank($0) < rank($1) : ordinal($0) < ordinal($1)
         }
     }
 
-    nonisolated private static func rank(_ state: SupervisedState) -> Int {
-        switch state {
+    /// A session that has published nothing sits below all four states rather than among the
+    /// unknowns: "running, with nothing to say about it yet" is a reading, and this is the absence
+    /// of one.
+    nonisolated private static func rank(_ row: SessionRow) -> Int {
+        guard row.isReporting else { return 4 }
+        switch row.state {
         case .blocked: return 0
         case .working: return 1
         case .idle: return 2
         case .unknown: return 3
         }
+    }
+
+    /// What a row is aged by inside its group: when it entered its state, or - for one that has
+    /// published no state - when it last had a turn. Neither is known for a session that has
+    /// published nothing at all, and those sort as the oldest, which is what they are: a supervisor
+    /// with no files beside it has been there since before this feature existed.
+    nonisolated private static func ordinal(_ row: SessionRow) -> Date {
+        row.since ?? row.lastActivity ?? .distantPast
+    }
+}
+
+/// THE FILES THE SUPERVISOR WRITES BESIDE ITS STATE, as the panel reads them.
+///
+/// `<pid>.session` is the context reading (`SupervisedSession`, TallyCLI/SessionContext.swift),
+/// `<pid>.cwd` the directory the session runs in and `<pid>.child` the Claude Code it spawned. All
+/// three predate the status board, which is exactly why the board reads them: a supervisor too old
+/// to publish a state still writes these, so a session that cannot say what it is DOING can still
+/// say what it is, where, and how big it has grown.
+///
+/// A SEPARATE DECLARATION FROM THE WRITER'S, deliberately. The app compiles the state record itself
+/// (project.yml says why), but the context reading lives in a file full of supervisor machinery -
+/// transcript scanning, the writer's own change gate - that the app has no business carrying. So
+/// this is a reader's view of that document: every field optional, unknown fields ignored, and the
+/// suffixes asserted against the writer's own constants in `tests/supervisor/sessionstatechecks.swift`
+/// so the two spellings cannot drift apart in silence.
+struct SessionSidecar: Equatable, Decodable {
+    var accountID: String?
+    var contextTokens: Int?
+    var updatedAt: Date?
+    var sessionPin: String?
+    var sessionModel: String?
+    var sessionEffort: String?
+    var observedModel: String?
+    var runningModel: String?
+    var runningEffort: String?
+
+    /// The app's spelling of the three suffixes. Held here rather than typed at each call site, and
+    /// locked to the writer's in the assertions above.
+    static let contextSuffix = ".session"
+    static let cwdSuffix = ".cwd"
+    static let childSuffix = ".child"
+
+    /// A document that cannot be read, or cannot be understood, reads as no document: the board
+    /// simply draws the parts it knows. Same best-effort rule the state reading beside it follows.
+    static func read(pid: String, dir: URL = supervisorStateDir) -> SessionSidecar? {
+        guard let data = try? Data(contentsOf: dir.appendingPathComponent(pid + contextSuffix))
+        else { return nil }
+        let decoder = JSONDecoder()
+        // THE WRITER'S FORM AND ANYTHING NEWER. `.iso8601` alone rejects a stamp carrying fractional
+        // seconds outright, and rejecting is losing the whole reading - the same failure the state
+        // record's string-typed state word exists to avoid, one field over (and the fractional form
+        // is not hypothetical: the user-notice file gained one on 2026-08-13).
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let text = try container.decode(String.self)
+            let forms: [ISO8601DateFormatter.Options] = [
+                [.withInternetDateTime], [.withInternetDateTime, .withFractionalSeconds],
+            ]
+            for options in forms {
+                let parser = ISO8601DateFormatter()
+                parser.formatOptions = options
+                if let date = parser.date(from: text) { return date }
+            }
+            throw DecodingError.dataCorruptedError(in: container,
+                                                   debugDescription: "not an instant: \(text)")
+        }
+        return try? decoder.decode(SessionSidecar.self, from: data)
+    }
+
+    /// The directory this supervisor was started in, or nil when the file is absent or empty (an
+    /// empty one is a write that got as far as the file and no further, which says nothing).
+    static func readCwd(pid: String, dir: URL = supervisorStateDir) -> String? {
+        guard let raw = try? String(contentsOf: dir.appendingPathComponent(pid + cwdSuffix),
+                                    encoding: .utf8) else { return nil }
+        let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return line.isEmpty ? nil : line
+    }
+
+    /// The Claude Code pid this supervisor spawned, IF IT IS STILL RUNNING. A publish that failed
+    /// leaves the previous child's number behind, and a dead pid handed to the terminal jump is a
+    /// click that matches nothing; liveness is what this can check cheaply and it checks exactly
+    /// that. The CLI's own reader (`readSupervisorChild`) additionally proves the process is this
+    /// supervisor's child, which needs the process table - the app settles for less here because
+    /// the cost of being wrong is one fallback, not a wrong decision: the jump falls back to the
+    /// directory match and then to a bare activate.
+    static func readChildPid(pid: String, dir: URL = supervisorStateDir) -> Int? {
+        guard let raw = try? String(contentsOf: dir.appendingPathComponent(pid + childSuffix),
+                                    encoding: .utf8),
+              let child = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let running = pid_t(exactly: child), supervisorAlive(running) else { return nil }
+        return child
     }
 }

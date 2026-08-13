@@ -16,11 +16,20 @@ import AppKit
 /// `StatusItemController.applyPopoverSize`.
 
 /// What a surface is showing. Not a window concept: the popover, the pinned panel and the dashboard
-/// window are all this same view, and all three can be flipped to the token history and back.
+/// window are all this same view, and all three can be flipped to any of its pages and back.
+///
+/// The three answer three different questions and are deliberately not merged: how much quota is
+/// left, where the tokens went, and what is running right now (`SessionBoardView`).
 enum SurfaceTab: String, CaseIterable, Identifiable {
-    case usage, tokens
+    case usage, tokens, sessions
     var id: String { rawValue }
-    var label: String { self == .usage ? L("Usage") : L("Tokens") }
+    var label: String {
+        switch self {
+        case .usage: return L("Usage")
+        case .tokens: return L("Tokens")
+        case .sessions: return L("Sessions")
+        }
+    }
 }
 
 /// Which host is presenting this copy of the surface. The view itself is the same in all three, so
@@ -50,6 +59,10 @@ final class SurfaceTabState {
     /// (`-TallyTokenGraphPreview`, demo and dev builds only) opens on the tab that graph is on
     /// instead, so the capture needs no click to get there - the flag's whole purpose.
     var tab: SurfaceTab = TokenGraphPreview.project == nil ? .usage : .tokens
+    /// Which sessions the board lists (`SessionFilter`). Here for the same reasons the tab is: one
+    /// per host, so narrowing the pinned panel's board does not narrow the popover's, and never
+    /// persisted - it is a question asked while looking, not a preference.
+    var sessionFilter: SessionFilter = .all
 }
 
 struct PopoverRootView: View {
@@ -89,8 +102,9 @@ struct PopoverRootView: View {
     /// so cardLift cleanup keys off its reset instead of trusting onEnded alone.
     @GestureState var isReorderDragActive = false
     /// A need, not a preference - the same rule the glass follows for Reduce Transparency. Every
-    /// animated change on this surface reads it and goes instant.
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// animated change on this surface reads it and goes instant, the extensions' included (the
+    /// session board's filter switch), which is why it is not private.
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     /// The System Settings pane vocabulary: a short crossfade with just enough vertical drift to say
     /// the panel was replaced rather than repainted. Deliberately not a push - a slide would imply
@@ -119,7 +133,7 @@ struct PopoverRootView: View {
                 // too tall for the display, which is the case the cap exists for.
                 header
                 Divider()
-                // A ZStack of two independent conditions, not one if/else: mid-crossfade both views
+                // A ZStack of independent conditions, not one if/else chain: mid-crossfade two views
                 // exist, and stacked they occupy the taller of the two rather than the sum of them.
                 // In a VStack the host would chase a height neither tab has - the surface would
                 // balloon and collapse on every switch.
@@ -129,10 +143,6 @@ struct PopoverRootView: View {
                             launchSummaryStrip
                             fleetStrip
                             advisorStrip
-                            // What is RUNNING, between the fleet's numbers and the accounts they
-                            // belong to (SessionSectionView.swift). Renders nothing when nothing
-                            // is, like the launch strip above it.
-                            sessionsSection
                             // Fully folded WITH nothing left to head the sections skips the card
                             // container entirely: its 12pt padding read as a hollow band between
                             // two dividers (see `showsAccountRegion` - folded sections keep their
@@ -164,6 +174,15 @@ struct PopoverRootView: View {
                         }
                         .frame(width: popoverWidth, alignment: .leading)   // as above
                         .transition(tabTransition)
+                    }
+                    if tab == .sessions {
+                        // WHAT IS RUNNING (SessionBoardView.swift). A page rather than the strip it
+                        // used to be inside the Usage tab: a list of sessions, each with an account,
+                        // a model and possibly a sentence about what it is waiting for, needs the
+                        // width of the surface rather than a band between two other summaries.
+                        ScrollView(.vertical) { sessionsPage }
+                            .frame(width: popoverWidth, alignment: .leading)   // as above
+                            .transition(tabTransition)
                     }
                 }
                 .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: tab)
@@ -214,11 +233,13 @@ struct PopoverRootView: View {
         // next turn and not one moment sooner (`onAppear` itself still reads nil).
         .onAppear { DispatchQueue.main.async { refreshScreenCap() } }
         // The session board polls only while a surface is showing it, and this is that surface
-        // saying so. On the ROOT rather than on the section, because the section renders nothing
-        // when the board is empty: hung there, the polling would never start on a machine whose
-        // sessions all began after the panel was opened, and the board would stay empty for as
-        // long as it was being looked at. Counted on the store's side, so the three hosts closing
-        // one at a time do not stop each other's ticking.
+        // saying so. On the ROOT rather than on the board's own page, and it stays there now that
+        // the board is a tab: the switch in the header carries the blocked dot, so a surface that
+        // is on Usage is still reading the roster - and the poll serves the things that are only
+        // true while somebody is looking (the durations ticking, a session that started after the
+        // panel opened). The knock keeps the dot honest with no surface open at all
+        // (SessionRosterStore), so nothing here is what makes the alert live. Counted on the
+        // store's side, so the three hosts closing one at a time do not stop each other's ticking.
         .onAppear { SessionRosterStore.shared.beginViewing() }
         .onDisappear { SessionRosterStore.shared.endViewing() }
         .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }

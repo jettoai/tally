@@ -216,6 +216,10 @@ extension PopoverRootView {
         switch tab {
         case .usage: Task { await store.refresh(userInitiated: true) }
         case .tokens: tokens.refresh()
+        // The board's own rescan, which is what this button means on that tab: the states on it are
+        // read from the supervisors' files, so re-polling the quota APIs would move nothing on
+        // screen (SessionRosterStore says what a scan costs and when it happens on its own).
+        case .sessions: SessionRosterStore.shared.refresh()
         }
     }
 
@@ -246,17 +250,34 @@ extension PopoverRootView {
     /// Whichever store the visible tab reads from, so the spinner and the disabled state describe
     /// the work the click actually started. The quota poll keeps its own schedule while the Tokens
     /// tab is up, so this is about which one the button is for, not which one is allowed to run.
-    private var isRefreshing: Bool { tab == .tokens ? tokens.isScanning : store.isRefreshing }
+    private var isRefreshing: Bool {
+        switch tab {
+        case .usage: return store.isRefreshing
+        case .tokens: return tokens.isScanning
+        // A board scan is a directory listing and one small file per session, done synchronously
+        // before this could draw anything: there is no in-flight state to report.
+        case .sessions: return false
+        }
+    }
 
     /// Same control the footer uses for the meters, in the same size: two words, both always legible,
     /// so the alternative view advertises itself instead of hiding behind an icon. Sized to its text
     /// and placed before the flexible part of the header, so the clock beside it keeps the width it
     /// reserves for its widest string even in the narrowest single-column panel.
     private var surfaceTabPicker: some View {
-        NeutralSegmentedPicker(selection: $tabState.tab,
-                               options: SurfaceTab.allCases,
-                               size: .mini,
-                               dragsWindow: true) { $0.label }
+        // Read HERE rather than inside the badge closure, so the dependency lands on THIS surface's
+        // body: a session going blocked while the Usage tab is up has to light the switch, and this
+        // is the only read of the roster a surface on any other tab makes.
+        let waiting = SessionRosterStore.shared.blockedCount > 0
+        return NeutralSegmentedPicker(selection: $tabState.tab,
+                                      options: SurfaceTab.allCases,
+                                      size: .mini,
+                                      dragsWindow: true,
+                                      // The same red the board draws a blocked session with, and
+                                      // the menu bar's own dot: three marks, one condition, so they
+                                      // can never disagree about whether somebody is being waited
+                                      // for.
+                                      badged: { $0 == .sessions && waiting }) { $0.label }
             .background { widthProbe { headerWidths.picker = $0 } }
     }
 

@@ -137,6 +137,14 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             warn("\(provider.envKey) was inherited from another session rather than exported by "
                 + "you - ignoring it and choosing the account normally")
         }
+        // "Ignoring it" has to be true of every exec below, not only of the exit that reads the
+        // variable. Two of them hand the child `env: nil` (the bare "no eligible account"
+        // fallbacks), which means THIS process's environment: a leaked home left sitting in it
+        // would run the fallback under the very account the warning above says is being ignored,
+        // and under one whose `--continue` was resolved against the default home - the launcher
+        // deciding against one directory and running in another. Unconditional because unsetting a
+        // variable that is not there is nothing; the warning above is the part that needs the ask.
+        unsetenv(provider.envKey)
         unsetenv(childSessionMarker)
     }
 

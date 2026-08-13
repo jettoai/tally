@@ -276,6 +276,15 @@ let childSessionMarker = "CLAUDE_CODE_CHILD_SESSION"
 /// and its child marker (owner-reported 2026-08-13).
 ///
 /// Claude only: the marker is Claude Code's, and a codex environment says nothing by carrying it.
+///
+/// KNOWN EDGE, accepted rather than closed: a pipeline the user assembles THEMSELVES inside a
+/// leaked terminal (`tally claude --print | jq`) has its stdout on a pipe too, so it reads as a
+/// real child and keeps the leaked home. There is no stronger signal to tell those two apart - a
+/// genuine child session arrives as exactly the same marker on exactly the same kind of stdout -
+/// and the direction of the mistake is the survivable one: a launch that keeps a home it should
+/// have dropped, rather than a session torn off its parent's account halfway through. Same family
+/// as the cost the launcher already names for `! tally claude` typed inside a session (main.swift):
+/// this test reads the shape of the launch, and a launch can be shaped like the other thing.
 func inheritedSessionEnvironment(
     providerID: String, stdoutIsTTY: Bool,
     environment: [String: String] = ProcessInfo.processInfo.environment

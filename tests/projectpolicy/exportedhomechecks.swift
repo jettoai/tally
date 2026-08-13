@@ -162,4 +162,34 @@ func runExportedHomeChecks(launcher: String) {
     check("…and before every exec below, which is how the child inherits it cleared",
           (lines.firstIndex { $0.contains("unsetenv(childSessionMarker)") } ?? Int.max)
               < (lines.firstIndex { $0.contains("exec(provider.cli") } ?? 0))
+
+    // …AND THE HOME ITSELF, which is what the warning above actually promises (codex review,
+    // 2026-08-13). Standing the exit down only stops the leaked home from being read HERE; the
+    // variable was still in the environment for everything downstream. The premise, guarded first
+    // because it is the whole reason this matters: two execs below hand the child `env: nil`, which
+    // is not "no environment" but THIS process's - so a leak left in place would run the bare
+    // fallback under the very account the warning says is being ignored, while the `--continue` it
+    // carries was resolved against the default home. The launcher would decide against one
+    // directory and run in another.
+    check("the premise: both bare fallbacks resolve the start mode against the default home and " +
+          "then exec with the environment this process carries",
+          lines.filter { $0.contains("startModeArgs(passthrough, home: defaultHome(provider))")
+              && $0.contains("env: nil") }.count == 2)
+    check("a leaked config home is dropped from the environment too, not just the marker that " +
+          "gave it away",
+          leakBlock.contains("unsetenv(provider.envKey)"))
+    check("…in that branch alone, so a home somebody exported by hand is never unset behind them",
+          launcher.components(separatedBy: "unsetenv(provider.envKey)").count == 2)
+    check("…and before every exec below, `env: nil` ones included",
+          (lines.firstIndex { $0.contains("unsetenv(provider.envKey)") } ?? Int.max)
+              < (lines.firstIndex { $0.contains("exec(provider.cli") } ?? 0))
+    // Order within the branch, because the branch says two things about one variable: it is read to
+    // decide whether there is anything to report, and then dropped. Dropping it first would leave
+    // the warning permanently silent - the user's terminal stuck on one account, and now nothing
+    // saying why.
+    check("…but after the read that decides whether there is a leak to report at all", {
+        guard let read = leakBlock.range(of: "getenv(provider.envKey)"),
+              let dropped = leakBlock.range(of: "unsetenv(provider.envKey)") else { return false }
+        return read.lowerBound < dropped.lowerBound
+    }())
 }

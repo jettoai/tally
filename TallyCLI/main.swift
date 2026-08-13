@@ -26,7 +26,7 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     }
     // `-w/--worktree [name]` launches inside a git worktree (claude only): resolve/create it, share
     // the project's memory, run the repo setup hook, and chdir so the supervisor and the CLI inherit
-    // it. Done before the env early-exit below so even a bare passthrough runs in the worktree.
+    // it. Done before the exported-home exit below, so even that launch runs in the worktree.
     let (wantsWorktree, worktreeName) = extractWorktreeFlag(&passthrough)
     if wantsWorktree, provider.id != "claude" {
         warn("--worktree is claude-only for now")
@@ -69,11 +69,6 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         && !optionsOnly(passthrough).contains("--effort")
     passthrough = removingOption(passthrough, "--no-follow")
 
-    // An explicitly exported config home is also the user choosing by hand - honour it.
-    if pinned == nil, getenv(provider.envKey) != nil {
-        warn("\(provider.envKey) already set - launching bare `\(provider.cli)` with it")
-        exec(provider.cli, args: passthrough, env: nil)
-    }
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
 
@@ -103,6 +98,28 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
         let (next, note) = applyStartMode(args, policy: policy, wantsNew: wantsNew, home: home)
         if let note { warn(note) }
         return next
+    }
+
+    // An exported config home is the user choosing the ACCOUNT by hand, and that is the ONLY axis
+    // it settles. What it used to skip was everything: this test sat above the policy read, so an
+    // exported CLAUDE_CONFIG_DIR also threw away the permission mode, the model, the fallback
+    // model, the effort and the start mode - none of which is a statement about which account runs.
+    // Any session launched from inside another one exports the variable, so Settings could read
+    // bypass on fable/high while the launch came up in manual mode on the CLI's own default
+    // (owner-reported, 2026-08-13).
+    //
+    // The home comes from the environment rather than from the snapshot because the exported value
+    // IS the answer, and `--continue` has to be resolved against that same directory: asking the
+    // account we would otherwise have picked would predict a conversation this launch cannot reach.
+    //
+    // A plain exec on purpose, never `runSupervised`: the supervisor's job is to move a session to
+    // another account on a cap hit, and a hand-pinned home leaves it nowhere to move to. `--account`
+    // still outranks this (the branch below, which the `pinned == nil` guard falls through to):
+    // that flag names an account, this variable names a config directory.
+    if pinned == nil, let exported = getenv(provider.envKey) {
+        warn("\(provider.envKey) already set - keeping that account, launch defaults still apply")
+        exec(provider.cli, args: startModeArgs(passthrough, home: String(cString: exported)),
+             env: nil)
     }
 
     if let pinned {

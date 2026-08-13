@@ -292,6 +292,10 @@ check("…with none of the three reading the configured default behind the flag'
       !launcher.contains("forPrimary: policy.model")
           && !launcher.contains("primaryModel: policy.model"))
 
+// An exported CLAUDE_CONFIG_DIR settles the ACCOUNT and nothing else
+// (exportedhomechecks.swift).
+runExportedHomeChecks(launcher: launcher)
+
 // MARK: - `resume` runs what it was scored for
 
 // The defect: the account was picked for the project's model and the exec passed the user's args

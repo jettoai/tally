@@ -374,6 +374,11 @@ func prepareAddedAccountHome(
         if providerID == "claude" { trustCleared = removeSeededFolderTrust(from: dir) }
     }
     if share, !isMainHome {
+        // Only on this path, and only for the one item Tally itself owns: the share links what the
+        // main home HAS, and an inbox that has never been written to is not there yet
+        // (SharedHarness.swift). Inside the `share` branch on purpose - `--no-share` may not leave
+        // so much as an empty directory behind in the main account.
+        ensureSharedInboxes(in: mainHome, items: items)
         (linked, kept, failed) = linkSharedHarness(from: mainHome, to: dir, items: items)
     }
     // Carry over the folders the main account already trusts, so the new one does not re-ask about

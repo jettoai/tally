@@ -25,8 +25,32 @@ import Foundation
 let sharedHarnessItems = [
     "CLAUDE.md", "settings.json", "settings.local.json",
     "agents", "skills", "hooks", "commands", "plugins",
-    "memory", "projects", "inboxes",
+    "memory", "projects", inboxesItem,
 ]
+
+/// The messages sessions drop for each other. Named rather than spelled twice: the rule below has
+/// to be about the same directory this list shares, and two literals is how those drift apart.
+let inboxesItem = "inboxes"
+
+/// Makes sure the main account HAS an inbox directory before a share links it.
+///
+/// `linkSharedHarness` links what exists and skips what does not, which is the right rule for every
+/// other name on the list: those are the provider CLI's own directories, and creating `projects` or
+/// `memory` on its behalf would change what claude finds on its first run. `inboxes` is Tally's own
+/// concept, and it does not exist until the first cross-session message is left - so an account
+/// added before that day got no link at all, grew its own inbox the first time something wrote one,
+/// and the two stayed separate for good: the link is made once, while the account is being added,
+/// and nothing revisits the home afterwards. An empty directory is the entire price of not letting
+/// that happen.
+///
+/// Asked of the share list rather than of the provider id, so it follows the list it exists to
+/// serve: codex carries no inbox notion, and creating one there would be creating a directory
+/// nothing reads.
+func ensureSharedInboxes(in mainHome: URL, items: [String]) {
+    guard items.contains(inboxesItem) else { return }
+    try? FileManager.default.createDirectory(at: mainHome.appendingPathComponent(inboxesItem),
+                                             withIntermediateDirectories: true)
+}
 
 /// The codex face of the same idea. `sessions` plus `archived_sessions` are codex's
 /// conversation record (archiving MOVES a conversation between them - sharing only one

@@ -657,6 +657,81 @@ check("scenario 2 - a marker that outlived a login (app closed, then signed out)
                                        keychainLogin: noKeychain)
           && codexSlot(in: markerRoot) == ".codex4")
 
+// MARK: - The inbox a main account does not have YET
+
+// The gap in the share above (codex review, 2026-08-13): `linkSharedHarness` links what exists and
+// skips what does not, and `inboxes` does not exist until the first cross-session message is left.
+// So a machine that added its second account before that day linked nothing, grew an inbox in each
+// home the first time something wrote one, and the two were separate FOR GOOD - the link is made
+// once, while the account is being added, and nothing revisits the home afterwards.
+let inboxRoot = tmp.appendingPathComponent("inbox-\(UUID().uuidString)")
+let inboxMain = inboxRoot.appendingPathComponent(".claude")
+try! fm.createDirectory(at: inboxMain, withIntermediateDirectories: true)
+try! "secret".write(to: inboxMain.appendingPathComponent(".credentials.json"),
+                    atomically: true, encoding: .utf8)
+// The premise, guarded: this main account has never received a message, so before the fix there was
+// nothing at that name to link and the item was silently skipped.
+check("the premise: a main account with no inbox yet",
+      !fm.fileExists(atPath: inboxMain.appendingPathComponent("inboxes").path))
+let inboxAdd = try! prepareAddedAccountHome(providerID: "claude", share: true, home: inboxRoot,
+                                            fileExists: realFiles, keychainLogin: noKeychain)
+check("adding an account creates the main inbox rather than skipping the link",
+      inboxAdd.linked.contains("inboxes")
+          && fm.fileExists(atPath: inboxMain.appendingPathComponent("inboxes").path))
+// The point of the link, exercised in the direction that used to fail: the message arrives AFTER
+// the account was added, which is exactly when the two homes used to diverge.
+try! fm.createDirectory(at: inboxMain.appendingPathComponent("inboxes/tally"),
+                        withIntermediateDirectories: true)
+try! "left later".write(to: inboxMain.appendingPathComponent("inboxes/tally/note.md"),
+                        atomically: true, encoding: .utf8)
+check("…so a message left on the main account afterwards reaches the new one",
+      (try? String(contentsOf: inboxAdd.dir.appendingPathComponent("inboxes/tally/note.md"),
+                   encoding: .utf8)) == "left later")
+// And back the other way, because the accounts are one directory rather than two that agree. A
+// write that finds no directory is left as nothing written (`try?`), so a tree without the fix
+// FAILS the check below rather than crashing this suite on the line before it.
+try? "written from the new account".write(
+    to: inboxAdd.dir.appendingPathComponent("inboxes/tally/reply.md"),
+    atomically: true, encoding: .utf8)
+check("…and one left on the new account is there on the main one",
+      (try? String(contentsOf: inboxMain.appendingPathComponent("inboxes/tally/reply.md"),
+                   encoding: .utf8)) == "written from the new account")
+
+// Only on the sharing path: opting out may not leave so much as an empty directory in the main
+// account's home, which is the whole reason this ensure sits inside the `share` branch.
+let unsharedRoot = tmp.appendingPathComponent("unshared-\(UUID().uuidString)")
+let unsharedMain = unsharedRoot.appendingPathComponent(".claude")
+try! fm.createDirectory(at: unsharedMain, withIntermediateDirectories: true)
+try! "secret".write(to: unsharedMain.appendingPathComponent(".credentials.json"),
+                    atomically: true, encoding: .utf8)
+let unshared = try! prepareAddedAccountHome(providerID: "claude", share: false, home: unsharedRoot,
+                                            fileExists: realFiles, keychainLogin: noKeychain)
+check("--no-share creates no inbox in the main account, and links none",
+      !fm.fileExists(atPath: unsharedMain.appendingPathComponent("inboxes").path)
+          && !fm.fileExists(atPath: unshared.dir.appendingPathComponent("inboxes").path))
+
+// codex has no inbox notion, so it is never given a directory nothing reads. Asked of the SHARE
+// LIST rather than of the provider id, which is what keeps this rule following the list it serves.
+let codexInboxRoot = tmp.appendingPathComponent("codexinbox-\(UUID().uuidString)")
+let codexInboxMain = codexInboxRoot.appendingPathComponent(".codex")
+try! fm.createDirectory(at: codexInboxMain, withIntermediateDirectories: true)
+try! "auth".write(to: codexInboxMain.appendingPathComponent("auth.json"),
+                  atomically: true, encoding: .utf8)
+let codexInboxAdd = try! prepareAddedAccountHome(providerID: "codex", share: true,
+                                                 home: codexInboxRoot, fileExists: realFiles,
+                                                 keychainLogin: noKeychain)
+check("codex is never handed an inbox it has no notion of",
+      !fm.fileExists(atPath: codexInboxMain.appendingPathComponent("inboxes").path)
+          && !codexInboxAdd.linked.contains("inboxes"))
+// The same directory, asked with the OTHER list: what the codex home was just refused, the claude
+// list creates. One input, both answers, so the rule is pinned to the list rather than to the home
+// it is asked about - and the name the ensure creates is the name the list shares, which two string
+// literals is how they would drift apart.
+ensureSharedInboxes(in: codexInboxMain, items: sharedHarnessItems)
+check("the ensured directory is the item the claude list actually shares",
+      sharedHarnessItems.contains(inboxesItem)
+          && fm.fileExists(atPath: codexInboxMain.appendingPathComponent(inboxesItem).path))
+
 // codex: its own allowlist, and no trust seeding at all (it has no such prompt).
 let codexMain = addRoot.appendingPathComponent(".codex")
 try! fm.createDirectory(at: codexMain, withIntermediateDirectories: true)

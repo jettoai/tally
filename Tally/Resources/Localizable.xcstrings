@@ -10868,6 +10868,122 @@
           }
         }
       }
+    },
+    "Shared harness": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共用設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享配置"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 설정"
+          }
+        }
+      }
+    },
+    "Points your other accounts at the main account's instructions, skills, hooks, agents, settings and conversation record, so one setup serves them all. Nothing is deleted: conversations, inboxes and memory notes merge into the main account, anything else in the way is renamed to <name>.local-<date> beside it, and Remove unlinks without touching those backups. Every account can then read every account's conversations.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將你其他帳號指向主帳號的指令、skills、hooks、agents、設定與對話紀錄，讓一套設定服務所有帳號。不會刪除任何東西：對話、收件匣與記憶筆記會合併進主帳號，其他擋路的項目會就地重新命名為 <name>.local-<date>，而移除只會解除連結，不會動到這些備份。之後每個帳號都能讀取其他帳號的對話。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将你其他账号指向主账号的指令、skills、hooks、agents、设置与对话记录，让一套配置服务所有账号。不会删除任何内容：对话、收件箱与记忆笔记会合并进主账号，其他挡路的内容会就地重命名为 <name>.local-<date>，移除操作只会解除链接，不会动到这些备份。之后每个账号都能读取其他账号的对话。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他のアカウントをメインアカウントの指示・skills・hooks・agents・設定・会話記録にリンクし、一つの設定をすべてのアカウントで使えるようにします。何も削除されません。会話・inbox・メモは主アカウントへマージされ、それ以外の邪魔になるものはその場で <name>.local-<date> にリネームされ、削除操作はリンクを外すだけでこれらのバックアップには触れません。以後どのアカウントからも他のアカウントの会話を読めます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 계정들을 메인 계정의 지침, skills, hooks, agents, 설정, 대화 기록에 연결하여 하나의 설정을 모든 계정이 사용하게 합니다. 아무것도 삭제되지 않습니다. 대화, inbox, 메모 노트는 메인 계정으로 병합되고, 그 자리를 막고 있던 나머지는 <name>.local-<date>로 이름이 바뀐 채로 남으며, 제거는 백업을 건드리지 않고 링크만 해제합니다. 이후 모든 계정이 다른 계정의 대화를 읽을 수 있습니다."
+          }
+        }
+      }
+    },
+    "Not shared with every account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未共用到所有帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未共享到所有账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のアカウントで未共有"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 계정에 공유되지 않음"
+          }
+        }
+      }
+    },
+    "Some items could not be shared: ": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分項目未能共用："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分项目未能共享："
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部の項目を共有できませんでした："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 항목을 공유하지 못했습니다: "
+          }
+        }
+      }
     }
   },
   "version": "1.0"

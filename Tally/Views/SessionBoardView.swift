@@ -185,20 +185,22 @@ extension PopoverRootView {
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 sessionCardHeadline(row)
-                if let identity = sessionIdentityLine(row) {
-                    // THE PROVIDER'S MARK LEADS THE LINE, at the size the eight other surfaces
-                    // that name an account already lead with it (`ProviderIconView`, 11-16pt);
-                    // this card was the one that did not. `SessionRow.providerID` says why the
-                    // mark is the only thing on the line that answers "whose model is this".
-                    //
-                    // DRAWN WHENEVER THE LINE IS, without asking whether the provider was legible:
-                    // a mark on some cards and not others would put the identity lines of a grid at
-                    // two different left edges, which reads worse than the catalog's generic glyph
-                    // on the one card whose account id has no head.
-                    HStack(spacing: 4) {
-                        ProviderIconView(providerID: row.providerID ?? "", size: 11)
-                        Text(identity).font(.caption2).foregroundStyle(.secondary)
-                            .lineLimit(1).truncationMode(.tail)
+                // THE PROVIDER'S MARK LEADS THE LINE, at the size the eight other surfaces
+                // that name an account already lead with it (`ProviderIconView`, 11-16pt);
+                // this card was the one that did not. `SessionRow.providerID` says why the
+                // mark is the only thing on the line that answers "whose model is this".
+                //
+                // DRAWN WHENEVER THE LINE IS, without asking whether the provider was legible:
+                // a mark on some cards and not others would put the identity lines of a grid at
+                // two different left edges, which reads worse than the catalog's generic glyph
+                // on the one card whose account id has no head.
+                sessionCardLine {
+                    if let identity = sessionIdentityLine(row) {
+                        HStack(spacing: 4) {
+                            ProviderIconView(providerID: row.providerID ?? "", size: 11)
+                            Text(identity).font(.caption2).foregroundStyle(.secondary)
+                                .lineLimit(1).truncationMode(.tail)
+                        }
                     }
                 }
                 // THE LAST LINE, AND ONE OF THEM: the two sentences a card can end on take turns in
@@ -213,14 +215,20 @@ extension PopoverRootView {
                 // is the card's state and not an accident of what got published. A blocked session
                 // that named no reason keeps its stats: an empty slot would be the ragged card
                 // again, for a sentence nobody wrote.
-                if sessionIsWaiting(row), let reason = sessionReason(row) {
-                    Text(reason)
-                        .font(.caption2)
-                        .foregroundStyle(TallyColor.critical)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                } else {
-                    sessionStats(row)
+                sessionCardLine {
+                    if sessionIsWaiting(row), let reason = sessionReason(row) {
+                        Text(reason)
+                            .font(.caption2)
+                            .foregroundStyle(TallyColor.critical)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else if sessionIsLoading(row) {
+                        // The mini indicator is 10pt against the 13pt line box the slot is measured
+                        // at, so it turns inside the line rather than setting the card's height.
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        sessionStats(row)
+                    }
                 }
             }
             .padding(.horizontal, TallyMetrics.cardPaddingH)
@@ -235,6 +243,47 @@ extension PopoverRootView {
         }
         .buttonStyle(.plain)
         .tallyTooltip(sessionTooltip(row))
+    }
+
+    /// One of the card's lines, holding its place whether or not there is anything to put on it.
+    ///
+    /// A LINE THAT IS ABSENT TAKES THE CARD'S HEIGHT WITH IT, which is the same ragged page the
+    /// last line's take-turns rule exists to prevent (`sessionCard`), arriving by the one route
+    /// that rule cannot see: there the card CHOOSES between two sentences, here it has neither and
+    /// the row simply is not laid out. Both of the lines under the headline are drawn from what a
+    /// session happened to publish, so a session that has published nothing yet - registered, its
+    /// state and sidecars still a tick away - collapsed to its headline and sat a third the height
+    /// of every card beside it.
+    ///
+    /// THE HEIGHT IS SPELLED BY THE TYPE rather than by a number: an empty slot is a caption's own
+    /// line box, so nothing here has to know what a card is supposed to add up to, and the cards go
+    /// on matching if that caption ever changes size. Both things a filled slot carries are shorter
+    /// than that box (the provider mark is 11pt, the indicator 10), so the slot is one height for
+    /// every state a card can be in.
+    private func sessionCardLine<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        ZStack(alignment: .leading) {
+            Text(verbatim: " ").font(.caption2).hidden()
+            content()
+        }
+    }
+
+    /// Whether this card knows nothing about its session YET, as opposed to being one that has
+    /// nothing to say. A supervisor writes its state and its sidecars on its first tick, so for
+    /// those seconds there is a live session on the board and not one fact to print about it.
+    ///
+    /// AN INDICATOR IS THE HONEST READING of that, and an empty card is not: the same blank card
+    /// says "this session has nothing" when what is true is "this session has not spoken yet". It
+    /// is an indicator rather than the skeleton the panel's own first fetch draws (`EmptyStateView`)
+    /// because the card IS the skeleton here: it is already at its full height, in its seat, beside
+    /// cards carrying real readings, and only one line of it is still to come.
+    ///
+    /// ONLY WHEN NOTHING AT ALL IS KNOWN. A supervisor too old to publish a state still names its
+    /// account and its model through the sidecars it does write, and turning an indicator under a
+    /// card that is already telling you what it is would promise an arrival that is not coming.
+    /// That card is quiet on purpose - the whole of what the board says about it is what it knows.
+    private func sessionIsLoading(_ row: SessionRosterStore.SessionRow) -> Bool {
+        !row.isReporting && sessionIdentityLine(row) == nil
+            && sessionStatsLine(row, now: .now) == nil
     }
 
     /// The card's first line: what this session is, and - on the waiting card - what it is doing and

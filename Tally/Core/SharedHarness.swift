@@ -127,18 +127,48 @@ func linkSharedHarness(from source: URL, to target: URL,
     return (linked, kept, failed)
 }
 
-/// An absolute path for what a link WOULD lead to, given the text it holds and the directory it
-/// sits in: a relative destination (`../.claude/projects`) is read from that directory, and every
-/// directory on the way is resolved so two spellings of one place compare equal. The LAST component
-/// is deliberately left as written, which is the whole reason this exists next to plain resolution:
-/// an item the main account no longer has resolves to nothing, and a link to it still has to be
-/// recognisable as the one we wrote.
-private func pathLeadingTo(_ destination: String, from parent: URL) -> String {
-    let joined = (destination.hasPrefix("/")
+/// Where a link WOULD lead, given the text it holds and the directory it sits in: a relative
+/// destination (`../.claude/projects`) is read from that directory, and everything ahead of the last
+/// component is handed to the FILESYSTEM to resolve. The last component is deliberately left as
+/// written, which is the whole reason this exists next to plain resolution: an item the main account
+/// no longer has resolves to nothing, and a link to it still has to be recognisable as the one we
+/// wrote.
+///
+/// Nil when what leads up to that component does not exist, and it says so rather than guessing: the
+/// only path this is ever compared against is one inside a home that DOES exist, so "cannot be
+/// walked" and "is not ours" are the same answer, and the safe one.
+///
+/// The resolving is left to the filesystem because a path is walked one component at a time, and
+/// `..` means the parent of wherever the walk has ARRIVED - so `away/../main` with `away` a link to
+/// `elsewhere/deep` leads to `elsewhere/main`, not to `main`. Collapsing the text instead reads that
+/// as the main account's own item, which is wrong in both directions: a link of the user's aimed
+/// anywhere else gets removed, and the reverse topology (`hop/alias/../main`, `hop/alias` a link to
+/// `../main`) is a link of ours that never gets taken back (codex review, 2026-08-14).
+///
+/// Handing the WHOLE path to `standardizedFileURL` or `resolvingSymlinksInPath` does not do the
+/// same job: measured, both walk a path properly while every component of it exists and fall back to
+/// collapsing the text the moment one does not. That makes them right about every link that can be
+/// checked by hand and wrong about exactly the ones this function is here for, the dangling ones,
+/// whose last component is missing BY DEFINITION. Hence the stop short of that component, and hence
+/// these rules were read off what the kernel does when a file is opened THROUGH each of these texts
+/// rather than off the documentation.
+private func pathLeadingTo(_ destination: String, from parent: URL) -> String? {
+    let joined = destination.hasPrefix("/")
         ? URL(fileURLWithPath: destination)
-        : parent.resolvingSymlinksInPath().appendingPathComponent(destination)).standardizedFileURL
-    return joined.deletingLastPathComponent().resolvingSymlinksInPath()
+        : parent.resolvingSymlinksInPath().appendingPathComponent(destination)
+    let leadIn = joined.deletingLastPathComponent()
+    guard FileManager.default.fileExists(atPath: leadIn.path) else { return nil }
+    return leadIn.resolvingSymlinksInPath()
         .appendingPathComponent(joined.lastPathComponent).path
+}
+
+/// Whether a link's text says it leads to `source`'s own `item` - false when either end cannot be
+/// walked, so two unwalkable paths are never mistaken for one place.
+private func linkLeadsToItem(_ destination: String, in target: URL,
+                             matching item: String, in source: URL) -> Bool {
+    guard let led = pathLeadingTo(destination, from: target),
+          let ours = pathLeadingTo(item, from: source) else { return false }
+    return led == ours
 }
 
 /// Removes share links a PREVIOUS run created: only symlinks that lead to the corresponding
@@ -177,7 +207,7 @@ func unlinkSharedHarness(from source: URL, to target: URL, items: [String]) -> [
         // It must BE a link before anything else is asked, which is what this reads (an lstat that
         // never traverses): only links are ever removed here, never a file of the user's own.
         guard let destination = try? fm.destinationOfSymbolicLink(atPath: targetItem.path),
-              pathLeadingTo(destination, from: target) == pathLeadingTo(item, from: source)
+              linkLeadsToItem(destination, in: target, matching: item, in: source)
                   || targetItem.resolvingSymlinksInPath().path
                       == sourceItem.resolvingSymlinksInPath().path,
               (try? fm.removeItem(at: targetItem)) != nil else { continue }

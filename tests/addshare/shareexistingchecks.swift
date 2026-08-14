@@ -399,6 +399,87 @@ func runShareExistingChecks(root: URL) {
                   atPath: danglingRelative.appendingPathComponent("hooks").path))
                   == "../unlink-elsewhere/hooks")
 
+    // MARK: - A link's text is WALKED, not collapsed
+
+    // `..` means the parent of wherever the walk has ARRIVED, so a `..` that follows a symlink does
+    // not cancel it out. Reading the text as if it did (which is what standardizing it, and what
+    // resolving a path that does not exist, both do) gets both directions wrong, and the assertions
+    // below are the kernel's own answer to the same two texts (codex, 2026-08-14).
+    let walkMain = mainAccount("walk-main")
+    let walkTarget = home("walk-target")
+    // `walk-away -> walk-elsewhere/deep`, so `../walk-away/../walk-main` is a walk-main of the
+    // user's OWN inside walk-elsewhere, and collapsing the text lands on the real one instead.
+    write("not the main account",
+          root.appendingPathComponent("walk-elsewhere/walk-main/agents/who.txt"))
+    try? fm.createDirectory(at: root.appendingPathComponent("walk-elsewhere/deep"),
+                            withIntermediateDirectories: true)
+    try? fm.createSymbolicLink(atPath: root.appendingPathComponent("walk-away").path,
+                               withDestinationPath: "walk-elsewhere/deep")
+    try? fm.createSymbolicLink(atPath: walkTarget.appendingPathComponent("agents").path,
+                               withDestinationPath: "../walk-away/../walk-main/agents")
+    // The same text with nothing at the end of it. Reading the path as a whole (which is what
+    // standardizing it does) walks it properly while every component EXISTS and collapses it the
+    // moment one does not, so this shape - the dangling one, which is the shape this whole
+    // comparison is here for - is where the collapsed reading claims a link of the user's.
+    try? fm.createSymbolicLink(atPath: walkTarget.appendingPathComponent("commands").path,
+                               withDestinationPath: "../walk-away/../walk-main/commands")
+    // The same shape pointing the other way: `walk-hop/alias -> ../walk-main`, where the collapsed
+    // text (`walk-hop/walk-main/…`) is nowhere at all and the walk lands on the main account.
+    try? fm.createDirectory(at: root.appendingPathComponent("walk-hop"),
+                            withIntermediateDirectories: true)
+    try? fm.createSymbolicLink(atPath: root.appendingPathComponent("walk-hop/alias").path,
+                               withDestinationPath: "../walk-main")
+    try? fm.createSymbolicLink(atPath: walkTarget.appendingPathComponent("projects").path,
+                               withDestinationPath: "../walk-hop/alias/../walk-main/projects")
+    try? fm.createSymbolicLink(atPath: walkTarget.appendingPathComponent("hooks").path,
+                               withDestinationPath: "../walk-hop/alias/../walk-main/hooks")
+    check("the premise: the away text leads to the user's files, whatever collapsing it suggests",
+          read(walkTarget.appendingPathComponent("agents/who.txt")) == "not the main account")
+    check("the premise: the hop text leads to the main account's, though collapsing it leads nowhere",
+          read(walkTarget.appendingPathComponent("projects/proj-a/one.jsonl")) == "main one"
+              && !fm.fileExists(atPath: root.appendingPathComponent("walk-hop/walk-main").path))
+    let walked = unlinkSharedHarness(from: walkMain, to: walkTarget, items: sharedHarnessItems)
+    check("a link whose walk leaves the main account is the user's, and stays",
+          !walked.contains("agents")
+              && read(walkTarget.appendingPathComponent("agents/who.txt")) == "not the main account")
+    check("…dangling included, which is where reading the path as a whole starts guessing",
+          !walked.contains("commands")
+              && (try? fm.destinationOfSymbolicLink(
+                  atPath: walkTarget.appendingPathComponent("commands").path))
+                  == "../walk-away/../walk-main/commands")
+    check("…while one whose walk arrives at the main account is ours, and goes",
+          walked.contains("projects")
+              && !fm.fileExists(atPath: walkTarget.appendingPathComponent("projects").path))
+    // Only the text can answer this one: nothing exists at either end for resolution to compare.
+    check("…dangling included, which is the half only the text can answer",
+          walked.contains("hooks")
+              && !fm.fileExists(atPath: walkMain.appendingPathComponent("hooks").path)
+              && (try? fm.destinationOfSymbolicLink(
+                  atPath: walkTarget.appendingPathComponent("hooks").path)) == nil)
+    check("…and what the one we kept points AT is untouched",
+          read(root.appendingPathComponent("walk-elsewhere/walk-main/agents/who.txt"))
+              == "not the main account")
+    // A text that cannot be walked leads nowhere, which is not the same place as the main account:
+    // `walk-ghost` does not exist, so where `walk-ghost/..` would go is unknown, not `root`.
+    try? fm.createSymbolicLink(atPath: walkTarget.appendingPathComponent("memory").path,
+                               withDestinationPath: "../walk-ghost/../walk-main/memory")
+    check("a text that cannot be walked is nobody's, and is left alone",
+          !unlinkSharedHarness(from: walkMain, to: walkTarget,
+                               items: sharedHarnessItems).contains("memory")
+              && (try? fm.destinationOfSymbolicLink(
+                  atPath: walkTarget.appendingPathComponent("memory").path)) != nil)
+    // Both ends unwalkable is the same answer twice, and must not read as agreement.
+    let goneMain = root.appendingPathComponent("walk-gone-main")
+    let goneTarget = home("walk-gone-target")
+    try? fm.createSymbolicLink(atPath: goneTarget.appendingPathComponent("hooks").path,
+                               withDestinationPath: "../walk-gone-main/hooks")
+    check("a main account that is not there has nothing to take back",
+          !fm.fileExists(atPath: goneMain.path)
+              && unlinkSharedHarness(from: goneMain, to: goneTarget,
+                                     items: sharedHarnessItems).isEmpty
+              && (try? fm.destinationOfSymbolicLink(
+                  atPath: goneTarget.appendingPathComponent("hooks").path)) != nil)
+
     // MARK: - The two homes that are one home
 
     // A share is undone by removing the link the TARGET holds. When the target home is a link to

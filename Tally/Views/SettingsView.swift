@@ -116,7 +116,12 @@ struct SettingsView: View {
     private func paneContent(_ item: Section) -> some View {
         switch item {
         case .accounts: sectionCard { SettingsAccountsView(store: store, settings: settings) }
-        case .launch: sectionCard { SettingsLaunchView(store: store, settings: settings, visible: section == item) }
+        // The sharing row reports a state whose switch lives on another pane; it is handed the way
+        // there rather than describing it, because a reader who has to be told where a control is
+        // has already lost the time this saves them.
+        case .launch: sectionCard { SettingsLaunchView(store: store, settings: settings,
+                                                       visible: section == item,
+                                                       showIntegrations: { section = .integrations }) }
         case .display: sectionCard { displayRows }
         // Disabled on exactly what the hard gate refuses (`guardNotDev`, IntegrationsStore).
         case .integrations: sectionCard { integrationsRows.disabled(BuildVariant.isUnshipped) }

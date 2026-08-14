@@ -153,13 +153,37 @@ func linkSharedHarness(from source: URL, to target: URL,
 /// these rules were read off what the kernel does when a file is opened THROUGH each of these texts
 /// rather than off the documentation.
 private func pathLeadingTo(_ destination: String, from parent: URL) -> String? {
-    let joined = destination.hasPrefix("/")
-        ? URL(fileURLWithPath: destination)
-        : parent.resolvingSymlinksInPath().appendingPathComponent(destination)
+    // `hooks/.` and `hooks/` name the same item `hooks` does, and both hide it: the last component
+    // of the first is `.` and of the second is nothing, so the item itself ends up inside the part
+    // handed over to be walked - which for a dangling link is the one part that cannot be walked,
+    // and the link survives a `--no-share` that was meant to take it back (codex review,
+    // 2026-08-14). Trimmed rather than standardized: this touches the tail and nothing else, so
+    // every `..` and every symlink further up still means what the kernel says it means.
+    var text = destination
+    while text.count > 1, text.hasSuffix("/") || text.hasSuffix("/.") {
+        text.removeLast(text.hasSuffix("/.") ? 2 : 1)
+    }
+    if text.isEmpty { text = "/" }   // `/.` is the root directory, not an empty path
+    let joined = text.hasPrefix("/")
+        ? URL(fileURLWithPath: text)
+        : parent.resolvingSymlinksInPath().appendingPathComponent(text)
     let leadIn = joined.deletingLastPathComponent()
     guard FileManager.default.fileExists(atPath: leadIn.path) else { return nil }
     return leadIn.resolvingSymlinksInPath()
         .appendingPathComponent(joined.lastPathComponent).path
+}
+
+/// Whether two homes are ONE home wearing two names (`~/.claude2` a symlink to `~/.claude`, or two
+/// paths through different aliases of one directory). Sharing and unsharing are both meaningless
+/// then, and worse than meaningless: every item of "the other account" IS an item of the main
+/// account, so acting on one acts on the other (codex review, 2026-08-14).
+///
+/// One definition, asked by the act (`unlinkSharedHarness`) and by the surfaces that have to explain
+/// a press that did nothing. Two spellings of this test drifting apart is how a refusal and its
+/// explanation stop agreeing about which case they are in.
+func harnessHomesAreOne(_ one: URL, _ other: URL) -> Bool {
+    one.resolvingSymlinksInPath().standardizedFileURL.path
+        == other.resolvingSymlinksInPath().standardizedFileURL.path
 }
 
 /// Whether a link's text says it leads to `source`'s own `item` - false when either end cannot be
@@ -192,14 +216,13 @@ private func linkLeadsToItem(_ destination: String, in target: URL,
 ///    share by themselves the day the main item came back (codex review, 2026-08-14).
 ///
 /// Both halves ask what a link LEADS to, so both answer "yes" when the two homes are one home under
-/// two names (`~/.claude2` a symlink to `~/.claude`, an item inside it a link of the main account's
-/// own): every path here then lands inside the main account, and removing "the target's link" would
-/// remove the main account's. Nothing is ever shared with itself, so that case is refused whole
-/// rather than defended item by item (codex review, 2026-08-14).
+/// two names: every path here then lands inside the main account, and removing "the target's link"
+/// would remove the main account's. Nothing is ever shared with itself, so that case is refused
+/// whole rather than defended item by item (codex review, 2026-08-14). A caller that has to TELL
+/// somebody why nothing happened asks `harnessHomesAreOne` first; this refuses either way.
 func unlinkSharedHarness(from source: URL, to target: URL, items: [String]) -> [String] {
     let fm = FileManager.default
-    guard source.resolvingSymlinksInPath().standardizedFileURL.path
-        != target.resolvingSymlinksInPath().standardizedFileURL.path else { return [] }
+    guard !harnessHomesAreOne(source, target) else { return [] }
     var removed: [String] = []
     for item in items {
         let targetItem = target.appendingPathComponent(item)

@@ -40,6 +40,9 @@ func runAdd(args: [String]) -> Never {
         warn("could not prepare a config home: \(error)")
         exit(1)
     }
+    if prepared.sharesMainHome {
+        warn("~/\(prepared.name) is the main account's home under another name - nothing was shared or unshared, because every item in it is already the main account's")
+    }
     if !prepared.unlinked.isEmpty {
         warn("share opted out - removed earlier share links: \(prepared.unlinked.joined(separator: ", "))")
     }

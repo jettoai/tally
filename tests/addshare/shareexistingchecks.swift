@@ -468,6 +468,40 @@ func runShareExistingChecks(root: URL) {
                                items: sharedHarnessItems).contains("memory")
               && (try? fm.destinationOfSymbolicLink(
                   atPath: walkTarget.appendingPathComponent("memory").path)) != nil)
+    // MARK: - The spellings that hide the item at the end
+
+    // `hooks/.` and `hooks/` are `hooks`. Reading the last component off the text as written makes
+    // the first one `.` and the second one nothing, which buries the item itself in the part that
+    // gets walked - and for a DANGLING link that part is exactly the part that cannot be walked, so
+    // the link stayed behind and `--no-share` quietly meant nothing (codex, 2026-08-14).
+    let dotTarget = home("walk-dot-target")
+    try? fm.createSymbolicLink(atPath: dotTarget.appendingPathComponent("plugins").path,
+                               withDestinationPath: "../walk-main/plugins/.")
+    try? fm.createSymbolicLink(atPath: dotTarget.appendingPathComponent("commands").path,
+                               withDestinationPath: "../walk-main/commands/")
+    try? fm.createSymbolicLink(atPath: dotTarget.appendingPathComponent("agents").path,
+                               withDestinationPath: "../walk-main/agents/././")
+    // The same spelling aimed away: trimming the tail may not turn a link of the user's into ours.
+    try? fm.createSymbolicLink(atPath: dotTarget.appendingPathComponent("settings.local.json").path,
+                               withDestinationPath:
+                                   "../walk-away/../walk-main/settings.local.json/.")
+    check("the premise: the main account has neither of the dangling ones",
+          !fm.fileExists(atPath: walkMain.appendingPathComponent("plugins").path)
+              && !fm.fileExists(atPath: walkMain.appendingPathComponent("commands").path))
+    let dotted = unlinkSharedHarness(from: walkMain, to: dotTarget, items: sharedHarnessItems)
+    check("a dangling link written as `item/.` is ours, and is taken back",
+          dotted.contains("plugins")
+              && !fm.fileExists(atPath: dotTarget.appendingPathComponent("plugins").path))
+    check("…as is one written with a trailing slash",
+          dotted.contains("commands"))
+    check("…and one that stacks them, which is the same item said three times",
+          dotted.contains("agents"))
+    check("…while the same spelling aimed elsewhere is still the user's",
+          !dotted.contains("settings.local.json")
+              && (try? fm.destinationOfSymbolicLink(
+                  atPath: dotTarget.appendingPathComponent("settings.local.json").path))
+                  == "../walk-away/../walk-main/settings.local.json/.")
+
     // Both ends unwalkable is the same answer twice, and must not read as agreement.
     let goneMain = root.appendingPathComponent("walk-gone-main")
     let goneTarget = home("walk-gone-target")
@@ -510,6 +544,13 @@ func runShareExistingChecks(root: URL) {
     check("…as is everything else it holds",
           read(selfMain.appendingPathComponent("CLAUDE.md")) == "main rules"
               && read(selfMain.appendingPathComponent("projects/proj-a/one.jsonl")) == "main one")
+    // The refusal is one fact, asked by the act and by the surfaces that have to explain it. Named
+    // so a Remove that does nothing can say WHY rather than looking broken.
+    check("one home under two names is one home, whichever name is asked first",
+          harnessHomesAreOne(selfMain, selfAlias) && harnessHomesAreOne(selfAlias, selfMain))
+    check("…and two homes are still two, alias or no alias",
+          !harnessHomesAreOne(selfMain, walkTarget)
+              && !harnessHomesAreOne(selfMain, root.appendingPathComponent("walk-away")))
 
     // MARK: - A home that cannot be written to
 
@@ -614,4 +655,51 @@ func runShareExistingChecks(root: URL) {
               && !cliSource.contains("moveItem") && !rowSource.contains("moveItem"))
     check("and the reverse is the one the add flow already had",
           rowSource.contains("unlinkSharedHarness(") && !rowSource.contains("removeItem"))
+
+    // MARK: - A press that can do nothing says so
+
+    // One home under two names is refused (above), and a refusal nobody is told about is a Remove
+    // button that visibly does nothing next to a row still reading "Installed" - which from the
+    // outside is indistinguishable from a broken app.
+    check("the row asks the one definition of it rather than spelling a second",
+          rowSource.contains("harnessHomesAreOne(")
+              && !rowSource.contains("resolvingSymlinksInPath"))
+    check("…and says so only when the whole press came to nothing",
+          rowSource.contains("if removed == 0, oneHome > 0 {"))
+    let refusal = "These accounts share one home; there is nothing to unlink."
+    check("…in the words the catalogue carries", rowSource.contains("L(\"" + refusal + "\")"))
+    // The CLI face of the same refusal, which reports rather than translates (terminal output is
+    // English by design, like every other line `tally add` prints).
+    let addSource = (try? String(contentsOfFile: "TallyCLI/AddCommand.swift", encoding: .utf8)) ?? ""
+    check("the add command reads the same fact off its report",
+          !addSource.isEmpty && addSource.contains("prepared.sharesMainHome"))
+
+    // Both new sentences, in every language Tally ships - a string that reaches a person in English
+    // on a Japanese machine is a missing translation nobody notices (the completion suite's rule).
+    let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
+        "Tally/Resources/Localizable.xcstrings")))
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+    let strings = catalogue?["strings"] as? [String: Any] ?? [:]
+    check("the string catalogue is readable from this suite", !strings.isEmpty)
+    let shipped = ["zh-Hant", "zh-Hans", "ja", "ko"]
+    for sentence in [refusal, "Manage in Integrations"] {
+        let localizations = ((strings[sentence] as? [String: Any])?["localizations"]
+            as? [String: Any]) ?? [:]
+        check("\"\(sentence)\" is in the catalogue in every language Tally ships",
+              shipped.allSatisfy { language in
+                  let unit = (localizations[language] as? [String: Any])?["stringUnit"]
+                      as? [String: Any]
+                  return (unit?["value"] as? String)?.isEmpty == false
+              })
+    }
+    // The way OUT of the read-only row, which is the whole point of it: the pane cannot change what
+    // it reports, so it hands over the section that can.
+    let launchSource = (try? String(contentsOfFile: "Tally/Views/SettingsLaunchView.swift",
+                                    encoding: .utf8)) ?? ""
+    check("the sharing row offers the way to the control it has none of",
+          launchSource.contains("L(\"Manage in Integrations\"), action: showIntegrations"))
+    let settingsSource = (try? String(contentsOfFile: "Tally/Views/SettingsView.swift",
+                                      encoding: .utf8)) ?? ""
+    check("…wired to the section selection this window already has, not to a notion of its own",
+          settingsSource.contains("showIntegrations: { section = .integrations }"))
 }

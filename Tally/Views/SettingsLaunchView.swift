@@ -17,6 +17,9 @@ struct SettingsLaunchView: View {
     /// Whether this pane is the one Settings is showing. Only the launch-at-login row needs it,
     /// and only because it collects a report that can be collected once (see that row).
     var visible: Bool = false
+    /// Takes Settings to the Integrations section, where sharing is turned on and off. The sharing
+    /// row below REPORTS a state it cannot change; this is the way to the control that can.
+    var showIntegrations: () -> Void = {}
 
     var body: some View {
         let descriptors = ProviderCatalog.descriptors.filter { settings.isEnabled($0.id) }
@@ -122,6 +125,12 @@ struct SettingsLaunchView: View {
 
     /// Read-only: whether this provider's homes share their harness (skills/config/transcripts).
     /// Detected live from the filesystem - Tally reports the wiring, it never rewires here.
+    ///
+    /// Which is exactly why it ends in a way OUT of this pane. A row that states a setting and holds
+    /// no control for it reads as a control that is broken or greyed; the switch is one pane away,
+    /// in Integrations, and was searched for twice without being found (Albert, 2026-08-14). The
+    /// link names its destination rather than saying "Manage", so the row teaches where sharing
+    /// lives even to somebody who never presses it.
     func sharingRow(_ providerID: String, items: [ProviderAccount]) -> some View {
         let primary = items.first?.launchHome
         let reports = items.dropFirst().compactMap { account -> HarnessSharing.Report? in
@@ -138,10 +147,13 @@ struct SettingsLaunchView: View {
         let detail = independent.isEmpty
             ? Set(reports.flatMap(\.sharedItems)).sorted().joined(separator: ", ")
             : "\(L("Independent")): \(independent)"
-        return HStack {
+        return HStack(spacing: 8) {
             Text(L("Shared configuration")).font(.subheadline)
             Spacer()
             Text(label).font(.caption).foregroundStyle(.secondary)
+            Button(L("Manage in Integrations"), action: showIntegrations)
+                .buttonStyle(.link)
+                .font(.caption)
         }
         .help(detail)
         .settingsRowPadding()

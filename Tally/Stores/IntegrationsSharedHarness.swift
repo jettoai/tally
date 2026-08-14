@@ -107,14 +107,30 @@ extension IntegrationsStore {
     /// the way to `<name>.local-<date>` and leaves it in that account's own home, where its owner
     /// can see it; moving it back on their behalf would be this app deciding that the setup they
     /// have been running since is the one to throw away.
+    ///
+    /// A press that can do nothing SAYS so. One home reachable under two names (`~/.claude2` a
+    /// symlink to `~/.claude`) reads as fully shared on the way in - every item of it resolves to
+    /// the main account's, because it IS the main account's - and unlinking is refused for exactly
+    /// that reason (`unlinkSharedHarness`). Without a word for it the row keeps saying "Installed"
+    /// beside a Remove button that visibly does nothing, which is the one shape a user cannot tell
+    /// apart from a bug in this app.
     func removeSharedHarness() {
         guard guardNotDev() else { return }
         lastError = nil
+        var removed = 0, oneHome = 0
         for target in Self.sharedHarnessTargets() {
-            _ = unlinkSharedHarness(from: target.main, to: target.home,
-                                    items: harnessItems(for: target.providerID, in: target.main))
+            guard !harnessHomesAreOne(target.main, target.home) else { oneHome += 1; continue }
+            removed += unlinkSharedHarness(from: target.main, to: target.home,
+                                           items: harnessItems(for: target.providerID,
+                                                               in: target.main)).count
         }
         recordManifest("sharedHarness", paths: nil)
+        // Only when nothing came off anywhere: on a fleet where one account is an alias and the
+        // others are ordinary, the press did do its job, and reporting the alias would read as a
+        // failure of the work that succeeded.
+        if removed == 0, oneHome > 0 {
+            lastError = L("These accounts share one home; there is nothing to unlink.")
+        }
         refresh()
     }
 }

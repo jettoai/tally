@@ -297,6 +297,9 @@ struct AddedAccountHome: Sendable, Equatable {
     /// This IS the main home - the machine had no account at all, so there is nothing to share
     /// FROM and this add is simply the first login.
     let isMainHome: Bool
+    /// This home is the main account's under ANOTHER NAME (a symlink to it). Nothing was shared and
+    /// nothing was unshared, because every item here is already the main account's own.
+    let sharesMainHome: Bool
     let linked: [String]
     /// Present already and therefore left exactly as the user built it.
     let kept: [String]
@@ -362,10 +365,18 @@ func prepareAddedAccountHome(
 
     let mainHome = home.appendingPathComponent(base)
     let isMainHome = dir.path == mainHome.path
+    // The same home reached by another name (`~/.claude2` a symlink to `~/.claude`). Not the same
+    // answer as `isMainHome`, which is about the machine having no account yet, but the same
+    // consequence: there is nothing here to link, and everything the undo would remove - the links,
+    // and the folder trust an earlier run seeded - belongs to the main account itself
+    // (SharedHarness.swift). A free slot is not normally one of these (an alias reads as occupied by
+    // whatever the main account holds), so this is a guard rather than a path, and it is reported
+    // rather than silently skipped.
+    let sharesMainHome = !isMainHome && harnessHomesAreOne(mainHome, dir)
     let items = harnessItems(for: providerID, in: mainHome)
     var unlinked: [String] = [], linked: [String] = [], kept: [String] = [], failed: [String] = []
     var trustCleared = 0
-    if !share, !isMainHome {
+    if !share, !isMainHome, !sharesMainHome {
         unlinked = unlinkSharedHarness(from: mainHome, to: dir, items: items)
         // The other half of the undo. The links are only the visible half of what a shared run put
         // here: it also seeded folder trust, and a home resumed with --no-share that kept the seed
@@ -373,7 +384,7 @@ func prepareAddedAccountHome(
         // Claude only, because it is the only provider that ever gets a seed.
         if providerID == "claude" { trustCleared = removeSeededFolderTrust(from: dir) }
     }
-    if share, !isMainHome {
+    if share, !isMainHome, !sharesMainHome {
         // Only on this path, and only for the one item Tally itself owns: the share links what the
         // main home HAS, and an inbox that has never been written to is not there yet
         // (SharedHarness.swift). Inside the `share` branch on purpose - `--no-share` may not leave
@@ -392,7 +403,7 @@ func prepareAddedAccountHome(
     // every project (TrustSeed.swift). Claude only: codex has no such prompt. Same condition as the
     // harness share, because it is the same intent - these accounts are one person's fleet.
     var trustSeeded = 0
-    if share, providerID == "claude", !isMainHome {
+    if share, providerID == "claude", !isMainHome, !sharesMainHome {
         trustSeeded = seedFolderTrust(from: mainHome, to: dir)
     }
     // Written a second time, now that the sharing and the seeding are done: the note has to
@@ -400,7 +411,7 @@ func prepareAddedAccountHome(
     // preparation's own links as somebody having lived here.
     writeAddAccountPendingMarker(in: dir)
     return AddedAccountHome(
-        dir: dir, name: name, isMainHome: isMainHome,
+        dir: dir, name: name, isMainHome: isMainHome, sharesMainHome: sharesMainHome,
         linked: linked, kept: kept, failed: failed, unlinked: unlinked, trustCleared: trustCleared,
         // The privacy truth follows the ACTUAL state, not this run's work: shared is shared whether
         // it happened now, on an earlier run, or by hand.

@@ -70,6 +70,6 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/PickClaimGate.swift Tally/Core/CaptureLaunch.swift \
   Tally/Core/PromptHookInput.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift \
-  Tally/Core/TerminalJump.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
+  Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
   Tally/Core/SessionBoardOrder.swift
 "$out"

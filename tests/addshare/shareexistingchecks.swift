@@ -9,6 +9,9 @@ import Foundation
 // bytes afterwards rather than on the report: a report saying "backed up" while the file is gone is
 // exactly the failure this file exists to catch.
 //
+// Taking those links back again is unlinkchecks.swift, split out of here (2026-08-14) at the
+// 500-line cap: one direction per file, on the same fixtures (harnessfixtures.swift).
+//
 // Runs as a function main.swift calls, which owns the shared harness (`check`), the way the
 // integrations suite splits its checks.
 
@@ -20,30 +23,12 @@ func runShareExistingChecks(root: URL) {
     let parts = Calendar.current.dateComponents([.year, .month, .day], from: day)
     let stamp = String(format: "%04d%02d%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
 
-    func write(_ text: String, _ url: URL) {
-        try? fm.createDirectory(at: url.deletingLastPathComponent(),
-                                withIntermediateDirectories: true)
-        try? text.write(to: url, atomically: true, encoding: .utf8)
-    }
-    func read(_ url: URL) -> String? { try? String(contentsOf: url, encoding: .utf8) }
-    func home(_ name: String) -> URL {
-        let url = root.appendingPathComponent(name)
-        try? fm.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-    /// A main account with one of everything the rule distinguishes: two documents, one tree of
-    /// documents, two accumulating directories, and a credential that is on no share list at all.
-    func mainAccount(_ name: String) -> URL {
-        let main = home(name)
-        write("main rules", main.appendingPathComponent("CLAUDE.md"))
-        write("{}", main.appendingPathComponent("settings.json"))
-        write("main skill", main.appendingPathComponent("skills/demo/SKILL.md"))
-        write("main index", main.appendingPathComponent("memory/MEMORY.md"))
-        write("main one", main.appendingPathComponent("projects/proj-a/one.jsonl"))
-        write("main note", main.appendingPathComponent("inboxes/tally/note.md"))
-        write("secret", main.appendingPathComponent(".credentials.json"))
-        return main
-    }
+    // The account shapes live in harnessfixtures.swift, because the suite next door
+    // (unlinkchecks.swift) asserts about the same ones from the other end.
+    func write(_ text: String, _ url: URL) { writeFixture(text, url) }
+    func read(_ url: URL) -> String? { readFixture(url) }
+    func home(_ name: String) -> URL { fixtureHome(name, in: root) }
+    func mainAccount(_ name: String) -> URL { fixtureMainAccount(name, in: root) }
 
     // MARK: - The name a displaced file is kept under
 
@@ -327,231 +312,6 @@ func runShareExistingChecks(root: URL) {
           ensureSharedInboxes(in: main, items: sharedHarnessItems)
               && fm.fileExists(atPath: main.appendingPathComponent(inboxesItem).path))
 
-    // MARK: - Taking the links back, however they were written
-
-    // Remove (Settings) and `--no-share` (the add flow) are this one function, and it has to answer
-    // the same question the detectors answer: a link that RESOLVES to the main account's item is
-    // shared, whether it was written as an absolute path, a relative one, or through another link.
-    // Comparing the link's text instead left the row saying "Installed" with a Remove button that
-    // did nothing, for good (codex, 2026-08-13).
-    let unlinkMain = mainAccount("unlink-main")
-    let relative = home("unlink-relative")
-    // Exactly what a hand-made share looks like: `projects -> ../unlink-main/projects`.
-    try? fm.createSymbolicLink(atPath: relative.appendingPathComponent("projects").path,
-                               withDestinationPath: "../unlink-main/projects")
-    // And one wired through a link to the home itself, which is the other way to write it.
-    let unlinkAlias = root.appendingPathComponent("unlink-main-alias")
-    try? fm.createSymbolicLink(at: unlinkAlias, withDestinationURL: unlinkMain)
-    try? fm.createSymbolicLink(at: relative.appendingPathComponent("memory"),
-                               withDestinationURL: unlinkAlias.appendingPathComponent("memory"))
-    let elsewhereDir = home("unlink-elsewhere")
-    try? fm.createSymbolicLink(at: relative.appendingPathComponent("skills"),
-                               withDestinationURL: elsewhereDir)
-    check("the premise: a relative link reads as shared on the way in",
-          sharesConversations(providerID: "claude", source: unlinkMain, target: relative))
-    let relativeRemoved = unlinkSharedHarness(from: unlinkMain, to: relative,
-                                              items: harnessItems(for: "claude", in: unlinkMain))
-    check("a relative link to the main account is one of ours, and is taken back",
-          relativeRemoved.contains("projects")
-              && !fm.fileExists(atPath: relative.appendingPathComponent("projects").path))
-    check("…and so is one wired through another link",
-          relativeRemoved.contains("memory")
-              && !fm.fileExists(atPath: relative.appendingPathComponent("memory").path))
-    check("…while a link aimed anywhere else is still none of our business",
-          !relativeRemoved.contains("skills")
-              && (try? fm.destinationOfSymbolicLink(
-                  atPath: relative.appendingPathComponent("skills").path)) == elsewhereDir.path)
-    check("…and what they pointed AT is untouched, because only links are ever removed",
-          read(unlinkMain.appendingPathComponent("projects/proj-a/one.jsonl")) == "main one")
-    // The case resolution alone cannot answer, and the reason the link's text is still read: an
-    // item the main account no longer has resolves to nothing, and `--no-share` still has to be
-    // able to take our link to it back.
-    let danglingHome = home("unlink-dangling")
-    try? fm.createSymbolicLink(at: danglingHome.appendingPathComponent("hooks"),
-                               withDestinationURL: unlinkMain.appendingPathComponent("hooks"))
-    check("a link to an item the main account no longer has is still ours to remove",
-          !fm.fileExists(atPath: unlinkMain.appendingPathComponent("hooks").path)
-              && unlinkSharedHarness(from: unlinkMain, to: danglingHome,
-                                     items: sharedHarnessItems).contains("hooks"))
-    // …and the same link written the way a hand-made share writes it. Comparing the text
-    // LITERALLY only ever recognised the absolute spelling, so a relative link to an item the main
-    // account did not have yet was left behind by both `--no-share` and Settings' Remove - and the
-    // day that item appeared, the share it was supposed to have taken back came back to life on its
-    // own (codex, 2026-08-14).
-    let danglingRelative = home("unlink-dangling-relative")
-    try? fm.createSymbolicLink(atPath: danglingRelative.appendingPathComponent("agents").path,
-                               withDestinationPath: "../unlink-main/agents")
-    // The other spelling of "somewhere else", so this cannot be satisfied by expanding blindly.
-    try? fm.createSymbolicLink(atPath: danglingRelative.appendingPathComponent("hooks").path,
-                               withDestinationPath: "../unlink-elsewhere/hooks")
-    check("the premise: neither end of a relative link to a missing item exists to resolve",
-          !fm.fileExists(atPath: unlinkMain.appendingPathComponent("agents").path)
-              && !fm.fileExists(atPath: danglingRelative.appendingPathComponent("agents").path))
-    let danglingRelativeRemoved = unlinkSharedHarness(from: unlinkMain, to: danglingRelative,
-                                                      items: sharedHarnessItems)
-    check("a RELATIVE link to an item the main account no longer has is ours too",
-          danglingRelativeRemoved.contains("agents")
-              && (try? fm.destinationOfSymbolicLink(
-                  atPath: danglingRelative.appendingPathComponent("agents").path)) == nil)
-    check("…while a relative link aimed elsewhere is left exactly where it is",
-          !danglingRelativeRemoved.contains("hooks")
-              && (try? fm.destinationOfSymbolicLink(
-                  atPath: danglingRelative.appendingPathComponent("hooks").path))
-                  == "../unlink-elsewhere/hooks")
-
-    // MARK: - A link's text is WALKED, not collapsed
-
-    // `..` means the parent of wherever the walk has ARRIVED, so a `..` that follows a symlink does
-    // not cancel it out. Reading the text as if it did (which is what standardizing it, and what
-    // resolving a path that does not exist, both do) gets both directions wrong, and the assertions
-    // below are the kernel's own answer to the same two texts (codex, 2026-08-14).
-    let walkMain = mainAccount("walk-main")
-    let walkTarget = home("walk-target")
-    // `walk-away -> walk-elsewhere/deep`, so `../walk-away/../walk-main` is a walk-main of the
-    // user's OWN inside walk-elsewhere, and collapsing the text lands on the real one instead.
-    write("not the main account",
-          root.appendingPathComponent("walk-elsewhere/walk-main/agents/who.txt"))
-    try? fm.createDirectory(at: root.appendingPathComponent("walk-elsewhere/deep"),
-                            withIntermediateDirectories: true)
-    try? fm.createSymbolicLink(atPath: root.appendingPathComponent("walk-away").path,
-                               withDestinationPath: "walk-elsewhere/deep")
-    try? fm.createSymbolicLink(atPath: walkTarget.appendingPathComponent("agents").path,
-                               withDestinationPath: "../walk-away/../walk-main/agents")
-    // The same text with nothing at the end of it. Reading the path as a whole (which is what
-    // standardizing it does) walks it properly while every component EXISTS and collapses it the
-    // moment one does not, so this shape - the dangling one, which is the shape this whole
-    // comparison is here for - is where the collapsed reading claims a link of the user's.
-    try? fm.createSymbolicLink(atPath: walkTarget.appendingPathComponent("commands").path,
-                               withDestinationPath: "../walk-away/../walk-main/commands")
-    // The same shape pointing the other way: `walk-hop/alias -> ../walk-main`, where the collapsed
-    // text (`walk-hop/walk-main/…`) is nowhere at all and the walk lands on the main account.
-    try? fm.createDirectory(at: root.appendingPathComponent("walk-hop"),
-                            withIntermediateDirectories: true)
-    try? fm.createSymbolicLink(atPath: root.appendingPathComponent("walk-hop/alias").path,
-                               withDestinationPath: "../walk-main")
-    try? fm.createSymbolicLink(atPath: walkTarget.appendingPathComponent("projects").path,
-                               withDestinationPath: "../walk-hop/alias/../walk-main/projects")
-    try? fm.createSymbolicLink(atPath: walkTarget.appendingPathComponent("hooks").path,
-                               withDestinationPath: "../walk-hop/alias/../walk-main/hooks")
-    check("the premise: the away text leads to the user's files, whatever collapsing it suggests",
-          read(walkTarget.appendingPathComponent("agents/who.txt")) == "not the main account")
-    check("the premise: the hop text leads to the main account's, though collapsing it leads nowhere",
-          read(walkTarget.appendingPathComponent("projects/proj-a/one.jsonl")) == "main one"
-              && !fm.fileExists(atPath: root.appendingPathComponent("walk-hop/walk-main").path))
-    let walked = unlinkSharedHarness(from: walkMain, to: walkTarget, items: sharedHarnessItems)
-    check("a link whose walk leaves the main account is the user's, and stays",
-          !walked.contains("agents")
-              && read(walkTarget.appendingPathComponent("agents/who.txt")) == "not the main account")
-    check("…dangling included, which is where reading the path as a whole starts guessing",
-          !walked.contains("commands")
-              && (try? fm.destinationOfSymbolicLink(
-                  atPath: walkTarget.appendingPathComponent("commands").path))
-                  == "../walk-away/../walk-main/commands")
-    check("…while one whose walk arrives at the main account is ours, and goes",
-          walked.contains("projects")
-              && !fm.fileExists(atPath: walkTarget.appendingPathComponent("projects").path))
-    // Only the text can answer this one: nothing exists at either end for resolution to compare.
-    check("…dangling included, which is the half only the text can answer",
-          walked.contains("hooks")
-              && !fm.fileExists(atPath: walkMain.appendingPathComponent("hooks").path)
-              && (try? fm.destinationOfSymbolicLink(
-                  atPath: walkTarget.appendingPathComponent("hooks").path)) == nil)
-    check("…and what the one we kept points AT is untouched",
-          read(root.appendingPathComponent("walk-elsewhere/walk-main/agents/who.txt"))
-              == "not the main account")
-    // A text that cannot be walked leads nowhere, which is not the same place as the main account:
-    // `walk-ghost` does not exist, so where `walk-ghost/..` would go is unknown, not `root`.
-    try? fm.createSymbolicLink(atPath: walkTarget.appendingPathComponent("memory").path,
-                               withDestinationPath: "../walk-ghost/../walk-main/memory")
-    check("a text that cannot be walked is nobody's, and is left alone",
-          !unlinkSharedHarness(from: walkMain, to: walkTarget,
-                               items: sharedHarnessItems).contains("memory")
-              && (try? fm.destinationOfSymbolicLink(
-                  atPath: walkTarget.appendingPathComponent("memory").path)) != nil)
-    // MARK: - The spellings that hide the item at the end
-
-    // `hooks/.` and `hooks/` are `hooks`. Reading the last component off the text as written makes
-    // the first one `.` and the second one nothing, which buries the item itself in the part that
-    // gets walked - and for a DANGLING link that part is exactly the part that cannot be walked, so
-    // the link stayed behind and `--no-share` quietly meant nothing (codex, 2026-08-14).
-    let dotTarget = home("walk-dot-target")
-    try? fm.createSymbolicLink(atPath: dotTarget.appendingPathComponent("plugins").path,
-                               withDestinationPath: "../walk-main/plugins/.")
-    try? fm.createSymbolicLink(atPath: dotTarget.appendingPathComponent("commands").path,
-                               withDestinationPath: "../walk-main/commands/")
-    try? fm.createSymbolicLink(atPath: dotTarget.appendingPathComponent("agents").path,
-                               withDestinationPath: "../walk-main/agents/././")
-    // The same spelling aimed away: trimming the tail may not turn a link of the user's into ours.
-    try? fm.createSymbolicLink(atPath: dotTarget.appendingPathComponent("settings.local.json").path,
-                               withDestinationPath:
-                                   "../walk-away/../walk-main/settings.local.json/.")
-    check("the premise: the main account has neither of the dangling ones",
-          !fm.fileExists(atPath: walkMain.appendingPathComponent("plugins").path)
-              && !fm.fileExists(atPath: walkMain.appendingPathComponent("commands").path))
-    let dotted = unlinkSharedHarness(from: walkMain, to: dotTarget, items: sharedHarnessItems)
-    check("a dangling link written as `item/.` is ours, and is taken back",
-          dotted.contains("plugins")
-              && !fm.fileExists(atPath: dotTarget.appendingPathComponent("plugins").path))
-    check("…as is one written with a trailing slash",
-          dotted.contains("commands"))
-    check("…and one that stacks them, which is the same item said three times",
-          dotted.contains("agents"))
-    check("…while the same spelling aimed elsewhere is still the user's",
-          !dotted.contains("settings.local.json")
-              && (try? fm.destinationOfSymbolicLink(
-                  atPath: dotTarget.appendingPathComponent("settings.local.json").path))
-                  == "../walk-away/../walk-main/settings.local.json/.")
-
-    // Both ends unwalkable is the same answer twice, and must not read as agreement.
-    let goneMain = root.appendingPathComponent("walk-gone-main")
-    let goneTarget = home("walk-gone-target")
-    try? fm.createSymbolicLink(atPath: goneTarget.appendingPathComponent("hooks").path,
-                               withDestinationPath: "../walk-gone-main/hooks")
-    check("a main account that is not there has nothing to take back",
-          !fm.fileExists(atPath: goneMain.path)
-              && unlinkSharedHarness(from: goneMain, to: goneTarget,
-                                     items: sharedHarnessItems).isEmpty
-              && (try? fm.destinationOfSymbolicLink(
-                  atPath: goneTarget.appendingPathComponent("hooks").path)) != nil)
-
-    // MARK: - The two homes that are one home
-
-    // A share is undone by removing the link the TARGET holds. When the target home is a link to
-    // the main home (`~/.claude2 -> ~/.claude`, which is how a machine ends up with one harness
-    // under two names), every path this walks lands inside the MAIN account: what is lstat'd at
-    // `target/<item>` is the main account's own entry, and it leads where the main item leads
-    // because it IS the main item. Removing it deletes the main account's harness (codex,
-    // 2026-08-14). Nothing is shared with itself, so the whole call is refused.
-    let selfMain = mainAccount("self-main")
-    // The shape that makes it reachable: an allowlisted item of the main account that is itself a
-    // link, since only links are ever removed.
-    let realHooks = home("self-real-hooks")
-    write("hook body", realHooks.appendingPathComponent("run.sh"))
-    try? fm.createSymbolicLink(at: selfMain.appendingPathComponent("hooks"),
-                               withDestinationURL: realHooks)
-    let selfAlias = root.appendingPathComponent("self-main-alias")
-    try? fm.createSymbolicLink(at: selfAlias, withDestinationURL: selfMain)
-    check("the premise: the alias's items resolve to the main account's own",
-          selfAlias.appendingPathComponent("hooks").resolvingSymlinksInPath().path
-              == selfMain.appendingPathComponent("hooks").resolvingSymlinksInPath().path)
-    let selfRemoved = unlinkSharedHarness(from: selfMain, to: selfAlias, items: sharedHarnessItems)
-    check("a home that IS the main home has nothing of ours to take back",
-          selfRemoved.isEmpty)
-    check("…and the main account's own link is still there, pointing where it did",
-          (try? fm.destinationOfSymbolicLink(
-              atPath: selfMain.appendingPathComponent("hooks").path)) == realHooks.path
-              && read(selfMain.appendingPathComponent("hooks/run.sh")) == "hook body")
-    check("…as is everything else it holds",
-          read(selfMain.appendingPathComponent("CLAUDE.md")) == "main rules"
-              && read(selfMain.appendingPathComponent("projects/proj-a/one.jsonl")) == "main one")
-    // The refusal is one fact, asked by the act and by the surfaces that have to explain it. Named
-    // so a Remove that does nothing can say WHY rather than looking broken.
-    check("one home under two names is one home, whichever name is asked first",
-          harnessHomesAreOne(selfMain, selfAlias) && harnessHomesAreOne(selfAlias, selfMain))
-    check("…and two homes are still two, alias or no alias",
-          !harnessHomesAreOne(selfMain, walkTarget)
-              && !harnessHomesAreOne(selfMain, root.appendingPathComponent("walk-away")))
-
     // MARK: - A home that cannot be written to
 
     let sealedMain = mainAccount("sealed-main")
@@ -656,50 +416,4 @@ func runShareExistingChecks(root: URL) {
     check("and the reverse is the one the add flow already had",
           rowSource.contains("unlinkSharedHarness(") && !rowSource.contains("removeItem"))
 
-    // MARK: - A press that can do nothing says so
-
-    // One home under two names is refused (above), and a refusal nobody is told about is a Remove
-    // button that visibly does nothing next to a row still reading "Installed" - which from the
-    // outside is indistinguishable from a broken app.
-    check("the row asks the one definition of it rather than spelling a second",
-          rowSource.contains("harnessHomesAreOne(")
-              && !rowSource.contains("resolvingSymlinksInPath"))
-    check("…and says so only when the whole press came to nothing",
-          rowSource.contains("if removed == 0, oneHome > 0 {"))
-    let refusal = "These accounts share one home; there is nothing to unlink."
-    check("…in the words the catalogue carries", rowSource.contains("L(\"" + refusal + "\")"))
-    // The CLI face of the same refusal, which reports rather than translates (terminal output is
-    // English by design, like every other line `tally add` prints).
-    let addSource = (try? String(contentsOfFile: "TallyCLI/AddCommand.swift", encoding: .utf8)) ?? ""
-    check("the add command reads the same fact off its report",
-          !addSource.isEmpty && addSource.contains("prepared.sharesMainHome"))
-
-    // Both new sentences, in every language Tally ships - a string that reaches a person in English
-    // on a Japanese machine is a missing translation nobody notices (the completion suite's rule).
-    let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
-        "Tally/Resources/Localizable.xcstrings")))
-        .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
-    let strings = catalogue?["strings"] as? [String: Any] ?? [:]
-    check("the string catalogue is readable from this suite", !strings.isEmpty)
-    let shipped = ["zh-Hant", "zh-Hans", "ja", "ko"]
-    for sentence in [refusal, "Manage in Integrations"] {
-        let localizations = ((strings[sentence] as? [String: Any])?["localizations"]
-            as? [String: Any]) ?? [:]
-        check("\"\(sentence)\" is in the catalogue in every language Tally ships",
-              shipped.allSatisfy { language in
-                  let unit = (localizations[language] as? [String: Any])?["stringUnit"]
-                      as? [String: Any]
-                  return (unit?["value"] as? String)?.isEmpty == false
-              })
-    }
-    // The way OUT of the read-only row, which is the whole point of it: the pane cannot change what
-    // it reports, so it hands over the section that can.
-    let launchSource = (try? String(contentsOfFile: "Tally/Views/SettingsLaunchView.swift",
-                                    encoding: .utf8)) ?? ""
-    check("the sharing row offers the way to the control it has none of",
-          launchSource.contains("L(\"Manage in Integrations\"), action: showIntegrations"))
-    let settingsSource = (try? String(contentsOfFile: "Tally/Views/SettingsView.swift",
-                                      encoding: .utf8)) ?? ""
-    check("…wired to the section selection this window already has, not to a notion of its own",
-          settingsSource.contains("showIntegrations: { section = .integrations }"))
 }

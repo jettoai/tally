@@ -11,7 +11,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/addaccount/main.swift \
-  Tally/Core/AddAccount.swift Tally/Core/SharedHarness.swift Tally/Core/TrustSeed.swift \
+  Tally/Core/AddAccount.swift Tally/Core/SharedHarness.swift Tally/Core/PathIdentity.swift \
+  Tally/Core/TrustSeed.swift \
   Tally/Core/ClaudeOnboarding.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/ClaudeStatePath.swift \

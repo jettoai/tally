@@ -960,9 +960,11 @@ check("the CLI's login message still promises no wait",
       addSource.contains("as soon as the login completes") && !addSource.contains("within a minute"))
 
 // The other half of the same act: sharing into an account that already exists
-// (shareexistingchecks.swift, Tally/Core/ShareExisting.swift), and the command line that asks for it
+// (shareexistingchecks.swift, Tally/Core/ShareExisting.swift), taking those links back again
+// (unlinkchecks.swift, Tally/Core/SharedHarness.swift), and the command line that asks for it
 // (sharecommandchecks.swift, TallyCLI/ShareCommand.swift).
 runShareExistingChecks(root: tmp)
+runUnlinkChecks(root: tmp)
 runShareCommandChecks()
 
 try? fm.removeItem(at: tmp)

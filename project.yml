@@ -67,6 +67,12 @@ targets:
       # and the sweep that takes a marker away is the only surface left to leave that note.
       - path: Tally/Core/AddAccount.swift
       - path: Tally/Core/SharedHarness.swift
+      # And the question underneath the share: WHICH object a path arrives at, so that a home
+      # reached through an alias is that home and a link written any of the ways POSIX allows is
+      # still the link we wrote. Both targets compile the one copy because both undo a share -
+      # `tally add --no-share` and the Settings row - and a second spelling of "the same place" is
+      # precisely how this comparison went wrong four times in three days.
+      - path: Tally/Core/PathIdentity.swift
       # And its other half: `tally share` puts an account that ALREADY EXISTS on that same set of
       # links, which the Settings "Shared harness" row does too. One engine for both surfaces, for
       # the reason above - a second copy is how one of them starts backing a file up where the

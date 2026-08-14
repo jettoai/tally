@@ -97,6 +97,34 @@ func conversationEntry(_ providerID: String) -> String {
     providerID == "codex" ? "sessions" : "projects"
 }
 
+/// Whether a share list's item is a directory or a document. Only ever asked about an item the main
+/// account no longer HAS, because while it is there the filesystem answers this and cannot be
+/// wrong; the names below are what the two CLIs write, which is why this sits beside the lists
+/// rather than in with the path machinery - an item added to a list above is an item to classify
+/// here, and three lines apart is the distance at which that gets noticed.
+///
+/// The default is a directory, which is what most of both lists are and what the accumulating ones
+/// all are. A document that ends up defaulted would be treated as shareable through a trailing
+/// slash, which is the older mistake and the milder one: it removes a link that could never have
+/// worked rather than leaving one of ours behind.
+enum HarnessItemKind { case directory, file }
+
+/// The documents on the two lists above. Every other name on them is a directory.
+private let harnessDocumentItems: Set<String> = [
+    "CLAUDE.md", "AGENTS.md", "settings.json", "settings.local.json", "hooks.json", "config.toml",
+]
+
+func harnessItemKind(_ item: String, in home: URL) -> HarnessItemKind {
+    var isDirectory: ObjCBool = false
+    if FileManager.default.fileExists(atPath: home.appendingPathComponent(item).path,
+                                      isDirectory: &isDirectory) {
+        return isDirectory.boolValue ? .directory : .file
+    }
+    // A named profile layer (`work.config.toml`) is a document for the same reason `config.toml` is.
+    return harnessDocumentItems.contains(item) || item.hasSuffix(".config.toml")
+        ? .file : .directory
+}
+
 /// Symlinks each allowlisted item of `source` into `target`. Only items that exist at the
 /// source are linked; a target entry that already exists is NEVER touched (a half-shared
 /// account stays exactly as the user built it). Returns what was linked, what was left
@@ -127,72 +155,43 @@ func linkSharedHarness(from source: URL, to target: URL,
     return (linked, kept, failed)
 }
 
-/// Where a link WOULD lead, given the text it holds and the directory it sits in: a relative
-/// destination (`../.claude/projects`) is read from that directory, and everything ahead of the last
-/// component is handed to the FILESYSTEM to resolve. The last component is deliberately left as
-/// written, which is the whole reason this exists next to plain resolution: an item the main account
-/// no longer has resolves to nothing, and a link to it still has to be recognisable as the one we
-/// wrote.
-///
-/// Nil when what leads up to that component does not exist, and it says so rather than guessing: the
-/// only path this is ever compared against is one inside a home that DOES exist, so "cannot be
-/// walked" and "is not ours" are the same answer, and the safe one.
-///
-/// The resolving is left to the filesystem because a path is walked one component at a time, and
-/// `..` means the parent of wherever the walk has ARRIVED - so `away/../main` with `away` a link to
-/// `elsewhere/deep` leads to `elsewhere/main`, not to `main`. Collapsing the text instead reads that
-/// as the main account's own item, which is wrong in both directions: a link of the user's aimed
-/// anywhere else gets removed, and the reverse topology (`hop/alias/../main`, `hop/alias` a link to
-/// `../main`) is a link of ours that never gets taken back (codex review, 2026-08-14).
-///
-/// Handing the WHOLE path to `standardizedFileURL` or `resolvingSymlinksInPath` does not do the
-/// same job: measured, both walk a path properly while every component of it exists and fall back to
-/// collapsing the text the moment one does not. That makes them right about every link that can be
-/// checked by hand and wrong about exactly the ones this function is here for, the dangling ones,
-/// whose last component is missing BY DEFINITION. Hence the stop short of that component, and hence
-/// these rules were read off what the kernel does when a file is opened THROUGH each of these texts
-/// rather than off the documentation.
-private func pathLeadingTo(_ destination: String, from parent: URL) -> String? {
-    // `hooks/.` and `hooks/` name the same item `hooks` does, and both hide it: the last component
-    // of the first is `.` and of the second is nothing, so the item itself ends up inside the part
-    // handed over to be walked - which for a dangling link is the one part that cannot be walked,
-    // and the link survives a `--no-share` that was meant to take it back (codex review,
-    // 2026-08-14). Trimmed rather than standardized: this touches the tail and nothing else, so
-    // every `..` and every symlink further up still means what the kernel says it means.
-    var text = destination
-    while text.count > 1, text.hasSuffix("/") || text.hasSuffix("/.") {
-        text.removeLast(text.hasSuffix("/.") ? 2 : 1)
-    }
-    if text.isEmpty { text = "/" }   // `/.` is the root directory, not an empty path
-    let joined = text.hasPrefix("/")
-        ? URL(fileURLWithPath: text)
-        : parent.resolvingSymlinksInPath().appendingPathComponent(text)
-    let leadIn = joined.deletingLastPathComponent()
-    guard FileManager.default.fileExists(atPath: leadIn.path) else { return nil }
-    return leadIn.resolvingSymlinksInPath()
-        .appendingPathComponent(joined.lastPathComponent).path
-}
-
 /// Whether two homes are ONE home wearing two names (`~/.claude2` a symlink to `~/.claude`, or two
 /// paths through different aliases of one directory). Sharing and unsharing are both meaningless
 /// then, and worse than meaningless: every item of "the other account" IS an item of the main
 /// account, so acting on one acts on the other (codex review, 2026-08-14).
 ///
-/// One definition, asked by the act (`unlinkSharedHarness`) and by the surfaces that have to explain
-/// a press that did nothing. Two spellings of this test drifting apart is how a refusal and its
-/// explanation stop agreeing about which case they are in.
-func harnessHomesAreOne(_ one: URL, _ other: URL) -> Bool {
-    one.resolvingSymlinksInPath().standardizedFileURL.path
-        == other.resolvingSymlinksInPath().standardizedFileURL.path
-}
+/// One definition, asked by the act (`unlinkSharedHarness`) and by the surfaces that have to
+/// explain a press that did nothing. Two spellings of this test drifting apart is how a refusal and
+/// its explanation stop agreeing about which case they are in - which is why the definition itself
+/// is not here but in PathIdentity.swift, where every path question in the app is asked.
+func harnessHomesAreOne(_ one: URL, _ other: URL) -> Bool { pathsAreOne(one, other) }
 
-/// Whether a link's text says it leads to `source`'s own `item` - false when either end cannot be
-/// walked, so two unwalkable paths are never mistaken for one place.
-private func linkLeadsToItem(_ destination: String, in target: URL,
-                             matching item: String, in source: URL) -> Bool {
-    guard let led = pathLeadingTo(destination, from: target),
-          let ours = pathLeadingTo(item, from: source) else { return false }
-    return led == ours
+/// Whether a link's TEXT says it leads to `source`'s own `item`.
+///
+/// The text is read as the claim it makes (PathIdentity.swift): everything ahead of the last
+/// component is walked by the filesystem and compared as an OBJECT, so an alias of the main home, a
+/// `..` following a symlink, a relative destination and a doubled separator all answer themselves,
+/// and no rule about any of them is written here to be got wrong. The last component is compared as
+/// written, because the links this half exists for are the ones whose last component is missing BY
+/// DEFINITION - an item the main account no longer has, whose link `--no-share` still has to be
+/// able to take back (codex review, 2026-08-14).
+///
+/// A text that cannot be walked is not ours, and two of them are not each other: an absent answer
+/// is never read as agreement.
+///
+/// The one demand of the text that survives the trimming is the trailing slash. `hooks/` and
+/// `hooks/.` name `hooks`, but they name it only if `hooks` is a DIRECTORY (the kernel refuses that
+/// spelling on a file), so a link written that way to a document is a link nothing here ever wrote,
+/// and taking it away would be removing something of the user's that never worked (codex review,
+/// 2026-08-14). While the item exists this needs no rule at all: resolution below already answers
+/// it, because the kernel will not walk that text either.
+private func linkTextLeadsToItem(_ destination: String, in target: URL,
+                                 matching item: String, in source: URL) -> Bool {
+    guard let claim = linkClaim(ofText: destination, in: target),
+          claim.leaf == item,
+          let ours = fileIdentity(atPath: source.path),
+          claim.leadIn == ours else { return false }
+    return !claim.slashForm || harnessItemKind(item, in: source) == .directory
 }
 
 /// Removes share links a PREVIOUS run created: only symlinks that lead to the corresponding
@@ -207,10 +206,13 @@ private func linkLeadsToItem(_ destination: String, in target: URL,
 ///
 ///  - RESOLUTION, the way every detector here asks it (`sharesConversations`,
 ///    `sharedHarnessProgress`, `shareExistingItem`). This is the half that follows a CHAIN of links
-///    to the main item, which reading one link's text can never do.
-///  - The link's own TEXT, expanded against the home it sits in (`pathLeadingTo`). This is the half
-///    that answers a link to an item the main account no longer HAS: it resolves to nothing, it is
-///    still ours, and `--no-share` has to be able to take it back. Expanded rather than compared
+///    to the main item, which reading one link's text can never do. Asked as identity rather than
+///    as a resolved path, so the answer is the kernel's own: a text the kernel will not walk (a
+///    document asked for as a directory) has no identity to match, where a resolved path would have
+///    collapsed the text and matched anyway.
+///  - The link's own TEXT, read against the home it sits in (`linkTextLeadsToItem`). This is the
+///    half that answers a link to an item the main account no longer HAS: it resolves to nothing,
+///    it is still ours, and `--no-share` has to be able to take it back. Read rather than compared
 ///    literally, because a relative destination names the same item an absolute one does while
 ///    reading nothing like it: the dangling relative ones stayed behind for good, and revived the
 ///    share by themselves the day the main item came back (codex review, 2026-08-14).
@@ -230,9 +232,8 @@ func unlinkSharedHarness(from source: URL, to target: URL, items: [String]) -> [
         // It must BE a link before anything else is asked, which is what this reads (an lstat that
         // never traverses): only links are ever removed here, never a file of the user's own.
         guard let destination = try? fm.destinationOfSymbolicLink(atPath: targetItem.path),
-              linkLeadsToItem(destination, in: target, matching: item, in: source)
-                  || targetItem.resolvingSymlinksInPath().path
-                      == sourceItem.resolvingSymlinksInPath().path,
+              linkTextLeadsToItem(destination, in: target, matching: item, in: source)
+                  || pathsAreOne(targetItem, sourceItem),
               (try? fm.removeItem(at: targetItem)) != nil else { continue }
         removed.append(item)
     }

@@ -17,9 +17,10 @@ cd "$(dirname "$0")/.."
 # The five files after ShareCommand.swift are simply its transitive closure.
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/addshare/main.swift tests/addshare/shareexistingchecks.swift \
+  tests/addshare/unlinkchecks.swift tests/addshare/harnessfixtures.swift \
   tests/addshare/sharecommandchecks.swift \
   Tally/Core/AddAccount.swift Tally/Core/SharedHarness.swift Tally/Core/ShareExisting.swift \
-  Tally/Core/TrustSeed.swift \
+  Tally/Core/PathIdentity.swift Tally/Core/TrustSeed.swift \
   Tally/Core/AddAccountFlow.swift Tally/Core/ClaudeOnboarding.swift \
   Tally/Core/Keychain/KeychainReader.swift Tally/Core/Keychain/ClaudeKeychainService.swift \
   Tally/Core/ClaudeStatePath.swift \

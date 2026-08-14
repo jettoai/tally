@@ -20,7 +20,8 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   tests/integrations/completionchecks.swift tests/integrations/clitoolchecks.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsCLITool.swift \
   Tally/Stores/IntegrationsSharedHarness.swift \
-  Tally/Core/ShareExisting.swift Tally/Core/SharedHarness.swift Tally/Core/AddAccount.swift \
+  Tally/Core/ShareExisting.swift Tally/Core/SharedHarness.swift Tally/Core/PathIdentity.swift \
+  Tally/Core/AddAccount.swift \
   Tally/Core/AddAccountFlow.swift Tally/Core/TrustSeed.swift Tally/Core/ClaudeOnboarding.swift \
   Tally/Core/RemoveAccount.swift Tally/Providers/Codex/CodexAccounts.swift \
   Tally/Stores/IntegrationsCompletion.swift \

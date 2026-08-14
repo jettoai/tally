@@ -127,22 +127,49 @@ func linkSharedHarness(from source: URL, to target: URL,
     return (linked, kept, failed)
 }
 
+/// An absolute path for what a link WOULD lead to, given the text it holds and the directory it
+/// sits in: a relative destination (`../.claude/projects`) is read from that directory, and every
+/// directory on the way is resolved so two spellings of one place compare equal. The LAST component
+/// is deliberately left as written, which is the whole reason this exists next to plain resolution:
+/// an item the main account no longer has resolves to nothing, and a link to it still has to be
+/// recognisable as the one we wrote.
+private func pathLeadingTo(_ destination: String, from parent: URL) -> String {
+    let joined = (destination.hasPrefix("/")
+        ? URL(fileURLWithPath: destination)
+        : parent.resolvingSymlinksInPath().appendingPathComponent(destination)).standardizedFileURL
+    return joined.deletingLastPathComponent().resolvingSymlinksInPath()
+        .appendingPathComponent(joined.lastPathComponent).path
+}
+
 /// Removes share links a PREVIOUS run created: only symlinks that lead to the corresponding
 /// main-home item are touched - a real file, a user's own directory, or a link pointing
 /// anywhere else survives. This is what makes `--no-share` mean what it says when an aborted
 /// login left the directory (and its links) behind, and it is what Settings' Remove does.
 ///
-/// WHERE a link leads is asked by RESOLUTION, the way every detector here asks it
-/// (`sharesConversations`, `sharedHarnessProgress`, `shareExistingItem`). Comparing the link's TEXT
-/// instead is the same question with a narrower answer, and the two disagreeing is a row that can
-/// never be turned off: a relative link, or one wired through another link
-/// (`projects -> ../.claude/projects`), reads as shared going in and was walked straight past coming
-/// out, leaving Settings saying "Installed" with a Remove button that does nothing (codex review,
-/// 2026-08-13). The text form is kept as the other half of the OR rather than replaced, because it
-/// answers one case resolution cannot: a link to an item the main account no longer HAS resolves to
-/// nothing but is still ours, and `--no-share` has to be able to take it back.
+/// WHERE a link leads is asked two ways, because neither alone answers the whole question and the
+/// two disagreeing is a row that can never be turned off: a link that reads as shared going in and
+/// is walked past coming out leaves Settings saying "Installed" with a Remove button that does
+/// nothing (codex review, 2026-08-13).
+///
+///  - RESOLUTION, the way every detector here asks it (`sharesConversations`,
+///    `sharedHarnessProgress`, `shareExistingItem`). This is the half that follows a CHAIN of links
+///    to the main item, which reading one link's text can never do.
+///  - The link's own TEXT, expanded against the home it sits in (`pathLeadingTo`). This is the half
+///    that answers a link to an item the main account no longer HAS: it resolves to nothing, it is
+///    still ours, and `--no-share` has to be able to take it back. Expanded rather than compared
+///    literally, because a relative destination names the same item an absolute one does while
+///    reading nothing like it: the dangling relative ones stayed behind for good, and revived the
+///    share by themselves the day the main item came back (codex review, 2026-08-14).
+///
+/// Both halves ask what a link LEADS to, so both answer "yes" when the two homes are one home under
+/// two names (`~/.claude2` a symlink to `~/.claude`, an item inside it a link of the main account's
+/// own): every path here then lands inside the main account, and removing "the target's link" would
+/// remove the main account's. Nothing is ever shared with itself, so that case is refused whole
+/// rather than defended item by item (codex review, 2026-08-14).
 func unlinkSharedHarness(from source: URL, to target: URL, items: [String]) -> [String] {
     let fm = FileManager.default
+    guard source.resolvingSymlinksInPath().standardizedFileURL.path
+        != target.resolvingSymlinksInPath().standardizedFileURL.path else { return [] }
     var removed: [String] = []
     for item in items {
         let targetItem = target.appendingPathComponent(item)
@@ -150,7 +177,7 @@ func unlinkSharedHarness(from source: URL, to target: URL, items: [String]) -> [
         // It must BE a link before anything else is asked, which is what this reads (an lstat that
         // never traverses): only links are ever removed here, never a file of the user's own.
         guard let destination = try? fm.destinationOfSymbolicLink(atPath: targetItem.path),
-              destination == sourceItem.path
+              pathLeadingTo(destination, from: target) == pathLeadingTo(item, from: source)
                   || targetItem.resolvingSymlinksInPath().path
                       == sourceItem.resolvingSymlinksInPath().path,
               (try? fm.removeItem(at: targetItem)) != nil else { continue }

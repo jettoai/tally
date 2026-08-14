@@ -373,6 +373,62 @@ func runShareExistingChecks(root: URL) {
           !fm.fileExists(atPath: unlinkMain.appendingPathComponent("hooks").path)
               && unlinkSharedHarness(from: unlinkMain, to: danglingHome,
                                      items: sharedHarnessItems).contains("hooks"))
+    // …and the same link written the way a hand-made share writes it. Comparing the text
+    // LITERALLY only ever recognised the absolute spelling, so a relative link to an item the main
+    // account did not have yet was left behind by both `--no-share` and Settings' Remove - and the
+    // day that item appeared, the share it was supposed to have taken back came back to life on its
+    // own (codex, 2026-08-14).
+    let danglingRelative = home("unlink-dangling-relative")
+    try? fm.createSymbolicLink(atPath: danglingRelative.appendingPathComponent("agents").path,
+                               withDestinationPath: "../unlink-main/agents")
+    // The other spelling of "somewhere else", so this cannot be satisfied by expanding blindly.
+    try? fm.createSymbolicLink(atPath: danglingRelative.appendingPathComponent("hooks").path,
+                               withDestinationPath: "../unlink-elsewhere/hooks")
+    check("the premise: neither end of a relative link to a missing item exists to resolve",
+          !fm.fileExists(atPath: unlinkMain.appendingPathComponent("agents").path)
+              && !fm.fileExists(atPath: danglingRelative.appendingPathComponent("agents").path))
+    let danglingRelativeRemoved = unlinkSharedHarness(from: unlinkMain, to: danglingRelative,
+                                                      items: sharedHarnessItems)
+    check("a RELATIVE link to an item the main account no longer has is ours too",
+          danglingRelativeRemoved.contains("agents")
+              && (try? fm.destinationOfSymbolicLink(
+                  atPath: danglingRelative.appendingPathComponent("agents").path)) == nil)
+    check("…while a relative link aimed elsewhere is left exactly where it is",
+          !danglingRelativeRemoved.contains("hooks")
+              && (try? fm.destinationOfSymbolicLink(
+                  atPath: danglingRelative.appendingPathComponent("hooks").path))
+                  == "../unlink-elsewhere/hooks")
+
+    // MARK: - The two homes that are one home
+
+    // A share is undone by removing the link the TARGET holds. When the target home is a link to
+    // the main home (`~/.claude2 -> ~/.claude`, which is how a machine ends up with one harness
+    // under two names), every path this walks lands inside the MAIN account: what is lstat'd at
+    // `target/<item>` is the main account's own entry, and it leads where the main item leads
+    // because it IS the main item. Removing it deletes the main account's harness (codex,
+    // 2026-08-14). Nothing is shared with itself, so the whole call is refused.
+    let selfMain = mainAccount("self-main")
+    // The shape that makes it reachable: an allowlisted item of the main account that is itself a
+    // link, since only links are ever removed.
+    let realHooks = home("self-real-hooks")
+    write("hook body", realHooks.appendingPathComponent("run.sh"))
+    try? fm.createSymbolicLink(at: selfMain.appendingPathComponent("hooks"),
+                               withDestinationURL: realHooks)
+    let selfAlias = root.appendingPathComponent("self-main-alias")
+    try? fm.createSymbolicLink(at: selfAlias, withDestinationURL: selfMain)
+    check("the premise: the alias's items resolve to the main account's own",
+          selfAlias.appendingPathComponent("hooks").resolvingSymlinksInPath().path
+              == selfMain.appendingPathComponent("hooks").resolvingSymlinksInPath().path)
+    let selfRemoved = unlinkSharedHarness(from: selfMain, to: selfAlias, items: sharedHarnessItems)
+    check("a home that IS the main home has nothing of ours to take back",
+          selfRemoved.isEmpty)
+    check("…and the main account's own link is still there, pointing where it did",
+          (try? fm.destinationOfSymbolicLink(
+              atPath: selfMain.appendingPathComponent("hooks").path)) == realHooks.path
+              && read(selfMain.appendingPathComponent("hooks/run.sh")) == "hook body")
+    check("…as is everything else it holds",
+          read(selfMain.appendingPathComponent("CLAUDE.md")) == "main rules"
+              && read(selfMain.appendingPathComponent("projects/proj-a/one.jsonl")) == "main one")
 
     // MARK: - A home that cannot be written to
 

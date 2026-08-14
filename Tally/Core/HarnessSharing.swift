@@ -23,18 +23,21 @@ enum HarnessSharing {
         var total: Int { sharedItems.count + independentItems.count }
     }
 
-    /// True when every one of `homes` resolves `item` to one physical path - e.g. all claude
-    /// accounts sharing a single `projects` tree, which makes cross-account conversation moves
-    /// (`tally resume`) unnecessary: the conversation is already visible everywhere.
+    /// True when every one of `homes` reaches ONE `item` - e.g. all claude accounts sharing a single
+    /// `projects` tree, which makes cross-account conversation moves (`tally resume`) unnecessary:
+    /// the conversation is already visible everywhere.
+    ///
+    /// One object under several names, asked of the filesystem (PathIdentity.swift) rather than
+    /// worked out from the paths. An item no home has reaches nothing and counts as shared by
+    /// nobody, which is the honest reading: what is not there says nothing about how these accounts
+    /// are wired.
     static func allShare(item: String, homes: [String]) -> Bool {
         guard homes.count > 1 else { return false }
-        let resolved = homes.map {
-            URL(fileURLWithPath: $0).appendingPathComponent(item).resolvingSymlinksInPath().path
-        }
-        return Set(resolved).count == 1
+        let items = homes.map { URL(fileURLWithPath: $0).appendingPathComponent(item) }
+        return items.dropFirst().allSatisfy { pathsAreOne(items[0], $0) }
     }
 
-    /// Compares every key item of `secondaryHome` against `primaryHome` by fully-resolved path -
+    /// Compares every key item of `secondaryHome` against `primaryHome` as the OBJECT each reaches -
     /// one physical copy behind both names counts as shared, however the user wired it.
     static func report(primaryHome: String, secondaryHome: String, providerID: String) -> Report {
         var report = Report()
@@ -43,9 +46,10 @@ enum HarnessSharing {
             let primary = URL(fileURLWithPath: primaryHome).appendingPathComponent(item)
             guard fm.fileExists(atPath: primary.path) else { continue }
             let secondary = URL(fileURLWithPath: secondaryHome).appendingPathComponent(item)
-            // Compare .path, not URLs: resolving a symlink-to-directory yields a trailing-slash
-            // URL while a plain directory does not, and URL equality treats those as different.
-            if primary.resolvingSymlinksInPath().path == secondary.resolvingSymlinksInPath().path {
+            // The one definition every other surface asks (PathIdentity.swift): this row and the
+            // Settings row are read side by side, and two spellings of "the same item" is how they
+            // start saying different things about one machine.
+            if pathsAreOne(primary, secondary) {
                 report.sharedItems.append(item)
             } else {
                 report.independentItems.append(item)

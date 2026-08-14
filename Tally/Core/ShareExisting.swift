@@ -121,13 +121,20 @@ struct ShareExistingReport: Equatable {
 func shareExistingHarness(providerID: String, mainHome: URL, target: URL,
                           items: [String]? = nil, now: Date = Date()) -> ShareExistingReport {
     var report = ShareExistingReport()
-    // Asked after RESOLUTION, the way `shareExistingItem` asks the same question below. A home that
-    // IS the main home through a symlink (`~/.codex2 -> ~/.codex`, which is exactly how somebody
-    // joins two homes up by hand) passes a comparison of the written paths, and then the share moves
-    // the main account's own instructions aside as `.local-<date>` and puts a link to itself where
-    // they were: every file in the fleet's one setup, displaced, by the command that exists to keep
-    // them (codex review, 2026-08-13).
-    guard target.resolvingSymlinksInPath().path != mainHome.resolvingSymlinksInPath().path else {
+    // Nothing is shared FROM a home that is not on disk. It has no items to link, and no identity to
+    // compare the target against either - so going on would leave the comparison below with no way
+    // to tell a target that IS this home from one that merely spells it the same, which is the
+    // self-share the next guard exists to refuse. Both callers already refuse it earlier and say so
+    // in words this value has no room for (`tally share`, the Settings row), so this is the floor
+    // rather than the report.
+    guard fileIdentity(atPath: mainHome.path) != nil else { return report }
+    // Asked as the OBJECT each path arrives at, the way `shareExistingItem` asks the same question
+    // below (PathIdentity.swift). A home that IS the main home through a symlink (`~/.codex2 ->
+    // ~/.codex`, which is exactly how somebody joins two homes up by hand) passes a comparison of the
+    // written paths, and then the share moves the main account's own instructions aside as
+    // `.local-<date>` and puts a link to itself where they were: every file in the fleet's one setup,
+    // displaced, by the command that exists to keep them (codex review, 2026-08-13).
+    guard !harnessHomesAreOne(target, mainHome) else {
         report.isMainHome = true
         return report
     }
@@ -178,10 +185,12 @@ private func shareExistingItem(_ item: String, source: URL, dest: URL,
     // IS there, and reading it as absent would have the link below fail on a path that exists.
     guard let attributes = try? fm.attributesOfItem(atPath: dest.path) else { return link(.linked) }
     let type = attributes[.type] as? FileAttributeType
-    // Asked by RESOLUTION rather than by the link's text, the way `sharesConversations` asks it: a
-    // relative link, or one wired through another link, is sharing just as much as ours is.
-    if type == .typeSymbolicLink,
-       dest.resolvingSymlinksInPath().path == source.resolvingSymlinksInPath().path {
+    // Asked as the OBJECT it arrives at rather than by the link's text, the way `sharesConversations`
+    // asks it: a relative link, or one wired through another link, is sharing just as much as ours
+    // is. Identity rather than a resolved path, so a text the kernel will not walk (a document asked
+    // for as a directory, `settings.json/.`) is the broken link it is rather than a share already in
+    // place: it is renamed aside like anything else of theirs, and a working link put where it was.
+    if type == .typeSymbolicLink, pathsAreOne(dest, source) {
         return .alreadyShared
     }
 
@@ -311,21 +320,18 @@ struct SharedHarnessProgress: Equatable {
 func sharedHarnessProgress(providerID: String, mainHome: URL, target: URL,
                            items: [String]? = nil) -> SharedHarnessProgress {
     var progress = SharedHarnessProgress()
-    // Resolved, exactly as the share itself compares them: the row's word and the act behind the
-    // button must agree about which home is the one being shared FROM, symlinked homes included.
-    guard target.resolvingSymlinksInPath().path != mainHome.resolvingSymlinksInPath().path else {
-        return progress
-    }
+    // The one definition of two homes being one, exactly as the share itself asks it: the row's word
+    // and the act behind the button must agree about which home is the one being shared FROM,
+    // symlinked homes included.
+    guard !harnessHomesAreOne(target, mainHome) else { return progress }
     for item in items ?? harnessItems(for: providerID, in: mainHome) {
         let source = mainHome.appendingPathComponent(item)
         guard FileManager.default.fileExists(atPath: source.path) else { continue }
         progress.total += 1
-        // .path rather than URL equality, for the reason HarnessSharing.swift gives: resolving a
-        // link to a directory yields a trailing-slash URL and a plain directory does not.
-        if target.appendingPathComponent(item).resolvingSymlinksInPath().path
-            == source.resolvingSymlinksInPath().path {
-            progress.shared += 1
-        }
+        // The object each side arrives at rather than the path it is written as, which is what the
+        // act asks and therefore what the row has to say: a trailing-slash URL, an alias of the main
+        // home and a chain of links are all the kernel's business (PathIdentity.swift).
+        if pathsAreOne(target.appendingPathComponent(item), source) { progress.shared += 1 }
     }
     return progress
 }

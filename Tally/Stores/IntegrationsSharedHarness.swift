@@ -22,32 +22,60 @@ extension IntegrationsStore {
         let home: URL
     }
 
-    /// Every non-main account Tally can see, per provider.
+    /// Whether this home IS one of the provider's own primary setups, under any name.
+    ///
+    /// The list of them is RemoveAccount.swift's, and the removal protection reads the same one: a
+    /// home nobody may delete is a home nobody may link away either. Codex has two of them, because
+    /// its CLI reads `~/.codex` first and `~/.config/codex` when there is no `~/.codex*` login.
+    ///
+    /// Asked as the OBJECT each path arrives at (PathIdentity.swift), which is what makes an ALIAS
+    /// of the main home - `~/.claude2` a symlink to `~/.claude`, exactly how somebody joins two
+    /// homes up by hand - the main home here too. It is one setup wearing two names, so it is not a
+    /// second account to share anything with, and a list that carried it made every consumer defend
+    /// itself against it separately.
+    static func isPrimarySetup(_ home: URL, providerID: String, userHome: URL) -> Bool {
+        mainAccountHomes(providerID: providerID, userHome: userHome)
+            .contains { harnessHomesAreOne($0, home) }
+    }
+
+    /// Every home Tally can see right now, paired with the provider it belongs to.
     ///
     /// Asked of DISCOVERY rather than of the snapshot, like every other row here: the snapshot is
     /// the app's published view for the CLI and can be a poll behind, while this row is drawn
-    /// beside buttons that act on the filesystem right now.
-    static func sharedHarnessTargets() -> [SharedHarnessTarget] {
-        let userHome = FileManager.default.homeDirectoryForCurrentUser
+    /// beside buttons that act on the filesystem right now. Kept apart from the rule that filters
+    /// it so that rule can be run over a fleet made in a temporary directory.
+    static func discoveredHomes() -> [(providerID: String, home: URL)] {
+        [(ClaudeAccounts.providerID, ClaudeAccounts.discover()),
+         (CodexAccounts.providerID, CodexAccounts.discover())].flatMap { providerID, accounts in
+            accounts.compactMap { account in
+                account.launchHome.map { (providerID, URL(fileURLWithPath: $0)) }
+            }
+        }
+    }
+
+    /// Every account this row would share INTO, per provider: the homes above, less the ones that
+    /// ARE the main account already.
+    ///
+    /// A fleet whose only other home is an alias of the main one therefore has no targets at all,
+    /// and the row is left out entirely - the same rule that leaves it out on a one-account machine,
+    /// which is what such a fleet is: one setup, two names. `tally share --all` reads its own list
+    /// the same way (ShareCommand.swift), so the terminal and the window agree about which homes
+    /// there are to act on. The read-only sharing row in the launch pane still reports the two homes
+    /// as sharing everything, because that is true and observing it is its whole job
+    /// (HarnessSharing.swift).
+    static func sharedHarnessTargets(
+        userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+        homes: [(providerID: String, home: URL)]? = nil) -> [SharedHarnessTarget] {
         var targets: [SharedHarnessTarget] = []
-        for (providerID, accounts) in [(ClaudeAccounts.providerID, ClaudeAccounts.discover()),
-                                       (CodexAccounts.providerID, CodexAccounts.discover())] {
+        for (providerID, home) in homes ?? discoveredHomes() {
             let main = userHome.appendingPathComponent(addAccountConfigBase(providerID: providerID))
             // No main account, nothing to share from. A machine whose only codex login lives in the
             // XDG location (`~/.config/codex`) lands here, and offering to link it into itself
-            // would be offering to do nothing.
-            guard FileManager.default.fileExists(atPath: main.path) else { continue }
-            // Every home that IS this provider's primary setup, which for codex is two paths
-            // rather than one (RemoveAccount.swift owns that list, and the removal protection
-            // reads the same one: a home nobody may delete is a home nobody may link away either).
-            let primary = Set(mainAccountHomes(providerID: providerID, userHome: userHome)
-                .map(\.standardizedFileURL.path))
-            for account in accounts {
-                guard let home = account.launchHome else { continue }
-                let url = URL(fileURLWithPath: home)
-                guard !primary.contains(url.standardizedFileURL.path) else { continue }
-                targets.append(SharedHarnessTarget(providerID: providerID, main: main, home: url))
-            }
+            // would be offering to do nothing - which is the second half of this guard as well, for
+            // a home that IS the main account under whatever name it is written.
+            guard FileManager.default.fileExists(atPath: main.path),
+                  !isPrimarySetup(home, providerID: providerID, userHome: userHome) else { continue }
+            targets.append(SharedHarnessTarget(providerID: providerID, main: main, home: home))
         }
         return targets
     }
@@ -108,29 +136,20 @@ extension IntegrationsStore {
     /// can see it; moving it back on their behalf would be this app deciding that the setup they
     /// have been running since is the one to throw away.
     ///
-    /// A press that can do nothing SAYS so. One home reachable under two names (`~/.claude2` a
-    /// symlink to `~/.claude`) reads as fully shared on the way in - every item of it resolves to
-    /// the main account's, because it IS the main account's - and unlinking is refused for exactly
-    /// that reason (`unlinkSharedHarness`). Without a word for it the row keeps saying "Installed"
-    /// beside a Remove button that visibly does nothing, which is the one shape a user cannot tell
-    /// apart from a bug in this app.
+    /// There is no press that can only refuse, so there is nothing to explain afterwards. One home
+    /// reachable under two names (`~/.claude2` a symlink to `~/.claude`) reads as fully shared on
+    /// the way in - every item of it IS the main account's - and unlinking it would take the main
+    /// account's own links away, so it is not on the list this walks (`sharedHarnessTargets`). The
+    /// act refuses such a pair on its own as well (`unlinkSharedHarness`), which is the depth behind
+    /// the list rather than a second answer to the same question.
     func removeSharedHarness() {
         guard guardNotDev() else { return }
         lastError = nil
-        var removed = 0, oneHome = 0
         for target in Self.sharedHarnessTargets() {
-            guard !harnessHomesAreOne(target.main, target.home) else { oneHome += 1; continue }
-            removed += unlinkSharedHarness(from: target.main, to: target.home,
-                                           items: harnessItems(for: target.providerID,
-                                                               in: target.main)).count
+            _ = unlinkSharedHarness(from: target.main, to: target.home,
+                                    items: harnessItems(for: target.providerID, in: target.main))
         }
         recordManifest("sharedHarness", paths: nil)
-        // Only when nothing came off anywhere: on a fleet where one account is an alias and the
-        // others are ordinary, the press did do its job, and reporting the alias would read as a
-        // failure of the work that succeeded.
-        if removed == 0, oneHome > 0 {
-            lastError = L("These accounts share one home; there is nothing to unlink.")
-        }
         refresh()
     }
 }

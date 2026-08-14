@@ -438,6 +438,9 @@ try MainActor.assumeIsolated {
     // And the integration that is a shell script rather than a registration: what a bare `claude`
     // is steered by, executed under both shells (shimscriptchecks.swift).
     try runShimScriptChecks(tmp: tmp)
+    // And the row that acts outside this app on somebody else's home: which homes it may offer to
+    // share at all (sharedharnesschecks.swift).
+    try runSharedHarnessTargetChecks(tmp: tmp)
 
     try? FileManager.default.removeItem(at: tmp)
 }

@@ -2408,35 +2408,6 @@
         }
       }
     },
-    "These accounts share one home; there is nothing to unlink.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這些帳號共用同一個家目錄，沒有連結可以解除。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这些账号共用同一个主目录，没有链接可以解除。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "これらのアカウントは同じホームを共有しているため、解除するリンクはありません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 계정들은 하나의 홈을 공유하므로 해제할 링크가 없습니다."
-          }
-        }
-      }
-    },
     "Shared configuration": {
       "extractionState": "manual",
       "localizations": {

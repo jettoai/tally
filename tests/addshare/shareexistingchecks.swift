@@ -182,6 +182,18 @@ func runShareExistingChecks(root: URL) {
     check("the main account cannot be shared with itself",
           selfReport.isMainHome && selfReport.results.isEmpty && !selfReport.changed)
 
+    // …and a main account that is not on disk is not shared with itself either. It has no items to
+    // link and no identity to compare a target against, so a run that went on would have nothing
+    // left to tell a target that IS this home from one that merely spells it the same way - and the
+    // first thing it does is make the inbox the fleet shares, which is a home created in order to
+    // rename its own contents aside (the inboxes directory below is what asserts it stopped).
+    let goneMain = root.appendingPathComponent("gone-main-home")
+    let goneReport = shareExistingHarness(providerID: "claude", mainHome: goneMain, target: goneMain,
+                                          now: day)
+    check("a main account that is not there is not shared with anything, itself included",
+          goneReport.results.isEmpty && !goneReport.changed
+              && !fm.fileExists(atPath: goneMain.appendingPathComponent(inboxesItem).path))
+
     // …INCLUDING when it is reached by another name. `~/.codex2 -> ~/.codex` is how somebody joins
     // two homes up by hand, and it is a home `tally status` lists like any other, so it is a home
     // `tally share` and the Settings row are both asked to share. Comparing the written paths let it

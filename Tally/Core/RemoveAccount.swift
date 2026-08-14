@@ -48,6 +48,14 @@ func accountHomeIsRemovable(providerID: String, home: String?,
 
 /// Symlinks resolved and `..`/`.` collapsed on both sides: `/var/…` and `/private/var/…` are the
 /// same directory, and a comparison that said otherwise would offer to remove the main home.
+///
+/// TEXT here, deliberately, where the share family asks the filesystem which object a path reaches
+/// (PathIdentity.swift). Two reasons, and both are about which way this question has to fail. It is
+/// asked about homes that need not be on disk - `~/.config/codex` on a machine that has never used
+/// it, a home recorded in settings whose folder is away with an unmounted volume - and a comparison
+/// with no answer must read as "this IS the primary setup" here, where in the share family it reads
+/// as "not ours" and the safe side is the other one. An identity that cannot be taken would hand
+/// this rule the wrong default and offer the user's own main home to the Trash.
 private func normalizedPath(_ url: URL) -> String {
     url.resolvingSymlinksInPath().standardizedFileURL.path
 }

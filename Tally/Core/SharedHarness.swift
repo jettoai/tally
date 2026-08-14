@@ -240,14 +240,16 @@ func unlinkSharedHarness(from source: URL, to target: URL, items: [String]) -> [
     return removed
 }
 
-/// Whether `target`'s conversation record actually resolves to `source`'s - the truth
-/// behind the privacy note, independent of HOW it got shared (this run, an earlier run, or
-/// by hand).
+/// Whether `target`'s conversation record actually IS `source`'s - the truth behind the privacy
+/// note, independent of HOW it got shared (this run, an earlier run, or by hand).
+///
+/// The object each side arrives at (PathIdentity.swift), which is the answer the reader of the note
+/// needs: what makes their conversations readable from another account is one tree behind two names,
+/// however either name is spelled. A record the target does not have arrives nowhere and is not
+/// shared - the same answer comparing paths gave, without the spellings it had to be taught.
 func sharesConversations(providerID: String, source: URL, target: URL) -> Bool {
     let entry = conversationEntry(providerID)
     let sourceEntry = source.appendingPathComponent(entry)
-    let targetEntry = target.appendingPathComponent(entry)
     guard FileManager.default.fileExists(atPath: sourceEntry.path) else { return false }
-    return targetEntry.resolvingSymlinksInPath().path
-        == sourceEntry.resolvingSymlinksInPath().path
+    return pathsAreOne(target.appendingPathComponent(entry), sourceEntry)
 }

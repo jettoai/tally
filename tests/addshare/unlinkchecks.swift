@@ -433,33 +433,38 @@ func runUnlinkChecks(root: URL) {
     // Named and left uncovered, rather than quietly missing.
     for blind in blindSpots { print("SKIP \(blind)") }
 
-    // MARK: - A press that can do nothing says so
+    // MARK: - A home that is not offered at all
 
-    // One home under two names is refused (above), and a refusal nobody is told about is a Remove
-    // button that visibly does nothing next to a row still reading "Installed" - which from the
-    // outside is indistinguishable from a broken app.
+    // One home under two names is refused by the act above, and it never reaches the act from the
+    // row: an alias of the main home is that home wearing a second name, so the row's own list
+    // leaves it out and a fleet of nothing but aliases gets no row at all - the rule that already
+    // hides it on a one-account machine, which is what such a fleet is (2026-08-14, replacing a
+    // Remove button that stayed on screen in order to explain that it could do nothing). The list
+    // is asserted where it can be run, in the integrations suite; what is pinned here is that the
+    // row keeps no second spelling of the question, and that the refusal it used to word is gone.
     check("the row asks the one definition of it rather than spelling a second",
           rowSource.contains("harnessHomesAreOne(")
-              && !rowSource.contains("resolvingSymlinksInPath"))
-    check("…and says so only when the whole press came to nothing",
-          rowSource.contains("if removed == 0, oneHome > 0 {"))
+              && !rowSource.contains("resolvingSymlinksInPath")
+              && !rowSource.contains("standardizedFileURL"))
     let refusal = "These accounts share one home; there is nothing to unlink."
-    check("…in the words the catalogue carries", rowSource.contains("L(\"" + refusal + "\")"))
-    // The CLI face of the same refusal, which reports rather than translates (terminal output is
+    check("…and words no refusal, because the press it explained cannot happen",
+          !rowSource.contains("oneHome") && !rowSource.contains(refusal))
+    // The CLI face of the same fact, which reports rather than translates (terminal output is
     // English by design, like every other line `tally add` prints).
     let addSource = (try? String(contentsOfFile: "TallyCLI/AddCommand.swift", encoding: .utf8)) ?? ""
     check("the add command reads the same fact off its report",
           !addSource.isEmpty && addSource.contains("prepared.sharesMainHome"))
 
-    // Both new sentences, in every language Tally ships - a string that reaches a person in English
-    // on a Japanese machine is a missing translation nobody notices (the completion suite's rule).
+    // Every sentence this row shows, in every language Tally ships - a string that reaches a person
+    // in English on a Japanese machine is a missing translation nobody notices (the completion
+    // suite's rule).
     let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
         "Tally/Resources/Localizable.xcstrings")))
         .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
     let strings = catalogue?["strings"] as? [String: Any] ?? [:]
     check("the string catalogue is readable from this suite", !strings.isEmpty)
     let shipped = ["zh-Hant", "zh-Hans", "ja", "ko"]
-    for sentence in [refusal, "Manage in Integrations"] {
+    for sentence in ["Manage in Integrations"] {
         let localizations = ((strings[sentence] as? [String: Any])?["localizations"]
             as? [String: Any]) ?? [:]
         check("\"\(sentence)\" is in the catalogue in every language Tally ships",
@@ -469,6 +474,10 @@ func runUnlinkChecks(root: URL) {
                   return (unit?["value"] as? String)?.isEmpty == false
               })
     }
+    // And the retired one is gone from all five, rather than left behind for a reader of the
+    // catalogue to translate again: a sentence no code can reach is a sentence nobody can check.
+    check("the refusal the row no longer makes is out of the catalogue too",
+          strings[refusal] == nil)
     // The way OUT of the read-only row, which is the whole point of it: the pane cannot change what
     // it reports, so it hands over the section that can.
     let launchSource = (try? String(contentsOfFile: "Tally/Views/SettingsLaunchView.swift",

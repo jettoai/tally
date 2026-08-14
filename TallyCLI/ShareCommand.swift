@@ -89,14 +89,14 @@ func runShare(args: [String]) -> Int32 {
         }
     } else {
         // The main account is walked past rather than refused: `--all` is a statement about the
-        // fleet, and the one home there is nothing to share INTO is not an error in it. Compared
-        // the way the engine compares it - after resolution, so a home that reaches the main one
-        // through a symlink is the same home to both - because a `--all` run and the engine
-        // disagreeing about which home is being shared FROM is how one of them acts on it.
+        // fleet, and the one home there is nothing to share INTO is not an error in it. Asked the
+        // way the engine asks it - the one definition of two homes being one, so a home that
+        // reaches the main one through a symlink is the same home to both - because a `--all` run
+        // and the engine disagreeing about which home is being shared FROM is how one of them acts
+        // on it.
         targets = (snapshot?.accounts ?? []).filter { account in
             guard account.provider == provider.id, let home = account.launchHome else { return false }
-            return URL(fileURLWithPath: home).resolvingSymlinksInPath().path
-                != mainHome.resolvingSymlinksInPath().path
+            return !harnessHomesAreOne(URL(fileURLWithPath: home), mainHome)
         }
         guard !targets.isEmpty else {
             warn("no other \(provider.id) account to share with - `tally status` lists the ones "

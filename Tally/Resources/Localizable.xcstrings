@@ -10984,6 +10984,64 @@
           }
         }
       }
+    },
+    "Sort by status": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依狀態排序"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按状态排序"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状態順に並べる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상태순 정렬"
+          }
+        }
+      }
+    },
+    "Put the board back in state order and forget the arrangement": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓看板回到狀態排序，並忘掉你排的順序"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让看板回到状态排序，并忘掉你排的顺序"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボードを状態順に戻し、並べ替えを破棄します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보드를 상태순으로 되돌리고 직접 배치한 순서를 지웁니다"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

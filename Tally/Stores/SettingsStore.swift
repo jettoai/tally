@@ -27,6 +27,27 @@ final class SettingsStore {
         }
     }
 
+    /// The user's own order for the SESSION board, by project directory (`SessionBoardOrder` says
+    /// why it is not by session). Empty = the board sorts itself by state, which is what it does
+    /// until a card is dragged and again the moment the board's own "Sort by status" clears this.
+    ///
+    /// Persisted, unlike the board's filter one file over: the filter is a question asked while
+    /// looking ("what is actually connected to me?"), this is an arrangement somebody made and
+    /// expects to find again after a restart, and after the sessions that were in it have ended.
+    var sessionBoardOrder: [String] {
+        didSet { SessionBoardOrder.save(sessionBoardOrder, to: .standard) }
+    }
+
+    /// Whether the board is in an order somebody chose, which is the one thing the board's way back
+    /// is drawn on. Read through the arrangement itself rather than kept as a second flag - see
+    /// `SessionBoardOrder.isManual`.
+    var isSessionBoardManual: Bool { SessionBoardOrder.isManual(sessionBoardOrder) }
+
+    /// The way back: forget the arrangement, and the board sorts itself by state again. Named here
+    /// rather than written as an assignment at the control, so what "back to state order" means is
+    /// one fact instead of one per caller.
+    func sortSessionBoardByState() { sessionBoardOrder = [] }
+
     /// Accounts hidden from the menu-bar strip (empty = all shown). Stored as a hidden-set so new
     /// accounts default to visible.
     var menuBarHiddenAccounts: Set<String> {
@@ -267,6 +288,7 @@ final class SettingsStore {
             ?? Set(ProviderCatalog.descriptors.map(\.id))
         accountLabels = (defaults.dictionary(forKey: "accountLabels") as? [String: String]) ?? [:]
         accountOrder = defaults.stringArray(forKey: "accountOrder") ?? []
+        sessionBoardOrder = SessionBoardOrder.load(from: defaults)
         menuBarHiddenAccounts = Set(defaults.stringArray(forKey: "menuBarHiddenAccounts") ?? [])
         disabledAccounts = Set(defaults.stringArray(forKey: "disabledAccounts") ?? [])
         displayMode = DisplayMode(rawValue: defaults.string(forKey: "displayMode") ?? "") ?? .remaining

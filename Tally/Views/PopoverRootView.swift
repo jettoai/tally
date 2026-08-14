@@ -102,6 +102,14 @@ struct PopoverRootView: View {
     /// cancellation - the only hook SwiftUI guarantees for a cancelled gesture (onEnded is skipped) -
     /// so cardLift cleanup keys off its reset instead of trusting onEnded alone.
     @GestureState var isReorderDragActive = false
+    /// The session card being carried, if any (SessionBoardReorder.swift). Its own state rather
+    /// than the account cards', because the two carry different things - an account and a board of
+    /// sessions frozen mid-scan - and because a lift left over from one board must never be read as
+    /// the other's while the tabs crossfade.
+    @State var sessionLift: SessionLift?
+    /// The session drag's tracking flag, for the reason the account one above gives: cancellation
+    /// is the only thing @GestureState is guaranteed to report, and the lift is cleaned up off it.
+    @GestureState var isSessionDragActive = false
     /// A need, not a preference - the same rule the glass follows for Reduce Transparency. Every
     /// animated change on this surface reads it and goes instant, the extensions' included (the
     /// session board's filter switch), which is why it is not private.
@@ -208,11 +216,15 @@ struct PopoverRootView: View {
                 CardLiftPreview(lift: cardLift, settings: settings,
                                 density: settings.panelDensity)
             }
+            // And the session board's, which is the same idea one tab over. Both are here rather
+            // than inside their pages because a preview clipped by the scroll view it came from
+            // would disappear at the edge of the very board it is being dragged across.
+            sessionLiftPreview
         }
         .coordinateSpace(name: Self.reorderSpace)
         // Hover callouts for the whole surface, above every card and outside the cards' scroll clip
         // (see TallyTooltip). Held back while a card is being dragged: the anchors are moving.
-        .tallyTooltipLayer(suppressed: cardLift != nil)
+        .tallyTooltipLayer(suppressed: cardLift != nil || sessionLift != nil)
         // The two ways a surface ends up on a different screen than it was laid out for: its window
         // moved (the panel is dragged by hand), or the displays themselves changed (one unplugged,
         // resolution switched). See `screenCap`.

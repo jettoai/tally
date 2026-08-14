@@ -37,6 +37,23 @@ struct CardFramePreferenceKey: PreferenceKey {
 }
 
 extension View {
+    /// What a card LIFTED off the page looks like: a touch larger, a shadow under it, sitting at
+    /// the point the drag says, and untouchable so it can never swallow the gesture carrying it.
+    /// Spelled once because two boards now carry cards (the accounts, and the sessions one tab
+    /// over) and a hand-held card that looked different on each would read as two gestures.
+    ///
+    /// The position is fed the CENTRE the drag computes rather than a translation, and the
+    /// animation is switched off against it: the copy has to track the pointer 1:1, and a spring on
+    /// its own position is a card that lags the hand it is in.
+    func liftedCard(width: CGFloat, centre: CGPoint, following location: CGPoint) -> some View {
+        frame(width: width)
+            .scaleEffect(1.025)
+            .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
+            .position(centre)
+            .animation(.none, value: location)
+            .allowsHitTesting(false)
+    }
+
     /// Records this card's frame (in the named reorder coordinate space) for drag hit-testing.
     func cardFrame(id: String, in space: String) -> some View {
         background(
@@ -88,12 +105,8 @@ struct CardLiftPreview: View {
                                 showsDragHandle: true, handleProminent: true)
             }
         }
-        .frame(width: lift.sourceFrame.width)
-        .scaleEffect(1.025)
-        .shadow(color: .black.opacity(0.18), radius: 14, x: 0, y: 8)
-        .position(lift.previewCentre)
-        .animation(.none, value: lift.location)
-        .allowsHitTesting(false)
+        .liftedCard(width: lift.sourceFrame.width, centre: lift.previewCentre,
+                    following: lift.location)
     }
 }
 

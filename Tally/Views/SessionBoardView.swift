@@ -49,17 +49,31 @@ extension PopoverRootView {
     /// figure did not move when that line lost its vendor prefix, because it also fixes the column
     /// counts: the two-column panel (480pt of content) takes exactly two, and the single-column one
     /// takes one.
-    private static let compactCardWidth: CGFloat = 210
+    /// Not private: the grid that lays the cards out at this width is the reorder file's
+    /// (`sessionsGrid`), and the figure has to stay one number.
+    static let compactCardWidth: CGFloat = 210
 
     @ViewBuilder
     var sessionsPage: some View {
         let roster = SessionRosterStore.shared
-        let listed = roster.rows.filter { tabState.sessionFilter == .all || $0.isReporting }
+        // THE BOARD IS FROZEN WHILE A CARD IS IN FLIGHT. The roster rescans twice a second, and a
+        // scan that arrives mid-drag would re-seat (or remove) the very card under the pointer.
+        // What is held is the MEMBERSHIP and nothing else: the order stays a pure function of the
+        // arrangement, which is exactly what the drag is rewriting, so the cards still spring into
+        // their new seats while the hand is down. The board catches up on the next scan after the
+        // drop, which is at most half a second later.
+        let board = sessionLift?.frozen ?? roster.rows
+        // THE STATE SORT, THEN WHATEVER THE USER MADE OF IT (`SessionRosterStore.arranged`).
+        // Filtered first, because the arrangement is applied to what is actually on the page: a
+        // drag can only mean something about the cards the hand can see.
+        let listed = SessionRosterStore.arranged(
+            board.filter { tabState.sessionFilter == .all || $0.isReporting },
+            manualKeys: settings.sessionBoardOrder)
         VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
-            if roster.rows.isEmpty {
+            if board.isEmpty {
                 sessionsEmptyState(L("No supervised sessions are running"))
             } else {
-                sessionsFilterPicker
+                sessionsBoardControls
                 sessionsSummary(roster)
                 if listed.isEmpty {
                     // The filter is holding everything back, which is a different sentence from
@@ -67,29 +81,7 @@ extension PopoverRootView {
                     // having lost the sessions the summary above is still counting.
                     sessionsEmptyState(L("No sessions are reporting yet"))
                 } else {
-                    // ONE GRID, AND EVERY CARD THE SAME SIZE IN IT, the waiting ones included. A
-                    // waiting card used to take the whole width, which read as hierarchy and cost
-                    // more than it bought: beside a column of paired cards it was a band across the
-                    // page, and a board with three of them was mostly one shape repeated. What makes
-                    // it the card to look at is its red dot, its state in words and its own line
-                    // saying what it waits for - not its width.
-                    //
-                    // THE ORDER IS THE STORE'S (`SessionRosterStore.sorted`, asserted there): what
-                    // needs somebody first, so the waiting cards still fill the top of the grid.
-                    //
-                    // Adaptive rather than a fixed count so one layout serves all three hosts: a
-                    // single-column panel seats one, the two-column panel seats two, and the
-                    // dashboard window seats as many as it is dragged wide enough for - the same
-                    // "ask the display, not the setting" rule the account grid's auto mode follows.
-                    // Cells align to the TOP, so a card whose identity line is missing sits under
-                    // its neighbours' first lines rather than floating in the middle of its cell.
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.compactCardWidth),
-                                                 spacing: 8, alignment: .top)],
-                              spacing: 8) {
-                        ForEach(listed) { row in
-                            sessionCard(row)
-                        }
-                    }
+                    sessionsGrid(listed, board: board)
                 }
             }
         }
@@ -100,6 +92,25 @@ extension PopoverRootView {
         // The list changes length when the filter does, and the surface is sized to what this page
         // reports: without this the host jumps to the new height in one frame while the cards fade.
         .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: tabState.sessionFilter)
+        // THE SESSION UNDER THE HAND ENDED. The freeze keeps its card on the page, so without this
+        // the drag would go on arranging a card that no longer exists and drop it onto a board that
+        // has moved on; the scan is also the only thing that can say so, because a session ending
+        // moves no pointer and fires no gesture callback.
+        .onChange(of: roster.rows) { _, rows in
+            if let lift = sessionLift, !rows.contains(where: { $0.id == lift.id }) {
+                sessionLift = nil
+            }
+        }
+    }
+
+    /// The board's own line of controls: the way back to the state sort on the left (only once
+    /// there is an arrangement to leave), what the board is listing on the right.
+    private var sessionsBoardControls: some View {
+        HStack(spacing: 6) {
+            if settings.isSessionBoardManual { sessionsSortByStateButton }
+            Spacer(minLength: 0)
+            sessionsFilterPicker
+        }
     }
 
     /// Deliberately the quieter of the two segmented controls on screen, exactly as the Tokens tab's
@@ -109,7 +120,6 @@ extension PopoverRootView {
         NeutralSegmentedPicker(selection: $tabState.sessionFilter,
                                options: SessionFilter.allCases,
                                size: .small) { $0.label }
-            .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     /// Nothing to list, said in one quiet line rather than with the app's mark and a headline: this
@@ -162,8 +172,10 @@ extension PopoverRootView {
         row.state == .blocked
     }
 
-    /// One session, one cell of the grid.
-    private func sessionCard(_ row: SessionRosterStore.SessionRow) -> some View {
+    /// One session, one cell of the grid. Not private: the floating copy the reorder drag carries
+    /// is this very view (`sessionLiftPreview`), so what the hand is holding cannot drift from what
+    /// the grid draws.
+    func sessionCard(_ row: SessionRosterStore.SessionRow) -> some View {
         Button {
             // Detached from the press: the jump can stop for up to two minutes inside the system's
             // "may Tally control this app" question the first time, and the panel must not be

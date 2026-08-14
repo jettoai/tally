@@ -28,8 +28,8 @@ final class SettingsStore {
     }
 
     /// The user's own order for the SESSION board, by project directory (`SessionBoardOrder` says
-    /// why it is not by session). Empty = the board sorts itself by state, which is what it does
-    /// until a card is dragged and again the moment the board's own "Sort by status" clears this.
+    /// why it is not by session). Empty = the board sits in the seats it took at launch, which is
+    /// where it sits until a card is dragged and again the moment "Sort by status" clears this.
     ///
     /// Persisted, unlike the board's filter one file over: the filter is a question asked while
     /// looking ("what is actually connected to me?"), this is an arrangement somebody made and
@@ -38,14 +38,14 @@ final class SettingsStore {
         didSet { SessionBoardOrder.save(sessionBoardOrder, to: .standard) }
     }
 
-    /// Whether the board is in an order somebody chose, which is the one thing the board's way back
-    /// is drawn on. Read through the arrangement itself rather than kept as a second flag - see
-    /// `SessionBoardOrder.isManual`.
-    var isSessionBoardManual: Bool { SessionBoardOrder.isManual(sessionBoardOrder) }
-
-    /// The way back: forget the arrangement, and the board sorts itself by state again. Named here
-    /// rather than written as an assignment at the control, so what "back to state order" means is
-    /// one fact instead of one per caller.
+    /// Forget the arrangement, which is half of what "Sort by status" does: the other half is the
+    /// roster taking its seats again from what the sessions are doing now
+    /// (`SessionRosterStore.resortByState`). Named here rather than written as an assignment at the
+    /// control, so what clearing the arrangement means is one fact instead of one per caller.
+    ///
+    /// No flag says whether the board IS arranged, deliberately: the control is drawn either way now
+    /// (it sorts on demand rather than offering a mode to leave), and a second stored answer to
+    /// "is this board arranged" would be a second place for it to be wrong.
     func sortSessionBoardByState() { sessionBoardOrder = [] }
 
     /// Accounts hidden from the menu-bar strip (empty = all shown). Stored as a hidden-set so new

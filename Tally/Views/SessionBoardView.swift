@@ -29,19 +29,12 @@ enum SessionFilter: String, CaseIterable, Identifiable {
 /// account and model serving it, the effort it is running at, how big the conversation has grown,
 /// how long ago it last moved, and - for one that is waiting - what it is waiting for, in words, on
 /// the card. A wait nobody can read is a wait nobody answers, which is the entire point of the
-/// board; the whole sentence is a hover away when the card's line runs out (`sessionTooltip`).
+/// board; the whole sentence is a hover away when the card's line runs out (`SessionCardView`).
 ///
 /// AND EVERY LIVE SESSION GETS ONE, including a supervisor too old to publish a state: the sidecars
 /// it does write still name its account, its model and its conversation (`SessionSidecar`), so it
 /// is drawn quietly rather than reduced to a number nobody can act on.
 extension PopoverRootView {
-    /// Colour dot diameter: enough that four states are told apart at a glance, small enough that
-    /// the card's first line still reads as a line of text rather than as a bullet list.
-    private static let stateDotSize: CGFloat = 7
-    /// What a card that cannot report itself is drawn at. Far enough down to read as "this one is
-    /// quieter than the others" at a glance, not so far that its own text stops being legible -
-    /// the card is still the way to that terminal.
-    private static let quietCardOpacity: Double = 0.55
     /// The narrowest a card may be laid out at, which is what decides how many fit. Measured
     /// against the longest line these cards actually carry - an account, a model id and an effort
     /// word ("Claude 5 · fable-5 · high", the model as `displayModelName` prints it) - so a
@@ -63,9 +56,11 @@ extension PopoverRootView {
         // their new seats while the hand is down. The board catches up on the next scan after the
         // drop, which is at most half a second later.
         let board = sessionLift?.frozen ?? roster.rows
-        // THE STATE SORT, THEN WHATEVER THE USER MADE OF IT (`SessionRosterStore.arranged`).
+        // THE SEATS THE BOARD TOOK, THEN WHATEVER THE USER MADE OF THEM
+        // (`SessionRosterStore.seat` is already in the rows; `arranged` is the drag's own order).
         // Filtered first, because the arrangement is applied to what is actually on the page: a
-        // drag can only mean something about the cards the hand can see.
+        // drag can only mean something about the cards the hand can see. The filter SELECTS and
+        // never re-orders: switching to Connected and back leaves every card where it was.
         let listed = SessionRosterStore.arranged(
             board.filter { tabState.sessionFilter == .all || $0.isReporting },
             manualKeys: settings.sessionBoardOrder)
@@ -103,11 +98,18 @@ extension PopoverRootView {
         }
     }
 
-    /// The board's own line of controls: the way back to the state sort on the left (only once
-    /// there is an arrangement to leave), what the board is listing on the right.
+    /// The board's own line of controls: sort it by status on the left, what the board is listing on
+    /// the right.
+    ///
+    /// ALWAYS DRAWN, unlike the account board's own way back. It used to appear only once there was
+    /// an arrangement to leave, which was honest while the board re-sorted itself: with nothing
+    /// dragged, a control offering the state sort offered what the board was already doing. The
+    /// board now holds the seats it took at launch (`SessionRosterStore.seat`), so "sort by status"
+    /// is something it will not do again on its own, and a control for it has to be reachable
+    /// whether or not a card was ever dragged.
     private var sessionsBoardControls: some View {
         HStack(spacing: 6) {
-            if settings.isSessionBoardManual { sessionsSortByStateButton }
+            sessionsSortByStateButton
             Spacer(minLength: 0)
             sessionsFilterPicker
         }
@@ -161,332 +163,5 @@ extension PopoverRootView {
         // A zero is not news: the four slots stay in place so the eye can find the one it came for,
         // and the empty ones step back rather than reading as readings.
         .foregroundStyle(count > 0 ? colour : Color.secondary.opacity(0.5))
-    }
-
-    /// Whether this is the card that is ASKING for somebody, which is the only difference left
-    /// between two of them. It names its state in words, ticks the age of the wait on its first
-    /// line, and spends its last line on what the wait is rather than on what the session has
-    /// spent; everything else about it - its cell, its width, its line COUNT - is what every card
-    /// has.
-    private func sessionIsWaiting(_ row: SessionRosterStore.SessionRow) -> Bool {
-        row.state == .blocked
-    }
-
-    /// One session, one cell of the grid. Not private: the floating copy the reorder drag carries
-    /// is this very view (`sessionLiftPreview`), so what the hand is holding cannot drift from what
-    /// the grid draws.
-    func sessionCard(_ row: SessionRosterStore.SessionRow) -> some View {
-        Button {
-            // Detached from the press: the jump can stop for up to two minutes inside the system's
-            // "may Tally control this app" question the first time, and the panel must not be
-            // frozen behind it.
-            Task { await TerminalJump.jump(directory: row.directory, hint: row.title,
-                                           childPid: row.childPid) }
-        } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                sessionCardHeadline(row)
-                // THE PROVIDER'S MARK LEADS THE LINE, at the size the eight other surfaces
-                // that name an account already lead with it (`ProviderIconView`, 11-16pt);
-                // this card was the one that did not. `SessionRow.providerID` says why the
-                // mark is the only thing on the line that answers "whose model is this".
-                //
-                // DRAWN WHENEVER THE LINE IS, without asking whether the provider was legible:
-                // a mark on some cards and not others would put the identity lines of a grid at
-                // two different left edges, which reads worse than the catalog's generic glyph
-                // on the one card whose account id has no head.
-                sessionCardLine {
-                    if let identity = sessionIdentityLine(row) {
-                        HStack(spacing: 4) {
-                            ProviderIconView(providerID: row.providerID ?? "", size: 11)
-                            Text(identity).font(.caption2).foregroundStyle(.secondary)
-                                .lineLimit(1).truncationMode(.tail)
-                        }
-                    }
-                }
-                // THE LAST LINE, AND ONE OF THEM: the two sentences a card can end on take turns in
-                // the same slot rather than stacking. EVERY CARD THE SAME HEIGHT is worth more than
-                // the stats are: a waiting card that carried both stood a line taller than the ones
-                // beside it, and a grid of those reads as a ragged page rather than as hierarchy. So
-                // the wait takes the slot on the card that has one - one line of it, red, where a
-                // glance at the grid finds it - and the figures it displaced go to the tooltip along
-                // with the whole of the sentence itself (`sessionTooltip`).
-                //
-                // Written on `sessionIsWaiting` rather than on the reason being there, so the choice
-                // is the card's state and not an accident of what got published. A blocked session
-                // that named no reason keeps its stats: an empty slot would be the ragged card
-                // again, for a sentence nobody wrote.
-                sessionCardLine {
-                    if sessionIsWaiting(row), let reason = sessionReason(row) {
-                        Text(reason)
-                            .font(.caption2)
-                            .foregroundStyle(TallyColor.critical)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    } else if sessionIsLoading(row) {
-                        // The mini indicator is 10pt against the 13pt line box the slot is measured
-                        // at, so it turns inside the line rather than setting the card's height.
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        sessionStats(row)
-                    }
-                }
-            }
-            .padding(.horizontal, TallyMetrics.cardPaddingH)
-            .padding(.vertical, TallyMetrics.cardPaddingV)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .tallyCard()
-            .contentShape(Rectangle())
-            // A session that cannot report itself is still a session and still a way to its
-            // terminal, so it is dimmed rather than greyed out: quieter than its neighbours, and
-            // every bit as clickable.
-            .opacity(row.isReporting ? 1 : Self.quietCardOpacity)
-        }
-        .buttonStyle(.plain)
-        .tallyTooltip(sessionTooltip(row))
-    }
-
-    /// One of the card's lines, holding its place whether or not there is anything to put on it.
-    ///
-    /// A LINE THAT IS ABSENT TAKES THE CARD'S HEIGHT WITH IT, which is the same ragged page the
-    /// last line's take-turns rule exists to prevent (`sessionCard`), arriving by the one route
-    /// that rule cannot see: there the card CHOOSES between two sentences, here it has neither and
-    /// the row simply is not laid out. Both of the lines under the headline are drawn from what a
-    /// session happened to publish, so a session that has published nothing yet - registered, its
-    /// state and sidecars still a tick away - collapsed to its headline and sat a third the height
-    /// of every card beside it.
-    ///
-    /// THE HEIGHT IS SPELLED BY THE TYPE rather than by a number: an empty slot is a caption's own
-    /// line box, so nothing here has to know what a card is supposed to add up to, and the cards go
-    /// on matching if that caption ever changes size. Both things a filled slot carries are shorter
-    /// than that box (the provider mark is 11pt, the indicator 10), so the slot is one height for
-    /// every state a card can be in.
-    private func sessionCardLine<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        ZStack(alignment: .leading) {
-            Text(verbatim: " ").font(.caption2).hidden()
-            content()
-        }
-    }
-
-    /// Whether this card knows nothing about its session YET, as opposed to being one that has
-    /// nothing to say. A supervisor writes its state and its sidecars on its first tick, so for
-    /// those seconds there is a live session on the board and not one fact to print about it.
-    ///
-    /// AN INDICATOR IS THE HONEST READING of that, and an empty card is not: the same blank card
-    /// says "this session has nothing" when what is true is "this session has not spoken yet". It
-    /// is an indicator rather than the skeleton the panel's own first fetch draws (`EmptyStateView`)
-    /// because the card IS the skeleton here: it is already at its full height, in its seat, beside
-    /// cards carrying real readings, and only one line of it is still to come.
-    ///
-    /// ONLY WHEN NOTHING AT ALL IS KNOWN. A supervisor too old to publish a state still names its
-    /// account and its model through the sidecars it does write, and turning an indicator under a
-    /// card that is already telling you what it is would promise an arrival that is not coming.
-    /// That card is quiet on purpose - the whole of what the board says about it is what it knows.
-    private func sessionIsLoading(_ row: SessionRosterStore.SessionRow) -> Bool {
-        !row.isReporting && sessionIdentityLine(row) == nil
-            && sessionStatsLine(row, now: .now) == nil
-    }
-
-    /// The card's first line: what this session is, and - on the waiting card - what it is doing and
-    /// for how long. Every other card gives the whole line to the name, which truncates at the tail:
-    /// these sit side by side, and a name squeezed between two other things is how a column of cards
-    /// stops being scannable. The waiting one spends that room on the two things a wait is read for.
-    private func sessionCardHeadline(_ row: SessionRosterStore.SessionRow) -> some View {
-        HStack(spacing: 6) {
-            stateDot(row)
-            Text(row.title).font(.callout).lineLimit(1).truncationMode(.tail)
-            Spacer(minLength: 6)
-            if sessionIsWaiting(row) {
-                // Reporting, and red, without asking: `blocked` can only come from a published
-                // record (`SessionRow.state`), so the card carrying this word always has one.
-                Text(L(row.state.rawValue))
-                    .font(.caption2)
-                    .foregroundStyle(TallyColor.critical)
-                sessionDuration(row)
-            }
-        }
-    }
-
-    /// How long this has been true, ticking.
-    ///
-    /// THE ONE THING ON THIS CARD THAT MOVES WITHOUT ANYTHING CHANGING. The store deliberately
-    /// assigns nothing when a scan finds the board unchanged (a re-render of every surface twice a
-    /// second, otherwise), so an age computed in the body would freeze at the last state change and
-    /// read as a session stuck at "2m" for an hour. A timeline is the SwiftUI answer to "re-render
-    /// because time passed": it drives only this Text, and only while the surface is on screen.
-    ///
-    /// Nothing at all for a session that has published no state: it has no moment to count from,
-    /// and counting from the file's own age would be dating the supervisor rather than the thing on
-    /// screen (that card says when it last MOVED instead - see `sessionStatsLine`).
-    @ViewBuilder
-    private func sessionDuration(_ row: SessionRosterStore.SessionRow) -> some View {
-        if let since = row.since {
-            TimelineView(.periodic(from: .now, by: 2)) { tick in
-                Text(sessionAge(since, now: tick.date))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    /// Who is serving this session: the account, the model, and the effort it is running at. Each is
-    /// optional - a session that has not had a turn yet has no observed model, and a supervisor from
-    /// before the effort axis publishes none - and the card reads fine without any of them, so
-    /// nothing is drawn as a placeholder.
-    ///
-    /// THE ACCOUNT IS CALLED WHAT THE USER CALLS IT, through the one function every other surface
-    /// that names an account asks (`displayLabel`, fourteen call sites): the account card, the fleet
-    /// gauge, the menu bar and the advisor all show a renamed account by its new name, and a board
-    /// reading the provider's default straight off the list was the one place a rename did not
-    /// reach. A single source of truth that one surface reads around is not one.
-    ///
-    /// The lookup is still what decides whether there IS a name: an id naming no account this build
-    /// can see contributes no segment (`SessionRow.accountName` says why it is not the raw id), and
-    /// `displayLabel` is asked only about an account that was found - its `fallback` is for "no
-    /// override", not for "no account", and handing it the id would print the id.
-    private func sessionIdentityLine(_ row: SessionRosterStore.SessionRow) -> String? {
-        let account = row.accountName { id in
-            store.orderedAccounts.first { $0.id == id }
-                .map { settings.displayLabel(accountID: id, fallback: $0.accountLabel) }
-        }
-        return joined([account, row.model, row.effort])
-    }
-
-    /// What this session has spent, and when it was last true of it, drawn on the cards that are not
-    /// waiting. The figure comes from the context sidecar, so a session whose file is missing or
-    /// unreadable simply has no last line (`SessionSidecar`).
-    ///
-    /// Inside a timeline whenever it carries a time, for the reason `sessionDuration` gives: the
-    /// store assigns nothing on a tick that finds the board unchanged, so an age computed in the
-    /// body would sit frozen at whatever it said when the surface opened.
-    @ViewBuilder
-    private func sessionStats(_ row: SessionRosterStore.SessionRow) -> some View {
-        if sessionTime(row, now: .now) != nil {
-            TimelineView(.periodic(from: .now, by: 2)) { tick in
-                statsText(sessionStatsLine(row, now: tick.date))
-            }
-        } else {
-            statsText(sessionStatsLine(row, now: .now))
-        }
-    }
-
-    /// The same sentence in words, so the waiting card can hand it to its tooltip: the card and the
-    /// tooltip must not drift into saying the figure two ways.
-    private func sessionStatsLine(_ row: SessionRosterStore.SessionRow, now: Date) -> String? {
-        let context = row.contextTokens
-            .map { UsageFormat.compactCount(Int64($0)) + " " + L("context") }
-        return joined([context, sessionTime(row, now: now)])
-    }
-
-    @ViewBuilder
-    private func statsText(_ text: String?) -> some View {
-        if let text {
-            Text(text).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
-                .lineLimit(1).truncationMode(.tail)
-        }
-    }
-
-    /// The time the stats line has room to say. An ordinary card has no state word and no duration
-    /// on its first line, so its own duration comes here; the waiting card already ticks one up
-    /// there and gives this slot to when the conversation last MOVED instead (which is a figure it
-    /// reads in its tooltip, its own last line being the wait). A session publishing no state has no
-    /// duration to give either way, and answers the same question the only way it can.
-    private func sessionTime(_ row: SessionRosterStore.SessionRow, now: Date) -> String? {
-        if !sessionIsWaiting(row), let since = row.since { return sessionAge(since, now: now) }
-        return row.lastActivity.map { sessionAge($0, now: now) + " " + L("ago") }
-    }
-
-    /// The card's own separator, spelled once: the middle dot the panel already uses between an
-    /// account and a model, dropping whatever is absent rather than leaving a stray divider.
-    private func joined(_ parts: [String?]) -> String? {
-        let kept = parts.compactMap { $0 }.filter { !$0.isEmpty }
-        return kept.isEmpty ? nil : kept.joined(separator: pickEffortSeparator)
-    }
-
-    /// What a blocked session is waiting for. ONLY while it is blocked: `reason` is what Claude Code
-    /// said at the moment it asked, and a sentence still standing under a session that has moved on
-    /// would be worse than no sentence at all. Its callers ask `sessionIsWaiting` first all the
-    /// same, because there the state is what decides which line a card ends on - this guard is the
-    /// belt, not the decision.
-    private func sessionReason(_ row: SessionRosterStore.SessionRow) -> String? {
-        guard sessionIsWaiting(row),
-              let reason = row.reason?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !reason.isEmpty else { return nil }
-        return reason
-    }
-
-    /// What the card cannot show: the state IN WORDS - an ordinary card gives that line to the name
-    /// and leaves the colour to say it - the WHOLE of what a waiting session is waiting for, the
-    /// checkout in full, and what a click does.
-    ///
-    /// The reason is here because the card's own line is one line: a permission request names a
-    /// command, and a command cut off at the width of a cell is the half that says nothing. A wait
-    /// nobody can read is a wait nobody answers, so the full sentence has to be somewhere, and under
-    /// the pointer is where a card in a grid keeps what it cannot fit.
-    ///
-    /// And the stats follow it, on that card only: they are what the reason took the slot from
-    /// (`sessionCard`). Every other card prints them, so repeating them there would be the tooltip
-    /// reading the card back rather than saying what it could not.
-    private func sessionTooltip(_ row: SessionRosterStore.SessionRow) -> String {
-        var lines = [row.title,
-                     row.isReporting ? L(row.state.rawValue) : L("not reporting")]
-        if sessionIsWaiting(row), let reason = sessionReason(row) {
-            lines.append(reason)
-            if let stats = sessionStatsLine(row, now: Date()) { lines.append(stats) }
-        }
-        lines.append(L("Click to bring its terminal to the front"))
-        if let directory = row.directory { lines.append(directory) }
-        return lines.filter { !$0.isEmpty }.joined(separator: "\n")
-    }
-
-    /// One dot per state, along the axis this board is actually read for: does this one need me?
-    /// Red for the session that wants somebody, green for the one that is running and needs nobody,
-    /// grey for at rest, and a HOLLOW ring for "cannot say" - which is both the published `unknown`
-    /// and a session that has published nothing (the latter reads as `unknown` by construction -
-    /// `SessionRow.state`), because both are an absence of information rather than a further
-    /// condition. Red against green is the strongest contrasting pair available at 7pt, and those
-    /// two are the ends of that question.
-    ///
-    /// WORKING WAS PURPLE, AND THE PURPLE WAS THE MISPLACED ONE. `TallyColor.ai` means "Tally is
-    /// steering this" (the smart pick's badge, the status line's mark), and that is true of EVERY
-    /// supervised card on this board, the idle ones drawn in grey included. Spending the identity
-    /// accent on one activity state overloaded it, and at 7pt it made the board's one real
-    /// distinction two deep warm tones apart.
-    ///
-    /// The standing objection to green was that the meter palette is one tab away, so a green dot
-    /// would read as "this session has room". It does not: the meter's sage fills a bar (a
-    /// continuous quantity), this fills a dot in a set of discrete categories, and a session card
-    /// carries no quota at all. What had to be avoided was the sage VALUE, which is why this is
-    /// `TallyColor.live` rather than `TallyColor.normal`.
-    ///
-    /// AND COLOUR IS NOT THE ONLY CARRIER, which is the precondition for putting red beside green:
-    /// a viewer who cannot separate those two hues still gets the waiting card's state in words and
-    /// its reason line, both in red text (`sessionCardHeadline`, `sessionCard`).
-    @ViewBuilder
-    private func stateDot(_ row: SessionRosterStore.SessionRow) -> some View {
-        let size = Self.stateDotSize
-        switch row.state {
-        case .blocked:
-            Circle().fill(TallyColor.critical).frame(width: size, height: size)
-        case .working:
-            Circle().fill(TallyColor.live).frame(width: size, height: size)
-        case .idle:
-            Circle().fill(Color.secondary.opacity(0.5)).frame(width: size, height: size)
-        case .unknown:
-            Circle().strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1)
-                .frame(width: size, height: size)
-        }
-    }
-
-    /// How long this session has been in this state, at a glance: seconds under a minute, then
-    /// minutes, then hours and minutes. Not a countdown and not a date - the question it answers is
-    /// "how long has this been true", and past a day the answer is "a long time".
-    func sessionAge(_ since: Date, now: Date = Date()) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(since)))
-        if seconds < 60 { return "\(seconds)s" }
-        let minutes = seconds / 60
-        if minutes < 60 { return "\(minutes)m" }
-        let hours = minutes / 60
-        if hours < 24 { return "\(hours)h \(minutes % 60)m" }
-        return "\(hours / 24)d"
     }
 }

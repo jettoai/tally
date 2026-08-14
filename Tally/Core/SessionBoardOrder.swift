@@ -2,18 +2,19 @@ import Foundation
 
 /// THE ORDER SOMEBODY PUT THE SESSION BOARD IN, as project directories rather than as cards.
 ///
-/// The board sorts itself by state (`SessionRosterStore.sorted`: what needs somebody first), and
-/// that is what it does until a card is dragged. From the first drag on, the arrangement below
-/// replaces the state sort outright, blocked cards included: a waiting card already carries a red
-/// dot, its state in words and its reason line, so its POSITION does not have to be a fourth
-/// marker, and a board that kept re-seating the card under the pointer would not be an arrangement
-/// at all.
+/// The board takes its seats from the state sort once per launch and then holds them
+/// (`SessionRosterStore.seat`: what needs somebody first, frozen at the first scan). From the
+/// first drag on, the arrangement below replaces that seating outright, blocked cards included: a
+/// waiting card already carries a red dot, its state in words and its reason line, so its POSITION
+/// does not have to be a fourth marker, and a board that kept re-seating the card under the pointer
+/// would not be an arrangement at all.
 ///
 /// KEYED BY THE DIRECTORY, NOT BY THE SESSION. A supervisor pid lives for one session, so an order
 /// written in pids would be forgotten by tomorrow morning, which is the opposite of what dragging
 /// a card is for: the user is arranging PROJECTS, and the project is what comes back next time
 /// (a worktree is its own directory, so parallel lines stay separate cards). Two sessions in one
-/// directory therefore share one seat on this list and keep the state sort between themselves.
+/// directory therefore share one seat on this list and keep the board's own seating between
+/// themselves.
 ///
 /// KEYS RATHER THAN ROWS, so this file has nothing to say about `SessionRow` and can be reasoned
 /// about (and asserted) as plain string algebra; the store maps its rows onto it
@@ -36,10 +37,9 @@ enum SessionBoardOrder {
         defaults.set(deduped(keys), forKey: defaultsKey)
     }
 
-    /// Whether the board is in an order somebody chose. An EMPTY arrangement is the state sort,
-    /// which is what makes the way back a plain erase rather than a second stored flag: two places
-    /// holding "is this board arranged" is two places to disagree, and the disagreement would show
-    /// as a board sorting itself by state under a control offering to sort it by state.
+    /// Whether the board is in an order somebody chose. An EMPTY arrangement is the seating the
+    /// board took at launch, which is what makes clearing it a plain erase rather than a second
+    /// stored flag: two places holding "is this board arranged" is two places to disagree.
     static func isManual(_ manualKeys: [String]) -> Bool { !deduped(manualKeys).isEmpty }
 
     /// Where each arranged key sits. First mention wins, so a defaults value edited by hand into
@@ -55,14 +55,14 @@ enum SessionBoardOrder {
     /// - listedKeys: the projects ON SCREEN, in the order they are drawn. The filter can be hiding
     ///   some of the board, and a drag can only mean something about the cards the hand can see.
     /// - boardKeys: every project on the board, in the order the board would draw them.
-    /// - manualKeys: the arrangement as it stands, empty while the board is still sorting itself.
+    /// - manualKeys: the arrangement as it stands, empty while the board is still in its seating.
     ///
     /// PAST THE TARGET WHEN MOVING FORWARD, BEFORE IT WHEN MOVING BACKWARD, which is the reading
     /// the account cards' own drag already established (`SettingsStore.moveAccount`): always
     /// inserting AT the target's index makes a forward drop onto the next card a no-op.
     ///
     /// THE FIRST DRAG STARTS FROM WHAT IS ON SCREEN. With no arrangement yet, the keys come back
-    /// in the order the board is drawing them at that moment, which is the state sort: the card
+    /// in the order the board is drawing them at that moment, which is its seating: the card
     /// the user grabbed lands where they dropped it and nothing else moves, rather than the board
     /// re-shuffling around a first key.
     ///

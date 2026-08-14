@@ -31,9 +31,15 @@ func displayModelName(_ id: String) -> String {
 /// WHICH SESSIONS ARE RUNNING AND WHAT THEY ARE DOING, as the panel draws them.
 ///
 /// A READER AND NOTHING ELSE. Every state on this board was decided by the supervisor that owns the
-/// session (SessionState.swift says why nothing else can), so this store reads files and sorts
+/// session (SessionState.swift says why nothing else can), so this store reads files and seats
 /// rows; it never infers a state, and a session that has published none is drawn as one that has
 /// published none.
+///
+/// AND THE SEATS ARE TAKEN ONCE PER LAUNCH. The state sort decides them at the first scan that finds
+/// a board, and from then on a card keeps the seat it was given: a session that goes from working to
+/// blocked lights its own dot where it already sits rather than jumping to the top. A board that
+/// re-sorted itself twice a second is a board nobody can learn. `sorted` says what the order IS;
+/// `seat` says how long it lasts.
 ///
 /// WHEN IT SCANS, which is the whole of its cost story:
 ///
@@ -54,9 +60,9 @@ func displayModelName(_ id: String) -> String {
 final class SessionRosterStore {
     static let shared = SessionRosterStore()
 
-    /// The board, sorted (see `sorted`). EVERY LIVE SESSION IS ON IT, including the ones whose
-    /// supervisor has published no state - a build older than this feature, or one in the two
-    /// seconds between registering and its first tick. They are drawn as their own quiet kind of
+    /// The board, in the seats it took (see `seat`). EVERY LIVE SESSION IS ON IT, including the
+    /// ones whose supervisor has published no state - a build older than this feature, or one in
+    /// the two seconds between registering and its first tick. They are drawn as their own quiet
     /// card rather than summarized as a number, for the reason `reloadLegacyNotice` exists one
     /// question over: the sessions are running, and a board that reduced them to a count would be
     /// naming a number the user cannot act on. What they still know about themselves comes from the
@@ -72,6 +78,14 @@ final class SessionRosterStore {
     @ObservationIgnored var onChange: (() -> Void)?
 
     @ObservationIgnored private var timer: Timer?
+    /// WHERE EACH SESSION SITS, as supervisor pids in board order, or nil until a scan finds a board
+    /// to seat. Everything about the freeze is this one field, and `seat` is all of the rule.
+    ///
+    /// NOT PERSISTED, deliberately, and the one place the board's two orders differ: an arrangement
+    /// is something the user MADE and expects to find again (`SessionBoardOrder` keys it by project
+    /// so it outlives the sessions), while a seat belongs to a pid that will not exist tomorrow. So
+    /// each launch seats the board afresh from what is running then.
+    @ObservationIgnored private var seating: [String]?
     /// How many surfaces are currently showing the board. Three hosts can be open at once (the
     /// popover, the pinned panel, the dashboard window), so this is a count rather than a flag:
     /// one of them closing must not stop the polling the other two are relying on.
@@ -257,12 +271,23 @@ final class SessionRosterStore {
     // MARK: The scan
 
     func refresh() {
-        let rows = Self.sorted(liveSessionStates().map(Self.row))
+        let (rows, seating) = Self.seat(liveSessionStates().map(Self.row), seating: self.seating)
+        self.seating = seating
         // Nothing changed is the ordinary tick, and assigning anyway would re-render every surface
         // twice a second for a board that is standing still.
         guard rows != self.rows else { return }
         self.rows = rows
         onChange?()
+    }
+
+    /// TAKE THE SEATS AGAIN, from what every session is doing now: the board's own "Sort by status"
+    /// (`sessionsSortByStateButton`), which sorts once exactly as a launch does and then holds that
+    /// order again. Clearing the ARRANGEMENT is the caller's half of that button
+    /// (`SettingsStore.sortSessionBoardByState`) because it is the caller's to hold: this store
+    /// knows nothing about what was dragged.
+    func resortByState() {
+        seating = nil
+        refresh()
     }
 
     /// One live session, joined with everything beside it on disk. Nothing here is required: a
@@ -278,8 +303,11 @@ final class SessionRosterStore {
 
     /// The board's order: what needs somebody first, then what is moving, then what is not, then
     /// what cannot say, and last of all what cannot say ANYTHING. Within a group the OLDEST leads,
-    /// because the age of the wait is the thing worth acting on and a list that reordered itself as
-    /// sessions ticked would be unreadable.
+    /// because the age of the wait is the thing worth acting on.
+    ///
+    /// ASKED TWICE IN THE LIFE OF THE APP, not twice a second: once at the first scan of a launch
+    /// and once more whenever somebody presses "Sort by status" (`refresh`, `resortByState`). It is
+    /// the only thing that ever DECIDES an order here; what holds that decision still is `seat`.
     /// `nonisolated` because it is a pure function of what it is handed and nothing else, which is
     /// also what lets the assertion harness state the order without an app around it.
     nonisolated static func sorted(_ rows: [SessionRow]) -> [SessionRow] {
@@ -288,14 +316,36 @@ final class SessionRosterStore {
         }
     }
 
+    /// ONE SCAN'S BOARD, AND THE SEATING IT LEAVES BEHIND: the whole of the freeze, pure, so the
+    /// harness can state every case of it without an app around it (`refresh` is then the two lines
+    /// that carry the seating between scans).
+    ///
+    ///   - Handed no seating, a scan that FOUND something takes its seats from the state sort and no
+    ///     scan after it may: the "first sort of the launch" the board then holds.
+    ///   - Every scan after that keeps each card where it is. A state change rewrites what a card
+    ///     SAYS and never where it sits, because the one thing here that reads a state is `sorted`,
+    ///     and the seating is what it wrote once rather than what it would write now.
+    ///   - A session the seating never heard of goes to the END, in the order the scan handed it
+    ///     over, which is ascending supervisor pid (`liveSessionStates`): one that started later has
+    ///     the higher pid, so "new cards join at the bottom" needs no clock of its own.
+    ///   - A session that ended leaves its seat and nothing else moves - the seating that comes back
+    ///     is read off the board rather than maintained beside it - and an empty board comes back
+    ///     unseated, so whatever appears after one is sorted again. Nothing is at risk there: an
+    ///     empty board has no cards to move.
+    nonisolated static func seat(_ scanned: [SessionRow],
+                                 seating: [String]?) -> (rows: [SessionRow], seating: [String]?) {
+        let rows = ordered(scanned, by: seating ?? sorted(scanned).map(\.id)) { $0.id }
+        return (rows, rows.isEmpty ? nil : rows.map(\.id))
+    }
+
     /// The board in the order somebody DRAGGED it into, given what they have arranged so far
     /// (`SessionBoardOrder`, which says why the arrangement is written in project directories).
     ///
-    /// Handed the state sort's output and nothing else, so the two orders compose in one direction
-    /// only: an empty arrangement is the state sort untouched, and inside one seat - two sessions
-    /// of the same project - the state sort is what still separates them. The stable tie-break is
-    /// what carries that, so it is not an implementation detail: rewrite it as an unstable sort and
-    /// two sessions of one project start swapping places twice a second.
+    /// Handed the seated board and nothing else, so the two orders compose in one direction only:
+    /// an empty arrangement is the seating untouched, and inside one seat - two sessions of the
+    /// same project - the seating is what still separates them. The stable tie-break is what
+    /// carries that, so it is not an implementation detail: rewrite it as an unstable sort and two
+    /// sessions of one project start swapping places twice a second.
     ///
     /// A PROJECT NOBODY HAS ARRANGED SITS LAST, in the order it arrived in. A session started in a
     /// new checkout has to appear somewhere, and anywhere else means the board rearranging itself
@@ -305,10 +355,21 @@ final class SessionRosterStore {
     /// is also what lets the assertion harness state the order without an app around it.
     nonisolated static func arranged(_ rows: [SessionRow], manualKeys: [String]) -> [SessionRow] {
         guard SessionBoardOrder.isManual(manualKeys) else { return rows }
-        let ranking = SessionBoardOrder.ranking(manualKeys)
+        return ordered(rows, by: manualKeys, key: orderKey)
+    }
+
+    /// Rows in the order a list of keys names, stably: what the list does not name keeps the order
+    /// it was handed in, at the end. Spelled once because the board's two orders are the same
+    /// ordering asked about two different keys - a card's session (the seating) and a card's project
+    /// (the arrangement) - and two copies of it would be two places for the tie-break to rot.
+    nonisolated private static func ordered(_ rows: [SessionRow], by keys: [String],
+                                            key: (SessionRow) -> String?) -> [SessionRow] {
+        // The arrangement's own index, which is plain string algebra: first mention wins, blanks are
+        // not keys (`SessionBoardOrder.ranking`). Both true of pids as well as of directories.
+        let ranking = SessionBoardOrder.ranking(keys)
         return rows.enumerated().sorted { lhs, rhs in
-            let left = orderKey(lhs.element).flatMap { ranking[$0] } ?? Int.max
-            let right = orderKey(rhs.element).flatMap { ranking[$0] } ?? Int.max
+            let left = key(lhs.element).flatMap { ranking[$0] } ?? Int.max
+            let right = key(rhs.element).flatMap { ranking[$0] } ?? Int.max
             return left == right ? lhs.offset < rhs.offset : left < right
         }.map(\.element)
     }

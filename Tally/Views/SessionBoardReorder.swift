@@ -155,24 +155,35 @@ extension PopoverRootView {
     @ViewBuilder
     var sessionLiftPreview: some View {
         if let lift = sessionLift {
-            sessionCard(lift.row)
+            sessionCard(lift.row, handleProminent: true)
                 .liftedCard(width: lift.sourceFrame.width, centre: lift.previewCentre,
                             following: lift.location)
         }
     }
 
-    /// THE WAY BACK. Drawn only while there is an arrangement to leave, because in the state sort
-    /// it would be a control offering what the board is already doing.
+    /// SORT BY STATUS, ONCE. An action rather than a mode, which is why it is drawn whether or not
+    /// anything has been dragged (`sessionsBoardControls`): the board takes its seats from the state
+    /// sort at the first scan of a launch and then holds them, so this is how somebody asks for that
+    /// reading again after an hour of sessions changing what they are doing.
+    ///
+    /// IT DOES BOTH HALVES, because either alone leaves the board somewhere nobody asked for: it
+    /// forgets the arrangement (`SettingsStore.sortSessionBoardByState`) AND has the roster take its
+    /// seats again from what is running now (`SessionRosterStore.resortByState`). Clearing the
+    /// arrangement alone would drop the board back onto seats taken at launch, which is neither what
+    /// the user arranged nor what the sessions are doing.
     ///
     /// It ERASES rather than remembering: the board has one arrangement, the one somebody dragged
     /// it into, and an app that quietly kept the old one would owe the user a second control to get
     /// back to it. Dragging any card starts a new arrangement from what is on screen at that
-    /// moment, which is the state sort again, so nothing is lost that a hand cannot redo.
+    /// moment, so nothing is lost that a hand cannot redo.
     var sessionsSortByStateButton: some View {
         // The cards travel on the grid's own spring, which is watching the order they are in
-        // (`sessionsGrid`), so the erase is a plain assignment: wrapping it would be a second
+        // (`sessionsGrid`), so both halves are plain assignments: wrapping them would be a second
         // animation over the one already carrying it.
-        Button { settings.sortSessionBoardByState() } label: {
+        Button {
+            settings.sortSessionBoardByState()
+            SessionRosterStore.shared.resortByState()
+        } label: {
             HStack(spacing: 3) {
                 Image(systemName: "arrow.up.arrow.down")
                 Text(L("Sort by status"))
@@ -182,6 +193,6 @@ extension PopoverRootView {
         }
         .buttonStyle(.borderless)
         .foregroundStyle(.secondary)
-        .tallyTooltip(L("Put the board back in state order and forget the arrangement"))
+        .tallyTooltip(L("Sort the board by status now and forget the arrangement"))
     }
 }

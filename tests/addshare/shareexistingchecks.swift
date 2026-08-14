@@ -197,6 +197,183 @@ func runShareExistingChecks(root: URL) {
     check("the main account cannot be shared with itself",
           selfReport.isMainHome && selfReport.results.isEmpty && !selfReport.changed)
 
+    // …INCLUDING when it is reached by another name. `~/.codex2 -> ~/.codex` is how somebody joins
+    // two homes up by hand, and it is a home `tally status` lists like any other, so it is a home
+    // `tally share` and the Settings row are both asked to share. Comparing the written paths let it
+    // through, and the share then renamed the MAIN account's own instructions aside as
+    // `.local-<date>` and left a link pointing at itself where they had been - every file in the one
+    // setup the fleet reads, displaced, by the command that exists to keep them (codex, 2026-08-13).
+    let aliasMain = mainAccount("alias-main")
+    let alias = root.appendingPathComponent("alias-home")
+    try? fm.createSymbolicLink(at: alias, withDestinationURL: aliasMain)
+    let aliasReport = shareExistingHarness(providerID: "claude", mainHome: aliasMain, target: alias,
+                                           now: day)
+    check("a home that IS the main home through a symlink is the main home",
+          aliasReport.isMainHome && aliasReport.results.isEmpty && !aliasReport.changed)
+    check("…so the main account's own documents are still its own documents",
+          read(aliasMain.appendingPathComponent("CLAUDE.md")) == "main rules"
+              && (try? fm.destinationOfSymbolicLink(
+                  atPath: aliasMain.appendingPathComponent("CLAUDE.md").path)) == nil
+              && !fm.fileExists(atPath: aliasMain.appendingPathComponent(
+                  "CLAUDE.md.local-\(stamp)").path))
+    check("…and nothing of its own was merged into itself either",
+          read(aliasMain.appendingPathComponent("memory/MEMORY.md")) == "main index"
+              && !fm.fileExists(atPath: aliasMain.appendingPathComponent(
+                  "memory.local-\(stamp)").path))
+    // The same question the account list asks, which has to have the same answer: a row saying "0 of
+    // 7 shared" about a home that IS the main one is a button offering to do this.
+    check("…and the progress that draws the row agrees it is not a target",
+          sharedHarnessProgress(providerID: "claude", mainHome: aliasMain, target: alias)
+              == SharedHarnessProgress())
+
+    // MARK: - The one deletion, made incapable of deleting a file
+
+    // The target account is somebody's LIVE account. Between the merge counting a directory and the
+    // emptied shape of it being removed, a `claude` running in that home can write a new transcript
+    // into it - under a name the walk's listing was taken before, so it counts as neither moved nor
+    // kept, and a recursive delete took it with the empty folders (codex, 2026-08-13). Two shapes
+    // below: this one holds the count and the delete apart in real time, the next needs no timing at
+    // all.
+    let raceMain = mainAccount("race-main")
+    let race = home("race-target")
+    let bulk = 3000
+    for n in 0 ..< bulk {
+        write("t\(n)", race.appendingPathComponent("projects/bulk/f\(n).jsonl"))
+    }
+    var wroteAt: Date?
+    let writer = Thread {
+        // The first file to land in the main account proves the walk has started, and therefore
+        // that the listing of the target's `projects/` has already been taken: anything created
+        // there from here on is invisible to this share. The deadline is so a merge that moves
+        // nothing fails this check rather than hanging the suite.
+        let watch = raceMain.appendingPathComponent("projects/bulk")
+        let deadline = Date().addingTimeInterval(20)
+        while ((try? fm.contentsOfDirectory(atPath: watch.path))?.count ?? 0) < 1,
+              Date() < deadline { usleep(200) }
+        write("a transcript written while the share was running",
+              race.appendingPathComponent("projects/late.jsonl"))
+        wroteAt = Date()
+    }
+    writer.start()
+    let raceStarted = Date()
+    let raceReport = shareExistingHarness(providerID: "claude", mainHome: raceMain, target: race,
+                                          items: ["projects"], now: day)
+    let raceReturned = Date()
+    while !writer.isFinished { usleep(200) }
+    // The premise, guarded, because without it this row is green whenever the writer simply lost:
+    // the file has to have been created while the share was still working, and the share has to
+    // have finished believing it had emptied the directory.
+    check("the premise: a file appears mid-share, under a name the merge never counted",
+          (wroteAt.map { $0 > raceStarted && $0 < raceReturned } ?? false)
+              && raceReport.results.contains { $0.item == "projects"
+                  && $0.outcome == .merged(moved: bulk, kept: 0,
+                                           backup: "projects.local-\(stamp)") })
+    check("…and it is still on disk afterwards, in the backup with everything else kept",
+          read(race.appendingPathComponent("projects.local-\(stamp)/late.jsonl"))
+              == "a transcript written while the share was running")
+    check("…while the share itself still happened, rather than failing over one file",
+          raceReport.failed.isEmpty
+              && read(race.appendingPathComponent("projects/bulk/f0.jsonl")) == "t0"
+              && read(raceMain.appendingPathComponent("projects/bulk/f0.jsonl")) == "t0")
+
+    // The same rule with no clock in it: a subtree the merge could not so much as list counts as
+    // nothing moved and nothing kept, exactly as a mid-share write does. Removal that refuses a
+    // non-empty directory is what tells the two of them from a genuinely emptied tree.
+    let blindMain = mainAccount("blind-main")
+    let blind = home("blind-target")
+    write("moves across", blind.appendingPathComponent("projects/a.jsonl"))
+    write("unreachable", blind.appendingPathComponent("projects/locked/secret.jsonl"))
+    try? fm.setAttributes([.posixPermissions: 0o333],
+                          ofItemAtPath: blind.appendingPathComponent("projects/locked").path)
+    let blindReport = shareExistingHarness(providerID: "claude", mainHome: blindMain, target: blind,
+                                           items: ["projects"], now: day)
+    try? fm.setAttributes([.posixPermissions: 0o755],
+                          ofItemAtPath: blind.appendingPathComponent("projects.local-\(stamp)/locked")
+                              .path)
+    check("a subtree the merge could not read is kept, not deleted",
+          read(blind.appendingPathComponent("projects.local-\(stamp)/locked/secret.jsonl"))
+              == "unreachable")
+    check("…and the share still completes, through the backup path like any other leftover",
+          blindReport.failed.isEmpty
+              && blindReport.results.contains { $0.item == "projects"
+                  && $0.outcome == .merged(moved: 1, kept: 0,
+                                           backup: "projects.local-\(stamp)") }
+              && read(blind.appendingPathComponent("projects/a.jsonl")) == "moves across")
+
+    // MARK: - The inbox the main account cannot be given
+
+    // The other end of the ensure: it can FAIL, and both ways it fails are silent. What is at that
+    // name here is a plain file, so the directory cannot be created - and `linkSharedHarness`'s rule
+    // for a name the main account does not have is to skip it and report neither a link nor a
+    // failure, which is a share that reads as complete while the one item the fleet needs most stays
+    // split per account (codex, 2026-08-13).
+    let noInboxMain = mainAccount("noinbox-main")
+    try? fm.removeItem(at: noInboxMain.appendingPathComponent(inboxesItem))
+    write("not a directory", noInboxMain.appendingPathComponent(inboxesItem))
+    let noInbox = home("noinbox-target")
+    check("the premise: a plain file is standing where the main account's inbox goes",
+          !ensureSharedInboxes(in: noInboxMain, items: sharedHarnessItems))
+    let noInboxReport = shareExistingHarness(providerID: "claude", mainHome: noInboxMain,
+                                             target: noInbox, now: day)
+    check("an inbox that cannot be made is reported as a share that did not happen",
+          noInboxReport.failed.contains(inboxesItem)
+              && !noInboxReport.linked.contains(inboxesItem))
+    check("…and nothing is linked at that name, a link to the file least of all",
+          !fm.fileExists(atPath: noInbox.appendingPathComponent(inboxesItem).path))
+    check("…while the rest of the share carries on around it",
+          noInboxReport.linked.contains("CLAUDE.md") && noInboxReport.changed)
+    // And the answer is true where it is true, so this cannot be satisfied by always refusing.
+    check("a main account that can hold an inbox gets one, and says so",
+          ensureSharedInboxes(in: main, items: sharedHarnessItems)
+              && fm.fileExists(atPath: main.appendingPathComponent(inboxesItem).path))
+
+    // MARK: - Taking the links back, however they were written
+
+    // Remove (Settings) and `--no-share` (the add flow) are this one function, and it has to answer
+    // the same question the detectors answer: a link that RESOLVES to the main account's item is
+    // shared, whether it was written as an absolute path, a relative one, or through another link.
+    // Comparing the link's text instead left the row saying "Installed" with a Remove button that
+    // did nothing, for good (codex, 2026-08-13).
+    let unlinkMain = mainAccount("unlink-main")
+    let relative = home("unlink-relative")
+    // Exactly what a hand-made share looks like: `projects -> ../unlink-main/projects`.
+    try? fm.createSymbolicLink(atPath: relative.appendingPathComponent("projects").path,
+                               withDestinationPath: "../unlink-main/projects")
+    // And one wired through a link to the home itself, which is the other way to write it.
+    let unlinkAlias = root.appendingPathComponent("unlink-main-alias")
+    try? fm.createSymbolicLink(at: unlinkAlias, withDestinationURL: unlinkMain)
+    try? fm.createSymbolicLink(at: relative.appendingPathComponent("memory"),
+                               withDestinationURL: unlinkAlias.appendingPathComponent("memory"))
+    let elsewhereDir = home("unlink-elsewhere")
+    try? fm.createSymbolicLink(at: relative.appendingPathComponent("skills"),
+                               withDestinationURL: elsewhereDir)
+    check("the premise: a relative link reads as shared on the way in",
+          sharesConversations(providerID: "claude", source: unlinkMain, target: relative))
+    let relativeRemoved = unlinkSharedHarness(from: unlinkMain, to: relative,
+                                              items: harnessItems(for: "claude", in: unlinkMain))
+    check("a relative link to the main account is one of ours, and is taken back",
+          relativeRemoved.contains("projects")
+              && !fm.fileExists(atPath: relative.appendingPathComponent("projects").path))
+    check("…and so is one wired through another link",
+          relativeRemoved.contains("memory")
+              && !fm.fileExists(atPath: relative.appendingPathComponent("memory").path))
+    check("…while a link aimed anywhere else is still none of our business",
+          !relativeRemoved.contains("skills")
+              && (try? fm.destinationOfSymbolicLink(
+                  atPath: relative.appendingPathComponent("skills").path)) == elsewhereDir.path)
+    check("…and what they pointed AT is untouched, because only links are ever removed",
+          read(unlinkMain.appendingPathComponent("projects/proj-a/one.jsonl")) == "main one")
+    // The case resolution alone cannot answer, and the reason the link's text is still read: an
+    // item the main account no longer has resolves to nothing, and `--no-share` still has to be
+    // able to take our link to it back.
+    let danglingHome = home("unlink-dangling")
+    try? fm.createSymbolicLink(at: danglingHome.appendingPathComponent("hooks"),
+                               withDestinationURL: unlinkMain.appendingPathComponent("hooks"))
+    check("a link to an item the main account no longer has is still ours to remove",
+          !fm.fileExists(atPath: unlinkMain.appendingPathComponent("hooks").path)
+              && unlinkSharedHarness(from: unlinkMain, to: danglingHome,
+                                     items: sharedHarnessItems).contains("hooks"))
+
     // MARK: - A home that cannot be written to
 
     let sealedMain = mainAccount("sealed-main")

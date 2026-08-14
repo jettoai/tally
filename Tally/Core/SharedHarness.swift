@@ -46,10 +46,25 @@ let inboxesItem = "inboxes"
 /// Asked of the share list rather than of the provider id, so it follows the list it exists to
 /// serve: codex carries no inbox notion, and creating one there would be creating a directory
 /// nothing reads.
-func ensureSharedInboxes(in mainHome: URL, items: [String]) {
-    guard items.contains(inboxesItem) else { return }
-    try? FileManager.default.createDirectory(at: mainHome.appendingPathComponent(inboxesItem),
-                                             withIntermediateDirectories: true)
+///
+/// Answers whether the main account now HAS one, because the two ways this fails are both silent:
+/// a main home that cannot be written to, and a plain file already sitting on that name. Either way
+/// `linkSharedHarness` then does what it does for every name the main account lacks - skips it,
+/// reporting neither a link nor a failure - and the surface says the share worked while the one
+/// item the fleet needs most stays split per account (codex review, 2026-08-13). A file is not
+/// pretended into a directory either: a link to it would make `inboxes/<sender>/` unwritable in
+/// every account at once.
+@discardableResult
+func ensureSharedInboxes(in mainHome: URL, items: [String]) -> Bool {
+    guard items.contains(inboxesItem) else { return true }
+    let dir = mainHome.appendingPathComponent(inboxesItem)
+    // Asked of the filesystem afterwards rather than of the create's own error: an existing
+    // directory is success, and the one shape that matters (a file at that name) reports the same
+    // "file exists" as that one does.
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    var isDirectory: ObjCBool = false
+    return FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDirectory)
+        && isDirectory.boolValue
 }
 
 /// The codex face of the same idea. `sessions` plus `archived_sessions` are codex's
@@ -112,17 +127,32 @@ func linkSharedHarness(from source: URL, to target: URL,
     return (linked, kept, failed)
 }
 
-/// Removes share links a PREVIOUS run created: only symlinks whose destination is exactly
-/// the corresponding main-home item are touched - a real file, a user's own directory, or
-/// a link pointing anywhere else survives. This is what makes `--no-share` mean what it
-/// says when an aborted login left the directory (and its links) behind.
+/// Removes share links a PREVIOUS run created: only symlinks that lead to the corresponding
+/// main-home item are touched - a real file, a user's own directory, or a link pointing
+/// anywhere else survives. This is what makes `--no-share` mean what it says when an aborted
+/// login left the directory (and its links) behind, and it is what Settings' Remove does.
+///
+/// WHERE a link leads is asked by RESOLUTION, the way every detector here asks it
+/// (`sharesConversations`, `sharedHarnessProgress`, `shareExistingItem`). Comparing the link's TEXT
+/// instead is the same question with a narrower answer, and the two disagreeing is a row that can
+/// never be turned off: a relative link, or one wired through another link
+/// (`projects -> ../.claude/projects`), reads as shared going in and was walked straight past coming
+/// out, leaving Settings saying "Installed" with a Remove button that does nothing (codex review,
+/// 2026-08-13). The text form is kept as the other half of the OR rather than replaced, because it
+/// answers one case resolution cannot: a link to an item the main account no longer HAS resolves to
+/// nothing but is still ours, and `--no-share` has to be able to take it back.
 func unlinkSharedHarness(from source: URL, to target: URL, items: [String]) -> [String] {
     let fm = FileManager.default
     var removed: [String] = []
     for item in items {
         let targetItem = target.appendingPathComponent(item)
+        let sourceItem = source.appendingPathComponent(item)
+        // It must BE a link before anything else is asked, which is what this reads (an lstat that
+        // never traverses): only links are ever removed here, never a file of the user's own.
         guard let destination = try? fm.destinationOfSymbolicLink(atPath: targetItem.path),
-              destination == source.appendingPathComponent(item).path,
+              destination == sourceItem.path
+                  || targetItem.resolvingSymlinksInPath().path
+                      == sourceItem.resolvingSymlinksInPath().path,
               (try? fm.removeItem(at: targetItem)) != nil else { continue }
         removed.append(item)
     }

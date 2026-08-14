@@ -378,8 +378,15 @@ func prepareAddedAccountHome(
         // main home HAS, and an inbox that has never been written to is not there yet
         // (SharedHarness.swift). Inside the `share` branch on purpose - `--no-share` may not leave
         // so much as an empty directory behind in the main account.
-        ensureSharedInboxes(in: mainHome, items: items)
-        (linked, kept, failed) = linkSharedHarness(from: mainHome, to: dir, items: items)
+        //
+        // A main account that could not be given one is a share that fell short, and says so: the
+        // item is dropped from the list first, because a link to whatever IS at that name (a plain
+        // file) would be worse than none, and then named in `failed` - which is the channel every
+        // surface already reads for exactly this.
+        let inboxReady = ensureSharedInboxes(in: mainHome, items: items)
+        (linked, kept, failed) = linkSharedHarness(
+            from: mainHome, to: dir, items: inboxReady ? items : items.filter { $0 != inboxesItem })
+        if !inboxReady { failed.append(inboxesItem) }
     }
     // Carry over the folders the main account already trusts, so the new one does not re-ask about
     // every project (TrustSeed.swift). Claude only: codex has no such prompt. Same condition as the

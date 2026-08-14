@@ -121,15 +121,29 @@ struct ShareExistingReport: Equatable {
 func shareExistingHarness(providerID: String, mainHome: URL, target: URL,
                           items: [String]? = nil, now: Date = Date()) -> ShareExistingReport {
     var report = ShareExistingReport()
-    guard target.standardizedFileURL.path != mainHome.standardizedFileURL.path else {
+    // Asked after RESOLUTION, the way `shareExistingItem` asks the same question below. A home that
+    // IS the main home through a symlink (`~/.codex2 -> ~/.codex`, which is exactly how somebody
+    // joins two homes up by hand) passes a comparison of the written paths, and then the share moves
+    // the main account's own instructions aside as `.local-<date>` and puts a link to itself where
+    // they were: every file in the fleet's one setup, displaced, by the command that exists to keep
+    // them (codex review, 2026-08-13).
+    guard target.resolvingSymlinksInPath().path != mainHome.resolvingSymlinksInPath().path else {
         report.isMainHome = true
         return report
     }
-    let items = items ?? harnessItems(for: providerID, in: mainHome)
+    var items = items ?? harnessItems(for: providerID, in: mainHome)
     // Before anything is linked, for the reason the add flow calls it: `inboxes` is Tally's own
     // concept and does not exist until the first cross-session message is left, so without this the
-    // one item the fleet needs most is the one item a share skips (SharedHarness.swift).
-    ensureSharedInboxes(in: mainHome, items: items)
+    // one item the fleet needs most is the one item a share skips (SharedHarness.swift). Reported
+    // when it cannot be done rather than passed over: an unwritable main home, or a plain file
+    // sitting on that name, leaves nothing to link, and `linkSharedHarness`'s "what the main home
+    // does not have is skipped" would then read as a share with nothing wrong with it.
+    if !ensureSharedInboxes(in: mainHome, items: items) {
+        items.removeAll { $0 == inboxesItem }
+        report.results.append(ShareExistingResult(
+            item: inboxesItem,
+            outcome: .failed("the main account has no usable \(inboxesItem) directory to share")))
+    }
     for item in items {
         let source = mainHome.appendingPathComponent(item)
         let dest = target.appendingPathComponent(item)
@@ -175,13 +189,11 @@ private func shareExistingItem(_ item: String, source: URL, dest: URL,
     if type == .typeDirectory, mergeableHarnessItems.contains(item) {
         let counts = mergeHarnessDirectory(from: dest, into: source)
         mergeCounts = counts
-        if counts.kept == 0 {
-            // Everything moved across, so what is left is the empty shape of the directory tree.
-            // Removing it is the one deletion in here, and it deletes no file: a directory that
-            // still held one would have counted it as kept.
-            guard (try? fm.removeItem(at: dest)) != nil else {
-                return .failed("the emptied \(item) directory could not be removed")
-            }
+        // Everything moved across, so what is left should be the empty shape of the directory tree,
+        // and removing that shape is the one deletion in here. It is made INCAPABLE of deleting a
+        // file rather than counted as not deleting one; anything still standing falls through to the
+        // backup path below and is renamed aside with every other leftover.
+        if counts.kept == 0, removeEmptiedTree(at: dest) {
             return link(.merged(moved: counts.moved, kept: 0, backup: nil))
         }
     }
@@ -200,6 +212,26 @@ private func shareExistingItem(_ item: String, source: URL, dest: URL,
         return link(.merged(moved: mergeCounts.moved, kept: mergeCounts.kept, backup: backup))
     }
     return link(.backedUp(backup))
+}
+
+/// Removes what a complete merge leaves behind - the directory tree itself - and ONLY where every
+/// directory in it is empty. Answers whether `dir` is gone.
+///
+/// `rmdir(2)` rather than FileManager, which offers no removal that refuses a non-empty directory:
+/// `removeItem` is recursive and unconditional, and there is no flag to make it otherwise. That
+/// refusal is the entire point. The merge above counted this tree file by file, and the target
+/// account is somebody's live account: a `claude` running in it writes a new transcript into
+/// `projects/` whenever it likes, including in the moment between the count and this line, and into
+/// a directory whose listing was taken before that file existed. A recursive delete would take that
+/// transcript with it - the one deletion in a file whose whole promise is that nothing is ever
+/// deleted (codex review, 2026-08-13). Bottom-up because a directory can only be removed once its
+/// own subdirectories are, and a file or a symlink is not removable this way at all: rmdir answers
+/// ENOTDIR for those and ENOTEMPTY for the directory holding them, which is the answer this wants.
+private func removeEmptiedTree(at dir: URL) -> Bool {
+    for name in (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [] {
+        _ = removeEmptiedTree(at: dir.appendingPathComponent(name))
+    }
+    return rmdir(dir.path) == 0
 }
 
 /// The name a displaced item is kept under: its own name, the word `local`, and the day. A name
@@ -279,7 +311,9 @@ struct SharedHarnessProgress: Equatable {
 func sharedHarnessProgress(providerID: String, mainHome: URL, target: URL,
                            items: [String]? = nil) -> SharedHarnessProgress {
     var progress = SharedHarnessProgress()
-    guard target.standardizedFileURL.path != mainHome.standardizedFileURL.path else {
+    // Resolved, exactly as the share itself compares them: the row's word and the act behind the
+    // button must agree about which home is the one being shared FROM, symlinked homes included.
+    guard target.resolvingSymlinksInPath().path != mainHome.resolvingSymlinksInPath().path else {
         return progress
     }
     for item in items ?? harnessItems(for: providerID, in: mainHome) {

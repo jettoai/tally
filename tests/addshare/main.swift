@@ -732,6 +732,30 @@ check("the ensured directory is the item the claude list actually shares",
       sharedHarnessItems.contains(inboxesItem)
           && fm.fileExists(atPath: codexInboxMain.appendingPathComponent(inboxesItem).path))
 
+// And the end of that ensure it cannot reach: a plain file standing on that name. The directory
+// cannot be created over it, and `linkSharedHarness`'s rule for a name the main account does not
+// have is to skip it silently - so the add reported a complete share while the one item the fleet
+// needs most stayed split per account (codex review, 2026-08-13). Linking the FILE would be worse
+// than either: `inboxes/<sender>/` would then be unwritable in every account at once.
+let fileInboxRoot = tmp.appendingPathComponent("fileinbox-\(UUID().uuidString)")
+let fileInboxMain = fileInboxRoot.appendingPathComponent(".claude")
+try! fm.createDirectory(at: fileInboxMain, withIntermediateDirectories: true)
+try! "secret".write(to: fileInboxMain.appendingPathComponent(".credentials.json"),
+                    atomically: true, encoding: .utf8)
+try! "not a directory".write(to: fileInboxMain.appendingPathComponent(inboxesItem),
+                             atomically: true, encoding: .utf8)
+try! "instructions".write(to: fileInboxMain.appendingPathComponent("CLAUDE.md"),
+                          atomically: true, encoding: .utf8)
+let fileInboxAdd = try! prepareAddedAccountHome(providerID: "claude", share: true,
+                                                home: fileInboxRoot, fileExists: realFiles,
+                                                keychainLogin: noKeychain)
+check("an inbox that cannot be created is a share that fell short, and says so",
+      fileInboxAdd.failed.contains(inboxesItem) && !fileInboxAdd.linked.contains(inboxesItem))
+check("…and nothing is linked at that name, a link to the file least of all",
+      !fm.fileExists(atPath: fileInboxAdd.dir.appendingPathComponent(inboxesItem).path))
+check("…while the rest of the share is linked around it",
+      fileInboxAdd.linked == ["CLAUDE.md"])
+
 // codex: its own allowlist, and no trust seeding at all (it has no such prompt).
 let codexMain = addRoot.appendingPathComponent(".codex")
 try! fm.createDirectory(at: codexMain, withIntermediateDirectories: true)
@@ -936,8 +960,10 @@ check("the CLI's login message still promises no wait",
       addSource.contains("as soon as the login completes") && !addSource.contains("within a minute"))
 
 // The other half of the same act: sharing into an account that already exists
-// (shareexistingchecks.swift, Tally/Core/ShareExisting.swift).
+// (shareexistingchecks.swift, Tally/Core/ShareExisting.swift), and the command line that asks for it
+// (sharecommandchecks.swift, TallyCLI/ShareCommand.swift).
 runShareExistingChecks(root: tmp)
+runShareCommandChecks()
 
 try? fm.removeItem(at: tmp)
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")

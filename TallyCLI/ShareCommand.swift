@@ -25,26 +25,46 @@ is merged into the main account file by file, and anything else already in the w
 <name>.local-<date> and left where it is.
 """
 
-/// `tally share <provider> <account>|--all`.
-func runShare(args: [String]) -> Int32 {
-    let all = args.contains("--all")
+/// The one flag this command has.
+let shareAllRequest = "--all"
+
+/// What a `tally share` command line asks for, or nil when it asks for something this command
+/// cannot act on. Pure, so the two rules worth stating - one account or all of them, and no flag
+/// but that one - are testable, the way `switchIntent` is (SwitchCommand.swift).
+struct ShareIntent: Equatable {
+    let providerID: String
+    /// The one account named, or nil for `--all`: the whole fleet.
+    let account: String?
+}
+
+func shareIntent(_ args: [String]) -> ShareIntent? {
     // A leading dash is a flag rather than a name, the way `switchIntent` reads the same position:
     // labels are matched against what `tally status` prints, and nothing there starts with one.
-    let words = args.filter { !$0.hasPrefix("-") }
-    guard let providerID = words.first,
-          let provider = providers.first(where: { $0.id == providerID }) else {
-        warn(shareUsage)
-        return 2
-    }
+    // Any dash-led word that is not the one flag is REFUSED rather than dropped, because dropping
+    // it leaves a line that reads as a complete instruction: `tally share codex work --help` filtered
+    // the word out and went on to move that account's files aside, which is the opposite of what
+    // somebody typing --help is asking for (codex review, 2026-08-13). Usage and exit 2 is what
+    // every other subcommand answers a word it does not know with, --help included
+    // (`tally worktree --help`, WorktreeTree.swift); the whole binary's help is `tally help`.
+    guard !args.contains(where: { $0.hasPrefix("-") && $0 != shareAllRequest }) else { return nil }
+    let words = args.filter { $0 != shareAllRequest }
+    guard let providerID = words.first, providers.contains(where: { $0.id == providerID })
+    else { return nil }
     let named = Array(words.dropFirst())
     // One name or `--all`, never both and never neither. Refused rather than guessed for the reason
     // the account matcher refuses an ambiguous name: this command writes to somebody's config home,
     // and the wrong home is invisible until much later.
-    guard named.count <= 1, all == named.isEmpty else {
+    guard named.count <= 1, args.contains(shareAllRequest) == named.isEmpty else { return nil }
+    return ShareIntent(providerID: providerID, account: named.first)
+}
+
+/// `tally share <provider> <account>|--all`.
+func runShare(args: [String]) -> Int32 {
+    guard let intent = shareIntent(args),
+          let provider = providers.first(where: { $0.id == intent.providerID }) else {
         warn(shareUsage)
         return 2
     }
-
     let home = FileManager.default.homeDirectoryForCurrentUser
     let mainHome = home.appendingPathComponent(addAccountConfigBase(providerID: provider.id))
     guard FileManager.default.fileExists(atPath: mainHome.path) else {
@@ -55,7 +75,7 @@ func runShare(args: [String]) -> Int32 {
     if let problem { warn(problem) }
 
     let targets: [Snapshot.Account]
-    if let name = named.first {
+    if let name = intent.account {
         switch accountMatching(name, provider: provider.id, in: snapshot) {
         case .one(let account):
             targets = [account]
@@ -70,12 +90,13 @@ func runShare(args: [String]) -> Int32 {
     } else {
         // The main account is walked past rather than refused: `--all` is a statement about the
         // fleet, and the one home there is nothing to share INTO is not an error in it. Compared
-        // the way the engine compares it, so a `--all` run and the engine cannot disagree about
-        // which home is the one being shared from.
+        // the way the engine compares it - after resolution, so a home that reaches the main one
+        // through a symlink is the same home to both - because a `--all` run and the engine
+        // disagreeing about which home is being shared FROM is how one of them acts on it.
         targets = (snapshot?.accounts ?? []).filter { account in
             guard account.provider == provider.id, let home = account.launchHome else { return false }
-            return URL(fileURLWithPath: home).standardizedFileURL.path
-                != mainHome.standardizedFileURL.path
+            return URL(fileURLWithPath: home).resolvingSymlinksInPath().path
+                != mainHome.resolvingSymlinksInPath().path
         }
         guard !targets.isEmpty else {
             warn("no other \(provider.id) account to share with - `tally status` lists the ones "

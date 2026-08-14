@@ -39,20 +39,48 @@ enum TerminalJump {
     /// controlling terminal names the surface exactly; `hint` is the session's own name (the
     /// repository, or the parallel line), used only to break a tie between several windows standing
     /// in one directory once that exact answer is unavailable.
+    ///
+    /// EVERY WAY OUT OF HERE ENDS IN `bringForward`, because finding the surface is only half of
+    /// the click: the other half is the keyboard, and since macOS 14 that half is this app's to
+    /// give away rather than the terminal's to take.
+    @MainActor
     static func jump(directory: String?, hint: String?, childPid: Int?) async {
         let tty = childPid.flatMap { controllingTTY(of: pid_t($0)) }
         let directory = directory ?? ""
         // Nothing to match on at all (no live child, no recorded checkout) means nothing to ask, and
         // asking anyway would focus whichever surface happens to stand in "".
-        if tty != nil || !directory.isEmpty, runningApplication(ghosttyBundleID) != nil,
+        if tty != nil || !directory.isEmpty, let ghostty = runningApplication(ghosttyBundleID),
            await focusGhostty(directory: directory, hint: hint ?? "", tty: tty) {
+            bringForward(ghostty)
             return
         }
         if let childPid, activateOwningApplication(of: pid_t(childPid)) { return }
         // Nothing could be matched, so the last useful act is to put the terminal in front and let
         // the user find the tab: better than a click that visibly does nothing. Only for an app
         // that is ALREADY running, for the reason the bundle id above is checked at all.
-        runningApplication(ghosttyBundleID)?.activate(options: [.activateAllWindows])
+        if let ghostty = runningApplication(ghosttyBundleID) { bringForward(ghostty) }
+    }
+
+    /// Hand the foreground over to another application FROM THIS ONE, which since macOS 14 is what
+    /// carrying the keyboard across takes.
+    ///
+    /// AN APP CANNOT SIMPLY TAKE THE FRONT ANY MORE. `NSApplication.activate` is documented to need
+    /// whoever holds the foreground to yield first, and the script below asks Ghostty to activate
+    /// ITSELF, which is precisely the request the system is free to decline. Declined, the window
+    /// still comes up (ordering windows was never restricted, and `focus` raises the surface's
+    /// window on its own), so the failure looks exactly like a working jump until the user types
+    /// and the letters go wherever they were going before.
+    ///
+    /// THE PLAIN ASK IS STILL MADE when the transfer is refused, which is the pinned panel's case:
+    /// that surface is a non-activating panel, so a click in it never made Tally the active app and
+    /// there is no activation here to hand over. Refused, this is no worse than the lone `activate`
+    /// that used to stand at each of these three exits; granted, it is the whole of the fix.
+    @discardableResult
+    @MainActor
+    private static func bringForward(_ app: NSRunningApplication) -> Bool {
+        NSApp.yieldActivation(to: app)
+        return app.activate(from: .current, options: [.activateAllWindows])
+            || app.activate(options: [.activateAllWindows])
     }
 
     // MARK: Ghostty
@@ -199,12 +227,13 @@ enum TerminalJump {
     /// Bounded, because a cycle in the process table (or a pid reused underneath the walk) would
     /// otherwise be an infinite loop in the app's main actor; eight is the same ceiling the CLI's
     /// own ancestor walk uses.
+    @MainActor
     private static func activateOwningApplication(of pid: pid_t) -> Bool {
         var current = pid
         for _ in 0 ..< 8 {
             if let app = NSRunningApplication(processIdentifier: current),
                app.activationPolicy == .regular {
-                return app.activate(options: [.activateAllWindows])
+                return bringForward(app)
             }
             guard let parent = parentProcess(current), parent > 1, parent != current else {
                 return false

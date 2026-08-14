@@ -37,11 +37,18 @@ struct SessionCardView: View {
 
     var body: some View {
         Button {
+            // THE FOREGROUND IS TAKEN HERE, IN THE PRESS'S OWN TURN, and this is the one line of
+            // the jump that cannot be moved into the task below it: an app may activate itself
+            // while it is handling a user event, and the task runs after that event is answered.
+            // Most of these clicks arrive in a panel that deliberately never activated this app, so
+            // without this the terminal is asked to take a foreground nobody is holding out
+            // (`TerminalJump.prepare`).
+            let handover = TerminalJump.prepare()
             // Detached from the press: the jump can stop for up to two minutes inside the system's
             // "may Tally control this app" question the first time, and the panel must not be
             // frozen behind it.
             Task { await TerminalJump.jump(directory: row.directory, hint: row.title,
-                                           childPid: row.childPid) }
+                                           childPid: row.childPid, from: handover) }
         } label: {
             VStack(alignment: .leading, spacing: 3) {
                 sessionCardHeadline

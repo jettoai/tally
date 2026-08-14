@@ -33,6 +33,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/safeguardchecks.swift \
   tests/supervisor/followchecks.swift tests/supervisor/pendingnoticechecks.swift \
   tests/supervisor/sessionstatechecks.swift tests/supervisor/sessionorderchecks.swift \
+  tests/supervisor/terminaljumpchecks.swift \
   tests/supervisor/sessioninputchecks.swift \
   tests/supervisor/contextchecks.swift tests/supervisor/inventorychecks.swift \
   tests/supervisor/resumepromptchecks.swift \

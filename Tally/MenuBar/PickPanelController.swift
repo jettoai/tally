@@ -140,9 +140,13 @@ final class PickPanelController: NSObject {
         // titlebar for its rounded chrome and spent 32 points on it while drawing nothing there,
         // which is the empty band at the top of the panel Albert kept seeing.
         //
-        // NOT `.nonactivatingPanel`, which the pinned panel does use and this one must not: that
-        // style asks AppKit to keep the panel out of the key window chain, and the whole point here
-        // is that the keyboard can answer it (arrow keys and Enter).
+        // NOT `.nonactivatingPanel`, which the pinned panel does use and this one must not. THAT
+        // STYLE IS ABOUT THE APP RATHER THAN ABOUT THE KEY WINDOW: such a panel can become key (the
+        // pinned one overrides `canBecomeKey` to say so), it simply does not make its app ACTIVE
+        // when it is clicked - which is what the pinned panel wants, and what a jump out of it then
+        // has to work around (`TerminalJump.prepare`). Nothing clicks this panel into existence,
+        // though: it is raised for somebody who is typing in a terminal, and the keyboard has to
+        // arrive with it (arrow keys and Enter), which means the app coming forward with it.
         let panel = PickPanel(contentRect: .zero, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         panel.isOpaque = false

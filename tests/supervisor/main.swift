@@ -710,6 +710,7 @@ runBackstopChecks()
 runLanguageChecks()
 runAuditSinkChecks()
 runSessionStateChecks()
+runTerminalJumpChecks()
 runSessionBoardOrderChecks()
 runSessionInputChecks()
 

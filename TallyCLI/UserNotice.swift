@@ -27,6 +27,22 @@ struct UserNotice: Codable, Equatable, Sendable {
     /// anything that happened AFTER this instant, and something that happened before it cannot be
     /// the answer to it.
     var at: Date
+    /// WHICH KIND OF WAIT THIS IS, in Claude Code's own vocabulary (`notification_type`), or nil
+    /// when the event named none - and nil is also what every notice written before this field
+    /// existed decodes as.
+    ///
+    /// The hook has always read this to decide whether the event is a wait at all; it is written
+    /// down as well because the WAITS ARE NOT ALIKE (`userWait`, SessionState.swift). A permission
+    /// request is somebody being asked for something and the session cannot move without them; an
+    /// `idle_prompt` is Claude Code saying the floor is free, which is true of a session dispatching
+    /// subagents for the whole time it dispatches them. Reading the second as the first is what put
+    /// a red dot on every fan-out on this machine (measured 2026-08-15).
+    ///
+    /// NIL FAILS OPEN TO THE HARD READING, which is the compatibility rule the whole track is
+    /// under: a notice written by a supervisor from before this field, or by a Claude Code that
+    /// names no type, keeps exactly the behaviour it had. The over-count that costs is the one
+    /// direction this list can be wrong in for free.
+    var type: String?
     /// The conversation the hook named, when it named one. Written for the same reason the context
     /// reading publishes its transcript id: it is the only witness that binds an event to a
     /// session, where the environment marker is inherited by every descendant.

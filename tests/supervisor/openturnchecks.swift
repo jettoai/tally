@@ -44,7 +44,7 @@ func runOpenTurnChecks() {
             + "\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}}"
     }
     func busy(_ lines: [String]) -> Bool {
-        openTurnHoldsSession(openedAt: openToolCallStart(inTail: lines.joined(separator: "\n")),
+        openTurnHoldsSession(openedAt: openToolCall(inTail: lines.joined(separator: "\n"))?.startedAt,
                              now: now)
     }
 
@@ -53,7 +53,7 @@ func runOpenTurnChecks() {
     check("a tool call still running blocks a non-urgent relaunch",
           busy([prose(600), toolUse(["toolu_a"], secondsAgo: 300)]))
     check("and the open call's own start time is what is reported",
-          openToolCallStart(inTail: toolUse(["toolu_a"], secondsAgo: 300))
+          openToolCall(inTail: toolUse(["toolu_a"], secondsAgo: 300))?.startedAt
             == now.addingTimeInterval(-300))
     // The same silence with the result already back is a genuinely idle session, which must stay
     // takeable: this is the case that keeps reload and self-update working at all.
@@ -116,6 +116,56 @@ func runOpenTurnChecks() {
     check("an answer to a DIFFERENT call does not close this one",
           busy([toolUse(["toolu_a"], secondsAgo: 200), toolResult(["toolu_zzz"], secondsAgo: 190)]))
 
+    // MARK: - 25d2. WHICH tool is open, out of the same walk
+
+    // The second question this scan answers (SessionStateSync.swift is the caller): a session
+    // holding `AskUserQuestion` open is waiting on a PERSON, and Claude Code fires no notification
+    // for that at all - so the transcript is the only witness there is.
+    /// An assistant event opening `calls` as (id, tool name) pairs.
+    func namedToolUse(_ calls: [(String, String)], secondsAgo: TimeInterval) -> String {
+        let blocks = calls.map {
+            "{\"type\":\"tool_use\",\"id\":\"\($0.0)\",\"name\":\"\($0.1)\",\"input\":{}}"
+        }.joined(separator: ",")
+        return "{\"parentUuid\":\"p0\",\"isSidechain\":false,\"type\":\"assistant\","
+            + "\"uuid\":\"a-\(calls.map(\.0).joined())\",\"timestamp\":\"\(iso(secondsAgo))\","
+            + "\"message\":{\"model\":\"claude-opus-5\",\"role\":\"assistant\",\"content\":[\(blocks)],"
+            + "\"stop_reason\":\"tool_use\"}}"
+    }
+    check("the open call names the tool it is inside",
+          openToolCall(inTail: namedToolUse([("toolu_q", "AskUserQuestion")], secondsAgo: 30))?
+              .names == ["AskUserQuestion"])
+    // ONLY THE UNANSWERED ONES. An event that opened a question and a Bash call has closed the Bash
+    // one by the time the question is still standing, and naming a tool that already came back
+    // would report a wait that ended.
+    check("a tool whose result is already back is not among them",
+          openToolCall(inTail: [namedToolUse([("toolu_b", "Bash"), ("toolu_q", "AskUserQuestion")],
+                                             secondsAgo: 60),
+                                toolResult(["toolu_b"], secondsAgo: 50)].joined(separator: "\n"))?
+              .names == ["AskUserQuestion"])
+    check("a closed turn names nothing, because there is no open call to name",
+          openToolCall(inTail: [namedToolUse([("toolu_q", "AskUserQuestion")], secondsAgo: 60),
+                                toolResult(["toolu_q"], secondsAgo: 50)].joined(separator: "\n"))
+              == nil)
+    // A block with no `name` is skipped rather than reported as an empty tool: the id is what pairs
+    // a call with its result, and the name is what this second question reads.
+    check("a call carrying no tool name contributes none",
+          openToolCall(inTail: "{\"parentUuid\":\"p0\",\"isSidechain\":false,"
+                       + "\"type\":\"assistant\",\"uuid\":\"a-x\",\"timestamp\":\"\(iso(30))\","
+                       + "\"message\":{\"role\":\"assistant\",\"content\":["
+                       + "{\"type\":\"tool_use\",\"id\":\"toolu_n\",\"input\":{}}]}}")?
+              .names.isEmpty == true)
+    // The two tools only a person can close, and nothing else: every other tool open on the main
+    // chain is the session working.
+    // ONE MAP, so a tool cannot be recognised as a wait and then have nothing to say about
+    // itself: recognition and the sentence are the same lookup.
+    check("the tools that mean a person is being waited for are named, and only those",
+          Set(userQuestionTools.keys) == ["AskUserQuestion", "ExitPlanMode"])
+    check("…and each says what it is waiting for, in the sentence a card prints",
+          userQuestionTools["AskUserQuestion"] == "Claude is asking you a question"
+              && userQuestionTools["ExitPlanMode"] == "A plan is waiting for approval")
+    check("…while a tool that is not one of them has nothing to say",
+          userQuestionTools["Bash"] == nil)
+
     // MARK: - 25e. Noise between the call and its result
 
     // Real turns put other events in that gap (hook records, mode changes, file-history snapshots:
@@ -142,14 +192,14 @@ func runOpenTurnChecks() {
     try! (padding + toolUse(["toolu_a"], secondsAgo: 200) + "\n")
         .write(to: openFile, atomically: true, encoding: .utf8)
     check("a real file whose last event is an unanswered call reads as open",
-          openTurnHoldsSession(openedAt: openToolCallStart(inTail: transcriptTail(of: openFile) ?? ""),
+          openTurnHoldsSession(openedAt: openToolCall(inTail: transcriptTail(of: openFile) ?? "")?.startedAt,
                                now: now))
     let closedFile = dir.appendingPathComponent("closed.jsonl")
     try! (padding + toolUse(["toolu_a"], secondsAgo: 200) + "\n"
           + toolResult(["toolu_a"], secondsAgo: 190) + "\n")
         .write(to: closedFile, atomically: true, encoding: .utf8)
     check("a real file whose call came back reads as closed",
-          !openTurnHoldsSession(openedAt: openToolCallStart(inTail: transcriptTail(of: closedFile) ?? ""),
+          !openTurnHoldsSession(openedAt: openToolCall(inTail: transcriptTail(of: closedFile) ?? "")?.startedAt,
                                 now: now))
     // The window opens mid-line on any file bigger than it, and half a JSON object must never be
     // parsed: a huge result ahead of the open call is exactly the shape that would do it.
@@ -161,7 +211,7 @@ func runOpenTurnChecks() {
         .write(to: hugeFile, atomically: true, encoding: .utf8)
     let hugeTail = transcriptTail(of: hugeFile) ?? ""
     check("a tail that opens inside a huge line still finds the open call",
-          openTurnHoldsSession(openedAt: openToolCallStart(inTail: hugeTail), now: now))
+          openTurnHoldsSession(openedAt: openToolCall(inTail: hugeTail)?.startedAt, now: now))
     check("and drops the partial line it opened on rather than parsing it",
           !hugeTail.contains("xxxx"))
     check("a file that cannot be read decides nothing",
@@ -268,14 +318,14 @@ func runOpenTurnChecks() {
         .write(to: cachedFile, atomically: true, encoding: .utf8)
     var cachedWatcher = TranscriptWatcher(projectDir: cacheDir, file: cachedFile, since: launch)
     let cachedStamp = mtime(cachedFile)
-    let firstScan = cachedWatcher.openTurnStart(of: cachedFile, modified: cachedStamp)
+    let firstScan = cachedWatcher.openTurn(of: cachedFile, modified: cachedStamp)
     check("the first ask reads the open call out of the file",
-          firstScan == now.addingTimeInterval(-200))
+          firstScan?.startedAt == now.addingTimeInterval(-200))
     // Deleting the file is what makes the next assertion a proof rather than a coincidence: a
     // second read would find nothing and answer nil, so the same answer can only be the cached one.
     try! FileManager.default.removeItem(at: cachedFile)
     check("the same file at the same mtime is answered without reading it again",
-          cachedWatcher.openTurnStart(of: cachedFile, modified: cachedStamp) == firstScan)
+          cachedWatcher.openTurn(of: cachedFile, modified: cachedStamp) == firstScan)
 
     // A file that MOVED must be re-read, or a session would stay busy long after its call came
     // back (and a call opened after the last scan would go unseen).
@@ -288,7 +338,8 @@ func runOpenTurnChecks() {
     let openStamp = mtime(movingFile)
     check("an unanswered call reads as busy on the first ask",
           openTurnHoldsSession(
-            openedAt: movingWatcher.openTurnStart(of: movingFile, modified: openStamp), now: now))
+            openedAt: movingWatcher.openTurn(of: movingFile, modified: openStamp)?.startedAt,
+            now: now))
     // The result comes back, which in the real thing appends a line and stamps the file with a new
     // mtime; the stamp is set by hand here because an atomic write carries the old one over.
     try! (openBody + toolResult(["toolu_b"], secondsAgo: 190) + "\n")
@@ -300,12 +351,13 @@ func runOpenTurnChecks() {
           closedStamp != openStamp)
     check("and the next ask rescans and sees the turn closed",
           !openTurnHoldsSession(
-            openedAt: movingWatcher.openTurnStart(of: movingFile, modified: closedStamp), now: now))
+            openedAt: movingWatcher.openTurn(of: movingFile, modified: closedStamp)?.startedAt,
+            now: now))
 
     // What must NEVER be cached is the VERDICT. It expires at `openTurnMaxSeconds` while the mtime
     // stands perfectly still, which is exactly the state a child SIGKILLed mid-call leaves behind,
     // so a cached verdict would wedge that session busy for the rest of its life.
-    if let opened = cachedWatcher.openTurnStart(of: cachedFile, modified: cachedStamp) {
+    if let opened = cachedWatcher.openTurn(of: cachedFile, modified: cachedStamp)?.startedAt {
         check("a cached scan still holds the session inside the cap",
               openTurnHoldsSession(openedAt: opened,
                                    now: opened.addingTimeInterval(openTurnMaxSeconds - 1)))

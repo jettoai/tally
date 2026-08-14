@@ -118,7 +118,12 @@ private func liveSessionInventory(_ live: [LiveSupervisor], dir: URL = superviso
             messagingSocket: session.pid.flatMap {
                 claudeMessagingSocket(childPid: $0, dir: socketDir)
             },
-            state: session.state?.state, stateSince: session.state?.since)
+            state: session.state?.state, stateSince: session.state?.since,
+            // The three the supervisor publishes about WHY, passed through exactly as they were
+            // decided: this join reads, it does not judge (StatusReport.swift says what they are
+            // for and why a state word alone left the question unanswerable).
+            reason: session.state?.reason, noticeType: session.state?.noticeType,
+            quiet: session.state?.quiet)
     }
 }
 

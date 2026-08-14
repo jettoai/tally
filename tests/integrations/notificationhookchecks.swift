@@ -28,12 +28,14 @@ func runNotificationHookChecks(tmp: URL) throws {
     check("a missing settings file gets the registration",
           try IntegrationsStore.upsertNotificationHook(in: settings, command: ours)
               && commands() == [ours])
-    // THE MATCHER IS THE MAIN FILTER. Claude Code fires `Notification` for nine kinds of thing and
-    // only five of them are waits; without this, every background agent that FINISHED
-    // (`agent_completed`) would arrive here and stand as a red dot until somebody typed.
+    // THE MATCHER IS THE MAIN FILTER. Claude Code fires `Notification` for a dozen kinds of thing
+    // and only some of them are waits; without this, every background agent that FINISHED
+    // (`agent_completed`) would arrive here and stand as a red dot until somebody typed. It is also
+    // the ONLY filter for a type nobody asks for: the far end matches a plain alternation as an
+    // exact list rather than as a pattern, so a type left out of it never fires the hook at all.
     check("…asking only for the notifications that are waits",
           entries().first?["matcher"] as? String == notificationHookMatcher)
-    check("…which is the five waiting types and none of the settled four",
+    check("…which is every waiting type and none of the settled four",
           waitingNotificationTypes.allSatisfy { notificationHookMatcher.contains($0) }
               && !settledNotificationTypes.contains { notificationHookMatcher.contains($0) })
     check("re-installing changes nothing",
@@ -118,8 +120,11 @@ func runNotificationHookChecks(tmp: URL) throws {
     check("two solo entries of ours collapse to exactly one",
           entries().count == 1 && commands() == [ours])
 
-    // AN INSTALL FROM BEFORE THE MATCHER is present but not current: it fires our hook for all
-    // nine types, so it is a live source of false red dots rather than a cosmetic lag. It has to
+    // AN INSTALL FROM BEFORE THE MATCHER is present but not current: it fires our hook for every
+    // type there is, so it is a live source of false red dots rather than a cosmetic lag. The same
+    // test is what carries a matcher that has since GROWN a type (`worker_permission_prompt`,
+    // 2026-08-15) to the repair: an entry that is not equal to the current one is not current. It
+    // has to
     // read as installed (it is), fail the "current" test, and be UPGRADED IN PLACE rather than
     // doubled.
     try write(["hooks": ["Notification": [["hooks": [["type": "command", "command": ours]]]]]])

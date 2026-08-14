@@ -198,6 +198,44 @@ func runTerminalJumpChecks() {
     check("an ask that did not land is made again the other way",
           jumpSource.contains("NSWorkspace.shared.openApplication(at: bundle,")
               && jumpSource.contains("!target.isTerminated"))
+    // …AND NEVER OVER SOMEBODY WHO HAS MOVED ON. The retry runs a grace after the press, and
+    // LaunchServices reaches activation by an authorisation the first ask does not have - so a
+    // person who spent that grace switching to their browser would have the screen taken back for a
+    // trip they had already abandoned. Asserted as a value, because the rule is over pids.
+    let ours: pid_t = 501
+    let ghostty: pid_t = 909
+    check("a third-party app in front stops the second road",
+          !TerminalJump.retryMayTakeForeground(front: 777, ours: ours, previous: 601,
+                                               target: ghostty))
+    check("…while this app still holding the foreground it took does not",
+          TerminalJump.retryMayTakeForeground(front: ours, ours: ours, previous: 601,
+                                              target: ghostty))
+    check("…nor does whatever the click borrowed it from",
+          TerminalJump.retryMayTakeForeground(front: 601, ours: ours, previous: 601,
+                                              target: ghostty))
+    check("…nor the terminal being aimed at",
+          TerminalJump.retryMayTakeForeground(front: ghostty, ours: ours, previous: 601,
+                                              target: ghostty))
+    // A front nobody can read names no third party to interrupt, so it fails open: that is the
+    // behaviour that stood before this guard, which is the safe direction for a wrong guess here.
+    check("a foreground that cannot be read leaves the retry as it was",
+          TerminalJump.retryMayTakeForeground(front: nil, ours: ours, previous: nil,
+                                              target: ghostty))
+    // A click that started from this app borrowed nothing, so there is no previous app to allow
+    // back in - and `nil == nil` must not become a match that lets any unreadable front through.
+    check("nothing was borrowed, so no third party inherits the permission",
+          !TerminalJump.retryMayTakeForeground(front: 777, ours: ours, previous: nil,
+                                               target: ghostty))
+    // And the live path consults it: a value assertion cannot see whether `land` asks, and the
+    // guard is worth nothing if it is only a function that exists.
+    guard let retryAsk = jumpSource.range(of: "retryMayTakeForeground(front: settled.app?"),
+          let secondRoad = jumpSource.range(of: "NSWorkspace.shared.openApplication(at: bundle,")
+    else {
+        check("the retry guard was found on the landing path", false)
+        return
+    }
+    check("the second road is taken only after the guard has answered",
+          retryAsk.upperBound < secondRoad.lowerBound)
 
     // MARK: the device the kernel reports
 

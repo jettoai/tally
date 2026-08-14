@@ -160,6 +160,27 @@ struct StatusReport: Encodable {
         /// When it entered that state, so a reader can age the wait rather than the poll. Absent on
         /// the same terms as the word beside it, and always present when that word is.
         var stateSince: Date?
+        /// WHY, IN THREE FIELDS, and they are here because `blocked` on its own was unanswerable
+        /// from outside the process that decided it: six kinds of event produce that word, they are
+        /// not alike (SessionState.swift's `UserWait`), and until 2026-08-15 telling them apart took
+        /// a strings dump of Claude Code's binary rather than a command.
+        ///
+        /// What Claude Code said it wanted, in its own sentence, or what the transcript says the
+        /// session is holding open. Present only while something is waiting.
+        var reason: String?
+        /// The `notification_type` of the event standing unanswered (`permission_prompt`,
+        /// `idle_prompt`, …). Absent when none stands, when the event named no type, and from a
+        /// supervisor too old to have recorded one - which is the same thing this whole block is
+        /// under: absence means "this Tally cannot say".
+        ///
+        /// Published even where `state` is not `blocked`, deliberately: `working` beside
+        /// `idle_prompt` says the hook fired and the session is not red because the conversation is
+        /// not quiet, which is the whole judgement in one line.
+        var noticeType: String?
+        /// Whether the conversation was quiet on the tick that decided the state: the file silent,
+        /// no tool call outstanding, no subagent writing. The other input to the same judgement,
+        /// and the one that cannot be recovered afterwards.
+        var quiet: Bool?
     }
 
     struct Advisor: Encodable {

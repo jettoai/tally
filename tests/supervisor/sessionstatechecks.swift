@@ -18,19 +18,88 @@ func runSessionStateChecks() {
     // MARK: the machine
 
     check("a moving transcript is working",
-          supervisedSessionState(blocked: false, hasTranscript: true, quiet: false) == .working)
+          supervisedSessionState(wait: nil, hasTranscript: true, quiet: false) == .working)
     check("a quiet one with nothing outstanding is idle",
-          supervisedSessionState(blocked: false, hasTranscript: true, quiet: true) == .idle)
+          supervisedSessionState(wait: nil, hasTranscript: true, quiet: true) == .idle)
     // A child that has not bound a conversation has written nothing anywhere, so `isQuiet` answers
     // true about a file it never found. Reading that as idle would be a guess dressed as a reading.
     check("no transcript is unknown rather than idle",
-          supervisedSessionState(blocked: false, hasTranscript: false, quiet: true) == .unknown)
-    // BLOCKED LEADS, including over an unbound transcript: a session whose first act is a permission
-    // request is exactly that case, and unknown would hide the one state the board exists for.
-    check("a session waiting on the user is blocked whatever the transcript says",
-          supervisedSessionState(blocked: true, hasTranscript: true, quiet: false) == .blocked
-              && supervisedSessionState(blocked: true, hasTranscript: true, quiet: true) == .blocked
-              && supervisedSessionState(blocked: true, hasTranscript: false, quiet: true) == .blocked)
+          supervisedSessionState(wait: nil, hasTranscript: false, quiet: true) == .unknown)
+    // A HARD WAIT LEADS, including over an unbound transcript: a session whose first act is a
+    // permission request is exactly that case, and unknown would hide the one state the board
+    // exists for. A dialog is open, and a subagent writing in the background is not an answer to it.
+    check("a permission request is blocked whatever the transcript says",
+          supervisedSessionState(wait: .hard, hasTranscript: true, quiet: false) == .blocked
+              && supervisedSessionState(wait: .hard, hasTranscript: true, quiet: true) == .blocked
+              && supervisedSessionState(wait: .hard, hasTranscript: false, quiet: true) == .blocked)
+    // THE ASSERTION THIS REPLACES SAID `blocked: true, quiet: false` IS BLOCKED, WHATEVER ELSE WAS
+    // TRUE - and that shape is the defect itself, not a contract: it is a fan-out, where the main
+    // transcript stops the instant the subagents start, Claude Code's 60s timer fires an
+    // `idle_prompt`, and nobody is being waited for at all. Measured 2026-08-15: two of six live
+    // sessions on this machine stood red for minutes while their subagents wrote. Left as a passing
+    // assertion, it would have gone on telling the next reader the behaviour was intended.
+    check("a session that is merely free to speak, while work is still going on, is working",
+          supervisedSessionState(wait: .soft, hasTranscript: true, quiet: false) == .working)
+    check("…and is a call for somebody once the work stops",
+          supervisedSessionState(wait: .soft, hasTranscript: true, quiet: true) == .blocked)
+    // Not over `unknown`: with no transcript bound, quiet is true in a way that means nothing, so a
+    // soft wait there is a sentence about a conversation nobody can see.
+    check("…but says nothing about a session that has bound no conversation yet",
+          supervisedSessionState(wait: .soft, hasTranscript: false, quiet: true) == .unknown)
+
+    // MARK: which kind of wait an event is
+
+    // The taxonomy that split above rests on. FAIL-OPEN TO HARD in both directions, on the same
+    // rule the wait filter itself is under: an event with no type (a notice written before the
+    // field existed, or a Claude Code that names none) and a type this build has never heard of
+    // both keep the behaviour that stood before the distinction existed.
+    check("a permission request is a hard wait", userWait(notificationType: "permission_prompt") == .hard)
+    check("…as is one raised for a background worker",
+          userWait(notificationType: "worker_permission_prompt") == .hard)
+    check("…and an agent asking for something, and an elicitation",
+          userWait(notificationType: "agent_needs_input") == .hard
+              && userWait(notificationType: "elicitation_dialog") == .hard
+              && userWait(notificationType: "elicitation_url_dialog") == .hard)
+    check("the floor being free is the soft one, and the only one",
+          userWait(notificationType: "idle_prompt") == .soft
+              && softWaitNotificationTypes == ["idle_prompt"])
+    check("a notice from before the type was recorded is read as hard",
+          userWait(notificationType: nil) == .hard)
+    check("…and so is a type this build has never heard of",
+          userWait(notificationType: "some_future_type") == .hard)
+    // Every waiting type is classified, so a type added to the vocabulary cannot arrive here as
+    // neither one thing nor the other.
+    check("every waiting type has a kind",
+          waitingNotificationTypes.allSatisfy {
+              userWait(notificationType: $0) == (softWaitNotificationTypes.contains($0)
+                                                     ? .soft : .hard)
+          })
+
+    // MARK: the type the hook writes down
+
+    // The hook has always READ the type to decide whether the event is a wait at all; writing it
+    // down is what makes the two kinds separable a tick later. A notice from before this field
+    // decodes with none, which the rule above reads as hard.
+    writeUserNotice(UserNotice(message: "Claude is waiting for your input", at: t0,
+                               type: "idle_prompt"), pid: "9107", dir: dir)
+    check("a notice carries the kind of event it was",
+          readUserNotice(pid: "9107", dir: dir)?.type == "idle_prompt")
+    try? Data(#"{"message":"older build","at":"2026-08-13T09:00:00Z"}"#.utf8)
+        .write(to: dir.appendingPathComponent("9108" + userNoticeSuffix))
+    check("…and one written before the field existed reads with none, which fails open to hard",
+          readUserNotice(pid: "9108", dir: dir)?.type == nil
+              && userWait(notificationType: readUserNotice(pid: "9108", dir: dir)?.type) == .hard)
+    // AND THE HOOK ACTUALLY RECORDS IT, which no value here can reach: `runHookNotify` reads its
+    // event off stdin inside somebody's session, with the supervisor marker in the environment, so
+    // the wiring is read off the source like the other two boundaries in this file. Everything
+    // above is worth nothing if the one writer of these notices drops the field on the floor - and
+    // a build that did would look exactly like a fleet of older supervisors.
+    let hookSource = (try? String(contentsOfFile: "TallyCLI/HookNotify.swift", encoding: .utf8)) ?? ""
+    check("the hook source is readable from the session-state checks", !hookSource.isEmpty)
+    check("the type the hook filtered on is the type it writes down",
+          hookSource.contains("let type = notificationTypeInEvent(event)")
+              && hookSource.contains("guard notificationWaitsForUser(type) else")
+              && hookSource.contains("type: type, sessionID: sessionID)"))
 
     // MARK: when a wait is over
 
@@ -80,8 +149,20 @@ func runSessionStateChecks() {
           notificationWaitsForUser("some_future_type"))
     // The matcher the registration carries is built from the same list, so the two ends cannot
     // come to disagree about which types are asked for.
-    check("the matcher asks for exactly the waiting five",
+    check("the matcher asks for exactly the waiting types and nothing else",
           notificationHookMatcher == waitingNotificationTypes.joined(separator: "|"))
+    // A TYPE ABSENT FROM THE MATCHER IS ONE THE HOOK IS NEVER FIRED FOR: Claude Code matches a
+    // pattern made only of `[A-Za-z0-9_|]` by splitting on `|` and testing membership rather than
+    // as a regular expression, so the fail-open belt above cannot reach a type nobody asked for.
+    // `worker_permission_prompt` (2.1.233) is a permission request for a background worker, and
+    // until it was named here that request stood with nothing on the board at all.
+    check("a permission request raised for a worker is asked for",
+          waitingNotificationTypes.contains("worker_permission_prompt")
+              && notificationHookMatcher.contains("worker_permission_prompt"))
+    check("…and the matcher stays a plain alternation, which is what makes it an exact list",
+          notificationHookMatcher.allSatisfy {
+              $0 == "|" || $0 == "_" || $0.isLetter || $0.isNumber
+          })
 
     // The type is read out of the payload under whichever spelling it arrives in: the field name
     // is not in the documentation, so the reader tries the plausible ones rather than betting.
@@ -220,6 +301,135 @@ func runSessionStateChecks() {
           readUserNotice(pid: "9106", dir: dir)?.message == "standing")
     check("…and reports the session as blocked while it stands",
           readSessionState(pid: "9106", dir: dir)?.supervised == .blocked)
+
+    // MARK: the two readings this board was getting wrong (2026-08-15)
+
+    // Everything below drives the WHOLE tick against a transcript on disk, because both defects
+    // live in the join rather than in either half: the state rule and the notice reader were each
+    // behaving as written, and the tick threw one of them away.
+    //
+    // Timestamps here are against the real clock: `isQuiet` compares mtimes to `Date()`, and the
+    // `now` a tick is handed only moves the writer's own bookkeeping.
+    let realNow = Date()
+    let stamper = ISO8601DateFormatter()
+    stamper.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    /// A live conversation in a directory of its own (so nothing here can be read as a fork of
+    /// anything else): its last turn open on `tool` or closed, written `age` seconds ago, with or
+    /// without a subagent that is writing right now.
+    func conversation(open tool: String?, age: TimeInterval,
+                      subagentWriting: Bool = false) -> URL {
+        let home = dir.appendingPathComponent("live-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        let file = home.appendingPathComponent("session.jsonl")
+        var body = "{\"parentUuid\":\"p0\",\"isSidechain\":false,\"type\":\"assistant\","
+            + "\"uuid\":\"a1\",\"timestamp\":\"\(stamper.string(from: realNow.addingTimeInterval(-age)))\","
+            + "\"message\":{\"model\":\"claude-opus-5\",\"role\":\"assistant\",\"content\":["
+            + "{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"\(tool ?? "Bash")\","
+            + "\"input\":{}}],\"stop_reason\":\"tool_use\"}}\n"
+        if tool == nil {
+            body += "{\"parentUuid\":\"a1\",\"isSidechain\":false,\"type\":\"user\",\"uuid\":\"u1\","
+                + "\"timestamp\":\"\(stamper.string(from: realNow.addingTimeInterval(-age + 1)))\","
+                + "\"message\":{\"role\":\"user\",\"content\":[{\"tool_use_id\":\"toolu_1\","
+                + "\"type\":\"tool_result\",\"content\":\"ok\"}]}}\n"
+        }
+        try? body.write(to: file, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.modificationDate: realNow.addingTimeInterval(-age)],
+                                               ofItemAtPath: file.path)
+        if subagentWriting {
+            // Where the Agent tool writes a work package: the walk `isQuiet` runs finds this and
+            // holds the session busy while the main file says nothing at all.
+            let subagents = file.deletingPathExtension().appendingPathComponent("subagents")
+            try? FileManager.default.createDirectory(at: subagents, withIntermediateDirectories: true)
+            try? Data("{}\n".utf8)
+                .write(to: subagents.appendingPathComponent("agent-a1.jsonl"))
+        }
+        return file
+    }
+    /// One tick over that conversation, with whatever notice is standing, and what it published.
+    func tick(_ pid: String, file: URL, notice: UserNotice?) -> SessionStateRecord? {
+        if let notice { writeUserNotice(notice, pid: pid, dir: dir) } else {
+            clearUserNotice(pid: pid, dir: dir)
+        }
+        var writer = SessionStateWriter()
+        var watcher = TranscriptWatcher(projectDir: file.deletingLastPathComponent(), file: file,
+                                        since: t0)
+        syncSessionState(&writer, pid: pid,
+                         project: PickProject(name: "p", path: file.deletingLastPathComponent().path),
+                         accountID: "claude:.claude", childPid: nil, model: nil, watcher: &watcher,
+                         keyboardBurstAt: nil, dir: dir, now: realNow)
+        return readSessionState(pid: pid, dir: dir)
+    }
+    func idlePrompt(_ ago: TimeInterval) -> UserNotice {
+        UserNotice(message: "Claude is waiting for your input",
+                   at: realNow.addingTimeInterval(-ago), type: "idle_prompt")
+    }
+
+    // A1: THE FAN-OUT. The main transcript stops the instant the subagents start, Claude Code's
+    // 60s timer fires an `idle_prompt`, and the card went red for the whole of the work package.
+    // The tick already knew better - the subagent walk had answered "not quiet" on the same pass.
+    let fanout = tick("9301", file: conversation(open: nil, age: 120, subagentWriting: true),
+                      notice: idlePrompt(60))
+    check("a session whose subagents are writing is working, whatever the idle prompt says",
+          fanout?.supervised == .working)
+    check("…and says nothing about a wait, because there is none to name",
+          fanout?.reason == nil)
+    // A2: the same event with the work actually finished. This is what `idle_prompt` is FOR, and it
+    // still lands - the fix narrows the event to the case it describes rather than dropping it.
+    let free = tick("9302", file: conversation(open: nil, age: 120), notice: idlePrompt(60))
+    check("a conversation with nothing outstanding IS a call for somebody",
+          free?.supervised == .blocked && free?.reason == "Claude is waiting for your input")
+    // NO REGRESSION ON THE PATH THAT MATTERS. A permission dialog holds an open tool call, so the
+    // session is never quiet while one stands: any rule that let "busy" outrank a wait would hide
+    // exactly the state the board exists for.
+    let permission = tick("9303", file: conversation(open: nil, age: 120, subagentWriting: true),
+                          notice: UserNotice(message: "Claude needs your permission to use Bash",
+                                             at: realNow.addingTimeInterval(-10),
+                                             type: "permission_prompt"))
+    check("a permission request stands even while a subagent writes",
+          permission?.supervised == .blocked
+              && permission?.reason == "Claude needs your permission to use Bash")
+    // And a notice from a supervisor that never recorded a type keeps the behaviour it had.
+    let untyped = tick("9304", file: conversation(open: nil, age: 120, subagentWriting: true),
+                       notice: UserNotice(message: "older build", at: realNow.addingTimeInterval(-10)))
+    check("a notice naming no type is still taken as hard",
+          untyped?.supervised == .blocked)
+
+    // B1: THE OTHER DIRECTION - the one state the board exists for was the one it could not show.
+    // Claude Code fires no notification for `AskUserQuestion` or a plan awaiting approval, and the
+    // open tool call made the session read as working. The transcript is asked instead.
+    let asked = tick("9305", file: conversation(open: "AskUserQuestion", age: 120), notice: nil)
+    check("a question nobody has answered is a wait, with no notification anywhere",
+          asked?.supervised == .blocked && asked?.reason == "Claude is asking you a question")
+    let plan = tick("9306", file: conversation(open: "ExitPlanMode", age: 120), notice: nil)
+    check("…as is a plan waiting for approval",
+          plan?.supervised == .blocked && plan?.reason == "A plan is waiting for approval")
+    // A question outranks a soft notice rather than merging with one: both are standing after 60s,
+    // and only one of them means somebody is being waited for.
+    let askedAndIdle = tick("9307", file: conversation(open: "AskUserQuestion", age: 120),
+                            notice: idlePrompt(60))
+    check("a question standing behind an idle prompt is still a wait",
+          askedAndIdle?.supervised == .blocked)
+    // An ordinary tool call is the session working, which is the whole of the distinction: only the
+    // two tools a PERSON closes are read this way.
+    let building = tick("9308", file: conversation(open: "Bash", age: 120), notice: nil)
+    check("a session inside an ordinary tool call is working, not waiting",
+          building?.supervised == .working && building?.reason == nil)
+
+    // MARK: what the tick publishes about WHY (the diagnosis, not the decision)
+
+    check("a wait publishes the kind of event it came from",
+          free?.noticeType == "idle_prompt" && permission?.noticeType == "permission_prompt")
+    check("…and the quiet reading it was judged against",
+          free?.quiet == true && fanout?.quiet == false)
+    // THE MOST DIAGNOSTIC COMBINATION THERE IS, and the reason this field follows the EVENT rather
+    // than the decision: `working` beside `idle_prompt` and `quiet: false` says the hook fired, the
+    // event is standing, and the card is not red because the conversation is not quiet - which is
+    // the entire judgement that was wrong before, in one line of a command's output.
+    check("a session that is working under a standing idle prompt says so",
+          fanout?.supervised == .working && fanout?.noticeType == "idle_prompt"
+              && fanout?.quiet == false)
+    check("a session with no event standing at all names none",
+          asked?.noticeType == nil && building?.noticeType == nil)
 
     // MARK: a publish that failed is retried rather than believed
 

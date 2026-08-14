@@ -58,7 +58,8 @@ func runHookNotify(args: [String]) -> Int32 {
     // means one of: a registration written by an older app, a matcher a future Claude Code stops
     // honouring, or a hook somebody wired by hand. This is the layer that does not depend on the
     // far end doing as it was asked.
-    guard notificationWaitsForUser(notificationTypeInEvent(event)) else { return 0 }
+    let type = notificationTypeInEvent(event)
+    guard notificationWaitsForUser(type) else { return 0 }
     let sessionID = (event?["session_id"] as? String).flatMap {
         isTranscriptSessionID($0) ? $0 : nil
     }
@@ -73,8 +74,11 @@ func runHookNotify(args: [String]) -> Int32 {
        watching != sessionID {
         return 0
     }
+    // THE TYPE IS WRITTEN DOWN AS WELL AS FILTERED ON, which is the whole of what makes the two
+    // kinds of wait separable one file over (`UserNotice.type` states what reading them alike
+    // costs). Whatever the payload spelled it as, recorded as Claude Code's own word.
     writeUserNotice(UserNotice(message: (event?["message"] as? String) ?? "", at: Date(),
-                               sessionID: sessionID),
+                               type: type, sessionID: sessionID),
                     pid: supervisor)
     return 0
 }

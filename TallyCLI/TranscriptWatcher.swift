@@ -226,7 +226,7 @@ struct TranscriptWatcher {
     /// whose child was killed mid-call as busy forever, the one thing OpenTurn.swift exists to
     /// prevent. Invalidation needs no bookkeeping either: a fork changes the path and a write
     /// changes the mtime, so the key stops matching exactly when the answer could differ.
-    var openScanCache: (path: String, modified: Date, openedAt: Date?)?
+    var openScanCache: (path: String, modified: Date, call: OpenToolCall?)?
     private var excerptCapacity: Int { 64 }
 
     /// The user prompt that triggered the current drift, resolved from the flag's refused uuid, or
@@ -398,24 +398,49 @@ struct TranscriptWatcher {
         // Past the mtime bar is exactly where an idle session lives, so the tail read behind this
         // is cached against the mtime already in hand (see `openScanCache`) rather than repeated
         // on every poll. The verdict itself is still computed here, against the current clock.
-        if openTurnHoldsSession(openedAt: openTurnStart(of: file, modified: modified)) {
+        if openTurnHoldsSession(openedAt: openTurn(of: file, modified: modified)?.startedAt) {
             return false
         }
         guard let subagent = newestSubagentWrite() else { return true }
         return Date().timeIntervalSince(subagent) > subagentIdleSeconds
     }
 
-    /// When the still-unanswered tool call started, reading the tail only when the file has moved.
+    /// The still-unanswered tool call, reading the tail only when the file has moved.
     ///
     /// `modified` is the mtime the caller already stat'd, both as the cache key and to keep this to
     /// one stat per ask.
-    mutating func openTurnStart(of file: URL, modified: Date) -> Date? {
+    mutating func openTurn(of file: URL, modified: Date) -> OpenToolCall? {
         if let cache = openScanCache, cache.path == file.path, cache.modified == modified {
-            return cache.openedAt
+            return cache.call
         }
-        let openedAt = openToolCallStart(inTail: transcriptTail(of: file) ?? "")
-        openScanCache = (path: file.path, modified: modified, openedAt: openedAt)
-        return openedAt
+        let call = openToolCall(inTail: transcriptTail(of: file) ?? "")
+        openScanCache = (path: file.path, modified: modified, call: call)
+        return call
+    }
+
+    /// The tool this conversation is holding open that only a PERSON can answer, or nil when it is
+    /// not holding one (SessionStateSync.swift is the caller, and OpenTurn.swift says which tools
+    /// and why the transcript is asked at all).
+    ///
+    /// FROM THE SCAN THIS TICK ALREADY TOOK AND FROM NOTHING ELSE: it reads the cache under the
+    /// mtime the caller stat'd, and answers nil rather than reading a tail of its own. That is what
+    /// keeps it free on the common path, and it is why it says nothing about a MOVING transcript -
+    /// `isQuiet` returns at the mtime bar without scanning, so there is nothing cached for the file
+    /// as it now stands. Which is the right answer anyway: a conversation being written to is
+    /// working by every reading here, and a question nobody has answered does not write. The cost
+    /// of that honesty is that a question asked less than `sessionStateQuietSeconds` ago is not on
+    /// the board yet.
+    ///
+    /// NOT AGED AGAINST `openTurnMaxSeconds`, unlike the veto beside it, and the difference is the
+    /// question being asked. That cap exists so a call left unmatched by a killed child cannot wedge
+    /// a session out of every relaunch for ever; this decides what a card SAYS, where the fact is
+    /// self-clearing - the moment somebody answers, Claude Code writes the `tool_result` and the
+    /// next scan finds the turn closed. Capping it would take the red dot away from a question
+    /// standing over lunch, which is precisely the wait the board exists to show.
+    func openUserQuestion(asOf modified: Date?) -> String? {
+        guard let file, let modified, let cache = openScanCache, cache.path == file.path,
+              cache.modified == modified else { return nil }
+        return cache.call?.names.first { userQuestionTools[$0] != nil }
     }
 
     /// The newest write under this session's subagent transcripts, nil when it never dispatched one

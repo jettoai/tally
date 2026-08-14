@@ -47,7 +47,47 @@ let openTurnMaxSeconds: TimeInterval = 600
 /// is exactly the behaviour that stood before this existed.
 let openTurnTailBytes = 1 << 18
 
-/// When the still-unanswered tool call started, or nil when the last turn is not waiting on one.
+/// The still-unanswered tool call the last turn is inside: when it started, and what it is.
+///
+/// THE NAMES COME OUT OF THE SAME WALK because two questions are answered by one fact. "Is this
+/// session busy" only needs the instant; "is it waiting on a PERSON" needs to know which tool, and
+/// scanning the tail twice to learn two things about one event is how the two readings come to
+/// disagree about which event they are describing.
+struct OpenToolCall: Equatable, Sendable {
+    /// When the assistant event that opened the call was written.
+    var startedAt: Date
+    /// Every tool that event opened, answered or not - it may open several at once (66,684 events
+    /// on this machine carry one, two carry two, one carries seven), and a call this session is
+    /// waiting on may not be the first of them.
+    var names: [String]
+}
+
+/// The tools whose being open means Claude Code is waiting on a PERSON rather than on a machine,
+/// each with what a card says while it stands.
+///
+/// CLAUDE CODE FIRES NO NOTIFICATION FOR EITHER OF THESE (2.1.233, read off the binary 2026-08-15:
+/// 69 mentions of `AskUserQuestion` and not one notification type near them), so the hook that the
+/// whole blocked signal otherwise rests on never hears about the one case that is unambiguously a
+/// person being waited for. The transcript says it plainly instead.
+///
+/// ONE MAP RATHER THAN A LIST AND A SWITCH, so a tool cannot be recognised as a wait and then have
+/// nothing to say about itself: a card showing a red dot with no sentence under it is the shape
+/// that drift produces here, and there is no second place to forget.
+///
+/// BOUND TO CLAUDE CODE'S TOOL NAMES, which is the dependency to state rather than hide: a release
+/// that renames either of these turns this channel off, and off is exactly the behaviour that stood
+/// before it existed (the session reads working, then idle). So the failure direction is the old
+/// one rather than a new one, and it is the same trade the surface-matching passes take one
+/// document over.
+///
+/// English rather than through the app's catalog because these strings are written by the
+/// supervisor into the state record, which is the same field Claude Code's own hook sentences
+/// arrive in ("Claude needs your permission to use Bash") - one channel, one language, and a reader
+/// that cannot tell which end wrote a sentence has nothing to translate against.
+let userQuestionTools = ["AskUserQuestion": "Claude is asking you a question",
+                         "ExitPlanMode": "A plan is waiting for approval"]
+
+/// The unanswered call the last turn is waiting on, or nil when it is not waiting on one.
 ///
 /// Walks the tail backwards, gathering the calls that have come back until it meets the assistant
 /// event that made them. That event decides: no calls in it means the assistant answered in prose
@@ -63,7 +103,7 @@ let openTurnTailBytes = 1 << 18
 ///
 /// A line that will not parse is skipped rather than trusted: the last line may still be half
 /// written, and half a JSON object is not evidence of anything.
-func openToolCallStart(inTail tail: String) -> Date? {
+func openToolCall(inTail tail: String) -> OpenToolCall? {
     var answered: Set<String> = []
     for line in tail.split(separator: "\n").reversed() {
         guard !line.contains("\"isSidechain\":true"),
@@ -80,13 +120,20 @@ func openToolCallStart(inTail tail: String) -> Date? {
             continue
         }
         guard object["type"] as? String == "assistant" else { continue }
-        let calls = blocks.compactMap { block -> String? in
-            block["type"] as? String == "tool_use" ? block["id"] as? String : nil
+        let calls = blocks.compactMap { block -> (id: String, name: String?)? in
+            guard block["type"] as? String == "tool_use", let id = block["id"] as? String
+            else { return nil }
+            return (id, block["name"] as? String)
         }
-        if calls.isEmpty || calls.allSatisfy(answered.contains) { return nil }
+        if calls.isEmpty || calls.allSatisfy({ answered.contains($0.id) }) { return nil }
         // An event with no readable timestamp cannot be aged against the cap, and a veto that
         // cannot expire is the one thing this must never become, so it declines to hold.
-        return (object["timestamp"] as? String).flatMap(parseISO)
+        guard let startedAt = (object["timestamp"] as? String).flatMap(parseISO) else { return nil }
+        // THE UNANSWERED ONES ONLY. An event that opened a question and a Bash call has closed the
+        // Bash one by the time the question is still standing, and naming a tool that has already
+        // come back would report a wait that ended.
+        return OpenToolCall(startedAt: startedAt,
+                            names: calls.filter { !answered.contains($0.id) }.compactMap(\.name))
     }
     return nil
 }

@@ -322,6 +322,30 @@ check("a session publishes what it is doing, and since when",
 check("a session whose supervisor publishes no state carries no key at all",
       inventory(board).last?["state"] == nil && inventory(board).last?["stateSince"] == nil)
 
+// WHY, AS WELL AS WHAT. `blocked` on its own is unanswerable from outside the process that decided
+// it: six kinds of event produce that word and they are not alike, so telling them apart used to
+// take a strings dump of Claude Code's binary rather than a command.
+let why = parse(encodeStatusReport(statusReport(
+    snapshot, policies: ["claude": LaunchPolicy()],
+    sessions: [.init(accountID: "claude:.claude", directory: "/Users/u/code/tally",
+                     project: "/Users/u/code/tally", state: "blocked",
+                     stateSince: parseISO("2026-07-23T11:58:00Z"),
+                     reason: "Claude is waiting for your input", noticeType: "idle_prompt",
+                     quiet: true),
+               .init(accountID: "claude:.claude2", directory: "/Users/u/code/old",
+                     project: "/Users/u/code/old", state: "working", quiet: false)],
+    now: now)))
+check("a waiting session says what it is waiting for, which event it came from, and how quiet it was",
+      inventory(why).first?["reason"] as? String == "Claude is waiting for your input"
+          && inventory(why).first?["noticeType"] as? String == "idle_prompt"
+          && inventory(why).first?["quiet"] as? Bool == true)
+// `quiet` is a reading rather than a wait, so it is published for a session that is not waiting
+// too - it is half of the judgement, and the half that cannot be recovered afterwards.
+check("a session that is not waiting still publishes the reading it was judged by",
+      inventory(why).last?["quiet"] as? Bool == false
+          && inventory(why).last?["reason"] == nil
+          && inventory(why).last?["noticeType"] == nil)
+
 // MARK: fleet pass-through - the pooled view rides along untouched, and only when present
 let fleetTop = auto["fleet"] as? [String: [String: Any]] ?? [:]
 let claudePools = (auto["fleetPools"] as? [String: [[String: Any]]])?["claude"] ?? []

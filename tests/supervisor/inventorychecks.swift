@@ -198,6 +198,43 @@ func runSessionInventoryChecks() {
           afterHandoff.sessions.first { $0.directory == "/x/repo-cart" }?.accountID
               == "claude:.claude")
 
+    // MARK: - WHAT EACH SESSION IS DOING, AND WHY
+
+    // The state record's own fields, carried through the join rather than re-decided here: only the
+    // supervisor can decide one (SessionState.swift), so everything this block does is pass it on.
+    //
+    // ASSERTED HERE RATHER THAN IN tests/statusjson, and that gap is why this block exists: the JSON
+    // suite builds `StatusReport.Session` values by hand, so it pins the CONTRACT while saying
+    // nothing about whether anything fills it. A mutant that dropped all three of the "why" fields
+    // on the floor in this file passed that suite untouched (caught by mutation, 2026-08-15).
+    writeSessionState(SessionStateRecord(state: "blocked", since: at, updatedAt: at,
+                                         reason: "Claude is waiting for your input",
+                                         noticeType: "idle_prompt", quiet: true),
+                      pid: trunkSupervisor, dir: dir)
+    writeSessionState(SessionStateRecord(state: "working", since: at, updatedAt: at, quiet: false),
+                      pid: lineSupervisor, dir: dir)
+    let doing = readings(sockets: empty).sessions
+    check("a session publishes what it is doing, and since when",
+          doing.first { $0.directory == "/x/repo" }?.state == "blocked"
+              && doing.first { $0.directory == "/x/repo" }?.stateSince == at)
+    // THE THREE THAT ANSWER "WHY", which a state word alone cannot: which sentence Claude Code said,
+    // which of the events it was, and how quiet the conversation was when it was judged.
+    check("…and what it is waiting for, from which event, against which quiet reading",
+          doing.first { $0.directory == "/x/repo" }?.reason == "Claude is waiting for your input"
+              && doing.first { $0.directory == "/x/repo" }?.noticeType == "idle_prompt"
+              && doing.first { $0.directory == "/x/repo" }?.quiet == true)
+    check("a session that is not waiting still publishes the reading it was judged by",
+          doing.first { $0.directory == "/x/repo-cart" }?.quiet == false
+              && doing.first { $0.directory == "/x/repo-cart" }?.reason == nil
+              && doing.first { $0.directory == "/x/repo-cart" }?.noticeType == nil)
+    // A supervisor from before the board shipped publishes no record at all, and absence has to stay
+    // "this Tally cannot say" rather than becoming a reading of its own.
+    check("a session whose supervisor published no state says nothing about any of it",
+          doing.first { $0.directory == "/x/other" }.map {
+              $0.state == nil && $0.stateSince == nil && $0.reason == nil && $0.noticeType == nil
+                  && $0.quiet == nil
+          } == true)
+
     try? FileManager.default.removeItem(at: dir)
     try? FileManager.default.removeItem(atPath: socketDir)
 }

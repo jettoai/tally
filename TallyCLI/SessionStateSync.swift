@@ -24,18 +24,30 @@ let sessionStateQuietSeconds: TimeInterval = 30
 /// The state, from the three things the supervisor knows about this tick. Pure, so the whole
 /// machine is assertable without a transcript on disk.
 ///
-/// BLOCKED LEADS, including over an unbound transcript. `unknown` means "running, and nothing can
-/// be said about it"; an unanswered notice is something said about it, from a channel that does not
-/// depend on a transcript existing at all. A session whose first act is a permission request is
-/// exactly that case, and reporting it as unknown would hide the one state the board exists for.
+/// A HARD WAIT LEADS, including over an unbound transcript. `unknown` means "running, and nothing
+/// can be said about it"; an unanswered permission request is something said about it, from a
+/// channel that does not depend on a transcript existing at all. A session whose first act is a
+/// permission request is exactly that case, and reporting it as unknown would hide the one state
+/// the board exists for.
 ///
-/// Then the transcript decides, and its ABSENCE is not silence: a child that has not bound a
-/// conversation yet has written nothing anywhere, so "quiet" is true of it in a way that means
-/// nothing (`isQuiet` answers true for a file it cannot find, by design). Saying unknown there is
-/// the honest reading.
-func supervisedSessionState(blocked: Bool, hasTranscript: Bool, quiet: Bool) -> SupervisedState {
-    if blocked { return .blocked }
+/// A SOFT WAIT ONLY LEADS OVER SILENCE, and that is the 2026-08-15 correction. `idle_prompt` says
+/// the floor is free; a session that has dispatched a fan-out and is waiting on it satisfies that
+/// sentence for the whole of the fan-out, because the main transcript stops the moment the
+/// subagents start. This tick already KNOWS the difference - `quiet` is decided from the file, the
+/// open tool call and the subagent walk together - and the old rule threw that away by taking any
+/// wait as final. So the soft one is now allowed to upgrade only the reading it is compatible with:
+/// a conversation with nothing outstanding at all, which is exactly what would otherwise be `idle`.
+/// Measured on this machine that day: two of six live sessions stood red for minutes while their
+/// subagents wrote.
+///
+/// Not over `unknown`, deliberately: with no transcript bound, "quiet" is true in a way that means
+/// nothing (`isQuiet` answers true for a file it cannot find, by design), so a soft wait there is a
+/// sentence about a conversation nobody can see. Unknown is the honest reading, and a hard wait is
+/// the one that still outranks it.
+func supervisedSessionState(wait: UserWait?, hasTranscript: Bool, quiet: Bool) -> SupervisedState {
+    if wait == .hard { return .blocked }
     guard hasTranscript else { return .unknown }
+    if wait == .soft, quiet { return .blocked }
     return quiet ? .idle : .working
 }
 
@@ -102,14 +114,21 @@ struct SessionStateWriter {
     }
 
     /// Idempotent: the same state and the same identity in, nothing happens.
-    mutating func sync(_ state: SupervisedState, reason: String?, identity: SessionIdentity,
+    ///
+    /// `noticeType` and `quiet` are the tick's own diagnosis rather than part of the decision
+    /// (SessionState.swift says what they are for). They join the delta below like every other
+    /// field, so a session sitting blocked while its subagents start and stop writing costs one
+    /// write per flip - which is the price of being able to answer "why is this red" at all.
+    mutating func sync(_ state: SupervisedState, reason: String?, noticeType: String? = nil,
+                       quiet: Bool? = nil, identity: SessionIdentity,
                        pid: String, dir: URL = supervisorStateDir, now: Date = Date()) {
         let word = state.rawValue
         let record = SessionStateRecord(
             state: word,
             // The age of THIS state, not of this tick: preserved while the word holds steady.
             since: current?.state == word ? (current?.since ?? now) : now,
-            updatedAt: now, reason: reason, accountID: identity.accountID,
+            updatedAt: now, reason: reason, noticeType: noticeType, quiet: quiet,
+            accountID: identity.accountID,
             directory: identity.directory, project: identity.project, worktree: identity.worktree,
             model: identity.model, childPid: identity.childPid)
         // WHOLE-VALUE, with `updatedAt` normalised away: that field moves on every tick by
@@ -164,18 +183,35 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
     // `/clear` or a fork moves it, and the mtime of the file it left says nothing about the answer
     // somebody just gave (TranscriptFork.swift owns that rule).
     let file = watcher.file
+    let modified = transcriptModified(file)
     let notice = readUserNotice(pid: pid, dir: dir)
-    let waiting = userNoticeStillOpen(notice, transcriptModified: transcriptModified(file),
+    let waiting = userNoticeStillOpen(notice, transcriptModified: modified,
                                       keyboardBurstAt: keyboardBurstAt)
+    // THE OTHER CHANNEL, and the only one that catches the case the hook cannot: Claude Code fires
+    // no notification at all for `AskUserQuestion` or a plan awaiting approval (2.1.233, read off
+    // the binary 2026-08-15), so the state the board exists for was the one state it could not
+    // show. The transcript says it outright - the tool call is open and only a person closes it -
+    // and reading a fact rather than inferring one is the same move the fork join was fixed by.
+    let question = watcher.openUserQuestion(asOf: modified)
     // An answered event is taken away rather than left to age out: the file's presence IS the
     // blocked signal (UserNotice.swift), so a stale one would be a session reported as waiting for
     // something that has already happened. Only the event this tick actually judged is removed, and
     // why that qualification is load-bearing (and why it is a narrowing rather than a lock) is
     // stated on `clearAnsweredUserNotice`.
     if let notice, !waiting { clearAnsweredUserNotice(notice, pid: pid, dir: dir) }
-    let state = supervisedSessionState(blocked: waiting, hasTranscript: file != nil, quiet: quiet)
-    // An empty message is a wait with nothing to say about it, which is nil rather than "".
-    writer.sync(state, reason: waiting ? (notice?.message).flatMap({ $0.isEmpty ? nil : $0 }) : nil,
+    // An open question is a HARD wait wherever it stands, and it outranks a soft notice rather than
+    // merging with one: a fan-out that has been quiet for 60s and a conversation holding a question
+    // open both carry an `idle_prompt`, and only the second is somebody being waited for.
+    let wait: UserWait? = question != nil ? .hard
+        : (waiting ? userWait(notificationType: notice?.type) : nil)
+    let state = supervisedSessionState(wait: wait, hasTranscript: file != nil, quiet: quiet)
+    // What to SAY about the wait, and Claude Code's own sentence leads: it names the tool it wants
+    // permission for, which nothing on this side knows. The question's sentence is what fills in
+    // when there is no notice, or when the one standing said nothing - an empty message is a wait
+    // with nothing to say about it, which is nil rather than "".
+    let said = waiting ? (notice?.message).flatMap({ $0.isEmpty ? nil : $0 }) : nil
+    let spoken = state == .blocked ? said ?? question.flatMap({ userQuestionTools[$0] }) : nil
+    writer.sync(state, reason: spoken, noticeType: waiting ? notice?.type : nil, quiet: quiet,
                 identity: SessionIdentity(accountID: accountID, directory: project.path,
                                           project: project.name, worktree: project.worktree,
                                           model: model, childPid: childPid),

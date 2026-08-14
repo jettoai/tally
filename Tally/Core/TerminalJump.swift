@@ -180,7 +180,8 @@ enum TerminalJump {
     ///   - THE TERMINAL IS NOT IN FRONT: the ask went nowhere. It is then made along the other
     ///     road, LaunchServices - the one `open -a` uses - which reaches activation by a different
     ///     authorisation than an app-to-app transfer does. Never for an app that has since exited,
-    ///     because that call would LAUNCH it.
+    ///     because that call would LAUNCH it, and never over somebody who has moved on
+    ///     (`retryMayTakeForeground`).
     ///   - THE TERMINAL IS IN FRONT AND THE KEYBOARD IS STILL HERE: a non-activating panel can hold
     ///     the key window while another app is active, which puts the window up and leaves the
     ///     typing behind - the same symptom as the first case and a different cause. Giving up the
@@ -193,7 +194,11 @@ enum TerminalJump {
                              from handover: Handover) async {
         bringForward(target)
         try? await Task.sleep(for: activationGrace)
-        if !frontmost(is: target).landed, !target.isTerminated, let bundle = target.bundleURL {
+        let settled = frontmost(is: target)
+        if !settled.landed,
+           retryMayTakeForeground(front: settled.app?.processIdentifier, handover: handover,
+                                  target: target),
+           !target.isTerminated, let bundle = target.bundleURL {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
             _ = try? await NSWorkspace.shared.openApplication(at: bundle,
@@ -216,6 +221,37 @@ enum TerminalJump {
         -> (app: NSRunningApplication?, landed: Bool) {
         let front = NSWorkspace.shared.frontmostApplication
         return (front, front?.processIdentifier == app.processIdentifier)
+    }
+
+    /// Whether the second road is still ours to take, asked of who is in front a grace after the
+    /// first ask.
+    ///
+    /// A CLICK IS NOT A STANDING CLAIM ON THE SCREEN. The retry runs 600ms after the press, and in
+    /// that window the person may have gone somewhere else entirely - a browser, their editor. The
+    /// LaunchServices road then does exactly what it is for and takes the foreground away from
+    /// whatever they moved to, for a trip they have already abandoned. The first ask cannot do
+    /// this (an app-to-app transfer needs the holder to yield, and a third party has not), which is
+    /// why the guard belongs on the retry alone.
+    ///
+    /// THE CHAIN THE CLICK ITSELF INVOLVED IS WHAT MAY BE TAKEN FROM: this app, whatever it
+    /// borrowed the foreground from, and the terminal being aimed at. Anything else in front means
+    /// somebody chose it. The same shape as `Handover.giveBack`, which refuses to hand a foreground
+    /// back once this app has stopped holding one.
+    ///
+    /// FRONT UNREADABLE FAILS OPEN, deliberately: no third party can be named, so there is nobody
+    /// to interrupt, and this is the reading that keeps the behaviour that stood before the guard.
+    private static func retryMayTakeForeground(front: pid_t?, handover: Handover,
+                                               target: NSRunningApplication) -> Bool {
+        retryMayTakeForeground(front: front, ours: NSRunningApplication.current.processIdentifier,
+                               previous: handover.previousApp?.processIdentifier,
+                               target: target.processIdentifier)
+    }
+
+    /// The rule itself, over pids, so it can be asserted without a desktop to arrange.
+    static func retryMayTakeForeground(front: pid_t?, ours: pid_t, previous: pid_t?,
+                                       target: pid_t) -> Bool {
+        guard let front else { return true }
+        return front == ours || front == previous || front == target
     }
 
     /// One line per click, in the terms that tell the failures apart: which surface it came from,

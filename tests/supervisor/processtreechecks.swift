@@ -261,6 +261,37 @@ func runProcessTreeChecks() {
     check("a tick that reports nothing blames nobody",
           ProcessTree.cpuPercent(from: sample([100: 1, 300: 3], child: [100: 0], at: 0),
                                  to: sample([100: 1], child: [100: 0], at: 2)).leader == nil)
+    // THE COLLECTOR IS NOT THE CULPRIT, and this is the case that separates the two: pid 200 leaves
+    // having spent a hundred seconds, those hundred seconds land in pid 100's child counter on this
+    // very tick, and the one process actually working is pid 300 with its one second. The
+    // percentage already knew that (100 arriving, 100 cancelled, 1 left over the two seconds = 50%)
+    // while the blame was read off the total before the cancellation, and named pid 100 for a
+    // hundred seconds it did not spend (measured 2026-08-15, codex review of 57c9795).
+    let reaper = ProcessTree.cpuPercent(
+        from: sample([100: 1, 200: 100, 300: 1], child: [100: 0, 200: 0, 300: 0], at: 0),
+        to: sample([100: 1, 300: 2], child: [100: 100, 300: 0], at: 2))
+    check("a parent that only collected a departed child is not the culprit for its life",
+          reaper.leader == 300 && reaper.percent == 50)
+    // The cancellation lands on the arrivals it is cancelling, so a collector that ALSO did real
+    // work keeps that work to its name: 100 arriving and cancelled, 4 seconds of its own left.
+    check("…while the work that collector did itself is still its own",
+          ProcessTree.cpuPercent(
+              from: sample([100: 1, 200: 100, 300: 1], child: [100: 0, 200: 0, 300: 0], at: 0),
+              to: sample([100: 5, 300: 2], child: [100: 100, 300: 0], at: 2)).leader == 100)
+    // Nothing to cancel is nothing taken off: a tick with arrivals and no departure blames the
+    // collector exactly as before, which is where the kernel really does put those seconds.
+    check("…and an arrival nobody is cancelling still names the process it landed on",
+          ProcessTree.cpuPercent(from: sample([100: 1, 200: 1], child: [100: 0], at: 0),
+                                 to: sample([100: 1, 200: 1.2], child: [100: 3], at: 2))
+              .leader == 100)
+    // Shared out in proportion, because the kernel does not say which collector got which child:
+    // two collectors take 3 and 1 of a 4-second arrival, 2 seconds of it are cancelled, and what is
+    // left of each (1.5 and 0.5) is still enough for the larger one to be past half.
+    let split = ProcessTree.cpuPercent(
+        from: sample([100: 1, 200: 1, 900: 2], child: [100: 0, 200: 0, 900: 0], at: 0),
+        to: sample([100: 1, 200: 1], child: [100: 3, 200: 1], at: 2))
+    check("a cancellation is shared across the arrivals in proportion",
+          split.leader == 100 && split.percent == 100)
 
     // MARK: what the tree is writing to disk
 

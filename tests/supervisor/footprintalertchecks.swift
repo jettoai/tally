@@ -87,6 +87,45 @@ func runFootprintAlertChecks() {
     check("…and the words are the line, unchanged",
           ProcessTree.line(warned, unit: "procs") == drawn.map(\.text)
               .joined(separator: pickEffortSeparator))
+    // A WARNING COMES FORWARD, and what falls off the end of a narrow card is the healthy fields.
+    // A card is 182pt of content at its narrowest and the line truncates at the tail, so the full
+    // sentence does not fit: in reading order the disk warning's MARK survives and its number does
+    // not, leaving a triangle stranded beside the memory figure (measured 2026-08-15, codex review
+    // of 57c9795: `4 procs · 100% CPU · 3.9 GB · ` is 165.6pt of the 182 on its own).
+    let stranded = ProcessFootprint(processes: 4, cpuPercent: 100, memoryBytes: 3_900_000_000,
+                                    diskWriteBytesPerSecond: 12_000_000, diskLeader: "esbuild",
+                                    listeningPorts: [3000],
+                                    alerts: FootprintAlerts(disk: true))
+    check("the warned field is drawn before the healthy ones, whatever order it is written in",
+          ProcessTree.segments(stranded, unit: "procs").map(\.kind)
+              == [.processes, .disk, .cpu, .memory, .ports])
+    // The count is not a reading in the same sense: it is the context every other field is about,
+    // so it stays at the front and a line never opens on what is wrong before what it is about.
+    check("…and the process count keeps the front of the line regardless",
+          ProcessTree.segments(stranded, unit: "procs").first?.kind == .processes)
+    // Only across the warning line, never within it: two warned fields keep their reading order,
+    // and so do the healthy ones behind them.
+    check("fields keep their reading order inside their own group",
+          ProcessTree.segments(ProcessFootprint(processes: 4, cpuPercent: 100,
+                                                memoryBytes: 3_900_000_000,
+                                                diskWriteBytesPerSecond: 12_000_000,
+                                                listeningPorts: [3000],
+                                                alerts: FootprintAlerts(cpu: true, disk: true)),
+                               unit: "procs").map(\.kind)
+              == [.processes, .cpu, .disk, .memory, .ports])
+    // Nothing warned is the ordinary card, and it reads exactly as it is written.
+    check("a card with nothing wrong is in reading order, front to back",
+          ProcessTree.segments(ProcessFootprint(processes: 4, cpuPercent: 100,
+                                                memoryBytes: 3_900_000_000,
+                                                diskWriteBytesPerSecond: 12_000_000,
+                                                listeningPorts: [3000]),
+                               unit: "procs").map(\.kind)
+              == [.processes, .cpu, .memory, .disk, .ports])
+    // The stated line is the same pieces joined, so the sentence a reader HEARS moves with them
+    // rather than describing an order the card is not in.
+    check("…and the stated line follows the pieces rather than a second order of its own",
+          ProcessTree.line(stranded, unit: "procs")
+              == "4 procs · 12 MB/s (esbuild) · 100% CPU · 3.9 GB · :3000")
     check("a tree with nothing to say has no pieces either",
           ProcessTree.segments(ProcessFootprint(processes: 0, cpuPercent: 9, listeningPorts: []),
                                unit: "procs").isEmpty)

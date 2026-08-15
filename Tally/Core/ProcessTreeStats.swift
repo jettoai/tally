@@ -236,16 +236,19 @@ enum ProcessTree {
                            carry: Double = 0) -> ProcessCPUReading {
         guard let previous else { return ProcessCPUReading(percent: nil) }
         // Per pid rather than one running total, because the same pass has to answer two questions:
-        // what the tree burned, and whether one process burned most of it. A pid's own work and the
-        // work of the children IT buried are one contribution: the kernel credits a reaped child to
-        // whoever collected it, so a shell that ran the build is named for the build - which is
-        // where the machine itself puts the seconds, and the honest thing for this line to repeat.
-        var spent: [pid_t: Double] = [:]
+        // what the tree burned, and whether one process burned most of it. And OWN WORK IS KEPT
+        // APART FROM ARRIVALS, which the blame below depends on: the kernel credits a reaped child
+        // to whoever collected it, so a shell that ran the build is named for the build - but the
+        // very same counter is where a life ALREADY COUNTED lands when it is finally collected, and
+        // those two are the same number until they are held separately.
+        var own: [pid_t: Double] = [:]
+        var arrived: [pid_t: Double] = [:]
         for (pid, time) in current.times {
-            let own = max(0, time - (previous.times[pid] ?? 0))
+            let mine = max(0, time - (previous.times[pid] ?? 0))
             let buried = max(0, (current.childTimes[pid] ?? 0) - (previous.childTimes[pid] ?? 0))
             // Absent rather than zero, so an idle pid is not a candidate for the blame below.
-            if own + buried > 0 { spent[pid] = own + buried }
+            if mine > 0 { own[pid] = mine }
+            if buried > 0 { arrived[pid] = buried }
         }
         var departed = 0.0
         for (pid, time) in previous.times where current.times[pid] == nil {
@@ -255,10 +258,43 @@ enum ProcessTree {
         // Two readings at the same instant say nothing about a rate, but a departure between them
         // is still a departure: its credit goes forward rather than being lost with the pair.
         guard elapsed > 0 else { return ProcessCPUReading(percent: nil, carry: carry + departed) }
-        let net = spent.values.reduce(0, +) - carry - departed
+        let arrivals = arrived.values.reduce(0, +)
+        let net = own.values.reduce(0, +) + arrivals - carry - departed
         return ProcessCPUReading(percent: max(0, net) / elapsed * 100,
                                  carry: net < 0 ? min(-net, departed) : 0,
-                                 leader: net > 0 ? leader(of: spent) : nil)
+                                 leader: net > 0 ? leader(of: blame(own: own, collected: arrived,
+                                                                   settling: carry + departed))
+                                                 : nil)
+    }
+
+    /// WHO IS ACTUALLY DOING THE WORK THIS TICK, which is not the same question as how much work the
+    /// tick holds, and the difference is exactly the credit being cancelled.
+    ///
+    /// A departure's credit cancels an ARRIVAL: the seconds coming off are seconds that were counted
+    /// while the child was alive and are now landing in whoever collected it. Left in, they name the
+    /// collector - so a parent that reaped a hundred-second child would be blamed for a hundred
+    /// seconds it did not spend, over a process beside it that really did spend one (measured as
+    /// `percent=50, leader=<the collector>` before this existed). Taking the same seconds off the
+    /// arrivals they are cancelling leaves the tick naming the process that actually burned it.
+    ///
+    /// SHARED OUT IN PROPORTION, because the kernel does not say which collector got which child:
+    /// `ri_child_time` is one folded total per process, and the credit is a sum over everything that
+    /// left. Proportion is the honest reading of "somewhere in these arrivals", and it degrades the
+    /// way it should - a single collector takes the whole cancellation, and a tick with no arrivals
+    /// at all cancels nothing here (the seconds still come off the percentage, where they belong,
+    /// and the blame is decided on own work alone).
+    private static func blame(own: [pid_t: Double], collected: [pid_t: Double],
+                              settling credit: Double) -> [pid_t: Double] {
+        // Summed here rather than taken as an argument: the caller has the same total for the
+        // percentage, and a number that can be passed in is a number that can be passed in stale.
+        let arrivals = collected.values.reduce(0, +)
+        guard arrivals > 0 else { return own }
+        let kept = 1 - min(credit, arrivals) / arrivals
+        var blamed = own
+        for (pid, seconds) in collected where seconds * kept > 0 {
+            blamed[pid, default: 0] += seconds * kept
+        }
+        return blamed
     }
 
     /// How fast the tree is writing to disk between two readings, and which process is doing it, or
@@ -370,6 +406,21 @@ enum ProcessTree {
 
     /// The same line in the pieces it is drawn from, each saying what it is and whether it is a
     /// warning. `line` is these joined, and stays the sentence a reader hears.
+    ///
+    /// A WARNING COMES FORWARD, AND THE ORDER MOVING IS THE POINT. A card is 182pt of content at
+    /// the panel's narrowest and the line is truncated at its tail, so a full line does not fit:
+    /// measured (2026-08-15) at 11pt, `4 procs · 100% CPU · 3.9 GB · ` alone is 165.6pt and the
+    /// whole sentence with a warned disk segment is 312.9pt. Left in reading order the warning's
+    /// mark survives and its NUMBER does not - a triangle stranded beside the memory figure, which
+    /// reads as a warning about the memory and gives no reason for either. So the warned fields are
+    /// drawn first and the healthy ones are what falls off the end, which is the right thing to
+    /// lose: those are the ones nobody opened the panel for.
+    ///
+    /// THE COUNT STAYS AT THE FRONT REGARDLESS, because it is not a reading in the same sense - it
+    /// is the context every other field is about ("12 MB/s" means something different under 2
+    /// processes than under 40), and a line that opened on a warning would say what is wrong before
+    /// saying what it is wrong about. Everything else keeps its reading order inside its group, so
+    /// a card only ever reorders across the warning line, never within it.
     static func segments(_ footprint: ProcessFootprint, unit: String,
                          maxPorts: Int = 3) -> [ProcessFootprintSegment] {
         guard footprint.processes > 0 else { return [] }
@@ -400,7 +451,10 @@ enum ProcessTree {
             parts.append(.init(kind: .ports,
                                text: (named + (rest > 0 ? ["+\(rest)"] : [])).joined(separator: " ")))
         }
-        return parts
+        // Built in reading order above and reordered here in one place, so every field is written
+        // where it belongs in the sentence and only one rule decides what a narrow card keeps.
+        let readings = parts.dropFirst()
+        return Array(parts.prefix(1)) + readings.filter(\.alert) + readings.filter { !$0.alert }
     }
 
     private static func blamed(_ segment: String, on name: String?) -> String {

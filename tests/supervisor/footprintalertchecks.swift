@@ -20,38 +20,68 @@ func runFootprintAlertChecks() {
         ProcessFootprint(processes: 4, cpuPercent: cpu, memoryBytes: memory,
                          diskWriteBytesPerSecond: disk, listeningPorts: [])
     }
-    func run(_ ticks: Int, _ state: FootprintAlertState, _ reading: ProcessFootprint,
-             idle: Bool) -> FootprintAlertState {
-        var next = state
-        for _ in 0..<ticks { next = FootprintAlarm.advance(next, reading: reading, idle: idle) }
-        return next
+    // A SAMPLER WITH A CLOCK, because the rule is stated in seconds and the sampler's rate is not
+    // constant: two seconds with the board on screen, ten behind it (`ProcessFootprintStore`).
+    // Every run below says how often it was looking as well as for how long.
+    let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    struct Sampler {
+        var state = FootprintAlertState()
+        var now: Date
+        var every: TimeInterval = 2
+        @discardableResult
+        mutating func run(_ ticks: Int, _ reading: ProcessFootprint,
+                          idle: Bool) -> FootprintAlerts {
+            for _ in 0 ..< ticks {
+                now = now.addingTimeInterval(every)
+                state = FootprintAlarm.advance(state, reading: reading, idle: idle, at: now)
+            }
+            return state.alerts
+        }
+    }
+    func run(_ ticks: Int, _ state: FootprintAlertState, _ reading: ProcessFootprint, idle: Bool,
+             every: TimeInterval = 2, from: Date? = nil) -> FootprintAlertState {
+        var sampler = Sampler(state: state, now: from ?? t0, every: every)
+        sampler.run(ticks, reading, idle: idle)
+        return sampler.state
     }
     let hot = reading(cpu: 300)
     check("a working session burning three cores is a build, and says nothing",
           run(20, FootprintAlertState(), hot, idle: false).alerts == FootprintAlerts())
-    // FIVE TICKS, about ten seconds: a single tick over the line is a compaction or one `rg`, and a
-    // warning that came and went inside two seconds would be noise on a card somebody is watching.
-    check("an idle session burning a core says nothing on the fourth tick",
-          run(4, FootprintAlertState(), hot, idle: true).alerts.cpu == false)
-    check("…and says it on the fifth",
-          run(5, FootprintAlertState(), hot, idle: true).alerts.cpu)
+    // TEN SECONDS OF IT: a single reading over the line is a compaction or one `rg`, and a warning
+    // that came and went inside two seconds would be noise on a card somebody is watching. Held
+    // from the first reading that SAW it, so on a two-second beat the fifth is eight seconds in.
+    check("an idle session burning a core says nothing eight seconds in",
+          run(5, FootprintAlertState(), hot, idle: true).alerts.cpu == false)
+    check("…and says it once it has held for ten",
+          run(6, FootprintAlertState(), hot, idle: true).alerts.cpu)
+    // THE SAME TEN SECONDS AT THE OTHER RATE, which is the defect the seconds fix: five ticks meant
+    // ten seconds with the panel open and fifty behind it, and a warning could be earned by four
+    // fast readings and one slow one - evidence over two spans of time added together.
+    check("a slower sampler warns on the same ten seconds of evidence, not on the same five ticks",
+          run(1, FootprintAlertState(), hot, idle: true, every: 10).alerts.cpu == false
+              && run(2, FootprintAlertState(), hot, idle: true, every: 10).alerts.cpu)
     // Slower to leave than to arrive, so a condition sitting on the threshold does not blink.
-    let burning = run(5, FootprintAlertState(), hot, idle: true)
-    check("one quiet tick does not put it out",
-          run(1, burning, reading(cpu: 2), idle: true).alerts.cpu)
-    check("…and two do",
-          run(2, burning, reading(cpu: 2), idle: true).alerts.cpu == false)
+    let burning = run(6, FootprintAlertState(), hot, idle: true)
+    let quiet = reading(cpu: 2)
+    check("one quiet reading does not put it out",
+          run(1, burning, quiet, idle: true).alerts.cpu)
+    check("…and four seconds of them do",
+          run(2, burning, quiet, idle: true, from: t0).alerts.cpu
+              && run(3, burning, quiet, idle: true, from: t0).alerts.cpu == false)
+    check("…on the same four seconds whatever the rate",
+          run(1, burning, quiet, idle: true, every: 10, from: t0).alerts.cpu
+              && run(2, burning, quiet, idle: true, every: 10, from: t0).alerts.cpu == false)
     // THE ONE THING THAT PUTS IT OUT AT ONCE is the session going back to work: at that instant the
     // warning is not unproven, it is about a state the session is no longer in.
-    check("a turn starting puts it out on that very tick, whatever the reading says",
+    check("a turn starting puts it out on that very reading, whatever the number says",
           run(1, burning, hot, idle: false).alerts.cpu == false)
-    check("…and the count starts again from nothing rather than draining away",
-          run(4, run(1, burning, hot, idle: false), hot, idle: true).alerts.cpu == false)
+    check("…and the clock starts again from nothing rather than draining away",
+          run(5, run(1, burning, hot, idle: false), hot, idle: true).alerts.cpu == false)
     // The disk rule is the same shape and counts from the same megabyte a second the segment
     // becomes visible at, so "shown" and "worth watching" cannot drift apart.
-    check("an idle session writing to disk says so once it has held for five ticks",
-          run(4, FootprintAlertState(), reading(disk: 4_000_000), idle: true).alerts.disk == false
-              && run(5, FootprintAlertState(), reading(disk: 4_000_000), idle: true).alerts.disk)
+    check("an idle session writing to disk says so once it has held for ten seconds",
+          run(5, FootprintAlertState(), reading(disk: 4_000_000), idle: true).alerts.disk == false
+              && run(6, FootprintAlertState(), reading(disk: 4_000_000), idle: true).alerts.disk)
     check("…and writing below the rate the segment is drawn at is not writing",
           run(20, FootprintAlertState(), reading(disk: ProcessTree.diskFloor - 1), idle: true)
               .alerts.disk == false)
@@ -64,23 +94,23 @@ func runFootprintAlertChecks() {
     let heavy = reading(memory: 4_000_000_000)
     check("a working session holding four gigabytes is a build, and says nothing",
           run(20, FootprintAlertState(), heavy, idle: false).alerts.memory == false)
-    check("an idle session holding four gigabytes says nothing on the fourth tick",
-          run(4, FootprintAlertState(), heavy, idle: true).alerts.memory == false)
-    check("…and says it on the fifth",
-          run(5, FootprintAlertState(), heavy, idle: true).alerts.memory)
+    check("an idle session holding four gigabytes says nothing eight seconds in",
+          run(5, FootprintAlertState(), heavy, idle: true).alerts.memory == false)
+    check("…and says it once it has held for ten seconds",
+          run(6, FootprintAlertState(), heavy, idle: true).alerts.memory)
     check("…and just under it says nothing at all",
           run(20, FootprintAlertState(), reading(memory: 3_999_999_999), idle: true)
               .alerts.memory == false)
-    let holding = run(5, FootprintAlertState(), heavy, idle: true)
-    check("…and it leaves on the same two quiet ticks as the others",
-          run(1, holding, reading(memory: 1_000_000), idle: true).alerts.memory
-              && run(2, holding, reading(memory: 1_000_000), idle: true).alerts.memory == false)
+    let holding = run(6, FootprintAlertState(), heavy, idle: true)
+    check("…and it leaves on the same four quiet seconds as the others",
+          run(2, holding, reading(memory: 1_000_000), idle: true).alerts.memory
+              && run(3, holding, reading(memory: 1_000_000), idle: true).alerts.memory == false)
     // A turn starting clears every counter, memory's included: what a rate rule and this one now
     // share is that the condition does not APPLY while the session is working.
-    check("a turn starting puts the memory warning out on that very tick too",
+    check("a turn starting puts the memory warning out on that very reading too",
           run(1, holding, heavy, idle: false).alerts.memory == false)
-    check("…and the count starts again from nothing rather than draining away",
-          run(4, run(1, holding, heavy, idle: false), heavy, idle: true).alerts.memory == false)
+    check("…and the clock starts again from nothing rather than draining away",
+          run(5, run(1, holding, heavy, idle: false), heavy, idle: true).alerts.memory == false)
 
     // MARK: how a warned line is drawn
 

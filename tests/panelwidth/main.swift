@@ -85,6 +85,21 @@ print("a grid inside the panel lays out the count the picker shows")
 // panel and that card, with the board's own 8pt gutter and 12pt of content padding each side.
 let sessionCard: CGFloat = 210
 let sessionGap: CGFloat = 8
+// BOTH ARE COPIES, AND A COPY IS A NUMBER FREE TO DRIFT. The board's views live in the app target
+// and this harness compiles the geometry alone, so the two constants are pinned to the lines they
+// were copied from instead - the same static read the other suites use for what they cannot
+// construct (tests/supervisor/footprinttrendchecks.swift). Either side changed alone, and this
+// fails rather than going on asserting arithmetic about a card that is no longer that wide.
+let boardSource = (try? String(contentsOfFile: "Tally/Views/SessionBoardView.swift",
+                               encoding: .utf8)) ?? ""
+let reorderSource = (try? String(contentsOfFile: "Tally/Views/SessionBoardReorder.swift",
+                                 encoding: .utf8)) ?? ""
+check(!boardSource.isEmpty && !reorderSource.isEmpty,
+      "the board's own sources are readable from this suite")
+check(boardSource.contains("static let compactCardWidth: CGFloat = \(Int(sessionCard))"),
+      "the card width here is the one the board lays its cards out at")
+check(reorderSource.contains("static let sessionCardGap: CGFloat = \(Int(sessionGap))"),
+      "…and the gutter here is the one the grid is spaced with")
 func sessionGrid(width: CGFloat) -> CGFloat { width - 2 * PanelGeometry.contentPadding }
 func sessionColumns(_ chosen: Int?, panel: CGFloat) -> Int? {
     PanelGeometry.gridColumns(chosen: chosen, in: sessionGrid(width: panel),

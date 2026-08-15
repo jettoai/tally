@@ -62,6 +62,16 @@ struct ProcessFootprintSegment: Equatable {
     enum Kind: Equatable { case processes, agents, cpu, memory, disk, ports }
     var kind: Kind
     var text: String
+    /// The quieter half of the field: the word a count is counting, or the program blamed for a
+    /// rate. Carried apart from `text` rather than parsed back out of it, because the row that
+    /// draws figures instead of sentences prints it a shade down from the number
+    /// (`SessionCardView.sessionFootprintTrends`) - three heterogeneous facts at one brightness is
+    /// a string a reader has to segment for themselves, which is what that row was reported as
+    /// (Albert, 2026-08-15: "2 procs · 1% CPU (claude) · 459 MB" is hard to read).
+    ///
+    /// A FIGURE WITH NO WORD IN IT HAS NONE: a memory reading carries its own unit and a port list
+    /// is not a quantity at all.
+    var aside: String?
     var alert = false
 }
 

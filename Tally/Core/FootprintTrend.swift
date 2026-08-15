@@ -33,6 +33,30 @@ struct FootprintTrendSample: Equatable {
         case .memory: Double(memoryBytes)
         }
     }
+
+    /// THE ONE POINT A HANDFUL OF FAST READINGS IS KEPT AS, which is three decisions rather than
+    /// one, because these three numbers are not the same kind of number.
+    ///
+    /// The CPU is a RATE over the interval that ended at its reading, and the intervals are equal,
+    /// so the mean of the five two-second readings inside a bucket is exactly the ten-second
+    /// reading the background pass would have taken over the same span. That identity is the whole
+    /// point: it is what makes one series out of two sampling rates. The memory and the process
+    /// count are INSTANTS, and an instant folds to the last one taken - averaged, they would draw a
+    /// tree at a size it was never at.
+    ///
+    /// THE DEFECT THIS ENDS: the ring used to keep one fast reading in five and discard the rest,
+    /// so eight seconds out of every ten simply never happened while somebody was watching - a
+    /// spike inside them was gone, and the shape of a session depended on whether its panel was
+    /// open. The mean is the conservative half of the fix: a two-second burst is now IN the point
+    /// rather than dropped, and it is drawn at the height it contributed to the ten seconds rather
+    /// than at its own (a bucket's own maximum could be carried too, and would be a second series
+    /// rather than a better one).
+    static func folded(_ readings: [FootprintTrendSample]) -> FootprintTrendSample? {
+        guard let last = readings.last else { return nil }
+        let cpu = readings.reduce(0) { $0 + $1.cpuPercent } / Double(readings.count)
+        return FootprintTrendSample(cpuPercent: cpu, memoryBytes: last.memoryBytes,
+                                    processes: last.processes)
+    }
 }
 
 /// The three readings that are worth a line, in the order the value line above them is written in
@@ -45,19 +69,79 @@ struct FootprintTrendSample: Equatable {
 enum FootprintTrendMetric: Hashable, CaseIterable {
     case processes, cpu, memory
 
-    /// The peak of this metric in the same words the current figure beside it uses, or nothing when
-    /// the number is too small to be worth saying (the thresholds the value line already keeps, so
-    /// "shown as a figure" and "shown as a peak" cannot drift apart).
+    /// Which trend a field of the value line belongs to, or nothing when it has none.
+    ///
+    /// EXHAUSTIVE ON PURPOSE, so a field added to that line has to be given an answer here rather
+    /// than defaulting into "no trend" without anybody noticing (`ProcessTree.segments`).
+    init?(_ kind: ProcessFootprintSegment.Kind) {
+        switch kind {
+        case .processes: self = .processes
+        case .cpu: self = .cpu
+        case .memory: self = .memory
+        case .agents, .disk, .ports: return nil
+        }
+    }
+
+    /// This metric's reading in a footprint, or nothing when the footprint cannot state it yet: a
+    /// cumulative counter says nothing about a rate until it has been read twice.
+    func reading(of footprint: ProcessFootprint) -> Double? {
+        switch self {
+        case .processes: Double(footprint.processes)
+        case .cpu: footprint.cpuPercent
+        case .memory: Double(footprint.memoryBytes)
+        }
+    }
+
+    /// A figure of this metric in the words the card spells it in. ONE SPELLER FOR BOTH FIGURES a
+    /// group carries - the reading and the ceiling above it - so a peak reading "4200 MB" can never
+    /// appear beside a current value reading "3.9 GB".
+    ///
+    /// TERSER THAN THE VALUE LINE'S OWN WORDS, and the unit is what carries the meaning: `%` is the
+    /// CPU, `GB` is the memory, a bare count is the processes. Measured (2026-08-15, 10pt): the
+    /// three fields spelled in full are 118.2pt against the 236pt a 264pt card gives its content,
+    /// which leaves no room for the shapes they belong to, let alone a peak. The words are not
+    /// lost, they move: VoiceOver is handed the value line's own sentence
+    /// (`SessionCardView.spokenTrends`).
+    func figureText(_ value: Double) -> String? {
+        switch self {
+        case .processes: "\(Int(value.rounded()))"
+        case .cpu: "\(Int(value.rounded()))%"
+        case .memory: ProcessTree.memoryText(UInt64(max(0, value)))
+        }
+    }
+
+    /// The widest figure this metric prints in ordinary use, which is what its column on a card is
+    /// sized from: a hundred per cent of three cores, a tree holding ninety-nine and a half
+    /// gigabytes, a session running ninety-nine processes. Nothing is clipped when a reading passes
+    /// it - the column grows and the row reflows once, which is what a rare event should cost.
+    ///
+    /// IT EXISTS BECAUSE THE NUMBERS MOVE. Every one of these is re-read every two seconds, and a
+    /// figure laid out to its own width takes the whole row with it as it changes digits: the
+    /// memory shifts because the CPU went from 9% to 10%, and a person trying to read a card is
+    /// reading a moving target (Albert, 2026-08-15). Held in a column of this width, right
+    /// aligned, a changing digit changes a glyph and nothing else moves.
+    var widestFigure: String {
+        switch self {
+        case .processes: "99"
+        case .cpu: "100%"
+        case .memory: "99.9 GB"
+        }
+    }
+
+    /// The peak, or nothing when it is too small to be worth saying.
+    ///
+    /// THE FLOOR IS THE PEAK'S OWN AND THE VALUE LINE HAS NONE, which this used to claim the
+    /// opposite of ("the thresholds the value line already keeps"): a tree at 0.4% is printed as
+    /// `0% CPU` there and has no peak worth an arrow here. The two are not required to agree,
+    /// because they answer different questions - what a session IS doing has to be stated at any
+    /// size, and a fifteen-minute ceiling of nought per cent is not a fact about anything. What
+    /// they do share is the SPELLING (`figureText`), which is what stops the same quantity being
+    /// written two ways. A group is never dropped for want of a peak: it is built from the reading
+    /// (`SessionCardView.sessionFootprintTrendGroups`), and the arrow is what goes missing.
     func peakText(_ value: Double) -> String? {
         switch self {
-        case .processes:
-            guard value >= 1 else { return nil }
-            return "\(Int(value.rounded()))"
-        case .cpu:
-            guard value >= 1 else { return nil }
-            return "\(Int(value.rounded()))%"
-        case .memory:
-            return ProcessTree.memoryText(UInt64(max(0, value)))
+        case .processes, .cpu: value >= 1 ? figureText(value) : nil
+        case .memory: figureText(value)
         }
     }
 
@@ -79,8 +163,14 @@ enum FootprintTrendMetric: Hashable, CaseIterable {
 /// samples every two seconds while it is on screen and every ten with nothing open
 /// (`ProcessFootprintStore`), and a series that simply took whatever arrived would be five times
 /// denser over the minutes somebody was watching. A line whose horizontal axis changes scale
-/// halfway along is not a trend, it is two trends drawn on top of each other, so the fast ticks are
-/// offered and mostly refused.
+/// halfway along is not a trend, it is two trends drawn on top of each other.
+///
+/// SO THE FAST TICKS ARE FOLDED, NOT REFUSED, which they used to be. Keeping one reading in five
+/// holds the cadence and quietly changes what a point MEANS: eight seconds out of every ten were
+/// thrown away with the panel open and averaged in with it closed, so the same session drew a
+/// different shape depending on whether anybody was looking at it. Every reading now lands in the
+/// point being assembled (`FootprintTrendSample.folded`), and the two rates produce the same
+/// series out of the same load.
 struct FootprintTrendSeries: Equatable {
     /// About a quarter of an hour at the cadence below, which is the span a person is actually
     /// asking about ("has this been like this for a while?"). Ninety readings is also small enough
@@ -95,23 +185,44 @@ struct FootprintTrendSeries: Equatable {
     /// and the next point lands at 11.98 (a series that stutters by a fifth). One second is the
     /// only interval that is both.
     static let tolerance: TimeInterval = 1
+    /// How long a silence has to run before what comes after it is a NEW line rather than the
+    /// continuation of the old one. Three cadences: one or two missed ticks are a main thread that
+    /// was busy, and anything past that is the machine having been away - a lid opened after a
+    /// night would otherwise draw yesterday's eighty-nine readings as "the last quarter hour", with
+    /// nothing on the line to say that the last two points are twelve hours apart.
+    static let staleAfter: TimeInterval = 3 * cadence
 
     private(set) var samples: [FootprintTrendSample] = []
     /// When the newest kept reading was taken, which is what the cadence is measured from.
     private(set) var lastAcceptedAt: Date?
+    /// The readings taken since the last point was kept, waiting to be folded into the next one. At
+    /// the background rate this holds the one reading that becomes the point; with the board open
+    /// it holds the five that make it up.
+    private(set) var pending: [FootprintTrendSample] = []
 
-    /// Whether a reading taken at `at` is the next point of the line rather than one of the fast
-    /// ticks between two of them.
+    /// Whether a reading taken at `at` closes the point being assembled, rather than joining it.
     func accepts(_ at: Date) -> Bool {
         guard let lastAcceptedAt else { return true }
         return at.timeIntervalSince(lastAcceptedAt) >= Self.cadence - Self.tolerance
     }
 
-    /// Offer a reading. Refused readings cost nothing and are the common case while the panel is
-    /// open: four of every five ticks land inside the cadence.
+    /// Whether so long has passed that what is held is a different session's afternoon rather than
+    /// this reading's own recent past (see `staleAfter`).
+    func isStale(at: Date) -> Bool {
+        guard let lastAcceptedAt else { return false }
+        return at.timeIntervalSince(lastAcceptedAt) > Self.staleAfter
+    }
+
+    /// Offer a reading. EVERY ONE OF THEM IS KEPT SOMEWHERE - in the point being assembled, or as
+    /// the point itself - which is what holds the series to one meaning across both rates.
     mutating func record(_ sample: FootprintTrendSample, at: Date) {
+        // A line that starts again says "the last quarter hour" honestly from its first point; one
+        // that carried on would say it about readings taken before the machine slept.
+        if isStale(at: at) { self = FootprintTrendSeries() }
+        pending.append(sample)
         guard accepts(at) else { return }
-        samples.append(sample)
+        if let point = FootprintTrendSample.folded(pending) { samples.append(point) }
+        pending = []
         if samples.count > Self.capacity { samples.removeFirst(samples.count - Self.capacity) }
         lastAcceptedAt = at
     }

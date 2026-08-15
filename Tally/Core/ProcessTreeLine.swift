@@ -62,7 +62,8 @@ extension ProcessTree {
     /// because it is the rarer sighting: the CPU segment is on every card, while a session writing
     /// megabytes a second is the anomaly somebody opened the panel to find. Memory carries no name
     /// at all - what holds memory persistently is the long-lived process the count and the ports
-    /// already point at.
+    /// already point at. And the CPU's name is dropped altogether when it is the program every
+    /// session on this board is led by, which is most of them (`worthNaming`).
     ///
     /// - Parameters:
     ///   - unit: the word for "processes", already localised, so this stays a pure function of what
@@ -110,9 +111,10 @@ extension ProcessTree {
                          maxPorts: Int = 3) -> [ProcessFootprintSegment] {
         guard footprint.processes > 0 else { return [] }
         var parts = [ProcessFootprintSegment(kind: .processes,
-                                             text: "\(footprint.processes) \(unit)")]
+                                             text: "\(footprint.processes) \(unit)", aside: unit)]
         if footprint.agents > 0 {
-            parts.append(.init(kind: .agents, text: "\(footprint.agents) \(agentUnit)"))
+            parts.append(.init(kind: .agents, text: "\(footprint.agents) \(agentUnit)",
+                               aside: agentUnit))
         }
         // Decided before the CPU segment is built, because whether disk is on the line at all is
         // what decides which segment gets to carry a name.
@@ -121,16 +123,16 @@ extension ProcessTree {
         // Rounded to whole points: the reading is a difference of two samples taken about two
         // seconds apart, and decimals on it would be spelling out noise.
         if let cpu = footprint.cpuPercent {
+            let cpuName = diskName == nil ? worthNaming(footprint.cpuLeader) : nil
             parts.append(.init(kind: .cpu,
-                               text: blamed("\(Int(cpu.rounded()))% CPU",
-                                            on: diskName == nil ? footprint.cpuLeader : nil),
-                               alert: footprint.alerts.cpu))
+                               text: blamed("\(Int(cpu.rounded()))% CPU", on: cpuName),
+                               aside: cpuName, alert: footprint.alerts.cpu))
         }
         if let memory = memoryText(footprint.memoryBytes) {
             parts.append(.init(kind: .memory, text: memory, alert: footprint.alerts.memory))
         }
         if let disk {
-            parts.append(.init(kind: .disk, text: blamed(disk, on: diskName),
+            parts.append(.init(kind: .disk, text: blamed(disk, on: diskName), aside: diskName,
                                alert: footprint.alerts.disk))
         }
         if !footprint.listeningPorts.isEmpty {
@@ -149,6 +151,26 @@ extension ProcessTree {
         guard let name else { return segment }
         return "\(segment) (\(name))"
     }
+
+    /// The culprit, unless it is the one this tree is expected to be led by.
+    ///
+    /// A NAME IS ONLY WORTH THE ROOM IT TAKES WHEN IT IS A SURPRISE. Every card on this board is a
+    /// Claude Code session, so Claude Code itself is what is burning the CPU on almost all of them,
+    /// and "(claude)" printed on every card all day is the answer to a question nobody asked. What
+    /// the name exists for is the other case - `42% CPU (Google Chrome Helper)`, `34% CPU (node)` -
+    /// where it is the difference between knowing to look and knowing where. So the expected leader
+    /// says nothing and the unexpected one is named (Albert, 2026-08-15).
+    ///
+    /// The disk writer is not put through this: it is already the rarer sighting (the segment only
+    /// exists past a megabyte a second), and there the question really is who.
+    static func worthNaming(_ leader: String?) -> String? {
+        guard let leader, leader.lowercased() != expectedLeader else { return nil }
+        return leader
+    }
+
+    /// What every session on this board is running, as `displayName` spells it: the installed
+    /// Claude Code is `~/.local/share/claude/versions/<version>`, whose name walks up to `claude`.
+    private static let expectedLeader = "claude"
 
     /// What the tree is holding, in the units a Mac states memory in: DECIMAL, because that is what
     /// Activity Monitor and every spec sheet the number will be compared against use. Whole

@@ -14,8 +14,9 @@ import Observation
 /// open the same pass runs every ten. It used to run at neither rate with the page closed, and the
 /// trend line is why that changed: a history that only exists while somebody is looking is empty at
 /// the exact moment it is wanted, since a person opens this board BECAUSE something already felt
-/// wrong. The kept series is even at ten seconds whichever rate produced it - the fast ticks are
-/// offered to the ring and mostly refused (`FootprintTrendSeries.accepts`).
+/// wrong. The kept series is even at ten seconds whichever rate produced it, and says the same
+/// thing at either: the fast ticks are folded into the point being assembled rather than dropped,
+/// so a spike between two kept points is in the line (`FootprintTrendSample.folded`).
 ///
 /// WHAT THE BACKGROUND RATE COSTS, measured on this machine rather than assumed: one pass over the
 /// process table plus one `proc_pid_rusage` and one `proc_pidpath` per process in the trees. See
@@ -129,6 +130,15 @@ final class ProcessFootprintStore {
     /// reads the board's own rows and asks the machine about their pids. A board with nothing on it
     /// costs a dictionary assignment.
     private func sample() {
+        // THE ROSTER IS NOT SCANNING BEHIND THE PANEL, and this pass consumes it. Its own timer
+        // runs only while a surface is up; with nothing open it is refreshed by the supervisors'
+        // knock, which is not a delivery anything can rely on (a session killed outright never
+        // knocks). So a session that ended while nobody was looking would stay on this list, and
+        // the walk below would go on reading a process GROUP the machine is free to hand out again
+        // - appending an unrelated job's readings to a dead session's series. One synchronous scan,
+        // at the rate this pass already runs at, rather than a second timer: the roster's own note
+        // says a scan is cheap enough to make on a knock with no window open at all.
+        if viewers == 0 { SessionRosterStore.shared.refresh() }
         // Each root with what its session is DOING, because a warning is about the mismatch between
         // the two (`FootprintAlarm`). The state is the supervisor's own published word rather than
         // anything guessed here, and `unknown` is not idle: a session that has not said yet is not
@@ -202,20 +212,20 @@ final class ProcessFootprintStore {
             // back on the same reading: what the card draws and what the card warns about are one
             // value, so they cannot be a tick apart.
             //
-            // A TICK IS NOT ALWAYS TWO SECONDS ANY MORE, and the rule counts ticks rather than time
-            // (`FootprintAlarm`), so the five it waits for is ten seconds with the board open and
-            // fifty behind it. Both are the same statement - "this has held, it is not one reading"
-            // - and the slower one is the more conservative of the two, which is the right way for
-            // a warning nobody is currently looking at to be wrong.
+            // A TICK IS NOT ALWAYS TWO SECONDS, which is why the rule is handed the INSTANT rather
+            // than counting ticks (`FootprintAlarm`): five of them used to mean ten seconds with
+            // the board open and fifty behind it, and a warning could be earned by four fast
+            // readings and one slow one - evidence over two different spans added together.
             let state = FootprintAlarm.advance(alertState[key] ?? FootprintAlertState(),
-                                               reading: footprint, idle: idle)
+                                               reading: footprint, idle: idle, at: now)
             alerting[key] = state
             footprint.alerts = state.alerts
             next[key] = footprint
-            // THE RING IS OFFERED EVERY TICK AND KEEPS ONE IN FIVE, which is what holds the series
-            // to one cadence across two rates (`FootprintTrendSeries.accepts`). Only once there is
-            // a rate to keep: the first pair of readings has no interval yet, and a zero written
-            // where "not measured yet" belongs would draw a dip the machine never had.
+            // THE RING IS OFFERED EVERY TICK AND KEEPS ONE POINT IN FIVE OF THEM, folding the rest
+            // into it, which is what holds the series to one cadence AND to one meaning across two
+            // rates (`FootprintTrendSeries.record`). Only once there is a rate to keep: the first
+            // pair of readings has no interval yet, and a zero written where "not measured yet"
+            // belongs would draw a dip the machine never had.
             if let percent = cpu.percent {
                 trends.record(FootprintTrendSample(cpuPercent: percent,
                                                    memoryBytes: reading.memoryBytes,
@@ -235,8 +245,10 @@ final class ProcessFootprintStore {
         // the thing that says a session has ENDED.
         trends.retain(Set(roots.map { String($0.0) }))
         // Assigned only when it moved, for the reason the figures below are: `record` is a mutating
-        // call whether or not the ring took the reading, and an observed property notices the call
-        // rather than the change.
+        // call whether or not the ring closed a point on it, and an observed property notices the
+        // call rather than the change. The ring now carries the readings BETWEEN points as well as
+        // the points, so a tick that only added to the bucket does move it - what the guard still
+        // saves is the idle board where nothing was recorded at all (no session, or no rate yet).
         if trends != history { history = trends }
         // A session that has ended must not leave its ports behind for a pid the machine will hand
         // out again: the cache is only ever a stand-in for the tick that did not read them.

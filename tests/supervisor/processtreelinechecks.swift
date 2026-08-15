@@ -80,6 +80,27 @@ func runProcessTreeLineChecks() {
                                             diskWriteBytesPerSecond: 1_000_000,
                                             listeningPorts: []),
                            unit: "procs") == "4 procs · 1 MB/s")
+    // A NAME IS ONLY WORTH ITS ROOM WHEN IT IS A SURPRISE. Every card on this board is a Claude
+    // Code session, so Claude Code is what is burning the CPU on almost all of them, and "(claude)"
+    // on every card all day is the answer to a question nobody asked (Albert, 2026-08-15).
+    check("the expected leader of a session tree is not named",
+          ProcessTree.line(ProcessFootprint(processes: 4, cpuPercent: 34, cpuLeader: "claude",
+                                            listeningPorts: []),
+                           unit: "procs") == "4 procs · 34% CPU")
+    check("…however the machine happened to spell it",
+          ProcessTree.worthNaming("Claude") == nil && ProcessTree.worthNaming("claude") == nil)
+    check("…and the surprise still is",
+          ProcessTree.line(ProcessFootprint(processes: 4, cpuPercent: 42,
+                                            cpuLeader: "Google Chrome Helper",
+                                            listeningPorts: []),
+                           unit: "procs") == "4 procs · 42% CPU (Google Chrome Helper)")
+    // The disk writer is not put through the same rule: that segment only exists past a megabyte a
+    // second, so it is the rare sighting where the question really is who.
+    check("the disk writer is named whoever it is",
+          ProcessTree.line(ProcessFootprint(processes: 4, cpuPercent: nil,
+                                            diskWriteBytesPerSecond: 12_000_000,
+                                            diskLeader: "claude", listeningPorts: []),
+                           unit: "procs") == "4 procs · 12 MB/s (claude)")
     // A pid that has ended between being picked and being named has no name, and the segment says
     // the number alone rather than an empty pair of brackets.
     check("a culprit nobody could name leaves the number to speak for itself",
@@ -191,10 +212,18 @@ func runProcessTreeLineChecks() {
               && cardSource.contains(".foregroundStyle(TallyColor.warning)"))
     // And VoiceOver gets neither of those, so it is handed the condition in words.
     check("…and the reader who hears the line is told what the warning is about",
-          cardSource.contains(".accessibilityLabel(Self.spoken(segments))")
+          cardSource.contains(".accessibilityLabel(Self.spoken(rest))")
               && cardSource.contains("L(\"high CPU while nothing is running\")")
               && cardSource.contains("L(\"writing to disk while nothing is running\")")
               && cardSource.contains("L(\"holding a lot of memory while nothing is running\")"))
+    // THE WARNING WENT WITH THE NUMBER when the numbers moved down a row: two of the three
+    // conditions are about figures that are now drawn in the trend groups (the CPU and the memory),
+    // and a mark left behind on the row they used to be on would be a warning about nothing.
+    check("a warned reading is marked where the reading now is",
+          cardSource.contains("Self.drawn(trend.figure, alert: trend.segment.alert)"))
+    check("…and the reader who hears the groups is told the same condition",
+          cardSource.contains(".accessibilityLabel(Self.spokenTrends(trends))")
+              && cardSource.contains("let reading = spoken([trend.segment])"))
     // THE STATE IS THE SUPERVISOR'S OWN WORD, not a second idleness detector living in the app:
     // only the supervisor can see the transcript, the open tool call and the subagents. `unknown`
     // is deliberately not idle - it is "has not said yet", and warning on it would be a guess.

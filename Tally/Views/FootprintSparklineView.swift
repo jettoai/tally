@@ -9,24 +9,37 @@ import SwiftUI
 /// line's own right). So the geometry is a dozen lines of arithmetic next door
 /// (`FootprintSparkline`), stated where an assertion harness can read it, and this only strokes it.
 ///
-/// TWO DOTS, AND THEY MEAN DIFFERENT THINGS. The brighter one is the newest reading, which is the
-/// value the card states above; the quieter one is the highest, which is the value stated to the
-/// right of the line. Neither is decoration: they are what tie the shape to the two figures a
-/// reader can act on. A flat line carries only the first, because a series that never moved is at
-/// its maximum everywhere and a dot on the earliest of those would point at an arbitrary moment.
+/// TWO DOTS, AND THEY ARE THE TWO FIGURES PRINTED BESIDE THE LINE. The brighter, larger one is the
+/// last reading, which is the current value in its own group; the quieter, smaller one is the
+/// highest, which is the `↑` figure. Neither is decoration: they are what tie the shape to the two
+/// numbers a reader can act on (`SessionCardView.sessionFootprintTrends`).
+///
+/// THE BRIGHT ONE IS ONLY HONEST BECAUSE THE CALLER PUTS THE LIVE READING IN. The newest reading
+/// the ring has KEPT is up to a bucket old (`FootprintTrendSeries`), so drawn from the ring alone
+/// this dot marked 20% on a session whose card said 400% (measured on a live board, 2026-08-15).
+/// The row therefore hands over the kept readings with this instant's own reading appended, drawn
+/// and never stored, and the last step of the line is worth less time than the others: that is the
+/// price of the two figures agreeing, and it is paid on the one step nobody reads for its slope.
+///
+/// A flat line carries no peak dot at all, because a series that never moved is at its maximum
+/// everywhere and a dot on the earliest of those would point at an arbitrary moment.
 struct FootprintSparklineView: View {
     let values: [Double]
 
-    /// MEASURED AGAINST THE NARROWEST CARD, which is the only width that constrains it: three of
-    /// these, their three gaps and three peak figures have to fit the 235pt a 263pt card gives its
-    /// content, and at 44pt they did not - every memory peak on a two-column board was drawn as
-    /// "4.2 G…" (measured 2026-08-15 on a live board). At 32 the row fits with room for a
-    /// three-digit CPU peak beside it, and the shape survives the loss: these are 90 readings in a
-    /// figure a centimetre wide either way, read for their outline rather than point by point.
+    /// MEASURED AGAINST THE NARROWEST CARD, which is the only width that constrains it, and
+    /// re-measured every time the row around it gains a field. It was 44pt when the row held three
+    /// shapes and three peaks, and 32 when that would not fit ("4.2 G…" on every two-column board).
+    /// The row now holds the CURRENT FIGURES as well, which is what it is for, so three shapes,
+    /// three figures, a unit word and one peak have to fit the 236pt a 264pt card gives its
+    /// content: at 32pt that measures 247pt and the peak is dropped, at 24pt it is 223pt and the
+    /// peak stays (measured 2026-08-15 at 10pt against this app's own metrics). The shape survives
+    /// the loss - these are 90 readings in a figure under a centimetre wide either way, read for
+    /// their outline rather than point by point - and the peak is a number that cannot be inferred
+    /// from any width of line at all.
     ///
     /// The height is the caption's own line box less its leading, so the line sits inside the row
     /// rather than setting the card's height.
-    static let size = CGSize(width: 32, height: 11)
+    static let size = CGSize(width: 24, height: 11)
     private static let stroke: CGFloat = 1
     private static let peakDot: CGFloat = 2
     private static let currentDot: CGFloat = 3

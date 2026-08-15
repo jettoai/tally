@@ -7,11 +7,17 @@ import Foundation
 //      changes state, or whose neighbour ends, does not move. This is what makes the board something
 //      a hand can learn: it was re-sorting itself twice a second before 2026-08-14.
 //   2. THE ARRANGEMENT (Tally/Core/SessionBoardOrder.swift, SessionRosterStore.arranged): written in
-//      project directories, replacing that seating outright until it is cleared again.
+//      project directories, replacing that seating outright until the user says otherwise.
 //
-// Pure throughout, both of them: string algebra plus one stable sort, so every case can be stated
-// here without an app around it. The three things that are not pure - the board freezing while a
-// card is in flight, the control that sorts by status, and the roster holding its seating between
+// AND A SWITCH SAYS WHICH OF THEM IS GOVERNING (SettingsStore.sessionBoardSortsByState, 2026-08-15).
+// On, rule 1 is asked again on every scan instead of once per launch, and rule 2 is held back; off,
+// the board holds its seats and the arrangement is applied over them. Moving a card turns the switch
+// off, because the hand that arranges the board is the one that owns it. Nothing erases the
+// arrangement in either direction: the switch is a changeover, not a reset.
+//
+// Pure throughout, both rules: string algebra plus one stable sort, so every case can be stated
+// here without an app around it. The things that are not pure - the board freezing while a card is
+// in flight, the switch and what the drag does to it, and the roster holding its seating between
 // scans - are asserted by reading the source, which is what every other suite in this family does
 // with a rule that only exists inside a SwiftUI body or a live store.
 
@@ -84,6 +90,27 @@ func runSessionBoardOrderChecks() {
               == ["13", "12", "11"])
     check("…which is what the board's own way of asking again does too (`resortByState`)",
           SessionRosterStore.seat(moved, seating: nil).rows.map(\.id) == ["11", "13", "12"])
+
+    // MARK: the switch that keeps that sort live
+
+    // ON IS A MODE, NOT A PRESS. The same sort, asked again on every scan, so a session that starts
+    // waiting an hour after the board was seated goes to the front where somebody will see it -
+    // which a control that sorted once could only do if it was pressed again at that moment.
+    check("with the switch on, a scan seats the board from the states now",
+          SessionRosterStore.seat(moved, seating: seeded.seating, sortsByState: true)
+              .rows.map(\.id) == ["11", "13", "12"])
+    // The seating it leaves behind is that board, which is what makes turning the switch off a
+    // freeze rather than a jump: the cards stay where the user was looking at them, rather than
+    // dropping back onto seats taken hours ago.
+    check("…and the seats it leaves behind are the board it just drew",
+          SessionRosterStore.seat(moved, seating: seeded.seating, sortsByState: true)
+              .seating == ["11", "13", "12"])
+    check("…while the same scan with the switch off holds the seats it was handed",
+          SessionRosterStore.seat(moved, seating: seeded.seating, sortsByState: false)
+              .rows.map(\.id) == ["13", "12", "11"])
+    // A board with nothing on it is nobody's arrangement in either mode.
+    check("…and neither mode seats anybody on an empty scan",
+          SessionRosterStore.seat([], seating: seeded.seating, sortsByState: true).seating == nil)
 
     // The filter SELECTS, it never re-orders: a subset of a seated board is that board's order.
     check("narrowing the board to what is reporting leaves the seats it kept",
@@ -219,11 +246,17 @@ func runSessionBoardOrderChecks() {
                                       encoding: .utf8)) ?? ""
     let rosterSource = (try? String(contentsOfFile: "Tally/Stores/SessionRosterStore.swift",
                                     encoding: .utf8)) ?? ""
-    check("the four sources this suite reads are readable",
+    // Where the roster is handed its reading of the switch, which is the one place the setting and
+    // the store meet.
+    let statusSource = (try? String(contentsOfFile: "Tally/MenuBar/StatusItemController.swift",
+                                    encoding: .utf8)) ?? ""
+    check("the five sources this suite reads are readable",
           !boardSource.isEmpty && !reorderSource.isEmpty && !settingsSource.isEmpty
-              && !rosterSource.isEmpty)
-    // THE SCAN MUST NOT MOVE THE CARD UNDER THE POINTER. The roster rescans twice a second; the
-    // board draws the membership the drag started on until the hand lets go.
+              && !rosterSource.isEmpty && !statusSource.isEmpty)
+    // THE SCAN MUST NOT MOVE THE CARD UNDER THE POINTER. The roster rescans twice a second - and
+    // with the switch on it re-seats on every one of those scans - while the board draws the
+    // membership the drag started on until the hand lets go. That freeze is what defers the live
+    // sort to the drop: the grid may not move under a hand that is holding one of its cards.
     check("the board freezes while a card is in flight",
           boardSource.contains("let board = sessionLift?.frozen ?? roster.rows"))
     // A session ending moves no pointer and fires no gesture callback, so the scan is the only
@@ -231,28 +264,63 @@ func runSessionBoardOrderChecks() {
     check("…and a scan that loses the carried session puts it down",
           boardSource.contains("!rows.contains(where: { $0.id == lift.id })")
               && boardSource.contains("sessionLift = nil"))
-    // SORTING BY STATUS IS AN ACTION NOW, NOT A WAY BACK FROM A MODE. The board no longer re-sorts
-    // itself, so the control has to be reachable whether or not anything was ever dragged - it used
-    // to be drawn only while there was an arrangement to leave.
-    check("the control is drawn whatever order the board is in",
-          boardSource.contains("            sessionsSortByStateButton\n")
-              && !boardSource.contains("isSessionBoardManual"))
-    // BOTH HALVES, because either alone leaves the board somewhere nobody asked for: clearing the
-    // arrangement without re-seating drops it back onto seats taken hours ago.
-    check("…and it both forgets the arrangement and takes the seats again from the states now",
-          reorderSource.contains("settings.sortSessionBoardByState()")
-              && reorderSource.contains("SessionRosterStore.shared.resortByState()")
-              && settingsSource.contains("func sortSessionBoardByState() { sessionBoardOrder = [] }")
+    // SORTING BY STATUS IS A MODE, AND A MODE HAS TO BE READABLE IN BOTH OF ITS STATES: the control
+    // is drawn whatever order the board is in, because "is this board still following the states?"
+    // is a question asked exactly when it is.
+    check("the control is a switch, drawn whatever order the board is in",
+          boardSource.contains("            sessionsSortByStateToggle\n")
+              && reorderSource.contains(".toggleStyle(.switch)"))
+    // Turning it on answers at the flick rather than at the next tick; turning it off does nothing,
+    // because the seats the live sort last left are where the board already is.
+    check("…and turning it on takes the seats again from the states now",
+          reorderSource.contains("settings.sessionBoardSortsByState = on")
+              && reorderSource.contains("if on { SessionRosterStore.shared.resortByState() }")
               && rosterSource.contains("seating = nil"))
+    // A READING RATHER THAN A COPY. Two answers to "which order is this board in" is two places for
+    // it to be wrong, and the store is compiled into this harness with no settings around it.
+    check("the roster reads the switch on every scan and keeps no copy of it",
+          rosterSource.contains("var sortsByState: () -> Bool = { false }")
+              && rosterSource.contains("sortsByState: sortsByState()")
+              && statusSource.contains(
+                  "sortsByState = { SettingsStore.shared.sessionBoardSortsByState }"))
+    // ONE ORDER GOVERNS AT A TIME. While the switch is on the arrangement is held, not layered over
+    // the state sort, which would be an order nobody chose.
+    check("the page holds the arrangement back while the switch is on",
+          boardSource.contains(
+              "manualKeys: settings.sessionBoardSortsByState ? [] : settings.sessionBoardOrder"))
+    // THE HAND TAKES THE BOARD BACK ON THE FIRST CARD IT MOVES, and the switch is written beside the
+    // arrangement rather than at the drop: a cancelled drag has still displaced what it displaced,
+    // and an arrangement under a switch that says "sorted by status" is the board with two owners.
+    check("moving a card turns the switch off exactly where the arrangement is written",
+          reorderSource.contains(
+              "settings.sessionBoardSortsByState = false\n"
+                  + "                withAnimation(CardMotion.spring) "
+                  + "{ settings.sessionBoardOrder = next }"))
+    // NOTHING IS ERASED IN EITHER DIRECTION: the arrangement is what turning the switch off comes
+    // back to, so an app that forgot it would owe the user a hand-built order they never asked to
+    // rebuild. The old control's erase is gone, at the store and at the call site both.
+    check("nothing about the switch forgets what the hand arranged",
+          !settingsSource.contains("func sortSessionBoardByState")
+              && !settingsSource.contains("sessionBoardOrder = []")
+              && !reorderSource.contains("sortSessionBoardByState"))
+    // NEVER CHOSEN IS READ OFF THE BOARD ITSELF: a machine carrying an arrangement was dragged by
+    // hand while this was a button, and the first launch after the update must not sort over it.
+    check("a board that was never switched starts on unless it has an arrangement to honour",
+          settingsSource.contains("defaults.object(forKey: \"sessionBoardSortsByState\") as? Bool")
+              && settingsSource.contains("?? arrangement.isEmpty")
+              && settingsSource.contains(
+                  "UserDefaults.standard.set(sessionBoardSortsByState, forKey: \"sessionBoardSortsByState\")"))
     // The seating is the store's alone: a second holder of it (the view, the settings) would be a
     // second answer to where a card sits, and the freeze is exactly one answer held over time.
-    check("the roster holds its seating between scans, and nothing else touches it",
+    check("the roster holds its seating between scans, and reads the switch on every one",
           rosterSource.contains("private var seating: [String]?")
               && rosterSource.contains(
-                  "let (rows, seating) = Self.seat(liveSessionStates().map(Self.row), seating: self.seating)"))
+                  "Self.seat(liveSessionStates().map(Self.row), seating: self.seating,")
+              && rosterSource.contains("sortsByState: sortsByState())"))
     check("the arrangement is saved and loaded through the one file that spells its key",
           settingsSource.contains("SessionBoardOrder.save(sessionBoardOrder, to: .standard)")
-              && settingsSource.contains("sessionBoardOrder = SessionBoardOrder.load(from: defaults)"))
+              && settingsSource.contains("let arrangement = SessionBoardOrder.load(from: defaults)")
+              && settingsSource.contains("sessionBoardOrder = arrangement"))
     // On the grid, never on a card: a live reorder tears the moved card down, and SwiftUI CANCELS
     // a gesture whose view went away, which leaks the floating preview forever.
     check("the drag lives on the grid and lets go on the drop",

@@ -29,7 +29,8 @@ enum SessionFilter: String, CaseIterable, Identifiable {
 /// account and model serving it, the effort it is running at, how big the conversation has grown,
 /// how long ago it last moved, and - for one that is waiting - what it is waiting for, in words, on
 /// the card. A wait nobody can read is a wait nobody answers, which is the entire point of the
-/// board; the whole sentence is a hover away when the card's line runs out (`SessionCardView`).
+/// board; a sentence longer than the card's line is truncated there and read in full in the
+/// terminal the card is the way to, because nothing on this board answers a hover (`SessionCardView`).
 ///
 /// AND EVERY LIVE SESSION GETS ONE, including a supervisor too old to publish a state: the sidecars
 /// it does write still name its account, its model and its conversation (`SessionSidecar`), so it
@@ -56,14 +57,18 @@ extension PopoverRootView {
         // their new seats while the hand is down. The board catches up on the next scan after the
         // drop, which is at most half a second later.
         let board = sessionLift?.frozen ?? roster.rows
-        // THE SEATS THE BOARD TOOK, THEN WHATEVER THE USER MADE OF THEM
-        // (`SessionRosterStore.seat` is already in the rows; `arranged` is the drag's own order).
+        // ONE ORDER GOVERNS AT A TIME, and the switch says which (`sessionsSortByStateToggle`).
+        // While it is on the seats in the rows ARE the state sort, kept live by the roster, and the
+        // arrangement is held rather than applied: it is remembered for the moment the switch comes
+        // off, and a page layering one order over the other would draw one nobody chose. The drag
+        // turns the switch off on the first card it moves (`sessionsReorderGesture`).
+        //
         // Filtered first, because the arrangement is applied to what is actually on the page: a
         // drag can only mean something about the cards the hand can see. The filter SELECTS and
         // never re-orders: switching to Connected and back leaves every card where it was.
         let listed = SessionRosterStore.arranged(
             board.filter { tabState.sessionFilter == .all || $0.isReporting },
-            manualKeys: settings.sessionBoardOrder)
+            manualKeys: settings.sessionBoardSortsByState ? [] : settings.sessionBoardOrder)
         VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
             if board.isEmpty {
                 sessionsEmptyState(L("No supervised sessions are running"))
@@ -98,18 +103,16 @@ extension PopoverRootView {
         }
     }
 
-    /// The board's own line of controls: sort it by status on the left, what the board is listing on
+    /// The board's own line of controls: which order it is in on the left, what it is listing on
     /// the right.
     ///
     /// ALWAYS DRAWN, unlike the account board's own way back. It used to appear only once there was
-    /// an arrangement to leave, which was honest while the board re-sorted itself: with nothing
-    /// dragged, a control offering the state sort offered what the board was already doing. The
-    /// board now holds the seats it took at launch (`SessionRosterStore.seat`), so "sort by status"
-    /// is something it will not do again on its own, and a control for it has to be reachable
-    /// whether or not a card was ever dragged.
+    /// an arrangement to leave, which cannot be right for a switch: a control that says which of two
+    /// orders is governing has to be readable in both of them, and a board sorted by status is
+    /// exactly where somebody looks to find out whether it still is.
     private var sessionsBoardControls: some View {
         HStack(spacing: 6) {
-            sessionsSortByStateButton
+            sessionsSortByStateToggle
             Spacer(minLength: 0)
             sessionsFilterPicker
         }

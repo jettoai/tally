@@ -28,8 +28,12 @@ final class SettingsStore {
     }
 
     /// The user's own order for the SESSION board, by project directory (`SessionBoardOrder` says
-    /// why it is not by session). Empty = the board sits in the seats it took at launch, which is
-    /// where it sits until a card is dragged and again the moment "Sort by status" clears this.
+    /// why it is not by session). Empty = the board sits in the seats it took, which is where it
+    /// sits until a card is dragged.
+    ///
+    /// KEPT WHEN THE STATE SORT TAKES OVER, never erased by it: the switch below is a changeover
+    /// between two orders, and an arrangement thrown away by flipping a switch would be one the
+    /// hand has to build again to get back to.
     ///
     /// Persisted, unlike the board's filter one file over: the filter is a question asked while
     /// looking ("what is actually connected to me?"), this is an arrangement somebody made and
@@ -38,15 +42,25 @@ final class SettingsStore {
         didSet { SessionBoardOrder.save(sessionBoardOrder, to: .standard) }
     }
 
-    /// Forget the arrangement, which is half of what "Sort by status" does: the other half is the
-    /// roster taking its seats again from what the sessions are doing now
-    /// (`SessionRosterStore.resortByState`). Named here rather than written as an assignment at the
-    /// control, so what clearing the arrangement means is one fact instead of one per caller.
+    /// WHICH OF THE BOARD'S TWO ORDERS IS GOVERNING IT: the state sort, live, or the user's own
+    /// hand. On, every scan seats the board by what the sessions are doing now (what needs somebody
+    /// first); off, the board holds the seats it has and the arrangement that was dragged into them.
     ///
-    /// No flag says whether the board IS arranged, deliberately: the control is drawn either way now
-    /// (it sorts on demand rather than offering a mode to leave), and a second stored answer to
-    /// "is this board arranged" would be a second place for it to be wrong.
-    func sortSessionBoardByState() { sessionBoardOrder = [] }
+    /// A MODE RATHER THAN AN ACTION (2026-08-15). It was a button that sorted once, which is a
+    /// control whose whole effect is over the instant it is pressed: a session that started waiting
+    /// a minute later sat wherever it happened to sit, and the only way to see the board as it stood
+    /// was to press again. A switch that is ON has to keep being true, so the sort follows the
+    /// states rather than sampling them.
+    ///
+    /// AND THE HAND TAKES IT BACK BY USING IT: dragging a card while this is on turns it off
+    /// (`sessionsReorderGesture`), because a board that re-sorted itself out from under a drag would
+    /// be answering two owners at once. Owner's ruling, and the reason the arrangement above is
+    /// remembered rather than erased: the switch is how you change your mind, in either direction.
+    var sessionBoardSortsByState: Bool {
+        didSet {
+            UserDefaults.standard.set(sessionBoardSortsByState, forKey: "sessionBoardSortsByState")
+        }
+    }
 
     /// Accounts hidden from the menu-bar strip (empty = all shown). Stored as a hidden-set so new
     /// accounts default to visible.
@@ -288,7 +302,18 @@ final class SettingsStore {
             ?? Set(ProviderCatalog.descriptors.map(\.id))
         accountLabels = (defaults.dictionary(forKey: "accountLabels") as? [String: String]) ?? [:]
         accountOrder = defaults.stringArray(forKey: "accountOrder") ?? []
-        sessionBoardOrder = SessionBoardOrder.load(from: defaults)
+        // Held in a local as well because the switch below is read off it, and a property cannot be
+        // read back until every one of them has a value.
+        let arrangement = SessionBoardOrder.load(from: defaults)
+        sessionBoardOrder = arrangement
+        // NEVER CHOSEN IS READ OFF THE BOARD ITSELF. A machine that already has an arrangement was
+        // dragged by hand while the state sort was a button, so it starts with the switch off and
+        // finds that arrangement exactly where it left it; one that has none starts with it on,
+        // which is what its board did at every launch before the switch existed. Either way the
+        // first draw after an update is the order the user last saw, which is the only reading that
+        // does not move a board behind somebody's back.
+        sessionBoardSortsByState = defaults.object(forKey: "sessionBoardSortsByState") as? Bool
+            ?? arrangement.isEmpty
         menuBarHiddenAccounts = Set(defaults.stringArray(forKey: "menuBarHiddenAccounts") ?? [])
         disabledAccounts = Set(defaults.stringArray(forKey: "disabledAccounts") ?? [])
         displayMode = DisplayMode(rawValue: defaults.string(forKey: "displayMode") ?? "") ?? .remaining

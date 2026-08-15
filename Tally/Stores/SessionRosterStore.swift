@@ -35,11 +35,12 @@ func displayModelName(_ id: String) -> String {
 /// rows; it never infers a state, and a session that has published none is drawn as one that has
 /// published none.
 ///
-/// AND THE SEATS ARE TAKEN ONCE PER LAUNCH. The state sort decides them at the first scan that finds
-/// a board, and from then on a card keeps the seat it was given: a session that goes from working to
-/// blocked lights its own dot where it already sits rather than jumping to the top. A board that
-/// re-sorted itself twice a second is a board nobody can learn. `sorted` says what the order IS;
-/// `seat` says how long it lasts.
+/// AND THE SEATS ARE TAKEN ONCE PER LAUNCH, unless the user's own switch asks for the other order.
+/// The state sort decides them at the first scan that finds a board, and from then on a card keeps
+/// its seat: a session that goes from working to blocked lights its own dot where it already sits
+/// rather than jumping to the top, because a board that re-sorted itself twice a second is a board
+/// nobody can learn. `sorted` says what the order IS, `seat` how long it lasts, and `sortsByState`
+/// is the switch that asks for that sort on every scan instead.
 ///
 /// WHEN IT SCANS, which is the whole of its cost story:
 ///
@@ -76,6 +77,11 @@ final class SessionRosterStore {
     /// Called after every change that a reader outside SwiftUI has to act on: the menu bar's
     /// blocked dot, which is drawn imperatively (`StatusItemController.updateButton`).
     @ObservationIgnored var onChange: (() -> Void)?
+
+    /// Whether the board's switch asks the state sort to keep deciding the seats, READ RATHER THAN
+    /// COPIED (`SettingsStore.sessionBoardSortsByState` is the one answer) and installed beside
+    /// `onChange`, this file having no settings around it in the harness. Off until then.
+    @ObservationIgnored var sortsByState: () -> Bool = { false }
 
     @ObservationIgnored private var timer: Timer?
     /// WHERE EACH SESSION SITS, as supervisor pids in board order, or nil until a scan finds a board
@@ -271,7 +277,8 @@ final class SessionRosterStore {
     // MARK: The scan
 
     func refresh() {
-        let (rows, seating) = Self.seat(liveSessionStates().map(Self.row), seating: self.seating)
+        let (rows, seating) = Self.seat(liveSessionStates().map(Self.row), seating: self.seating,
+                                        sortsByState: sortsByState())
         self.seating = seating
         // Nothing changed is the ordinary tick, and assigning anyway would re-render every surface
         // twice a second for a board that is standing still.
@@ -280,11 +287,11 @@ final class SessionRosterStore {
         onChange?()
     }
 
-    /// TAKE THE SEATS AGAIN, from what every session is doing now: the board's own "Sort by status"
-    /// (`sessionsSortByStateButton`), which sorts once exactly as a launch does and then holds that
-    /// order again. Clearing the ARRANGEMENT is the caller's half of that button
-    /// (`SettingsStore.sortSessionBoardByState`) because it is the caller's to hold: this store
-    /// knows nothing about what was dragged.
+    /// TAKE THE SEATS AGAIN, from what every session is doing now: what the board's switch calls the
+    /// moment it is turned on (`sessionsSortByStateToggle`), so the answer is on screen at the flick
+    /// rather than at the next tick. What keeps it true after that is the switch itself, read by
+    /// every scan (`sortsByState`). The ARRANGEMENT is untouched here, by design: it is the caller's
+    /// to hold, and it is what turning the switch off comes back to.
     func resortByState() {
         seating = nil
         refresh()
@@ -305,9 +312,9 @@ final class SessionRosterStore {
     /// what cannot say, and last of all what cannot say ANYTHING. Within a group the OLDEST leads,
     /// because the age of the wait is the thing worth acting on.
     ///
-    /// ASKED TWICE IN THE LIFE OF THE APP, not twice a second: once at the first scan of a launch
-    /// and once more whenever somebody presses "Sort by status" (`refresh`, `resortByState`). It is
-    /// the only thing that ever DECIDES an order here; what holds that decision still is `seat`.
+    /// ASKED ONCE PER LAUNCH while the board holds its seats, and on every scan while the switch is
+    /// on (`seat`). It is the only thing that ever DECIDES an order here; `seat` is what holds that
+    /// decision still, for as long as it is held.
     /// `nonisolated` because it is a pure function of what it is handed and nothing else, which is
     /// also what lets the assertion harness state the order without an app around it.
     nonisolated static func sorted(_ rows: [SessionRow]) -> [SessionRow] {
@@ -325,6 +332,8 @@ final class SessionRosterStore {
     ///   - Every scan after that keeps each card where it is. A state change rewrites what a card
     ///     SAYS and never where it sits, because the one thing here that reads a state is `sorted`,
     ///     and the seating is what it wrote once rather than what it would write now.
+    ///   - UNLESS THE SWITCH IS ON: that first sort, asked for again on every scan. What comes back
+    ///     seats what is on screen, so switching off freezes the board where the user is looking.
     ///   - A session the seating never heard of goes to the END, in the order the scan handed it
     ///     over, which is ascending supervisor pid (`liveSessionStates`): one that started later has
     ///     the higher pid, so "new cards join at the bottom" needs no clock of its own.
@@ -332,9 +341,11 @@ final class SessionRosterStore {
     ///     is read off the board rather than maintained beside it - and an empty board comes back
     ///     unseated, so whatever appears after one is sorted again. Nothing is at risk there: an
     ///     empty board has no cards to move.
-    nonisolated static func seat(_ scanned: [SessionRow],
-                                 seating: [String]?) -> (rows: [SessionRow], seating: [String]?) {
-        let rows = ordered(scanned, by: seating ?? sorted(scanned).map(\.id)) { $0.id }
+    nonisolated static func seat(_ scanned: [SessionRow], seating: [String]?,
+                                 sortsByState: Bool = false)
+        -> (rows: [SessionRow], seating: [String]?) {
+        let order = (sortsByState ? nil : seating) ?? sorted(scanned).map(\.id)
+        let rows = ordered(scanned, by: order) { $0.id }
         return (rows, rows.isEmpty ? nil : rows.map(\.id))
     }
 

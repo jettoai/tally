@@ -143,6 +143,13 @@ extension PopoverRootView {
                         boardKeys: board.compactMap(SessionRosterStore.orderKey),
                         manualKeys: settings.sessionBoardOrder)
                 else { return }
+                // THE HAND TAKES THE BOARD BACK THE INSTANT IT MOVES A CARD. Written beside the
+                // arrangement rather than at the drop so the two can never disagree: a cancelled
+                // drag has still displaced what it displaced, and an arrangement under a switch
+                // that says "sorted by status" is a board with two owners. A drag that never
+                // reached a target never gets this far (the guard above returns first), which is
+                // how a board sorting by status survives one.
+                settings.sessionBoardSortsByState = false
                 withAnimation(CardMotion.spring) { settings.sessionBoardOrder = next }
                 Haptics.snap()
             }
@@ -161,38 +168,35 @@ extension PopoverRootView {
         }
     }
 
-    /// SORT BY STATUS, ONCE. An action rather than a mode, which is why it is drawn whether or not
-    /// anything has been dragged (`sessionsBoardControls`): the board takes its seats from the state
-    /// sort at the first scan of a launch and then holds them, so this is how somebody asks for that
-    /// reading again after an hour of sessions changing what they are doing.
+    /// SORT BY STATUS, THE WHOLE TIME IT IS ON. A switch rather than a button (2026-08-15, owner's
+    /// ruling): the old control sorted once and was finished, so a session that started waiting a
+    /// minute later sat where it happened to sit and the board had to be asked again by hand. A
+    /// switch that says the board is sorted by status has to go on being true, which is why the
+    /// roster reads it every scan (`SessionRosterStore.sortsByState`) instead of being pushed an
+    /// order once.
     ///
-    /// IT DOES BOTH HALVES, because either alone leaves the board somewhere nobody asked for: it
-    /// forgets the arrangement (`SettingsStore.sortSessionBoardByState`) AND has the roster take its
-    /// seats again from what is running now (`SessionRosterStore.resortByState`). Clearing the
-    /// arrangement alone would drop the board back onto seats taken at launch, which is neither what
-    /// the user arranged nor what the sessions are doing.
+    /// TURNING IT ON RE-SEATS NOW rather than at the next tick (`resortByState`), because the flick
+    /// is the question and a board that answered it half a second later would read as a control
+    /// that did not take. Turning it OFF does nothing at all: the seats the sort last left are
+    /// where the board already is (`seat`), and any arrangement is applied over them by the page
+    /// (`sessionsPage`). Nothing is erased in either direction - the switch is a changeover, and
+    /// the hand's own order is still there to come back to.
     ///
-    /// It ERASES rather than remembering: the board has one arrangement, the one somebody dragged
-    /// it into, and an app that quietly kept the old one would owe the user a second control to get
-    /// back to it. Dragging any card starts a new arrangement from what is on screen at that
-    /// moment, so nothing is lost that a hand cannot redo.
-    var sessionsSortByStateButton: some View {
+    /// NO CALLOUT UNDER THE POINTER, as nothing on this board has (`SessionCardView`): the label
+    /// says what it does, and the pointer rests here between jumps.
+    var sessionsSortByStateToggle: some View {
         // The cards travel on the grid's own spring, which is watching the order they are in
-        // (`sessionsGrid`), so both halves are plain assignments: wrapping them would be a second
-        // animation over the one already carrying it.
-        Button {
-            settings.sortSessionBoardByState()
-            SessionRosterStore.shared.resortByState()
-        } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "arrow.up.arrow.down")
-                Text(L("Sort by status"))
-            }
-            .font(.caption)
-            .contentShape(Rectangle())
+        // (`sessionsGrid`), so this is a plain assignment: wrapping it would be a second animation
+        // over the one already carrying them.
+        Toggle(isOn: Binding(get: { settings.sessionBoardSortsByState },
+                             set: { on in
+                                 settings.sessionBoardSortsByState = on
+                                 if on { SessionRosterStore.shared.resortByState() }
+                             })) {
+            Text(L("Sort by status")).font(.caption)
         }
-        .buttonStyle(.borderless)
+        .toggleStyle(.switch)
+        .controlSize(.mini)
         .foregroundStyle(.secondary)
-        .tallyTooltip(L("Sort the board by status now and forget the arrangement"))
     }
 }

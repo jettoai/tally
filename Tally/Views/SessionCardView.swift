@@ -214,13 +214,19 @@ struct SessionCardView: View {
     /// read as a session stuck at "2m" for an hour. A timeline is the SwiftUI answer to "re-render
     /// because time passed": it drives only this Text, and only while the surface is on screen.
     ///
+    /// ONCE A SECOND, WHICH IS THE FINEST THING THE TEXT SAYS: under a minute this counts in
+    /// seconds (`sessionAge`), and a two second beat printed those as 1s, 3s, 5s - a clock that
+    /// skips is read as a clock that is wrong. Past a minute the text moves in minutes, so the extra
+    /// tick recomputes the same string and puts nothing new on screen. It is the rate the panel's
+    /// other running clock already keeps (`PopoverHeaderView`).
+    ///
     /// Nothing at all for a session that has published no state: it has no moment to count from,
     /// and counting from the file's own age would be dating the supervisor rather than the thing on
     /// screen (that card says when it last MOVED instead - see `sessionStatsLine`).
     @ViewBuilder
     private var sessionDuration: some View {
         if let since = row.since {
-            TimelineView(.periodic(from: .now, by: 2)) { tick in
+            TimelineView(.periodic(from: .now, by: 1)) { tick in
                 Text(sessionAge(since, now: tick.date))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
@@ -255,13 +261,14 @@ struct SessionCardView: View {
     /// waiting. The figure comes from the context sidecar, so a session whose file is missing or
     /// unreadable simply has no last line (`SessionSidecar`).
     ///
-    /// Inside a timeline whenever it carries a time, for the reason `sessionDuration` gives: the
-    /// store assigns nothing on a tick that finds the board unchanged, so an age computed in the
-    /// body would sit frozen at whatever it said when the surface opened.
+    /// Inside a timeline whenever it carries a time, at the rate and for both the reasons
+    /// `sessionDuration` gives: the store assigns nothing on a tick that finds the board unchanged,
+    /// so an age computed in the body would sit frozen at whatever it said when the surface opened,
+    /// and this line counts in seconds under the minute too.
     @ViewBuilder
     private var sessionStats: some View {
         if sessionTime(now: .now) != nil {
-            TimelineView(.periodic(from: .now, by: 2)) { tick in
+            TimelineView(.periodic(from: .now, by: 1)) { tick in
                 statsText(sessionStatsLine(now: tick.date))
             }
         } else {

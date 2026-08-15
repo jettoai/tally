@@ -18,11 +18,18 @@ func runTerminalJumpChecks() {
           TerminalJump.literal("/Users/u/co\"de") == "\"/Users/u/co\\\"de\"")
     check("…nor can a backslash escape the closing one",
           TerminalJump.literal("/Users/u/code\\") == "\"/Users/u/code\\\\\"")
-    let script = TerminalJump.script(directory: "/Users/u/code/tally", hint: "tally · cart",
-                                     tty: nil, nonce: nil)
-    check("the script matches on the working directory and breaks ties on the name",
-          script.contains("working directory of t) is equal to \"/Users/u/code/tally\"")
-              && script.contains("(name of t) contains \"tally · cart\""))
+    let script = TerminalJump.script(directory: "/Users/u/code/tally", tty: nil, nonce: nil)
+    check("the script matches on the working directory",
+          script.contains("working directory of t) is equal to \"/Users/u/code/tally\""))
+    // THE FIRST SURFACE IN THE CHECKOUT IS THE ANSWER, and nothing about a tab's NAME is consulted
+    // after it. The rule that used to follow read as a free tie-break and was not one: a session's
+    // own tab is titled by whatever Claude Code last wrote to it, while a plain shell tab in the
+    // same checkout carries the repository's name far more reliably - so "prefer the name" reached
+    // the right tab first and then overwrote it with the shell (reported twice, 2026-08-15).
+    check("the first surface standing in the checkout ends the search",
+          script.components(separatedBy: "set matched to t").count == 2
+              && script.components(separatedBy: "exit repeat").count == 2)
+    check("…and no tab's name can overrule it", !script.contains("name of t"))
     // A Ghostty without `terminals`, or without `working directory` on one, RAISES rather than
     // returning nothing, and an unhandled raise is a row that visibly does nothing.
     check("every lookup against another app's dictionary is guarded",
@@ -37,8 +44,8 @@ func runTerminalJumpChecks() {
     // The bug this answers: one checkout open in several tabs or splits matches the directory in
     // all of them, the titles rarely carry the repository's name, and the tie-break therefore falls
     // through to whichever surface the enumeration happened to reach first.
-    let exact = TerminalJump.script(directory: "/Users/u/code/tally", hint: "tally · cart",
-                                    tty: "/dev/ttys001", nonce: nil)
+    let exact = TerminalJump.script(directory: "/Users/u/code/tally", tty: "/dev/ttys001",
+                                    nonce: nil)
     guard let ttyHit = exact.range(of: "(tty of t) is equal to \"/dev/ttys001\""),
           let dirHit = exact.range(of: "(working directory of t) is equal to") else {
         check("the script asks about the device and the directory", false)
@@ -55,7 +62,7 @@ func runTerminalJumpChecks() {
     // A device path comes off the process table, so it gets the same treatment as the two values
     // read off disk rather than being trusted to be free of quotes.
     check("a device path cannot close the literal either",
-          TerminalJump.script(directory: "", hint: "", tty: "/dev/tty\"s\\1", nonce: nil)
+          TerminalJump.script(directory: "", tty: "/dev/tty\"s\\1", nonce: nil)
               .contains("is equal to \"/dev/tty\\\"s\\\\1\""))
     // A Ghostty too old to have `tty` RAISES on the lookup, and the whole point of the fallback is
     // that such a version still reaches the directory pass instead of exiting non-zero.
@@ -75,12 +82,13 @@ func runTerminalJumpChecks() {
     check("the device pass marks itself", exact.contains("set hit to \"tty\""))
     check("…and the directory pass marks itself as the vaguer answer",
           script.contains("set hit to \"dir\"") && !script.contains("set hit to \"tty\""))
-    // Both of the directory pass's answers are marked, not just the first: the tie-break assigns a
-    // second time, and a marker left behind by the first would be a pass reporting a hit it no
-    // longer holds.
-    check("both of the directory pass's assignments carry the marker",
+    // The one assignment the pass now makes carries both the marker and the surface it landed on:
+    // without the second, two clicks that both answer `dir` read identically in the log whether
+    // they reached two tabs or the same tab twice - which is the complaint that line exists for.
+    check("the directory pass's one assignment carries the marker and the surface it took",
           script.components(separatedBy: "set matched to t").count
-              == script.components(separatedBy: "set hit to \"dir\"").count)
+              == script.components(separatedBy: "set hit to \"dir\"").count
+              && script.contains("set found to ((id of t) as text)"))
     // A refused focus leaves by the SAME door as no match at all, because upstream those are one
     // answer: no surface was focused, so the exits below it are still owed.
     guard let focusCall = exact.range(of: "focus matched"),
@@ -92,6 +100,18 @@ func runTerminalJumpChecks() {
     check("a refused focus reports no match rather than success",
           String(exact[focusCall.upperBound ..< focusEnd.lowerBound])
               .contains("on error\n        return \"\""))
+    // AND THE FOCUS IS THE LAST THING THE SCRIPT DOES. `focus` raises the surface's own window, so
+    // an `activate` made after it is a second, vaguer instruction to the same app: come forward on
+    // the TERMINAL's terms, which is whichever window it had in front last - the tab somebody just
+    // said they did not want, put back on top by this app's own hand (reported twice, 2026-08-15).
+    guard let activateAsk = exact.range(of: "\n    activate\n") else {
+        check("the script brings the terminal forward", false)
+        return
+    }
+    check("the terminal is brought forward before the exact surface is focused",
+          activateAsk.upperBound < focusCall.lowerBound)
+    check("…and nothing brings it forward again afterwards",
+          !exact[focusCall.upperBound...].contains("activate"))
     // And the words the script can return are exactly the ones Swift parses back. `ok` is in here
     // because it is what a build of this app that had drifted from its script would still send.
     check("the markers round-trip into the type the caller switches on",
@@ -179,8 +199,8 @@ func runTerminalJumpChecks() {
     // The pass itself, in the one place its precedence can be read: below the device, because that
     // one is answered by a property rather than by renaming somebody's tab, and above the checkout,
     // because it names one surface where the checkout names one repository.
-    let marked = TerminalJump.script(directory: "/Users/u/code/tally", hint: "tally",
-                                     tty: "/dev/ttys001", nonce: "tally-jump-ab12cd34")
+    let marked = TerminalJump.script(directory: "/Users/u/code/tally", tty: "/dev/ttys001",
+                                     nonce: "tally-jump-ab12cd34")
     guard let deviceAsk = marked.range(of: "(tty of t) is equal to"),
           let markAsk = marked.range(of: "(name of t) is equal to \"tally-jump-ab12cd34\""),
           let checkoutAsk = marked.range(of: "(working directory of t) is equal to")
@@ -336,6 +356,28 @@ func runTerminalJumpChecks() {
     check("the line says which checkout was aimed at, by its last component alone",
           jumpSource.contains("let folder = (directory as NSString).lastPathComponent")
               && jumpSource.contains("dir=\\(directory.isEmpty ? \"none\" : directory"))
+    // …and WHICH SURFACE it reached, which is the field that tells two clicks apart. A pass name
+    // says how a surface was found and nothing about which one it was, so two cards that both
+    // answered `dir` read identically whether they reached two tabs or the same tab twice.
+    check("…and which surface the pass actually landed on",
+          jumpSource.contains("sid=\\(surface ?? \"none\""))
+    // A JUMP THAT FOUND ITS SURFACE ASKS FOR NOTHING MORE FROM THIS SIDE. The script has already
+    // activated the app and focused the one surface; an activation made here afterwards brings the
+    // window GHOSTTY considers frontmost, which is the tab that was in front before the click - the
+    // wrong tab arriving on top after the right one had been focused.
+    check("an exit that focused a surface does not bring the app forward over it",
+          jumpSource.contains("if matched == nil { bringForward(target) }"))
+    // …and the ask that IS still made reorders nothing: `activateAllWindows` is documented to bring
+    // ALL of an app's windows forward, which is a request to put every other tab over the one this
+    // click picked out. Asserted as an absence, because it was there and read as harmless.
+    check("no activation asks for every window the terminal has",
+          !jumpSource.contains("activateAllWindows"))
+    // Every exit is still JUDGED, including the two that no longer ask for anything: the script's
+    // own `activate` is as declinable as this side's, and an outcome nobody read is the defect the
+    // grace exists for.
+    check("dropping the ask did not drop the looking",
+          jumpSource.contains("try? await Task.sleep(for: activationGrace)")
+              && jumpSource.contains("let (front, landed) = frontmost(is: target)"))
 
     // The order of the marked pass, which cannot be read off its result: the titles are read
     // BEFORE one of them is replaced, because that scan is the only record the old title survives
@@ -348,6 +390,12 @@ func runTerminalJumpChecks() {
         check("the marked pass was found to read", false)
         return
     }
+    // The name that used to break the checkout pass's tie is gone from the chain rather than merely
+    // unused: a value still threaded from the card through the jump to the script is one an edit
+    // can start consulting again without passing any assertion here.
+    check("no tab's name is carried down the chain to break a tie with",
+          !cardSource.contains("hint") && !jumpSource.contains("hint")
+              && !scriptSource.contains("hint"))
     check("the titles are read before one of them is replaced",
           titlesRead.upperBound < markWritten.lowerBound)
     check("…and the surface is asked for only after the mark has been written",

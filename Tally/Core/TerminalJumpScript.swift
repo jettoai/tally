@@ -31,9 +31,12 @@ extension TerminalJump {
         case directory = "dir"
     }
 
-    /// Ask Ghostty to focus the surface this session occupies. Returns which pass found it, or nil
-    /// when none did - and nil is also what a REFUSED focus reports, because to everything upstream
-    /// those are one answer: no surface was focused, so the exits below this one are still owed.
+    /// Ask Ghostty to focus the surface this session occupies. Returns which pass found it AND the
+    /// surface it found, or nil when none did - and nil is also what a REFUSED focus reports,
+    /// because to everything upstream those are one answer: no surface was focused, so the exits
+    /// below this one are still owed. The surface travels out for two readers: the mark is taken
+    /// back off it here, and the log line names it (`report`), which is what tells "it focused the
+    /// wrong tab" from "it focused the right one and something else came back over it".
     ///
     /// THE MARK IS HOW A SURFACE IS ASKED ITS OWN IDENTITY on a Ghostty that publishes no device.
     /// A title written to the session's device comes back as that surface's `name` a moment later
@@ -50,8 +53,8 @@ extension TerminalJump {
     /// asked rather than written to, and a device with a mark already in flight is left to the jump
     /// that put it there.
     @MainActor
-    static func focusGhostty(directory: String, hint: String, tty: String?,
-                             device: String?) async -> SurfaceMatch? {
+    static func focusGhostty(directory: String, tty: String?,
+                             device: String?) async -> (match: SurfaceMatch, surface: String?)? {
         var titles: [String: String] = [:]
         var mark: String?
         // The device this jump may rename a surface through, or nil for each of the three reasons
@@ -70,7 +73,7 @@ extension TerminalJump {
                 try? await Task.sleep(for: titleGrace)
             }
         }
-        guard let stdout = await osascript(script(directory: directory, hint: hint, tty: tty,
+        guard let stdout = await osascript(script(directory: directory, tty: tty,
                                                   nonce: mark)) else { return nil }
         let answer = parseFocus(stdout)
         // The mark is taken off the surface it named, and only off that one: the title it replaced
@@ -81,7 +84,8 @@ extension TerminalJump {
         if answer.match == .nonce, let marking, let id = answer.surface, let title = titles[id] {
             write(title: title, to: marking)
         }
-        return answer.match
+        guard let match = answer.match else { return nil }
+        return (match, answer.surface)
     }
 
     /// WHETHER THIS JUMP MAY RENAME A TAB TO FIND ITS SURFACE. A value rather than a condition
@@ -308,13 +312,21 @@ extension TerminalJump {
     /// different outcomes wearing one word, one of which then SKIPPED the ancestor walk that was
     /// the fallback for it. A refused focus now leaves by the same door as no match at all.
     ///
-    /// IT ALSO SAYS WHICH SURFACE, on the line below, and only the marked pass fills it in: that
-    /// pass renamed a tab to find it, and the name has to be put back (`focusGhostty`).
-    static func script(directory: String, hint: String, tty: String?, nonce: String?) -> String {
+    /// IT ALSO SAYS WHICH SURFACE, on the line below, and every pass that ends its search fills it
+    /// in: the marked pass renamed a tab to find it and owes the name back (`focusGhostty`), and
+    /// all of them owe the log line an answer to "which tab did it actually go to".
+    ///
+    /// THE FOCUS IS THE LAST THING THE SCRIPT DOES, and `activate` comes before it rather than
+    /// after. Ghostty's `focus` raises the surface's own window as part of focusing it, so an
+    /// `activate` made afterwards is a second, VAGUER instruction to the same app - it brings the
+    /// terminal forward on the terminal's own terms, which is the window that was in front last,
+    /// and that is precisely the tab somebody just said they did not want. Ordered this way the app
+    /// comes forward first and the exact surface is what settles on top of it.
+    static func script(directory: String, tty: String?, nonce: String?) -> String {
         var passes: [String] = []
         if let tty, !tty.isEmpty { passes.append(ttyPass(tty)) }
         if let nonce, !nonce.isEmpty { passes.append(noncePass(nonce)) }
-        if !directory.isEmpty { passes.append(directoryPass(directory: directory, hint: hint)) }
+        if !directory.isEmpty { passes.append(directoryPass(directory)) }
         return """
         tell application "Ghostty"
             set matched to missing value
@@ -322,12 +334,12 @@ extension TerminalJump {
             set found to ""
         \(passes.joined(separator: "\n"))
             if matched is missing value then return ""
+            activate
             try
                 focus matched
             on error
                 return ""
             end try
-            activate
             return hit & linefeed & found
         end tell
         """
@@ -389,22 +401,25 @@ extension TerminalJump {
     }
 
     /// The approximate pass, kept for the session whose child is gone or is not in Ghostty at all.
+    /// THE FIRST SURFACE STANDING IN THE CHECKOUT IS THE ANSWER, and the search ends on it the way
+    /// both exact passes end on theirs.
     ///
-    /// THE HINT ONLY BREAKS TIES. The directory is the match; the name is consulted to choose
-    /// AMONG windows that already matched it, and the first match is kept as the answer for when
-    /// none of them carries the name. A tie broken arbitrarily is still the right repository.
-    private static func directoryPass(directory: String, hint: String) -> String {
+    /// IT USED TO GO ON AND PREFER A SURFACE WHOSE NAME CONTAINED THE SESSION'S, which reads like a
+    /// free tie-break and was not one. The name a session's own tab carries is whatever Claude Code
+    /// last wrote to it, and a plain shell tab opened in the same checkout carries the repository's
+    /// name far more reliably than that - so among two surfaces in one directory the rule chose the
+    /// shell, and it chose it AFTER the enumeration had already reached the right tab. Not a tie
+    /// broken arbitrarily: the correct first answer overwritten by a worse one, every time both
+    /// were open (2026-08-15, reported twice).
+    private static func directoryPass(_ directory: String) -> String {
         pass("""
                             if (working directory of t) is equal to \(literal(directory)) then
-                                if matched is missing value then
-                                    set matched to t
-                                    set hit to "dir"
-                                end if
-                                if \(literal(hint)) is not "" and (name of t) contains \(literal(hint)) then
-                                    set matched to t
-                                    set hit to "dir"
-                                    exit repeat
-                                end if
+                                set matched to t
+                                set hit to "dir"
+                                try
+                                    set found to ((id of t) as text)
+                                end try
+                                exit repeat
                             end if
         """)
     }

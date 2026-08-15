@@ -16,10 +16,10 @@ import os
 ///      reads that escape, so this answers on the versions in the world: it reaches the same one
 ///      surface way 1 does, by telling the session to say where it is rather than by reading a
 ///      property that is not published yet.
-///   3. Failing that, ask for the surface whose working directory IS that checkout, breaking ties
-///      on the session's name. Right repository, arbitrary tab within it. This is what answers when
-///      the session has no child process left to ask about, or is running in a terminal that is not
-///      Ghostty at all and therefore appears in no surface's `tty`.
+///   3. Failing that, ask for the FIRST surface whose working directory IS that checkout. Right
+///      repository, arbitrary tab within it. This is what answers when the session has no child
+///      process left to ask about, or is running in a terminal that is not Ghostty at all and
+///      therefore appears in no surface's `tty`.
 ///   4. Failing that, walk the Claude Code process's ancestors until one of them is an application,
 ///      and activate it. This knows nothing about windows, so it lands the user in the right APP
 ///      rather than the right tab, and it works for every terminal there is.
@@ -64,11 +64,12 @@ enum TerminalJump {
     /// WHERE A JUMP THAT DID NOT LAND CAN BE READ AFTERWARDS, which is the only way this rides on a
     /// desktop nobody may synthesize clicks on:
     ///
-    ///     log show --last 10m --info --predicate 'subsystem == "ai.jetto.tally"'
+    ///     log show --last 10m --predicate 'subsystem == "ai.jetto.tally"'
     ///
     /// One line per click, carrying the values that separate the ways this can go wrong from each
-    /// other (`report`). At info rather than debug so the line is in the buffer to be read AFTER
-    /// somebody says the keyboard did not follow, rather than only while a stream is open. The
+    /// other (`report`). At notice rather than info or debug, because those two live only in a
+    /// memory buffer a stream can watch and `log show` cannot find afterwards, which is the wrong
+    /// way round for a line read AFTER somebody says the keyboard did not follow. The
     /// subsystem is a literal rather than the bundle id, so a dev build and the installed one
     /// answer one predicate.
     private static let log = Logger(subsystem: "ai.jetto.tally", category: "jump")
@@ -127,16 +128,14 @@ enum TerminalJump {
     }
 
     /// Focus the terminal this session is running in. `childPid` is the session's own process, whose
-    /// controlling terminal names the surface exactly; `hint` is the session's own name (the
-    /// repository, or the parallel line), used only to break a tie between several windows standing
-    /// in one directory once that exact answer is unavailable.
+    /// controlling terminal names the surface exactly; `directory` is the checkout, which names the
+    /// repository and only the repository.
     ///
     /// EVERY WAY OUT OF HERE ENDS IN `land`, because finding the surface is only half of the click:
     /// the other half is the keyboard, and since macOS 14 that half is given away rather than taken
     /// (`prepare`) - and given away is not the same as arrived, which is why each exit then looks.
     @MainActor
-    static func jump(directory: String?, hint: String?, childPid: Int?,
-                     from handover: Handover) async {
+    static func jump(directory: String?, childPid: Int?, from handover: Handover) async {
         let directory = directory ?? ""
         let folder = (directory as NSString).lastPathComponent
         // The session's own device, which both exact passes are built on: the marked pass WRITES
@@ -164,27 +163,27 @@ enum TerminalJump {
         // Nothing to match on at all (no device, no recorded checkout) means nothing to ask, and
         // asking anyway would focus whichever surface happens to stand in "".
         if device != nil || !directory.isEmpty, let ghostty = handover.terminal,
-           let matched = await focusGhostty(directory: directory, hint: hint ?? "", tty: tty,
-                                            device: device) {
-            await land(on: ghostty, matched: matched, from: handover, directory: folder)
+           let answer = await focusGhostty(directory: directory, tty: tty, device: device) {
+            await land(on: ghostty, matched: answer.match, surface: answer.surface,
+                       from: handover, directory: folder)
             return
         }
         if let childPid, let owner = owningApplication(of: pid_t(childPid)) {
-            await land(on: owner, matched: nil, from: handover, directory: folder)
+            await land(on: owner, matched: nil, surface: nil, from: handover, directory: folder)
             return
         }
         // Nothing could be matched, so the last useful act is to put the terminal in front and let
         // the user find the tab: better than a click that visibly does nothing. Only for an app
         // that was ALREADY running, for the reason the bundle id above is checked at all.
         if let ghostty = handover.terminal {
-            await land(on: ghostty, matched: nil, from: handover, directory: folder)
+            await land(on: ghostty, matched: nil, surface: nil, from: handover, directory: folder)
             return
         }
         // Not one of the three had anywhere to go, and this app is holding a foreground it took for
         // the trip: it goes straight back, or a click that could do nothing would still have moved
         // somebody out of what they were in.
         handover.giveBack()
-        report(handover: handover, matched: nil, target: nil,
+        report(handover: handover, matched: nil, surface: nil, target: nil,
                front: NSWorkspace.shared.frontmostApplication, key: NSApp.keyWindow,
                directory: folder)
     }
@@ -194,6 +193,14 @@ enum TerminalJump {
     /// system ALLOWED the ask, and its own header adds that the app may not be activated at all; the
     /// pinned panel's own foreground ask is judged after exactly this kind of pause, for exactly
     /// this reason (`PickPanelController.judgeGrace`).
+    ///
+    /// A JUMP THAT FOUND ITS SURFACE ASKS FOR NOTHING HERE, which is the difference between landing
+    /// on a tab and landing on a terminal: the script has already brought the app forward and
+    /// focused the one surface, and an activation made from this side afterwards puts the window
+    /// GHOSTTY calls frontmost back on top of it (`bringForward`). So the ask is made only where no
+    /// surface was found and "the right app" is the whole of what was aimed at. THE LOOKING BELOW
+    /// STILL HAPPENS ON EVERY EXIT: the script's `activate` is as declinable as this one, and an
+    /// outcome nobody read is the defect this grace exists for.
     ///
     /// TWO THINGS CAN STILL BE WRONG AT THAT POINT, and they are not the same thing:
     ///
@@ -211,8 +218,8 @@ enum TerminalJump {
     ///     says, and it is the one question the source cannot answer on its own.
     @MainActor
     private static func land(on target: NSRunningApplication, matched: SurfaceMatch?,
-                             from handover: Handover, directory: String) async {
-        bringForward(target)
+                             surface: String?, from handover: Handover, directory: String) async {
+        if matched == nil { bringForward(target) }
         try? await Task.sleep(for: activationGrace)
         let settled = frontmost(is: target)
         if !settled.landed,
@@ -231,8 +238,8 @@ enum TerminalJump {
         // The foreground was borrowed for a trip that did not happen, so it goes back to whoever
         // had it rather than being left with a status board (`Handover.giveBack`).
         if !landed { handover.giveBack() }
-        report(handover: handover, matched: matched, target: target, front: front, key: key,
-               directory: directory)
+        report(handover: handover, matched: matched, surface: surface, target: target, front: front,
+               key: key, directory: directory)
     }
 
     /// Who is in front, and whether that is the app that was asked for - BOTH OUT OF ONE READ. Two
@@ -276,19 +283,25 @@ enum TerminalJump {
     }
 
     /// One line per click, in the terms that tell the failures apart: which surface it came from,
-    /// which pass answered, which checkout was being aimed at, where the foreground was before and
-    /// after, and whether a window here is still holding the keyboard. Every value is public
-    /// because none of them is more than a bundle id, a window class, a pass name or the LAST
-    /// COMPONENT of the checkout - the path itself is deliberately still not among them, and the
-    /// folder is here because "the wrong tab" and "the wrong repository" read identically without
-    /// it.
+    /// which pass answered, WHICH SURFACE THAT PASS LANDED ON, which checkout was being aimed at,
+    /// where the foreground was before and after, and whether a window here is still holding the
+    /// keyboard. Every value is public because none of them is more than a bundle id, a window
+    /// class, a pass name, a surface's own identity or the LAST COMPONENT of the checkout - the
+    /// path itself is deliberately still not among them, and the folder is here because "the wrong
+    /// tab" and "the wrong repository" read identically without it.
+    ///
+    /// `sid=` IS WHAT MAKES TWO CLICKS COMPARABLE. A pass name says how the surface was found and
+    /// nothing about which one it was, so two clicks on two different cards that both answered
+    /// `dir` read identically whether they reached two tabs or the same tab twice - which is the
+    /// exact complaint this line exists to settle.
     @MainActor
-    private static func report(handover: Handover, matched: SurfaceMatch?,
+    private static func report(handover: Handover, matched: SurfaceMatch?, surface: String?,
                                target: NSRunningApplication?, front: NSRunningApplication?,
                                key: NSWindow?, directory: String) {
-        log.info("""
+        log.notice("""
             jump surface=\(handover.surface, privacy: .public) \
             pass=\(matched?.rawValue ?? "none", privacy: .public) \
+            sid=\(surface ?? "none", privacy: .public) \
             dir=\(directory.isEmpty ? "none" : directory, privacy: .public) \
             target=\(target?.bundleIdentifier ?? "none", privacy: .public) \
             was=\(handover.previousApp?.bundleIdentifier ?? "none", privacy: .public) \
@@ -311,12 +324,18 @@ enum TerminalJump {
     /// the click's own turn (which is the only turn in which this app can have taken one), and this
     /// releases it to whichever app the exit actually settled on - the ancestor walk can land on a
     /// terminal that is not Ghostty at all. A yield to an app that was already yielded to is free.
+    ///
+    /// NO WINDOW IS REORDERED BY THIS. `activateAllWindows` is documented to bring ALL of the app's
+    /// windows forward, which on a terminal with several windows open is a request to put every one
+    /// of them over whichever one the jump just picked out - the wrong tab arriving on top, by this
+    /// app's own hand, after the right one had been focused. The default is the app coming forward
+    /// with the window IT considers frontmost, which is what a person clicking a status row means,
+    /// and is all this call is for now that the exits that found a surface no longer make it.
     @discardableResult
     @MainActor
     private static func bringForward(_ app: NSRunningApplication) -> Bool {
         NSApp.yieldActivation(to: app)
-        return app.activate(from: .current, options: [.activateAllWindows])
-            || app.activate(options: [.activateAllWindows])
+        return app.activate(from: .current, options: []) || app.activate(options: [])
     }
 
     // MARK: Ghostty

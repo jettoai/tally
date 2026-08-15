@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 
 /// THE HALF OF THE JUMP THAT IS A CONVERSATION WITH ANOTHER APP: the AppleScript sent to Ghostty,
 /// the version gate that decides which passes may be built at all, and the marker that comes back
@@ -13,26 +14,168 @@ extension TerminalJump {
     /// and the same reasoning, as `LoginTerminalFallback`).
     private static let scriptTimeout: TimeInterval = 120
 
+    /// How long a title written to the device is given to reach the scripting dictionary before it
+    /// is looked for. Measured rather than guessed: a mark written to a live session's device was
+    /// answering as that surface's `name` within 0.4s (2026-08-15, Ghostty 1.3.1). Short enough to
+    /// sit inside a click, long enough that the answer is the terminal's rather than the race's.
+    private static let titleGrace: Duration = .milliseconds(400)
+
     /// WHICH PASS ANSWERED, which is the difference between "this is the surface" and "this is the
     /// repository, pick a tab". Carried out of the script rather than reduced to a bool on the way,
-    /// because one of the two has never once answered on a shipped Ghostty (`readsSurfaceTTY`) and
-    /// a bool is unable to say so: a jump reporting success while its precise pass is dead code
+    /// because one of the three has never once answered on a shipped Ghostty (`readsSurfaceTTY`)
+    /// and a bool is unable to say so: a jump reporting success while its precise pass is dead code
     /// looks exactly like a jump that worked.
     enum SurfaceMatch: String, Sendable {
         case tty
+        case nonce
         case directory = "dir"
     }
 
     /// Ask Ghostty to focus the surface this session occupies. Returns which pass found it, or nil
     /// when none did - and nil is also what a REFUSED focus reports, because to everything upstream
     /// those are one answer: no surface was focused, so the exits below this one are still owed.
-    static func focusGhostty(directory: String, hint: String, tty: String?) async -> SurfaceMatch? {
-        let result = await CLIRunner.run("/usr/bin/osascript",
-                                         arguments: ["-e", script(directory: directory, hint: hint,
-                                                                  tty: tty)],
+    ///
+    /// THE MARK IS HOW A SURFACE IS ASKED ITS OWN IDENTITY on a Ghostty that publishes no device.
+    /// A title written to the session's device comes back as that surface's `name` a moment later
+    /// (`titleGrace`), so a name nobody else can be carrying names exactly one surface - which is
+    /// the answer `tty` will give directly from 1.4.0 and gives nowhere today. The device is the
+    /// session's own (`controllingTTY`), so this asks the session where it is rather than guessing
+    /// from the checkout it stands in.
+    ///
+    /// NOTHING IS WRITTEN THAT CANNOT BE PUT BACK. The scan that precedes the write is what the
+    /// title is restored from, so a scan that answered nothing stands the whole pass down rather
+    /// than leaving somebody's tab called `tally-jump-…`.
+    static func focusGhostty(directory: String, hint: String, tty: String?,
+                             device: String?) async -> SurfaceMatch? {
+        var titles: [String: String] = [:]
+        var mark: String?
+        if let device {
+            titles = parseSurfaces(await osascript(surfaceScanScript()) ?? "")
+            let candidate = nonce()
+            if !titles.isEmpty, write(title: candidate, to: device) {
+                mark = candidate
+                try? await Task.sleep(for: titleGrace)
+            }
+        }
+        guard let stdout = await osascript(script(directory: directory, hint: hint, tty: tty,
+                                                  nonce: mark)) else { return nil }
+        let answer = parseFocus(stdout)
+        // The mark is taken off the surface it named, and only off that one: the title it replaced
+        // is the one this app read a moment ago, so a session that has rewritten its own title in
+        // between gets one stale title back and rewrites it on its next turn anyway. A pass that
+        // did NOT answer leaves no mark to remove - either the write never landed, or it landed on
+        // a terminal this app cannot see, and in neither case is there a title here to restore.
+        if answer.match == .nonce, let device, let id = answer.surface, let title = titles[id] {
+            write(title: title, to: device)
+        }
+        return answer.match
+    }
+
+    /// Run one script and hand back its stdout, or nil for a Ghostty that raised, refused or was
+    /// never asked. ONE PLACE THE TIMEOUT AND THE EXIT CODE ARE READ, because this is now asked
+    /// twice per jump and a second copy of the rule is the copy that forgets to check the code.
+    private static func osascript(_ source: String) async -> String? {
+        let result = await CLIRunner.run("/usr/bin/osascript", arguments: ["-e", source],
                                          timeout: scriptTimeout)
-        guard result?.exitCode == 0, let stdout = result?.stdout else { return nil }
-        return SurfaceMatch(rawValue: stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+        guard result?.exitCode == 0 else { return nil }
+        return result?.stdout
+    }
+
+    /// A name no surface can already be carrying. Random rather than derived from the session,
+    /// because two jumps a second apart must not be able to mark the same title and read each
+    /// other's answer; the prefix is there for the one person who sees it on a tab during the
+    /// grace and wants to know what wrote it.
+    static func nonce() -> String {
+        "tally-jump-" + UUID().uuidString.prefix(8).lowercased()
+    }
+
+    /// Every surface's identity and title, read BEFORE anything is written, which makes it two
+    /// things at once: the record the mark is restored from, and the proof that this Ghostty
+    /// answers `id` and `name` at all. Wrapped like every other lookup against a dictionary that
+    /// is not this app's.
+    ///
+    /// THE SEPARATOR IS SPELLED OUT rather than written `tab`, because inside `tell application
+    /// "Ghostty"` that word is the terminal's own term for a tab and comes back as the LETTERS
+    /// "tab": every line would then carry no separator at all, every surface would be dropped as
+    /// unreadable, and the pass built on this scan would stand itself down forever while looking
+    /// exactly like a Ghostty that had nothing to report (measured 2026-08-15, Ghostty 1.3.1).
+    static func surfaceScanScript() -> String {
+        """
+        tell application "Ghostty"
+            set out to ""
+            try
+                repeat with t in terminals
+                    try
+                        set out to out & ((id of t) as text) & (character id 9) & (name of t) & linefeed
+                    end try
+                end repeat
+            end try
+            return out
+        end tell
+        """
+    }
+
+    /// The scan's answer as identity to title. A line that carries no tab is not a surface and is
+    /// dropped rather than guessed at; an empty title is kept, because a surface really can have
+    /// one and restoring it is still restoring it.
+    static func parseSurfaces(_ stdout: String) -> [String: String] {
+        var titles: [String: String] = [:]
+        for line in stdout.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let tab = line.firstIndex(of: "\t") else { continue }
+            let id = String(line[..<tab])
+            guard !id.isEmpty else { continue }
+            titles[id] = String(line[line.index(after: tab)...])
+        }
+        return titles
+    }
+
+    /// What the script said: which pass answered, and which surface the marked pass found. TWO
+    /// VALUES BECAUSE THE SECOND IS OWED BACK - a mark that is placed and not taken off is a tab
+    /// left renamed, so the surface's identity has to travel out of the script with the marker.
+    static func parseFocus(_ stdout: String) -> (match: SurfaceMatch?, surface: String?) {
+        let lines = stdout.split(separator: "\n", omittingEmptySubsequences: false)
+        let marker = String(lines.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let surface = lines.count > 1
+            ? String(lines[1]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        return (SurfaceMatch(rawValue: marker), surface.isEmpty ? nil : surface)
+    }
+
+    /// The escape a terminal reads as "this tab is now called X" (OSC 2, ended by BEL).
+    ///
+    /// THE TITLE CANNOT END THE SEQUENCE EARLY, for the same reason `literal` exists: a title is
+    /// read back off another app, and a BEL or an ESC inside one would close this escape and hand
+    /// the rest to the terminal as a command of its own. Control characters are dropped rather
+    /// than escaped, because a tab title has no use for one.
+    static func titleEscape(_ title: String) -> String {
+        var safe = title.unicodeScalars
+        safe.removeAll { CharacterSet.controlCharacters.contains($0) }
+        return "\u{1B}]2;" + String(safe) + "\u{07}"
+    }
+
+    /// Write a title to a device, answering whether it went. FAILURE IS ORDINARY: the device may
+    /// belong to another user, may have gone with the session that owned it, or may be a terminal
+    /// that ignores the escape entirely, and every one of those simply means the pass below this
+    /// one answers instead.
+    ///
+    /// OPENED WITHOUT TAKING IT ON. `O_NOCTTY` keeps a device this app merely writes to from
+    /// becoming this app's controlling terminal, and `O_NONBLOCK` keeps a terminal that has
+    /// stopped reading from stalling a click; a write that would block is abandoned rather than
+    /// retried, because the mark is an optimisation and the directory pass is still there.
+    @discardableResult
+    static func write(title: String, to device: String) -> Bool {
+        let descriptor = device.withCString { open($0, O_WRONLY | O_NONBLOCK | O_NOCTTY) }
+        guard descriptor >= 0 else { return false }
+        defer { close(descriptor) }
+        let bytes = Array(titleEscape(title).utf8)
+        var written = 0
+        while written < bytes.count {
+            let sent = bytes[written...].withUnsafeBufferPointer {
+                Darwin.write(descriptor, $0.baseAddress, $0.count)
+            }
+            guard sent > 0 else { return false }
+            written += sent
+        }
+        return true
     }
 
     /// The first Ghostty whose scripting dictionary answers `tty` on a surface
@@ -94,14 +237,19 @@ extension TerminalJump {
     /// keyboard now", and it was returned even when `focus` had raised inside its own wrap - three
     /// different outcomes wearing one word, one of which then SKIPPED the ancestor walk that was
     /// the fallback for it. A refused focus now leaves by the same door as no match at all.
-    static func script(directory: String, hint: String, tty: String?) -> String {
+    ///
+    /// IT ALSO SAYS WHICH SURFACE, on the line below, and only the marked pass fills it in: that
+    /// pass renamed a tab to find it, and the name has to be put back (`focusGhostty`).
+    static func script(directory: String, hint: String, tty: String?, nonce: String?) -> String {
         var passes: [String] = []
         if let tty, !tty.isEmpty { passes.append(ttyPass(tty)) }
+        if let nonce, !nonce.isEmpty { passes.append(noncePass(nonce)) }
         if !directory.isEmpty { passes.append(directoryPass(directory: directory, hint: hint)) }
         return """
         tell application "Ghostty"
             set matched to missing value
             set hit to ""
+            set found to ""
         \(passes.joined(separator: "\n"))
             if matched is missing value then return ""
             try
@@ -110,7 +258,7 @@ extension TerminalJump {
                 return ""
             end try
             activate
-            return hit
+            return hit & linefeed & found
         end tell
         """
     }
@@ -144,6 +292,27 @@ extension TerminalJump {
                             if (tty of t) is equal to \(literal(tty)) then
                                 set matched to t
                                 set hit to "tty"
+                                exit repeat
+                            end if
+        """)
+    }
+
+    /// The marked pass: the surface carrying the name this app just wrote to the session's own
+    /// device IS the session's surface, so the first hit ends the search like the device pass does.
+    /// It answers with the surface's identity as well as its marker, because the name it matched on
+    /// is one this app put there and owes back.
+    ///
+    /// BELOW THE DEVICE AND ABOVE THE CHECKOUT, which is exactly its precision: it names one
+    /// surface rather than one repository, but it gets there by writing to the terminal instead of
+    /// reading a property, so a Ghostty that can simply be asked (1.4.0) is asked.
+    private static func noncePass(_ nonce: String) -> String {
+        pass("""
+                            if (name of t) is equal to \(literal(nonce)) then
+                                set matched to t
+                                set hit to "nonce"
+                                try
+                                    set found to ((id of t) as text)
+                                end try
                                 exit repeat
                             end if
         """)

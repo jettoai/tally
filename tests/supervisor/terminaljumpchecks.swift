@@ -19,7 +19,7 @@ func runTerminalJumpChecks() {
     check("…nor can a backslash escape the closing one",
           TerminalJump.literal("/Users/u/code\\") == "\"/Users/u/code\\\\\"")
     let script = TerminalJump.script(directory: "/Users/u/code/tally", hint: "tally · cart",
-                                     tty: nil)
+                                     tty: nil, nonce: nil)
     check("the script matches on the working directory and breaks ties on the name",
           script.contains("working directory of t) is equal to \"/Users/u/code/tally\"")
               && script.contains("(name of t) contains \"tally · cart\""))
@@ -38,7 +38,7 @@ func runTerminalJumpChecks() {
     // all of them, the titles rarely carry the repository's name, and the tie-break therefore falls
     // through to whichever surface the enumeration happened to reach first.
     let exact = TerminalJump.script(directory: "/Users/u/code/tally", hint: "tally · cart",
-                                    tty: "/dev/ttys001")
+                                    tty: "/dev/ttys001", nonce: nil)
     guard let ttyHit = exact.range(of: "(tty of t) is equal to \"/dev/ttys001\""),
           let dirHit = exact.range(of: "(working directory of t) is equal to") else {
         check("the script asks about the device and the directory", false)
@@ -55,7 +55,7 @@ func runTerminalJumpChecks() {
     // A device path comes off the process table, so it gets the same treatment as the two values
     // read off disk rather than being trusted to be free of quotes.
     check("a device path cannot close the literal either",
-          TerminalJump.script(directory: "", hint: "", tty: "/dev/tty\"s\\1")
+          TerminalJump.script(directory: "", hint: "", tty: "/dev/tty\"s\\1", nonce: nil)
               .contains("is equal to \"/dev/tty\\\"s\\\\1\""))
     // A Ghostty too old to have `tty` RAISES on the lookup, and the whole point of the fallback is
     // that such a version still reaches the directory pass instead of exiting non-zero.
@@ -100,6 +100,112 @@ func runTerminalJumpChecks() {
     check("…and nothing else does",
           TerminalJump.SurfaceMatch(rawValue: "ok") == nil
               && TerminalJump.SurfaceMatch(rawValue: "") == nil)
+
+    // MARK: the mark written to the session's own device
+
+    // How the surface is asked its own identity on a Ghostty that publishes no device: a name
+    // nobody else can be carrying is written to the session's tty, and the surface that comes to
+    // be called it IS the session's. Everything here is the pure half of that - the name, the two
+    // scans it needs, and the escape it travels in.
+    var marks = Set<String>()
+    for _ in 0 ..< 500 { marks.insert(TerminalJump.nonce()) }
+    check("no two marks are the same", marks.count == 500)
+    check("…and each one says what wrote it",
+          marks.allSatisfy { $0.hasPrefix("tally-jump-") })
+    // A mark goes into the script through `literal` and into the terminal inside an escape ended
+    // by BEL, so a mark carrying either delimiter would close its own sequence.
+    check("a mark carries nothing that could end a literal or an escape",
+          marks.allSatisfy { mark in
+              !mark.contains("\"") && !mark.contains("\\")
+                  && mark.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
+          })
+
+    // The scan that precedes the write is what the old title is restored from, so it has to carry
+    // the identity as well as the name.
+    let scan = TerminalJump.surfaceScanScript()
+    check("the scan reads every surface's identity and its title",
+          scan.contains("repeat with t in terminals") && scan.contains("(id of t) as text")
+              && scan.contains("(name of t)"))
+    // NOT the word `tab`: inside `tell application "Ghostty"` that is the terminal's own term for a
+    // tab and comes back as the LETTERS "tab", which would leave every line of the scan without a
+    // separator - every surface dropped, and the pass standing itself down while looking exactly
+    // like a Ghostty with nothing to report.
+    check("…separated by a character the terminal cannot read as one of its own words",
+          scan.contains("(character id 9)") && !scan.contains(" & tab & "))
+    check("…and a dictionary that answers neither raises out of it",
+          scan.components(separatedBy: "try").count - 1 >= 3)
+    let surfaces = TerminalJump.parseSurfaces("12\tclaude · tally\n13\t~/code/tally\n14\t\n")
+    check("the scan's answer is read as identity to title",
+          surfaces["12"] == "claude · tally" && surfaces["13"] == "~/code/tally")
+    check("…including a surface titled with nothing, which is still a title to put back",
+          surfaces["14"] == "" && surfaces.count == 3)
+    check("a line that names no surface is dropped rather than guessed at",
+          TerminalJump.parseSurfaces("no tab on this line\n\tnameless\n").isEmpty)
+
+    // The pass itself, in the one place its precedence can be read: below the device, because that
+    // one is answered by a property rather than by renaming somebody's tab, and above the checkout,
+    // because it names one surface where the checkout names one repository.
+    let marked = TerminalJump.script(directory: "/Users/u/code/tally", hint: "tally",
+                                     tty: "/dev/ttys001", nonce: "tally-jump-ab12cd34")
+    guard let deviceAsk = marked.range(of: "(tty of t) is equal to"),
+          let markAsk = marked.range(of: "(name of t) is equal to \"tally-jump-ab12cd34\""),
+          let checkoutAsk = marked.range(of: "(working directory of t) is equal to")
+    else {
+        check("the script asks about the device, the mark and the checkout", false)
+        return
+    }
+    // Short-circuited on the order, so a script with the passes the wrong way round reports the
+    // line below rather than tearing the harness down on a backwards range.
+    let markInOrder = deviceAsk.upperBound < markAsk.lowerBound
+        && markAsk.upperBound < checkoutAsk.lowerBound
+    check("the mark is asked about after the device and before the checkout", markInOrder)
+    check("…standing down for a device match already found",
+          markInOrder && String(marked[deviceAsk.upperBound ..< markAsk.lowerBound])
+              .contains("if matched is missing value then"))
+    check("…while the checkout stands down for the mark",
+          markInOrder && String(marked[markAsk.upperBound ..< checkoutAsk.lowerBound])
+              .contains("if matched is missing value then"))
+    check("the marked pass marks itself", marked.contains("set hit to \"nonce\""))
+    // The mark was WRITTEN to somebody's tab, so the surface it named has to travel out of the
+    // script with the marker: a mark placed and never taken off is a tab left renamed.
+    check("…and answers with the surface it found, which is what the title is put back on",
+          marked.contains("set found to ((id of t) as text)")
+              && marked.contains("return hit & linefeed & found"))
+    check("the marked answer carries both the pass and the surface",
+          TerminalJump.parseFocus("nonce\n42\n").match == .nonce
+              && TerminalJump.parseFocus("nonce\n42\n").surface == "42")
+    check("a vaguer pass answers with no surface, having renamed nothing",
+          TerminalJump.parseFocus("dir\n\n").match == .directory
+              && TerminalJump.parseFocus("dir\n\n").surface == nil)
+    check("no match at all stays no match rather than becoming an empty surface",
+          TerminalJump.parseFocus("").match == nil && TerminalJump.parseFocus("\n").match == nil
+              && TerminalJump.parseFocus("").surface == nil)
+    check("the marker round-trips into the type the caller switches on",
+          TerminalJump.SurfaceMatch(rawValue: "nonce") == .nonce)
+    // With no device to write to there is no mark, and the script is exactly what it was before
+    // this pass existed. Not worse anywhere is the whole licence for adding it.
+    check("a session with no device to mark is asked about its checkout alone",
+          !script.contains("set hit to \"nonce\"") && !script.contains("(name of t) is equal to")
+              && script.contains("set hit to \"dir\""))
+
+    // The escape a terminal reads as a rename, and the one thing it must not let through.
+    check("a title is written as OSC 2, ended by BEL",
+          TerminalJump.titleEscape("tally") == "\u{1B}]2;tally\u{07}")
+    // A title comes back off another app, so a BEL or an ESC inside one would end this escape early
+    // and hand everything after it to the terminal as a command of its own.
+    check("a title cannot end its own escape early",
+          TerminalJump.titleEscape("a\u{07}b\u{1B}]0;rm\u{07}") == "\u{1B}]2;ab]0;rm\u{07}")
+    let device = NSTemporaryDirectory() + "tally-jump-device-\(getpid())"
+    FileManager.default.createFile(atPath: device, contents: nil)
+    check("a title written to a device arrives as that escape",
+          TerminalJump.write(title: "tally · cart", to: device)
+              && (try? String(contentsOfFile: device, encoding: .utf8))
+                  == "\u{1B}]2;tally · cart\u{07}")
+    try? FileManager.default.removeItem(atPath: device)
+    // A device that cannot be opened is an ordinary answer, not an error: the session's terminal
+    // may have gone, or may belong to another user, and the pass below simply answers instead.
+    check("a device that cannot be opened is a refusal rather than a crash",
+          !TerminalJump.write(title: "x", to: device + "-gone"))
 
     // MARK: which Ghostty may be asked about a device at all
 
@@ -178,10 +284,53 @@ func runTerminalJumpChecks() {
         return
     }
     check("the foreground is taken before it is yielded", took.upperBound < gave.lowerBound)
-    // The device is read only when the running Ghostty can be asked about one, so an old dictionary
-    // costs no scan at all rather than a scan that raises on every surface.
-    check("the device is read only for a Ghostty that publishes one",
+    // Ghostty is ASKED ABOUT a device only when it publishes one, so an old dictionary costs no
+    // scan at all rather than a scan that raises on every surface.
+    check("the device is asked about only for a Ghostty that publishes one",
           jumpSource.contains("readsSurfaceTTY(terminal)"))
+    // …but the device itself is read whatever the version, because the pass that answers TODAY
+    // writes to it rather than asking about it. ONLY FOR A SESSION GHOSTTY OWNS, though: the mark
+    // renames whatever terminal holds that device, and the only titles this app can put back are
+    // the ones it read off Ghostty a moment earlier.
+    check("the device is read whatever the dictionary says",
+          jumpSource.contains("return controllingTTY(of: pid_t(childPid))"))
+    check("…but only for a session running in the terminal about to be marked",
+          jumpSource.contains("owner.processIdentifier == ghostty.processIdentifier else { return nil }"))
+    // One line per click has to tell "the wrong tab" from "the wrong repository", and those read
+    // identically without the checkout. The LAST COMPONENT of it, because the path itself is the
+    // one value this line has always refused to carry.
+    check("the line says which checkout was aimed at, by its last component alone",
+          jumpSource.contains("let folder = (directory as NSString).lastPathComponent")
+              && jumpSource.contains("dir=\\(directory.isEmpty ? \"none\" : directory"))
+
+    // The order of the marked pass, which cannot be read off its result: the titles are read
+    // BEFORE one of them is replaced, because that scan is the only record the old title survives
+    // in, and the surface is asked for only after the mark has been written.
+    let scriptSource = jumpCode(of: "Tally/Core/TerminalJumpScript.swift")
+    guard let titlesRead = scriptSource.range(of: "parseSurfaces(await osascript(surfaceScanScript())"),
+          let markWritten = scriptSource.range(of: "write(title: candidate, to: device)"),
+          let surfaceAsked = scriptSource.range(of: "await osascript(script(directory: directory")
+    else {
+        check("the marked pass was found to read", false)
+        return
+    }
+    check("the titles are read before one of them is replaced",
+          titlesRead.upperBound < markWritten.lowerBound)
+    check("…and the surface is asked for only after the mark has been written",
+          markWritten.upperBound < surfaceAsked.lowerBound)
+    // NOTHING IS WRITTEN THAT CANNOT BE PUT BACK. A scan that answered nothing carries no title to
+    // restore from, so the mark is never placed at all rather than being placed and abandoned.
+    check("a scan that answered nothing stands the mark down",
+          scriptSource.contains("if !titles.isEmpty, write(title: candidate, to: device) {"))
+    // The mark is given time to reach the dictionary before it is looked for; without the wait the
+    // pass would report a miss for a rename that simply had not arrived yet.
+    check("the mark is given time to arrive before it is looked for",
+          scriptSource.contains("try? await Task.sleep(for: titleGrace)"))
+    // And it is taken off the surface it named, using the title read before it went on. A pass
+    // that did not answer left no mark here to remove.
+    check("the title is put back on the surface the mark named",
+          scriptSource.contains("if answer.match == .nonce, let device, let id = answer.surface,")
+              && scriptSource.contains("write(title: title, to: device)"))
     // Every exit is judged the same way, one grace later: a request is not an outcome, and a second
     // copy of that judgement is a copy that drifts (`land`).
     check("all three exits are judged rather than assumed",

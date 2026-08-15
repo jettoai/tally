@@ -5,28 +5,37 @@ import os
 /// TAKING SOMEBODY TO THE SESSION THEY JUST CLICKED, which is the whole point of a status board: a
 /// row that says a session is waiting and cannot be got to has moved the hunt rather than ended it.
 ///
-/// THREE WAYS, in falling order of how precisely each can answer "which surface".
+/// FOUR WAYS, in falling order of how precisely each can answer "which surface".
 ///
 ///   1. Ask Ghostty for the surface whose `tty` IS the device the session's own process is attached
-///      to. A tty belongs to exactly one surface, so this cannot pick the wrong tab: it is the only
-///      one of the three that survives the ordinary case of one repository open in several tabs,
-///      splits, or windows at once. ONLY A GHOSTTY THAT CARRIES THAT PROPERTY IS ASKED, which is
-///      1.4.0 and later and no version anybody is running today (`readsSurfaceTTY`).
-///   2. Failing that, ask for the surface whose working directory IS that checkout, breaking ties
+///      to. A tty belongs to exactly one surface, so this cannot pick the wrong tab. ONLY A GHOSTTY
+///      THAT CARRIES THAT PROPERTY IS ASKED, which is 1.4.0 and later and no version anybody is
+///      running today (`readsSurfaceTTY`).
+///   2. Failing that, WRITE a name nobody else can be carrying to that same device and ask which
+///      surface came to be called it, then put the old name back (`focusGhostty`). Every terminal
+///      reads that escape, so this answers on the versions in the world: it reaches the same one
+///      surface way 1 does, by telling the session to say where it is rather than by reading a
+///      property that is not published yet.
+///   3. Failing that, ask for the surface whose working directory IS that checkout, breaking ties
 ///      on the session's name. Right repository, arbitrary tab within it. This is what answers when
 ///      the session has no child process left to ask about, or is running in a terminal that is not
 ///      Ghostty at all and therefore appears in no surface's `tty`.
-///   3. Failing that, walk the Claude Code process's ancestors until one of them is an application,
+///   4. Failing that, walk the Claude Code process's ancestors until one of them is an application,
 ///      and activate it. This knows nothing about windows, so it lands the user in the right APP
 ///      rather than the right tab, and it works for every terminal there is.
 ///
-/// WHAT THIS CANNOT DO BEFORE GHOSTTY 1.4.0, named rather than papered over: with no device on a
-/// surface the only thing left to match on is the checkout, so one repository open in several tabs
-/// resolves to an arbitrary one of them - the tie-break reads the surface's title, and a title
-/// carries the session's name only by chance. That is the WRONG TAB rather than a failure, nothing
-/// here can tell the two apart, and no amount of care in this file fixes it: the surface's identity
-/// is simply not published by the versions in the world (ghostty-org/ghostty#11592, milestone
-/// 1.4.0). Until then way 1 above is a pass that is never built.
+/// WHAT IS STILL NOT ANSWERED, named rather than papered over. Way 2 rests on the title being the
+/// app's to set for a moment, and there are two surfaces where it is not:
+///
+///   - A TAB SOMEBODY NAMED BY HAND keeps that name, and the escape is ignored (Ghostty's own
+///     rename holds the title against the program running in it).
+///   - A SESSION WRITING ITS OWN TITLE AS IT STREAMS can overwrite the mark inside the grace it is
+///     looked for in.
+///
+/// Both fall through to way 3, which is the behaviour that stood before way 2 existed: the right
+/// repository and an arbitrary tab within it. The first of those two is also the case way 3
+/// happens to be good at, since a hand-picked name is usually the repository's. What neither of
+/// them is, is silent: `pass=` in the line below says which way answered.
 ///
 /// THE FOREGROUND IS TAKEN BEFORE ANY OF THAT AND HANDED ON THROUGH IT (`prepare`), which is the
 /// half of the click that has nothing to do with finding a surface. Since macOS 14 an app cannot
@@ -129,30 +138,46 @@ enum TerminalJump {
     static func jump(directory: String?, hint: String?, childPid: Int?,
                      from handover: Handover) async {
         let directory = directory ?? ""
-        // The device is worth reading only when the terminal in front of us can be asked ABOUT one:
-        // on an older dictionary the pass built from it raises on every surface and matches
-        // nothing, which is a round trip and a scan spent to learn what the version already said.
-        let tty: String? = {
-            guard let terminal = handover.terminal, readsSurfaceTTY(terminal),
-                  let childPid else { return nil }
+        let folder = (directory as NSString).lastPathComponent
+        // The session's own device, which both exact passes are built on: the marked pass WRITES
+        // to it (so any Ghostty at all can be asked which surface is the session's), and the
+        // device pass matches on it directly.
+        //
+        // ONLY WHEN GHOSTTY IS THE APP THE SESSION IS ACTUALLY RUNNING IN. The mark renames
+        // whatever terminal owns that device, and the only titles this app read a moment ago are
+        // Ghostty's: a session living in another terminal (or under a multiplexer, whose pty is
+        // not a surface at all) would be renamed by this and never renamed back. The same walk the
+        // last exit takes, asked one question earlier.
+        let device: String? = {
+            guard let childPid, let ghostty = handover.terminal,
+                  let owner = owningApplication(of: pid_t(childPid)),
+                  owner.processIdentifier == ghostty.processIdentifier else { return nil }
             return controllingTTY(of: pid_t(childPid))
         }()
-        // Nothing to match on at all (no usable device, no recorded checkout) means nothing to ask,
-        // and asking anyway would focus whichever surface happens to stand in "".
-        if tty != nil || !directory.isEmpty, let ghostty = handover.terminal,
-           let matched = await focusGhostty(directory: directory, hint: hint ?? "", tty: tty) {
-            await land(on: ghostty, matched: matched, from: handover)
+        // Asking Ghostty ABOUT a device is worth a pass only when this one publishes one: on an
+        // older dictionary that pass raises on every surface and matches nothing, which is a scan
+        // spent to learn what the version already said.
+        let tty: String? = {
+            guard let terminal = handover.terminal, readsSurfaceTTY(terminal) else { return nil }
+            return device
+        }()
+        // Nothing to match on at all (no device, no recorded checkout) means nothing to ask, and
+        // asking anyway would focus whichever surface happens to stand in "".
+        if device != nil || !directory.isEmpty, let ghostty = handover.terminal,
+           let matched = await focusGhostty(directory: directory, hint: hint ?? "", tty: tty,
+                                            device: device) {
+            await land(on: ghostty, matched: matched, from: handover, directory: folder)
             return
         }
         if let childPid, let owner = owningApplication(of: pid_t(childPid)) {
-            await land(on: owner, matched: nil, from: handover)
+            await land(on: owner, matched: nil, from: handover, directory: folder)
             return
         }
         // Nothing could be matched, so the last useful act is to put the terminal in front and let
         // the user find the tab: better than a click that visibly does nothing. Only for an app
         // that was ALREADY running, for the reason the bundle id above is checked at all.
         if let ghostty = handover.terminal {
-            await land(on: ghostty, matched: nil, from: handover)
+            await land(on: ghostty, matched: nil, from: handover, directory: folder)
             return
         }
         // Not one of the three had anywhere to go, and this app is holding a foreground it took for
@@ -160,7 +185,8 @@ enum TerminalJump {
         // somebody out of what they were in.
         handover.giveBack()
         report(handover: handover, matched: nil, target: nil,
-               front: NSWorkspace.shared.frontmostApplication, key: NSApp.keyWindow)
+               front: NSWorkspace.shared.frontmostApplication, key: NSApp.keyWindow,
+               directory: folder)
     }
 
     /// Bring an app forward AND THEN LOOK, once, a grace later - which is the difference between a
@@ -185,7 +211,7 @@ enum TerminalJump {
     ///     says, and it is the one question the source cannot answer on its own.
     @MainActor
     private static func land(on target: NSRunningApplication, matched: SurfaceMatch?,
-                             from handover: Handover) async {
+                             from handover: Handover, directory: String) async {
         bringForward(target)
         try? await Task.sleep(for: activationGrace)
         let settled = frontmost(is: target)
@@ -205,7 +231,8 @@ enum TerminalJump {
         // The foreground was borrowed for a trip that did not happen, so it goes back to whoever
         // had it rather than being left with a status board (`Handover.giveBack`).
         if !landed { handover.giveBack() }
-        report(handover: handover, matched: matched, target: target, front: front, key: key)
+        report(handover: handover, matched: matched, target: target, front: front, key: key,
+               directory: directory)
     }
 
     /// Who is in front, and whether that is the app that was asked for - BOTH OUT OF ONE READ. Two
@@ -249,16 +276,20 @@ enum TerminalJump {
     }
 
     /// One line per click, in the terms that tell the failures apart: which surface it came from,
-    /// which pass answered, where the foreground was before and after, and whether a window here is
-    /// still holding the keyboard. Every value is public because none of them is more than a bundle
-    /// id, a window class or a pass name - the checkout is deliberately not among them.
+    /// which pass answered, which checkout was being aimed at, where the foreground was before and
+    /// after, and whether a window here is still holding the keyboard. Every value is public
+    /// because none of them is more than a bundle id, a window class, a pass name or the LAST
+    /// COMPONENT of the checkout - the path itself is deliberately still not among them, and the
+    /// folder is here because "the wrong tab" and "the wrong repository" read identically without
+    /// it.
     @MainActor
     private static func report(handover: Handover, matched: SurfaceMatch?,
                                target: NSRunningApplication?, front: NSRunningApplication?,
-                               key: NSWindow?) {
+                               key: NSWindow?, directory: String) {
         log.info("""
             jump surface=\(handover.surface, privacy: .public) \
             pass=\(matched?.rawValue ?? "none", privacy: .public) \
+            dir=\(directory.isEmpty ? "none" : directory, privacy: .public) \
             target=\(target?.bundleIdentifier ?? "none", privacy: .public) \
             was=\(handover.previousApp?.bundleIdentifier ?? "none", privacy: .public) \
             now=\(front?.bundleIdentifier ?? "none", privacy: .public) \

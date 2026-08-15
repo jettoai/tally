@@ -11101,31 +11101,89 @@
         }
       }
     },
-    "Sort the board by status now and forget the arrangement": {
+    "high CPU while nothing is running": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "立刻依狀態排一次看板，並忘掉你排的順序"
+            "value": "閒置中卻在燒 CPU"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "立刻按状态排一次看板，并忘掉你排的顺序"
+            "value": "空闲中却在烧 CPU"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "今の状態でボードを一度並べ替え、並べ替えを破棄します"
+            "value": "待機中なのに CPU を消費"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지금 상태로 보드를 한 번 정렬하고 직접 배치한 순서를 지웁니다"
+            "value": "대기 중인데 CPU 사용 중"
+          }
+        }
+      }
+    },
+    "writing to disk while nothing is running": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置中卻在寫磁碟"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲中却在写磁盘"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中なのにディスクへ書き込み中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기 중인데 디스크에 쓰는 중"
+          }
+        }
+      }
+    },
+    "high memory": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "記憶體用量偏高"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内存占用偏高"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ使用量が多い"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 사용량 많음"
           }
         }
       }

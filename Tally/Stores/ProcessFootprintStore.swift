@@ -11,10 +11,10 @@ import Observation
 /// blocked dot honest with everything closed, and this one does nothing whatsoever until the
 /// Sessions page is on screen (`sessionsPage`).
 ///
-/// TWO CADENCES, because the readings do not cost the same. The tree and its CPU come from one pass
-/// over the process table plus a small call per process in the tree; the ports are a descriptor
-/// table per process and a call per socket on top of that, so they are read every third tick and
-/// held in between. A port is not a fast-moving number anyway: a dev server that came up six
+/// TWO CADENCES, because the readings do not cost the same. The tree, its CPU, its memory and its
+/// disk writing all come from one pass over the process table plus a single call per process in the
+/// tree, which hands over all four counters at once; the ports are a descriptor table per process
+/// and a call per socket on top of that, so they are read every third tick and held in between. A port is not a fast-moving number anyway: a dev server that came up six
 /// seconds ago is news soon enough.
 @MainActor
 @Observable
@@ -36,12 +36,23 @@ final class ProcessFootprintStore {
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var viewers = 0
     @ObservationIgnored private var ticks = 0
-    /// The previous CPU reading per session, which is the whole of what makes a percentage possible
-    /// (`ProcessTree.cpuPercent`). Dropped when the last viewer goes, so a panel opened again an
-    /// hour later reads the tree from now rather than averaging it over the hour nobody watched.
-    @ObservationIgnored private var previousCPU: [String: ProcessCPUSample] = [:]
+    /// The previous reading per session, which is the whole of what makes a rate possible
+    /// (`ProcessTree.cpuPercent`, `ProcessTree.diskWrite`). Dropped when the last viewer goes, so a
+    /// panel opened again an hour later reads the tree from now rather than averaging it over the
+    /// hour nobody watched.
+    @ObservationIgnored private var previousSample: [String: ProcessResourceSample] = [:]
+    /// Per session, the departed-process CPU credit the last pair of readings could not settle. It
+    /// exists because a child dies on one tick and is collected on the next, and without carrying
+    /// the credit across that gap the collection reads as a burst of work that was already counted
+    /// (`ProcessTree.cpuPercent`). One tick of memory, deliberately: the rule that bounds it lives
+    /// in the pure function, and this only has to hand the number back.
+    @ObservationIgnored private var cpuCarry: [String: Double] = [:]
     /// The last ports reading per session, held between the ticks that do not take one.
     @ObservationIgnored private var ports: [String: [UInt16]] = [:]
+    /// Per session, how long each warning condition has been met or missed. A warning is about a
+    /// condition that HOLDS rather than about one tick's reading, so something has to count the
+    /// ticks, and this is the only thing here that knows what a tick is (`FootprintAlerts.swift`).
+    @ObservationIgnored private var alertState: [String: FootprintAlertState] = [:]
 
     private init() {}
 
@@ -69,8 +80,10 @@ final class ProcessFootprintStore {
         timer?.invalidate()
         timer = nil
         ticks = 0
-        previousCPU = [:]
+        previousSample = [:]
+        cpuCarry = [:]
         ports = [:]
+        alertState = [:]
         footprints = [:]
     }
 
@@ -80,7 +93,13 @@ final class ProcessFootprintStore {
     /// reads the board's own rows and asks the machine about their pids. A board with nothing on it
     /// costs a dictionary assignment.
     private func sample() {
-        let roots = SessionRosterStore.shared.rows.compactMap { pid_t($0.id) }
+        // Each root with what its session is DOING, because a warning is about the mismatch between
+        // the two (`FootprintAlarm`). The state is the supervisor's own published word rather than
+        // anything guessed here, and `unknown` is not idle: a session that has not said yet is not
+        // a session that said "nothing is running".
+        let roots = SessionRosterStore.shared.rows.compactMap { row in
+            pid_t(row.id).map { ($0, row.state == .idle || row.state == .blocked) }
+        }
         // A board with nothing on it is not a special case, only an empty one: no table is walked,
         // the loop below does not run, and everything held falls out through the same three lines
         // that retire a single session that ended.
@@ -88,20 +107,43 @@ final class ProcessFootprintStore {
         let readPorts = ticks % Self.portsEveryNTicks == 0
         let now = Date()
         var next: [String: ProcessFootprint] = [:]
-        var readings: [String: ProcessCPUSample] = [:]
-        for root in roots {
+        var readings: [String: ProcessResourceSample] = [:]
+        var carried: [String: Double] = [:]
+        var alerting: [String: FootprintAlertState] = [:]
+        for (root, idle) in roots {
             let members = ProcessTree.members(root: root, processes: processes)
             guard !members.isEmpty else { continue }
             let key = String(root)
-            let reading = ProcessTree.cpuSample(of: members, at: now)
+            let reading = ProcessTree.resourceSample(of: members, at: now)
             readings[key] = reading
+            let cpu = ProcessTree.cpuPercent(from: previousSample[key], to: reading,
+                                             carry: cpuCarry[key] ?? 0)
+            let disk = ProcessTree.diskWrite(from: previousSample[key], to: reading)
+            carried[key] = cpu.carry
             if readPorts { ports[key] = ProcessTree.listeningPorts(of: members) }
-            next[key] = ProcessFootprint(
+            // The names are asked for here rather than in the pure rules because they are a reading
+            // of the machine, and only for the one or two pids that earned one: a name per process
+            // per tick would be another call per process, for a string nothing on the card shows.
+            var footprint = ProcessFootprint(
                 processes: members.count,
-                cpuPercent: ProcessTree.cpuPercent(from: previousCPU[key], to: reading),
+                cpuPercent: cpu.percent,
+                cpuLeader: cpu.leader.flatMap { ProcessTree.name(of: $0) },
+                memoryBytes: reading.memoryBytes,
+                diskWriteBytesPerSecond: disk.bytesPerSecond,
+                diskLeader: disk.leader.flatMap { ProcessTree.name(of: $0) },
                 listeningPorts: ports[key] ?? [])
+            // The warnings are decided from THIS tick's reading and the ticks before it, then put
+            // back on the same reading: what the card draws and what the card warns about are one
+            // value, so they cannot be a tick apart.
+            let state = FootprintAlarm.advance(alertState[key] ?? FootprintAlertState(),
+                                               reading: footprint, idle: idle)
+            alerting[key] = state
+            footprint.alerts = state.alerts
+            next[key] = footprint
         }
-        previousCPU = readings
+        previousSample = readings
+        cpuCarry = carried
+        alertState = alerting
         // A session that has ended must not leave its ports behind for a pid the machine will hand
         // out again: the cache is only ever a stand-in for the tick that did not read them.
         ports = ports.filter { next[$0.key] != nil }

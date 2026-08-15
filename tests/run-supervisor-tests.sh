@@ -33,7 +33,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/safeguardchecks.swift \
   tests/supervisor/followchecks.swift tests/supervisor/pendingnoticechecks.swift \
   tests/supervisor/sessionstatechecks.swift tests/supervisor/sessionorderchecks.swift \
-  tests/supervisor/processtreechecks.swift \
+  tests/supervisor/processtreechecks.swift tests/supervisor/footprintalertchecks.swift \
   tests/supervisor/terminaljumpchecks.swift \
   tests/supervisor/sessioninputchecks.swift \
   tests/supervisor/contextchecks.swift tests/supervisor/inventorychecks.swift \
@@ -72,5 +72,6 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/PromptHookInput.swift \
   TallyCLI/StatusReport.swift TallyCLI/UsageAdvisor.swift \
   Tally/Core/TerminalJump.swift Tally/Core/TerminalJumpScript.swift Tally/Core/CLIRunner.swift Tally/Stores/SessionRosterStore.swift \
-  Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift
+  Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift \
+  Tally/Core/ProcessTreeReaders.swift Tally/Core/FootprintAlerts.swift
 "$out"

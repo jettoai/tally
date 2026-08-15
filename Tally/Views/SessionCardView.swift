@@ -111,7 +111,7 @@ struct SessionCardView: View {
                 // reason the helper exists (`sessionCardLine`): a card that dropped a row would
                 // stand shorter than its neighbours, and a session with nothing measurable simply
                 // says nothing.
-                sessionCardLine { statsText(sessionFootprintLine) }
+                sessionCardLine { sessionFootprint }
             }
             .padding(.horizontal, TallyMetrics.cardPaddingH)
             .padding(.vertical, TallyMetrics.cardPaddingV)
@@ -307,11 +307,72 @@ struct SessionCardView: View {
     /// ended, and neither of those is a card's business to explain.
     ///
     /// THE PLURAL IS DECIDED HERE, where the bundle is, and the shape of the line is decided in a
-    /// pure function the assertion harness can state without one (`ProcessTree.line`).
-    private var sessionFootprintLine: String? {
-        guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return nil }
-        return ProcessTree.line(footprint,
-                                unit: L(footprint.processes == 1 ? "proc" : "procs"))
+    /// pure function the assertion harness can state without one (`ProcessTree.segments`).
+    private var sessionFootprintSegments: [ProcessFootprintSegment] {
+        guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return [] }
+        return ProcessTree.segments(footprint,
+                                    unit: L(footprint.processes == 1 ? "proc" : "procs"))
+    }
+
+    /// The footprint line, drawn from the pieces rather than from one string, because one field of
+    /// it can be a warning and the rest of the line must not become one with it.
+    ///
+    /// A WARNING IS NOT A COLOUR. The amber says "look here" to most people and nothing at all to
+    /// somebody who cannot separate it from the tertiary grey beside it, so the mark carries the
+    /// meaning and the colour only makes it faster to find - the same pairing every other warning
+    /// in this app draws (`AccountCardView`). VoiceOver gets neither, and is handed the condition
+    /// in words instead.
+    ///
+    /// NO HOVER AND NO BADGE. The explanation lives in the line itself, where the number it is
+    /// about already is; a callout would be a second surface to open for a sentence that fits
+    /// beside the number, and this card just had one taken off it.
+    @ViewBuilder
+    private var sessionFootprint: some View {
+        let segments = sessionFootprintSegments
+        if !segments.isEmpty {
+            segments.enumerated()
+                .reduce(Text(verbatim: "")) { line, part in
+                    let lead = part.offset == 0 ? Text(verbatim: "")
+                                                : Text(verbatim: pickEffortSeparator)
+                    return line + lead + Self.drawn(part.element)
+                }
+                .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                .lineLimit(1).truncationMode(.tail)
+                // A style a run sets for itself wins over the one the view sets around it, which is
+                // what lets a warned field stand out of a line that is otherwise tertiary.
+                .accessibilityLabel(Self.spoken(segments))
+        }
+    }
+
+    private static func drawn(_ segment: ProcessFootprintSegment) -> Text {
+        guard segment.alert else { return Text(verbatim: segment.text) }
+        return (Text(Image(systemName: "exclamationmark.triangle.fill")) + Text(verbatim: " ")
+                    + Text(verbatim: segment.text))
+            .foregroundStyle(TallyColor.warning)
+    }
+
+    /// The same line for a reader who cannot see it, with every warning said rather than drawn.
+    /// Read as a list, because it is one: the separator between fields is a dot on screen and a
+    /// pause in speech.
+    private static func spoken(_ segments: [ProcessFootprintSegment]) -> String {
+        segments.map { segment in
+            guard segment.alert, let warning = warning(about: segment.kind) else {
+                return segment.text
+            }
+            return "\(segment.text), \(warning)"
+        }.joined(separator: ", ")
+    }
+
+    /// What each warning is about, in the words a person would use for it. The two rate conditions
+    /// name the idleness because that is the whole of why they are warnings: the same numbers on a
+    /// working session are just work (`FootprintAlarm`).
+    private static func warning(about kind: ProcessFootprintSegment.Kind) -> String? {
+        switch kind {
+        case .cpu: L("high CPU while nothing is running")
+        case .disk: L("writing to disk while nothing is running")
+        case .memory: L("high memory")
+        default: nil
+        }
     }
 
     @ViewBuilder

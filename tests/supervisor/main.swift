@@ -713,6 +713,7 @@ runSessionStateChecks()
 runTerminalJumpChecks()
 runSessionBoardOrderChecks()
 runProcessTreeChecks()
+runFootprintAlertChecks()
 runSessionInputChecks()
 
 exit(failures == 0 ? 0 : 1)

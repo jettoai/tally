@@ -77,8 +77,14 @@ func runHookNotify(args: [String]) -> Int32 {
     // THE TYPE IS WRITTEN DOWN AS WELL AS FILTERED ON, which is the whole of what makes the two
     // kinds of wait separable one file over (`UserNotice.type` states what reading them alike
     // costs). Whatever the payload spelled it as, recorded as Claude Code's own word.
-    writeUserNotice(UserNotice(message: (event?["message"] as? String) ?? "", at: Date(),
-                               type: type, sessionID: sessionID),
-                    pid: supervisor)
+    //
+    // RECORDED RATHER THAN WRITTEN, because the file is one slot and this is the only writer of it:
+    // an `idle_prompt` arriving 60s into a fan-out must not overwrite a worker's permission request
+    // that nobody has answered (`recordUserNotice` carries the mechanism and what the single slot
+    // still costs). Nothing else about the write changes, and a declined one answers 0 like any
+    // other outcome here.
+    recordUserNotice(UserNotice(message: (event?["message"] as? String) ?? "", at: Date(),
+                                type: type, sessionID: sessionID),
+                     pid: supervisor)
     return 0
 }

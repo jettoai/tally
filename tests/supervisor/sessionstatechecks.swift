@@ -101,6 +101,58 @@ func runSessionStateChecks() {
               && hookSource.contains("guard notificationWaitsForUser(type) else")
               && hookSource.contains("type: type, sessionID: sessionID)"))
 
+    // MARK: a soft event does not overwrite a hard one nobody has answered
+
+    // THE SLOT IS ONE FILE PER SUPERVISOR AND THE HOOK IS ITS ONLY WRITER, so whatever arrives
+    // second is what the next tick judges. During a fan-out both arrive: a worker's permission
+    // request (hard), and then the main conversation's 60s `idle_prompt` (soft). Overwritten, the
+    // request reads as soft, a soft wait yields to a session that is not quiet, and the fan-out
+    // still writing keeps the card green for as much as a whole busy window with an authorisation
+    // dialog open behind it (codex review of 29ea45e, 2026-08-15).
+    let worker = UserNotice(message: "A worker needs your permission to use Bash", at: t0,
+                            type: "worker_permission_prompt")
+    let floorIsFree = UserNotice(message: "Claude is waiting for your input",
+                                 at: t0.addingTimeInterval(60), type: "idle_prompt")
+    check("an empty slot takes whatever arrives",
+          recordUserNotice(floorIsFree, pid: "9121", dir: dir)
+              && readUserNotice(pid: "9121", dir: dir)?.type == "idle_prompt")
+    check("a permission request replaces the idle prompt that was standing",
+          recordUserNotice(worker, pid: "9121", dir: dir)
+              && readUserNotice(pid: "9121", dir: dir) == worker)
+    check("…and the idle prompt that follows it leaves it exactly where it is",
+          !recordUserNotice(floorIsFree, pid: "9121", dir: dir)
+              && readUserNotice(pid: "9121", dir: dir) == worker)
+    // Hard over hard replaces, which is the single slot's own limit rather than a rule anybody
+    // wanted: the newest request is the one whose sentence names what is being asked for now.
+    let agent = UserNotice(message: "An agent needs your input", at: t0.addingTimeInterval(90),
+                           type: "agent_needs_input")
+    check("one hard event still replaces another, which is what the single slot costs",
+          recordUserNotice(agent, pid: "9121", dir: dir)
+              && readUserNotice(pid: "9121", dir: dir) == agent)
+    // A notice from a supervisor too old to record a type reads as hard, so it is kept on the same
+    // rule: the compatibility direction stays the conservative one here as everywhere on this
+    // track. Against the untyped file written above rather than a second copy of it, and a fixture
+    // that went missing would fail this rather than pass it (nothing standing means the idle prompt
+    // is recorded, which is the `true` this asserts against).
+    check("a standing event naming no type outranks an idle prompt too",
+          !recordUserNotice(floorIsFree, pid: "9108", dir: dir)
+              && readUserNotice(pid: "9108", dir: dir)?.message == "older build")
+    // Soft over soft replaces, which is how a standing idle prompt keeps its clock: Claude Code
+    // re-raises it for as long as the floor stays free, and preserving the first would report the
+    // age of an event that has been superseded a dozen times.
+    check("an idle prompt replaces an idle prompt",
+          recordUserNotice(floorIsFree, pid: "9123", dir: dir)
+              && recordUserNotice(UserNotice(message: "still free", at: t0.addingTimeInterval(120),
+                                             type: "idle_prompt"), pid: "9123", dir: dir)
+              && readUserNotice(pid: "9123", dir: dir)?.message == "still free")
+    // AND THE HOOK GOES THROUGH IT, which no value assertion above can see: the rule is worth
+    // nothing if the one writer of these notices still replaces the slot unconditionally, and a
+    // build that did would look exactly like this suite passing. The same shape as the tick's own
+    // clearing guard further down, and for the same reason.
+    check("the hook records through the guard rather than writing the slot directly",
+          hookSource.contains("recordUserNotice(UserNotice(")
+              && !hookSource.contains("writeUserNotice("))
+
     // MARK: when a wait is over
 
     let notice = UserNotice(message: "Claude needs your permission to run Bash", at: t0)

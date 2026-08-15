@@ -108,6 +108,41 @@ func writeUserNotice(_ notice: UserNotice, pid: String, dir: URL = supervisorSta
     try? data.write(to: userNoticeFile(pid: pid, dir: dir), options: .atomic)
 }
 
+/// Record the event UNLESS A HEAVIER ONE IS ALREADY STANDING. Answers whether it was recorded.
+///
+/// THIS IS ONE SLOT PER SUPERVISOR and `writeUserNotice` replaces whatever is in it, which is fine
+/// while the events are alike and is not fine now that they are not. Two of them land in that slot
+/// within a minute of each other as a matter of course during a fan-out: a worker raises
+/// `worker_permission_prompt` (hard, nobody moves until somebody answers), the main conversation
+/// then sits still for 60s and Claude Code fires `idle_prompt` (soft, the floor is free). Written
+/// over, the permission request becomes a soft wait, and a soft wait yields to a session that is
+/// not quiet (SessionStateSync.swift) - which a fan-out is, for as long as its subagents write. The
+/// board would read `working` for as much as a whole busy window (600s) with somebody's
+/// authorisation dialog open behind it (codex review of 29ea45e, 2026-08-15).
+///
+/// So the heavier reading keeps the slot: a soft event does not displace a hard one nobody has
+/// answered. Every other pairing replaces as it did, hard over hard included, because the newest
+/// hard event is the one whose sentence names what is being asked for right now.
+///
+/// WHAT THE SINGLE SLOT STILL COSTS, so this is not read for more than it is: two hard waits
+/// standing at once keep only the latest, so a permission request behind an `agent_needs_input` is
+/// remembered as the second of them and answering that one takes both away. The queue that would
+/// hold both is not here. Neither is the other half of the same review: clearing a worker's request
+/// against THAT WORKER's own result rather than against any write in the main transcript, which is
+/// still open. What is not a cost is a preserved hard event going stale, because it cannot: the
+/// tick unlinks it within a poll of the conversation moving past it (SessionStateSync.swift), and a
+/// dropped soft event is re-fired for as long as the floor stays free.
+@discardableResult
+func recordUserNotice(_ notice: UserNotice, pid: String, dir: URL = supervisorStateDir) -> Bool {
+    if let standing = readUserNotice(pid: pid, dir: dir),
+       userWait(notificationType: standing.type) == .hard,
+       userWait(notificationType: notice.type) == .soft {
+        return false
+    }
+    writeUserNotice(notice, pid: pid, dir: dir)
+    return true
+}
+
 /// The event still standing against this session, or nil when there is none (or the file is from a
 /// format this build does not know, which reads the same way: nothing is waiting).
 func readUserNotice(pid: String, dir: URL = supervisorStateDir) -> UserNotice? {

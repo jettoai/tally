@@ -72,6 +72,39 @@ enum PanelGeometry {
         min(max(1, columns), seats(columnWidth: columnWidth, in: usableWidth))
     }
 
+    /// HOW MANY COLUMNS A GRID INSIDE THE PANEL LAYS ITSELF OUT IN: what the user asked for, bounded
+    /// by what the width can actually hold, or nothing at all when they asked for nothing.
+    ///
+    /// WHAT YOU PICKED IS WHAT YOU GET, which the session board did not do. The panel's own width
+    /// comes from the usage page's column count, and that board laid its cards out adaptively
+    /// instead - so a panel one comfortable ROW wide (about 480pt) seated two 210pt session cards
+    /// while the picker beside them read "1". A count is a promise about what is on screen, and a
+    /// page that answers it with a different number is the picker lying (Albert, 2026-08-15).
+    ///
+    /// `nil` IS AUTO AND MEANS ADAPTIVE, not "one". Auto is the mode that delegates the layout to
+    /// the system, exactly as it does for the cards on the usage page, so the caller keeps its
+    /// adaptive grid and this says only "the user did not pick".
+    ///
+    /// THE PANEL'S WIDTH IS NEVER WHAT GIVES. It is the usage page's to decide, and a session board
+    /// that widened the surface would make switching tabs resize the window; so a count the width
+    /// cannot seat steps DOWN to what fits, the same direction `seated` steps for the same reason.
+    ///
+    /// - Parameters:
+    ///   - chosen: an explicit count, or nil for auto.
+    ///   - width: the grid's own width, padding already taken off.
+    ///   - minimum: the narrowest a card may be laid out at.
+    ///   - gap: the gutter between two columns.
+    static func gridColumns(chosen: Int?, in width: CGFloat, minimum: CGFloat,
+                            gap: CGFloat) -> Int? {
+        guard let chosen, chosen >= 1 else { return nil }
+        let step = minimum + gap
+        // A width that is not a number yet (the first layout pass) honours the choice rather than
+        // inventing a bound from it: the next pass corrects it, and one frame at the asked-for
+        // count is better than one frame at a number nothing measured.
+        guard step > 0, width.isFinite, width > 0 else { return chosen }
+        return min(chosen, max(1, Int((width + gap) / step)))
+    }
+
     /// What one card comes out at inside a grid of `width`: the columns divide up what is left of it
     /// after the content padding and the gutters. The panel widths above are chosen so this lands on
     /// `cardColumnWidth`, which is why a card stays the same size as columns are added and only the

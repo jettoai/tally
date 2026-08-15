@@ -78,6 +78,56 @@ for display in [320, 480, 640, 800] as [CGFloat] {
           "\(Int(display))pt display still seats one card column")
 }
 
+print("a grid inside the panel lays out the count the picker shows")
+// THE DEFECT: the session board laid its cards out adaptively while the panel's width came from the
+// usage page's column count, so a picker reading "1" in the list density opened a 504pt panel and
+// the board quietly seated two 210pt cards in it (Albert, 2026-08-15). The numbers below are that
+// panel and that card, with the board's own 8pt gutter and 12pt of content padding each side.
+let sessionCard: CGFloat = 210
+let sessionGap: CGFloat = 8
+func sessionGrid(width: CGFloat) -> CGFloat { width - 2 * PanelGeometry.contentPadding }
+func sessionColumns(_ chosen: Int?, panel: CGFloat) -> Int? {
+    PanelGeometry.gridColumns(chosen: chosen, in: sessionGrid(width: panel),
+                              minimum: sessionCard, gap: sessionGap)
+}
+check(sessionColumns(1, panel: PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth))
+      == 1, "the reported case: one comfortable row wide, one session card across")
+check(sessionColumns(2, panel: PanelGeometry.listPanelWidth(columns: 2, rowWidth: listRowWidth))
+      == 2, "two list columns, two session cards")
+check(sessionColumns(1, panel: PanelGeometry.cardPanelWidth(columns: 1)) == 1,
+      "one card column, one session card")
+check(sessionColumns(2, panel: PanelGeometry.cardPanelWidth(columns: 2)) == 2,
+      "two card columns, two session cards")
+check(sessionColumns(4, panel: PanelGeometry.cardPanelWidth(columns: 4)) == 4,
+      "four card columns, four session cards")
+// Auto is the mode that hands the layout to the system, so it resolves to no count at all and the
+// caller keeps its adaptive grid.
+check(sessionColumns(nil, panel: PanelGeometry.cardPanelWidth(columns: 2)) == nil,
+      "auto asks for no count")
+check(sessionColumns(0, panel: PanelGeometry.cardPanelWidth(columns: 2)) == nil,
+      "and so does a count that is not one")
+// THE PANEL NEVER WIDENS FOR THIS: its width is the usage page's to decide, so a count this width
+// cannot seat steps down to what fits rather than pushing the surface out.
+check(sessionColumns(4, panel: PanelGeometry.cardPanelWidth(columns: 1)) == 1,
+      "four columns asked for in a one-column panel steps down to one")
+check(sessionColumns(3, panel: PanelGeometry.cardPanelWidth(columns: 2)) == 2,
+      "three in a two-column panel steps down to two")
+// Every count either density offers, in every panel width either density produces: a card is never
+// laid out narrower than the width the whole board's arithmetic is built on.
+for panel in [PanelGeometry.cardPanelWidth(columns: 1), PanelGeometry.cardPanelWidth(columns: 2),
+              PanelGeometry.cardPanelWidth(columns: 3), PanelGeometry.cardPanelWidth(columns: 4),
+              PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth),
+              PanelGeometry.listPanelWidth(columns: 2, rowWidth: listRowWidth),
+              PanelGeometry.listPanelWidth(columns: 3, rowWidth: listRowWidth)] {
+    for chosen in 1 ... 4 {
+        let columns = sessionColumns(chosen, panel: panel) ?? 1
+        let grid = sessionGrid(width: panel)
+        let card = (grid - sessionGap * CGFloat(columns - 1)) / CGFloat(columns)
+        check(columns <= chosen && card >= sessionCard,
+              "\(Int(panel))pt panel, \(chosen) asked -> \(columns) cards of \(card)pt")
+    }
+}
+
 print("the panel fits the display it opens on")
 // Every display a Mac actually reports, against every count either density lets a user pick. This
 // is the invariant the fix exists for: a panel wider than its display loses its right-hand column

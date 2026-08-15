@@ -143,20 +143,28 @@ func runProcessTreeLineChecks() {
     check("the four sources this suite reads are readable",
           !cardSource.isEmpty && !boardCardSource.isEmpty && !boardSource.isEmpty
               && !storeSource.isEmpty)
-    // WALKING THE PROCESS TABLE IS PAID FOR BY THE PAGE THAT SHOWS IT. On the page rather than on
-    // the root the roster is switched from: a surface sitting on the Usage tab must pay nothing.
-    check("the readings are taken only while the sessions page is on screen",
+    // THE FAST BEAT IS PAID FOR BY THE PAGE THAT SHOWS IT, and the page is still what asks for it.
+    // What changed is what happens when it stops asking: the pass now goes on at a tenth of the
+    // rate, because the cards draw a trend and a history that began when the panel opened would be
+    // blank at the moment somebody opened it (`FootprintTrend.swift`, footprinttrendchecks.swift).
+    check("the fast readings are taken only while the sessions page is on screen",
           boardSource.contains(".onAppear { ProcessFootprintStore.shared.beginViewing() }")
               && boardSource.contains(".onDisappear { ProcessFootprintStore.shared.endViewing() }")
               && storeSource.contains("guard viewers == 0 else { return }")
-              && storeSource.contains("timer?.invalidate()"))
-    // THE CARRY IS A READING OF A MOMENT LIKE EVERY OTHER NUMBER HERE. Held past the panel that
-    // took it, a debt from an hour ago would be subtracted from the first tick of the next viewing.
-    check("the departed-process credit is dropped with everything else when the panel closes",
-          storeSource.contains("cpuCarry = [:]")
-              && storeSource.contains("carry: cpuCarry[key] ?? 0"))
+              && storeSource.contains("let wanted = viewers > 0 ? Self.visibleInterval : Self.backgroundInterval"))
+    // THE CARRY IS A DEBT ONE TICK WIDE, and it used to be dropped when the panel closed because
+    // the readings stopped there: a credit from an hour ago would have been subtracted from the
+    // first tick of the next viewing. The readings no longer stop, so it is never more than one
+    // background interval old, and the rule that bounds it to a single tick was always in the pure
+    // function rather than in the store (`ProcessTree.cpuPercent`).
+    check("the departed-process credit is handed to the rule that bounds it, tick after tick",
+          storeSource.contains("carry: cpuCarry[key] ?? 0")
+              && storeSource.contains("carried[key] = cpu.carry")
+              && storeSource.contains("cpuCarry = carried"))
+    check("…and is no longer thrown away with a panel that closed",
+          !storeSource.contains("cpuCarry = [:]"))
     // The ports cost a descriptor table per process on top of the walk, so they are read on their
-    // own slower beat and held in between.
+    // own slower beat, held in between, and never taken at all with nothing on screen.
     check("the ports are read on a slower beat than the tree and its CPU",
           storeSource.contains("ticks % Self.portsEveryNTicks == 0")
               && storeSource.contains("private static let portsEveryNTicks = 3"))
@@ -190,10 +198,15 @@ func runProcessTreeLineChecks() {
     // THE STATE IS THE SUPERVISOR'S OWN WORD, not a second idleness detector living in the app:
     // only the supervisor can see the transcript, the open tool call and the subagents. `unknown`
     // is deliberately not idle - it is "has not said yet", and warning on it would be a guess.
+    //
+    // The counting the rule does is per session and survives the tick that took it, which is what
+    // "a warning is about a condition that HOLDS" needs; a panel that closes no longer resets it,
+    // because the ticks continue behind it and a warning re-earned from nothing on reopening would
+    // be ten seconds late saying what was already true.
     check("idleness is read from the state the session publishes, and unknown is not idle",
           storeSource.contains("row.state == .idle || row.state == .blocked")
               && storeSource.contains("FootprintAlarm.advance(alertState[key] ?? FootprintAlertState(),")
-              && storeSource.contains("alertState = [:]"))
+              && storeSource.contains("alertState = alerting"))
     // WHAT THE AI IS DOING, NOT WHAT THE METER IS DOING. The exclusion is applied to the members
     // before anything is sampled, so the count, the CPU, the memory, the disk and the ports are all
     // of the same set; a tree with nothing left of the session gets no entry, which is what makes

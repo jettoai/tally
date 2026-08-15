@@ -52,16 +52,22 @@ extension PopoverRootView {
     /// words and its own line saying what it waits for - not its width, and now not its position
     /// either once somebody has arranged the board by hand.
     ///
-    /// Adaptive rather than a fixed count so one layout serves all three hosts: a single-column
-    /// panel seats one, the two-column panel seats two, and the dashboard window seats as many as
-    /// it is dragged wide enough for - the same "ask the display, not the setting" rule the account
-    /// grid's auto mode follows. Cells align to the TOP, so a card whose identity line is missing
-    /// sits under its neighbours' first lines rather than floating in the middle of its cell.
+    /// WHAT THE COLUMN PICKER SAYS IS WHAT THIS BOARD LAYS OUT, and it used to be adaptive
+    /// regardless. The panel's width comes from the usage page's column count, so a picker reading
+    /// "1" in the list density opened a 504pt panel and this grid quietly seated two 210pt cards in
+    /// it: the control said one thing and the page did another (Albert, 2026-08-15). Auto is still
+    /// adaptive, because auto is the mode that hands the layout to the system.
+    ///
+    /// THE PANEL DOES NOT WIDEN FOR THIS. Its width is the usage page's to decide - switching tabs
+    /// must not resize the surface - so a count this width cannot seat steps down to what fits
+    /// (`PanelGeometry.gridColumns`), and a card never goes below the width the whole board's
+    /// column arithmetic is built on (`compactCardWidth`).
+    ///
+    /// Cells align to the TOP, so a card whose identity line is missing sits under its neighbours'
+    /// first lines rather than floating in the middle of its cell.
     func sessionsGrid(_ listed: [SessionRosterStore.SessionRow],
                       board: [SessionRosterStore.SessionRow]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.compactCardWidth),
-                                     spacing: 8, alignment: .top)],
-                  spacing: 8) {
+        LazyVGrid(columns: sessionGridItems, spacing: Self.sessionCardGap) {
             ForEach(listed) { row in
                 sessionCard(row)
                     // The card being carried is drawn by the floating copy instead, at the pointer
@@ -92,6 +98,40 @@ extension PopoverRootView {
         // well as on end, which is the only hook a cancelled gesture guarantees.
         .onChange(of: isSessionDragActive) { _, active in if !active { sessionLift = nil } }
         .onDisappear { sessionLift = nil }
+    }
+
+    /// The gutter between two session cards, across and down. One number, so a grid that steps a
+    /// column down is measured against the gap it will actually be laid out with.
+    static let sessionCardGap: CGFloat = 8
+
+    /// How many columns this board lays its cards out in, or nil for auto (see
+    /// `PanelGeometry.gridColumns`, which says why an explicit count is honoured and why auto is
+    /// not simply resolved to a number).
+    ///
+    /// IT READS THE PICKER THE USER IS LOOKING AT, which is the density's own setting rather than a
+    /// third one of this page's (`SettingsStore.densityColumns`): there is one columns control on
+    /// the panel, it is what sets the panel's width, and these cards live inside that width. Which
+    /// of the two remembered numbers that control is editing is the store's answer to give, so this
+    /// asks it rather than branching on the density itself.
+    var sessionColumnCount: Int? {
+        let chosen = (1 ... settings.densityMaxColumns).contains(settings.densityColumns)
+            ? settings.densityColumns : nil
+        return PanelGeometry.gridColumns(chosen: chosen,
+                                         in: scrollContentWidth - 2 * PanelGeometry.contentPadding,
+                                         minimum: Self.compactCardWidth,
+                                         gap: Self.sessionCardGap)
+    }
+
+    /// The grid's columns: the chosen count as equal flexible cells, or the adaptive single item
+    /// auto has always used.
+    private var sessionGridItems: [GridItem] {
+        guard let columns = sessionColumnCount else {
+            return [GridItem(.adaptive(minimum: Self.compactCardWidth),
+                             spacing: Self.sessionCardGap, alignment: .top)]
+        }
+        return Array(repeating: GridItem(.flexible(minimum: Self.compactCardWidth),
+                                         spacing: Self.sessionCardGap, alignment: .top),
+                     count: columns)
     }
 
     /// One drag for the whole board. The grabbed card is locked in from the drag's START location

@@ -21,6 +21,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotificationRouter.shared.install()
         // Menu-bar accessory app: install the status item, then start the refresh loop.
         statusItemController.install()
+        // The session footprints, which sample slowly for the life of the process rather than only
+        // while their page is up: the cards draw a trend line, and a history that began when the
+        // panel opened would be blank at the moment somebody opened it to ask what has been going
+        // on (`ProcessFootprintStore`). After the status item, because the roster it reads its
+        // sessions from is installed there.
+        ProcessFootprintStore.shared.install()
         // Updater before the window restores: a restored Settings window renders update rows,
         // and they must see a live updater (plus the observable mirror, for any later render).
         UpdaterController.shared.start()   // dormant unless the build carries a feed URL + ED key

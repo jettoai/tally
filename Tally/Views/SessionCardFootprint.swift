@@ -44,12 +44,87 @@ extension SessionCardView {
                                                 : Text(verbatim: pickEffortSeparator)
                     return line + lead + Self.drawn(part.element)
                 }
-                .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                // THE CURRENT FIGURES ARE THE LOUDEST SMALL TEXT ON THE CARD, which is new and is
+                // the point of the trend row under them: this line is the reading, and everything
+                // that gives it context - the shape it arrived by, the peak it came off - is drawn
+                // quieter beneath it. Left tertiary, the numbers would have been the faintest thing
+                // on a card that exists to state them.
+                .font(.caption2.monospacedDigit()).foregroundStyle(.primary)
                 .lineLimit(1).truncationMode(.tail)
                 // A style a run sets for itself wins over the one the view sets around it, which is
-                // what lets a warned field stand out of a line that is otherwise tertiary.
+                // what lets the warned field carry the amber while the rest of the line does not.
                 .accessibilityLabel(Self.spoken(segments))
         }
+    }
+
+    /// One metric's line on this card: what to draw, and the ceiling to print beside it.
+    struct Trend: Identifiable {
+        let metric: FootprintTrendMetric
+        let values: [Double]
+        let peak: String
+        var id: FootprintTrendMetric { metric }
+    }
+
+    /// WHICH TRENDS THIS CARD HAS ANYTHING TO DRAW, each with the readings and the peak beside it.
+    /// A metric that has not been sampled twice yet contributes nothing rather than a flat stub: the
+    /// row simply grows into its three groups over the first half minute of a session's life.
+    var sessionFootprintTrendGroups: [Trend] {
+        guard let series = ProcessFootprintStore.shared.history[row.id] else { return [] }
+        return FootprintTrendMetric.allCases.compactMap { metric in
+            let values = series.values(of: metric)
+            guard values.count >= FootprintSparkline.minimumReadings,
+                  let peak = series.peak(of: metric), let text = metric.peakText(peak)
+            else { return nil }
+            return Trend(metric: metric, values: values, peak: text)
+        }
+    }
+
+    /// The row under the figures: each trended metric's shape, and the highest reading in it.
+    ///
+    /// THE PEAK IS THE ONE NUMBER A SHAPE CANNOT STATE. A line drawn from zero says how the session
+    /// got here and says nothing about the scale it did it on - the same rising curve is a session
+    /// that reached 40% and one that reached 400% - so the ceiling is printed, and the line's
+    /// quieter dot points at the moment it happened.
+    ///
+    /// IN THE ORDER THE FIGURES ABOVE ARE WRITTEN IN, which is what makes the two rows read as one
+    /// block rather than as two lists (`ProcessTree.segments`). The warned-first rule up there can
+    /// move a figure out from over its own line; that is deliberate and cheap, because each peak
+    /// carries the unit of the thing it is about ("340%", "4.2 GB", "6") and is legible on its own.
+    @ViewBuilder
+    var sessionFootprintTrends: some View {
+        let trends = sessionFootprintTrendGroups
+        if !trends.isEmpty {
+            HStack(spacing: Self.trendGap) {
+                ForEach(trends) { trend in
+                    HStack(spacing: 3) {
+                        FootprintSparklineView(values: trend.values)
+                        Text(verbatim: Self.peakMark + trend.peak)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Self.spokenTrends(trends))
+        }
+    }
+
+    /// Between one metric's group and the next: the gutter the board's own cards are laid out with,
+    /// and wider than the 3pt inside a group, so the row reads as three things rather than as six.
+    static let trendGap: CGFloat = PopoverRootView.sessionCardGap
+
+    /// What marks a figure as the ceiling rather than the current reading. A glyph rather than the
+    /// word, because "peak" three times costs about a third of the card's width and this row has to
+    /// hold three of everything; the word itself is what VoiceOver is given instead.
+    static let peakMark = "\u{2191}"
+
+    /// The trend row in words, for a reader who gets no shape at all: each metric named, each peak
+    /// said. One catalogue key per metric rather than a name substituted into a shared sentence, so
+    /// every one of them is a phrase a translator sees whole (`FootprintTrendMetric.peakLabelKey`).
+    static func spokenTrends(_ trends: [Trend]) -> String {
+        trends.map { String(format: L($0.metric.peakLabelKey), $0.peak) }
+            .joined(separator: ", ")
     }
 
     static func drawn(_ segment: ProcessFootprintSegment) -> Text {

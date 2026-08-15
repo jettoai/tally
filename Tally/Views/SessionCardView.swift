@@ -112,6 +112,12 @@ struct SessionCardView: View {
                 // stand shorter than its neighbours, and a session with nothing measurable simply
                 // says nothing.
                 sessionCardLine { sessionFootprint }
+                // AND HOW IT GOT THERE: the same three readings as a shape, with the highest one
+                // named (`sessionFootprintTrends`). A second line rather than more segments on the
+                // first, because the first already truncates on a narrow card, and a slot of its
+                // own on every card for the reason all the others have one - a card that dropped
+                // the row while its neighbour drew it would stand a line shorter than the board.
+                sessionCardLine { sessionFootprintTrends }
             }
             .padding(.horizontal, TallyMetrics.cardPaddingH)
             .padding(.vertical, TallyMetrics.cardPaddingV)

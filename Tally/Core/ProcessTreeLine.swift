@@ -157,7 +157,11 @@ extension ProcessTree {
     ///
     /// Under a megabyte is nothing rather than "0 MB": either the tree is a single sleeping shell,
     /// or nothing could be read at all, and neither is worth a segment.
-    private static func memoryText(_ bytes: UInt64) -> String? {
+    ///
+    /// Not private, because the peak beside the trend line is the same quantity and has to be spelt
+    /// the same way (`FootprintTrendMetric.peakText`): a peak reading "4200 MB" under a current
+    /// value reading "3.9 GB" would look like two different measurements.
+    static func memoryText(_ bytes: UInt64) -> String? {
         let megabytes = (Double(bytes) / 1_000_000).rounded()
         guard megabytes >= 1 else { return nil }
         // Decided on the rounded number, so 999.7 MB prints as 1.0 GB rather than as "1000 MB".

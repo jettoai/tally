@@ -7,5 +7,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/windowanchor/main.swift tests/windowanchor/popover.swift \
+    tests/windowanchor/summon.swift \
     Tally/Core/ResizeAnchor.swift Tally/Core/StatusAnchor.swift Tally/Core/TogglePress.swift
 "$out"

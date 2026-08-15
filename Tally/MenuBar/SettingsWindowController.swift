@@ -33,10 +33,22 @@ final class SettingsWindowController {
         }
     }
 
+    /// Whether the window is OPEN, which is not the same question as whether it is on screen: a
+    /// miniaturized window answers `isVisible == false` (measured 2026-08-15: false while minimized,
+    /// true again on deminiaturize, and `isMiniaturized` is what tells it from a window that was
+    /// really closed). Asked separately from `isWindowVisible` because the other readers of that one
+    /// - the Dock presence, the updater's "is anything on screen to interrupt" - genuinely mean on
+    /// screen, and a window in the Dock interrupts nobody.
+    var isWindowOpen: Bool { isWindowVisible || window?.isMiniaturized == true }
+
     /// Called at termination: tear-down closes must not read as the user dismissing the
     /// window, so re-record what is actually on screen for the next launch to restore.
+    ///
+    /// A minimized window counts as open: an update relaunch is quit + launch, and a window the user
+    /// parked in the Dock is one they still have. It comes back on screen rather than back in the
+    /// Dock, which is the side to be wrong on - the other one loses it entirely.
     func persistRestoreState() {
-        UserDefaults.standard.set(isWindowVisible, forKey: Self.restoreKey)
+        UserDefaults.standard.set(isWindowOpen, forKey: Self.restoreKey)
     }
 
     /// `restoring` = a launch-time restore: keep the autosaved frame instead of re-centering,
@@ -84,9 +96,12 @@ final class SettingsWindowController {
             }
             self.window = window
         }
-        // Summoned windows follow the user: place on the pointer's screen whenever the window
-        // isn't already up (an open window stays put - yanking it mid-use would be worse).
-        if window?.isVisible != true, !restoring { window?.centerOnPointerScreen() }
+        // Summoned windows follow the user (`NSWindow.summonShouldFollowPointer` states the whole
+        // rule): to the pointer's screen when it is not up, and also when it is up but sitting
+        // unfocused on a display the user is not on - on several displays, leaving it there is the
+        // gear reading as a dead button. A window that is key is one they are working in, and that
+        // one is never moved.
+        if !restoring, window?.summonShouldFollowPointer == true { window?.centerOnPointerScreen() }
         UserDefaults.standard.set(true, forKey: Self.restoreKey)
         ActivationPolicy.promote()   // a visible Settings window earns a Dock / Cmd-Tab presence
         // The promotion above is unconditional on purpose: Cmd-Tab presence is how a window is

@@ -1,5 +1,14 @@
 import AppKit
 
+extension NSScreen {
+    /// Every display in the shape the summoning arithmetic takes them (`StatusAnchor.Display`): the
+    /// whole rectangle and the part a window may occupy, read together so the two cannot be paired
+    /// up wrong by a caller reading them from two different scans.
+    @MainActor static var displays: [StatusAnchor.Display] {
+        NSScreen.screens.map { StatusAnchor.Display(frame: $0.frame, visible: $0.visibleFrame) }
+    }
+}
+
 extension NSWindow {
     /// Centre on the screen containing the pointer - the house rule for every SUMMONED window
     /// (settings, the main window, dialogs, update alerts): they follow the user, never the
@@ -18,6 +27,31 @@ extension NSWindow {
                                y: visible.minY + (visible.height - frame.height) * 2 / 3))
     }
 
+    /// WHETHER A SUMMON MAY MOVE THIS WINDOW TO THE DISPLAY THE USER IS ON.
+    ///
+    /// The house rule above is "summoned windows follow the user", and it used to be applied only to
+    /// windows that were not up yet: an open one stayed put, because yanking a window somebody is
+    /// working in would be worse. That reasoning is a single-display reasoning. On several displays
+    /// the same rule makes the gear read as a dead button - the window IS open, on a display behind
+    /// the user's head, and the display they clicked on does nothing at all (2026-08-15).
+    ///
+    /// So the question is asked in three parts, and only the last one is new: a window that is not up
+    /// opens where the user is; a window that is KEY is the one they are working in and is never
+    /// moved; and a window that is up, unfocused, and on another display is summoned to this one.
+    @MainActor var summonShouldFollowPointer: Bool {
+        guard isVisible else { return true }
+        guard !isKeyWindow else { return false }
+        let mouse = NSEvent.mouseLocation
+        guard let pointer = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
+        else { return false }
+        // By the window's centre, the same rule everything else here uses to say which display a
+        // surface is standing on (`StatusAnchor.screenFrame`), so a window straddling a boundary is
+        // not summoned back and forth by which half the pointer is over.
+        let standing = StatusAnchor.screenFrame(containing: frame,
+                                                among: NSScreen.screens.map(\.frame))
+        return standing != pointer.frame
+    }
+
     /// Nudge the window back onto a visible screen, origin only - the size belongs to the content
     /// (see the pinned panel's two-size-authorities crash). Runs after every content-driven resize,
     /// not just when a surface opens: these windows keep their TOP edge as they grow, so a fleet
@@ -32,12 +66,12 @@ extension NSWindow {
         // only once it is off screen entirely, which is exactly when the scan is worth its cost.
         let screen = self.screen ?? NSScreen.screens.first { $0.frame.intersects(frame) } ?? NSScreen.main
         guard let visible = screen?.visibleFrame else { return }
-        // Clamp order decides which edge a surface too big for the screen keeps: the last clamp
-        // applied wins the standoff, and both keep the edge the content is read FROM (the left, and
-        // the top with the header on it).
-        var origin = frame.origin
-        origin.x = max(min(origin.x, visible.maxX - frame.width), visible.minX)
-        origin.y = min(max(origin.y, visible.minY), visible.maxY - frame.height)
+        // The arithmetic is `StatusAnchor.clampedTopLeft` and lives there, because the summon that
+        // moves a panel to another display has to keep a surface on a screen the same way this does
+        // - which edge a surface too big for its display keeps is one rule, not two.
+        let topLeft = StatusAnchor.clampedTopLeft(CGPoint(x: frame.minX, y: frame.maxY),
+                                                  size: frame.size, within: visible)
+        let origin = CGPoint(x: topLeft.x, y: topLeft.y - frame.height)
         if origin != frame.origin { setFrameOrigin(origin) }
     }
 

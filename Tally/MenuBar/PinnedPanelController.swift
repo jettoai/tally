@@ -267,11 +267,36 @@ final class PinnedPanelController {
         // enforces: SwiftUI seeds focus into the first focusable view as the window becomes key, so a
         // panel the user merely pinned came up wearing a focus ring nobody asked for (and Tab, starting
         // from there, could only walk away from the tab switch). Only on the way in, not in
-        // `bringToFront()`: raising a panel already on screen must keep focus a keyboard user placed.
+        // `summon(onScreenOf:)`: raising a panel already on screen must keep focus a keyboard user placed.
         panel.makeFirstResponder(nil)
     }
 
-    func bringToFront() { panel?.makeKeyAndOrderFront(nil) }
+    /// SUMMON THE PANEL TO THE DISPLAY THE CLICK CAME FROM, then raise it.
+    ///
+    /// The status item is the panel's only summon while it is pinned, and raising alone was not an
+    /// answer to it: on several displays the panel sat wherever it was last dropped, so a click on
+    /// one screen surfaced it on another (reported 2026-08-15). `anchor` is the item's own rectangle,
+    /// which is what says which display that is; nil (an item with no window yet) leaves the panel
+    /// where it is rather than guessing.
+    ///
+    /// Three things go wrong on this path and all three are fixed by it being one path: a panel that
+    /// does not exist yet is SHOWN rather than silently doing nothing (`panel?.` was an optional
+    /// chain, so a click on the item was a no-op with no feedback at all); a panel left on a display
+    /// that has since been unplugged or resized is put back on screen, which raising alone never did;
+    /// and the move itself writes an ORIGIN and nothing else - the size of this surface has exactly
+    /// one authority and it is not this file (`SurfaceSizer`).
+    ///
+    /// First responder is deliberately left alone, unlike `show`: raising a panel already on screen
+    /// must keep the focus a keyboard user placed in it.
+    func summon(onScreenOf anchor: CGRect?) {
+        guard let panel else { return show(atTopLeft: nil) }
+        if let topLeft = StatusAnchor.summonTopLeft(panel: panel.frame, towards: anchor,
+                                                    displays: NSScreen.displays) {
+            panel.setFrameTopLeftPoint(topLeft)
+        }
+        panel.clampOnScreen()
+        panel.makeKeyAndOrderFront(nil)
+    }
 
     func hide() { panel?.orderOut(nil) }
 

@@ -8,15 +8,22 @@ import SwiftUI
 /// The button title is refreshed imperatively via `UsageStore.onChange`.
 ///
 /// Left-click toggles the popover; right/control-click drops a small menu (Settings / Quit).
+///
+/// What is left HERE is the summoning path: the click, the popover, and the decoy anchor it hangs
+/// from. What the button draws is in `StatusItemButton`, and the commands the item offers besides
+/// its popover (the secondary-click menu, the pin transformation) are in `StatusItemCommands` -
+/// both moved out verbatim on 2026-08-15, when this file went past the 500-line limit. The window
+/// anchor suite reads all three as ONE source, because every "and nowhere else" it asserts is a
+/// claim about the controller rather than about a file (tests/windowanchor/popover.swift).
 @MainActor
 final class StatusItemController: NSObject {
     static private(set) weak var shared: StatusItemController?
 
-    private var statusItem: NSStatusItem?
-    private let popover = NSPopover()
+    var statusItem: NSStatusItem?
+    let popover = NSPopover()
     private var popoverHost: NSHostingController<PopoverRootView>?
     /// The popover's own Usage / Tokens selection, kept here so the pin hand-off can read it.
-    private let popoverTab = SurfaceTabState()
+    let popoverTab = SurfaceTabState()
     /// THE ANCHOR THIS POPOVER ACTUALLY HANGS FROM, and the whole of the fix.
     ///
     /// NSPopover places itself against a positioning view and keeps its own model of where that is,
@@ -53,11 +60,12 @@ final class StatusItemController: NSObject {
     /// `TogglePress` states which of these facts decides what.
     private var lastDismissal: (at: Date, pointerOnItem: Bool, buttonDown: Bool)?
 
-    /// Feeding the decoy is watched from the real anchor's own moves.
-    private var anchorObserver: NSObjectProtocol?
-
-
-    private static let symbolCandidates = ["gauge.medium", "gauge", "chart.bar.fill"]
+    /// Feeding the decoy is watched from the real anchor's own moves AND its own resizes. Two
+    /// observers rather than one because they are two notifications, and the second one is not
+    /// decoration: the item's width changes under the app's own hand - the waiting dot appears, a
+    /// percentage goes from two digits to three - and a strip that grows to the LEFT of a right-hand
+    /// edge posts a resize whose move notification may never come.
+    private var anchorObservers: [NSObjectProtocol] = []
 
     /// Whether the transient popover is on screen. Read by the updater before it restarts the app
     /// into a new version: the popover is a surface the user opened to read something, and taking
@@ -122,73 +130,6 @@ final class StatusItemController: NSObject {
         }
     }
 
-    /// THE ONE MARK THAT IS NOT A NUMBER: a red dot beside the strip while any supervised session
-    /// is waiting on the user.
-    ///
-    /// DRAWN AS THE BUTTON'S TITLE RATHER THAN INTO THE IMAGE, and that is the whole design. The
-    /// strip is a TEMPLATE image, which is what lets AppKit tint it for a light or dark menu bar
-    /// and invert it while the item is pressed; a template image has no colours of its own, so a
-    /// red dot composited into it would come out the same grey as everything else, and turning the
-    /// template off to keep the red would cost the tint and the press inversion for the whole
-    /// strip. The title is a separate, coloured layer on the same button, so the numbers keep
-    /// behaving exactly as they always have and the dot is really red.
-    private static var blockedDot: NSAttributedString {
-        NSAttributedString(string: "●", attributes: [
-            .foregroundColor: NSColor.systemRed,
-            .font: NSFont.systemFont(ofSize: 7),
-            // Lifted to the top of the strip: beside 12pt digits a baseline-aligned dot reads as
-            // punctuation, and up in the corner it reads as a badge.
-            .baselineOffset: 5,
-        ])
-    }
-
-    private func updateButton() {
-        guard let button = statusItem?.button else { return }
-        let segments = UsageStore.shared.menuBarSegments
-        let blocked = SessionRosterStore.shared.blockedCount
-        button.attributedTitle = blocked > 0 ? Self.blockedDot : NSAttributedString(string: "")
-        // What the dot MEANS, for the hover and for VoiceOver: a coloured circle with no words is
-        // exactly the kind of mark a person has to be told the meaning of once.
-        let waiting = blocked > 0
-            ? String(format: L("%d session is waiting on you"), blocked)
-            : nil
-        if segments.isEmpty {
-            // No visible accounts - fall back to the app glyph.
-            button.image = Self.symbolImage()
-            button.toolTip = waiting
-        } else {
-            // The whole strip is rendered as one template image (brand marks + stacked numbers).
-            // Hover / VoiceOver carry the full per-account identity the compact strip can't.
-            let tooltip = [waiting, UsageStore.shared.menuBarTooltip]
-                .compactMap { $0 }.joined(separator: "\n")
-            button.image = MenuBarStripRenderer.stripImage(segments)
-            button.image?.accessibilityDescription = tooltip
-            button.toolTip = tooltip
-            // README screenshot hook: demo mode + -TallyStripSnapshot <path> writes the strip
-            // as a standalone PNG (idempotent - demo data never changes between refreshes).
-            if DemoUsage.isActive,
-               let path = UserDefaults.standard.string(forKey: "TallyStripSnapshot") {
-                MenuBarStripRenderer.writeSnapshot(segments, to: path)
-            }
-        }
-        // The dot rides AFTER the numbers, which is why the position moves with it: `.imageOnly`
-        // is what suppresses a title, so the strip alone keeps it and the strip-plus-dot asks for
-        // the image to lead instead.
-        button.imagePosition = waiting == nil ? .imageOnly : .imageLeading
-        // Surface resizing is handled by PopoverRootView.onContentSize (it reports the real content
-        // size on every layout change), so nothing to do here.
-    }
-
-    private static func symbolImage() -> NSImage? {
-        for name in symbolCandidates {
-            if let image = NSImage(systemSymbolName: name, accessibilityDescription: "Tally") {
-                image.isTemplate = true
-                return image
-            }
-        }
-        return nil
-    }
-
     @objc private func handleClick() {
         guard let button = statusItem?.button else { return }
         // Spent here, once, for whatever kind of click this turns out to be: a dismissal left
@@ -207,7 +148,9 @@ final class StatusItemController: NSObject {
         // While pinned, the floating panel is the usage view; a status-item click just surfaces it
         // rather than opening a competing popover.
         if SettingsStore.shared.isUsagePanelPinned {
-            PinnedPanelController.shared.bringToFront()
+            // TO THE DISPLAY THIS CLICK CAME FROM, which the item's own rectangle is what states.
+            // Raising it where it was left is not an answer to a summon made from another screen.
+            PinnedPanelController.shared.summon(onScreenOf: anchorScreenRect(button: button))
             return
         }
         if popover.isShown {
@@ -219,8 +162,14 @@ final class StatusItemController: NSObject {
             // which reads as a flicker and an item that cannot be toggled shut. While the anchor was
             // the item's own window, NSPopover exempted clicks in it and this could not happen.
         } else {
-            NSApp.activate(ignoringOtherApps: true)
+            // ANCHOR FIRST, FOREGROUND SECOND, and the order is the fix. The anchor has to be the
+            // fact the click carried - which display the user pressed the item on - and coming
+            // forward is a thing that can CHANGE that fact: activating an app moves the key window
+            // to the front, and with a Tally window open on another display the menu bar (and the
+            // status item's own window with it) can follow it there. Read afterwards, the item's
+            // rectangle is then the one on the display nobody clicked on.
             guard let anchorView = decoyAnchorViewForShow(button: button) else { return }
+            takeForegroundForPopover()
             popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
             // The real anchor is watched only to feed the decoy from it.
             watchRealAnchor()
@@ -234,9 +183,33 @@ final class StatusItemController: NSObject {
         }
     }
 
-    /// Dismiss the popover when another Tally window takes the stage: that window steals key and
-    /// promotes the activation policy, which defeats the transient popover's own click-outside
-    /// dismissal and leaves it stuck on screen. No-op when closed, so callers need no condition.
+    /// COME FORWARD FOR THE POPOVER ONLY WHEN NOTHING OF OURS COMES WITH IT.
+    ///
+    /// Activating is what a popover needs to be typed into - Esc closes it, an account rename has a
+    /// text field - and for a menu-bar app with nothing else on screen it costs nothing: there is no
+    /// other window of ours for the window server to raise. With a Settings or dashboard window open
+    /// it costs exactly the symptom reported on 2026-08-15: glancing at the menu bar dragged a window
+    /// the user had left on another display, behind another app, back over the top of it (measured
+    /// off the window server's own front-to-back order: Settings went from behind the terminal to in
+    /// front of it on one press, and back to leaving it alone once this path stopped activating).
+    ///
+    /// SO THE CONDITION IS THE PRICE, not a manner. A cheaper-looking fix was tried first and is
+    /// recorded here because it looks right: make our own invisible anchor the key window and let
+    /// activation raise THAT. It does not work - with the decoy made key first, the same press still
+    /// pulled Settings in front of the terminal (measured the same day, same probe) - so "activation
+    /// only fronts the key window" is not a lever this app can pull, whatever the reason.
+    ///
+    /// The case that gives up the foreground is the one where the user has a Tally window open, and
+    /// what it gives up is real: the popover opens without the app becoming active, so a keystroke
+    /// goes to whatever they were typing in until they click the popover (which activates the app
+    /// the ordinary way). That is the right side of the trade - the popover is a thing you look at,
+    /// and the window it was moving belongs to something the user was doing.
+    private func takeForegroundForPopover() {
+        guard !SettingsWindowController.shared.isWindowVisible,
+              !MainWindowController.shared.isWindowVisible else { return }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     /// Whether the click being handled right now is the one that dismissed the popover, SPENDING the
     /// dismissal either way: it can be answered yes at most once, so nothing left over can swallow a
     /// later click.
@@ -258,6 +231,10 @@ final class StatusItemController: NSObject {
         lastDismissal = (Date(), onItem, NSEvent.pressedMouseButtons & 1 == 1)
     }
 
+    /// Dismiss the popover when another Tally window takes the stage: that window steals key and
+    /// promotes the activation policy, which defeats the transient popover's own click-outside
+    /// dismissal and leaves it stuck on screen. No-op when closed, so callers need no condition.
+    /// (Its callers are the two window controllers' `show`, which is where the stage is taken.)
     func closePopover() {
         popover.performClose(nil)
     }
@@ -386,25 +363,32 @@ final class StatusItemController: NSObject {
 
     /// Watch the REAL anchor while the popover is up, because following it is the only thing this
     /// file still does about placement. Torn down with the popover.
+    ///
+    /// Moves AND resizes, through the one handler: both are ways the rectangle the decoy stands in
+    /// for stops being the rectangle the decoy is at, and `feedDecoyAnchor` compares the whole rect
+    /// either way. Watching only moves was an assumption that one event always brings the other -
+    /// true for a menu bar laid out from the right, and this file's own history is a list of times
+    /// "always" was a display arrangement away from being false.
     private func watchRealAnchor() {
-        if let anchorObserver {
-            NotificationCenter.default.removeObserver(anchorObserver)
-            self.anchorObserver = nil
-        }
+        stopWatchingRealAnchor()
         guard popover.isShown, let window = statusItem?.button?.window else { return }
-        anchorObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification, object: window, queue: nil
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.feedDecoyAnchor() }
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+            anchorObservers.append(NotificationCenter.default.addObserver(
+                forName: name, object: window, queue: nil
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.feedDecoyAnchor() }
+            })
         }
+    }
+
+    private func stopWatchingRealAnchor() {
+        for observer in anchorObservers { NotificationCenter.default.removeObserver(observer) }
+        anchorObservers = []
     }
 
     /// Put the decoy away with the popover, so nothing of ours is left over the menu bar.
     private func retireDecoyAnchor() {
-        if let anchorObserver {
-            NotificationCenter.default.removeObserver(anchorObserver)
-            self.anchorObserver = nil
-        }
+        stopWatchingRealAnchor()
         decoyAnchor?.orderOut(nil)
     }
 
@@ -449,7 +433,7 @@ final class StatusItemController: NSObject {
 
     /// The window AppKit draws the popover in. Meaningful only while it is shown: after a close the
     /// content view keeps an off-screen window attached (see `popoverContentTopLeft`).
-    private var popoverWindow: NSWindow? { popover.contentViewController?.view.window }
+    var popoverWindow: NSWindow? { popover.contentViewController?.view.window }
 
     /// The display the popover opens on, which is the one the menu bar is on.
     ///
@@ -462,89 +446,5 @@ final class StatusItemController: NSObject {
         guard let window = statusItem?.button?.window else { return NSScreen.main }
         let anchor = CGPoint(x: window.frame.midX, y: window.frame.minY - 1)
         return NSScreen.screens.first { $0.frame.contains(anchor) } ?? window.screen ?? NSScreen.main
-    }
-
-    /// Toggle the pinned floating panel (called from the popover/panel footer's pin button).
-    static func togglePin() {
-        shared?.setPinned(!SettingsStore.shared.isUsagePanelPinned)
-    }
-
-    /// Retire the pinned panel, the other half of the transformation below - called by the dashboard
-    /// window as it takes the stage.
-    ///
-    /// The two are one surface in two forms, and the panel floats above every normal window, so
-    /// leaving it up while the dashboard opens stacks two IDENTICAL views with the floating one on
-    /// top: every click on the covered part of the dashboard is silently eaten by the panel. It
-    /// looks like a dead region rather than an overlap precisely because both surfaces render the
-    /// same view, and which part is covered changes as the window resizes - switching the dashboard
-    /// to Tokens shrinks it (top-anchored), pulling its footer up into the panel's band, so the
-    /// whole footer stops responding while the header above the panel still works.
-    ///
-    /// Unpinning rather than merely hiding keeps the state honest: the window's footer button reads
-    /// "Pin on top" again, which is exactly what it now does.
-    static func unpin() {
-        guard SettingsStore.shared.isUsagePanelPinned else { return }
-        SettingsStore.shared.isUsagePanelPinned = false
-        PinnedPanelController.shared.hide()
-    }
-
-    private func setPinned(_ pinned: Bool) {
-        guard pinned else { return Self.unpin() }
-        SettingsStore.shared.isUsagePanelPinned = true
-        // Pinning is a transformation, not a copy: whichever surface the pin was clicked in
-        // (popover or main window) hands its on-screen position AND the view it is showing to
-        // the panel and closes, so the panel visibly takes over in place. Handing over only the
-        // position would have made pinning the Tokens tab a way to leave it.
-        let fromPopover = popoverContentTopLeft()
-        let source = fromPopover != nil ? popoverTab : MainWindowController.shared.surfaceTab
-        let topLeft = fromPopover ?? MainWindowController.shared.contentTopLeft
-        popover.performClose(nil)
-        MainWindowController.shared.close()
-        PinnedPanelController.shared.show(atTopLeft: topLeft, showing: source.tab)
-    }
-
-    /// The screen-space top-left of the popover's content, so the panel can open exactly where the
-    /// popover was (its own window frame includes the arrow, so measure the content view instead).
-    /// Returns nil unless the popover is actually on screen: after `performClose` AppKit keeps the
-    /// content view attached to an off-screen window, so a `view.window` check alone stays non-nil
-    /// forever once the popover has been shown, and callers using this as "the pin came from the
-    /// popover" would misread every later pin from the main window.
-    private func popoverContentTopLeft() -> CGPoint? {
-        guard popover.isShown else { return nil }
-        guard let view = popover.contentViewController?.view, let window = popoverWindow else { return nil }
-        let inWindow = view.convert(view.bounds, to: nil)
-        let onScreen = window.convertToScreen(inWindow)
-        return CGPoint(x: onScreen.minX, y: onScreen.maxY)
-    }
-
-    private func showMenu(from button: NSStatusBarButton) {
-        let menu = NSMenu()
-        let open = NSMenuItem(title: String(localized: "Open Tally", bundle: AppLocale.bundle),
-                              action: #selector(openMainWindow), keyEquivalent: "o")
-        open.target = self
-        menu.addItem(open)
-        let settings = NSMenuItem(title: String(localized: "Settings…", bundle: AppLocale.bundle),
-                                  action: #selector(openSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
-        menu.addItem(.separator())
-        let quit = NSMenuItem(title: String(localized: "Quit Tally", bundle: AppLocale.bundle),
-                              action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        quit.target = NSApp
-        menu.addItem(quit)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
-    }
-
-    @objc private func openSettings() {
-        StatusItemController.openSettingsWindow()
-    }
-
-    @objc private func openMainWindow() {
-        MainWindowController.shared.show()
-    }
-
-    /// Opens the settings window (a reliable custom NSWindow, not the flaky `Settings` scene action).
-    static func openSettingsWindow() {
-        SettingsWindowController.shared.show()
     }
 }

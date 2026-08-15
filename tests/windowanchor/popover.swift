@@ -85,7 +85,19 @@ func checkPopoverAnchor() {
 
     // 12c. AND THE CONTROLLER IS BUILT THAT WAY. Read off the source for the same reason as
     //      everything above: the status item's window cannot be driven from here.
-    let statusSource = code(of: "Tally/MenuBar/StatusItemController.swift")
+    //      THE CONTROLLER IS THREE FILES (2026-08-15) AND IS READ AS ONE. Everything below that
+    //      says "and nowhere else" - the placement-correction machinery that is gone, the popover
+    //      window this file no longer moves, the single site the follow rule is asked at - is a
+    //      claim about the controller, not about a filename. Splitting a file is exactly how such a
+    //      claim goes green while the statement it forbids lives on next door, so the split is
+    //      absorbed here instead: the union is what the assertions read, and each part of it has to
+    //      be readable or the negatives below would pass by having nothing to look at.
+    let statusFiles = ["Tally/MenuBar/StatusItemController.swift",
+                       "Tally/MenuBar/StatusItemButton.swift",
+                       "Tally/MenuBar/StatusItemCommands.swift"]
+    check("all three of the controller's files were found to read (\(statusFiles.count))",
+          statusFiles.allSatisfy { !code(of: $0).isEmpty })
+    let statusSource = statusFiles.map { code(of: $0) }.joined(separator: "\n")
     func precedes(_ first: String, _ second: String, in body: String) -> Bool {
         guard let a = body.range(of: first), let b = body.range(of: second) else { return false }
         return a.upperBound <= b.lowerBound
@@ -111,6 +123,45 @@ func checkPopoverAnchor() {
                    "popover.show(relativeTo: anchorView.bounds", in: toggle))
     check("…with the real anchor watched only so the decoy can follow it",
           toggle.contains("watchRealAnchor()"))
+
+    // 12d. WHAT COMING FORWARD MAY COST, and the assertion here is the reverse of the one it
+    //      replaces. Until 2026-08-15 this suite asserted `NSApp.activate(ignoringOtherApps: true)`
+    //      as the first statement of the showing - the shape of the code, written down as if it
+    //      were the contract - and that green light is what kept two reported symptoms in place for
+    //      a day: activation fronts the app's KEY window, so a Settings window the user had left on
+    //      another display came forward with the popover (measured off the window server's own
+    //      ordering: it went from behind the terminal to in front of it on one press), and it can
+    //      take the menu bar to that display with it, which is the anchor being read a moment later.
+    //
+    //      The contract is therefore about ORDER and about WHICH WINDOW: the anchor is read from the
+    //      click before anything is activated, and the window activation is allowed to front is one
+    //      of ours that nobody can see.
+    check("the anchor is read before the app takes the foreground, never after",
+          precedes("decoyAnchorViewForShow(button: button)", "takeForegroundForPopover()", in: toggle))
+    check("…and the showing itself no longer activates anything unconditionally",
+          !toggle.contains("NSApp.activate"))
+    guard let frontStart = statusSource.range(of: "private func takeForegroundForPopover()"),
+          let frontEnd = statusSource.range(of: "\n    }\n",
+                                            range: frontStart.upperBound ..< statusSource.endIndex)
+    else {
+        check("the foreground step was found to read", false)
+        exit(1)
+    }
+    let foreground = String(statusSource[frontStart.upperBound ..< frontEnd.lowerBound])
+    //      THE CONDITION IS THE WHOLE FIX, and it is asserted as a condition rather than as an
+    //      absence: activating is what makes the popover typeable, so a path that never activated
+    //      would be a different bug (an account rename that swallows keystrokes). What may not
+    //      happen is activating while a window of ours is on screen to be dragged forward with it.
+    check("the popover comes forward only when no window of ours is on screen to come with it",
+          precedes("guard !SettingsWindowController.shared.isWindowVisible",
+                   "NSApp.activate(ignoringOtherApps: true)", in: foreground)
+              && foreground.contains("!MainWindowController.shared.isWindowVisible else { return }"))
+    check("…and it still activates in that case, because a popover that cannot be typed into is a bug too",
+          foreground.contains("NSApp.activate(ignoringOtherApps: true)"))
+    check("…asked of what is ON SCREEN, so a window the user minimized is not a reason to stand down",
+          !foreground.contains("isWindowOpen"))
+    check("…and this is the only place in the controller that takes the foreground at all",
+          statusSource.components(separatedBy: "NSApp.activate").count == 2)
 
     // THE DECOY ITSELF: ours, invisible, and unable to eat a click meant for the item under it.
     guard let decoyStart = statusSource.range(of: "private func decoyAnchorViewForShow(button: NSStatusBarButton)"),
@@ -204,7 +255,7 @@ func checkPopoverAnchor() {
     // popover and dismisses it on the mouse-down; the action arrives on the mouse-up and would open it
     // straight back. The dismissal's own timestamp is what tells the two apart.
     check("the click that dismissed the popover does not reopen it",
-          precedes("} else if afterDismissal {", "NSApp.activate(ignoringOtherApps: true)", in: toggle))
+          precedes("} else if afterDismissal {", "takeForegroundForPopover()", in: toggle))
     // SPENT, NOT TIMED OUT. A window judged only by elapsed time expires under a press that is
     // merely HELD, and the release then reopens the popover the press just shut (codex review of
     // ca32b61). What is recorded instead is what the dismissal SAW, and the next click spends it.

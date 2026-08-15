@@ -316,6 +316,7 @@ check("only the view-options card itself claims the anchor (found: \(claimants))
       claimants == ["PopoverFooterView.swift"])
 
 checkPopoverAnchor()
+checkPanelSummon()
 
 print(failures == 0 ? "\nAll window anchor tests passed." : "\n\(failures) anchor test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

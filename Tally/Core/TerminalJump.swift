@@ -111,11 +111,12 @@ enum TerminalJump {
     /// already asked. An app with no foreground yielding one is a cheque with nothing behind it,
     /// which is why the window came up and the typing stayed where it was.
     ///
-    /// HARMLESS WHERE IT IS NOT NEEDED: the menu bar popover and the dashboard window each activate
-    /// this app before they can be clicked at all (`StatusItemController`, `MainWindowController`),
-    /// so on those two surfaces this is the app asking for what it already holds. One path rather
-    /// than three, because the difference between the surfaces is a fact about activation that this
-    /// call reads for itself.
+    /// HARMLESS WHERE IT IS NOT NEEDED, and needed more often than it used to be: the dashboard
+    /// window always activates before it can be clicked, and the popover activates only when no
+    /// other Tally window is on screen (`StatusItemController.takeForegroundForPopover`, 2026-08-15
+    /// - activating with one open dragged it forward). So this is sometimes the app asking for what
+    /// it already holds and sometimes a real request, which is exactly why it is ONE path: the
+    /// difference between the surfaces is a fact about activation that this call reads for itself.
     @MainActor
     static func prepare() -> Handover {
         let surface = NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "none"

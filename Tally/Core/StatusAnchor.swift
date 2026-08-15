@@ -47,6 +47,75 @@ enum StatusAnchor {
         return screens.first { $0.contains(centre) }
     }
 
+    /// A display as the summoning arithmetic needs it: the WHOLE rectangle, which is where the menu
+    /// bar and the items in it live, and the part a window may occupy, which is where a surface may
+    /// be put.
+    ///
+    /// Both, because they are not the same rectangle and each answers a different half of a summon.
+    /// The status item says which display the user clicked on, and it sits IN the menu bar - outside
+    /// `visibleFrame` on every machine whose bar is showing - so an arithmetic that looked for the
+    /// anchor among visible frames would find no display at all and quietly decline to move anything.
+    struct Display: Equatable {
+        let frame: CGRect
+        let visible: CGRect
+    }
+
+    /// WHERE A PINNED PANEL GOES WHEN IT IS SUMMONED FROM A DISPLAY IT IS NOT ON.
+    ///
+    /// The panel is a fixture the user placed, and until now that meant a click on the status item
+    /// only raised it - on whichever display it was left on, which on a four-display machine is
+    /// routinely one nobody is looking at (reported 2026-08-15: "the panel opens on another
+    /// monitor"). A summon is the one moment the fixture rule has to give: the user is asking for it
+    /// HERE, and z-order is not an answer to "where".
+    ///
+    /// What it keeps is the PLACE ON THE DISPLAY rather than the coordinates - the same corner, the
+    /// same inset, scaled between displays of different sizes - because that is the part of "where
+    /// the user put it" that survives the move. Dropping it under the item instead would throw away
+    /// a position the user chose every time they glanced at it from another desk.
+    ///
+    /// Nil means MOVE NOTHING, and it is three different facts wearing one answer: no anchor to
+    /// summon towards, an anchor on no display this machine has, or a panel already standing on the
+    /// display the click came from. Nil rather than "the origin it already has" so the caller writes
+    /// no frame at all: a summon that rewrote the origin on every click would walk the panel a
+    /// rounding point at a time.
+    static func summonTopLeft(panel: CGRect, towards anchor: CGRect?,
+                              displays: [Display]) -> CGPoint? {
+        guard let anchor, !anchor.isEmpty, !panel.isEmpty else { return nil }
+        let anchorCentre = CGPoint(x: anchor.midX, y: anchor.midY)
+        guard let target = displays.first(where: { $0.frame.contains(anchorCentre) })
+        else { return nil }
+        let source = displays.first { $0.frame.contains(CGPoint(x: panel.midX, y: panel.midY)) }
+        guard source != target else { return nil }
+        let wanted: CGPoint
+        if let source, source.visible.width > 0, source.visible.height > 0 {
+            wanted = CGPoint(
+                x: target.visible.minX
+                    + (panel.minX - source.visible.minX) * (target.visible.width / source.visible.width),
+                y: target.visible.maxY
+                    - (source.visible.maxY - panel.maxY) * (target.visible.height / source.visible.height))
+        } else {
+            // Standing on no display at all - a screen was unplugged out from under it - so there is
+            // no place to keep. It is summoned to the item itself: centred under it, top edge as
+            // high as a window may go.
+            wanted = CGPoint(x: anchor.midX - panel.width / 2, y: target.visible.maxY)
+        }
+        return clampedTopLeft(wanted, size: panel.size, within: target.visible)
+    }
+
+    /// KEEPING A SURFACE ON ITS DISPLAY, as arithmetic on a top-left corner. The one statement of
+    /// it: `NSWindow.clampOnScreen` is this function with a window's frame in it, and the summon
+    /// above is this function with a proposed placement in it. Two copies would be free to disagree
+    /// about which edge a surface too big for its display keeps, and this file's own history is a
+    /// list of invariants that died of having two implementations.
+    ///
+    /// The clamp ORDER decides that edge, and it is the last clamp applied that wins: both keep the
+    /// edge the surface is read FROM, which is the left one and the top one (the header is up there).
+    static func clampedTopLeft(_ topLeft: CGPoint, size: CGSize, within visible: CGRect) -> CGPoint {
+        let x = max(min(topLeft.x, visible.maxX - size.width), visible.minX)
+        let bottom = min(max(topLeft.y - size.height, visible.minY), visible.maxY - size.height)
+        return CGPoint(x: x, y: bottom + size.height)
+    }
+
     // A popover's ORIGIN is deliberately not computed here any more. Three rounds of this file
     // corrected the surface's position after AppKit had placed it, and every one of them lost to a
     // resident model that placed it again; the arithmetic that put it back (`heldOrigin`, with its

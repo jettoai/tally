@@ -10,6 +10,16 @@ enum CentredAlert {
     /// Run an alert centred on the window the user actually clicked in (panel or popover), falling
     /// back to the screen under the pointer, never on some other monitor's main screen. The
     /// activation also covers the notification paths, where the app may have nothing on screen.
+    ///
+    /// THE ACTIVATION STAYS UNCONDITIONAL HERE, and that is a difference from the popover's summon
+    /// rather than an oversight (both were looked at on 2026-08-15). The popover asks a question the
+    /// user can answer by looking, so it must not disturb anything to be read; an alert is a question
+    /// that BLOCKS - a modal run loop is already started - and it may be raised by a path with
+    /// nothing of ours on screen at all, so an app that failed to come forward would be an app
+    /// waiting on an answer to a question nobody was shown. The known cost is the popover's symptom
+    /// in miniature: while another Tally window is open it is the key one, so it comes forward with
+    /// the alert. It is momentary and the user asked for the alert, which is why it is priced
+    /// differently from a glance at the menu bar.
     static func run(_ alert: NSAlert) -> NSApplication.ModalResponse {
         NSApp.activate(ignoringOtherApps: true)
         alert.layout()

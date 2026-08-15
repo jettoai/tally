@@ -224,6 +224,31 @@ final class SurfaceSizer {
                 self.anchorEdges = window.resizeEdges
             }
         }
+        // AND WHEN THE DISPLAYS THEMSELVES CHANGE, directly rather than through a resize.
+        //
+        // Putting a surface back on screen used to be reachable only from the branch above, which
+        // made it conditional on something nothing guarantees: a display going away under a panel
+        // changes the surface's screen, not its content, so it produces a resize only if the height
+        // cap the content reads happens to come out different (`PopoverRootView.refreshScreenCap`,
+        // `ScreenFitStack`). Two displays of the same height - a matched pair, or unplugging the
+        // second of three - report the same cap, so nothing resized and the panel stayed on a
+        // display that was no longer there. The clamp is what this event is for; asking for it via
+        // a resize was asking a question that has a right to answer no.
+        //
+        // A turn later, because AppKit rearranges windows onto the surviving displays itself when
+        // this posts: clamping in the same turn would correct a frame that is about to be moved
+        // again, and the second write would be the one nobody checked.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self, weak window] _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, let window, window.isVisible else { return }
+                    window.clampOnScreen()
+                    self.anchorEdges = window.resizeEdges
+                }
+            }
+        }
     }
 }
 

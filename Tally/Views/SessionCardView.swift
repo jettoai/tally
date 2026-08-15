@@ -75,8 +75,13 @@ struct SessionCardView: View {
                 // the stats are: a waiting card that carried both stood a line taller than the ones
                 // beside it, and a grid of those reads as a ragged page rather than as hierarchy. So
                 // the wait takes the slot on the card that has one - one line of it, red, where a
-                // glance at the grid finds it - and the figures it displaced go to the tooltip along
-                // with the whole of the sentence itself (`sessionTooltip`).
+                // glance at the grid finds it - and the figures it displaced are simply not shown.
+                //
+                // NOTHING ON THIS CARD ANSWERS A HOVER, which is where those figures, and the rest
+                // of a reason too long for the line, used to go. The board is where the pointer
+                // WAITS between jumps, so a callout opening under it covers the cards beside it for
+                // as long as the hand rests there; that costs more than a truncated line, and the
+                // whole of a wait is in the terminal this card is the way to (2026-08-15).
                 //
                 // Written on `sessionIsWaiting` rather than on the reason being there, so the choice
                 // is the card's state and not an accident of what got published. A blocked session
@@ -109,7 +114,6 @@ struct SessionCardView: View {
             .opacity(row.isReporting ? 1 : Self.quietCardOpacity)
         }
         .buttonStyle(.plain)
-        .tallyTooltip(sessionTooltip)
         // Asked only where the answer is drawn, exactly as the account card asks it: a card with no
         // grip on it would be re-rendering on every pointer crossing for nothing.
         .onHover { if showsDragHandle { isHovering = $0 } }
@@ -189,13 +193,17 @@ struct SessionCardView: View {
     /// reads as imbalance (2026-07-19). It sits at the trailing end of the headline because that is
     /// where the account cards keep theirs, after the state word and the age on the card that has
     /// them: the name still owns the leading edge of every card on the board.
+    ///
+    /// The one place it parts from that pattern is the callout: the account card names the gesture
+    /// under the pointer, this one names it to VoiceOver only, because no part of a session card may
+    /// open a layer over the board (`body`). The glyph itself still answers the hover by brightening,
+    /// which is the affordance the words were only repeating.
     private var dragHandle: some View {
         Image(systemName: "line.3.horizontal")
             .font(.caption)
             .foregroundStyle(.tertiary)
             .opacity(isHovering || handleProminent ? 1 : 0.35)
             .accessibilityLabel(L("Drag to reorder"))
-            .tallyTooltip(L("Drag to reorder"))
     }
 
     /// How long this has been true, ticking.
@@ -261,8 +269,9 @@ struct SessionCardView: View {
         }
     }
 
-    /// The same sentence in words, so the waiting card can hand it to its tooltip: the card and the
-    /// tooltip must not drift into saying the figure two ways.
+    /// The same sentence in words rather than in a view, so the card can ask whether there is one to
+    /// draw at all before it decides what it is (`sessionIsLoading`): a card that knows nothing yet
+    /// turns an indicator, and "nothing to say" has to be answerable without laying the line out.
     private func sessionStatsLine(now: Date) -> String? {
         let context = row.contextTokens
             .map { UsageFormat.compactCount(Int64($0)) + " " + L("context") }
@@ -279,8 +288,8 @@ struct SessionCardView: View {
 
     /// The time the stats line has room to say. An ordinary card has no state word and no duration
     /// on its first line, so its own duration comes here; the waiting card already ticks one up
-    /// there and gives this slot to when the conversation last MOVED instead (which is a figure it
-    /// reads in its tooltip, its own last line being the wait). A session publishing no state has no
+    /// there and gives this slot to when the conversation last MOVED instead (a line that is drawn
+    /// only on the blocked card that named no reason - `body`). A session publishing no state has no
     /// duration to give either way, and answers the same question the only way it can.
     private func sessionTime(now: Date) -> String? {
         if !sessionIsWaiting, let since = row.since { return sessionAge(since, now: now) }
@@ -304,30 +313,6 @@ struct SessionCardView: View {
               let reason = row.reason?.trimmingCharacters(in: .whitespacesAndNewlines),
               !reason.isEmpty else { return nil }
         return reason
-    }
-
-    /// What the card cannot show: the state IN WORDS - an ordinary card gives that line to the name
-    /// and leaves the colour to say it - the WHOLE of what a waiting session is waiting for, the
-    /// checkout in full, and what a click does.
-    ///
-    /// The reason is here because the card's own line is one line: a permission request names a
-    /// command, and a command cut off at the width of a cell is the half that says nothing. A wait
-    /// nobody can read is a wait nobody answers, so the full sentence has to be somewhere, and under
-    /// the pointer is where a card in a grid keeps what it cannot fit.
-    ///
-    /// And the stats follow it, on that card only: they are what the reason took the slot from
-    /// (`body`). Every other card prints them, so repeating them there would be the tooltip reading
-    /// the card back rather than saying what it could not.
-    private var sessionTooltip: String {
-        var lines = [row.title,
-                     row.isReporting ? L(row.state.rawValue) : L("not reporting")]
-        if sessionIsWaiting, let reason = sessionReason {
-            lines.append(reason)
-            if let stats = sessionStatsLine(now: Date()) { lines.append(stats) }
-        }
-        lines.append(L("Click to bring its terminal to the front"))
-        if let directory = row.directory { lines.append(directory) }
-        return lines.filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     /// One dot per state, along the axis this board is actually read for: does this one need me?

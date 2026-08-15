@@ -198,13 +198,18 @@ func runProcessTreeLineChecks() {
     // before anything is sampled, so the count, the CPU, the memory, the disk and the ports are all
     // of the same set; a tree with nothing left of the session gets no entry, which is what makes
     // the line disappear rather than report Tally to itself.
-    check("the app's own processes come out of the tree before any of it is measured",
+    check("the app's own processes are named before any of the tree is measured",
           storeSource.contains("let ours = ProcessTree.ownFamily(members, root: root) { paths[$0] }")
               && storeSource.contains("let measured = members.subtracting(ours)")
               && storeSource.contains("guard !measured.isEmpty else { continue }")
-              && storeSource.contains("ProcessTree.resourceSample(of: measured, at: now)")
               && storeSource.contains("ProcessTree.listeningPorts(of: measured)")
               && storeSource.contains("processes: measured.count"))
+    // AND THE WHOLE TREE IS SAMPLED, ours included, which is the one thing here that looks like the
+    // opposite of the line above and is what makes it true. A pid filtered off the list before the
+    // sample can never be seen to DEPART, and departing is what cancels the seconds one of ours
+    // hands to whoever collects it - which is Claude Code (`ProcessResourceSample.ours`).
+    check("…and then read WITH the tree, so that one of them ending can still be seen to end",
+          storeSource.contains("ProcessTree.resourceSample(of: members, ours: ours, at: now)"))
     // One reading of the programs per tree per tick, used for both questions it answers.
     check("…off the one table of programs that also names the culprit",
           storeSource.contains("let paths = ProcessTree.executablePaths(of: members)")

@@ -131,7 +131,12 @@ final class ProcessFootprintStore {
                 pid.flatMap { paths[$0].flatMap(ProcessTree.displayName) }
             }
             let key = String(root)
-            let reading = ProcessTree.resourceSample(of: measured, at: now)
+            // THE WHOLE TREE IS SAMPLED AND OURS ARE TAKEN OUT INSIDE EACH READING, rather than
+            // filtered off the pid list first. Filtering here looks equivalent and is not: one of
+            // ours that ends between two ticks leaves its seconds in the counters of whoever
+            // collected it, which is Claude Code, and a pid that was never sampled can never be
+            // seen to depart - so nothing cancels them (`ProcessResourceSample.ours`).
+            let reading = ProcessTree.resourceSample(of: members, ours: ours, at: now)
             readings[key] = reading
             let cpu = ProcessTree.cpuPercent(from: previousSample[key], to: reading,
                                              carry: cpuCarry[key] ?? 0)

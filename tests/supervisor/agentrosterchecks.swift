@@ -166,4 +166,54 @@ func runAgentRosterChecks() {
     // The three events the CLI answers to are the three the app registers, spelled once.
     check("the CLI and the registration name the same three events",
           AgentRosterEvent.events == ["SubagentStart", "SubagentStop", "Stop"])
+
+    // MARK: one event at a time
+
+    // A FAN-OUT FIRES THESE AT ONCE. Claude Code runs the hook per subagent, so N processes each do
+    // read-fold-write on one document; the atomic write makes each of them all-or-nothing and does
+    // nothing at all about the interleave. Measured before the lock existed: twenty concurrent
+    // starts left a roster naming ONE agent, every other one read before it was written and written
+    // over afterwards.
+    //
+    // REAL CONTENTION RATHER THAN A SIMULATION OF IT: `flock` is held by the open file description,
+    // not by the process, so separate `open` calls contend with each other even inside one process
+    // (flock(2) says so outright). These threads therefore queue on the same object a fan-out's
+    // processes would.
+    let racing = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-agents-race-\(getpid())", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: racing) }
+    let starters = 20
+    DispatchQueue.concurrentPerform(iterations: starters) { index in
+        recordAgentEvent(AgentRosterEvent(kind: .started, agentID: "a\(index)"),
+                         declared: true, pid: "88", dir: racing, now: t0)
+    }
+    check("twenty subagents starting at once are twenty subagents",
+          readSessionAgents(pid: "88", dir: racing)?.live.count == starters)
+    // And the same in reverse, from a roster that holds them all: every stop has to land, or a
+    // fan-out that finished would leave the card counting agents nobody is running.
+    DispatchQueue.concurrentPerform(iterations: starters) { index in
+        recordAgentEvent(AgentRosterEvent(kind: .stopped, agentID: "a\(index)"),
+                         declared: true, pid: "88", dir: racing, now: t0)
+    }
+    check("…and twenty stopping at once leave nobody behind",
+          readSessionAgents(pid: "88", dir: racing)?.live.isEmpty == true)
+    // The lock is a file of its own because the roster is published by RENAME, and a lock taken on
+    // the roster itself would follow the inode the write just replaced. It is swept with the rest of
+    // a dead supervisor's files, or it would outlive every session that ever fanned out.
+    check("the lock is a file of its own, and one the sweep knows",
+          FileManager.default.fileExists(atPath: sessionAgentsLockFile(pid: "88", dir: racing).path)
+              && supervisorStateSuffixes.contains(sessionAgentsLockSuffix)
+              && supervisorStatePid(ofFile: "88" + sessionAgentsLockSuffix) == 88)
+    // BOUNDED, because a hook runs inside somebody's turn: the wait cannot outlast this, whatever is
+    // holding the lock and whatever state it is in.
+    check("the wait a hook will spend on the lock is bounded well under a second",
+          Double(agentRosterLockAttempts) * Double(agentRosterLockPause) / 1_000_000 <= 0.5)
+    // FAIL-OPEN: a lock that cannot be taken must not cost the event. A directory that cannot be
+    // created is the case that reaches it (the path is a file, so no lock file can be made there).
+    let blocked = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-agents-blocked-\(getpid())")
+    try? Data().write(to: blocked)
+    defer { try? FileManager.default.removeItem(at: blocked) }
+    check("an event whose lock cannot be taken is still recorded",
+          withAgentRosterLock(pid: "88", dir: blocked) { 7 } == 7)
 }

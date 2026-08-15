@@ -51,7 +51,13 @@ extension ProcessTree {
     ///
     /// A pid that cannot be read is left out, which is what makes the differences above skip it
     /// rather than count its absence as work.
-    static func resourceSample(of pids: some Sequence<pid_t>,
+    ///
+    /// - Parameter ours: which of these pids are Tally's own. THE WHOLE TREE IS READ, ours included,
+    ///   and each number decides for itself what to do with them - not because the meter belongs in
+    ///   the reading, but because a process that is never sampled can never be seen to LEAVE, and
+    ///   leaving is what cancels the seconds it hands to its collector
+    ///   (`ProcessResourceSample.ours`).
+    static func resourceSample(of pids: some Sequence<pid_t>, ours: Set<pid_t> = [],
                                at now: Date = Date()) -> ProcessResourceSample {
         var times: [pid_t: Double] = [:]
         var childTimes: [pid_t: Double] = [:]
@@ -71,8 +77,11 @@ extension ProcessTree {
             memory[pid] = info.ri_phys_footprint
             diskWritten[pid] = info.ri_diskio_byteswritten
         }
+        // Narrowed to what was actually read, so a pid that would not answer is not carried here as
+        // one of ours either: the two lists then describe the same set of processes.
         return ProcessResourceSample(times: times, childTimes: childTimes, memory: memory,
-                                     diskWritten: diskWritten, at: now)
+                                     diskWritten: diskWritten, at: now,
+                                     ours: ours.filter { times[$0] != nil })
     }
 
     /// The program each of these pids is running. ONE PASS FOR THE WHOLE TREE, because the tick

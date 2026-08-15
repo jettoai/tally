@@ -223,9 +223,81 @@ func writeSessionAgents(_ record: SessionAgentsRecord, pid: String,
 
 /// Read a supervisor's agent roster, or nil when there is none (or the file is from a format this
 /// build does not know, which reads the same way: nothing to say).
+///
+/// UNLOCKED ON PURPOSE, and safe because the write above is a rename: a reader outside the critical
+/// section (the panel, every two seconds) sees either the whole old record or the whole new one,
+/// never a half. The lock below exists for the read-MODIFY-write, which is a different hazard.
 func readSessionAgents(pid: String, dir: URL = supervisorStateDir) -> SessionAgentsRecord? {
     guard let data = try? Data(contentsOf: sessionAgentsFile(pid: pid, dir: dir)) else { return nil }
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
     return try? decoder.decode(SessionAgentsRecord.self, from: data)
+}
+
+// MARK: - One event at a time
+
+/// The lock file guarding one supervisor's roster. A FILE OF ITS OWN rather than the roster itself,
+/// because the roster is published by RENAME: `flock` follows the inode, and every atomic write
+/// would hand the next arrival a lock on a file that is no longer the roster. This one is created
+/// once and never replaced, so everybody queues on the same object. Registered in
+/// `supervisorStateSuffixes` so a dead supervisor's copy is swept with the rest.
+let sessionAgentsLockSuffix = ".agents.lock"
+
+func sessionAgentsLockFile(pid: String, dir: URL = supervisorStateDir) -> URL {
+    dir.appendingPathComponent(pid + sessionAgentsLockSuffix)
+}
+
+/// How long a hook will wait for its turn, and in what steps. The critical section is one small read
+/// and one small write, so a queue of twenty is tens of milliseconds; the bound is not for that, it
+/// is for the holder that stops being a holder in the ordinary sense - suspended, paged out, on a
+/// filesystem that has gone away. A hook runs inside somebody's turn and may not hang it.
+let agentRosterLockAttempts = 250
+let agentRosterLockPause: useconds_t = 1000   // 1ms, so the wait is bounded at about 250ms
+
+/// Run `body` with this supervisor's roster held exclusively.
+///
+/// WHY A LOCK AT ALL: a fan-out starts its subagents at once, and Claude Code runs the hook per
+/// subagent, so N processes each do read-fold-write on one document. An atomic write makes each of
+/// them all-or-nothing and does nothing whatsoever about the interleave - measured before this
+/// existed, twenty concurrent starts left a roster naming ONE agent, every other one having been
+/// read before it was written and written over afterwards. Last writer wins is the whole defect,
+/// and only a critical section around the read AND the write closes it.
+///
+/// IT FAILS OPEN, deliberately, and that is a judgement about which wrong answer is cheaper. If the
+/// lock cannot be taken - the file will not open, or the wait ran out - the work is done anyway,
+/// unlocked, which is exactly the behaviour that shipped before this and is occasionally lossy.
+/// Skipping the event instead would drop it for certain rather than possibly, and the count is
+/// re-established at the next turn boundary by the roll call either way (`advanceAgentRoster`).
+/// Nothing here throws, prints, or blocks past the bound above: the hook's own contract.
+func withAgentRosterLock<Result>(pid: String, dir: URL = supervisorStateDir,
+                                 _ body: () -> Result) -> Result {
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    // `O_CLOEXEC` because this process may go on to spawn something, and a descriptor that outlives
+    // the wait would hold the lock in a child nobody is tracking.
+    let descriptor = open(sessionAgentsLockFile(pid: pid, dir: dir).path,
+                          O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+    guard descriptor >= 0 else { return body() }
+    defer { close(descriptor) }
+    var waited = 0
+    while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+        guard waited < agentRosterLockAttempts else { return body() }
+        waited += 1
+        usleep(agentRosterLockPause)
+    }
+    defer { flock(descriptor, LOCK_UN) }
+    return body()
+}
+
+/// Fold one event into this supervisor's roster, and publish the result. THE READ AND THE WRITE ARE
+/// ONE ACT, which is the whole point of this function existing rather than the hook doing the two
+/// halves itself: between them is where a concurrent fan-out loses agents.
+@discardableResult
+func recordAgentEvent(_ event: AgentRosterEvent, declared: Bool, pid: String,
+                      dir: URL = supervisorStateDir, now: Date = Date()) -> SessionAgentsRecord {
+    withAgentRosterLock(pid: pid, dir: dir) {
+        let next = advanceAgentRoster(readSessionAgents(pid: pid, dir: dir), event: event,
+                                      declared: declared, now: now)
+        writeSessionAgents(next, pid: pid, dir: dir)
+        return next
+    }
 }

@@ -212,9 +212,9 @@ func runProcessTreeChecks() {
 
     func sample(_ times: [pid_t: Double], child: [pid_t: Double] = [:],
                 memory: [pid_t: UInt64] = [:], written: [pid_t: UInt64] = [:],
-                at offset: TimeInterval) -> ProcessResourceSample {
+                ours: Set<pid_t> = [], at offset: TimeInterval) -> ProcessResourceSample {
         ProcessResourceSample(times: times, childTimes: child, memory: memory, diskWritten: written,
-                              at: t0.addingTimeInterval(offset))
+                              at: t0.addingTimeInterval(offset), ours: ours)
     }
     func percent(from previous: ProcessResourceSample?, to current: ProcessResourceSample,
                  carry: Double = 0) -> Double? {
@@ -380,4 +380,60 @@ func runProcessTreeChecks() {
           ProcessTree.diskWrite(from: sample([100: 1], written: [100: 5_000, 400: 90_000_000], at: 0),
                                 to: sample([100: 1], written: [100: 5_000], at: 2))
               .bytesPerSecond == 0)
+
+    // MARK: the meter is read and then left out of every number
+
+    // WHY OURS ARE SAMPLED AT ALL, which is the whole of this section. Leaving them off the pid list
+    // is what a reader expects to be enough; it is not, because the kernel folds a process's whole
+    // life into whoever COLLECTED it, and one of ours is collected by Claude Code. Measured on this
+    // machine (2026-08-15): a child burning a known 0.300s put 0.3308s into its parent's
+    // `ri_child_user_time` at the instant it was reaped, through the same `proc_pid_rusage` call
+    // this sampler makes. So they are read, and each number takes them out for itself.
+    //
+    // 200 is the session's Claude Code, 999 one of ours running inside it (a status line, a hook).
+    let hookAlive = sample([200: 10, 999: 0.3], child: [200: 0, 999: 0], ours: [999], at: 0)
+    // The hook has ended and Claude Code has collected it: its 0.3s is now in 200's child counter,
+    // and 999 is gone from the tree.
+    let hookReaped = sample([200: 10], child: [200: 0.3], ours: [], at: 2)
+    check("what one of ours left in the counters of whoever collected it is taken back off",
+          percent(from: hookAlive, to: hookReaped) == 0)
+    // THE CASE THIS REPLACED, stated as the thing that must not come back: filtered off the pid list
+    // instead of sampled, that same interval is the hook's whole life reported as session work.
+    check("…which is the reading a pid filter alone could not reach",
+          percent(from: sample([200: 10], child: [200: 0], at: 0),
+                  to: sample([200: 10], child: [200: 0.3], at: 2)) == 15)
+    // And while it is alive it is simply not work: its own seconds never enter the sum.
+    check("one of ours burning a core is not the session burning a core",
+          percent(from: sample([200: 10, 999: 0], ours: [999], at: 0),
+                  to: sample([200: 10, 999: 2], ours: [999], at: 2)) == 0)
+    // Nor may it be named: a card that blamed the meter would be pointing at the wrong process by
+    // construction, whatever the numbers said.
+    check("…and it is never the culprit, however much of the tick it holds",
+          ProcessTree.cpuPercent(from: sample([200: 10, 999: 0], ours: [999], at: 0),
+                                 to: sample([200: 11, 999: 9], ours: [999], at: 2)).leader == 200)
+    // What one of ours COLLECTED is not the session's either: the supervisor reaps the Claude Code
+    // it started, and that whole life arriving on it must not read as a tick of work.
+    check("what one of ours collected is not the session's work either",
+          percent(from: sample([200: 10, 999: 0], child: [999: 0], ours: [999], at: 0),
+                  to: sample([200: 10, 999: 0], child: [999: 40], ours: [999], at: 2)) == 0)
+    // Memory is an instant rather than an interval, so nothing has to survive a process ending and
+    // the pid test is the whole of it there.
+    check("the tree holds what the session holds, not what the meter holds",
+          sample([200: 1, 999: 1], memory: [200: 300_000_000, 999: 2_000_000_000], ours: [999],
+                 at: 0).memoryBytes == 300_000_000)
+    // Disk needs no departure to cancel anything, and that is a FACT ABOUT THE KERNEL rather than a
+    // simplification: `rusage_info_v6` has six `ri_child_*` counters and no disk one among them
+    // (read off the SDK header, 2026-08-15), so nothing one of ours wrote can arrive anywhere else.
+    let bothWriting = ProcessTree.diskWrite(
+        from: sample([200: 1, 999: 1], written: [200: 0, 999: 0], ours: [999], at: 0),
+        to: sample([200: 1, 999: 1], written: [200: 2_000_000, 999: 80_000_000], ours: [999], at: 2))
+    check("what the meter writes is not what the session writes",
+          bothWriting.bytesPerSecond == 1_000_000)
+    check("…and it is not the writer to blame either", bothWriting.leader == 200)
+    // The one thing sampling still cannot see, asserted so it stays a known bound rather than a
+    // surprise: one of ours born AND ended inside a single interval is in neither reading, so there
+    // is nothing to depart and its seconds stay where the kernel put them.
+    check("one of ours that lived entirely inside one tick is still on the collector",
+          percent(from: sample([200: 10], child: [200: 0], at: 0),
+                  to: sample([200: 10], child: [200: 0.2], at: 2)) == 10)
 }

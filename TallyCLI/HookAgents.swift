@@ -32,9 +32,12 @@ func runHookAgents(args: [String]) -> Int32 {
         return 0
     }
     let claudeCode = ProcessInfo.processInfo.environment[claudeCodeExecPathVariable]
-    let record = advanceAgentRoster(readSessionAgents(pid: supervisor), event: event,
-                                    declared: claudeCodeReportsAgents(executablePath: claudeCode))
-    writeSessionAgents(record, pid: supervisor)
+    // THE READ AND THE WRITE ARE ONE ACT (`recordAgentEvent`), never two here. A fan-out starts its
+    // subagents at once and Claude Code runs this hook per subagent, so these processes race each
+    // other over one document: done as two halves, a fan-out ends with a roster naming whichever
+    // agent happened to write last.
+    recordAgentEvent(event, declared: claudeCodeReportsAgents(executablePath: claudeCode),
+                     pid: supervisor)
     return 0
 }
 

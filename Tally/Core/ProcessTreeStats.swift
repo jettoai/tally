@@ -104,15 +104,36 @@ struct ProcessResourceSample: Equatable {
     /// Cumulative bytes each process has written to disk since it started.
     var diskWritten: [pid_t: UInt64] = [:]
     var at: Date
+    /// Which of these pids are Tally's own (`ProcessTree.ownFamily`).
+    ///
+    /// SAMPLED RATHER THAN SKIPPED, and the difference is not tidiness. Leaving them out of the
+    /// reading altogether is what a reader expects to be enough, and it is not: a Tally process
+    /// that ends between two ticks has its whole life folded into the counters of whoever REAPED
+    /// it, and its reaper is Claude Code - a process this card is very much measuring. Measured on
+    /// this machine (2026-08-15): a child burning a known 0.300s put 0.3308s into its parent's
+    /// `ri_child_user_time` the instant it was collected, read through the very same
+    /// `proc_pid_rusage` call this sampler makes. Filtered by pid alone, that arrival lands on the
+    /// session with nothing to cancel it, because the pid it belonged to was never in either
+    /// reading and so never departed from one.
+    ///
+    /// So they are read like everything else and taken out where each number is DECIDED: they
+    /// contribute no work of their own and no arrivals of their own, and their departures still
+    /// produce the credit that cancels what they left behind in somebody else's counter
+    /// (`cpuPercent`).
+    var ours: Set<pid_t> = []
 
-    /// What the tree is holding, which is the number the card shows.
+    /// What the tree is holding, which is the number the card shows. Tally's own excluded, on the
+    /// terms above: memory is an instant rather than an interval, so nothing has to survive a
+    /// process ending and the pid test is the whole of it.
     ///
     /// SHARED PAGES ARE COUNTED ONCE PER PROCESS THAT MAPS THEM: eight node processes sharing a
     /// runtime each carry it in their own footprint, so this sum is larger than what killing the
     /// tree would hand the machine back. Activity Monitor's per-process column adds up exactly the
     /// same way, and as an answer to "which session is the heavy one", which is all the card claims,
     /// it is the right kind of wrong.
-    var memoryBytes: UInt64 { memory.values.reduce(0, +) }
+    var memoryBytes: UInt64 {
+        memory.reduce(0) { $0 + (ours.contains($1.key) ? 0 : $1.value) }
+    }
 }
 
 /// What a pair of readings says about CPU: the percentage, who to blame for it, and the credit this
@@ -285,6 +306,21 @@ enum ProcessTree {
     /// added to prevent, and a quieter one. So only what departed in THIS interval is handed on;
     /// whatever the previous tick handed in and could not be spent is written off.
     ///
+    /// AND TALLY'S OWN ARE IN THE SAMPLE BUT NOT IN THE ANSWER, which is the one asymmetry here that
+    /// is not about time. They contribute no work and no arrivals - a card measuring the meter is
+    /// the defect `ownFamily` exists for - but every departure counts, theirs included, and that is
+    /// the whole repair: a Tally hook that ends between two ticks has its life folded into the
+    /// counters of whoever collected it, which is Claude Code, so its seconds arrive on a process
+    /// this card IS measuring. Sampled, it departs and the credit cancels the arrival; filtered out
+    /// by pid before the sample, it was never in either reading, never departed, and the arrival
+    /// stood as session work. (`ProcessResourceSample.ours` carries the measurement.)
+    ///
+    /// WHAT THAT STILL DOES NOT REACH, said rather than implied: one of ours BORN AND ENDED inside a
+    /// single interval appears in neither reading, so there is nothing to depart and its seconds
+    /// stay on the collector. Nothing measured from outside the process can see it - the honest
+    /// bound is the sampling interval, and closing it would mean Tally's own processes writing down
+    /// what they spent as they exit.
+    ///
     /// - Parameter carry: what the previous pair could not settle, in seconds. Zero for the first
     ///   pair of a session, and the reason the store keeps one number per session.
     static func cpuPercent(from previous: ProcessResourceSample?, to current: ProcessResourceSample,
@@ -298,13 +334,19 @@ enum ProcessTree {
         // those two are the same number until they are held separately.
         var own: [pid_t: Double] = [:]
         var arrived: [pid_t: Double] = [:]
-        for (pid, time) in current.times {
+        // Ours are read and then left out of both, which is what makes the departure below able to
+        // cancel what one of them left in somebody else's counter (see the note above).
+        for (pid, time) in current.times where !current.ours.contains(pid) {
             let mine = max(0, time - (previous.times[pid] ?? 0))
             let buried = max(0, (current.childTimes[pid] ?? 0) - (previous.childTimes[pid] ?? 0))
             // Absent rather than zero, so an idle pid is not a candidate for the blame below.
             if mine > 0 { own[pid] = mine }
             if buried > 0 { arrived[pid] = buried }
         }
+        // EVERY departure, ours included: what one of ours was counted for is exactly what has just
+        // landed on whoever collected it, and the tick that sees it go is the tick that has to take
+        // it off. Judged on the CURRENT reading's answer to who is ours, so a pid is treated the
+        // same way on the tick it leaves as on the tick before it.
         var departed = 0.0
         for (pid, time) in previous.times where current.times[pid] == nil {
             departed += time + (previous.childTimes[pid] ?? 0)
@@ -362,6 +404,13 @@ enum ProcessTree {
     /// the reading is an undercount of exactly that traffic. Which is tolerable for what this is
     /// for: the runaway this segment exists to catch (a log loop, a watcher rewriting a bundle) is
     /// long-lived by definition, and short commands write in kilobytes.
+    ///
+    /// THE SAME ABSENCE IS WHY TALLY'S OWN NEED NOTHING BUT A PID TEST HERE, where the CPU needed a
+    /// departure to cancel an arrival. `rusage_info_v6` carries `ri_child_user_time`,
+    /// `ri_child_system_time`, `ri_child_pkg_idle_wkups`, `ri_child_interrupt_wkups`,
+    /// `ri_child_pageins` and `ri_child_elapsed_abstime`, and NO child counterpart of either disk
+    /// counter (read off the SDK header, 2026-08-15). Nothing one of ours wrote can arrive on a
+    /// process the card is measuring, so leaving it out of the sum leaves it out entirely.
     static func diskWrite(from previous: ProcessResourceSample?,
                           to current: ProcessResourceSample) -> ProcessDiskReading {
         guard let previous else { return ProcessDiskReading(bytesPerSecond: nil) }
@@ -370,7 +419,7 @@ enum ProcessTree {
         // Double before the subtraction: these are unsigned counters, and a pid whose number now
         // names a different process reads backwards - which would trap rather than clamp.
         var written: [pid_t: Double] = [:]
-        for (pid, bytes) in current.diskWritten {
+        for (pid, bytes) in current.diskWritten where !current.ours.contains(pid) {
             let delta = Double(bytes) - Double(previous.diskWritten[pid] ?? 0)
             if delta > 0 { written[pid] = delta }
         }

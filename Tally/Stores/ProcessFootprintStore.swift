@@ -84,13 +84,13 @@ final class ProcessFootprintStore {
         // A board with nothing on it is not a special case, only an empty one: no table is walked,
         // the loop below does not run, and everything held falls out through the same three lines
         // that retire a single session that ended.
-        let parents = roots.isEmpty ? [:] : ProcessTree.liveParents()
+        let processes = roots.isEmpty ? [] : ProcessTree.liveProcesses()
         let readPorts = ticks % Self.portsEveryNTicks == 0
         let now = Date()
         var next: [String: ProcessFootprint] = [:]
         var readings: [String: ProcessCPUSample] = [:]
         for root in roots {
-            let members = ProcessTree.members(root: root, parents: parents)
+            let members = ProcessTree.members(root: root, processes: processes)
             guard !members.isEmpty else { continue }
             let key = String(root)
             let reading = ProcessTree.cpuSample(of: members, at: now)

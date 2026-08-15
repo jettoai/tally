@@ -3,73 +3,151 @@ import Foundation
 // WHAT A SESSION'S PROCESS TREE COSTS, as the card's fourth line states it (Tally/Core/
 // ProcessTreeStats.swift). Three rules, all pure, all stated here without a process in sight:
 //
-//   1. WHICH PIDS ARE IN THE TREE, walked from one pass over the machine's parent map. A session is
-//      never one process - supervisor, Claude Code, and every shell and dev server under them - so
-//      a rule that stopped at the first generation would report a fraction of the cost.
-//   2. WHAT TWO CUMULATIVE CPU READINGS MEAN, which is the only reason the readings are held per
-//      pid: a tree total goes DOWN when a shell exits, and differencing that would print negative
-//      work as often as a session finishes a command.
+//   1. WHICH PIDS ARE IN THE SESSION: everything under the supervisor by parentage, AND everything
+//      left in its job. Parentage alone loses the process the whole feature is for - a background
+//      server outlives the shell that started it and macOS re-parents it to launchd.
+//   2. WHAT TWO CUMULATIVE CPU READINGS MEAN, which is why they are held per pid AND why the
+//      children a process has already buried are read too: an agent's work is mostly commands that
+//      are born and finished between two ticks, and no sample ever sees those alive.
 //   3. HOW THE LINE READS when a segment has nothing to say, and how many ports fit on a card.
 //
-// The libproc side of that file is three thin wrappers with no decisions in them; what it hands
-// over is asserted where the decisions are, here.
+// The libproc side of that file is thin wrappers with no decisions in them, with one exception that
+// is asserted here against an independent oracle: what UNIT its counters are in.
 
 func runProcessTreeChecks() {
     let t0 = Date(timeIntervalSince1970: 1_786_571_200)
 
-    // A machine, as the parent map spells it: launchd (1) holds a supervisor (100), which holds a
-    // Claude Code (200), which holds a shell (300) with a dev server (400) under it. 500 is another
-    // session's supervisor and 600 is somebody's editor - neither belongs to this tree.
-    let parents: [pid_t: pid_t] = [1: 0, 100: 1, 200: 100, 300: 200, 400: 300, 500: 1, 600: 1]
+    func proc(_ pid: pid_t, ppid: pid_t, group: pid_t) -> ProcessIdentity {
+        ProcessIdentity(pid: pid, parent: ppid, group: group)
+    }
+    // A machine, in the shape a real one has (measured 2026-08-15): launchd (1), the tab's login
+    // shell (90) leading its own job, and a supervisor (100) started as a job of its own - so it
+    // LEADS the group its Claude Code (200), that session's shell (300) and its dev server (400)
+    // all carry. 500 is another session's supervisor, 600 somebody's editor.
+    let machine = [proc(1, ppid: 0, group: 1), proc(90, ppid: 1, group: 90),
+                   proc(100, ppid: 90, group: 100), proc(200, ppid: 100, group: 100),
+                   proc(300, ppid: 200, group: 100), proc(400, ppid: 300, group: 100),
+                   proc(500, ppid: 1, group: 500), proc(600, ppid: 1, group: 600)]
 
-    // MARK: which pids belong to the tree
+    // MARK: which pids belong to the session
 
     check("the tree is the supervisor and everything under it, however deep",
-          ProcessTree.members(root: 100, parents: parents) == [100, 200, 300, 400])
-    // THE WHOLE POINT OF WALKING IT. A dev server four generations down is exactly the process that
-    // holds the port and burns the CPU, and it is under a shell nobody would think to look in.
-    check("…so a grandchild's own child is in it, and a neighbouring session is not",
-          ProcessTree.members(root: 100, parents: parents).contains(400)
-              && !ProcessTree.members(root: 100, parents: parents).contains(500))
+          ProcessTree.members(root: 100, processes: machine) == [100, 200, 300, 400])
+    check("…and neither a neighbouring session nor the tab's own shell is in it",
+          !ProcessTree.members(root: 100, processes: machine).contains(500)
+              && !ProcessTree.members(root: 100, processes: machine).contains(90))
     check("a leaf session is just itself",
-          ProcessTree.members(root: 600, parents: parents) == [600])
+          ProcessTree.members(root: 600, processes: machine) == [600])
     // The board draws a card for a session the last scan found, and a supervisor can be gone by the
     // time this runs. Nothing to measure is nothing to say, not a zero.
     check("a root the machine no longer has is no tree at all",
-          ProcessTree.members(root: 999, parents: parents).isEmpty)
+          ProcessTree.members(root: 999, processes: machine).isEmpty)
     // Pid numbers are reused, so a parent chain CAN come back on itself. Without the visited set
     // this spins forever, taking the panel with it.
     check("a parent chain that loops does not hang the walk",
-          ProcessTree.members(root: 10, parents: [10: 11, 11: 10]) == [10, 11])
+          ProcessTree.members(root: 10, processes: [proc(10, ppid: 11, group: 10),
+                                                    proc(11, ppid: 10, group: 10)]) == [10, 11])
+
+    // MARK: the background server that outlived its shell
+
+    // THE CASE THE PPID WALK LOSES, and the one the line exists for. `sh -c 'npm run dev &'` leaves
+    // within the millisecond and macOS re-parents the server to launchd; verified live on this
+    // machine (2026-08-15): a shell-backgrounded process reads `ppid 1 pgid <unchanged>`, the walk
+    // by parentage found 2 processes and missed it, and this rule found 3 and did not.
+    let reparented = [proc(1, ppid: 0, group: 1), proc(90, ppid: 1, group: 90),
+                      proc(100, ppid: 90, group: 100), proc(200, ppid: 100, group: 100),
+                      proc(400, ppid: 1, group: 100)]   // the shell that started it is gone
+    check("a server re-parented to launchd is still the session's, by its job",
+          ProcessTree.members(root: 100, processes: reparented) == [100, 200, 400])
+    // The orphan goes on working: a dev server forks its own watchers after it is orphaned, and
+    // those are as much the session's as it is.
+    check("…and so is what that orphan starts afterwards, in the job or out of it",
+          ProcessTree.members(root: 100, processes: reparented
+                                  + [proc(450, ppid: 400, group: 100),
+                                     proc(460, ppid: 400, group: 460)]) == [100, 200, 400, 450, 460])
+    // A GROUP IS ONLY THE SESSION'S WHEN THE SESSION IS IN IT, and the case that matters is a group
+    // that outlived its leader: 700 and 701 are what is left of a job whose leader 100 exited, and
+    // pid 100 has since been handed to this supervisor - which joined its shell's job instead of
+    // leading one. Trusting the number alone would put a dead stranger's processes on the card.
+    let stale = [proc(90, ppid: 1, group: 90), proc(91, ppid: 90, group: 90),
+                 proc(100, ppid: 90, group: 90), proc(200, ppid: 100, group: 90),
+                 proc(700, ppid: 1, group: 100), proc(701, ppid: 700, group: 100)]
+    check("a supervisor that leads no job of its own falls back to parentage alone",
+          ProcessTree.members(root: 100, processes: stale) == [100, 200])
+
+    // MARK: the counters are in the units this file thinks they are
+
+    // THE ORACLE IS `getrusage`, because the trap here is silent and hardware-specific: the
+    // `rusage_info` counters are mach absolute time, which IS nanoseconds on Intel and is 41.67ns
+    // per unit on Apple Silicon. Read as nanoseconds, every reading on this machine was a
+    // twenty-fourth of the truth, and nothing about the number looks wrong. Asserted rather than
+    // commented, because a future simplification "removing a pointless multiply" is exactly how it
+    // comes back.
+    func selfCPUSeconds() -> Double {
+        var usage = rusage()
+        getrusage(RUSAGE_SELF, &usage)
+        return Double(usage.ru_utime.tv_sec) + Double(usage.ru_utime.tv_usec) / 1e6
+            + Double(usage.ru_stime.tv_sec) + Double(usage.ru_stime.tv_usec) / 1e6
+    }
+    // Two readings of the SAME total, taken at the same instant, rather than two deltas over a
+    // stretch of spinning: both counters are this process's whole CPU life, so the comparison is
+    // arithmetic rather than timing, and a machine under load cannot make it wobble. By the time
+    // this suite reaches here it has burned seconds, which is what makes the totals meaningful.
+    let me = getpid()
+    let measured = ProcessTree.cpuSample(of: [me]).times[me] ?? 0
+    let oracle = selfCPUSeconds()
+    check("the CPU counters are read in the units the machine keeps them in",
+          oracle > 0.05 && measured > oracle * 0.85 && measured < oracle * 1.15)
 
     // MARK: what two readings say about CPU
 
-    let first = ProcessCPUSample(times: [100: 1, 200: 4], at: t0)
+    func sample(_ times: [pid_t: Double], child: [pid_t: Double] = [:],
+                at offset: TimeInterval) -> ProcessCPUSample {
+        ProcessCPUSample(times: times, childTimes: child, at: t0.addingTimeInterval(offset))
+    }
+    let first = sample([100: 1, 200: 4], at: 0)
     // Two seconds later: the supervisor spent nothing, Claude Code spent one second, and a shell
     // that did not exist before spent half of one.
-    let second = ProcessCPUSample(times: [100: 1, 200: 5, 300: 0.5], at: t0.addingTimeInterval(2))
+    let second = sample([100: 1, 200: 5, 300: 0.5], at: 2)
     check("a first reading says nothing, because a cumulative counter needs two",
           ProcessTree.cpuPercent(from: nil, to: second) == nil)
     check("two readings are the work between them over the time between them",
           ProcessTree.cpuPercent(from: first, to: second) == 75)
     // A pid born inside the interval spent everything it has inside it, by definition.
     check("…counting a process that appeared during the interval in full",
-          ProcessTree.cpuPercent(from: ProcessCPUSample(times: [:], at: t0),
-                                 to: ProcessCPUSample(times: [300: 1],
-                                                      at: t0.addingTimeInterval(2))) == 50)
-    // THE READING THAT USED TO GO NEGATIVE. Held as one tree total, a shell finishing subtracts its
-    // whole lifetime from the next difference; held per pid it simply stops contributing.
-    check("…and a process that ended takes nothing away with it",
-          ProcessTree.cpuPercent(from: ProcessCPUSample(times: [100: 1, 300: 9], at: t0),
-                                 to: ProcessCPUSample(times: [100: 2],
-                                                      at: t0.addingTimeInterval(2))) == 50)
-    // The only way a pid's own counter goes backwards is the number naming a different process now.
-    check("…nor does a counter that went backwards count as work",
-          ProcessTree.cpuPercent(from: ProcessCPUSample(times: [100: 9], at: t0),
-                                 to: ProcessCPUSample(times: [100: 1],
-                                                      at: t0.addingTimeInterval(2))) == 0)
+          ProcessTree.cpuPercent(from: sample([:], at: 0), to: sample([300: 1], at: 2)) == 50)
     check("two readings taken at the same instant say nothing rather than dividing by nothing",
-          ProcessTree.cpuPercent(from: first, to: ProcessCPUSample(times: [100: 2], at: t0)) == nil)
+          ProcessTree.cpuPercent(from: first, to: sample([100: 2], at: 0)) == nil)
+    // The only way a pid's own counter goes backwards is the number naming a different process now.
+    check("a counter that went backwards does not count as work",
+          ProcessTree.cpuPercent(from: sample([100: 9], at: 0),
+                                 to: sample([100: 1], at: 2)) == 0)
+
+    // MARK: the work of processes no sample ever saw alive
+
+    // THE READING THAT WAS 0.007% FOR HALF A CORE. A command that starts and finishes between two
+    // ticks is in neither sample, and its whole cost is in its parent's child counter - which is
+    // where most of a session's CPU is, since an agent's work is short commands.
+    check("a child born and buried between two ticks is counted, through its parent's counter",
+          ProcessTree.cpuPercent(from: sample([100: 1], child: [100: 0], at: 0),
+                                 to: sample([100: 1], child: [100: 1], at: 2)) == 50)
+    // A long-lived child was already counted while it was alive, and its whole life lands in the
+    // parent's counter the moment it is collected. Without taking its last own reading back off,
+    // every long command would be counted twice at the tick it finished.
+    check("…while a long-lived child that dies is not counted twice for the life it already spent",
+          ProcessTree.cpuPercent(from: sample([100: 1, 300: 3], child: [100: 0], at: 0),
+                                 to: sample([100: 1], child: [100: 4], at: 2)) == 50)
+    // And the same for what IT had already buried: a shell that ran commands carries their CPU in
+    // its own child counter, which was counted at the tick each of them finished, and which is
+    // folded into the parent's counter when the shell itself is collected.
+    check("…nor for the grandchildren it had already buried and been counted for",
+          ProcessTree.cpuPercent(from: sample([100: 1, 300: 3], child: [100: 0, 300: 6], at: 0),
+                                 to: sample([100: 1], child: [100: 10], at: 2)) == 50)
+    // A process that has died and not yet been collected has had its readings taken off with
+    // nothing yet added back. Half a tick under is the price of never double counting.
+    check("…and a death nobody has collected yet reads as nothing rather than as negative work",
+          ProcessTree.cpuPercent(from: sample([100: 1, 300: 3], child: [100: 0], at: 0),
+                                 to: sample([100: 1], child: [100: 0], at: 2)) == 0)
 
     // MARK: how the line reads
 

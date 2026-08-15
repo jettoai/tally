@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 16
+    nonisolated static let skillVersion = 17
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -27,7 +27,7 @@ extension IntegrationsStore {
         """
         ---
         name: tally-quota
-        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, which account a launch would land on, and the usage advisor's verdict on whether the current accounts cover the workload. Also sets a per-project launch profile (which model this repo runs), moves a running conversation to another account (one the user names or the one with the most headroom), and opens, lists and tears down git worktrees, the parallel lines of work a repository runs sessions in. Use when the user asks how much quota is left, about rate limits or resets, which account to use, whether to add another account, how usage is trending, before starting heavy multi-agent work, when a project should run a cheaper model than the fleet default, when the user asks to switch this session to a particular account, when the account a session is on runs low mid-conversation, or when the user wants to start a parallel line of work on a branch of its own and to clean one up once it is merged.
+        description: Check AI subscription quota on this machine with Tally, every Claude and Codex account's 5-hour, weekly, and flagship-model windows, reset times, the pooled fleet view, which account a launch would land on, and the usage advisor's verdict on whether the current accounts cover the workload. Also sets a per-project launch profile (which model this repo runs), moves a running conversation to another account (one the user names or the one with the most headroom), opens, lists and tears down git worktrees, the parallel lines of work a repository runs sessions in, and types a line into a supervised session, this one included, which is how a slash command like /clear or an answer to a prompt gets triggered from inside a turn. Use when the user asks how much quota is left, about rate limits or resets, which account to use, whether to add another account, how usage is trending, before starting heavy multi-agent work, when a project should run a cheaper model than the fleet default, when the user asks to switch this session to a particular account, when the account a session is on runs low mid-conversation, when the user wants to start a parallel line of work on a branch of its own and to clean one up once it is merged, or when a session has to clear or compact its own context, or answer a prompt another session is sitting on.
         ---
 
         <!-- tally-skill v\(skillVersion), managed by Tally.app (Settings -> Integrations); safe to delete -->
@@ -248,6 +248,49 @@ extension IntegrationsStore {
         instructions: `switch` moves this conversation now, `project set` decides where
         future launches in this repo land. They stack in that order, so a session pin beats
         the project profile, which beats the app's own pin or smart pick.
+
+        # Typing a line into a session, including this one
+
+        A conversation cannot type into its own composer, so the things that only a
+        keystroke triggers (`/clear`, `/compact`, answering a prompt that is sitting on its
+        default) are out of reach from inside a turn. `tally session send` is the way in:
+
+        ```
+        tally session send "/clear"              # this session, at the end of this turn
+        tally session send                       # press Return alone
+        tally session send "2" --session 65949   # another session, by its pid
+        ```
+
+        Run with no `--session` it addresses the session it is running in, which is what an
+        agent clearing its own context wants: say what you have to say first, because the
+        line is typed at the first moment the session is waiting or idle, and the turn you
+        are in is what it waits for. So a `/clear` asked for mid-answer lands once that
+        answer is finished, not in the middle of it, and the command returns having been
+        told which happened.
+
+        `--session` names any session this machine supervises, by either of its pids: the
+        Claude Code that `tally status --json` reports as `sessions[].pid`, or the Tally
+        supervising it. Look the target up in that output by `project` or `worktree` rather
+        than by memory, and read its `state` first: `blocked` is a session waiting on a
+        person, which is the one this is most often for.
+
+        What it costs to get wrong, and how to tell:
+
+        - Exit 0 means the line was typed and Return was pressed. The one line on stdout
+          says which session took it.
+        - Exit 3 means nothing was queued, and the reason is on stderr: the text is over
+          200 bytes of UTF-8, the pid names nothing this machine supervises, the session
+          never reached a moment the line could be typed at, or another send is still in
+          flight there. One send at a time per session, and a second is refused rather than
+          replacing the first.
+        - Exit 4 means the request was written and nobody answered within 150 seconds. The
+          session's supervisor may be mid-restart; the request is still on disk and the
+          message says where.
+        - Exit 2 is a usage error and exit 1 is something broken here. Read the message
+          rather than retrying: a retry answers none of these four.
+
+        Keep the line short. This is for a slash command or an answer to a prompt, not for
+        a prompt: anything longer belongs in the conversation itself.
 
         # Parallel lines of work on the same repository
 

@@ -157,6 +157,8 @@ final class IntegrationsStore {
     private(set) var statusLineStatus: Status = .notInstalled
     /// The `Notification` hook behind the panel's session board (IntegrationsNotificationHook.swift).
     private(set) var notificationHookStatus: Status = .notInstalled
+    /// The three subagent hooks behind the session card's agent count (IntegrationsAgentHook.swift).
+    private(set) var agentHookStatus: Status = .notInstalled
     private(set) var skillStatus: Status = .notInstalled
     /// Whether the other accounts run on the main account's harness (IntegrationsSharedHarness).
     /// Optional because a one-account machine has no row here at all, rather than an empty one.
@@ -180,6 +182,7 @@ final class IntegrationsStore {
         shimStatuses = Dictionary(uniqueKeysWithValues: Shim.allCases.map { ($0, Self.detectShim($0)) })
         statusLineStatus = Self.detectStatusLine()
         notificationHookStatus = Self.detectNotificationHook()
+        agentHookStatus = Self.detectAgentHooks()
         skillStatus = Self.detectSkill()
         sharedHarnessStatus = Self.detectSharedHarness()
         completionInstalled = Self.detectCompletion()

@@ -75,18 +75,32 @@ extension ProcessTree {
                                      diskWritten: diskWritten, at: now)
     }
 
-    /// What to call a pid on the card, read off the path of the program it is running (the rule for
-    /// turning that path into a name is next door, `ProcessTree.displayName`).
+    /// The program each of these pids is running. ONE PASS FOR THE WHOLE TREE, because the tick
+    /// needs the same answer twice: to tell Tally's own processes from the session's work
+    /// (`ownFamily`) and to put a name beside the number (`displayName`). Asking twice would be two
+    /// calls per process per tick for one string.
+    ///
+    /// A pid that will not answer is simply absent, which is what makes both readers above treat it
+    /// as "cannot say" rather than as a program called "".
+    static func executablePaths(of pids: some Sequence<pid_t>) -> [pid_t: String] {
+        var paths: [pid_t: String] = [:]
+        for pid in pids { paths[pid] = executablePath(of: pid) }
+        return paths
+    }
+
+    /// The path of the program one pid is running (the rule for turning that path into a NAME is
+    /// next door, `ProcessTree.displayName`).
     ///
     /// `proc_pidpath` RATHER THAN `proc_name`, whose answer is truncated to fifteen characters -
     /// which is a limit the names this is for sit right on top of ("next-server", "esbuild",
     /// "node") - and which is the same truncation for a program installed under a version number,
-    /// leaving nothing to walk up from.
+    /// leaving nothing to walk up from. It is also the only one of the two that can be compared
+    /// with another process's, which is the whole of how `ownFamily` decides anything.
     ///
     /// NOTHING RATHER THAN A GUESS when the process is gone, which is ordinary here rather than an
     /// error: the culprit of an interval can be a command that finished inside it, and the card
     /// simply shows the number with no name beside it.
-    static func name(of pid: pid_t) -> String? {
+    static func executablePath(of pid: pid_t) -> String? {
         // `PROC_PIDPATHINFO_MAXSIZE` itself does not survive the import into Swift, and it is
         // defined as four path lengths - which is the size `proc_pidpath` documents as required.
         var buffer = [UInt8](repeating: 0, count: 4 * Int(PATH_MAX))
@@ -94,7 +108,7 @@ extension ProcessTree {
         // rest of the buffer is zeros, and decoding those too would put them in the string.
         let written = proc_pidpath(pid, &buffer, UInt32(buffer.count))
         guard written > 0 else { return nil }
-        return displayName(forPath: String(decoding: buffer.prefix(Int(written)), as: UTF8.self))
+        return String(decoding: buffer.prefix(Int(written)), as: UTF8.self)
     }
 
     /// A `rusage_info` CPU counter in seconds.

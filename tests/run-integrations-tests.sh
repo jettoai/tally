@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandchecks.swift \
   tests/integrations/statuslinechecks.swift \
-  tests/integrations/notificationhookchecks.swift tests/integrations/switchgroupchecks.swift tests/integrations/selfhealchecks.swift \
+  tests/integrations/agenthookchecks.swift tests/integrations/notificationhookchecks.swift tests/integrations/switchgroupchecks.swift tests/integrations/selfhealchecks.swift \
   tests/integrations/localizationchecks.swift tests/integrations/renamechecks.swift tests/integrations/mergechecks.swift \
   tests/integrations/nativepickerchecks.swift tests/integrations/skillversionchecks.swift \
   tests/integrations/shimscriptchecks.swift tests/integrations/sharedharnesschecks.swift \
@@ -30,7 +30,8 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Stores/IntegrationsTallyCommand.swift Tally/Stores/IntegrationsPromptCommand.swift \
   Tally/Stores/IntegrationsPromptHook.swift Tally/Stores/IntegrationsMCPServer.swift \
   Tally/Stores/IntegrationsNotificationHook.swift \
-  TallyCLI/SessionState.swift TallyCLI/ReloadRequest.swift \
+  Tally/Stores/IntegrationsAgentHook.swift \
+  TallyCLI/SessionState.swift TallyCLI/AgentRoster.swift TallyCLI/ReloadRequest.swift \
   Tally/Stores/IntegrationsSelfHeal.swift \
   Tally/Core/PromptHookInput.swift Tally/Core/CLIRunner.swift \
   Tally/Core/UsageSnapshot.swift \

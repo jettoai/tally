@@ -11159,31 +11159,147 @@
         }
       }
     },
-    "high memory": {
+    "agent": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "記憶體用量偏高"
+            "value": "個子代理"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "内存占用偏高"
+            "value": "个子代理"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メモリ使用量が多い"
+            "value": "エージェント"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "메모리 사용량 많음"
+            "value": "에이전트"
+          }
+        }
+      }
+    },
+    "agents": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "個子代理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "个子代理"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트"
+          }
+        }
+      }
+    },
+    "holding a lot of memory while nothing is running": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置中卻佔著大量記憶體"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲中却占着大量内存"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中なのに大量のメモリを保持"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기 중인데 메모리를 많이 점유"
+          }
+        }
+      }
+    },
+    "Claude subagent count": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 子代理數量"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 子代理数量"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude サブエージェント数"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 서브에이전트 수"
+          }
+        }
+      }
+    },
+    "Adds the number of subagents working under each session to its card, which nothing on this machine can see from the outside. Installs three hook entries per Claude account (SubagentStart, SubagentStop and Stop); anything already registered for those events keeps running, and only Tally's entries are removed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每張卡片上加上該 session 底下正在工作的子代理數量，這是這台機器從外部看不到的資訊。每個 Claude 帳號安裝三個 hook 項目（SubagentStart、SubagentStop、Stop）；已註冊在這些事件上的其他 hook 照常執行，移除時只會拿掉 Tally 自己的項目。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在每张卡片上加上该 session 下正在工作的子代理数量，这是这台机器从外部看不到的信息。每个 Claude 账号安装三个 hook 条目（SubagentStart、SubagentStop、Stop）；已注册在这些事件上的其他 hook 照常运行，移除时只会拿掉 Tally 自己的条目。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各セッションの下で動いているサブエージェントの数をカードに表示します。この情報はマシンの外側からは見えません。Claude アカウントごとに 3 つのフック（SubagentStart、SubagentStop、Stop）を登録します。同じイベントに登録済みの他のフックはそのまま動き続け、削除されるのは Tally の項目だけです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 세션 아래에서 작동 중인 서브에이전트 수를 카드에 표시합니다. 이 정보는 이 기기 외부에서는 볼 수 없습니다. Claude 계정마다 후크 항목 3개(SubagentStart, SubagentStop, Stop)를 설치하며, 해당 이벤트에 이미 등록된 다른 후크는 그대로 실행되고 Tally의 항목만 제거됩니다."
           }
         }
       }

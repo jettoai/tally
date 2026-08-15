@@ -223,12 +223,27 @@ enum NamedSession: Equatable {
 /// The bar is higher than the one the environment marker passes, on purpose. That marker is
 /// evidence of DESCENT - this process was started inside that session - while a pid typed on a
 /// command line is evidence of nothing at all.
+///
+/// EITHER HALF OF A SESSION ANSWERS TO ITS NAME, and that is not a convenience. A session is two
+/// processes - the supervisor and the Claude Code under it - and the one a caller has in hand is
+/// almost always the CHILD: `tally status --json` publishes that pid and no other (`sessions[].pid`
+/// is documented as "the Claude Code process itself, not the Tally supervising it"), which is where
+/// every agent and script is told to look. Accepting only the supervisor made the documented route
+/// fail with "not a session this machine supervises" about a session that is plainly running, so a
+/// child pid is resolved to the supervisor that owns it - proved through the same reader the switch
+/// uses, which checks both that the file names that pid and that the process is really its child.
 func namedSession(_ named: String, dir: URL = supervisorStateDir) -> NamedSession {
     guard let pid = pid_t(named), supervisorAlive(pid) else { return .notRunning }
-    guard liveSupervisorPids(dir: dir).contains(pid) else { return .notSupervised }
+    let supervisors = liveSupervisorPids(dir: dir)
     // Normalised through the pid, so `--session 0123` addresses the same file `--session 123` does
     // rather than writing a request nobody will ever read.
-    return .session(String(pid))
+    if supervisors.contains(pid) { return .session(String(pid)) }
+    if let owner = supervisors.first(where: {
+        readSupervisorChild(pid: String($0), dir: dir) == Int(pid)
+    }) {
+        return .session(String(owner))
+    }
+    return .notSupervised
 }
 
 /// What to tell the caller about an answer. Pure, so every wording is assertable.
@@ -415,8 +430,8 @@ presses Return. With no text it presses Return alone, which is how a prompt sitt
 gets answered. Typing and sending are one act: this exists to trigger what a session cannot trigger
 for itself (`/clear`, `/compact`, an answer to a permission prompt), and a line left in the composer
 triggers nothing. Run it inside the session it is meant for (an agent in that conversation can run it
-as a tool call); --session names another one by its supervisor pid, which `tally status --json`
-lists.
+as a tool call); --session names another one by either of its pids, the Claude Code that
+`tally status --json` lists under `sessions[].pid` or the Tally supervising it.
 
 It waits for the answer: the text is sent at the first moment the session is waiting on you or idle,
 so a request made mid-turn lands when that turn ends. Nothing is sent while the session is working,

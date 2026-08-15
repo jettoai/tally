@@ -57,20 +57,30 @@ func runFootprintAlertChecks() {
               .alerts.disk == false)
     check("…while a working session writing hard is just working",
           run(20, FootprintAlertState(), reading(disk: 40_000_000), idle: false).alerts.disk == false)
-    // MEMORY IS HELD, NOT SPENT: there is nothing to be idle about, and a tree holding four
-    // gigabytes is holding them whether or not a turn is running. So it needs no run of ticks.
-    check("four gigabytes says so on the first tick, working or not",
-          run(1, FootprintAlertState(), reading(memory: 4_000_000_000), idle: false).alerts.memory
-              && run(1, FootprintAlertState(), reading(memory: 4_000_000_000), idle: true)
-                  .alerts.memory)
-    check("…and just under it says nothing",
+    // MEMORY IS UNDER THE SAME RULE, and used to be the exception. Four gigabytes under a build IS
+    // the build - a language server, a bundler and a test runner - and saying so tells the person
+    // who started it what they already know. The same four gigabytes with nothing running is a tree
+    // that did not let go, which is the one thing on this line nobody can see another way.
+    let heavy = reading(memory: 4_000_000_000)
+    check("a working session holding four gigabytes is a build, and says nothing",
+          run(20, FootprintAlertState(), heavy, idle: false).alerts.memory == false)
+    check("an idle session holding four gigabytes says nothing on the fourth tick",
+          run(4, FootprintAlertState(), heavy, idle: true).alerts.memory == false)
+    check("…and says it on the fifth",
+          run(5, FootprintAlertState(), heavy, idle: true).alerts.memory)
+    check("…and just under it says nothing at all",
           run(20, FootprintAlertState(), reading(memory: 3_999_999_999), idle: true)
               .alerts.memory == false)
+    let holding = run(5, FootprintAlertState(), heavy, idle: true)
     check("…and it leaves on the same two quiet ticks as the others",
-          run(1, run(1, FootprintAlertState(), reading(memory: 4_000_000_000), idle: true),
-              reading(memory: 1_000_000), idle: true).alerts.memory
-              && run(2, run(1, FootprintAlertState(), reading(memory: 4_000_000_000), idle: true),
-                     reading(memory: 1_000_000), idle: true).alerts.memory == false)
+          run(1, holding, reading(memory: 1_000_000), idle: true).alerts.memory
+              && run(2, holding, reading(memory: 1_000_000), idle: true).alerts.memory == false)
+    // A turn starting clears every counter, memory's included: what a rate rule and this one now
+    // share is that the condition does not APPLY while the session is working.
+    check("a turn starting puts the memory warning out on that very tick too",
+          run(1, holding, heavy, idle: false).alerts.memory == false)
+    check("…and the count starts again from nothing rather than draining away",
+          run(4, run(1, holding, heavy, idle: false), heavy, idle: true).alerts.memory == false)
 
     // MARK: how a warned line is drawn
 

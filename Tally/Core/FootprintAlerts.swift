@@ -10,14 +10,22 @@ import Foundation
 /// what no absolute threshold can see - the same number is ordinary on a working session and is the
 /// bug on an idle one. So every rate rule here is gated on the session's own state.
 ///
-/// MEMORY IS THE ONE EXCEPTION, and for a reason rather than for symmetry: memory is not work being
-/// done, it is a claim being held, and a tree holding four gigabytes goes on holding them whether or
-/// not a turn is running. There is nothing to be idle about.
+/// MEMORY IS UNDER THE SAME RULE, and used not to be. It was argued as the exception - memory is a
+/// claim being held rather than work being done, so a tree holding four gigabytes holds them
+/// whether or not a turn is running - and the argument is true about the NUMBER and wrong about the
+/// warning. Four gigabytes under a build is the build; it is what a language server, a bundler and
+/// a test runner cost, and warning about it says only that the session is working hard, which the
+/// person who started it already knows. The same four gigabytes with nothing running is a tree that
+/// did not let go, which is the one thing on this line nobody can see any other way. So the
+/// mismatch is the subject here too, and the reading alone never is.
 ///
 /// SUSTAINED, NOT INSTANTANEOUS. A reading is a difference of two samples two seconds apart, and
 /// single ticks bounce: a compaction, a garbage collection, one `rg` over a large repo. A warning
 /// that appeared for one tick and vanished would be noise on a card that is watched continuously,
-/// so the rate rules have to hold for five ticks (about ten seconds) before anything is drawn.
+/// so every rule here has to hold for five ticks (about ten seconds) before anything is drawn.
+/// Memory used to light on the FIRST tick it was met, which is the other half of the same
+/// correction: an idle session's memory is not falling, so waiting the same five ticks costs ten
+/// seconds and buys the same freedom from a card that blinks as somebody's build finishes.
 ///
 /// AND IT LEAVES MORE SLOWLY THAN IT ARRIVES, which is what stops a condition sitting on the
 /// threshold from blinking: two quiet ticks put it out, so one dip does not. The one thing that
@@ -54,8 +62,8 @@ enum FootprintAlarm {
     /// What counts as burning a core while nobody is asking: half of one, which a shell prompt, a
     /// language server or an editor at rest never reaches, and a runaway loop passes instantly.
     static let idleCPUPercent = 50.0
-    /// What counts as too much to hold, whatever the session is doing. Four gigabytes is where a
-    /// session's tree stops being a cost of working and starts being the reason the machine swaps.
+    /// What counts as too much for a session to be holding with nothing running. Four gigabytes is
+    /// where a tree stops being a cost of working and starts being the reason the machine swaps.
     static let heavyMemoryBytes: UInt64 = 4_000_000_000
     /// How many ticks in a row a rate has to hold before it is drawn (the sampler's tick is two
     /// seconds, so this is about ten).
@@ -72,30 +80,26 @@ enum FootprintAlarm {
     static func advance(_ state: FootprintAlertState, reading: ProcessFootprint,
                         idle: Bool) -> FootprintAlertState {
         var next = state
-        if idle {
-            next.cpu = advance(state.cpu, met: (reading.cpuPercent ?? 0) >= idleCPUPercent)
-            next.disk = advance(state.disk,
-                                met: (reading.diskWriteBytesPerSecond ?? 0) >= ProcessTree.diskFloor)
-        } else {
+        guard idle else {
             // Back at work: not "the condition was not met this tick" but "the condition does not
             // apply", so the counting starts again from nothing rather than draining away.
-            next.cpu = FootprintAlertTrack()
-            next.disk = FootprintAlertTrack()
+            return FootprintAlertState()
         }
-        next.memory = advance(state.memory, met: reading.memoryBytes >= heavyMemoryBytes,
-                              lightAfter: 1)
+        next.cpu = advance(state.cpu, met: (reading.cpuPercent ?? 0) >= idleCPUPercent)
+        next.disk = advance(state.disk,
+                            met: (reading.diskWriteBytesPerSecond ?? 0) >= ProcessTree.diskFloor)
+        next.memory = advance(state.memory, met: reading.memoryBytes >= heavyMemoryBytes)
         return next
     }
 
-    /// One condition, one tick. Lights after `lightAfter` consecutive ticks meeting it and goes out
-    /// after `calmTicks` consecutive ticks missing it; in between, it stays as it was.
-    static func advance(_ track: FootprintAlertTrack, met: Bool,
-                        lightAfter: Int = sustainedTicks) -> FootprintAlertTrack {
+    /// One condition, one tick. Lights after `sustainedTicks` consecutive ticks meeting it and goes
+    /// out after `calmTicks` consecutive ticks missing it; in between, it stays as it was.
+    static func advance(_ track: FootprintAlertTrack, met: Bool) -> FootprintAlertTrack {
         var next = track
         if met {
             next.met += 1
             next.missed = 0
-            if next.met >= lightAfter { next.lit = true }
+            if next.met >= sustainedTicks { next.lit = true }
         } else {
             next.missed += 1
             next.met = 0

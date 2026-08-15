@@ -277,10 +277,19 @@ extension IntegrationsStore {
     /// The removal walks the UNFILTERED union instead, and rightly: attempting a file that turns
     /// out to be gone costs one no-op, while skipping one that is not is the whole failure.
     static func notificationHookPopulation(discovered: [URL], remembered: [String]) -> [URL] {
+        hookPopulation(discovered: discovered, remembered: remembered,
+                       mayCarry: settingsMayCarryNotificationHook)
+    }
+
+    /// The same judgement for any registration in these files, which is why it takes the one thing
+    /// that differs between them: what "still has something of ours on it" means. Spelled once
+    /// because the asymmetry above is the whole content of it, and a second copy is a second place
+    /// for a remembered path to start counting when it should not.
+    static func hookPopulation(discovered: [URL], remembered: [String],
+                               mayCarry: (URL) -> Bool) -> [URL] {
         let known = Set(discovered.map { $0.resolvingSymlinksInPath().path })
         return notificationHookSettingsFiles(discovered: discovered, remembered: remembered)
-            .filter { known.contains($0.resolvingSymlinksInPath().path)
-                || settingsMayCarryNotificationHook($0) }
+            .filter { known.contains($0.resolvingSymlinksInPath().path) || mayCarry($0) }
     }
 
     static func detectNotificationHook() -> Status {

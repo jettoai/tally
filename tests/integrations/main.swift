@@ -51,6 +51,7 @@ try MainActor.assumeIsolated {
     // The status line registration and its settings.json surgery (statuslinechecks.swift).
     try runStatusLineChecks(tmp: tmp)
     try runNotificationHookChecks(tmp: tmp)
+    try runAgentHookChecks(tmp: tmp)
 
     // MARK: Claude Code skill surgery - install, refuse foreign files, remove cleanly.
     let skillFile = IntegrationsStore.claudeSkillFile(inHome: tmp)

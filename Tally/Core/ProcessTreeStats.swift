@@ -16,8 +16,14 @@ import Foundation
 /// segment has nothing to say. The readings themselves - the libproc calls with no decisions in
 /// them - are next door in `ProcessTreeReaders.swift`.
 struct ProcessFootprint: Equatable {
-    /// How many live processes the tree holds, the supervisor itself included.
+    /// How many live processes the tree holds, Tally's own excluded (`ownFamily`).
     var processes: Int
+    /// How many subagents are working under this session right now, as Claude Code itself reports
+    /// them (`SessionAgentsRecord`). ZERO IS BOTH "none" AND "cannot say", and the line treats them
+    /// alike on purpose: a session with no fan-out and a Claude Code too old to publish one both
+    /// have nothing to show, and a segment reading "0 agents" would be spending the card's narrowest
+    /// line saying so all day.
+    var agents = 0
     /// The tree's share of one core over the last interval, or nil when there is no interval yet:
     /// a cumulative counter says nothing until it has been read twice.
     var cpuPercent: Double?
@@ -53,7 +59,7 @@ struct ProcessFootprint: Equatable {
 /// condition for VoiceOver in its own words: the bundle is over there, and this stays a pure
 /// function of what it is handed (the same division `unit` is already under).
 struct ProcessFootprintSegment: Equatable {
-    enum Kind: Equatable { case processes, cpu, memory, disk, ports }
+    enum Kind: Equatable { case processes, agents, cpu, memory, disk, ports }
     var kind: Kind
     var text: String
     var alert = false
@@ -185,6 +191,55 @@ enum ProcessTree {
             }
         }
         return found
+    }
+
+    /// WHICH OF THESE PIDS ARE TALLY'S OWN, and so are the meter rather than the thing metered.
+    ///
+    /// Every supervised session's tree holds this app. The supervisor sits at its root by
+    /// construction, and whatever else of ours runs inside the session - the status line asked for
+    /// on every prompt, a hook answering an event - is a descendant of it. Counting those is not a
+    /// rounding error on an unlucky card: the root is in EVERY tree, so a board of ten sessions
+    /// carried ten processes, their memory and their CPU that nobody started and nobody can act on.
+    /// The line is meant to answer "what is the AI doing to my laptop", and the honest answer when
+    /// all of that has gone home is no line at all rather than a card reporting Tally to itself.
+    ///
+    /// BY THE PROGRAM ON DISK, NEVER BY NAME. A `tally` built in this repository and run under a
+    /// session is exactly the work somebody would be watching for, and it is called `tally` too. So
+    /// the test is identity with the ROOT's own executable - that binary is the supervisor by
+    /// definition - widened to the app bundle around it, because the shipped supervisor runs out of
+    /// `Tally.app` and everything else of ours under that same bundle is ours by the same
+    /// reasoning. A build under `DerivedData` shares neither, and is measured like any other work.
+    ///
+    /// THE TREE ITSELF IS NOT NARROWED, which is deliberate: the walk is what finds an orphan
+    /// through its job (`members`), and a rule that pruned as it went would lose whatever hangs
+    /// below one of ours. This is a filter applied to the answer.
+    ///
+    /// A ROOT WHOSE PROGRAM CANNOT BE READ still gives up itself, and nothing else: the supervisor
+    /// is ours whether or not the machine will say what it is running, and with no path to compare
+    /// against there is no ground for calling anything beside it ours too.
+    ///
+    /// - Parameter executable: the path of the program a pid is running, or nil when the machine
+    ///   will not say (`ProcessTree.executablePath`). A function rather than a table so this stays
+    ///   pure, which is also what lets the harness state every case with no processes around it.
+    static func ownFamily(_ pids: some Sequence<pid_t>, root: pid_t,
+                          executable: (pid_t) -> String?) -> Set<pid_t> {
+        guard let mine = executable(root) else { return [root] }
+        let bundle = appBundle(ofExecutablePath: mine)
+        var family: Set<pid_t> = [root]
+        for pid in pids where pid != root {
+            guard let path = executable(pid) else { continue }
+            if path == mine || bundle.map({ path.hasPrefix($0) }) == true { family.insert(pid) }
+        }
+        return family
+    }
+
+    /// The `.app` bundle a program runs out of, as the path prefix ending in its separator, or nil
+    /// when it does not run out of one. The separator is kept so the prefix cannot match a sibling
+    /// that merely starts with the same letters (`/Applications/Tally.app` against
+    /// `/Applications/TallyOther.app/...`).
+    static func appBundle(ofExecutablePath path: String) -> String? {
+        guard let bundle = path.range(of: ".app/", options: .backwards) else { return nil }
+        return String(path[..<bundle.upperBound])
     }
 
     /// What share of one core the tree spent between two readings, as a percentage, or nil when the
@@ -334,157 +389,5 @@ enum ProcessTree {
               top.value > total / 2
         else { return nil }
         return top.key
-    }
-
-    /// What to call a process, given the path of the program it is running.
-    ///
-    /// THE LAST COMPONENT IS THE NAME, EXCEPT WHEN IT IS A VERSION NUMBER, and that exception is
-    /// not an edge case here: Claude Code installs itself as
-    /// `~/.local/share/claude/versions/2.1.233`, where the executable FILE is the version, so the
-    /// one process this line most often has to name would be printed as "40% CPU (2.1.233)"
-    /// (measured on this machine, 2026-08-15). A version is not a name, so the walk continues up
-    /// through the installer's own container words until something that names a program appears.
-    ///
-    /// AN ORDINARY NAME IS NEVER WALKED PAST, because the walk only starts on a version: `bin` and
-    /// `versions` are stepped over on the way up and never used to reject a name a program actually
-    /// has (`/opt/homebrew/Cellar/uv/0.9.2/bin/uv` is `uv`, and `python3.12` keeps its digits
-    /// because letters make it a name rather than a number).
-    static func displayName(forPath path: String) -> String? {
-        var parts = path.split(separator: "/").map(String.init)
-        guard var name = parts.popLast() else { return nil }
-        while isVersionNumber(name) || installerContainers.contains(name.lowercased()) {
-            guard let next = parts.popLast() else { return nil }
-            name = next
-        }
-        return name
-    }
-
-    /// The directories an installer puts a versioned build in, which name nothing on their own.
-    /// Both are ones this machine actually holds a program under (measured 2026-08-15).
-    private static let installerContainers: Set<String> = ["versions", "bin"]
-
-    /// Digits and dots, optionally led by a `v`: `2.1.233`, `v20.11.0`. Anything with a letter in
-    /// it is a name that happens to carry a number, which is most of the interpreters on a machine.
-    private static func isVersionNumber(_ name: String) -> Bool {
-        var digits = Substring(name)
-        if digits.hasPrefix("v") { digits = digits.dropFirst() }
-        return digits.contains(where: \.isNumber) && digits.allSatisfy { $0.isNumber || $0 == "." }
-    }
-
-    /// The card's line: how many processes, what they are burning, what they are holding, what they
-    /// are writing and what they are listening on.
-    ///
-    /// EVERY SEGMENT IS OPTIONAL AND THE SEPARATOR FOLLOWS, which is the rule the identity line one
-    /// file over already follows (`SessionRow`): a session with no ports says nothing about ports
-    /// rather than printing an empty field, and a tree that has not been read twice yet leaves the
-    /// CPU out until it has. A tree with no processes has no line at all.
-    ///
-    /// DISK APPEARS ONLY WHEN IT IS A FACT ABOUT THE SESSION. Every process writes something, and a
-    /// card that carried "0 MB/s" on every session all day would be spending a fifth of its one
-    /// line saying nothing. Past a megabyte a second it is the answer to a question somebody is
-    /// actually asking - which of these is filling my disk - so that is where it becomes visible.
-    ///
-    /// ONE NAME PER LINE, AND DISK TAKES IT. Both blamed segments can have a culprit at once, and
-    /// two parentheticals is what turns a line into a paragraph on a card one line wide. Disk wins
-    /// because it is the rarer sighting: the CPU segment is on every card, while a session writing
-    /// megabytes a second is the anomaly somebody opened the panel to find. Memory carries no name
-    /// at all - what holds memory persistently is the long-lived process the count and the ports
-    /// already point at.
-    ///
-    /// - Parameters:
-    ///   - unit: the word for "processes", already localised, so this stays a pure function of what
-    ///     it is handed (the harness compiles it with no bundle around it) and the caller keeps the
-    ///     one decision a word carries: whether it is the plural.
-    ///   - maxPorts: how many ports are named before the rest become a count. A card is one line
-    ///     wide and a dev box can hold a dozen ports; three is what fits beside the other two
-    ///     segments at the panel's narrowest column.
-    static func line(_ footprint: ProcessFootprint, unit: String, maxPorts: Int = 3) -> String? {
-        let parts = segments(footprint, unit: unit, maxPorts: maxPorts)
-        guard !parts.isEmpty else { return nil }
-        return parts.map(\.text).joined(separator: pickEffortSeparator)
-    }
-
-    /// The same line in the pieces it is drawn from, each saying what it is and whether it is a
-    /// warning. `line` is these joined, and stays the sentence a reader hears.
-    ///
-    /// A WARNING COMES FORWARD, AND THE ORDER MOVING IS THE POINT. A card is 182pt of content at
-    /// the panel's narrowest and the line is truncated at its tail, so a full line does not fit:
-    /// measured (2026-08-15) at 11pt, `4 procs · 100% CPU · 3.9 GB · ` alone is 165.6pt and the
-    /// whole sentence with a warned disk segment is 312.9pt. Left in reading order the warning's
-    /// mark survives and its NUMBER does not - a triangle stranded beside the memory figure, which
-    /// reads as a warning about the memory and gives no reason for either. So the warned fields are
-    /// drawn first and the healthy ones are what falls off the end, which is the right thing to
-    /// lose: those are the ones nobody opened the panel for.
-    ///
-    /// THE COUNT STAYS AT THE FRONT REGARDLESS, because it is not a reading in the same sense - it
-    /// is the context every other field is about ("12 MB/s" means something different under 2
-    /// processes than under 40), and a line that opened on a warning would say what is wrong before
-    /// saying what it is wrong about. Everything else keeps its reading order inside its group, so
-    /// a card only ever reorders across the warning line, never within it.
-    static func segments(_ footprint: ProcessFootprint, unit: String,
-                         maxPorts: Int = 3) -> [ProcessFootprintSegment] {
-        guard footprint.processes > 0 else { return [] }
-        var parts = [ProcessFootprintSegment(kind: .processes,
-                                             text: "\(footprint.processes) \(unit)")]
-        // Decided before the CPU segment is built, because whether disk is on the line at all is
-        // what decides which segment gets to carry a name.
-        let disk = footprint.diskWriteBytesPerSecond.flatMap(diskRateText)
-        let diskName = disk == nil ? nil : footprint.diskLeader
-        // Rounded to whole points: the reading is a difference of two samples taken about two
-        // seconds apart, and decimals on it would be spelling out noise.
-        if let cpu = footprint.cpuPercent {
-            parts.append(.init(kind: .cpu,
-                               text: blamed("\(Int(cpu.rounded()))% CPU",
-                                            on: diskName == nil ? footprint.cpuLeader : nil),
-                               alert: footprint.alerts.cpu))
-        }
-        if let memory = memoryText(footprint.memoryBytes) {
-            parts.append(.init(kind: .memory, text: memory, alert: footprint.alerts.memory))
-        }
-        if let disk {
-            parts.append(.init(kind: .disk, text: blamed(disk, on: diskName),
-                               alert: footprint.alerts.disk))
-        }
-        if !footprint.listeningPorts.isEmpty {
-            let named = footprint.listeningPorts.prefix(maxPorts).map { ":\($0)" }
-            let rest = footprint.listeningPorts.count - named.count
-            parts.append(.init(kind: .ports,
-                               text: (named + (rest > 0 ? ["+\(rest)"] : [])).joined(separator: " ")))
-        }
-        // Built in reading order above and reordered here in one place, so every field is written
-        // where it belongs in the sentence and only one rule decides what a narrow card keeps.
-        let readings = parts.dropFirst()
-        return Array(parts.prefix(1)) + readings.filter(\.alert) + readings.filter { !$0.alert }
-    }
-
-    private static func blamed(_ segment: String, on name: String?) -> String {
-        guard let name else { return segment }
-        return "\(segment) (\(name))"
-    }
-
-    /// What the tree is holding, in the units a Mac states memory in: DECIMAL, because that is what
-    /// Activity Monitor and every spec sheet the number will be compared against use. Whole
-    /// megabytes below a gigabyte and one decimal above it, so the segment is four characters wide
-    /// either way and a card's line does not reflow as a session grows.
-    ///
-    /// Under a megabyte is nothing rather than "0 MB": either the tree is a single sleeping shell,
-    /// or nothing could be read at all, and neither is worth a segment.
-    private static func memoryText(_ bytes: UInt64) -> String? {
-        let megabytes = (Double(bytes) / 1_000_000).rounded()
-        guard megabytes >= 1 else { return nil }
-        // Decided on the rounded number, so 999.7 MB prints as 1.0 GB rather than as "1000 MB".
-        guard megabytes >= 1000 else { return "\(Int(megabytes)) MB" }
-        return String(format: "%.1f GB", megabytes / 1000)
-    }
-
-    /// Where writing becomes a fact about the session rather than the background noise every
-    /// process makes: a megabyte a second (see `line`). The warning rules count from the same
-    /// number, so "the segment is visible" and "the segment is worth watching" cannot drift apart.
-    static let diskFloor: Double = 1_000_000
-
-    /// The write rate, or nothing below the threshold the segment exists above (see `line`).
-    private static func diskRateText(_ bytesPerSecond: Double) -> String? {
-        guard bytesPerSecond >= diskFloor else { return nil }
-        return "\(Int((bytesPerSecond / 1_000_000).rounded())) MB/s"
     }
 }

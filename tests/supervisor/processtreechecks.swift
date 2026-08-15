@@ -12,12 +12,13 @@ import Foundation
 //      the collection that accounts for it land on different ticks, so what one pair cannot settle
 //      is carried to the next one - for exactly one tick, because a credit nothing will ever settle
 //      would otherwise eat real work in silence.
-//   3. WHICH PROCESS TO BLAME for a number, when a single one accounts for more than half of it.
-//   4. HOW THE LINE READS when a segment has nothing to say, and how many ports fit on a card.
+//   3. WHICH OF THOSE PIDS ARE TALLY'S OWN, and so are the meter rather than the thing metered: the
+//      supervisor is in every tree by construction, and the test is the program on disk rather than
+//      the name, because a `tally` built in this repository is work somebody is watching.
+//   4. WHICH PROCESS TO BLAME for a number, when a single one accounts for more than half of it.
 //
-// WHICH of those readings is worth a warning is one file over (footprintalertchecks.swift), and so
-// is the mismatch rule it turns on; what the CARD does with a warned field is here, with the rest
-// of the checks that read that source.
+// HOW THE LINE READS is one file over (processtreelinechecks.swift), along the seam the source is
+// split on; WHICH of these readings is worth a warning is in a third (footprintalertchecks.swift).
 //
 // The libproc side of that file is thin wrappers with no decisions in them, with one exception that
 // is asserted here against an independent oracle: what UNIT its counters are in.
@@ -99,26 +100,89 @@ func runProcessTreeChecks() {
     }
     // Two readings of the SAME total, taken at the same instant, rather than two deltas over a
     // stretch of spinning: both counters are this process's whole CPU life, so the comparison is
-    // arithmetic rather than timing, and a machine under load cannot make it wobble. By the time
-    // this suite reaches here it has burned seconds, which is what makes the totals meaningful.
+    // arithmetic rather than timing, and a machine under load cannot make it wobble.
+    //
+    // AND THE PROCESS BURNS ITS OWN FLOOR FIRST, rather than relying on the suite ahead of it
+    // having spent one. The 24x error this exists to catch is only visible above the noise of two
+    // counters sampled a few microseconds apart, so the guard needs a tenth of a second of CPU
+    // behind it - and it used to get that from whatever ran before it, which made the assertion
+    // true of the SUITE rather than of this file. Run on its own it then failed for having nothing
+    // to measure, in a way indistinguishable from the unit bug. So the floor is earned here, and
+    // the one condition that is not about units says so in its own words.
+    func burn(_ seconds: Double) {
+        let until = selfCPUSeconds() + seconds
+        var spin = 0
+        while selfCPUSeconds() < until { spin &+= 1 }
+        precondition(spin > 0)
+    }
     let me = getpid()
+    burn(0.1)
     let selfSample = ProcessTree.resourceSample(of: [me])
     let measured = selfSample.times[me] ?? 0
     let oracle = selfCPUSeconds()
+    // Separated from the check below on purpose: "there was nothing to compare" and "the comparison
+    // came out wrong" are two different failures, and one line reading false for either is how a
+    // machine that could not spin gets read as a machine whose timebase is wrong.
+    check("the oracle has enough CPU behind it for the unit check to mean anything", oracle > 0.05)
     check("the CPU counters are read in the units the machine keeps them in",
-          oracle > 0.05 && measured > oracle * 0.85 && measured < oracle * 1.15)
+          measured > oracle * 0.85 && measured < oracle * 1.15)
     // The other two counters come out of the same record and are plain bytes. This process is a
     // running Swift binary, so both are facts about it: it holds memory, and it has printed.
     check("the memory and disk counters come out of the same reading, in bytes",
           (selfSample.memory[me] ?? 0) > 1_000_000
               && selfSample.memoryBytes == selfSample.memory.values.reduce(0, +)
               && selfSample.diskWritten[me] != nil)
-    // The name on the card is the executable's, not a truncation of it: this harness is compiled to
-    // a binary called `run`, and the check is that the path was read and reduced to its last part.
-    check("a live pid can be named, by the last component of its executable path",
-          ProcessTree.name(of: me) == (CommandLine.arguments[0] as NSString).lastPathComponent)
-    check("…and a pid the machine does not have is not named at all",
-          ProcessTree.name(of: -1) == nil)
+    // The reading both the name and the family test are made of: the path of the program a pid is
+    // running, whole rather than truncated, and the same answer whether one pid is asked or many.
+    check("a live pid's program is read as a whole path",
+          ProcessTree.executablePath(of: me).map {
+              ($0 as NSString).lastPathComponent
+                  == (CommandLine.arguments[0] as NSString).lastPathComponent && $0.hasPrefix("/")
+          } == true)
+    check("…and the whole-tree reading is the same answer, per pid",
+          ProcessTree.executablePaths(of: [me, -1]) == [me: ProcessTree.executablePath(of: me)!])
+    check("…while a pid the machine does not have says nothing at all",
+          ProcessTree.executablePath(of: -1) == nil)
+
+    // MARK: which of a tree's processes are Tally's own
+
+    // A session's tree as it really is: the supervisor at its root, a second `tally` of ours under
+    // it (the status line, run on every prompt), the app itself, the Claude Code that IS the work,
+    // and a `tally` built in this repository, which is work somebody is watching and not ours.
+    let supervisorPath = "/Applications/Tally.app/Contents/Resources/tally"
+    let programs: [pid_t: String] = [
+        100: supervisorPath,
+        101: supervisorPath,
+        102: "/Applications/Tally.app/Contents/MacOS/Tally",
+        200: "/Users/a/.local/share/claude/versions/2.1.233",
+        300: "/Users/a/workspace/tally/.build/release/tally",
+        400: "/usr/bin/caffeinate",
+    ]
+    let tree: Set<pid_t> = [100, 101, 102, 200, 300, 400]
+    let family = ProcessTree.ownFamily(tree, root: 100) { programs[$0] }
+    check("the supervisor and everything running the same program are the app's own",
+          family == [100, 101, 102])
+    check("…so what is measured is the work, a repo build of the same program included",
+          tree.subtracting(family) == [200, 300, 400])
+    // The bundle is a prefix that ends in its own SEPARATOR, so a neighbouring bundle whose path
+    // merely begins with ours is not swallowed. The case is not hypothetical: a Sparkle update
+    // leaves `Tally.app.old` beside the new one while it swaps them over.
+    check("a bundle whose path merely begins with ours is not ours",
+          ProcessTree.ownFamily([100, 500], root: 100) {
+              $0 == 100 ? supervisorPath : "/Applications/Tally.app.old/Contents/MacOS/Tally"
+          } == [100])
+    check("the bundle is read off the path, and only when there is one",
+          ProcessTree.appBundle(ofExecutablePath: supervisorPath) == "/Applications/Tally.app/"
+              && ProcessTree.appBundle(ofExecutablePath: "/usr/local/bin/tally") == nil)
+    // A supervisor with no bundle around it (a build run from a checkout) still knows its own
+    // program, so a second copy of it is still ours.
+    check("a supervisor outside a bundle claims its own program and nothing else",
+          ProcessTree.ownFamily([1, 2, 3], root: 1) {
+              [1: "/tmp/build/tally", 2: "/tmp/build/tally", 3: "/tmp/build/other"][$0]
+          } == [1, 2])
+    // The one thing that is true whatever the machine says: the root is the supervisor.
+    check("a root whose program cannot be read gives up itself and nothing else",
+          ProcessTree.ownFamily(tree, root: 100) { _ in nil } == [100])
     // A VERSION IS NOT A NAME, and this is the case that matters rather than a curiosity: Claude
     // Code installs itself as a file NAMED for its version, so the process this line will most
     // often have to blame would otherwise be printed as "(2.1.233)". All four paths below were
@@ -316,153 +380,4 @@ func runProcessTreeChecks() {
           ProcessTree.diskWrite(from: sample([100: 1], written: [100: 5_000, 400: 90_000_000], at: 0),
                                 to: sample([100: 1], written: [100: 5_000], at: 2))
               .bytesPerSecond == 0)
-
-    // MARK: how the line reads
-
-    let full = ProcessFootprint(processes: 3, cpuPercent: 12.4, listeningPorts: [3789, 5173])
-    check("the line names the processes, the CPU and the ports it is holding",
-          ProcessTree.line(full, unit: "procs") == "3 procs · 12% CPU · :3789 :5173")
-    // A difference of two samples two seconds apart is not accurate to a decimal place, and a card
-    // that printed one would be spelling out noise.
-    check("…rounding the CPU to a whole point",
-          ProcessTree.line(ProcessFootprint(processes: 1, cpuPercent: 0.4, listeningPorts: []),
-                           unit: "proc") == "1 proc · 0% CPU")
-    // EVERY SEGMENT IS OPTIONAL AND ITS SEPARATOR GOES WITH IT, the rule the identity line one file
-    // over already follows: an empty field is worse than a shorter line.
-    check("a tree that has only been read once carries no CPU segment",
-          ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: nil, listeningPorts: [3000]),
-                           unit: "procs") == "2 procs · :3000")
-    check("…and a session listening on nothing says nothing about ports",
-          ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: 5, listeningPorts: []),
-                           unit: "procs") == "2 procs · 5% CPU")
-    check("a tree with no processes has no line at all",
-          ProcessTree.line(ProcessFootprint(processes: 0, cpuPercent: 9, listeningPorts: [3000]),
-                           unit: "procs") == nil)
-    // A card is one line wide and a dev box can hold a dozen ports: past three they become a count,
-    // which still says "there are more" without pushing the other two segments off the card.
-    check("past three ports the rest become a count",
-          ProcessTree.line(ProcessFootprint(processes: 5, cpuPercent: nil,
-                                            listeningPorts: [3000, 3789, 5173, 8080, 9229]),
-                           unit: "procs") == "5 procs · :3000 :3789 :5173 +2")
-    check("…and exactly three are all named, with nothing added",
-          ProcessTree.line(ProcessFootprint(processes: 5, cpuPercent: nil,
-                                            listeningPorts: [3000, 3789, 5173]),
-                           unit: "procs") == "5 procs · :3000 :3789 :5173")
-    check("the cap is the caller's to set",
-          ProcessTree.line(ProcessFootprint(processes: 5, cpuPercent: nil,
-                                            listeningPorts: [3000, 3789, 5173]),
-                           unit: "procs", maxPorts: 1) == "5 procs · :3000 +2")
-
-    // MARK: the memory and disk segments, and the name that goes with one of them
-
-    let loaded = ProcessFootprint(processes: 9, cpuPercent: 34, cpuLeader: "node",
-                                  memoryBytes: 820_000_000,
-                                  diskWriteBytesPerSecond: 12_000_000, diskLeader: "esbuild",
-                                  listeningPorts: [3789])
-    check("a working tree says what it is burning, holding, writing and listening on",
-          ProcessTree.line(loaded, unit: "procs")
-              == "9 procs · 34% CPU · 820 MB · 12 MB/s (esbuild) · :3789")
-    // ONE NAME PER LINE AND DISK TAKES IT: both segments have a culprit here, and two
-    // parentheticals is what turns a card's one line into a paragraph.
-    check("…naming only the disk writer, though both segments know who to blame",
-          ProcessTree.line(loaded, unit: "procs")?.contains("(node)") == false)
-    check("the CPU segment carries the name when there is no disk segment to take it",
-          ProcessTree.line(ProcessFootprint(processes: 4, cpuPercent: 34, cpuLeader: "node",
-                                            memoryBytes: 1_200_000_000, listeningPorts: []),
-                           unit: "procs") == "4 procs · 34% CPU (node) · 1.2 GB")
-    // Below the threshold the disk segment is not there at all, so the name goes back to the CPU.
-    check("…and takes it back when the writing drops below the threshold",
-          ProcessTree.line(ProcessFootprint(processes: 4, cpuPercent: 34, cpuLeader: "node",
-                                            memoryBytes: 500_000_000,
-                                            diskWriteBytesPerSecond: 999_999, diskLeader: "esbuild",
-                                            listeningPorts: []),
-                           unit: "procs") == "4 procs · 34% CPU (node) · 500 MB")
-    check("a megabyte a second is where the disk segment starts",
-          ProcessTree.line(ProcessFootprint(processes: 4, cpuPercent: nil,
-                                            diskWriteBytesPerSecond: 1_000_000,
-                                            listeningPorts: []),
-                           unit: "procs") == "4 procs · 1 MB/s")
-    // A pid that has ended between being picked and being named has no name, and the segment says
-    // the number alone rather than an empty pair of brackets.
-    check("a culprit nobody could name leaves the number to speak for itself",
-          ProcessTree.line(ProcessFootprint(processes: 4, cpuPercent: 34,
-                                            diskWriteBytesPerSecond: 12_000_000,
-                                            listeningPorts: []),
-                           unit: "procs") == "4 procs · 34% CPU · 12 MB/s")
-    // MEMORY IS AN INSTANT, not an interval: it needs no earlier reading and is there on the first
-    // tick, which is the tick the CPU segment cannot say anything on.
-    check("memory is on the line before there is any interval to measure a rate over",
-          ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: nil,
-                                            memoryBytes: 96_000_000, listeningPorts: []),
-                           unit: "procs") == "2 procs · 96 MB")
-    check("a tree holding under a megabyte says nothing rather than 0 MB",
-          ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: 5, memoryBytes: 400_000,
-                                            listeningPorts: []),
-                           unit: "procs") == "2 procs · 5% CPU")
-    // Rounded first, so the segment is never four digits of megabytes.
-    check("just under a gigabyte is a gigabyte rather than 1000 MB",
-          ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: nil, memoryBytes: 999_700_000,
-                                            listeningPorts: []),
-                           unit: "procs") == "2 procs · 1.0 GB")
-
-    // MARK: the parts that only exist inside a view
-
-    let cardSource = (try? String(contentsOfFile: "Tally/Views/SessionCardView.swift",
-                                  encoding: .utf8)) ?? ""
-    let boardSource = (try? String(contentsOfFile: "Tally/Views/SessionBoardView.swift",
-                                   encoding: .utf8)) ?? ""
-    let storeSource = (try? String(contentsOfFile: "Tally/Stores/ProcessFootprintStore.swift",
-                                   encoding: .utf8)) ?? ""
-    check("the three sources this suite reads are readable",
-          !cardSource.isEmpty && !boardSource.isEmpty && !storeSource.isEmpty)
-    // WALKING THE PROCESS TABLE IS PAID FOR BY THE PAGE THAT SHOWS IT. On the page rather than on
-    // the root the roster is switched from: a surface sitting on the Usage tab must pay nothing.
-    check("the readings are taken only while the sessions page is on screen",
-          boardSource.contains(".onAppear { ProcessFootprintStore.shared.beginViewing() }")
-              && boardSource.contains(".onDisappear { ProcessFootprintStore.shared.endViewing() }")
-              && storeSource.contains("guard viewers == 0 else { return }")
-              && storeSource.contains("timer?.invalidate()"))
-    // THE CARRY IS A READING OF A MOMENT LIKE EVERY OTHER NUMBER HERE. Held past the panel that
-    // took it, a debt from an hour ago would be subtracted from the first tick of the next viewing.
-    check("the departed-process credit is dropped with everything else when the panel closes",
-          storeSource.contains("cpuCarry = [:]")
-              && storeSource.contains("carry: cpuCarry[key] ?? 0"))
-    // The ports cost a descriptor table per process on top of the walk, so they are read on their
-    // own slower beat and held in between.
-    check("the ports are read on a slower beat than the tree and its CPU",
-          storeSource.contains("ticks % Self.portsEveryNTicks == 0")
-              && storeSource.contains("private static let portsEveryNTicks = 3"))
-    // A card in its own slot, drawn on every card whether or not it has numbers: a card that
-    // dropped the row would stand shorter than the ones beside it (`sessionCardLine`).
-    check("the card gives the footprint a line of its own, on every card",
-          cardSource.contains("sessionCardLine { sessionFootprint }"))
-    // The plural is decided where the bundle is; the shape of the line is decided in the pure
-    // function above, which is why this suite can state it at all.
-    check("the card asks for the word and the pure rule builds the line",
-          cardSource.contains("ProcessTree.segments(footprint,")
-              && cardSource.contains("unit: L(footprint.processes == 1 ? \"proc\" : \"procs\")"))
-    // THE CARD JOINS THE PIECES ITSELF, because a run that carries its own colour cannot be handed
-    // over as one string - so the separator is spelled in two places and this is what keeps them the
-    // same one. `ProcessTree.line` above states the whole sentence and is what the assertions read;
-    // this states that what is DRAWN is that sentence rather than a second spelling of it.
-    check("the drawn line separates its fields the way the stated line does",
-          cardSource.contains("Text(verbatim: pickEffortSeparator)"))
-    // A WARNING IS NOT A COLOUR: the mark carries the meaning for a reader who cannot separate the
-    // amber from the grey beside it, and the colour only makes it faster to find.
-    check("a warned field is marked as well as coloured, in this app's own warning colour",
-          cardSource.contains("Text(Image(systemName: \"exclamationmark.triangle.fill\"))")
-              && cardSource.contains(".foregroundStyle(TallyColor.warning)"))
-    // And VoiceOver gets neither of those, so it is handed the condition in words.
-    check("…and the reader who hears the line is told what the warning is about",
-          cardSource.contains(".accessibilityLabel(Self.spoken(segments))")
-              && cardSource.contains("L(\"high CPU while nothing is running\")")
-              && cardSource.contains("L(\"writing to disk while nothing is running\")")
-              && cardSource.contains("L(\"high memory\")"))
-    // THE STATE IS THE SUPERVISOR'S OWN WORD, not a second idleness detector living in the app:
-    // only the supervisor can see the transcript, the open tool call and the subagents. `unknown`
-    // is deliberately not idle - it is "has not said yet", and warning on it would be a guess.
-    check("idleness is read from the state the session publishes, and unknown is not idle",
-          storeSource.contains("row.state == .idle || row.state == .blocked")
-              && storeSource.contains("FootprintAlarm.advance(alertState[key] ?? FootprintAlertState(),")
-              && storeSource.contains("alertState = [:]"))
 }

@@ -68,7 +68,8 @@ func pendingNoticeFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 /// to the list below, or a dead session's copy of it is never swept.
 let supervisorStateSuffixes = [pendingNoticeSuffix, sessionContextSuffix, supervisorCwdSuffix,
                                supervisorChildSuffix, supervisorAccountSuffix,
-                               transcriptIdentitySuffix, sessionStateSuffix, userNoticeSuffix]
+                               transcriptIdentitySuffix, sessionStateSuffix, userNoticeSuffix,
+                               sessionAgentsSuffix]
 
 func supervisorStatePid(ofFile name: String) -> pid_t? {
     if let pid = pid_t(name) { return pid }

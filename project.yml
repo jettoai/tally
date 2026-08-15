@@ -137,6 +137,12 @@ targets:
       # nothing while every session reports correctly. Only the record and its reader are here -
       # everything that DECIDES a state stays in the CLI (SessionStateSync.swift).
       - path: TallyCLI/SessionState.swift
+      # The same division one reading over: how many subagents a session has working, written by
+      # the hooks Claude Code fires and read by the card that draws the count. Both targets compile
+      # the one record for the reason above - separate processes speaking through a file - and the
+      # rules for folding an event into a roster come with it, because they are pure arithmetic on
+      # a set and the app has to be able to say what the document it just read MEANS.
+      - path: TallyCLI/AgentRoster.swift
     dependencies:
       - package: Sparkle
     settings:

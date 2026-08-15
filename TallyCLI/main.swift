@@ -385,6 +385,10 @@ case "hook-tally":    // internal: the `/tally` prompt hook (TallyHook.swift)
     exit(runHookTally(args: Array(arguments.dropFirst())))
 case "hook-notify":   // internal: Claude Code's Notification hook (UserNotice.swift)
     exit(runHookNotify(args: Array(arguments.dropFirst())))
+// internal: Claude Code's three subagent-facing hooks, which take the event as their argument
+// because one subcommand answers all three (HookAgents.swift).
+case "hook-agents":
+    exit(runHookAgents(args: Array(arguments.dropFirst())))
 // The two the merge replaced. Still answered, because a registration written by an older app is in
 // somebody's settings.json until the self-heal rewrites it, and a hook that runs a subcommand this
 // binary does not have prints usage and lets the expansion through - a model turn, for a command

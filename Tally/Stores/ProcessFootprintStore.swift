@@ -113,24 +113,42 @@ final class ProcessFootprintStore {
         for (root, idle) in roots {
             let members = ProcessTree.members(root: root, processes: processes)
             guard !members.isEmpty else { continue }
+            // Every program in the tree, once: the same table answers which of these processes are
+            // Tally's own and what to call the one that earned a name.
+            let paths = ProcessTree.executablePaths(of: members)
+            // WHAT THE AI IS DOING, WHICH IS NOT WHAT THE METER IS DOING. The supervisor is in
+            // every tree by construction, so Tally's own processes come out before anything is
+            // counted (`ProcessTree.ownFamily` says why the test is the program rather than the
+            // name). A tree with nothing left is a session whose Claude Code has gone home: no
+            // entry, so the card draws no line at all, which is the honest reading of it.
+            let ours = ProcessTree.ownFamily(members, root: root) { paths[$0] }
+            let measured = members.subtracting(ours)
+            guard !measured.isEmpty else { continue }
+            // What to call whichever pid an interval blamed, out of the same table: nothing when
+            // the program could not be read, which is ordinary here rather than an error - the
+            // culprit can be a command that finished inside the interval.
+            func name(of pid: pid_t?) -> String? {
+                pid.flatMap { paths[$0].flatMap(ProcessTree.displayName) }
+            }
             let key = String(root)
-            let reading = ProcessTree.resourceSample(of: members, at: now)
+            let reading = ProcessTree.resourceSample(of: measured, at: now)
             readings[key] = reading
             let cpu = ProcessTree.cpuPercent(from: previousSample[key], to: reading,
                                              carry: cpuCarry[key] ?? 0)
             let disk = ProcessTree.diskWrite(from: previousSample[key], to: reading)
             carried[key] = cpu.carry
-            if readPorts { ports[key] = ProcessTree.listeningPorts(of: members) }
-            // The names are asked for here rather than in the pure rules because they are a reading
-            // of the machine, and only for the one or two pids that earned one: a name per process
-            // per tick would be another call per process, for a string nothing on the card shows.
+            if readPorts { ports[key] = ProcessTree.listeningPorts(of: measured) }
             var footprint = ProcessFootprint(
-                processes: members.count,
+                processes: measured.count,
+                // The subagents are the one reading here that is not taken from the machine: they
+                // are conversations inside a process, so Claude Code's own hooks say how many
+                // (`SessionAgentsRecord`), and a count that cannot be believed is not drawn.
+                agents: readSessionAgents(pid: key)?.reportable ?? 0,
                 cpuPercent: cpu.percent,
-                cpuLeader: cpu.leader.flatMap { ProcessTree.name(of: $0) },
+                cpuLeader: name(of: cpu.leader),
                 memoryBytes: reading.memoryBytes,
                 diskWriteBytesPerSecond: disk.bytesPerSecond,
-                diskLeader: disk.leader.flatMap { ProcessTree.name(of: $0) },
+                diskLeader: name(of: disk.leader),
                 listeningPorts: ports[key] ?? [])
             // The warnings are decided from THIS tick's reading and the ticks before it, then put
             // back on the same reading: what the card draws and what the card warns about are one

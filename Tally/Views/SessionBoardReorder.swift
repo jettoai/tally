@@ -126,6 +126,7 @@ extension PopoverRootView {
                 guard var lift = sessionLift else { return }   // the grab began between two cards
                 lift.location = value.location
                 sessionLift = lift
+                let boardKeys = board.compactMap(SessionRosterStore.orderKey)
                 // Hit-tested with the LIFTED CARD'S CENTRE (previewCentre - exactly where the copy
                 // renders), never with the pointer: a card grabbed near its edge would otherwise
                 // keep the pointer inside every target's dead zone for the whole drag, and the
@@ -140,8 +141,8 @@ extension PopoverRootView {
                       let next = SessionBoardOrder.manualOrder(
                         moving: lift.key, onto: targetKey,
                         listedKeys: listed.compactMap(SessionRosterStore.orderKey),
-                        boardKeys: board.compactMap(SessionRosterStore.orderKey),
-                        manualKeys: settings.sessionBoardOrder)
+                        boardKeys: boardKeys,
+                        manualKeys: sessionsDragBaseline(boardKeys))
                 else { return }
                 // THE HAND TAKES THE BOARD BACK THE INSTANT IT MOVES A CARD. Written beside the
                 // arrangement rather than at the drop so the two can never disagree: a cancelled
@@ -154,6 +155,24 @@ extension PopoverRootView {
                 Haptics.snap()
             }
             .onEnded { _ in sessionLift = nil }
+    }
+
+    /// WHAT THE DRAG IS WRITING ON TOP OF: the arrangement while the hand owns the board, the board
+    /// itself while the switch does.
+    ///
+    /// THE ORDER ON SCREEN IS THE ONLY HONEST BASELINE. With the switch on, the arrangement on disk
+    /// governs nothing (`sessionsPage` holds it back), so writing from it moves cards the hand never
+    /// touched: a board seated `[X, C, A, B]` with the filter hiding X, dragged C past A, was
+    /// written from a remembered `[A, B, C, X]` and flung X to the far end. Written from the board
+    /// it stays where it is (`[X, A, C, B]`).
+    ///
+    /// THE REMEMBERED KEYS FOLLOW rather than being dropped: a project whose sessions have ended is
+    /// on nobody's board and cannot jump anywhere, and it is keyed by directory precisely so it
+    /// finds its seat when it comes back (`SessionBoardOrder`). Behind the live board is where it
+    /// queues, which is where an unarranged project already goes.
+    private func sessionsDragBaseline(_ boardKeys: [String]) -> [String] {
+        settings.sessionBoardSortsByState ? boardKeys + settings.sessionBoardOrder
+            : settings.sessionBoardOrder
     }
 
     /// The floating copy of the card being carried: the very view the grid draws, lifted off the

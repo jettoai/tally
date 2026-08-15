@@ -210,6 +210,42 @@ func runSessionBoardOrderChecks() {
     check("one seat per project, first mention winning",
           SessionBoardOrder.ranking([atlas, beacon, atlas]) == [atlas: 0, beacon: 1])
 
+    // MARK: the first drag while the switch is on
+
+    // WHAT IS ON SCREEN IS THE BASELINE, because the arrangement on disk is governing nothing while
+    // the switch is on (`sessionsPage` holds it back). The board is seated [dune, cinder, atlas,
+    // beacon] by state, the filter is hiding dune, and a remembered [atlas, beacon, cinder, dune] is
+    // still on disk from before the switch was ever turned on. Dragging cinder past atlas must move
+    // those two and nothing else.
+    let liveBoard = [dune, cinder, atlas, beacon]
+    let stale = [atlas, beacon, cinder, dune]
+    // The baseline the gesture hands over while the switch is on: the board first, the remembered
+    // keys behind it (`sessionsDragBaseline`).
+    let onBaseline = liveBoard + stale
+    check("a first drag under the switch is written from the board that is on screen",
+          SessionBoardOrder.manualOrder(moving: cinder, onto: atlas,
+                                        listedKeys: [cinder, atlas, beacon],
+                                        boardKeys: liveBoard, manualKeys: onBaseline)
+              == [dune, atlas, cinder, beacon])
+    // THE CARD THE FILTER IS HIDING MUST NOT MOVE. Written from the remembered order instead, dune
+    // went from the head of the board to its tail without being touched, mentioned or seen.
+    check("…so a card the filter is hiding keeps its place instead of being flung to the end",
+          SessionBoardOrder.manualOrder(moving: cinder, onto: atlas,
+                                        listedKeys: [cinder, atlas, beacon],
+                                        boardKeys: liveBoard, manualKeys: onBaseline)?.first == dune
+              && SessionBoardOrder.manualOrder(moving: cinder, onto: atlas,
+                                               listedKeys: [cinder, atlas, beacon],
+                                               boardKeys: liveBoard,
+                                               manualKeys: stale) == [atlas, cinder, beacon, dune])
+    // The remembered keys are carried along rather than dropped: a project whose sessions have all
+    // ended is on nobody's board, cannot jump anywhere, and is exactly what keying the arrangement
+    // by directory is for - it queues behind the live board and finds its seat when it comes back.
+    check("…while a project that has ended keeps a seat behind the board",
+          SessionBoardOrder.manualOrder(moving: cinder, onto: atlas, listedKeys: [cinder, atlas],
+                                        boardKeys: [cinder, atlas],
+                                        manualKeys: [cinder, atlas] + [beacon, atlas, cinder])
+              == [atlas, cinder, beacon])
+
     // MARK: what survives a restart
 
     let suite = "tally-sessionboard-\(UUID().uuidString)"
@@ -296,6 +332,14 @@ func runSessionBoardOrderChecks() {
               "settings.sessionBoardSortsByState = false\n"
                   + "                withAnimation(CardMotion.spring) "
                   + "{ settings.sessionBoardOrder = next }"))
+    // And the gesture asks for that baseline rather than reaching for the arrangement itself, which
+    // is the whole of the fix: the board first, the remembered keys behind it, and only while the
+    // switch is on.
+    check("the drag is written from the board on screen while the switch is on",
+          reorderSource.contains("manualKeys: sessionsDragBaseline(boardKeys)")
+              && reorderSource.contains(
+                  "settings.sessionBoardSortsByState ? boardKeys + settings.sessionBoardOrder")
+              && reorderSource.contains("            : settings.sessionBoardOrder"))
     // NOTHING IS ERASED IN EITHER DIRECTION: the arrangement is what turning the switch off comes
     // back to, so an app that forgot it would owe the user a hand-built order they never asked to
     // rebuild. The old control's erase is gone, at the store and at the call site both.
@@ -353,6 +397,20 @@ func runSessionBoardOrderChecks() {
     check("the floating copy holds the grip at full brightness",
           reorderSource.contains("sessionCard(lift.row, handleProminent: true)")
               && cardSource.contains("handleProminent: handleProminent"))
+    // WHAT A CLICK DOES IS STILL SPOKEN. The callout used to hand that sentence to an accessibility
+    // hint on its way past (`TallyTooltip`), so taking the callout off the card took the sentence
+    // with it and left a control whose only affordance a screen reader could not see. A hint rather
+    // than `.help()`, which is an NSToolTip: the layer is what this board bans, not the meaning.
+    // Asked of the CODE, comments stripped first: this file says the words `.help()` and "tooltip"
+    // while explaining why it has neither, and an assertion that cannot tell prose from a modifier
+    // would be red for the very sentence that documents it.
+    let cardCode = cardSource.split(separator: "\n", omittingEmptySubsequences: false)
+        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        .joined(separator: "\n")
+    check("the card tells VoiceOver what a click does without opening a layer to say it",
+          cardCode.contains(
+              ".accessibilityHint(Text(L(\"Click to bring its terminal to the front\")))")
+              && !cardCode.contains(".help(") && !cardCode.contains("tallyTooltip"))
     // A session that published no directory cannot be lifted at all (`orderKey`), so offering it a
     // grip would promise a gesture that does nothing. One answer, asked at the grab and at the draw.
     check("only a card there is something to arrange by carries a grip",

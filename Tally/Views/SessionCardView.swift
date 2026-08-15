@@ -81,7 +81,9 @@ struct SessionCardView: View {
                 // of a reason too long for the line, used to go. The board is where the pointer
                 // WAITS between jumps, so a callout opening under it covers the cards beside it for
                 // as long as the hand rests there; that costs more than a truncated line, and the
-                // whole of a wait is in the terminal this card is the way to (2026-08-15).
+                // whole of a wait is in the terminal this card is the way to (2026-08-15). What is
+                // banned is the LAYER, not the meaning: a card still tells VoiceOver what a click
+                // does, and says it in its own hint rather than through a callout's (see below).
                 //
                 // Written on `sessionIsWaiting` rather than on the reason being there, so the choice
                 // is the card's state and not an accident of what got published. A blocked session
@@ -114,6 +116,12 @@ struct SessionCardView: View {
             .opacity(row.isReporting ? 1 : Self.quietCardOpacity)
         }
         .buttonStyle(.plain)
+        // WHAT A CLICK DOES, SPOKEN. VoiceOver reads what the session is off the labels above; the
+        // one thing it cannot see is that the whole card is the way to that terminal. The callout
+        // used to carry this line and handed it to a hint on its way past (`TallyTooltip`), so
+        // taking the callout off took the sentence with it. A hint rather than `.help()`, which is
+        // an NSToolTip: the layer is what this board bans, never the meaning.
+        .accessibilityHint(Text(L("Click to bring its terminal to the front")))
         // Asked only where the answer is drawn, exactly as the account card asks it: a card with no
         // grip on it would be re-rendering on every pointer crossing for nothing.
         .onHover { if showsDragHandle { isHovering = $0 } }

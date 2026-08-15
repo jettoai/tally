@@ -112,6 +112,29 @@ func runTerminalJumpChecks() {
     check("no two marks are the same", marks.count == 500)
     check("…and each one says what wrote it",
           marks.allSatisfy { $0.hasPrefix("tally-jump-") })
+    // The prefix is written once and read twice - by the name that carries it and by the scan that
+    // has to recognise a mark it did not write. Spelled twice, the two would be free to drift, and
+    // the drifted half would hand a mark back to a tab as though it were somebody's own title.
+    check("…in the one spelling the scan filters on",
+          TerminalJump.markPrefix == "tally-jump-"
+              && marks.allSatisfy { $0.hasPrefix(TerminalJump.markPrefix) })
+
+    // WHICH JUMPS MAY RENAME A TAB AT ALL, as a value: none of the three refusals can be reached
+    // through `focusGhostty` without a Ghostty to talk to, and each of them ends in a tab left
+    // called `tally-jump-…` for good.
+    check("a session whose Ghostty publishes no device is found by writing to one",
+          TerminalJump.shouldMark(device: "/dev/ttys001", tty: nil, inFlight: false))
+    // 1.4.0 and later: the device pass is built, stands above the marked one and wins the script,
+    // and only the MARKED answer carries the surface a title is put back on - so a mark written
+    // here is one nothing names and nothing removes.
+    check("a Ghostty that can simply be asked is asked rather than written to",
+          !TerminalJump.shouldMark(device: "/dev/ttys001", tty: "/dev/ttys001", inFlight: false))
+    check("a session with no device has nothing to mark and nothing to put back",
+          !TerminalJump.shouldMark(device: nil, tty: nil, inFlight: false))
+    // Two clicks on one card inside the grace: the second stands its own mark down and takes the
+    // checkout pass rather than writing over a mark whose real title only the first jump holds.
+    check("a device with a mark already out on it is left to the jump that wrote it",
+          !TerminalJump.shouldMark(device: "/dev/ttys001", tty: nil, inFlight: true))
     // A mark goes into the script through `literal` and into the terminal inside an escape ended
     // by BEL, so a mark carrying either delimiter would close its own sequence.
     check("a mark carries nothing that could end a literal or an escape",
@@ -141,6 +164,17 @@ func runTerminalJumpChecks() {
           surfaces["14"] == "" && surfaces.count == 3)
     check("a line that names no surface is dropped rather than guessed at",
           TerminalJump.parseSurfaces("no tab on this line\n\tnameless\n").isEmpty)
+    // And the table the RESTORE is made from is that scan minus every mark. A name beginning
+    // `tally-jump-` was written by this app and is owed back to whoever wrote it: put back here, it
+    // would become the tab's permanent name while the jump holding the real title fell through to
+    // the checkout pass and restored nothing.
+    let scanned = "12\tclaude · tally\n13\ttally-jump-ab12cd34\n14\t\n"
+    check("a surface already carrying a mark is not a title anybody may be given back",
+          TerminalJump.restorableTitles(scanned) == ["12": "claude · tally", "14": ""])
+    // Which leaves an empty table when every surface is marked, and an empty table is exactly what
+    // stands the next mark down - the same refusal a Ghostty that answered nothing gets.
+    check("…so a scan that is nothing but marks answers nothing at all",
+          TerminalJump.restorableTitles("13\ttally-jump-ab12cd34\n").isEmpty)
 
     // The pass itself, in the one place its precedence can be read: below the device, because that
     // one is answered by a property rather than by renaming somebody's tab, and above the checkout,
@@ -307,8 +341,8 @@ func runTerminalJumpChecks() {
     // BEFORE one of them is replaced, because that scan is the only record the old title survives
     // in, and the surface is asked for only after the mark has been written.
     let scriptSource = jumpCode(of: "Tally/Core/TerminalJumpScript.swift")
-    guard let titlesRead = scriptSource.range(of: "parseSurfaces(await osascript(surfaceScanScript())"),
-          let markWritten = scriptSource.range(of: "write(title: candidate, to: device)"),
+    guard let titlesRead = scriptSource.range(of: "restorableTitles(await osascript(surfaceScanScript())"),
+          let markWritten = scriptSource.range(of: "write(title: candidate, to: marking)"),
           let surfaceAsked = scriptSource.range(of: "await osascript(script(directory: directory")
     else {
         check("the marked pass was found to read", false)
@@ -321,7 +355,21 @@ func runTerminalJumpChecks() {
     // NOTHING IS WRITTEN THAT CANNOT BE PUT BACK. A scan that answered nothing carries no title to
     // restore from, so the mark is never placed at all rather than being placed and abandoned.
     check("a scan that answered nothing stands the mark down",
-          scriptSource.contains("if !titles.isEmpty, write(title: candidate, to: device) {"))
+          scriptSource.contains("if !titles.isEmpty, write(title: candidate, to: marking) {"))
+    // The live path asks whether it may mark at all, rather than marking whenever a device exists:
+    // the value assertions above are worth nothing if the flow never consults them.
+    check("the jump asks whether it may mark before it writes",
+          scriptSource.contains("shouldMark(device: device, tty: tty, inFlight: inFlight)"))
+    // …and the table it restores from is the scan minus every mark, so no jump can hand another
+    // jump's mark back to a tab as that tab's own title.
+    check("…and restores only from titles that are not themselves marks",
+          scriptSource.contains("titles = restorableTitles("))
+    // The claim is what makes the second click stand down, and it is released on EVERY exit -
+    // including the one that never got an answer out of osascript. Left behind, it would stand
+    // every later jump to that device down for as long as the app ran.
+    check("the device is claimed for as long as the mark is out, and released whatever happens",
+          scriptSource.contains("markingDevices.insert(marking)")
+              && scriptSource.contains("defer { if let marking { markingDevices.remove(marking) } }"))
     // The mark is given time to reach the dictionary before it is looked for; without the wait the
     // pass would report a miss for a rename that simply had not arrived yet.
     check("the mark is given time to arrive before it is looked for",
@@ -329,8 +377,8 @@ func runTerminalJumpChecks() {
     // And it is taken off the surface it named, using the title read before it went on. A pass
     // that did not answer left no mark here to remove.
     check("the title is put back on the surface the mark named",
-          scriptSource.contains("if answer.match == .nonce, let device, let id = answer.surface,")
-              && scriptSource.contains("write(title: title, to: device)"))
+          scriptSource.contains("if answer.match == .nonce, let marking, let id = answer.surface,")
+              && scriptSource.contains("write(title: title, to: marking)"))
     // Every exit is judged the same way, one grace later: a request is not an outcome, and a second
     // copy of that judgement is a copy that drifts (`land`).
     check("all three exits are judged rather than assumed",

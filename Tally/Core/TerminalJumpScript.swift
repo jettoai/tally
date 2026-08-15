@@ -45,14 +45,27 @@ extension TerminalJump {
     /// NOTHING IS WRITTEN THAT CANNOT BE PUT BACK. The scan that precedes the write is what the
     /// title is restored from, so a scan that answered nothing stands the whole pass down rather
     /// than leaving somebody's tab called `tally-jump-…`.
+    ///
+    /// AND NOT EVERY JUMP WRITES AT ALL (`shouldMark`): a dictionary that publishes the device is
+    /// asked rather than written to, and a device with a mark already in flight is left to the jump
+    /// that put it there.
+    @MainActor
     static func focusGhostty(directory: String, hint: String, tty: String?,
                              device: String?) async -> SurfaceMatch? {
         var titles: [String: String] = [:]
         var mark: String?
-        if let device {
-            titles = parseSurfaces(await osascript(surfaceScanScript()) ?? "")
+        // The device this jump may rename a surface through, or nil for each of the three reasons
+        // not to (`shouldMark`). Claimed for as long as the mark is out there, and released on
+        // every way out of here - including the one that never got an answer out of osascript,
+        // since a claim left behind would stand every later jump to this device down for good.
+        let inFlight = device.map(markingDevices.contains) ?? false
+        let marking = shouldMark(device: device, tty: tty, inFlight: inFlight) ? device : nil
+        defer { if let marking { markingDevices.remove(marking) } }
+        if let marking {
+            markingDevices.insert(marking)
+            titles = restorableTitles(await osascript(surfaceScanScript()) ?? "")
             let candidate = nonce()
-            if !titles.isEmpty, write(title: candidate, to: device) {
+            if !titles.isEmpty, write(title: candidate, to: marking) {
                 mark = candidate
                 try? await Task.sleep(for: titleGrace)
             }
@@ -65,11 +78,46 @@ extension TerminalJump {
         // between gets one stale title back and rewrites it on its next turn anyway. A pass that
         // did NOT answer leaves no mark to remove - either the write never landed, or it landed on
         // a terminal this app cannot see, and in neither case is there a title here to restore.
-        if answer.match == .nonce, let device, let id = answer.surface, let title = titles[id] {
-            write(title: title, to: device)
+        if answer.match == .nonce, let marking, let id = answer.surface, let title = titles[id] {
+            write(title: title, to: marking)
         }
         return answer.match
     }
+
+    /// WHETHER THIS JUMP MAY RENAME A TAB TO FIND ITS SURFACE. A value rather than a condition
+    /// buried in the flow above, because none of the three refusals can be reached from a test that
+    /// has no Ghostty to talk to, and each of them leaves a tab renamed for good when it is missed.
+    ///
+    ///   - NO DEVICE: nothing to write to, and nothing this app has read a title off to put back.
+    ///   - THE DICTIONARY ALREADY ANSWERS `tty` (1.4.0 and later): that pass is built, stands above
+    ///     the marked one and wins the script outright - and only the MARKED answer carries the
+    ///     surface the title is put back on, so a mark written beside a device pass is a mark
+    ///     nothing ever names and nothing ever removes. Every click would then leave one more
+    ///     `tally-jump-…` on a tab that accepts the escape.
+    ///   - A MARK IS ALREADY IN FLIGHT ON THIS DEVICE (`markingDevices`).
+    ///
+    /// All three fall to the passes that READ rather than write, which is where this jump was
+    /// heading anyway: the device pass for the first case, the checkout for the other two.
+    static func shouldMark(device: String?, tty: String?, inFlight: Bool) -> Bool {
+        device != nil && tty == nil && !inFlight
+    }
+
+    /// The devices a marked pass is out on right now, so two jumps to one surface cannot cross.
+    ///
+    /// NOT A QUEUE, DELIBERATELY. Two clicks on one card inside the grace are one intention - the
+    /// same session, the same surface - so the second does not wait for the first: it stands its own
+    /// mark down and takes the checkout pass, which lands in the right repository while the first
+    /// click is already on its way to the exact tab. Queued instead, the second would rename the tab
+    /// again after the first had put the title back, for a destination already reached.
+    ///
+    /// WHAT CROSSING WOULD COST, in the order it happens: the second scan reads the first mark as
+    /// the tab's own title and writes a second mark over it; the first jump then finds its mark gone
+    /// and falls to the checkout pass, restoring nothing; the second finishes and puts back what it
+    /// took for the title - which is the first mark, or nothing at all now that a mark is never a
+    /// restorable title (`restorableTitles`). Either way the tab keeps a `tally-jump-…` name that
+    /// nobody is left holding the real one for.
+    @MainActor
+    private static var markingDevices: Set<String> = []
 
     /// Run one script and hand back its stdout, or nil for a Ghostty that raised, refused or was
     /// never asked. ONE PLACE THE TIMEOUT AND THE EXIT CODE ARE READ, because this is now asked
@@ -81,12 +129,34 @@ extension TerminalJump {
         return result?.stdout
     }
 
+    /// WHAT A MARK LOOKS LIKE, in one place because two readers depend on it: the name a jump
+    /// writes, and the scan that has to recognise one it did not write (`restorableTitles`). Spelled
+    /// twice, a mark this app failed to recognise would be handed back to a tab as though it were
+    /// somebody's own title.
+    static let markPrefix = "tally-jump-"
+
     /// A name no surface can already be carrying. Random rather than derived from the session,
     /// because two jumps a second apart must not be able to mark the same title and read each
     /// other's answer; the prefix is there for the one person who sees it on a tab during the
     /// grace and wants to know what wrote it.
     static func nonce() -> String {
-        "tally-jump-" + UUID().uuidString.prefix(8).lowercased()
+        markPrefix + UUID().uuidString.prefix(8).lowercased()
+    }
+
+    /// The scan read as a restore table: every surface's title EXCEPT the ones already carrying a
+    /// mark.
+    ///
+    /// A MARK IS NOBODY'S TITLE. A name beginning `tally-jump-` was written by this app moments ago
+    /// and is owed back to whoever wrote it; restoring one would make another jump's borrowed name
+    /// the tab's permanent one. Dropped rather than kept, which costs nothing that is not already
+    /// lost: the surface's real title lives in the scan of the jump that marked it, and that jump
+    /// puts it back itself.
+    ///
+    /// A SCAN THAT IS ALL MARKS THEREFORE ANSWERS NOTHING, and the caller stands its own mark down
+    /// on an empty table rather than writing a name it could not undo - the same refusal a Ghostty
+    /// that answered nothing already gets.
+    static func restorableTitles(_ stdout: String) -> [String: String] {
+        parseSurfaces(stdout).filter { !$0.value.hasPrefix(markPrefix) }
     }
 
     /// Every surface's identity and title, read BEFORE anything is written, which makes it two

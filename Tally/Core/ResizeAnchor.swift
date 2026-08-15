@@ -87,4 +87,26 @@ enum ResizeAnchor {
     /// Half a point: below this, two numbers are the same place on a screen that can only draw
     /// whole points, and acting on the difference is acting on noise.
     private static let tolerance: CGFloat = 0.5
+
+    /// THE HEIGHT A REPORTED CONTENT HEIGHT LANDS ON, ON A NAMED DISPLAY.
+    ///
+    /// The settings window fits its tallest pane whole - a workhorse pane must never need a
+    /// scrollbar (Albert's call, 2026-07-19) - and the display is the only thing that overrules
+    /// that. Which display therefore has to be an ARGUMENT rather than something read at the moment
+    /// a report happens to arrive: the same content is a different window height on a 1440pt display
+    /// than on a 1152pt one, and a window summoned from the first to the second has to be told the
+    /// new answer without any report arriving at all (the content did not change, so none will).
+    ///
+    /// Pure so the enumeration can be asserted: fits / capped / floored / unchanged.
+    static func fittedWindowHeight(reported: CGFloat, chrome: CGFloat,
+                                   visibleHeight: CGFloat) -> CGFloat {
+        max(minimumWindowHeight, min(reported + chrome, visibleHeight - screenMargin))
+    }
+
+    /// The breathing room left under a window that had to be capped, so a capped window still reads
+    /// as a window on a desktop rather than as one wedged between two edges.
+    static let screenMargin: CGFloat = 40
+
+    /// And the floor, for a display too short for even the margin to make sense.
+    static let minimumWindowHeight: CGFloat = 200
 }

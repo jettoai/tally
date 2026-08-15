@@ -85,19 +85,9 @@ func checkPopoverAnchor() {
 
     // 12c. AND THE CONTROLLER IS BUILT THAT WAY. Read off the source for the same reason as
     //      everything above: the status item's window cannot be driven from here.
-    //      THE CONTROLLER IS THREE FILES (2026-08-15) AND IS READ AS ONE. Everything below that
-    //      says "and nowhere else" - the placement-correction machinery that is gone, the popover
-    //      window this file no longer moves, the single site the follow rule is asked at - is a
-    //      claim about the controller, not about a filename. Splitting a file is exactly how such a
-    //      claim goes green while the statement it forbids lives on next door, so the split is
-    //      absorbed here instead: the union is what the assertions read, and each part of it has to
-    //      be readable or the negatives below would pass by having nothing to look at.
-    let statusFiles = ["Tally/MenuBar/StatusItemController.swift",
-                       "Tally/MenuBar/StatusItemButton.swift",
-                       "Tally/MenuBar/StatusItemCommands.swift"]
-    check("all three of the controller's files were found to read (\(statusFiles.count))",
-          statusFiles.allSatisfy { !code(of: $0).isEmpty })
-    let statusSource = statusFiles.map { code(of: $0) }.joined(separator: "\n")
+    // Read as ONE source across the controller's three files (`statusControllerFiles`, stated in
+    //      main.swift with the reason).
+    let statusSource = statusControllerSource
     func precedes(_ first: String, _ second: String, in body: String) -> Bool {
         guard let a = body.range(of: first), let b = body.range(of: second) else { return false }
         return a.upperBound <= b.lowerBound
@@ -194,7 +184,9 @@ func checkPopoverAnchor() {
 
     // FOLLOW OR FREEZE, and nothing else. Both answers are passive: following moves the decoy and
     // AppKit slides the popover natively; freezing moves nothing, so nothing moves the popover.
-    guard let feedStart = statusSource.range(of: "private func feedDecoyAnchor()"),
+    // Keyed on the function, not on its access level: `private` is not part of any contract here,
+    // and an anchor that includes it makes an unrelated change look like a broken contract.
+    guard let feedStart = statusSource.range(of: "func feedDecoyAnchor()"),
           let feedEnd = statusSource.range(of: "\n    }\n",
                                            range: feedStart.upperBound ..< statusSource.endIndex)
     else {

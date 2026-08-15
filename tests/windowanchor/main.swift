@@ -124,6 +124,23 @@ func code(of path: String) -> String {
     }.joined(separator: "\n")
 }
 
+// THE STATUS ITEM CONTROLLER IS THREE FILES (2026-08-15) AND IS READ AS ONE, here rather than in
+// either section, because BOTH of them make claims about it and a union built twice is a union that
+// can be built differently twice - which is the same failure one file down.
+//
+// Everything either section says with "and nowhere else" - the placement-correction machinery that
+// is gone, the popover window this file no longer moves, the single site the follow rule is asked
+// at, the one place the foreground is taken - is a claim about the CONTROLLER, not about a
+// filename. Splitting a file is exactly how such a claim goes green while the statement it forbids
+// lives on next door, so the split is absorbed here: the union is what the assertions read, and
+// each part of it has to be readable or the negatives would pass by having nothing to look at.
+let statusControllerFiles = ["Tally/MenuBar/StatusItemController.swift",
+                             "Tally/MenuBar/StatusItemButton.swift",
+                             "Tally/MenuBar/StatusItemCommands.swift"]
+check("all three of the controller's files were found to read (\(statusControllerFiles.count))",
+      statusControllerFiles.allSatisfy { !code(of: $0).isEmpty })
+let statusControllerSource = statusControllerFiles.map { code(of: $0) }.joined(separator: "\n")
+
 let sizerSource = code(of: "Tally/MenuBar/SurfaceSizer.swift")
 guard let observerStart = sizerSource.range(of: "forName: NSWindow.didResizeNotification"),
       let observerEnd = sizerSource.range(of: "\n        }\n",

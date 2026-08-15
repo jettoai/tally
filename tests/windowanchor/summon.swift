@@ -11,6 +11,14 @@ import Foundation
 // The arithmetic is here because it is arithmetic - rectangles and displays, no AppKit - and the
 // wiring is read off the source for the same reason the rest of this suite does: windows cannot be
 // driven from a command-line harness. The harness itself (check, near, code) is main.swift's.
+/// Order in a source file, for the assertions that are about a sequence rather than a presence.
+/// (The popover section has its own copy nested in its function; this one is the file-scope twin,
+/// and both mean the same thing: `first` appears, `second` appears, and not the other way round.)
+private func precedes(_ first: String, _ second: String, in body: String) -> Bool {
+    guard let a = body.range(of: first), let b = body.range(of: second) else { return false }
+    return a.upperBound <= b.lowerBound
+}
+
 func checkPanelSummon() {
     // A machine with a menu bar showing, so the two rectangles of a display are genuinely different.
     let bar: CGFloat = 24
@@ -145,9 +153,11 @@ func checkPanelSummon() {
           !panelSource.contains("func bringToFront"))
     // The status item is what says WHICH display, so its own rectangle is what goes in - the same
     // rectangle the decoy is put at, read the same way.
-    let statusSummon = code(of: "Tally/MenuBar/StatusItemController.swift")
+    // The controller's three files as one (`statusControllerFiles`, main.swift): the two claims
+    // below are about the controller, and one of them is a COUNT - the shape most quietly defeated
+    // by moving a statement into a sibling file.
     check("the item hands its own rectangle to that summon",
-          statusSummon.contains(
+          statusControllerSource.contains(
               "PinnedPanelController.shared.summon(onScreenOf: anchorScreenRect(button: button))"))
 
     // 7. THE DISPLAYS THEMSELVES CHANGING. Putting a surface back used to be reachable only through
@@ -173,9 +183,13 @@ func checkPanelSummon() {
     //    waiting dot appears, a percentage goes from two digits to three - and watching only moves
     //    was the assumption that one event always brings the other.
     check("the popover's anchor is followed through resizes as well as moves",
-          statusSummon.contains("for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification]"))
-    check("…through the one handler, so the two cannot drift apart",
-          statusSummon.components(separatedBy: "feedDecoyAnchor()").count - 1 <= 3)
+          statusControllerSource.contains(
+              "for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification]"))
+    // EXACTLY TWO occurrences anywhere in the controller: the declaration, and the one call site
+    // inside that loop. Counted rather than merely bounded, because a bound with slack in it is a
+    // bound a second feeder can be added under - which is precisely the drift this asserts against.
+    check("…through the one handler and the one call site, so the two cannot drift apart",
+          statusControllerSource.components(separatedBy: "feedDecoyAnchor()").count - 1 == 2)
 
     // 9. AND THE SAME QUESTION FOR THE WINDOWS. A summoned window follows the user; the rule used to
     //    apply only to windows that were not up yet, which on one display is right and on several is
@@ -203,6 +217,97 @@ func checkPanelSummon() {
               source.contains("summonShouldFollowPointer == true")
                   && !source.contains("window?.isVisible != true, !restoring"))
     }
+
+    // 9b. AND A SUMMONED WINDOW HAS TO BE THE HEIGHT THE NEW DISPLAY ALLOWS, which is the half the
+    //     first round of this fix missed (found by review of 8cdafad). The settings window fits its
+    //     tallest pane whole and lets only the display overrule it, and that answer is a different
+    //     number on a different display - while the CONTENT is the same, so the report that would
+    //     recompute it never arrives. Moving such a window without re-fitting leaves it at the tall
+    //     display's height on a short one, where a clamp can only save the title bar: everything
+    //     below the screen's bottom edge, the buttons included, stays unreachable.
+    //
+    //     Enumerated on the arithmetic, which is why it is arithmetic: fits / capped / floored /
+    //     unchanged are the whole set of things a display can do to a reported height.
+    let chrome: CGFloat = 28
+    let reported: CGFloat = 1200
+    let tallVisible: CGFloat = 1400
+    let shortVisible: CGFloat = 900
+    let onTall = ResizeAnchor.fittedWindowHeight(reported: reported, chrome: chrome,
+                                                 visibleHeight: tallVisible)
+    let onShort = ResizeAnchor.fittedWindowHeight(reported: reported, chrome: chrome,
+                                                  visibleHeight: shortVisible)
+    check("a pane that fits its display is fitted whole, cap or no cap",
+          near(onTall, reported + chrome) && onTall < tallVisible)
+    check("…and the same pane summoned to a shorter display is capped to what that one has",
+          near(onShort, shortVisible - ResizeAnchor.screenMargin) && onShort < onTall)
+    // Stated a second time WITHOUT reference to the margin, because the line above moves with it: an
+    // assertion whose both sides are the constant being changed cannot notice the constant changing,
+    // and "a window shorter than its display, with room left" is the property that actually matters.
+    check("…strictly shorter than the display, not merely equal to it",
+          onShort < shortVisible && onShort > shortVisible / 2)
+    check("…which is the whole point: the height it was is taller than the display it went to",
+          onTall > shortVisible)
+    check("a display too short even for the margin still leaves a window worth having",
+          near(ResizeAnchor.fittedWindowHeight(reported: 40, chrome: chrome, visibleHeight: 300),
+               ResizeAnchor.minimumWindowHeight))
+    check("…and a summon between displays of the same height recomputes to the height it already has",
+          near(ResizeAnchor.fittedWindowHeight(reported: reported, chrome: chrome,
+                                               visibleHeight: tallVisible), onTall))
+    // The two halves have to MEET: a capped height is only useful if the placement then puts the
+    // whole window inside the display. Asserted through the same clamp the windows use, so this is
+    // the real composition rather than two facts side by side.
+    let shortScreen = CGRect(x: 0, y: 0, width: 1600, height: shortVisible)
+    let summoned = CGSize(width: 651, height: onShort)
+    let placed = StatusAnchor.clampedTopLeft(CGPoint(x: 300, y: shortScreen.maxY + 200),
+                                             size: summoned, within: shortScreen)
+    check("a window fitted then clamped ends up wholly inside the display it was summoned to",
+          shortScreen.contains(CGRect(x: placed.x, y: placed.y - summoned.height,
+                                      width: summoned.width, height: summoned.height)))
+    // …and the same composition with the UNFITTED height is what the bug looked like: the clamp
+    // holds the top edge, so the bottom of the window is off the display and stays there.
+    let unfitted = CGSize(width: 651, height: onTall)
+    let stuck = StatusAnchor.clampedTopLeft(CGPoint(x: 300, y: shortScreen.maxY + 200),
+                                            size: unfitted, within: shortScreen)
+    check("…while the unfitted height clamps to a window whose bottom is off the screen (the bug, stated)",
+          !shortScreen.contains(CGRect(x: stuck.x, y: stuck.y - unfitted.height,
+                                       width: unfitted.width, height: unfitted.height))
+              && near(stuck.y, shortScreen.maxY))
+
+    let settingsSource = code(of: "Tally/MenuBar/SettingsWindowController.swift")
+    check("the settings window fits its height to the display it is going to, before it is placed there",
+          precedes("fitHeight(on: NSScreen.pointerScreen)", "window?.centerOnPointerScreen()",
+                   in: settingsSource)
+              && precedes("window?.centerOnPointerScreen()", "window?.clampOnScreen()",
+                          in: settingsSource))
+    check("…keeping the reported height rather than only the applied one, since no new report is coming",
+          settingsSource.contains("private var reportedHeight: CGFloat = 0")
+              && settingsSource.contains("reportedHeight = height"))
+    check("…through the one function that writes this window's height, not a second frame write",
+          settingsSource.components(separatedBy: "window.setFrame(frame, display: true)").count == 2
+              && settingsSource.contains("private func fitHeight(on screen: NSScreen?)"))
+    check("…and the cap itself is the shared arithmetic rather than numbers inline here",
+          settingsSource.contains("ResizeAnchor.fittedWindowHeight(reported: reportedHeight,")
+              && !settingsSource.contains("- 40") && !settingsSource.contains("max(200,"))
+    // Same-screen summons must not resize either, and the guard that decides that is a comparison
+    // against the height the window already has: without it, every summon writes a frame.
+    check("…with no write at all when the fitted height is the height it already is",
+          settingsSource.contains("guard abs(target - window.frame.height) > 1 else { return }"))
+
+    // 9c. THE DASHBOARD DOES NOT NEED ANY OF THAT, and the reason is a mechanism rather than luck:
+    //     its cap does not live in its controller at all. The content reads the cap off its own host
+    //     screen and re-reads it on every window move (`PopoverRootView.refreshScreenCap`), so the
+    //     move a summon makes is itself what recomputes the height, and the shared sizing contract
+    //     applies the new report. Asserted here because it is the reason the fix above is only in
+    //     one of the two controllers: if that observer goes, this exemption goes with it silently.
+    let rootSource = code(of: "Tally/Views/PopoverRootView.swift")
+    check("the dashboard's cap is re-read whenever its window moves, which is what a summon does",
+          rootSource.contains("publisher(for: NSWindow.didMoveNotification)")
+              && rootSource.contains("refreshScreenCap()"))
+    check("…off the display the surface is on, so a move to a shorter one answers differently",
+          rootSource.contains("ScreenFitStack.maxHeight(on: hostScreen(), topEdge: hostTopEdge())"))
+    check("…and the dashboard's summon still clamps, since holding a top edge is not staying on screen",
+          precedes("window?.centerOnPointerScreen()", "window?.clampOnScreen()",
+                   in: code(of: "Tally/MenuBar/MainWindowController.swift")))
 
     // 10. A MINIMIZED WINDOW IS STILL OPEN. `isVisible` answers false for one (measured 2026-08-15:
     //     false while minimized, true again on deminiaturize), so the flag an update relaunch reads

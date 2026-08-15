@@ -15,7 +15,14 @@ final class SettingsWindowController {
     static let shared = SettingsWindowController()
 
     private var window: NSWindow?
-    private var lastAppliedHeight: CGFloat = 0
+    /// THE HEIGHT THE VIEW LAST REPORTED, kept rather than applied and forgotten.
+    ///
+    /// The number is a CONTENT height and says nothing about a display; what it becomes depends on
+    /// the display the window is on (`ResizeAnchor.fittedWindowHeight`). So it is kept, because the
+    /// window can move to a display with a different answer while the content stays exactly as it
+    /// was - and the report that would recompute it never comes, precisely because nothing changed.
+    /// Also the echo guard: a report of the height already reported is not a resize.
+    private var reportedHeight: CGFloat = 0
 
     /// Restore-on-launch flag, mirroring MainWindowController: an update relaunch is quit +
     /// launch, and Settings is the LIKELIEST open window then (the update button lives in it).
@@ -101,7 +108,17 @@ final class SettingsWindowController {
         // unfocused on a display the user is not on - on several displays, leaving it there is the
         // gear reading as a dead button. A window that is key is one they are working in, and that
         // one is never moved.
-        if !restoring, window?.summonShouldFollowPointer == true { window?.centerOnPointerScreen() }
+        if !restoring, window?.summonShouldFollowPointer == true {
+            // FITTED TO THE DISPLAY IT IS GOING TO, BEFORE IT IS PLACED THERE. A window that grew to
+            // a tall display's cap keeps that height when it is summoned to a short one - the
+            // content is the same, so no report arrives to recompute it - and a clamp alone can only
+            // save the title bar while the buttons stay off the bottom of the screen (found by
+            // review of 8cdafad). Fitting first is what lets the placement below be made around the
+            // height the window will actually have.
+            fitHeight(on: NSScreen.pointerScreen)
+            window?.centerOnPointerScreen()
+            window?.clampOnScreen()
+        }
         UserDefaults.standard.set(true, forKey: Self.restoreKey)
         ActivationPolicy.promote()   // a visible Settings window earns a Dock / Cmd-Tab presence
         // The promotion above is unconditional on purpose: Cmd-Tab presence is how a window is
@@ -131,24 +148,35 @@ final class SettingsWindowController {
     /// resizes from inside the SwiftUI update that reported it - the pinned panel's lesson).
     /// Continuous but self-quieting: the ±1pt dead band stops echo, and equal heights no-op.
     private func applyContentHeight(_ height: CGFloat) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let window = self.window else { return }
-            guard height.isFinite, height > 1, abs(height - self.lastAppliedHeight) > 1 else { return }
-            self.lastAppliedHeight = height
-            let chrome = window.frame.height - (window.contentView?.frame.height ?? 0)
-            // Reported height = the TALLEST pane (they lay out together for tab-switch
-            // stability). Fit it whole - the workhorse pane must never need a scrollbar; short
-            // panes trading some empty space for that is the right side of the tradeoff
-            // (Albert's call, 2026-07-19). The screen bound stays as the only cap.
-            let maxHeight = (((window.screen ?? NSScreen.main)?.visibleFrame.height) ?? 900) - 40
-            let target = max(200, min(height + chrome, maxHeight))
-            guard abs(target - window.frame.height) > 1 else { return }
-            var frame = window.frame
-            let top = frame.maxY
-            frame.size.height = target
-            frame.origin.y = top - target   // keep the title bar where the user sees it
-            window.setFrame(frame, display: true)
-        }
+        guard height.isFinite, height > 1, abs(height - reportedHeight) > 1 else { return }
+        reportedHeight = height
+        DispatchQueue.main.async { [weak self] in self?.fitHeight(on: self?.window?.screen) }
+    }
+
+    /// Apply the last reported height against `screen`, which is the ONE place this window's size is
+    /// written and the only reason `reportedHeight` is kept.
+    ///
+    /// The display is passed in rather than read off the window because the two callers know
+    /// different things: a report knows only that the window is wherever it is, and a summon knows
+    /// where the window is ABOUT to be - and a summon that fitted against the display the window is
+    /// leaving would compute the height it already has.
+    ///
+    /// Reported height = the TALLEST pane (they lay out together for tab-switch stability). Fit it
+    /// whole - the workhorse pane must never need a scrollbar; short panes trading some empty space
+    /// for that is the right side of the tradeoff (Albert's call, 2026-07-19). The display is the
+    /// only cap, and the arithmetic of that is `ResizeAnchor.fittedWindowHeight`.
+    private func fitHeight(on screen: NSScreen?) {
+        guard let window, reportedHeight > 1 else { return }
+        let chrome = window.frame.height - (window.contentView?.frame.height ?? 0)
+        let visible = (screen ?? window.screen ?? NSScreen.main)?.visibleFrame.height ?? 900
+        let target = ResizeAnchor.fittedWindowHeight(reported: reportedHeight, chrome: chrome,
+                                                     visibleHeight: visible)
+        guard abs(target - window.frame.height) > 1 else { return }
+        var frame = window.frame
+        let top = frame.maxY
+        frame.size.height = target
+        frame.origin.y = top - target   // keep the title bar where the user sees it
+        window.setFrame(frame, display: true)
     }
 }
 

@@ -4,6 +4,14 @@ extension NSScreen {
     /// Every display in the shape the summoning arithmetic takes them (`StatusAnchor.Display`): the
     /// whole rectangle and the part a window may occupy, read together so the two cannot be paired
     /// up wrong by a caller reading them from two different scans.
+    /// The display the pointer is on, which is where a summoned surface goes. One statement of it:
+    /// the placement below reads it, and so does anything that has to know a summon's destination
+    /// BEFORE the surface is moved there (the settings window's height cap).
+    @MainActor static var pointerScreen: NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+    }
+
     @MainActor static var displays: [StatusAnchor.Display] {
         NSScreen.screens.map { StatusAnchor.Display(frame: $0.frame, visible: $0.visibleFrame) }
     }
@@ -15,9 +23,7 @@ extension NSWindow {
     /// main display or wherever they last were. Persistent fixtures (the pinned panel) keep
     /// their user-placed position instead, and anchored popovers follow their anchor.
     @MainActor func centerOnPointerScreen() {
-        let mouse = NSEvent.mouseLocation
-        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
-            ?? NSScreen.main else { return }
+        guard let screen = NSScreen.pointerScreen ?? NSScreen.main else { return }
         let visible = screen.visibleFrame
         // Standard dialog position (AppKit's center()): above the geometric middle, one third of
         // the leftover space above and two thirds below. Matching the system rule means a window
@@ -41,9 +47,7 @@ extension NSWindow {
     @MainActor var summonShouldFollowPointer: Bool {
         guard isVisible else { return true }
         guard !isKeyWindow else { return false }
-        let mouse = NSEvent.mouseLocation
-        guard let pointer = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) })
-        else { return false }
+        guard let pointer = NSScreen.pointerScreen else { return false }
         // By the window's centre, the same rule everything else here uses to say which display a
         // surface is standing on (`StatusAnchor.screenFrame`), so a window straddling a boundary is
         // not summoned back and forth by which half the pointer is over.

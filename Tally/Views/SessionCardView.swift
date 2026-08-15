@@ -104,6 +104,14 @@ struct SessionCardView: View {
                         sessionStats
                     }
                 }
+                // WHAT THIS SESSION IS DOING TO THE MACHINE: a line of its own, because it answers a
+                // different question from the ones above it - those say what the session is and what
+                // it has spent, this says what is running under it right now. Not a fourth segment
+                // on the stats line, which already truncates. The slot is kept on every card for the
+                // reason the helper exists (`sessionCardLine`): a card that dropped a row would
+                // stand shorter than its neighbours, and a session with nothing measurable simply
+                // says nothing.
+                sessionCardLine { statsText(sessionFootprintLine) }
             }
             .padding(.horizontal, TallyMetrics.cardPaddingH)
             .padding(.vertical, TallyMetrics.cardPaddingV)
@@ -291,6 +299,19 @@ struct SessionCardView: View {
         let context = row.contextTokens
             .map { UsageFormat.compactCount(Int64($0)) + " " + L("context") }
         return joined([context, sessionTime(now: now)])
+    }
+
+    /// The footprint line, or nothing at all when this session's tree cannot be read: the numbers
+    /// come from a store that samples only while this page is on screen (`ProcessFootprintStore`),
+    /// so "no entry" covers both the tick that has not happened yet and the supervisor that has
+    /// ended, and neither of those is a card's business to explain.
+    ///
+    /// THE PLURAL IS DECIDED HERE, where the bundle is, and the shape of the line is decided in a
+    /// pure function the assertion harness can state without one (`ProcessTree.line`).
+    private var sessionFootprintLine: String? {
+        guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return nil }
+        return ProcessTree.line(footprint,
+                                unit: L(footprint.processes == 1 ? "proc" : "procs"))
     }
 
     @ViewBuilder

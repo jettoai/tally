@@ -92,6 +92,13 @@ extension PopoverRootView {
         // The list changes length when the filter does, and the surface is sized to what this page
         // reports: without this the host jumps to the new height in one frame while the cards fade.
         .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: tabState.sessionFilter)
+        // THE FOOTPRINT NUMBERS ARE READ ONLY WHILE THIS PAGE IS UP, and this is the page saying so.
+        // On the page rather than on the root the roster is switched from (`PopoverRootView`): that
+        // one serves the menu bar's blocked dot and the durations on every surface, while walking
+        // the process table serves exactly one line on exactly these cards. A surface sitting on the
+        // Usage tab pays nothing for it (`ProcessFootprintStore`).
+        .onAppear { ProcessFootprintStore.shared.beginViewing() }
+        .onDisappear { ProcessFootprintStore.shared.endViewing() }
         // THE SESSION UNDER THE HAND ENDED. The freeze keeps its card on the page, so without this
         // the drag would go on arranging a card that no longer exists and drop it onto a board that
         // has moved on; the scan is also the only thing that can say so, because a session ending

@@ -712,6 +712,7 @@ runAuditSinkChecks()
 runSessionStateChecks()
 runTerminalJumpChecks()
 runSessionBoardOrderChecks()
+runProcessTreeChecks()
 runSessionInputChecks()
 
 exit(failures == 0 ? 0 : 1)

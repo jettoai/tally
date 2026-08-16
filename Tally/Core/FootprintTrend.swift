@@ -146,6 +146,20 @@ enum FootprintTrendMetric: Hashable, CaseIterable {
         }
     }
 
+    /// Whether the quiet word beside this metric's figure NAMES SOMETHING or merely says what the
+    /// figure counts. The CPU's and the memory's are the program blamed for the reading, which is a
+    /// fact only this card holds; the process count's is the unit `procs`, which a reader of a row
+    /// whose other two figures carry their own units can infer. That difference is what a narrow
+    /// card drops first (`SessionCardView.sessionFootprintTrends`), and it is stated here rather
+    /// than as a `!= .processes` test at the point of use, so a metric added to this row has to
+    /// answer the question.
+    var asideNamesACulprit: Bool {
+        switch self {
+        case .processes: false
+        case .cpu, .memory: true
+        }
+    }
+
     /// The widest figure this metric prints in ordinary use, which is what its column on a card is
     /// sized from: a hundred per cent of three cores, a tree holding ninety-nine and a half
     /// gigabytes, a session running ninety-nine processes. Nothing is clipped when a reading passes

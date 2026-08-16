@@ -263,36 +263,35 @@ struct SessionCardView: View {
     /// everywhere else in this app. Down on the footprint sentence it was the last field of a line
     /// truncated at its tail, so it was the first thing a narrow card dropped (Albert, 2026-08-16).
     ///
-    /// AND THE IDENTITY IS WHAT GIVES WAY FOR THEM, in two steps rather than one: the card first
-    /// tries the ports with the program holding each one named, then the bare numbers, and the
-    /// identity truncates under either (`ProcessTree.portsText`). A truncated account name still
-    /// says which account; a truncated port number is a wrong port.
+    /// AND THE IDENTITY IS WHAT GIVES WAY FOR THEM, by asking for the room LAST rather than by
+    /// being one of two candidates: the ports are laid out at their own width and the identity
+    /// carries `layoutPriority(-1)`, which is the same rule the trend row's culprit names are under
+    /// one file over. How many of the ports say what is holding them is decided before the layout
+    /// ever runs, on a measured character budget (`ProcessTree.portsText`).
+    ///
+    /// IT WAS A `ViewThatFits` AND THAT WAS WRONG, which is worth keeping written down because the
+    /// mistake looks like the idiom: that view chooses by its candidates' IDEAL width, and a
+    /// truncating `Text` has the width of its whole untruncated string as its ideal. The fit test
+    /// was therefore "does the FULL identity fit beside the named ports", which no ordinary card
+    /// passes, so every card fell to the bare candidate and the names this row was built for were
+    /// never drawn. A candidate list cannot express "this one shrinks and that one does not"; a
+    /// layout priority can.
     ///
     /// A VIEW OF ITS OWN RATHER THAN A SEGMENT OF `sessionIdentityLine`, which is not a style
     /// choice: that string being nil is how this card knows it has nothing at all to say yet and
-    /// turns an indicator instead (`sessionIsLoading`), so ports written into it would put a
-    /// spinner on a session whose supervisor has published nothing but a dev server's port.
-    @ViewBuilder
+    /// turns an indicator instead (`sessionIsLoading`), so ports written into it would take the
+    /// indicator AWAY from a session that has published nothing but a dev server's port - the card
+    /// would read as one that knows what it is and is merely quiet.
     private var sessionIdentityRow: some View {
-        if let named = sessionPortsText(named: true), let bare = sessionPortsText(named: false) {
-            ViewThatFits(in: .horizontal) {
-                identityRow(ports: named)
-                identityRow(ports: bare)
-            }
-        } else {
-            identityRow(ports: nil)
-        }
-    }
-
-    /// One candidate spelling of that line: the mark, the identity, and the ports at the far end.
-    private func identityRow(ports: String?) -> some View {
         HStack(spacing: 4) {
             if let identity = sessionIdentityLine {
                 ProviderIconView(providerID: row.providerID ?? "", size: 11)
+                // LAST IN THE QUEUE FOR ROOM. A truncated account name still says which account; a
+                // truncated port number is a wrong port.
                 Text(identity).font(.caption2).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.tail)
+                    .lineLimit(1).truncationMode(.tail).layoutPriority(-1)
             }
-            if let ports {
+            if let ports = sessionPortsText {
                 Spacer(minLength: 6)
                 // Held at its own width, so the identity beside it is what the HStack takes the
                 // room from; monospaced for the reason every other figure on this card is - the

@@ -72,44 +72,62 @@ enum DemoUsage {
         ]
     }
 
-    /// Fixture footprints painted over the real ones on the sessions board, so a capture can show
-    /// the two states a real board reaches rarely and never on demand: a card whose readings are
-    /// WARNED (which takes ten seconds of a heavy idle session to earn) and a card holding a port
-    /// with a name against it (which takes a dev server somebody happens to have left running).
+    /// Which fixture each supervised session gets during a capture, by pid in ASCENDING STRING
+    /// ORDER.
+    ///
+    /// WHAT THE ORDER BUYS IS STABILITY, NOT AN ARRANGEMENT. It is not the board's own order (that
+    /// is the roster's seating, `SessionBoardOrder`) and it is not numeric (these are pid strings,
+    /// so "1234" sorts before "987"): which card on screen carries the warned fixture therefore
+    /// cannot be predicted before a capture, only that it stays the same card while the capture
+    /// runs. That is the property a screenshot needs - a fixture that moved between ticks would
+    /// change the picture between two presses of the shutter.
+    static func fixtureOrder(of keys: [String]) -> [String: Int] {
+        var order: [String: Int] = [:]
+        for (index, key) in keys.sorted().enumerated() { order[key] = index }
+        return order
+    }
+
+    /// One session's readings replaced by a fixture, so a capture can show the states a real board
+    /// reaches rarely and never on demand: readings that are WARNED (which takes ten seconds of a
+    /// heavy idle session to earn) and a port with a name against it (which takes a dev server
+    /// somebody happens to have left running).
     ///
     /// THE CARDS ARE STILL THE MACHINE'S OWN, because the board's rows are: this app has no fixture
-    /// sessions, and inventing some would mean a second roster. What is replaced is only the
-    /// READINGS, keyed by the board's own order so the same card carries the same fixture on every
-    /// tick of a capture.
-    static func footprints(over real: [String: ProcessFootprint]) -> [String: ProcessFootprint] {
-        var painted = real
-        for (index, key) in real.keys.sorted().enumerated() {
-            guard var one = painted[key] else { continue }
-            switch index % 3 {
-            case 0:
-                one.processes = 3
-                one.cpuPercent = 92
-                one.memoryBytes = 4_100_000_000
-                one.memoryLeader = "bun"
-                one.alerts = FootprintAlerts(cpu: true, memory: true)
-            case 1:
-                one.processes = 2
-                one.cpuPercent = 4
-                one.memoryBytes = 1_260_000_000
-                one.memoryLeader = "node"
-                one.listeningPorts = [3000, 5173, 9229]
-                one.portNames = [3000: "next-server", 5173: "vite", 9229: "node"]
-                one.alerts = FootprintAlerts()
-            default:
-                one.processes = 0
-                one.cpuPercent = 1
-                one.memoryBytes = 214_000_000
-                one.memoryLeader = nil
-                one.alerts = FootprintAlerts()
-            }
-            painted[key] = one
+    /// sessions, and inventing some would mean a second roster. What is replaced is the READINGS,
+    /// and all of them - every branch below states every field it could show, including the ports.
+    /// A branch that left a field alone would put this machine's own dev server ports into a
+    /// screenshot meant for a README (see the file's own note above about what these are for).
+    static func footprint(_ real: ProcessFootprint, at index: Int) -> ProcessFootprint {
+        var one = real
+        one.agents = 0
+        one.cpuLeader = nil
+        one.diskWriteBytesPerSecond = nil
+        one.diskLeader = nil
+        one.listeningPorts = []
+        one.portNames = [:]
+        switch index % 3 {
+        case 0:
+            one.processes = 3
+            one.cpuPercent = 92
+            one.memoryBytes = 4_100_000_000
+            one.memoryLeader = "bun"
+            one.alerts = FootprintAlerts(cpu: true, memory: true)
+        case 1:
+            one.processes = 2
+            one.cpuPercent = 4
+            one.memoryBytes = 1_260_000_000
+            one.memoryLeader = "node"
+            one.listeningPorts = [3000, 5173, 9229]
+            one.portNames = [3000: "next-server", 5173: "vite", 9229: "node"]
+            one.alerts = FootprintAlerts()
+        default:
+            one.processes = 0
+            one.cpuPercent = 1
+            one.memoryBytes = 214_000_000
+            one.memoryLeader = nil
+            one.alerts = FootprintAlerts()
         }
-        return painted
+        return one
     }
 
     /// Fabricated burn rates so the fleet strip's forecast renders in screenshots: Claude spends

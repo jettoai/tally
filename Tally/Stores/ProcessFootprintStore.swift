@@ -81,11 +81,15 @@ final class ProcessFootprintStore {
     /// (`ProcessTree.cpuPercent`). One tick of memory, deliberately: the rule that bounds it lives
     /// in the pure function, and this only has to hand the number back.
     @ObservationIgnored private var cpuCarry: [String: Double] = [:]
-    /// The last ports reading per session, each with the pid holding it, held between the ticks
-    /// that do not take one. The NAME beside a port is resolved from the current tick's own table
-    /// of programs rather than cached with it, so a port whose holder has since gone is printed as
-    /// the bare number instead of by a name that is no longer true.
-    @ObservationIgnored private var ports: [String: [UInt16: pid_t]] = [:]
+    /// The last ports reading per session, each with the process that was holding it AND the
+    /// program that process was running at the time, held between the ticks that do not take one.
+    ///
+    /// THE PROGRAM IS WHAT MAKES A HELD READING SAFE TO NAME. This cache can be minutes old with
+    /// the panel open and hours old behind it, and the machine hands pid numbers out again, so a
+    /// name looked up for an old pid in the current table can belong to a process that has never
+    /// held that port. Naming is therefore conditional on the holder still running what it was
+    /// running (`ProcessTree.portNames`), and anything else prints the bare number.
+    @ObservationIgnored private var ports: [String: [UInt16: ProcessPortHolder]] = [:]
     /// Per session, how long each warning condition has been met or missed. A warning is about a
     /// condition that HOLDS rather than about one tick's reading, so something has to count the
     /// ticks, and this is the only thing here that knows what a tick is (`FootprintAlerts.swift`).
@@ -168,6 +172,11 @@ final class ProcessFootprintStore {
         // On screen only, and see the file's note for why: this is the one reading here that costs
         // enough to be worth switching off, and nothing behind a closed panel draws it.
         let readPorts = viewers > 0 && ticks % Self.portsEveryNTicks == 0
+        // Which fixture each card gets during a capture, decided once for the whole tick so a
+        // session keeps the same one from tick to tick, and empty on every ordinary launch
+        // (`DemoUsage.footprint`).
+        let demoOrder = DemoUsage.isActive ? DemoUsage.fixtureOrder(of: roots.map { String($0.0) })
+                                           : [:]
         let now = Date()
         var next: [String: ProcessFootprint] = [:]
         var readings: [String: ProcessResourceSample] = [:]
@@ -211,7 +220,9 @@ final class ProcessFootprintStore {
                                              carry: cpuCarry[key] ?? 0)
             let disk = ProcessTree.diskWrite(from: previous, to: reading)
             carried[key] = cpu.carry
-            if readPorts { ports[key] = ProcessTree.listeningPorts(of: measured) }
+            if readPorts {
+                ports[key] = ProcessTree.held(ProcessTree.listeningPorts(of: measured)) { paths[$0] }
+            }
             let holding = ports[key] ?? [:]
             // THE COUNT IS OF WHAT THE SESSION STARTED AND THE REST OF THE READINGS ARE OF THE
             // WHOLE TREE, which is one decision rather than an inconsistency: the count answers
@@ -238,7 +249,7 @@ final class ProcessFootprintStore {
                 diskWriteBytesPerSecond: disk.bytesPerSecond,
                 diskLeader: name(of: disk.leader),
                 listeningPorts: holding.keys.sorted(),
-                portNames: holding.compactMapValues { name(of: $0) })
+                portNames: ProcessTree.portNames(holding) { paths[$0] })
             // The warnings are decided from THIS tick's reading and the ticks before it, then put
             // back on the same reading: what the card draws and what the card warns about are one
             // value, so they cannot be a tick apart.
@@ -251,6 +262,18 @@ final class ProcessFootprintStore {
                                                reading: footprint, idle: idle, at: now)
             alerting[key] = state
             footprint.alerts = state.alerts
+            // FIXTURE READINGS FOR A CAPTURE, and only for one: the flag lives in the volatile
+            // argument domain, so an ordinary launch never takes this branch (`DemoUsage`).
+            //
+            // PAINTED BEFORE THE RING RATHER THAN AFTER IT, which is the whole of what makes the
+            // card coherent. Painted after, the fixture figure was the last point of a line drawn
+            // from the machine's REAL readings, and the sparkline measures from zero to its own
+            // maximum (`FootprintSparkline.points`): a fixture memory of 4.1 GB over a real series
+            // of 200 MB flattened every kept point against the floor and stood the last one
+            // vertically at the top, on all three metrics, on every fixture card. What a shot is
+            // for is what the card looks like, so the fixture reading is the reading - it is what
+            // the ring is offered below, and the shapes are as fabricated as the figures.
+            if let index = demoOrder[key] { footprint = DemoUsage.footprint(footprint, at: index) }
             next[key] = footprint
             // THE RING IS OFFERED EVERY TICK AND KEEPS ONE POINT IN FIVE OF THEM, folding the rest
             // into it, which is what holds the series to one cadence AND to one meaning across two
@@ -262,11 +285,19 @@ final class ProcessFootprintStore {
             // time somebody opens the board: the reading taken at that instant covers the ten
             // seconds the slow timer had been running, and the fast ones after it cover two each.
             // Folded flat they made a peak out of the opening (`FootprintTrendSample.folded`).
-            if let percent = cpu.percent, let since = previous?.at {
+            //
+            // AND THE RING IS OFFERED THE FOOTPRINT THE CARD DRAWS, not the raw reading it was
+            // built from. The two are the same values on every ordinary launch - the fields are
+            // copied from these very numbers - and where they are not (a capture's fixtures), a
+            // line drawn from one and a figure printed from the other is a card contradicting
+            // itself. `cpu.percent` still decides WHETHER there is a rate to record: that is a
+            // question about the pair of readings, which no fixture can answer.
+            if cpu.percent != nil, let since = previous?.at,
+               let percent = footprint.cpuPercent {
                 trends.record(FootprintTrendSample(cpuPercent: percent,
                                                    seconds: now.timeIntervalSince(since),
-                                                   memoryBytes: reading.memoryBytes,
-                                                   processes: started.count),
+                                                   memoryBytes: footprint.memoryBytes,
+                                                   processes: footprint.processes),
                               for: key, at: now)
             }
         }
@@ -287,11 +318,6 @@ final class ProcessFootprintStore {
         // the points, so a tick that only added to the bucket does move it - what the guard still
         // saves is the idle board where nothing was recorded at all (no session, or no rate yet).
         if trends != history { history = trends }
-        // FIXTURE READINGS FOR A CAPTURE, and only for one: the flag lives in the volatile argument
-        // domain, so an ordinary launch never takes this branch (`DemoUsage`). Painted over the
-        // finished readings rather than substituted for them, so the shapes behind the figures are
-        // still the machine's own and only what a card SAYS is fabricated.
-        if DemoUsage.isActive { next = DemoUsage.footprints(over: next) }
         // A session that has ended must not leave its ports behind for a pid the machine will hand
         // out again: the cache is only ever a stand-in for the tick that did not read them.
         ports = ports.filter { next[$0.key] != nil }

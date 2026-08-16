@@ -176,18 +176,32 @@ func runProcessTreeLineChecks() {
     let holding = ProcessFootprint(processes: 2, cpuPercent: nil,
                                    listeningPorts: [3000, 5173, 8080],
                                    portNames: [3000: "next-server", 5173: "node"])
-    check("the ports say what is holding them",
-          ProcessTree.portsText(holding) == ":3000 (next-server) :5173 (node) +1")
-    check("…and give up the names before the numbers, which is what a narrow card takes",
-          ProcessTree.portsText(holding, named: false) == ":3000 :5173 +1")
-    check("…a port nobody could be named for showing the number alone",
+    // THE BUDGET IS WHAT DECIDES HOW MANY NAMES ARE PRINTED, and it is decided here rather than by
+    // the layout: the card used to hand two spellings to `ViewThatFits`, which chooses on its
+    // candidates' IDEAL width and so measured the whole untruncated identity string against the
+    // named ports - a test no ordinary card passes, which left the names silently off.
+    check("a card with room says what is holding every port it lists",
+          ProcessTree.portsText(holding, budget: 40) == ":3000 (next-server) :5173 (node) +1")
+    // NAMES GO FROM THE RIGHT AND THE NUMBERS NEVER GO. 30 characters is the measured budget of the
+    // narrowest card: the one-named spelling is 28 characters (146.2pt of the ~155pt a 236pt card
+    // can spare) and naming both is 35 (181.9pt), so the narrow card still names the first port.
+    check("…and a narrow one names as many as fit, from the left",
+          ProcessTree.portsText(holding) == ":3000 (next-server) :5173 +1"
+              && ProcessTree.portsBudget == 30)
+    check("…dropping every name rather than any number when even one will not fit",
+          ProcessTree.portsText(holding, budget: 20) == ":3000 :5173 +1")
+    check("…and a spelling that cannot fit at all is still the numbers",
+          ProcessTree.portsText(holding, budget: 1) == ":3000 :5173 +1")
+    // A name nobody could read is simply absent, which is the same shape as a culprit nobody could
+    // name on the line above.
+    check("a port nobody could be named for shows the number alone",
           ProcessTree.portsText(ProcessFootprint(processes: 1, cpuPercent: nil,
                                                  listeningPorts: [3000, 5173]))
               == ":3000 :5173")
     check("the cap is the caller's to set, and what is past it is a count",
           ProcessTree.portsText(holding, maxPorts: 1) == ":3000 (next-server) +2")
     check("…with nothing added when everything fits",
-          ProcessTree.portsText(holding, maxPorts: 3)
+          ProcessTree.portsText(holding, maxPorts: 3, budget: 60)
               == ":3000 (next-server) :5173 (node) :8080")
     check("a session listening on nothing has no ports line at all",
           ProcessTree.portsText(ProcessFootprint(processes: 4, cpuPercent: 9,
@@ -362,7 +376,7 @@ func runProcessTreeLineChecks() {
     // A port with nobody's name against it is a port whose holder could not be read, which is why
     // the name is resolved from THIS tick's table rather than cached with the port number.
     check("…and each port is named from the same table of programs the culprits are",
-          storeSource.contains("portNames: holding.compactMapValues { name(of: $0) })")
+          storeSource.contains("portNames: ProcessTree.portNames(holding) { paths[$0] })")
               && storeSource.contains("listeningPorts: holding.keys.sorted(),"))
     // AND THE WHOLE TREE IS SAMPLED, ours included, which is the one thing here that looks like the
     // opposite of the line above and is what makes it true. A pid filtered off the list before the
@@ -386,68 +400,16 @@ func runProcessTreeLineChecks() {
           boardCardSource.contains("return joined([account, row.model, row.effort])")
               && boardCardSource.contains("sessionCardLine { sessionIdentityRow }")
               && boardCardSource.contains("!row.isReporting && sessionIdentityLine == nil"))
-    // Two spellings offered widest first, so a card that cannot hold the names keeps the numbers.
-    check("…the names being what a narrow card gives up, and the identity what truncates",
-          boardCardSource.contains("identityRow(ports: named)")
-              && boardCardSource.contains("identityRow(ports: bare)")
+    // THE PORTS ARE LAID OUT AT THEIR OWN WIDTH AND THE IDENTITY ASKS LAST, which is a layout
+    // priority rather than a list of candidates: `ViewThatFits` chooses on IDEAL width, and a
+    // truncating Text's ideal is its whole untruncated string, so a candidate list measured the
+    // full identity against the named ports and fell to the bare spelling on every ordinary card.
+    check("…the identity giving way for them rather than the two being candidates",
+          boardCardSource.contains(".lineLimit(1).truncationMode(.tail).layoutPriority(-1)")
               && boardCardSource.contains("Text(verbatim: ports)")
               && boardCardSource.contains(".lineLimit(1).fixedSize()"))
+    check("…and no candidate list is left on this row to choose between them",
+          !boardCardSource.contains("identityRow(ports:"))
     check("…asked of the same pure rule the assertions above state",
-          cardSource.contains("ProcessTree.portsText(footprint, named: named)"))
-
-    // MARK: which processes the count is counting
-
-    // THE SESSION'S OWN CLI IS NOT SOMETHING THE SESSION STARTED, and every card has one by
-    // construction: counting it made "2 procs" the reading of a session running a single MCP
-    // server (Albert, 2026-08-16).
-    check("the process at the head of the tree is not one of the ones it started",
-          ProcessTree.dispatched([100, 200, 300], child: 200) == [100, 300])
-    // BY THE PUBLISHED PID, NEVER BY THE PROGRAM'S NAME, which is what makes these three true at
-    // once: a nested Claude Code the session itself started is still counted…
-    check("…and a Claude Code the session started itself is still counted",
-          ProcessTree.dispatched([100, 200, 300, 400], child: 200).contains(400))
-    // …a Codex session drops its own body under the very same rule, with nothing here knowing what
-    // a provider is…
-    check("…the rule knowing nothing about which provider the body belongs to",
-          ProcessTree.dispatched([7, 8], child: 8) == [7])
-    // …and a supervisor too old to publish the field keeps its old reading rather than a guess.
-    check("…and a session that published no child keeps every process it holds",
-          ProcessTree.dispatched([100, 200, 300], child: nil).count == 3)
-    check("…as does one whose published child is not in the tree at all",
-          ProcessTree.dispatched([100, 300], child: 200) == [100, 300])
-
-    // MARK: what is holding the memory, and what is holding a port
-
-    let held = ProcessResourceSample(times: [:], childTimes: [:],
-                                     memory: [10: 3_000_000_000, 20: 400_000_000],
-                                     at: Date(), ours: [])
-    check("a process holding more than half the tree's memory is the one named",
-          ProcessTree.memoryLeader(held) == 10)
-    // HALF IS NOT ENOUGH, the same rule every other blame in this app is made under: a name beside
-    // a figure claims one thing is doing this, and two halves make that claim false about both.
-    check("…and two holding half each are neither of them named",
-          ProcessTree.memoryLeader(ProcessResourceSample(times: [:], childTimes: [:],
-                                                         memory: [10: 500, 20: 500],
-                                                         at: Date())) == nil)
-    // The meter is not the thing metered here either: a card must not answer "what is holding your
-    // memory" with the app doing the reading.
-    check("…and Tally's own are not eligible to be the answer",
-          ProcessTree.memoryLeader(ProcessResourceSample(times: [:], childTimes: [:],
-                                                         memory: [10: 3_000_000_000, 20: 400_000],
-                                                         at: Date(), ours: [10])) == 20)
-    check("…and a tree holding nothing names nobody",
-          ProcessTree.memoryLeader(ProcessResourceSample(times: [:], childTimes: [:], memory: [:],
-                                                         at: Date())) == nil)
-    // A PORT TWO PROCESSES SHARE GOES TO THE LOWEST PID, and the point is that it is DECIDABLE: the
-    // walk visits pids in whatever order a Set hands them over, so "the first one seen" would give
-    // the card a name that changed every third tick (`SO_REUSEPORT`, a node cluster).
-    check("a port several processes are listening on is credited to one of them, always the same one",
-          ProcessTree.holders(of: [(port: 3000, pid: 900), (port: 3000, pid: 400),
-                                   (port: 5173, pid: 700)]) == [3000: 400, 5173: 700]
-              && ProcessTree.holders(of: [(port: 3000, pid: 400), (port: 3000, pid: 900),
-                                          (port: 5173, pid: 700)]) == [3000: 400, 5173: 700])
-    // Port zero is what an unbound or unreadable socket reports, and a card saying ":0" would be
-    // reporting the read rather than the machine.
-    check("…and a socket with no port is not a port",
-          ProcessTree.holders(of: [(port: 0, pid: 400)]).isEmpty)
+          cardSource.contains("ProcessTree.portsText(footprint)"))
 }

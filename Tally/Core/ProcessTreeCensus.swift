@@ -12,6 +12,26 @@ import Foundation
 ///
 /// PURE, like everything either file holds, so the assertion harness can state each of these with
 /// no processes around it.
+/// WHO WAS HOLDING A PORT, AND WHAT THEY WERE RUNNING AT THE TIME.
+///
+/// THE PROGRAM IS CARRIED AS WELL AS THE PID BECAUSE THE PID IS NOT AN IDENTITY. The ports are read
+/// on their own slow beat and held in between - every third visible tick, and not at all behind a
+/// closed panel (`ProcessFootprintStore`) - so a cached pid can be minutes or hours old, and the
+/// machine hands pid numbers out again. A name looked up from the CURRENT table of programs against
+/// a pid from the OLD reading is a confident wrong answer: `:3000 (esbuild)` beside a process that
+/// has never held 3000. Recording what the holder was running at the moment the port was read turns
+/// that into a comparison anybody can make (`ProcessTree.portNames`).
+///
+/// This is the same shape as the fork join-key defect this repository has already been bitten by
+/// four times (memory `tally-fork-join-key-incident`): a stale key looked up in a fresh table.
+struct ProcessPortHolder: Equatable {
+    var pid: pid_t
+    /// The program it was running when the port was read, or nothing when the machine would not
+    /// say. Nothing is not a wildcard: a holder whose program could not be read then cannot be
+    /// confirmed as the same process now, so it is never named.
+    var path: String?
+}
+
 extension ProcessTree {
 
     /// WHAT THE SESSION STARTED: the tree it was measured over, less the one process at its head.
@@ -85,5 +105,32 @@ extension ProcessTree {
             holders[one.port] = holders[one.port].map { min($0, one.pid) } ?? one.pid
         }
         return holders
+    }
+
+    /// The same answer with each holder's program recorded beside it, which is what makes the
+    /// reading safe to CACHE (`ProcessPortHolder`).
+    ///
+    /// - Parameter executable: the program a pid is running right now, asked as a function for the
+    ///   reason `ownFamily` asks it that way - this stays pure, and the harness can state it with
+    ///   no processes around it.
+    static func held(_ holders: [UInt16: pid_t],
+                     executable: (pid_t) -> String?) -> [UInt16: ProcessPortHolder] {
+        holders.mapValues { ProcessPortHolder(pid: $0, path: executable($0)) }
+    }
+
+    /// What to print beside each held port, which is a name only where the holder is STILL THE
+    /// PROCESS THAT WAS HOLDING IT.
+    ///
+    /// THREE WAYS TO END UP WITH NO NAME, and all three are the same answer for the same reason -
+    /// this app cannot say who has that port right now: the pid has gone (nothing to compare), the
+    /// pid is running a different program than it was when the port was read (a recycled number),
+    /// or the program could not be read at either end. The card then prints the bare number, which
+    /// is the fact it is sure of.
+    static func portNames(_ holders: [UInt16: ProcessPortHolder],
+                          executable: (pid_t) -> String?) -> [UInt16: String] {
+        holders.compactMapValues { holder in
+            guard let path = holder.path, executable(holder.pid) == path else { return nil }
+            return displayName(forPath: path)
+        }
     }
 }

@@ -33,12 +33,12 @@ extension SessionCardView {
     }
 
     /// What this session is holding open, as the identity line prints it, or nothing when it is
-    /// holding nothing (`ProcessTree.portsText`). Asked twice by the line that draws it - once with
-    /// the holding programs named and once without - so a narrow card can give up the names and
-    /// keep the numbers (`SessionCardView.sessionIdentityRow`).
-    func sessionPortsText(named: Bool) -> String? {
+    /// holding nothing. How many of the ports say what is holding them is decided in the pure rule
+    /// on a measured character budget rather than by the layout (`ProcessTree.portsText`, and
+    /// `SessionCardView.sessionIdentityRow` for why it is not a choice between two candidates).
+    var sessionPortsText: String? {
         guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return nil }
-        return ProcessTree.portsText(footprint, named: named)
+        return ProcessTree.portsText(footprint)
     }
 
     /// The fields no shape is kept for, in the order the whole line is written in: how many agents
@@ -165,27 +165,63 @@ extension SessionCardView {
     /// that reached 40% and one that reached 400% - so the ceiling is printed, and the line's own
     /// dot points at the moment it happened.
     ///
-    /// AND IT IS WHAT GIVES WAY WHEN THE CARD IS TOO NARROW, in the order below. Measured at 10pt
-    /// (2026-08-15): three shapes, three figures and the process word are 211pt, which fits the
-    /// 236pt a 264pt card gives its content; one ceiling column takes it to 251 and all three to
-    /// 327, which fits the 328pt of a single-column panel. So the figures and their lines are never
-    /// dropped - they are what the row is - and the ceilings go one at a time, the process count's
-    /// first (a count barely moves, so its peak is most often the figure already printed) and the
-    /// CPU's last (the spikiest of the three, and the one a fifteen-minute line most understates).
-    /// A two-column board therefore keeps its figures and loses its arrows, which is the trade in
-    /// the order it was asked for; the peak is still marked on the line and still spoken.
+    /// AND IT IS WHAT GIVES WAY WHEN THE CARD IS TOO NARROW, in the order below. Re-measured at
+    /// 10pt (2026-08-17, this app's own font) now that the memory figure carries a culprit's name:
+    /// three shapes, three figures and the process word are 208pt, which fits the 236pt a 264pt
+    /// card gives its content; the memory's `(claude)` takes it to 244 and the first ceiling column
+    /// to 265, while all three ceilings and both words are 341, which fits the 328pt of a
+    /// single-column panel only once one of them is gone.
+    ///
+    /// SO THE CEILINGS GO BEFORE THE NAMES DO, which is the order that moved. Attribution is the
+    /// thing this row was asked for - a memory figure with no name beside it cannot say whether
+    /// those gigabytes are the session's own Claude Code or the thing it started
+    /// (`ProcessFootprint.memoryLeader`) - and a ceiling is a second reading of a number already
+    /// printed. So every candidate keeps its culprits until all three arrows are gone, and only
+    /// then does the row start dropping words: first the process count's `procs`, which is a UNIT
+    /// rather than a culprit and the one aside here that says nothing a reader could act on, and
+    /// last the names themselves. The figures and their lines are never dropped - they are what the
+    /// row is - and the ceilings go one at a time, the process count's first (a count barely moves,
+    /// so its peak is most often the figure already printed) and the CPU's last (the spikiest of
+    /// the three, and the one a fifteen-minute line most understates). Everything dropped for room
+    /// is still spoken in full (`spokenTrends`).
+    ///
+    /// A NAME IS NOT GIVEN A COLUMN OF ITS OWN, unlike the figures and the ceilings, and that is a
+    /// live trade rather than an oversight: culprits change length as the culprit changes (`bun` is
+    /// 19pt, `Google Chrome Helper` 112pt), so a card whose heaviest process changes will reflow
+    /// this row - the very thing the fixed columns were introduced to stop. A column wide enough
+    /// for an arbitrary program name would cost more of a 236pt card than the whole memory group,
+    /// and one sized to a short name would truncate most of them. Measured against the alternative
+    /// of not naming the memory at all, the jitter is the cheaper of the two (Albert, 2026-08-16).
     @ViewBuilder
     var sessionFootprintTrends: some View {
         let trends = sessionFootprintTrendGroups
         if !trends.isEmpty {
             ViewThatFits(in: .horizontal) {
-                trendRow(trends, peaks: 3)
-                trendRow(trends, peaks: 2)
-                trendRow(trends, peaks: 1)
-                trendRow(trends, peaks: 0)
+                trendRow(trends, peaks: 3, asides: .all)
+                trendRow(trends, peaks: 2, asides: .all)
+                trendRow(trends, peaks: 1, asides: .all)
+                trendRow(trends, peaks: 0, asides: .all)
+                trendRow(trends, peaks: 0, asides: .culpritsOnly)
+                trendRow(trends, peaks: 0, asides: .none)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Self.spokenTrends(trends))
+        }
+    }
+
+    /// Which of a row's quiet words a candidate layout keeps (see `sessionFootprintTrends`).
+    enum TrendAsides {
+        case all, culpritsOnly, none
+
+        /// Whether one metric's word survives this candidate. The middle rung keeps the culprits
+        /// and drops the units, which on this row is exactly the process count's `procs`
+        /// (`FootprintTrendMetric.asideNamesACulprit`).
+        func keeps(_ metric: FootprintTrendMetric) -> Bool {
+            switch self {
+            case .all: true
+            case .culpritsOnly: metric.asideNamesACulprit
+            case .none: false
+            }
         }
     }
 
@@ -203,7 +239,7 @@ extension SessionCardView {
     /// AND NO SEPARATOR BETWEEN GROUPS. A dot between them would put the three heterogeneous facts
     /// back in one string; the gutter is what says these are three things (`trendGap`, wider than
     /// the space inside a group). The dot is still what separates the plain fields on the row above.
-    private func trendRow(_ trends: [Trend], peaks: Int) -> some View {
+    private func trendRow(_ trends: [Trend], peaks: Int, asides: TrendAsides) -> some View {
         let named = Set(Self.peakOrder.prefix(peaks))
         return HStack(spacing: Self.trendGap) {
             ForEach(trends) { trend in
@@ -216,12 +252,14 @@ extension SessionCardView {
                     Self.column(trend.metric.widestFigure) {
                         Self.figure(trend.figure, alert: trend.segment.alert)
                     }
-                    if let aside = trend.aside {
+                    if let aside = trend.aside, asides.keeps(trend.metric) {
                         // LAST IN THE QUEUE FOR ROOM, because it is the one piece here that can be
-                        // arbitrarily long: a culprit called `Google Chrome Helper` is 100pt of a
+                        // arbitrarily long: a culprit called `Google Chrome Helper` is 112pt of a
                         // 236pt card, and left at the ordinary priority the layout would take that
                         // width off a figure instead. A truncated name still points at a program;
-                        // a truncated figure is a wrong number.
+                        // a truncated figure is a wrong number. Belt and braces now that the
+                        // candidates above measure the names themselves: what this still catches is
+                        // the name too long for even the narrowest candidate.
                         Text(verbatim: aside).foregroundStyle(.tertiary).layoutPriority(-1)
                     }
                     // THE COLUMN IS HELD EVEN WHEN THERE IS NO CEILING TO PRINT IN IT, which is the

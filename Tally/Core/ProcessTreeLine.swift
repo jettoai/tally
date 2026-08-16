@@ -109,22 +109,56 @@ extension ProcessTree {
     /// the first thing a narrow card dropped (Albert, 2026-08-16). Up beside the account and the
     /// model, the identity is what gives way instead.
     ///
+    /// HOW MANY NAMES FIT IS DECIDED HERE, IN CHARACTERS, RATHER THAN BY THE LAYOUT. The card used
+    /// to offer the named and the bare spelling to `ViewThatFits` and let it choose, which chose
+    /// wrong on every ordinary card: that view picks by its candidates' IDEAL width, and the ideal
+    /// width of a truncating identity string is the whole untruncated string - so the fit test was
+    /// asking "do the full identity AND the named ports both fit", which a 22-character identity
+    /// (108pt measured) and one named port (98pt) already fail on a 236pt card. The named spelling
+    /// was therefore almost never chosen, and the feature this row exists for was silently off.
+    ///
+    /// SO THE RULE IS A BUDGET, AND THE BUDGET IS MEASURED. At 10pt (`caption2`, monospaced digits,
+    /// measured 2026-08-17 with the app's own font): `:3000` is 29.5pt, `:3000 (next-server)` is
+    /// 97.9pt, `:3000 (next-server) :5173 +1` is 146.2pt and naming both of those is 181.9pt. A
+    /// 264pt card gives 236pt of content, of which the provider mark, the two gaps and the minimum
+    /// gutter take about 21, and an account name truncated below about 60pt stops being a name - so
+    /// the ports may have about 155pt. These strings run 5.2 to 5.9 points a character, which puts
+    /// the budget at THIRTY characters: the 28-character one-named form fits it and the
+    /// 35-character both-named form does not, matching the points on either side.
+    ///
+    /// NAMES ARE ADDED FROM THE LEFT AND THE NUMBERS ARE NEVER DROPPED. The widest spelling that
+    /// fits the budget wins, and a spelling with no names at all is returned even when it does not
+    /// fit: a port number is the fact this row is here for, and the name is the help. So the
+    /// narrowest card still names the first port and a card holding a program called
+    /// `Google Chrome Helper` names none of them, which is the honest reading of "that does not
+    /// fit".
+    ///
     /// - Parameters:
-    ///   - maxPorts: how many are named before the rest become `+N`. Two is what fits beside an
-    ///     identity line at the panel's narrowest column (`SessionCardView`).
-    ///   - named: whether each port says what is holding it. The card offers both spellings and
-    ///     takes the widest that fits: the number is the fact and the name is the help, so the name
-    ///     is what a narrow card gives up first.
+    ///   - maxPorts: how many are listed before the rest become `+N`. Two is what fits beside an
+    ///     identity line at the panel's narrowest column.
+    ///   - budget: how many characters the row may spend, defaulting to the measurement above.
+    ///     A parameter so the harness can state both ends of the rule without a card around it.
     static func portsText(_ footprint: ProcessFootprint, maxPorts: Int = 2,
-                          named: Bool = true) -> String? {
+                          budget: Int = portsBudget) -> String? {
         guard !footprint.listeningPorts.isEmpty else { return nil }
-        let shown = footprint.listeningPorts.prefix(maxPorts).map { port -> String in
-            guard named, let name = footprint.portNames[port] else { return ":\(port)" }
-            return ":\(port) (\(name))"
-        }
+        let shown = Array(footprint.listeningPorts.prefix(maxPorts))
         let rest = footprint.listeningPorts.count - shown.count
-        return (shown + (rest > 0 ? ["+\(rest)"] : [])).joined(separator: " ")
+        func spelled(naming: Int) -> String {
+            let fields = shown.enumerated().map { index, port -> String in
+                guard index < naming, let name = footprint.portNames[port] else { return ":\(port)" }
+                return ":\(port) (\(name))"
+            }
+            return (fields + (rest > 0 ? ["+\(rest)"] : [])).joined(separator: " ")
+        }
+        for naming in stride(from: shown.count, through: 1, by: -1) {
+            let candidate = spelled(naming: naming)
+            if candidate.count <= budget { return candidate }
+        }
+        return spelled(naming: 0)
     }
+
+    /// How many characters of ports an identity line may carry (see `portsText`).
+    static let portsBudget = 30
 
     /// The same line in the pieces it is drawn from, each saying what it is and whether it is a
     /// warning. `line` is these joined, and stays the sentence a reader hears.

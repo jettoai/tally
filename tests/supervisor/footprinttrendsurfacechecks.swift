@@ -38,14 +38,30 @@ func runFootprintTrendSurfaceChecks() {
           store.contains("agents: viewers > 0 ? (readSessionAgents(pid: key)?.reportable ?? 0)"))
     // The measurement is the card's, exactly: Tally's own processes come out of the tree before
     // anything reaches the ring, so the line and the figure above it are about the same thing.
-    check("the trend is recorded from the same measured tree the figures are",
-          store.contains("processes: started.count),")
+    //
+    // WHICH IS NOW PINNED BY CONSTRUCTION rather than by two expressions that happen to agree: the
+    // ring is offered the FOOTPRINT the card draws, so a value the card shows and a point the line
+    // is drawn from cannot be two different numbers. It could, and did, during a capture: the
+    // fixtures were painted after the ring was fed, so every fixture card drew a line of real
+    // readings with a fabricated point on the end - and the sparkline measures from zero to its own
+    // maximum, which flattened the whole window against the floor and stood the last step upright.
+    check("the trend is recorded from the same footprint the card draws",
+          store.contains("processes: footprint.processes),")
+              && store.contains("memoryBytes: footprint.memoryBytes,")
               && store.contains("trends.record(FootprintTrendSample(cpuPercent: percent,"))
+    check("…the fixtures being painted before the ring is offered anything",
+          (store.range(of: "DemoUsage.footprint(footprint, at: index)").map { paint in
+              store.range(of: "trends.record(").map { paint.lowerBound < $0.lowerBound }
+          } ?? nil) == true)
+    // The pair of readings still decides whether there IS a rate, which is a question about the
+    // machine that no fixture can answer.
+    check("…and a fixture cannot invent an interval the machine never measured",
+          store.contains("if cpu.percent != nil, let since = previous?.at,"))
     // The rate and the span it covers are handed over together: the two sampling rates meet inside
     // one bucket every time the board is opened, and a fold that weighted every reading alike made
     // a peak out of the opening (`FootprintTrendSample.folded`).
     check("…and only once there is an interval to state a rate over, which goes with it",
-          store.contains("if let percent = cpu.percent, let since = previous?.at {")
+          store.contains("if cpu.percent != nil, let since = previous?.at,")
               && store.contains("seconds: now.timeIntervalSince(since),"))
     // Swept against the BOARD rather than against this tick's readings: a tree that could not be
     // read for one pass has no entry, and sweeping on that would throw a quarter hour of history
@@ -175,8 +191,33 @@ func runFootprintTrendSurfaceChecks() {
     // are never dropped, and the ceilings go one at a time.
     check("the row degrades by dropping ceilings rather than figures",
           card.contains("ViewThatFits(in: .horizontal)")
-              && card.contains("trendRow(trends, peaks: 3)")
-              && card.contains("trendRow(trends, peaks: 0)"))
+              && card.contains("trendRow(trends, peaks: 3, asides: .all)")
+              && card.contains("trendRow(trends, peaks: 0, asides: .all)"))
+    // AND THE CULPRITS OUTLIVE THE CEILINGS, which is the order that moved when the memory figure
+    // gained a name. Attribution is what this row was asked for - a memory reading with no name
+    // cannot say whether those gigabytes are the session's own Claude Code or the thing it started
+    // - and a ceiling is a second reading of a number already printed. Re-measured at 10pt
+    // (2026-08-17): the row with both words is 244pt against the 236pt a 264pt card gives its
+    // content, so a narrow card DOES reach these rungs rather than them being decoration.
+    let chain = card.components(separatedBy: "trendRow(trends, peaks:").dropFirst()
+        .map { "peaks:" + ($0.components(separatedBy: ")").first ?? "") }
+    check("every candidate keeps its culprits until all three ceilings are gone",
+          chain.prefix(4).allSatisfy { $0.contains("asides: .all") }
+              && chain.prefix(4).allSatisfy { !$0.contains("peaks: 0, asides: .culpritsOnly") })
+    // Then the unit word goes before the names do: `procs` is what the figure counts and a reader
+    // of a row whose other two figures carry their own units can infer it, while a culprit's name
+    // is a fact only this card holds.
+    check("…and then the unit word goes before the names themselves",
+          chain.suffix(3).map { $0 } == ["peaks: 0, asides: .all",
+                                         "peaks: 0, asides: .culpritsOnly",
+                                         "peaks: 0, asides: .none"])
+    check("…with the difference between a unit and a culprit stated once, by the metric",
+          FootprintTrendMetric.processes.asideNamesACulprit == false
+              && FootprintTrendMetric.cpu.asideNamesACulprit
+              && FootprintTrendMetric.memory.asideNamesACulprit)
+    check("…and the row asking the metric rather than testing for one by name",
+          card.contains("case .culpritsOnly: metric.asideNamesACulprit")
+              && !card.contains("metric != .processes"))
     // Read off the source like everything else here, because the order lives on a SwiftUI view this
     // harness cannot construct: every metric is in it (so no group is silently barred from ever
     // printing a peak) and the CPU is the last one dropped.
@@ -215,6 +256,33 @@ func runFootprintTrendSurfaceChecks() {
               && spark.contains("dot(at: last, diameter: Self.currentDot)"))
     check("…and the newest one is this instant's reading, drawn and never stored",
           card.contains("? readings + [now].compactMap { $0 } : []"))
+
+    // A CAPTURE MUST NOT SHIP THIS MACHINE'S OWN PORTS. These fixtures exist for the README and
+    // marketing shots, and the branch that leaves a field alone keeps whatever the real reading
+    // held - which for the ports is a dev server somebody has running right now. So the clearing
+    // happens once, before the fixtures branch, where no new fixture can miss it.
+    let demo = (try? String(contentsOfFile: "Tally/Core/DemoUsage.swift", encoding: .utf8)) ?? ""
+    let fixture = (demo.components(separatedBy: "static func footprint(_ real: ProcessFootprint")
+        .last ?? "").components(separatedBy: "switch index % 3").first ?? ""
+    check("the fixture clears every field it could leak before it fills any of them in",
+          fixture.contains("one.listeningPorts = []") && fixture.contains("one.portNames = [:]")
+              && fixture.contains("one.diskWriteBytesPerSecond = nil"))
+    // The ordering the fixtures are keyed by buys STABILITY and nothing else, which is what the
+    // note beside it now says: sorted pid STRINGS are neither the board's seating nor numeric, so
+    // which card is the warned one cannot be predicted - only that it stays put while a capture
+    // runs and a shutter is pressed twice.
+    check("…and the fixture each card gets is stable for the length of a capture",
+          demo.contains("for (index, key) in keys.sorted().enumerated()")
+              && demo.contains("WHAT THE ORDER BUYS IS STABILITY, NOT AN ARRANGEMENT")
+              && !demo.contains("keyed by the board's own order"))
+
+    // A PORT READING IS HELD BETWEEN THE TICKS THAT DO NOT TAKE ONE, and a pid is not an identity:
+    // the machine hands numbers out again, so what is cached with the port is the program its
+    // holder was running, and the name is printed only while that is still what it is running.
+    check("the ports are cached with the program holding them, and named only if it still is",
+          store.contains("ProcessTree.held(ProcessTree.listeningPorts(of: measured)) { paths[$0] }")
+              && store.contains("portNames: ProcessTree.portNames(holding) { paths[$0] })")
+              && store.contains("private var ports: [String: [UInt16: ProcessPortHolder]] = [:]"))
 
     // EVERY WORD THIS ROW ADDED IS IN THE CATALOGUE, in all four translations: the app ships five
     // languages, and a string that reaches a person in English on a Japanese machine is a missing

@@ -136,8 +136,11 @@ func runFootprintTrendChecks() {
     mixed.record(reading(100, seconds: 2), at: t0.addingTimeInterval(10))
     check("a bucket of unequal intervals weights each rate by the time it covers",
           mixed.values(of: .cpu) == [0, 20])
-    // The kept point covers the whole bucket, so a fold of folded points weights the way a fold of
-    // readings does rather than treating each point as one reading.
+    // The span the point states is the bucket's own, which is what its CPU figure is a rate over: a
+    // point that carried its closing reading's two seconds would be labelling a ten-second average
+    // as two seconds of one. Nothing folds a folded point again (`FootprintTrendSample.folded` is
+    // called on raw pending readings and nowhere else), so this is a declaration about what the
+    // point covers rather than a weight some later pass reads.
     check("…and the point it keeps states the span it is a rate over",
           mixed.samples.last?.seconds == 10)
     // The fallback branch, which the sampler cannot reach (a rate exists only once there is a span
@@ -158,6 +161,28 @@ func runFootprintTrendChecks() {
     gapped.record(reading(2), at: t0.addingTimeInterval(FootprintTrendSeries.staleAfter))
     check("a missed tick or two is a gap in the line rather than a backfill",
           gapped.values(of: .cpu) == [1, 2])
+    // THE DEFECT THE OFFERED CLOCK PREVENTS, and it takes an OPEN BOARD to appear at all: at the
+    // fast rate the ring keeps one reading in five, so the newest KEPT one is up to eight seconds
+    // behind the newest taken. Measured from that, a pause of twenty-three seconds was already past
+    // the stale mark, and a quarter of an hour of history went for a silence the warning beside it
+    // counts as one unbroken run of evidence (`FootprintAlarm.gapAfter` is the same thirty seconds
+    // about the same silence). The two clocks now read the same instants: a reading that only joined
+    // the point being assembled still proves something was sampling.
+    var watchedThenQuiet = FootprintTrendSeries()
+    for tick in stride(from: 0.0, through: 48.0, by: 2) {
+        watchedThenQuiet.record(reading(tick, seconds: 2), at: t0.addingTimeInterval(tick))
+    }
+    check("the fast rate keeps one reading in five, the newest kept one lagging the newest taken",
+          watchedThenQuiet.samples.count == 5
+              && watchedThenQuiet.lastAcceptedAt == t0.addingTimeInterval(40)
+              && watchedThenQuiet.lastOfferedAt == t0.addingTimeInterval(48))
+    watchedThenQuiet.record(reading(9, seconds: 23), at: t0.addingTimeInterval(71))
+    check("…and a silence inside the stale mark keeps the line, however far back the last point is",
+          watchedThenQuiet.samples.count == 6
+              && watchedThenQuiet.values(of: .cpu).first == 0)
+    check("the ring and the warning measure the silence from the same readings",
+          FootprintAlarm.gapAfter == FootprintTrendSeries.staleAfter
+              && watchedThenQuiet.lastOfferedAt == t0.addingTimeInterval(71))
     // THE DEFECT THIS PREVENTS: a Mac that slept overnight wakes with eighty-nine readings from
     // yesterday in the ring, and the card would draw them as "the last quarter hour" with nothing
     // on the line to say the last two points are twelve hours apart.

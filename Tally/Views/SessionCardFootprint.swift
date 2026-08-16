@@ -44,11 +44,15 @@ extension SessionCardView {
     /// nobody is worried about (a port, a fan-out), and the figures somebody opened this board to
     /// read are the ones under them.
     ///
-    /// A WARNING IS NOT A COLOUR. The amber says "look here" to most people and nothing at all to
-    /// somebody who cannot separate it from the tertiary grey beside it, so the mark carries the
-    /// meaning and the colour only makes it faster to find - the same pairing every other warning
-    /// in this app draws (`AccountCardView`). VoiceOver gets neither, and is handed the condition
-    /// in words instead.
+    /// A WARNING IS NOT A COLOUR, WHEREVER THERE IS ROOM TO SAY SO IN SOMETHING ELSE. The amber says
+    /// "look here" to most people and nothing at all to somebody who cannot separate it from the
+    /// tertiary grey beside it, so on a row of WORDS - this one, an account card
+    /// (`AccountCardView`) - the mark carries the meaning and the colour only makes it faster to
+    /// find. The room is what the rule is contingent on: nine points of triangle beside a sentence
+    /// is a sentence with a triangle in it, and the same nine points on the eleven-point shape one
+    /// row down is a figure with its readings covered. So the trend row states the second channel
+    /// differently rather than dropping it (`FootprintSparklineView.alert`, `figure`). VoiceOver
+    /// gets neither channel anywhere, and is handed the condition in words on both rows.
     ///
     /// NO HOVER AND NO BADGE. The explanation lives in the line itself, where the number it is
     /// about already is; a callout would be a second surface to open for a sentence that fits
@@ -109,8 +113,8 @@ extension SessionCardView {
     /// thing this row is read for. A board is read DOWN the cards, and `procs · 4.1 GB · 1%` on a
     /// warned card beside `procs · 1% · 3.4 GB` on a calm one puts two different quantities in the
     /// same place and asks the reader to check the unit on every one (Albert, 2026-08-16). So the
-    /// order is fixed, and a warning stays on the group whose number it is about: the figure and
-    /// its line turn amber, and the mark rides on the line (`figure`, `FootprintSparklineView`).
+    /// order is fixed, and a warning stays on the group whose number it is about: the figure, the
+    /// line and both of its dots turn amber together (`figure`, `FootprintSparklineView`).
     var sessionFootprintTrendGroups: [Trend] {
         guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return [] }
         let series = ProcessFootprintStore.shared.history[row.id]
@@ -199,8 +203,7 @@ extension SessionCardView {
                         FootprintSparklineView(values: trend.values, alert: trend.segment.alert)
                     }
                     Self.column(trend.metric.widestFigure) {
-                        Self.figure(trend.figure, alert: trend.segment.alert,
-                                    marked: trend.values.isEmpty)
+                        Self.figure(trend.figure, alert: trend.segment.alert)
                     }
                     if let aside = trend.aside {
                         // LAST IN THE QUEUE FOR ROOM, because it is the one piece here that can be
@@ -279,22 +282,28 @@ extension SessionCardView {
         }.joined(separator: ", ")
     }
 
-    /// ONE GROUP'S FIGURE, amber when its reading is the one worth somebody's eye - and WITHOUT the
-    /// triangle, which is drawn over the shape beside it instead (`FootprintSparklineView`).
+    /// ONE GROUP'S FIGURE, amber when its reading is the one worth somebody's eye - and NEVER with
+    /// the triangle the row above marks a warning with, whether or not this group has a shape beside
+    /// it yet.
     ///
-    /// THE MARK LEFT THE TEXT BECAUSE IT MOVED THE ROW. It is about nine points wide, so a warning
-    /// arriving widened its group and pushed every figure after it along, on the one row this card
-    /// had just pinned into fixed columns for exactly that reason (Albert, 2026-08-16). Both
-    /// channels of the warning survive the move: the colour is on the number, and the mark is on the
-    /// shape the number belongs to.
+    /// THE MARK LEFT THIS ROW BECAUSE THE ROW HAS NO ROOM FOR IT, in two senses that were learned in
+    /// that order. It is about nine points wide, so a warning arriving widened its group and pushed
+    /// every figure after it along, on the one row this card had just pinned into fixed columns for
+    /// exactly that reason; moved onto the shape beside the figure it stopped moving anything and
+    /// covered nearly half the readings instead (`FootprintSparklineView.alert`). A row of eleven
+    /// point figures is simply not a surface a second GRAPHIC channel fits on, so the second channel
+    /// here is the amber's own luminance against the primary grey it replaces, and the condition is
+    /// SAID in full to anybody who gets neither (`spokenTrends`). The triangle stays where there are
+    /// words to put it next to: the row above, and every account card (Albert, 2026-08-16).
     ///
-    /// - Parameter marked: whether this figure has to carry the mark itself, which it does only when
-    ///   there is no shape yet to put it on - a session in its first half-minute, where one reflow
-    ///   is cheaper than a column held empty on every card forever.
-    static func figure(_ text: String, alert: Bool, marked: Bool) -> Text {
+    /// A GROUP WITH NO LINE YET IS UNDER THE SAME RULE, which it briefly was not: a session in its
+    /// first half-minute has a figure and no shape, and putting the mark back into the text for
+    /// those thirty seconds bought a channel this row cannot read anyway at the price of the reflow
+    /// the columns exist to prevent - and of a card that draws its warnings one way for half a
+    /// minute and another way afterwards.
+    static func figure(_ text: String, alert: Bool) -> Text {
         guard alert else { return Text(verbatim: text).foregroundStyle(.primary) }
-        return (marked ? drawn(text, alert: true) : Text(verbatim: text))
-            .foregroundStyle(TallyColor.warning)
+        return Text(verbatim: text).foregroundStyle(TallyColor.warning)
     }
 
     /// One field as it is drawn, with a warning marked as well as coloured.

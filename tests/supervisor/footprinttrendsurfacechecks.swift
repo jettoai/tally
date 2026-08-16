@@ -66,7 +66,7 @@ func runFootprintTrendSurfaceChecks() {
     // only the fields that have no shape.
     check("the figure is drawn inside its own metric's group",
           card.contains("FootprintSparklineView(values: trend.values, alert: trend.segment.alert)")
-              && card.contains("Self.figure(trend.figure, alert: trend.segment.alert,"))
+              && card.contains("Self.figure(trend.figure, alert: trend.segment.alert)"))
     check("…and it is the loudest small text on the card",
           card.contains(".foregroundStyle(.primary)")
               && card.contains(".font(.caption2.monospacedDigit())"))
@@ -105,27 +105,40 @@ func runFootprintTrendSurfaceChecks() {
     check("…and the row is built in the metric's own order instead, so two cards line up",
           card.contains("return FootprintTrendMetric.allCases.compactMap { metric in")
               && !card.contains("sessionFootprintSegments.compactMap"))
-    // The warning is not lost by staying put: it is on the group whose number it is about, in both
-    // channels this app says a warning in - the figure and its line turn amber, and the mark is
-    // drawn over the line's own frame.
+    // The warning is not lost by staying put: it is on the group whose number it is about, and this
+    // row says it in COLOUR ALONE - the figure, the line and both of its dots turn amber together.
     //
-    // AND THE MARK IS OUT OF THE LAYOUT, which is what it cost to leave it in: a triangle is about
-    // nine points of text, so a warning arriving pushed every figure to its right along, on the one
-    // row this card had just pinned into fixed columns to stop exactly that (Albert, 2026-08-16).
+    // WHICH IS THE ONE PLACE IN THIS APP THAT DROPS THE MARK, and it took both alternatives being
+    // built to settle: a triangle is about nine points of text, so in the row it pushed every figure
+    // to its right along, on the one row this card had just pinned into fixed columns to stop
+    // exactly that; moved onto the shape it stopped moving anything and covered nearly half of a
+    // twenty-four point line, peak dot included. A mark that destroys what it marks is not a second
+    // channel, so at this size the second channel is the amber's own luminance step and the spoken
+    // sentence below (Albert, 2026-08-16, having seen both). The row of WORDS above keeps its
+    // triangle, and so does every account card.
     check("…the warned group carrying its colour where it stands",
           card.contains("guard alert else { return Text(verbatim: text).foregroundStyle(.primary) }")
-              && card.contains(".foregroundStyle(TallyColor.warning)"))
-    check("…and the mark riding on the shape rather than widening the row",
-          !card.contains("Self.drawn(trend.figure")
-              && spark.contains(".overlay(alignment: .topLeading) {")
-              && spark.contains("Image(systemName: \"exclamationmark.triangle.fill\")"))
-    check("…the line itself turning amber with it, so the shape is warned as well as the number",
-          spark.contains(".stroke(alert ? AnyShapeStyle(TallyColor.warning)"))
-    // The one case with no shape to carry the mark is a session in its first half-minute, where a
-    // group is a figure on its own: the triangle goes back in the text rather than being dropped.
-    check("…and a group with no line yet keeps the mark in the text",
-          card.contains("marked: trend.values.isEmpty)")
-              && card.contains("return (marked ? drawn(text, alert: true) : Text(verbatim: text))"))
+              && card.contains("return Text(verbatim: text).foregroundStyle(TallyColor.warning)"))
+    // Asked once per piece and answered in one place, so the three cannot drift into a figure that
+    // is warned in parts: the line, the peak dot and the current dot each state the grey they wear
+    // on a calm card and take the warning colour from the same rule.
+    check("…the line and both of its dots turning amber with the figure",
+          spark.contains("alert ? AnyShapeStyle(warned) : AnyShapeStyle(calm)")
+              && spark.contains(".stroke(tone(calm: .tertiary),")
+              && spark.contains("tone(calm: .secondary,\n")
+              && spark.contains(".foregroundStyle(tone(calm: .primary))"))
+    // THE NEGATIVE HALF OF THE SAME CONTRACT, because a mark is the obvious thing to add back to a
+    // warning: nothing on this row draws one, at any width, whether or not the group has a line yet.
+    check("…and no triangle rides on this row at all",
+          !spark.contains("exclamationmark.triangle")
+              && !card.contains("Self.drawn(trend.figure")
+              && !card.contains("marked:"))
+    // A session in its first half-minute has a figure and no shape, and it is warned the same way:
+    // putting the mark back for those thirty seconds would buy a channel this row cannot read
+    // anyway, at the price of the reflow the columns exist to prevent.
+    check("…a group with no line yet being warned in the same colour and nothing else",
+          card.contains("static func figure(_ text: String, alert: Bool) -> Text")
+              && card.contains("Self.figure(trend.figure, alert: trend.segment.alert)"))
     // The row above is unchanged: it has no columns to hold still, and its fields are one sentence.
     check("the fields with no shape are still marked in the sentence itself",
           card.contains("Self.drawn(part.element.text, alert: part.element.alert)")

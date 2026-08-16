@@ -227,8 +227,12 @@ func runProcessTreeLineChecks() {
     // this states that what is DRAWN is that sentence rather than a second spelling of it.
     check("the drawn line separates its fields the way the stated line does",
           cardSource.contains("Text(verbatim: pickEffortSeparator)"))
-    // A WARNING IS NOT A COLOUR: the mark carries the meaning for a reader who cannot separate the
-    // amber from the grey beside it, and the colour only makes it faster to find.
+    // A WARNING IS NOT A COLOUR, WHEREVER THERE IS ROOM TO SAY SO IN SOMETHING ELSE: the mark
+    // carries the meaning for a reader who cannot separate the amber from the grey beside it, and
+    // the colour only makes it faster to find. This is the row with the room - it is a sentence, and
+    // nine points of triangle in a sentence is a sentence with a triangle in it. The row of eleven
+    // point shapes below is where that stops being true, and states the second channel differently
+    // (footprinttrendsurfacechecks.swift).
     check("a warned field is marked as well as coloured, in this app's own warning colour",
           cardSource.contains("Text(Image(systemName: \"exclamationmark.triangle.fill\"))")
               && cardSource.contains(".foregroundStyle(TallyColor.warning)"))
@@ -241,12 +245,13 @@ func runProcessTreeLineChecks() {
     // THE WARNING WENT WITH THE NUMBER when the numbers moved down a row: two of the three
     // conditions are about figures that are now drawn in the trend groups (the CPU and the memory),
     // and a mark left behind on the row they used to be on would be a warning about nothing.
-    // The mark itself is on the SHAPE rather than in the text, because a triangle in a row of
-    // pinned columns moves every figure after it the moment a warning arrives (asserted where the
-    // rest of that row is, footprinttrendsurfacechecks.swift); what stays on the number is the
-    // colour, and both channels are still on the group the condition is about.
-    check("a warned reading is marked where the reading now is",
-          cardSource.contains("Self.figure(trend.figure, alert: trend.segment.alert,")
+    // The mark itself does not follow them down: a triangle in a row of pinned columns moves every
+    // figure after it the moment a warning arrives, and on the eleven-point shape beside the figure
+    // it covers the readings instead (asserted where the rest of that row is,
+    // footprinttrendsurfacechecks.swift). What goes down with the numbers is the colour, on the
+    // figure and on the shape alike, and the condition is still SAID in full.
+    check("a warned reading is coloured where the reading now is, figure and shape together",
+          cardSource.contains("Self.figure(trend.figure, alert: trend.segment.alert)")
               && cardSource.contains("FootprintSparklineView(values: trend.values,"
                                      + " alert: trend.segment.alert)"))
     check("…and the reader who hears the groups is told the same condition",

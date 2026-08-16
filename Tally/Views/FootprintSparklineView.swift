@@ -12,7 +12,10 @@ import SwiftUI
 /// TWO DOTS, AND THEY ARE THE TWO FIGURES PRINTED BESIDE THE LINE. The brighter, larger one is the
 /// last reading, which is the current value in its own group; the quieter, smaller one is the
 /// highest, which is the `↑` figure. Neither is decoration: they are what tie the shape to the two
-/// numbers a reader can act on (`SessionCardView.sessionFootprintTrends`).
+/// numbers a reader can act on (`SessionCardView.sessionFootprintTrends`). A warning turns BOTH of
+/// them amber along with the line, and the pairing survives the change of colour as a difference in
+/// weight: the current one is the full warning colour and the peak a step down from it, which is the
+/// same order of loudness the primary and secondary greys draw on a calm card.
 ///
 /// THE BRIGHT ONE IS ONLY HONEST BECAUSE THE CALLER PUTS THE LIVE READING IN. The newest reading
 /// the ring has KEPT is up to a bucket old (`FootprintTrendSeries`), so drawn from the ring alone
@@ -25,16 +28,24 @@ import SwiftUI
 /// everywhere and a dot on the earliest of those would point at an arbitrary moment.
 struct FootprintSparklineView: View {
     let values: [Double]
-    /// Whether the reading this shape belongs to is the one worth somebody's eye, which it says in
-    /// both channels a warning in this app is said in: the line turns amber, and it carries the
-    /// mark for the reader who cannot separate amber from grey (`SessionCardView.sessionFootprint`).
+    /// Whether the reading this shape belongs to is the one worth somebody's eye, which this whole
+    /// figure says by turning amber: the line, the peak dot and the current dot together, so the
+    /// group reads as one warned block rather than as a marked piece beside unmarked ones.
     ///
-    /// THE MARK IS DRAWN OVER THIS FRAME RATHER THAN BESIDE THE FIGURE, and that is the whole reason
-    /// it is here at all. A triangle in the text flow is about nine points wide, so every warning
-    /// arriving or leaving widened its group and pushed the ones after it along - on a row whose
-    /// numbers are re-read every two seconds, and beside a card that had just had its columns pinned
-    /// for exactly that reason (Albert, 2026-08-16). An overlay on a fixed frame costs no layout at
-    /// all, so a warned card and a calm one put every figure in the same place.
+    /// AND NOTHING ELSE, WHICH IS A DEPARTURE FROM THE ROW ABOVE. That row carries a triangle as
+    /// well as the colour, because a warning is not a colour to a reader who cannot separate amber
+    /// from grey (`SessionCardView.sessionFootprint`). It cannot be carried HERE: the smallest
+    /// triangle that is still a triangle renders about eleven points wide, which is nearly half of
+    /// this twenty-four point frame, and wherever it is put it covers readings - drawn over the
+    /// line it hides the oldest forty per cent of the window along with the peak dot that most
+    /// often sits in it, and drawn under it the shape is read across a filled amber wedge. A mark
+    /// that destroys the thing it is marking is not a second channel. What carries the meaning
+    /// instead, at this size: the amber has a luminance step from both greys it replaces (the
+    /// primary current dot and the tertiary line), so the change is visible without the hue; and
+    /// the condition itself is SAID rather than drawn for the reader who gets neither
+    /// (`SessionCardView.spokenTrends`, which names it in words). Warned sparkline cells recolour
+    /// their marks everywhere this convention appears, for the same reason. (Albert, 2026-08-16,
+    /// having seen both the mark in the text flow and the mark on the shape.)
     var alert = false
 
     /// MEASURED AGAINST THE NARROWEST CARD, which is the only width that constrains it, and
@@ -52,11 +63,12 @@ struct FootprintSparklineView: View {
     /// rather than setting the card's height.
     static let size = CGSize(width: 24, height: 11)
     private static let stroke: CGFloat = 1
-    /// The warning mark, sized to the box it is drawn on rather than to the type beside it: at the
-    /// caption's own size it would cover the whole eleven points of the line.
-    private static let markSize: CGFloat = 8
     private static let peakDot: CGFloat = 2
     private static let currentDot: CGFloat = 3
+    /// How far the peak dot is stepped down from the current one when both are amber. The calm line
+    /// gets the same order of loudness from the primary and secondary greys, which a single named
+    /// colour has no second rank of.
+    private static let quietAlert: Double = 0.6
 
     var body: some View {
         let points = FootprintSparkline.points(values, in: Self.size, inset: Self.stroke / 2)
@@ -66,28 +78,29 @@ struct FootprintSparklineView: View {
                 path.move(to: first)
                 for point in points.dropFirst() { path.addLine(to: point) }
             }
-            .stroke(alert ? AnyShapeStyle(TallyColor.warning) : AnyShapeStyle(.tertiary),
+            .stroke(tone(calm: .tertiary),
                     style: StrokeStyle(lineWidth: Self.stroke, lineCap: .round, lineJoin: .round))
             if let index = FootprintSparkline.peakIndex(values), points.indices.contains(index) {
-                dot(at: points[index], diameter: Self.peakDot).foregroundStyle(.secondary)
+                dot(at: points[index], diameter: Self.peakDot)
+                    .foregroundStyle(tone(calm: .secondary,
+                                          warned: TallyColor.warning.opacity(Self.quietAlert)))
             }
             if let last = points.last {
-                dot(at: last, diameter: Self.currentDot).foregroundStyle(.primary)
+                dot(at: last, diameter: Self.currentDot)
+                    .foregroundStyle(tone(calm: .primary))
             }
         }
         .frame(width: Self.size.width, height: Self.size.height)
-        // Over the oldest end of the line, which is the one part of a shape nobody reads for its
-        // slope, and never in the layout: an overlay takes no room from the frame it is on.
-        .overlay(alignment: .topLeading) {
-            if alert {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: Self.markSize))
-                    .foregroundStyle(TallyColor.warning)
-            }
-        }
         // The line says nothing a reader who cannot see it can use; the figures beside it do, and
         // the row states them in words (`SessionCardView.spokenTrends`).
         .accessibilityHidden(true)
+    }
+
+    /// What one piece of this figure is drawn in: the grey it has on a calm card, or the warning
+    /// colour. Every piece asks the same question, which is what makes a warned figure read as one
+    /// block - the line, the peak dot and the current dot change together or not at all.
+    private func tone(calm: some ShapeStyle, warned: Color = TallyColor.warning) -> AnyShapeStyle {
+        alert ? AnyShapeStyle(warned) : AnyShapeStyle(calm)
     }
 
     /// A mark on the line, positioned by its centre. The stack is top-leading, so a point is an

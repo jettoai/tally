@@ -78,8 +78,9 @@ struct FootprintTrendSample: Equatable {
         let cpu = span > 0
             ? readings.reduce(0) { $0 + $1.cpuPercent * max(0, $1.seconds) } / span
             : readings.reduce(0) { $0 + $1.cpuPercent } / Double(readings.count)
-        // The point covers the whole bucket, so a fold of folds weights the same way a fold of
-        // readings does.
+        // The span the point states is the whole bucket's rather than the last reading's, because
+        // that is what the rate above is a rate OVER: a point that claimed its closing reading's two
+        // seconds would be a ten-second average labelled as two seconds of one.
         return FootprintTrendSample(cpuPercent: cpu, seconds: span, memoryBytes: last.memoryBytes,
                                     processes: last.processes)
     }
@@ -227,6 +228,23 @@ struct FootprintTrendSeries: Equatable {
     private(set) var samples: [FootprintTrendSample] = []
     /// When the newest kept reading was taken, which is what the cadence is measured from.
     private(set) var lastAcceptedAt: Date?
+    /// When the newest reading was OFFERED, kept or folded, which is what the silence is measured
+    /// from.
+    ///
+    /// THE TWO ARE DIFFERENT CLOCKS AND ONLY ONE OF THEM IS A SILENCE. A reading that joins the
+    /// point being assembled is a reading the sampler took, so the machine was demonstrably there;
+    /// but with the board open it does not move `lastAcceptedAt`, which advances once a bucket.
+    /// Measured against that one, a tree sampled every two seconds and then interrupted for
+    /// twenty-three was already "away" - past `staleAfter` - and threw a quarter of an hour of
+    /// history away over a silence the warning next door counts as one unbroken run of evidence
+    /// (`FootprintAlarm.gapAfter`, the same thirty seconds about the same silence). The two clocks
+    /// now read the same instants, which is what that pairing was always supposed to mean.
+    ///
+    /// The cost of the reset was not only the line: a series that drops under two points takes the
+    /// shape off the card altogether (`SessionCardView.sessionFootprintTrendGroups`), so every
+    /// figure on that row moves, on the one row this card pinned into fixed columns to stop exactly
+    /// that.
+    private(set) var lastOfferedAt: Date?
     /// The readings taken since the last point was kept, waiting to be folded into the next one. At
     /// the background rate this holds the one reading that becomes the point; with the board open
     /// it holds the five that make it up.
@@ -240,9 +258,13 @@ struct FootprintTrendSeries: Equatable {
 
     /// Whether so long has passed that what is held is a different session's afternoon rather than
     /// this reading's own recent past (see `staleAfter`).
+    ///
+    /// MEASURED FROM THE LAST READING OFFERED, not from the last one kept: what this asks is whether
+    /// anything was sampling in between, and a reading folded into the point being assembled is a
+    /// reading that was taken (`lastOfferedAt`).
     func isStale(at: Date) -> Bool {
-        guard let lastAcceptedAt else { return false }
-        return at.timeIntervalSince(lastAcceptedAt) > Self.staleAfter
+        guard let lastOfferedAt else { return false }
+        return at.timeIntervalSince(lastOfferedAt) > Self.staleAfter
     }
 
     /// Offer a reading. EVERY ONE OF THEM IS KEPT SOMEWHERE - in the point being assembled, or as
@@ -251,6 +273,9 @@ struct FootprintTrendSeries: Equatable {
         // A line that starts again says "the last quarter hour" honestly from its first point; one
         // that carried on would say it about readings taken before the machine slept.
         if isStale(at: at) { self = FootprintTrendSeries() }
+        // Every offer, kept or folded, is evidence that something was sampling at this instant,
+        // which is the whole of what the silence above is measured over.
+        lastOfferedAt = at
         pending.append(sample)
         guard accepts(at) else { return }
         if let point = FootprintTrendSample.folded(pending) { samples.append(point) }

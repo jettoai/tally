@@ -25,6 +25,17 @@ import SwiftUI
 /// everywhere and a dot on the earliest of those would point at an arbitrary moment.
 struct FootprintSparklineView: View {
     let values: [Double]
+    /// Whether the reading this shape belongs to is the one worth somebody's eye, which it says in
+    /// both channels a warning in this app is said in: the line turns amber, and it carries the
+    /// mark for the reader who cannot separate amber from grey (`SessionCardView.sessionFootprint`).
+    ///
+    /// THE MARK IS DRAWN OVER THIS FRAME RATHER THAN BESIDE THE FIGURE, and that is the whole reason
+    /// it is here at all. A triangle in the text flow is about nine points wide, so every warning
+    /// arriving or leaving widened its group and pushed the ones after it along - on a row whose
+    /// numbers are re-read every two seconds, and beside a card that had just had its columns pinned
+    /// for exactly that reason (Albert, 2026-08-16). An overlay on a fixed frame costs no layout at
+    /// all, so a warned card and a calm one put every figure in the same place.
+    var alert = false
 
     /// MEASURED AGAINST THE NARROWEST CARD, which is the only width that constrains it, and
     /// re-measured every time the row around it gains a field. It was 44pt when the row held three
@@ -41,6 +52,9 @@ struct FootprintSparklineView: View {
     /// rather than setting the card's height.
     static let size = CGSize(width: 24, height: 11)
     private static let stroke: CGFloat = 1
+    /// The warning mark, sized to the box it is drawn on rather than to the type beside it: at the
+    /// caption's own size it would cover the whole eleven points of the line.
+    private static let markSize: CGFloat = 8
     private static let peakDot: CGFloat = 2
     private static let currentDot: CGFloat = 3
 
@@ -52,8 +66,8 @@ struct FootprintSparklineView: View {
                 path.move(to: first)
                 for point in points.dropFirst() { path.addLine(to: point) }
             }
-            .stroke(.tertiary, style: StrokeStyle(lineWidth: Self.stroke, lineCap: .round,
-                                                  lineJoin: .round))
+            .stroke(alert ? AnyShapeStyle(TallyColor.warning) : AnyShapeStyle(.tertiary),
+                    style: StrokeStyle(lineWidth: Self.stroke, lineCap: .round, lineJoin: .round))
             if let index = FootprintSparkline.peakIndex(values), points.indices.contains(index) {
                 dot(at: points[index], diameter: Self.peakDot).foregroundStyle(.secondary)
             }
@@ -62,6 +76,15 @@ struct FootprintSparklineView: View {
             }
         }
         .frame(width: Self.size.width, height: Self.size.height)
+        // Over the oldest end of the line, which is the one part of a shape nobody reads for its
+        // slope, and never in the layout: an overlay takes no room from the frame it is on.
+        .overlay(alignment: .topLeading) {
+            if alert {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: Self.markSize))
+                    .foregroundStyle(TallyColor.warning)
+            }
+        }
         // The line says nothing a reader who cannot see it can use; the figures beside it do, and
         // the row states them in words (`SessionCardView.spokenTrends`).
         .accessibilityHidden(true)

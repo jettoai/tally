@@ -99,13 +99,29 @@ extension SessionCardView {
 
     /// WHAT EACH TRENDED METRIC HAS TO SAY, built from the FIGURES rather than from the history, so
     /// a session that has not been sampled twice yet still states its numbers and simply has no
-    /// line behind them yet. In the order the value line is written in (`ProcessTree.segments`),
-    /// which keeps the warned field in front on a card too narrow to hold all three.
+    /// line behind them yet.
+    ///
+    /// ONE ORDER ON EVERY CARD, WARNED OR NOT (`FootprintTrendMetric.allCases`). The value line
+    /// above brings a warned field to the front because that line is one sentence truncated at its
+    /// tail, where a warning left in reading order loses its number off the end
+    /// (`ProcessTree.segments`). This row is not that line: it never truncates, it drops CEILINGS
+    /// to fit (`sessionFootprintTrends`), so moving a group buys nothing here and costs the only
+    /// thing this row is read for. A board is read DOWN the cards, and `procs · 4.1 GB · 1%` on a
+    /// warned card beside `procs · 1% · 3.4 GB` on a calm one puts two different quantities in the
+    /// same place and asks the reader to check the unit on every one (Albert, 2026-08-16). So the
+    /// order is fixed, and a warning stays on the group whose number it is about: the figure and
+    /// its line turn amber, and the mark rides on the line (`figure`, `FootprintSparklineView`).
     var sessionFootprintTrendGroups: [Trend] {
         guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return [] }
         let series = ProcessFootprintStore.shared.history[row.id]
-        return sessionFootprintSegments.compactMap { segment in
-            guard let metric = FootprintTrendMetric(segment.kind) else { return nil }
+        // The value line's own field per metric, which is what carries the words, the culprit's
+        // name and the warning into the group. Its POSITION is what is left behind here.
+        var fields: [FootprintTrendMetric: ProcessFootprintSegment] = [:]
+        for segment in sessionFootprintSegments {
+            if let metric = FootprintTrendMetric(segment.kind) { fields[metric] = segment }
+        }
+        return FootprintTrendMetric.allCases.compactMap { metric in
+            guard let segment = fields[metric] else { return nil }
             let readings = series?.values(of: metric) ?? []
             let now = metric.reading(of: footprint)
             // The value line's own words are the fallback, so a reading the terse speller has no
@@ -179,10 +195,12 @@ extension SessionCardView {
                 HStack(spacing: Self.trendSpacing) {
                     // A metric sampled once has no line yet and still has a number: the group falls
                     // back to the figure alone rather than waiting half a minute to say anything.
-                    if !trend.values.isEmpty { FootprintSparklineView(values: trend.values) }
+                    if !trend.values.isEmpty {
+                        FootprintSparklineView(values: trend.values, alert: trend.segment.alert)
+                    }
                     Self.column(trend.metric.widestFigure) {
-                        Self.drawn(trend.figure, alert: trend.segment.alert)
-                            .foregroundStyle(.primary)
+                        Self.figure(trend.figure, alert: trend.segment.alert,
+                                    marked: trend.values.isEmpty)
                     }
                     if let aside = trend.aside {
                         // LAST IN THE QUEUE FOR ROOM, because it is the one piece here that can be
@@ -249,15 +267,34 @@ extension SessionCardView {
     /// into a shared sentence, so every one of them is a phrase a translator sees whole
     /// (`FootprintTrendMetric.peakLabelKey`).
     ///
-    /// A PEAK THE ROW DROPPED FOR ROOM IS STILL DROPPED HERE, because speech has no width to run
-    /// out of but it does have the same reason: a ceiling equal to the reading just said is not a
-    /// second fact.
+    /// A PEAK THE ROW DROPPED FOR ROOM IS STILL SAID HERE, because speech has no width to run out
+    /// of: what a narrow card gives up is a column, and a listener has no columns. The one peak
+    /// this drops is the one the row drops for the other reason - a ceiling equal to the reading
+    /// just said is not a second fact, at any width (`Trend.peak` is already nothing for it).
     static func spokenTrends(_ trends: [Trend]) -> String {
         trends.map { trend in
             let reading = spoken([trend.segment])
             guard let peak = trend.peak else { return reading }
             return "\(reading), \(String(format: L(trend.metric.peakLabelKey), peak))"
         }.joined(separator: ", ")
+    }
+
+    /// ONE GROUP'S FIGURE, amber when its reading is the one worth somebody's eye - and WITHOUT the
+    /// triangle, which is drawn over the shape beside it instead (`FootprintSparklineView`).
+    ///
+    /// THE MARK LEFT THE TEXT BECAUSE IT MOVED THE ROW. It is about nine points wide, so a warning
+    /// arriving widened its group and pushed every figure after it along, on the one row this card
+    /// had just pinned into fixed columns for exactly that reason (Albert, 2026-08-16). Both
+    /// channels of the warning survive the move: the colour is on the number, and the mark is on the
+    /// shape the number belongs to.
+    ///
+    /// - Parameter marked: whether this figure has to carry the mark itself, which it does only when
+    ///   there is no shape yet to put it on - a session in its first half-minute, where one reflow
+    ///   is cheaper than a column held empty on every card forever.
+    static func figure(_ text: String, alert: Bool, marked: Bool) -> Text {
+        guard alert else { return Text(verbatim: text).foregroundStyle(.primary) }
+        return (marked ? drawn(text, alert: true) : Text(verbatim: text))
+            .foregroundStyle(TallyColor.warning)
     }
 
     /// One field as it is drawn, with a warning marked as well as coloured.

@@ -7,14 +7,19 @@ import Foundation
 //
 // SPLIT FROM THE FOOTPRINT'S OWN CHECKS beside it (processtreechecks.swift, footprintalertchecks
 // .swift) along the same seam those two are split on: those state what one reading MEANS and which
-// readings are worth a warning, and these state what a SERIES of them is. The two surfaces that
-// consume it (the store that samples and the card that draws) are scanned at the end, because
-// neither can be constructed here: one is @MainActor and observable, the other is SwiftUI.
+// readings are worth a warning, and these state what a SERIES of them is. The surfaces that consume
+// it (the store that samples, the card that draws, the shape itself) are read from their source in
+// footprinttrendsurfacechecks.swift, which this calls at the end: none of them can be constructed
+// here, and everything in this file can be stated with nothing on disk at all.
 
 func runFootprintTrendChecks() {
     let t0 = Date(timeIntervalSince1970: 1_800_000_000)
-    func reading(_ cpu: Double, memory: UInt64 = 0, processes: Int = 0) -> FootprintTrendSample {
-        FootprintTrendSample(cpuPercent: cpu, memoryBytes: memory, processes: processes)
+    /// A reading, with the span its rate covers stated where it matters and left at the ordinary
+    /// cadence where it does not (`FootprintTrendSample.seconds`).
+    func reading(_ cpu: Double, memory: UInt64 = 0, processes: Int = 0,
+                 seconds: Double = FootprintTrendSeries.cadence) -> FootprintTrendSample {
+        FootprintTrendSample(cpuPercent: cpu, seconds: seconds, memoryBytes: memory,
+                             processes: processes)
     }
 
     // MARK: the ring
@@ -46,7 +51,7 @@ func runFootprintTrendChecks() {
     // the minutes somebody was watching - a line whose horizontal scale changes halfway along.
     var throttled = FootprintTrendSeries()
     for tick in stride(from: 0.0, through: 60.0, by: 2) {
-        throttled.record(reading(tick), at: t0.addingTimeInterval(tick))
+        throttled.record(reading(tick, seconds: 2), at: t0.addingTimeInterval(tick))
     }
     check("two-second ticks are kept at the trend's own cadence",
           throttled.samples.count == 7)
@@ -68,7 +73,7 @@ func runFootprintTrendChecks() {
         for (step, cpu) in values.enumerated() {
             let at = t0.addingTimeInterval(Double(bucket) * 10 + Double(step + 1) * 2)
             watched.record(reading(cpu, memory: UInt64(bucket + 2) * 1_000_000_000,
-                                   processes: bucket + 4),
+                                   processes: bucket + 4, seconds: 2),
                            at: at)
         }
     }
@@ -109,12 +114,40 @@ func runFootprintTrendChecks() {
           jittery.values(of: .cpu) == [1, 2])
     var eager = FootprintTrendSeries()
     eager.record(reading(1), at: t0)
-    eager.record(reading(2), at: t0.addingTimeInterval(8))
-    eager.record(reading(3), at: t0.addingTimeInterval(10))
+    eager.record(reading(2, seconds: 8), at: t0.addingTimeInterval(8))
+    eager.record(reading(3, seconds: 2), at: t0.addingTimeInterval(10))
     check("…and no two consecutive fast ticks both close a bucket",
           eager.samples.count == 2)
+    // Folded by the time each rate covers rather than by the count of them: eight seconds at 2 and
+    // two seconds at 3 is 2.2 over the ten, where a flat mean of the two readings would say 2.5.
     check("…the early one being folded into the point rather than dropped",
-          eager.values(of: .cpu) == [1, 2.5])
+          eager.values(of: .cpu) == [1, 2.2])
+
+    // MARK: two sampling rates inside ONE bucket
+
+    // THE DEFECT THE WEIGHTING PREVENTS, and it is caused by the act of looking: opening the board
+    // takes a reading at once and re-times the sampler to the fast rate
+    // (`ProcessFootprintStore.beginViewing`), so the bucket that straddles the switch holds eight
+    // seconds of an idle tree and then two of a busy one. Averaged flat those ten seconds read 50%,
+    // and the line grew a peak that nothing on the machine ever ran.
+    var mixed = FootprintTrendSeries()
+    mixed.record(reading(0), at: t0)
+    mixed.record(reading(0, seconds: 8), at: t0.addingTimeInterval(8))
+    mixed.record(reading(100, seconds: 2), at: t0.addingTimeInterval(10))
+    check("a bucket of unequal intervals weights each rate by the time it covers",
+          mixed.values(of: .cpu) == [0, 20])
+    // The kept point covers the whole bucket, so a fold of folded points weights the way a fold of
+    // readings does rather than treating each point as one reading.
+    check("…and the point it keeps states the span it is a rate over",
+          mixed.samples.last?.seconds == 10)
+    // The fallback branch, which the sampler cannot reach (a rate exists only once there is a span
+    // to state it over) and which still has to say something rather than divide by nothing.
+    var spanless = FootprintTrendSeries()
+    spanless.record(reading(0, seconds: 0), at: t0)
+    spanless.record(reading(4, seconds: 0), at: t0.addingTimeInterval(8))
+    spanless.record(reading(6, seconds: 0), at: t0.addingTimeInterval(10))
+    check("a bucket that claims no interval at all is the plain mean rather than nothing",
+          spanless.values(of: .cpu) == [0, 5])
 
     // MARK: a silence long enough to be a different afternoon
 
@@ -179,10 +212,11 @@ func runFootprintTrendChecks() {
           FootprintTrendMetric.memory.peakText(400_000) == nil
               && FootprintTrendMetric.memory.peakText(900_000) == ProcessTree.memoryText(900_000))
     check("…nor an empty tree", FootprintTrendMetric.processes.peakText(0) == nil)
-    // The order is the order the value line above is written in, so the leftmost shape belongs to
-    // the leftmost figure (`ProcessTree.segments`).
-    check("the metrics are in the value line's own order",
-          FootprintTrendMetric.allCases == [.processes, .cpu, .memory])
+    // THIS IS THE ROW'S ORDER, and the row takes it from here rather than from the fields it draws
+    // (`SessionCardView.sessionFootprintTrendGroups`, asserted below): what the session HAS, then
+    // what it is burning, then what it is holding.
+    check("the metrics are in one stated order", FootprintTrendMetric.allCases == [.processes, .cpu,
+                                                                                   .memory])
 
     // MARK: the figure the group states, and where it comes from
 
@@ -281,154 +315,4 @@ func runFootprintTrendChecks() {
           FootprintSparkline.peakIndex([9]) == nil)
 
     runFootprintTrendSurfaceChecks()
-}
-
-/// THE TWO SURFACES THE SERIES REACHES, read from their source: the store that fills it and the
-/// card that draws it. Neither can be constructed in this harness (one is an observable @MainActor
-/// store, the other is SwiftUI), and both carry a property the arithmetic above cannot state.
-func runFootprintTrendSurfaceChecks() {
-    let store = (try? String(contentsOfFile: "Tally/Stores/ProcessFootprintStore.swift",
-                             encoding: .utf8)) ?? ""
-    check("the store's source is readable from this suite", !store.isEmpty)
-    // THE HISTORY IS THE REASON THE STORE SAMPLES WITH NOTHING OPEN. A trend that only existed
-    // while somebody was looking would be empty at the moment it is wanted, since a person opens
-    // this board BECAUSE something already felt wrong.
-    check("the store samples for the life of the process, not only while the page is up",
-          store.contains("func install() { retime() }")
-              && store.contains("private static let backgroundInterval: TimeInterval = 10"))
-    check("…at the trend's own cadence, so a closed panel adds no point the ring would refuse",
-          FootprintTrendSeries.cadence == 10)
-    check("…and the app starts it",
-          ((try? String(contentsOfFile: "Tally/App/AppDelegate.swift", encoding: .utf8)) ?? "")
-              .contains("ProcessFootprintStore.shared.install()"))
-    // The one reading that stays behind the panel: ports are a descriptor table per process and a
-    // call per socket, and nothing draws them with the board closed.
-    check("the ports are never scanned in the background",
-          store.contains("let readPorts = viewers > 0 && ticks % Self.portsEveryNTicks == 0"))
-    check("…and the agent count is held rather than re-read there",
-          store.contains("agents: viewers > 0 ? (readSessionAgents(pid: key)?.reportable ?? 0)"))
-    // The measurement is the card's, exactly: Tally's own processes come out of the tree before
-    // anything reaches the ring, so the line and the figure above it are about the same thing.
-    check("the trend is recorded from the same measured tree the figures are",
-          store.contains("processes: measured.count),")
-              && store.contains("trends.record(FootprintTrendSample(cpuPercent: percent,"))
-    check("…and only once there is an interval to state a rate over",
-          store.contains("if let percent = cpu.percent {"))
-    // Swept against the BOARD rather than against this tick's readings: a tree that could not be
-    // read for one pass has no entry, and sweeping on that would throw a quarter hour of history
-    // away over a single unreadable tick.
-    check("a session that left the board takes its series with it",
-          store.contains("trends.retain(Set(roots.map { String($0.0) }))"))
-    // The regression the background rate introduces if it is written carelessly: the old store
-    // dropped every reading when the last viewer went, which would now throw the history away
-    // every time the panel closed.
-    let ending = (store.components(separatedBy: "func endViewing()").last ?? "")
-        .components(separatedBy: "private func retime()").first ?? ""
-    check("closing the panel drops the ports and nothing else",
-          ending.contains("ports = [:]") && !ending.contains("footprints = [:]")
-              && !ending.contains("previousSample = [:]"))
-
-    let card = (try? String(contentsOfFile: "Tally/Views/SessionCardFootprint.swift",
-                            encoding: .utf8)) ?? ""
-    check("the card's source is readable from this suite", !card.isEmpty)
-    // THE THREE PIECES OF A GROUP ARE ABOUT ONE NUMBER, which is the whole correction: the figure
-    // sits between the shape it arrived by and the ceiling it came off, and the row above it holds
-    // only the fields that have no shape.
-    check("the figure is drawn inside its own metric's group",
-          card.contains("if !trend.values.isEmpty { FootprintSparklineView(values: trend.values) }")
-              && card.contains("Self.drawn(trend.figure, alert: trend.segment.alert)"))
-    check("…and it is the loudest small text on the card",
-          card.contains(".foregroundStyle(.primary)")
-              && card.contains(".font(.caption2.monospacedDigit())"))
-    check("…with the peak beside it the quietest",
-          card.contains("Text(verbatim: trend.peak.map { Self.peakMark + $0 } ?? \"\")\n")
-              && card.contains(".foregroundStyle(.tertiary)"))
-    check("the row above the readings is quieter than they are",
-          card.contains(".font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)"))
-    // A metric sampled once has a number and no line: the group falls back to the figure alone
-    // rather than waiting half a minute to say anything at all.
-    check("a metric with too few readings draws its figure without a line",
-          card.contains("let drawn = readings.count >= FootprintSparkline.minimumReadings"))
-    // BUILT FROM THE READINGS AND NEVER FROM THE HISTORY, which is what keeps an idle session's
-    // figures on its card: a group whose existence depended on having a peak worth printing would
-    // take the whole CPU group off every session sitting at nought per cent, which is most of the
-    // board most of the time.
-    check("a group exists because there is a figure, not because there is a peak",
-          card.contains("return sessionFootprintSegments.compactMap { segment in")
-              && card.contains("guard let metric = FootprintTrendMetric(segment.kind)"))
-    // A peak equal to the reading printed beside it is the same number twice with an arrow between
-    // them, which is what makes the row fit a narrow card in the ordinary case.
-    check("a peak that equals the reading is not printed",
-          card.contains("peak: peak == figure ? nil : peak)"))
-    // A CEILING UNDER THE NUMBER IT IS THE CEILING OF, which is what the ring alone produces: its
-    // newest point is up to a bucket behind the live figure, so a session that has just jumped to
-    // 16% has a fifteen-minute maximum of 1%. Taken together they agree by construction.
-    check("the ceiling is taken over the live reading as well as the kept ones",
-          card.contains("let peak = [series?.peak(of: metric), now].compactMap { $0 }.max()"))
-    // WHAT GIVES WAY WHEN THE CARD IS TOO NARROW, in a stated order: the figures and their lines
-    // are never dropped, and the ceilings go one at a time.
-    check("the row degrades by dropping ceilings rather than figures",
-          card.contains("ViewThatFits(in: .horizontal)")
-              && card.contains("trendRow(trends, peaks: 3)")
-              && card.contains("trendRow(trends, peaks: 0)"))
-    // Read off the source like everything else here, because the order lives on a SwiftUI view this
-    // harness cannot construct: every metric is in it (so no group is silently barred from ever
-    // printing a peak) and the CPU is the last one dropped.
-    check("…and every metric is somewhere in that order, the spikiest of them last to go",
-          card.contains("static let peakOrder: [FootprintTrendMetric] = [.cpu, .memory, .processes]")
-              && FootprintTrendMetric.allCases.count == 3)
-    check("the card draws the trend row it builds",
-          ((try? String(contentsOfFile: "Tally/Views/SessionCardView.swift", encoding: .utf8)) ?? "")
-              .contains("sessionCardLine { sessionFootprintTrends }"))
-
-    // A ROW OF LIVE NUMBERS LAID OUT TO ITS OWN CONTENT IS A ROW IN MOTION: every figure is re-read
-    // every two seconds, so a CPU going from 9% to 10% pushed the memory figure along with it.
-    check("every figure is held in a column as wide as its own widest reading",
-          card.contains("Self.column(trend.metric.widestFigure)")
-              && card.contains("Self.column(Self.peakMark + trend.metric.widestFigure)"))
-    check("…sized by a hidden copy of that reading rather than by a number in points",
-          card.contains("ZStack(alignment: .trailing)")
-              && card.contains("Text(verbatim: widest).hidden()"))
-    // A peak is hidden exactly when the reading has just become the highest of the window, so on a
-    // climbing session the arrow leaves and comes back every few seconds; a column held only while
-    // there is something to put in it would take the group beside it along both ways.
-    check("…and a tracked metric keeps its ceiling's column whether or not it has one to print",
-          card.contains("if named.contains(trend.metric), !trend.values.isEmpty {")
-              && card.contains("Text(verbatim: trend.peak.map { Self.peakMark + $0 } ?? \"\")"))
-    check("…and the widest cases are the ones a session actually reaches",
-          FootprintTrendMetric.cpu.widestFigure == "100%"
-              && FootprintTrendMetric.memory.widestFigure == "99.9 GB"
-              && FootprintTrendMetric.processes.widestFigure == "99")
-
-    // THE TWO DOTS ARE THE TWO FIGURES PRINTED BESIDE THE LINE, and the bright one is only honest
-    // because the row hands over the live reading with the kept ones: from the ring alone it marked
-    // 20% on a session whose card said 400%, the newest KEPT point being up to a bucket old.
-    let spark = (try? String(contentsOfFile: "Tally/Views/FootprintSparklineView.swift",
-                             encoding: .utf8)) ?? ""
-    check("the sparkline's source is readable from this suite", !spark.isEmpty)
-    check("the line marks the peak and the newest reading, quiet and bright",
-          spark.contains("if let index = FootprintSparkline.peakIndex(values)")
-              && spark.contains("dot(at: points[index], diameter: Self.peakDot)")
-              && spark.contains("dot(at: last, diameter: Self.currentDot)"))
-    check("…and the newest one is this instant's reading, drawn and never stored",
-          card.contains("? readings + [now].compactMap { $0 } : []"))
-
-    // EVERY WORD THIS ROW ADDED IS IN THE CATALOGUE, in all four translations: the app ships five
-    // languages, and a string that reaches a person in English on a Japanese machine is a missing
-    // translation nobody notices until they see it.
-    let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
-        "Tally/Resources/Localizable.xcstrings")))
-        .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
-    let strings = catalogue?["strings"] as? [String: Any] ?? [:]
-    check("the string catalogue is readable from this suite", !strings.isEmpty)
-    for metric in FootprintTrendMetric.allCases {
-        let entry = strings[metric.peakLabelKey] as? [String: Any]
-        let localizations = entry?["localizations"] as? [String: Any] ?? [:]
-        check("\(metric.peakLabelKey) is translated into every language Tally ships",
-              AppLocaleSupported.allSatisfy { localizations[$0] != nil })
-        // The spoken sentence is one catalogue entry per metric rather than a name substituted into
-        // a shared one, so a translator sees every phrase whole.
-        check("…and carries the one placeholder the peak is put into",
-              metric.peakLabelKey.components(separatedBy: "%@").count == 2)
-    }
 }

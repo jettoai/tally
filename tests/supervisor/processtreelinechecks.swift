@@ -151,6 +151,28 @@ func runProcessTreeLineChecks() {
                                unit: "procs", agentUnit: "agents").map(\.kind)
               == [.processes, .cpu, .agents, .memory])
 
+    // MARK: the quieter half of a field
+
+    // AN ASIDE IS READ BY EXACTLY ONE SURFACE: the row that draws a metric as a figure and prints
+    // the word beside it a shade down (`SessionCardView.sessionFootprintTrends`), which is built
+    // only for the three trended metrics. The fields with no shape are drawn as one sentence at one
+    // weight, so an aside on them is data nobody reads - the agents' and the disk writer's were
+    // exactly that (codex review of 4868f2f, 2026-08-16).
+    check("only the fields drawn as figures carry an aside",
+          ProcessTree.segments(ProcessFootprint(processes: 6, agents: 2, cpuPercent: 40,
+                                                cpuLeader: "node", memoryBytes: 5_000_000_000,
+                                                listeningPorts: [3000]),
+                               unit: "procs", agentUnit: "agents")
+              .filter { $0.aside != nil }.map(\.kind) == [.processes, .cpu])
+    // Including the one field that HAS a name to say and no row to say it on: the disk writer is
+    // named inside the sentence itself, which is where a first-row field carries its words.
+    check("…and the named disk writer is one of the words rather than an aside",
+          ProcessTree.segments(ProcessFootprint(processes: 6, cpuPercent: 40,
+                                                diskWriteBytesPerSecond: 12_000_000,
+                                                diskLeader: "esbuild", listeningPorts: []),
+                               unit: "procs").last
+              == ProcessFootprintSegment(kind: .disk, text: "12 MB/s (esbuild)"))
+
     // MARK: the parts that only exist inside a view
 
     let cardSource = (try? String(contentsOfFile: "Tally/Views/SessionCardFootprint.swift",
@@ -219,8 +241,14 @@ func runProcessTreeLineChecks() {
     // THE WARNING WENT WITH THE NUMBER when the numbers moved down a row: two of the three
     // conditions are about figures that are now drawn in the trend groups (the CPU and the memory),
     // and a mark left behind on the row they used to be on would be a warning about nothing.
+    // The mark itself is on the SHAPE rather than in the text, because a triangle in a row of
+    // pinned columns moves every figure after it the moment a warning arrives (asserted where the
+    // rest of that row is, footprinttrendsurfacechecks.swift); what stays on the number is the
+    // colour, and both channels are still on the group the condition is about.
     check("a warned reading is marked where the reading now is",
-          cardSource.contains("Self.drawn(trend.figure, alert: trend.segment.alert)"))
+          cardSource.contains("Self.figure(trend.figure, alert: trend.segment.alert,")
+              && cardSource.contains("FootprintSparklineView(values: trend.values,"
+                                     + " alert: trend.segment.alert)"))
     check("…and the reader who hears the groups is told the same condition",
           cardSource.contains(".accessibilityLabel(Self.spokenTrends(trends))")
               && cardSource.contains("let reading = spoken([trend.segment])"))

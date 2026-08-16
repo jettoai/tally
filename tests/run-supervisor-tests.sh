@@ -35,6 +35,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/sessionstatechecks.swift tests/supervisor/sessionorderchecks.swift \
   tests/supervisor/processtreechecks.swift tests/supervisor/processtreelinechecks.swift \
   tests/supervisor/footprintalertchecks.swift tests/supervisor/footprinttrendchecks.swift \
+  tests/supervisor/footprinttrendsurfacechecks.swift \
   tests/supervisor/agentrosterchecks.swift \
   tests/supervisor/terminaljumpchecks.swift \
   tests/supervisor/sessioninputchecks.swift tests/supervisor/sessionsendchecks.swift \

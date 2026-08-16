@@ -109,8 +109,14 @@ struct SessionCardView: View {
                 // it has spent, this says what is running under it right now. Not a fourth segment
                 // on the stats line, which already truncates. The slot is kept on every card for the
                 // reason the helper exists (`sessionCardLine`): a card that dropped a row would
-                // stand shorter than its neighbours, and a session with nothing measurable simply
-                // says nothing.
+                // stand shorter than its neighbours.
+                //
+                // AND THIS ROW IS EMPTY ON THE ORDINARY CARD, which is deliberate rather than a
+                // measurement that failed: what is left here is the fields with no shape - a
+                // fan-out, heavy writing, a port - and a session that is doing none of those has
+                // nothing to say on it. The readings themselves moved one line down when they
+                // gained their shapes (`sessionFootprintTrends`), so the empty slot is holding the
+                // board level for the cards that DO have one of those things.
                 sessionCardLine { sessionFootprint }
                 // AND HOW IT GOT THERE: the same three readings as a shape, with the highest one
                 // named (`sessionFootprintTrends`). A second line rather than more segments on the

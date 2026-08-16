@@ -113,8 +113,7 @@ extension ProcessTree {
         var parts = [ProcessFootprintSegment(kind: .processes,
                                              text: "\(footprint.processes) \(unit)", aside: unit)]
         if footprint.agents > 0 {
-            parts.append(.init(kind: .agents, text: "\(footprint.agents) \(agentUnit)",
-                               aside: agentUnit))
+            parts.append(.init(kind: .agents, text: "\(footprint.agents) \(agentUnit)"))
         }
         // Decided before the CPU segment is built, because whether disk is on the line at all is
         // what decides which segment gets to carry a name.
@@ -132,7 +131,7 @@ extension ProcessTree {
             parts.append(.init(kind: .memory, text: memory, alert: footprint.alerts.memory))
         }
         if let disk {
-            parts.append(.init(kind: .disk, text: blamed(disk, on: diskName), aside: diskName,
+            parts.append(.init(kind: .disk, text: blamed(disk, on: diskName),
                                alert: footprint.alerts.disk))
         }
         if !footprint.listeningPorts.isEmpty {

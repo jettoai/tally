@@ -69,8 +69,11 @@ struct ProcessFootprintSegment: Equatable {
     /// a string a reader has to segment for themselves, which is what that row was reported as
     /// (Albert, 2026-08-15: "2 procs · 1% CPU (claude) · 459 MB" is hard to read).
     ///
-    /// A FIGURE WITH NO WORD IN IT HAS NONE: a memory reading carries its own unit and a port list
-    /// is not a quantity at all.
+    /// ONLY THE FIELDS THAT ROW DRAWS CARRY ONE, which is the process count and the CPU: the fields
+    /// with no shape of their own are drawn as one sentence at one weight
+    /// (`SessionCardView.sessionFootprint`), so an aside on them would be a second brightness
+    /// nothing reads. A figure with no word in it has none either - a memory reading carries its
+    /// own unit, and a port list is not a quantity at all.
     var aside: String?
     var alert = false
 }

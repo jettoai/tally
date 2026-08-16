@@ -54,6 +54,12 @@ final class ProcessFootprintStore {
     /// every tree's members, their executable paths and their rusage counters - averages 0.5 to
     /// 0.6 ms over twenty runs, which at this rate is about 0.005% of one core. It scales with the
     /// machine's process count rather than with the number of sessions, since the walk dominates.
+    ///
+    /// THAT READING PREDATES THE ROSTER SCAN THIS PASS NOW MAKES WITH NOTHING OPEN (see `sample`),
+    /// and has not been retaken: the scan is a few small file reads per session, which the roster's
+    /// own note calls cheap enough to make on a knock with no window at all, but nobody has put a
+    /// number on the pair together. Stated rather than folded into the figure above, because a
+    /// measurement that quietly grows a term is worse than one that says what it left out.
     private static let backgroundInterval: TimeInterval = 10
     /// How many visible ticks pass between two readings of the ports (see the note above).
     private static let portsEveryNTicks = 3
@@ -180,6 +186,11 @@ final class ProcessFootprintStore {
                 pid.flatMap { paths[$0].flatMap(ProcessTree.displayName) }
             }
             let key = String(root)
+            // Held rather than looked up twice, because the ring needs the INSTANT it was taken as
+            // well as the counters: how long the rate below covers is the gap between the two
+            // readings, and that is not the sampler's interval on the tick a surface opened
+            // (`FootprintTrendSample.seconds`).
+            let previous = previousSample[key]
             // THE WHOLE TREE IS SAMPLED AND OURS ARE TAKEN OUT INSIDE EACH READING, rather than
             // filtered off the pid list first. Filtering here looks equivalent and is not: one of
             // ours that ends between two ticks leaves its seconds in the counters of whoever
@@ -187,9 +198,9 @@ final class ProcessFootprintStore {
             // seen to depart - so nothing cancels them (`ProcessResourceSample.ours`).
             let reading = ProcessTree.resourceSample(of: members, ours: ours, at: now)
             readings[key] = reading
-            let cpu = ProcessTree.cpuPercent(from: previousSample[key], to: reading,
+            let cpu = ProcessTree.cpuPercent(from: previous, to: reading,
                                              carry: cpuCarry[key] ?? 0)
-            let disk = ProcessTree.diskWrite(from: previousSample[key], to: reading)
+            let disk = ProcessTree.diskWrite(from: previous, to: reading)
             carried[key] = cpu.carry
             if readPorts { ports[key] = ProcessTree.listeningPorts(of: measured) }
             var footprint = ProcessFootprint(
@@ -226,8 +237,14 @@ final class ProcessFootprintStore {
             // rates (`FootprintTrendSeries.record`). Only once there is a rate to keep: the first
             // pair of readings has no interval yet, and a zero written where "not measured yet"
             // belongs would draw a dip the machine never had.
-            if let percent = cpu.percent {
+            //
+            // AND THE INTERVAL GOES WITH THE RATE, because the two rates meet INSIDE a bucket every
+            // time somebody opens the board: the reading taken at that instant covers the ten
+            // seconds the slow timer had been running, and the fast ones after it cover two each.
+            // Folded flat they made a peak out of the opening (`FootprintTrendSample.folded`).
+            if let percent = cpu.percent, let since = previous?.at {
                 trends.record(FootprintTrendSample(cpuPercent: percent,
+                                                   seconds: now.timeIntervalSince(since),
                                                    memoryBytes: reading.memoryBytes,
                                                    processes: measured.count),
                               for: key, at: now)

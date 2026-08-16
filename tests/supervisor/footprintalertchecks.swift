@@ -31,10 +31,17 @@ func runFootprintAlertChecks() {
         @discardableResult
         mutating func run(_ ticks: Int, _ reading: ProcessFootprint,
                           idle: Bool) -> FootprintAlerts {
-            for _ in 0 ..< ticks {
-                now = now.addingTimeInterval(every)
-                state = FootprintAlarm.advance(state, reading: reading, idle: idle, at: now)
-            }
+            for _ in 0 ..< ticks { step(after: every, reading, idle: idle) }
+            return state.alerts
+        }
+        /// ONE READING TAKEN AFTER A STATED SILENCE, rather than at this sampler's own beat, because
+        /// the beat is not what the machine does: a rate changes when a panel opens, a main thread
+        /// stalls, App Nap stretches a background timer, and a lid opens the next morning.
+        @discardableResult
+        mutating func step(after: TimeInterval, _ reading: ProcessFootprint,
+                           idle: Bool) -> FootprintAlerts {
+            now = now.addingTimeInterval(after)
+            state = FootprintAlarm.advance(state, reading: reading, idle: idle, at: now)
             return state.alerts
         }
     }
@@ -111,6 +118,44 @@ func runFootprintAlertChecks() {
           run(1, holding, heavy, idle: false).alerts.memory == false)
     check("…and the clock starts again from nothing rather than draining away",
           run(5, run(1, holding, heavy, idle: false), heavy, idle: true).alerts.memory == false)
+
+    // MARK: a silence long enough to be a different afternoon
+
+    // THE DEFECT THE GAP GUARD PREVENTS, which the seconds alone introduced: held-ness is the
+    // distance between two instants, so a lid closed on an idle tree holding four gigabytes and
+    // opened the next morning met the condition "without a break" for eight hours - across exactly
+    // two readings, with nothing sampled in between. The card lit on the first reading after the
+    // wake, and App Nap stretching the background timer is the same shape less dramatically.
+    var slept = Sampler(now: t0)
+    check("six seconds of a heavy idle tree is not yet a warning",
+          slept.run(3, heavy, idle: true).memory == false)
+    check("…and a reading from the other side of a night is new evidence, not eight hours of it",
+          slept.step(after: 8 * 3600, heavy, idle: true).memory == false)
+    check("…so the card lights once the machine has been awake for the ten seconds",
+          slept.run(5, heavy, idle: true).memory)
+    // AND WHAT IT MUST NOT THROW AWAY: a missed tick or two is a busy main thread, and the run of
+    // evidence carries across it exactly as the trend ring's does (`FootprintTrendSeries.staleAfter`
+    // is the same rule about the same silence).
+    var dozed = Sampler(now: t0)
+    dozed.run(3, heavy, idle: true)
+    check("a silence a busy main thread can cause is still one run of evidence",
+          dozed.step(after: FootprintAlarm.gapAfter, heavy, idle: true).memory)
+    check("the two clocks agree on what a silence is",
+          FootprintAlarm.gapAfter == FootprintTrendSeries.staleAfter)
+    // A WARNING ALREADY DRAWN GOES WITH THE EVIDENCE THAT EARNED IT: what was true before the night
+    // is not what this reading is about, and the card has to earn it again from here.
+    var lit = Sampler(now: t0)
+    check("a warning that has been earned is drawn", lit.run(6, heavy, idle: true).memory)
+    check("…and a reading after a night puts it out rather than carrying it over",
+          lit.step(after: 8 * 3600, heavy, idle: true).memory == false)
+    // THE RATES MIX INSIDE ONE RUN OF EVIDENCE, which is what the seconds were for and what the gap
+    // guard must not undo: four fast readings and one slow one is sixteen seconds of evidence
+    // rather than five ticks of it, and the slow one is well inside the silence a run survives.
+    var opened = Sampler(now: t0)
+    check("four fast readings are not the ten seconds yet",
+          opened.run(4, heavy, idle: true).memory == false)
+    check("…and a slow reading after them is judged on the seconds it adds, not as a fifth tick",
+          opened.step(after: 10, heavy, idle: true).memory)
 
     // MARK: how a warned line is drawn
 

@@ -21,6 +21,14 @@ import Foundation
 struct FootprintTrendSample: Equatable {
     /// The tree's share of one core over the interval that ended here.
     var cpuPercent: Double
+    /// How long that interval was, in seconds: the gap between the two readings the rate was
+    /// differenced from (`ProcessTree.cpuPercent`), which is what the fold below weights by.
+    ///
+    /// CARRIED RATHER THAN ASSUMED, because it is not the sampler's own interval whenever the rate
+    /// changes: opening the board takes a reading at once and puts the timer on the fast rate
+    /// (`ProcessFootprintStore.beginViewing`), so the reading that lands there covers however long
+    /// the slow rate had been running. No default, so a caller with one cannot forget to say it.
+    var seconds: Double
     /// What the tree was holding in physical memory at that instant.
     var memoryBytes: UInt64
     /// How many processes it held, Tally's own already taken out (`ProcessTree.ownFamily`).
@@ -37,30 +45,54 @@ struct FootprintTrendSample: Equatable {
     /// THE ONE POINT A HANDFUL OF FAST READINGS IS KEPT AS, which is three decisions rather than
     /// one, because these three numbers are not the same kind of number.
     ///
-    /// The CPU is a RATE over the interval that ended at its reading, and the intervals are equal,
-    /// so the mean of the five two-second readings inside a bucket is exactly the ten-second
-    /// reading the background pass would have taken over the same span. That identity is the whole
-    /// point: it is what makes one series out of two sampling rates. The memory and the process
-    /// count are INSTANTS, and an instant folds to the last one taken - averaged, they would draw a
-    /// tree at a size it was never at.
+    /// The CPU is a RATE over the interval that ended at its reading, so the readings are averaged
+    /// WEIGHTED BY THE TIME EACH OF THEM COVERS. Where the intervals are equal - the five
+    /// two-second readings of an open board - that is the plain mean, and it is exactly the
+    /// ten-second reading the background pass would have taken over the same span: the identity
+    /// that makes one series out of two sampling rates is kept.
+    ///
+    /// AND WHERE THEY ARE NOT EQUAL, THE WEIGHTING IS THE WHOLE OF WHAT KEEPS IT HONEST. The rates
+    /// meet inside a single bucket every time somebody opens the board, which samples at once and
+    /// re-times (`ProcessFootprintStore.beginViewing`): eight seconds of an idle tree followed by
+    /// two of a busy one is a bucket that reads 50% averaged flat and 20% weighted, and 20% is what
+    /// those ten seconds held. The flat mean therefore drew a peak on the line that was created by
+    /// the act of LOOKING at it (codex review of 4868f2f, 2026-08-16).
+    ///
+    /// The memory and the process count are INSTANTS, and an instant folds to the last one taken -
+    /// averaged, they would draw a tree at a size it was never at.
     ///
     /// THE DEFECT THIS ENDS: the ring used to keep one fast reading in five and discard the rest,
     /// so eight seconds out of every ten simply never happened while somebody was watching - a
     /// spike inside them was gone, and the shape of a session depended on whether its panel was
-    /// open. The mean is the conservative half of the fix: a two-second burst is now IN the point
+    /// open. Averaging is the conservative half of the fix: a two-second burst is now IN the point
     /// rather than dropped, and it is drawn at the height it contributed to the ten seconds rather
     /// than at its own (a bucket's own maximum could be carried too, and would be a second series
     /// rather than a better one).
     static func folded(_ readings: [FootprintTrendSample]) -> FootprintTrendSample? {
         guard let last = readings.last else { return nil }
-        let cpu = readings.reduce(0) { $0 + $1.cpuPercent } / Double(readings.count)
-        return FootprintTrendSample(cpuPercent: cpu, memoryBytes: last.memoryBytes,
+        let span = readings.reduce(0) { $0 + max(0, $1.seconds) }
+        // The flat mean is the fallback rather than the rule, and it is reached only by a bucket
+        // whose readings all claim no interval at all - which the sampler cannot produce (a rate
+        // exists only once there is a span to state it over) and which has to say SOMETHING if it
+        // ever does.
+        let cpu = span > 0
+            ? readings.reduce(0) { $0 + $1.cpuPercent * max(0, $1.seconds) } / span
+            : readings.reduce(0) { $0 + $1.cpuPercent } / Double(readings.count)
+        // The point covers the whole bucket, so a fold of folds weights the same way a fold of
+        // readings does.
+        return FootprintTrendSample(cpuPercent: cpu, seconds: span, memoryBytes: last.memoryBytes,
                                     processes: last.processes)
     }
 }
 
-/// The three readings that are worth a line, in the order the value line above them is written in
-/// (`ProcessTree.segments`), so the leftmost trend is about the leftmost figure.
+/// The three readings that are worth a line, in the order every card prints them in
+/// (`SessionCardView.sessionFootprintTrendGroups`): what the session HAS first, because it is the
+/// context the other two are read under, then what it is burning and what it is holding.
+///
+/// THE ORDER IS FIXED HERE RATHER THAN TAKEN FROM THE VALUE LINE, whose fields move a warned one to
+/// the front (`ProcessTree.segments`). That rule is right about a sentence that gets truncated and
+/// wrong about a row of figures read down a board: a column that is a percentage on one card and a
+/// gigabyte figure on the next is not a column.
 ///
 /// DISK IS NOT ONE OF THEM, and its absence is a measurement rather than an omission. Writing is
 /// bursty by nature: a session writes nothing for minutes and then puts out 40 MB in one interval,

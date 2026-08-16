@@ -13,9 +13,9 @@ import SwiftUI
 /// last reading, which is the current value in its own group; the quieter, smaller one is the
 /// highest, which is the `↑` figure. Neither is decoration: they are what tie the shape to the two
 /// numbers a reader can act on (`SessionCardView.sessionFootprintTrends`). A warning turns BOTH of
-/// them amber along with the line, and the pairing survives the change of colour as a difference in
-/// weight: the current one is the full warning colour and the peak a step down from it, which is the
-/// same order of loudness the primary and secondary greys draw on a calm card.
+/// them amber along with the line, and the order of loudness survives the change of colour: three
+/// steps of the one amber, quietest at the line and loudest at the current reading, which is the
+/// mirror of the tertiary, secondary and primary greys a calm card draws them in (`alertLine`).
 ///
 /// THE BRIGHT ONE IS ONLY HONEST BECAUSE THE CALLER PUTS THE LIVE READING IN. The newest reading
 /// the ring has KEPT is up to a bucket old (`FootprintTrendSeries`), so drawn from the ring alone
@@ -40,9 +40,10 @@ struct FootprintSparklineView: View {
     /// line it hides the oldest forty per cent of the window along with the peak dot that most
     /// often sits in it, and drawn under it the shape is read across a filled amber wedge. A mark
     /// that destroys the thing it is marking is not a second channel. What carries the meaning
-    /// instead, at this size: the amber has a luminance step from both greys it replaces (the
-    /// primary current dot and the tertiary line), so the change is visible without the hue; and
-    /// the condition itself is SAID rather than drawn for the reader who gets neither
+    /// instead, at this size: the amber has a luminance step from the greys it replaces, measured
+    /// against the current dot's primary, where the colour is undimmed (`alertCurrent`) and said
+    /// rather than claimed at the two quieter steps, which are dimmed and have not been measured;
+    /// and the condition itself is SAID rather than drawn for the reader who gets neither
     /// (`SessionCardView.spokenTrends`, which names it in words). Warned sparkline cells recolour
     /// their marks everywhere this convention appears, for the same reason. (Albert, 2026-08-16,
     /// having seen both the mark in the text flow and the mark on the shape.)
@@ -65,10 +66,19 @@ struct FootprintSparklineView: View {
     private static let stroke: CGFloat = 1
     private static let peakDot: CGFloat = 2
     private static let currentDot: CGFloat = 3
-    /// How far the peak dot is stepped down from the current one when both are amber. The calm line
-    /// gets the same order of loudness from the primary and secondary greys, which a single named
-    /// colour has no second rank of.
-    private static let quietAlert: Double = 0.6
+    /// THREE STEPS OF ONE COLOUR, IN THE ORDER THE CALM CARD'S OWN GREYS ARE. A single named colour
+    /// has no second rank of its own, so the ranks are opacities of it, and they mirror what the
+    /// same three pieces wear when nothing is wrong: the line is the quietest (tertiary), the peak
+    /// dot a step up (secondary), the current reading the loudest (primary).
+    ///
+    /// IT WAS NOT A MIRROR BEFORE, WHICH IS THE DEFECT: the line and the current dot were both
+    /// drawn at full amber and only the peak was stepped down, so on a warned card the SHAPE was as
+    /// loud as the reading it is about and the ceiling was the one quiet thing on a figure - the
+    /// reverse of the order every calm card beside it reads in (2026-08-16). The eye lands on the
+    /// current reading on a calm card and has to be able to land in the same place on a warned one.
+    private static let alertLine: Double = 0.45
+    private static let alertPeak: Double = 0.7
+    private static let alertCurrent: Double = 1
 
     var body: some View {
         let points = FootprintSparkline.points(values, in: Self.size, inset: Self.stroke / 2)
@@ -78,16 +88,15 @@ struct FootprintSparklineView: View {
                 path.move(to: first)
                 for point in points.dropFirst() { path.addLine(to: point) }
             }
-            .stroke(tone(calm: .tertiary),
+            .stroke(tone(calm: .tertiary, step: Self.alertLine),
                     style: StrokeStyle(lineWidth: Self.stroke, lineCap: .round, lineJoin: .round))
             if let index = FootprintSparkline.peakIndex(values), points.indices.contains(index) {
                 dot(at: points[index], diameter: Self.peakDot)
-                    .foregroundStyle(tone(calm: .secondary,
-                                          warned: TallyColor.warning.opacity(Self.quietAlert)))
+                    .foregroundStyle(tone(calm: .secondary, step: Self.alertPeak))
             }
             if let last = points.last {
                 dot(at: last, diameter: Self.currentDot)
-                    .foregroundStyle(tone(calm: .primary))
+                    .foregroundStyle(tone(calm: .primary, step: Self.alertCurrent))
             }
         }
         .frame(width: Self.size.width, height: Self.size.height)
@@ -96,11 +105,13 @@ struct FootprintSparklineView: View {
         .accessibilityHidden(true)
     }
 
-    /// What one piece of this figure is drawn in: the grey it has on a calm card, or the warning
-    /// colour. Every piece asks the same question, which is what makes a warned figure read as one
-    /// block - the line, the peak dot and the current dot change together or not at all.
-    private func tone(calm: some ShapeStyle, warned: Color = TallyColor.warning) -> AnyShapeStyle {
-        alert ? AnyShapeStyle(warned) : AnyShapeStyle(calm)
+    /// What one piece of this figure is drawn in: the grey it has on a calm card, or its own step
+    /// of the warning colour (see the three constants above). Every piece asks the same question,
+    /// which is what makes a warned figure read as one block - the line, the peak dot and the
+    /// current dot change together or not at all - and each is handed the rank it keeps in both
+    /// states, so the two palettes cannot fall into different orders.
+    private func tone(calm: some ShapeStyle, step: Double) -> AnyShapeStyle {
+        alert ? AnyShapeStyle(TallyColor.warning.opacity(step)) : AnyShapeStyle(calm)
     }
 
     /// A mark on the line, positioned by its centre. The stack is top-leading, so a point is an

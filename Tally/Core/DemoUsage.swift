@@ -72,6 +72,46 @@ enum DemoUsage {
         ]
     }
 
+    /// Fixture footprints painted over the real ones on the sessions board, so a capture can show
+    /// the two states a real board reaches rarely and never on demand: a card whose readings are
+    /// WARNED (which takes ten seconds of a heavy idle session to earn) and a card holding a port
+    /// with a name against it (which takes a dev server somebody happens to have left running).
+    ///
+    /// THE CARDS ARE STILL THE MACHINE'S OWN, because the board's rows are: this app has no fixture
+    /// sessions, and inventing some would mean a second roster. What is replaced is only the
+    /// READINGS, keyed by the board's own order so the same card carries the same fixture on every
+    /// tick of a capture.
+    static func footprints(over real: [String: ProcessFootprint]) -> [String: ProcessFootprint] {
+        var painted = real
+        for (index, key) in real.keys.sorted().enumerated() {
+            guard var one = painted[key] else { continue }
+            switch index % 3 {
+            case 0:
+                one.processes = 3
+                one.cpuPercent = 92
+                one.memoryBytes = 4_100_000_000
+                one.memoryLeader = "bun"
+                one.alerts = FootprintAlerts(cpu: true, memory: true)
+            case 1:
+                one.processes = 2
+                one.cpuPercent = 4
+                one.memoryBytes = 1_260_000_000
+                one.memoryLeader = "node"
+                one.listeningPorts = [3000, 5173, 9229]
+                one.portNames = [3000: "next-server", 5173: "vite", 9229: "node"]
+                one.alerts = FootprintAlerts()
+            default:
+                one.processes = 0
+                one.cpuPercent = 1
+                one.memoryBytes = 214_000_000
+                one.memoryLeader = nil
+                one.alerts = FootprintAlerts()
+            }
+            painted[key] = one
+        }
+        return painted
+    }
+
     /// Fabricated burn rates so the fleet strip's forecast renders in screenshots: Claude spends
     /// faster than its combined refill budget (a concrete "lasts about …"), Codex within it
     /// (the "sustainable" state). Real instances estimate these from ~/.tally/history.jsonl.

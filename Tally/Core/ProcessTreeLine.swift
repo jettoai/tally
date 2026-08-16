@@ -1,7 +1,7 @@
 import Foundation
 
-/// HOW THE FOOTPRINT READS: what to call a process, which fields the card's one line holds, in what
-/// order, and where a number stops being worth a segment at all.
+/// HOW THE FOOTPRINT READS: what to call a process, which fields the card's footprint row holds, in
+/// what order, and where a number stops being worth a segment at all.
 ///
 /// Split from ProcessTreeStats.swift, which had run out of room, along the seam that file already
 /// had inside it: over there is what the numbers MEAN (which pids are in a tree, what two
@@ -44,26 +44,36 @@ extension ProcessTree {
         return digits.contains(where: \.isNumber) && digits.allSatisfy { $0.isNumber || $0 == "." }
     }
 
-    /// The card's line: how many processes, how many agents are working under them, what they are
-    /// burning, what they are holding, what they are writing and what they are listening on.
+    /// The whole footprint as one sentence: how many processes the session has started, how many
+    /// agents are working under them, what they are burning, what they are holding and what they
+    /// are writing.
     ///
     /// EVERY SEGMENT IS OPTIONAL AND THE SEPARATOR FOLLOWS, which is the rule the identity line one
-    /// file over already follows (`SessionRow`): a session with no ports says nothing about ports
-    /// rather than printing an empty field, and a tree that has not been read twice yet leaves the
-    /// CPU out until it has. A tree with no processes has no line at all.
+    /// file over already follows (`SessionRow`): a tree that has not been read twice yet leaves the
+    /// CPU out until it has, and a session writing nothing says nothing about disk.
+    ///
+    /// EXCEPT THE COUNT, WHICH IS ON EVERY LINE INCLUDING AT ZERO. It used to be the one segment
+    /// that could take the whole line away with it, and that was right while it counted the
+    /// session's own Claude Code - a tree with none of those left is a session that has gone home,
+    /// and the store still draws no card for it (`ProcessFootprintStore`, `guard !measured.isEmpty`).
+    /// Counting only what the session STARTED (`dispatched`), zero is the ordinary reading of an
+    /// ordinary card, and dropping the line on it would take the CPU, the memory and the trend row
+    /// off the most common card on the board.
     ///
     /// DISK APPEARS ONLY WHEN IT IS A FACT ABOUT THE SESSION. Every process writes something, and a
     /// card that carried "0 MB/s" on every session all day would be spending a fifth of its one
     /// line saying nothing. Past a megabyte a second it is the answer to a question somebody is
     /// actually asking - which of these is filling my disk - so that is where it becomes visible.
     ///
-    /// ONE NAME PER LINE, AND DISK TAKES IT. Both blamed segments can have a culprit at once, and
-    /// two parentheticals is what turns a line into a paragraph on a card one line wide. Disk wins
-    /// because it is the rarer sighting: the CPU segment is on every card, while a session writing
-    /// megabytes a second is the anomaly somebody opened the panel to find. Memory carries no name
-    /// at all - what holds memory persistently is the long-lived process the count and the ports
-    /// already point at. And the CPU's name is dropped altogether when it is the program every
-    /// session on this board is led by, which is most of them (`worthNaming`).
+    /// TWO NAMES AT MOST, AND THEY ANSWER DIFFERENT QUESTIONS. The memory carries its holder
+    /// wherever it has one (`ProcessFootprint.memoryLeader`), because since the count stopped
+    /// including the session's own CLI nothing else on the card says whether those gigabytes are
+    /// the body or the work it started. The two RATES share the one name left: disk takes it
+    /// whenever that segment is on the line at all, being the rarer sighting - the CPU segment is
+    /// on every card, a session writing megabytes a second is the anomaly somebody opened the panel
+    /// to find - and the CPU takes it back when there is no disk segment. The CPU's is dropped
+    /// altogether when it is the program every session on this board is led by (`worthNaming`); the
+    /// memory's is not, for the reason above.
     ///
     /// - Parameters:
     ///   - unit: the word for "processes", already localised, so this stays a pure function of what
@@ -75,23 +85,56 @@ extension ProcessTree {
     ///     What a forgotten argument costs is therefore one English word on a translated card,
     ///     which a reader sees; the one production caller is pinned to passing it by an assertion
     ///     that reads its source (processtreelinechecks.swift).
-    ///   - maxPorts: how many ports are named before the rest become a count. A card is one line
-    ///     wide and a dev box can hold a dozen ports; three is what fits beside the other two
-    ///     segments at the panel's narrowest column.
-    static func line(_ footprint: ProcessFootprint, unit: String, agentUnit: String = "agents",
-                     maxPorts: Int = 3) -> String? {
-        let parts = segments(footprint, unit: unit, agentUnit: agentUnit, maxPorts: maxPorts)
-        guard !parts.isEmpty else { return nil }
-        return parts.map(\.text).joined(separator: pickEffortSeparator)
+    ///
+    /// NO PRODUCTION CALLER, AND IT IS STILL THE CONTRACT. The card draws `segments` and joins the
+    /// pieces itself, because one field of the line can be a warning and a single string cannot say
+    /// which (`SessionCardView.sessionFootprint`); this states the same sentence in one expression,
+    /// which is what the assertions read and what the two spellings of the separator are held
+    /// together by.
+    ///
+    /// ALWAYS A SENTENCE, never nothing: it used to return nil for a tree with no processes in it,
+    /// and there is no such footprint now that the count is of what the session started (see above).
+    static func line(_ footprint: ProcessFootprint, unit: String,
+                     agentUnit: String = "agents") -> String {
+        segments(footprint, unit: unit, agentUnit: agentUnit)
+            .map(\.text).joined(separator: pickEffortSeparator)
+    }
+
+    /// The ports the session is holding, as the identity line prints them: `:3000 (next-server)`,
+    /// with anything past `maxPorts` becoming a count.
+    ///
+    /// A FIELD OF ITS OWN ON THE LINE ABOVE, WHICH IS WHERE IT MOVED FROM the footprint sentence.
+    /// Down there it was the last field of a line truncated at its tail, so the one reading on this
+    /// card that a person ACTS on - the port their next `pnpm dev` is about to collide with - was
+    /// the first thing a narrow card dropped (Albert, 2026-08-16). Up beside the account and the
+    /// model, the identity is what gives way instead.
+    ///
+    /// - Parameters:
+    ///   - maxPorts: how many are named before the rest become `+N`. Two is what fits beside an
+    ///     identity line at the panel's narrowest column (`SessionCardView`).
+    ///   - named: whether each port says what is holding it. The card offers both spellings and
+    ///     takes the widest that fits: the number is the fact and the name is the help, so the name
+    ///     is what a narrow card gives up first.
+    static func portsText(_ footprint: ProcessFootprint, maxPorts: Int = 2,
+                          named: Bool = true) -> String? {
+        guard !footprint.listeningPorts.isEmpty else { return nil }
+        let shown = footprint.listeningPorts.prefix(maxPorts).map { port -> String in
+            guard named, let name = footprint.portNames[port] else { return ":\(port)" }
+            return ":\(port) (\(name))"
+        }
+        let rest = footprint.listeningPorts.count - shown.count
+        return (shown + (rest > 0 ? ["+\(rest)"] : [])).joined(separator: " ")
     }
 
     /// The same line in the pieces it is drawn from, each saying what it is and whether it is a
     /// warning. `line` is these joined, and stays the sentence a reader hears.
     ///
-    /// A WARNING COMES FORWARD, AND THE ORDER MOVING IS THE POINT. A card is 182pt of content at
-    /// the panel's narrowest and the line is truncated at its tail, so a full line does not fit:
-    /// measured (2026-08-15) at 11pt, `4 procs · 100% CPU · 3.9 GB · ` alone is 165.6pt and the
-    /// whole sentence with a warned disk segment is 312.9pt. Left in reading order the warning's
+    /// A WARNING COMES FORWARD, AND THE ORDER MOVING IS THE POINT. A card is 236pt of content at
+    /// the panel's narrowest (a 264pt card less this app's own card padding; the 182pt this used to
+    /// claim was the grid's minimum COLUMN less that padding, which is not the width of any card
+    /// the board actually draws) and the line is truncated at its tail, so a full line does not
+    /// fit: measured (2026-08-15) at 11pt, `4 procs · 100% CPU · 3.9 GB · ` alone is 165.6pt and
+    /// the whole sentence with a warned disk segment is 312.9pt. Left in reading order the warning's
     /// mark survives and its NUMBER does not - a triangle stranded beside the memory figure, which
     /// reads as a warning about the memory and gives no reason for either. So the warned fields are
     /// drawn first and the healthy ones are what falls off the end, which is the right thing to
@@ -107,9 +150,8 @@ extension ProcessTree {
     /// start, so however many are running it is never a condition to be alarmed about, and it is
     /// only shown while at least one is (`ProcessFootprint.agents` says what a zero means and why
     /// it is not printed).
-    static func segments(_ footprint: ProcessFootprint, unit: String, agentUnit: String = "agents",
-                         maxPorts: Int = 3) -> [ProcessFootprintSegment] {
-        guard footprint.processes > 0 else { return [] }
+    static func segments(_ footprint: ProcessFootprint,
+                         unit: String, agentUnit: String = "agents") -> [ProcessFootprintSegment] {
         var parts = [ProcessFootprintSegment(kind: .processes,
                                              text: "\(footprint.processes) \(unit)", aside: unit)]
         if footprint.agents > 0 {
@@ -128,17 +170,15 @@ extension ProcessTree {
                                aside: cpuName, alert: footprint.alerts.cpu))
         }
         if let memory = memoryText(footprint.memoryBytes) {
-            parts.append(.init(kind: .memory, text: memory, alert: footprint.alerts.memory))
+            // Named whoever it is, unlike the CPU: see `line` for why this is the one place the
+            // expected leader is worth its room.
+            parts.append(.init(kind: .memory,
+                               text: blamed(memory, on: footprint.memoryLeader),
+                               aside: footprint.memoryLeader, alert: footprint.alerts.memory))
         }
         if let disk {
             parts.append(.init(kind: .disk, text: blamed(disk, on: diskName),
                                alert: footprint.alerts.disk))
-        }
-        if !footprint.listeningPorts.isEmpty {
-            let named = footprint.listeningPorts.prefix(maxPorts).map { ":\($0)" }
-            let rest = footprint.listeningPorts.count - named.count
-            parts.append(.init(kind: .ports,
-                               text: (named + (rest > 0 ? ["+\(rest)"] : [])).joined(separator: " ")))
         }
         // Built in reading order above and reordered here in one place, so every field is written
         // where it belongs in the sentence and only one rule decides what a narrow card keeps.
@@ -196,8 +236,16 @@ extension ProcessTree {
     static let diskFloor: Double = 1_000_000
 
     /// The write rate, or nothing below the threshold the segment exists above (see `line`).
+    ///
+    /// GIGABYTES PAST A THOUSAND MEGABYTES, on exactly the terms `memoryText` states them: an NVMe
+    /// drive does several gigabytes a second, and this printed `6174 MB/s` for one (measured
+    /// 2026-08-15) - four digits where the other figures on the card are three, and a number a
+    /// reader has to divide before it means anything. Decided on the ROUNDED megabyte like the
+    /// memory's, so 999.7 MB/s prints as `1.0 GB/s` rather than as "1000 MB/s".
     private static func diskRateText(_ bytesPerSecond: Double) -> String? {
         guard bytesPerSecond >= diskFloor else { return nil }
-        return "\(Int((bytesPerSecond / 1_000_000).rounded())) MB/s"
+        let megabytes = (bytesPerSecond / 1_000_000).rounded()
+        guard megabytes >= 1000 else { return "\(Int(megabytes)) MB/s" }
+        return String(format: "%.1f GB/s", megabytes / 1000)
     }
 }

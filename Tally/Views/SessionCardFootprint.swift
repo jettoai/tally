@@ -12,8 +12,10 @@ import SwiftUI
 // its shape, its current figure, and the ceiling it came off - because those three are about the
 // same number and had been laid out as two separate rows of three, where nothing said which figure
 // belonged to which line (Albert, 2026-08-15: "is the current value even in there? it looks like
-// only peaks"). What is left on the first row is what has no shape: the fan-out, the writing, the
-// ports.
+// only peaks"). What is left on the first row is what has no shape: the fan-out and the writing.
+// The ports left this pair of rows altogether and went up to the identity line, being the one
+// reading here that is a fact about the machine rather than about the session
+// (`SessionCardView.sessionIdentityRow`).
 extension SessionCardView {
 
     /// Every field of the footprint, or nothing at all when this session's tree cannot be read: the
@@ -30,9 +32,18 @@ extension SessionCardView {
                                     agentUnit: L(footprint.agents == 1 ? "agent" : "agents"))
     }
 
+    /// What this session is holding open, as the identity line prints it, or nothing when it is
+    /// holding nothing (`ProcessTree.portsText`). Asked twice by the line that draws it - once with
+    /// the holding programs named and once without - so a narrow card can give up the names and
+    /// keep the numbers (`SessionCardView.sessionIdentityRow`).
+    func sessionPortsText(named: Bool) -> String? {
+        guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return nil }
+        return ProcessTree.portsText(footprint, named: named)
+    }
+
     /// The fields no shape is kept for, in the order the whole line is written in: how many agents
-    /// are working, what is being written, what is being listened on (`FootprintTrendMetric`). The
-    /// three that DO have a shape are drawn with it, one row down.
+    /// are working and what is being written (`FootprintTrendMetric`). The three that DO have a
+    /// shape are drawn with it, one row down, and the ports are a line further up.
     var sessionFootprintRest: [ProcessFootprintSegment] {
         sessionFootprintSegments.filter { FootprintTrendMetric($0.kind) == nil }
     }
@@ -40,9 +51,9 @@ extension SessionCardView {
     /// The first row, drawn from the pieces rather than from one string, because one field of it
     /// can be a warning and the rest of the line must not become one with it.
     ///
-    /// QUIETER THAN THE ROW BELOW IT, which is new: these are the fields that survive on a card
-    /// nobody is worried about (a port, a fan-out), and the figures somebody opened this board to
-    /// read are the ones under them.
+    /// QUIETER THAN THE ROW BELOW IT, which is new: these are the fields a card carries only when
+    /// there is something to say (a fan-out, heavy writing), and the figures somebody opened this
+    /// board to read are the ones under them.
     ///
     /// A WARNING IS NOT A COLOUR, WHEREVER THERE IS ROOM TO SAY SO IN SOMETHING ELSE. The amber says
     /// "look here" to most people and nothing at all to somebody who cannot separate it from the

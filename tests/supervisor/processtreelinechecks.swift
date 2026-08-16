@@ -18,8 +18,8 @@ func runProcessTreeLineChecks() {
     // MARK: how the line reads
 
     let full = ProcessFootprint(processes: 3, cpuPercent: 12.4, listeningPorts: [3789, 5173])
-    check("the line names the processes, the CPU and the ports it is holding",
-          ProcessTree.line(full, unit: "procs") == "3 procs · 12% CPU · :3789 :5173")
+    check("the line names the processes and what they are burning",
+          ProcessTree.line(full, unit: "procs") == "3 procs · 12% CPU")
     // A difference of two samples two seconds apart is not accurate to a decimal place, and a card
     // that printed one would be spelling out noise.
     check("…rounding the CPU to a whole point",
@@ -29,27 +29,20 @@ func runProcessTreeLineChecks() {
     // over already follows: an empty field is worse than a shorter line.
     check("a tree that has only been read once carries no CPU segment",
           ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: nil, listeningPorts: [3000]),
-                           unit: "procs") == "2 procs · :3000")
-    check("…and a session listening on nothing says nothing about ports",
-          ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: 5, listeningPorts: []),
+                           unit: "procs") == "2 procs")
+    // THE PORTS ARE NOT A FIELD OF THIS SENTENCE ANY MORE: they are their own element on the
+    // identity line, where they are not the first thing a narrow card truncates away
+    // (`ProcessTree.portsText`, asserted below).
+    check("…and a session holding ports says nothing about them here",
+          ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: 5, listeningPorts: [3000]),
                            unit: "procs") == "2 procs · 5% CPU")
-    check("a tree with no processes has no line at all",
-          ProcessTree.line(ProcessFootprint(processes: 0, cpuPercent: 9, listeningPorts: [3000]),
-                           unit: "procs") == nil)
-    // A card is one line wide and a dev box can hold a dozen ports: past three they become a count,
-    // which still says "there are more" without pushing the other two segments off the card.
-    check("past three ports the rest become a count",
-          ProcessTree.line(ProcessFootprint(processes: 5, cpuPercent: nil,
-                                            listeningPorts: [3000, 3789, 5173, 8080, 9229]),
-                           unit: "procs") == "5 procs · :3000 :3789 :5173 +2")
-    check("…and exactly three are all named, with nothing added",
-          ProcessTree.line(ProcessFootprint(processes: 5, cpuPercent: nil,
-                                            listeningPorts: [3000, 3789, 5173]),
-                           unit: "procs") == "5 procs · :3000 :3789 :5173")
-    check("the cap is the caller's to set",
-          ProcessTree.line(ProcessFootprint(processes: 5, cpuPercent: nil,
-                                            listeningPorts: [3000, 3789, 5173]),
-                           unit: "procs", maxPorts: 1) == "5 procs · :3000 +2")
+    // ZERO IS A READING NOW, which is what the count MEANING changed to: it counts what the session
+    // started, so nought is the ordinary state of an ordinary card and taking the line away on it
+    // would take the CPU, the memory and the whole trend row off most of the board.
+    check("a session that has started nothing still states its count and its readings",
+          ProcessTree.line(ProcessFootprint(processes: 0, cpuPercent: 9, memoryBytes: 96_000_000,
+                                            listeningPorts: [3000]),
+                           unit: "procs") == "0 procs · 9% CPU · 96 MB")
 
     // MARK: the memory and disk segments, and the name that goes with one of them
 
@@ -57,13 +50,13 @@ func runProcessTreeLineChecks() {
                                   memoryBytes: 820_000_000,
                                   diskWriteBytesPerSecond: 12_000_000, diskLeader: "esbuild",
                                   listeningPorts: [3789])
-    check("a working tree says what it is burning, holding, writing and listening on",
+    check("a working tree says what it is burning, holding and writing",
           ProcessTree.line(loaded, unit: "procs")
-              == "9 procs · 34% CPU · 820 MB · 12 MB/s (esbuild) · :3789")
-    // ONE NAME PER LINE AND DISK TAKES IT: both segments have a culprit here, and two
-    // parentheticals is what turns a card's one line into a paragraph.
-    check("…naming only the disk writer, though both segments know who to blame",
-          ProcessTree.line(loaded, unit: "procs")?.contains("(node)") == false)
+              == "9 procs · 34% CPU · 820 MB · 12 MB/s (esbuild)")
+    // THE TWO RATES SHARE ONE NAME AND DISK TAKES IT: both of them have a culprit here, and two
+    // parentheticals on the rates is what turns a card's one line into a paragraph.
+    check("…naming only the disk writer, though both rates know who to blame",
+          ProcessTree.line(loaded, unit: "procs").contains("(node)") == false)
     check("the CPU segment carries the name when there is no disk segment to take it",
           ProcessTree.line(ProcessFootprint(processes: 4, cpuPercent: 34, cpuLeader: "node",
                                             memoryBytes: 1_200_000_000, listeningPorts: []),
@@ -124,6 +117,82 @@ func runProcessTreeLineChecks() {
                                             listeningPorts: []),
                            unit: "procs") == "2 procs · 1.0 GB")
 
+    // MARK: what is holding the memory
+
+    // THE MEMORY CARRIES ITS HOLDER'S NAME, which is the field's answer to the count no longer
+    // including the session's own Claude Code: "1 proc · 3.4 GB" cannot say whether the gigabytes
+    // are the body or the one thing it started, and this is the only place on the card that can.
+    check("the memory segment names what is holding it",
+          ProcessTree.line(ProcessFootprint(processes: 1, cpuPercent: nil,
+                                            memoryBytes: 3_400_000_000, memoryLeader: "bun",
+                                            listeningPorts: []),
+                           unit: "proc") == "1 proc · 3.4 GB (bun)")
+    // AND IT IS NOT PUT THROUGH `worthNaming`, which the CPU is: `(claude)` beside a percentage on
+    // every card is the answer to a question nobody asked, and `(claude)` beside the memory is the
+    // answer to the one the count now raises.
+    check("…even when it is the program every card on this board is led by",
+          ProcessTree.line(ProcessFootprint(processes: 0, cpuPercent: nil,
+                                            memoryBytes: 3_400_000_000, memoryLeader: "claude",
+                                            listeningPorts: []),
+                           unit: "procs") == "0 procs · 3.4 GB (claude)")
+    check("…and a tree with no single holder says the figure alone",
+          ProcessTree.line(ProcessFootprint(processes: 4, cpuPercent: nil,
+                                            memoryBytes: 3_400_000_000, listeningPorts: []),
+                           unit: "procs") == "4 procs · 3.4 GB")
+    // The name reaches the row that draws figures as its own quiet half, and the row that draws a
+    // sentence as one of the words: the same rule the CPU is already under, so a listener hears it
+    // either way (`SessionCardView.spoken`).
+    check("…and the name is carried apart as well as inside the words",
+          ProcessTree.segments(ProcessFootprint(processes: 1, cpuPercent: nil,
+                                                memoryBytes: 3_400_000_000, memoryLeader: "bun",
+                                                listeningPorts: []),
+                               unit: "procs").last
+              == ProcessFootprintSegment(kind: .memory, text: "3.4 GB (bun)", aside: "bun"))
+
+    // MARK: where the disk rate changes unit
+
+    // An NVMe drive does several gigabytes a second, and this printed `6174 MB/s` for one: four
+    // digits where every other figure on the card is three.
+    check("a rate past a thousand megabytes is stated in gigabytes",
+          ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: nil,
+                                            diskWriteBytesPerSecond: 6_174_000_000,
+                                            listeningPorts: []),
+                           unit: "procs") == "2 procs · 6.2 GB/s")
+    // Decided on the ROUNDED megabyte, exactly as the memory's threshold is, so the two units
+    // change over at the same place rather than one of them printing "1000 MB/s".
+    check("…switching on the rounded megabyte, as the memory figure does",
+          ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: nil,
+                                            diskWriteBytesPerSecond: 999_700_000,
+                                            listeningPorts: []),
+                           unit: "procs") == "2 procs · 1.0 GB/s")
+    check("…and just under it is still megabytes",
+          ProcessTree.line(ProcessFootprint(processes: 2, cpuPercent: nil,
+                                            diskWriteBytesPerSecond: 999_400_000,
+                                            listeningPorts: []),
+                           unit: "procs") == "2 procs · 999 MB/s")
+
+    // MARK: the ports, which are a line of their own now
+
+    let holding = ProcessFootprint(processes: 2, cpuPercent: nil,
+                                   listeningPorts: [3000, 5173, 8080],
+                                   portNames: [3000: "next-server", 5173: "node"])
+    check("the ports say what is holding them",
+          ProcessTree.portsText(holding) == ":3000 (next-server) :5173 (node) +1")
+    check("…and give up the names before the numbers, which is what a narrow card takes",
+          ProcessTree.portsText(holding, named: false) == ":3000 :5173 +1")
+    check("…a port nobody could be named for showing the number alone",
+          ProcessTree.portsText(ProcessFootprint(processes: 1, cpuPercent: nil,
+                                                 listeningPorts: [3000, 5173]))
+              == ":3000 :5173")
+    check("the cap is the caller's to set, and what is past it is a count",
+          ProcessTree.portsText(holding, maxPorts: 1) == ":3000 (next-server) +2")
+    check("…with nothing added when everything fits",
+          ProcessTree.portsText(holding, maxPorts: 3)
+              == ":3000 (next-server) :5173 (node) :8080")
+    check("a session listening on nothing has no ports line at all",
+          ProcessTree.portsText(ProcessFootprint(processes: 4, cpuPercent: 9,
+                                                 listeningPorts: [])) == nil)
+
     // MARK: the agents field
 
     // A COUNT ONLY WHEN THERE IS ONE. Zero is both "no fan-out" and "a Claude Code that cannot say",
@@ -158,12 +227,12 @@ func runProcessTreeLineChecks() {
     // only for the three trended metrics. The fields with no shape are drawn as one sentence at one
     // weight, so an aside on them is data nobody reads - the agents' and the disk writer's were
     // exactly that (codex review of 4868f2f, 2026-08-16).
-    check("only the fields drawn as figures carry an aside",
+    check("only the fields drawn as figures carry an aside, and now all three of them do",
           ProcessTree.segments(ProcessFootprint(processes: 6, agents: 2, cpuPercent: 40,
                                                 cpuLeader: "node", memoryBytes: 5_000_000_000,
-                                                listeningPorts: [3000]),
+                                                memoryLeader: "bun", listeningPorts: [3000]),
                                unit: "procs", agentUnit: "agents")
-              .filter { $0.aside != nil }.map(\.kind) == [.processes, .cpu])
+              .filter { $0.aside != nil }.map(\.kind) == [.processes, .cpu, .memory])
     // Including the one field that HAS a name to say and no row to say it on: the disk writer is
     // named inside the sentence itself, which is where a first-row field carries its words.
     check("…and the named disk writer is one of the words rather than an aside",
@@ -277,8 +346,24 @@ func runProcessTreeLineChecks() {
           storeSource.contains("let ours = ProcessTree.ownFamily(members, root: root) { paths[$0] }")
               && storeSource.contains("let measured = members.subtracting(ours)")
               && storeSource.contains("guard !measured.isEmpty else { continue }")
-              && storeSource.contains("ProcessTree.listeningPorts(of: measured)")
-              && storeSource.contains("processes: measured.count"))
+              && storeSource.contains("ProcessTree.listeningPorts(of: measured)"))
+    // AND THE SESSION'S OWN CLI COMES OUT OF THE COUNT ONLY, by the pid its supervisor published
+    // rather than by any name (`ProcessTree.dispatched`). The store is where the two meet, so this
+    // is where "the count is of what was started, the readings are of the whole tree" is pinned:
+    // the same expression used to be written twice here, and one of the two is the trend's.
+    check("the count is of what the session started, in the figure and in the trend alike",
+          storeSource.contains("row.childPid.flatMap { pid_t(exactly: $0) }")
+              && storeSource.contains("let started = ProcessTree.dispatched(measured, child: child)")
+              && storeSource.contains("processes: started.count,")
+              && !storeSource.contains("processes: measured.count"))
+    check("…while the memory and the CPU stay the whole tree's, with a name to read them by",
+          storeSource.contains("memoryBytes: reading.memoryBytes,")
+              && storeSource.contains("memoryLeader: name(of: ProcessTree.memoryLeader(reading)),"))
+    // A port with nobody's name against it is a port whose holder could not be read, which is why
+    // the name is resolved from THIS tick's table rather than cached with the port number.
+    check("…and each port is named from the same table of programs the culprits are",
+          storeSource.contains("portNames: holding.compactMapValues { name(of: $0) })")
+              && storeSource.contains("listeningPorts: holding.keys.sorted(),"))
     // AND THE WHOLE TREE IS SAMPLED, ours included, which is the one thing here that looks like the
     // opposite of the line above and is what makes it true. A pid filtered off the list before the
     // sample can never be seen to DEPART, and departing is what cancels the seconds one of ours
@@ -293,4 +378,76 @@ func runProcessTreeLineChecks() {
     // Claude Code's own hooks published - and only when that record says it can be believed.
     check("the agent count is read from the session's own roster, and only when it is trusted",
           storeSource.contains("readSessionAgents(pid: key)?.reportable ?? 0"))
+    // THE PORTS ARE THEIR OWN ELEMENT ON THE IDENTITY LINE, never a segment of the string that line
+    // is otherwise drawn from: that string being nil is how the card knows it has nothing at all to
+    // say yet and turns a spinner instead (`sessionIsLoading`), so a session that had published
+    // only a port would have kept spinning forever.
+    check("the ports are drawn beside the identity rather than written into it",
+          boardCardSource.contains("return joined([account, row.model, row.effort])")
+              && boardCardSource.contains("sessionCardLine { sessionIdentityRow }")
+              && boardCardSource.contains("!row.isReporting && sessionIdentityLine == nil"))
+    // Two spellings offered widest first, so a card that cannot hold the names keeps the numbers.
+    check("…the names being what a narrow card gives up, and the identity what truncates",
+          boardCardSource.contains("identityRow(ports: named)")
+              && boardCardSource.contains("identityRow(ports: bare)")
+              && boardCardSource.contains("Text(verbatim: ports)")
+              && boardCardSource.contains(".lineLimit(1).fixedSize()"))
+    check("…asked of the same pure rule the assertions above state",
+          cardSource.contains("ProcessTree.portsText(footprint, named: named)"))
+
+    // MARK: which processes the count is counting
+
+    // THE SESSION'S OWN CLI IS NOT SOMETHING THE SESSION STARTED, and every card has one by
+    // construction: counting it made "2 procs" the reading of a session running a single MCP
+    // server (Albert, 2026-08-16).
+    check("the process at the head of the tree is not one of the ones it started",
+          ProcessTree.dispatched([100, 200, 300], child: 200) == [100, 300])
+    // BY THE PUBLISHED PID, NEVER BY THE PROGRAM'S NAME, which is what makes these three true at
+    // once: a nested Claude Code the session itself started is still counted…
+    check("…and a Claude Code the session started itself is still counted",
+          ProcessTree.dispatched([100, 200, 300, 400], child: 200).contains(400))
+    // …a Codex session drops its own body under the very same rule, with nothing here knowing what
+    // a provider is…
+    check("…the rule knowing nothing about which provider the body belongs to",
+          ProcessTree.dispatched([7, 8], child: 8) == [7])
+    // …and a supervisor too old to publish the field keeps its old reading rather than a guess.
+    check("…and a session that published no child keeps every process it holds",
+          ProcessTree.dispatched([100, 200, 300], child: nil).count == 3)
+    check("…as does one whose published child is not in the tree at all",
+          ProcessTree.dispatched([100, 300], child: 200) == [100, 300])
+
+    // MARK: what is holding the memory, and what is holding a port
+
+    let held = ProcessResourceSample(times: [:], childTimes: [:],
+                                     memory: [10: 3_000_000_000, 20: 400_000_000],
+                                     at: Date(), ours: [])
+    check("a process holding more than half the tree's memory is the one named",
+          ProcessTree.memoryLeader(held) == 10)
+    // HALF IS NOT ENOUGH, the same rule every other blame in this app is made under: a name beside
+    // a figure claims one thing is doing this, and two halves make that claim false about both.
+    check("…and two holding half each are neither of them named",
+          ProcessTree.memoryLeader(ProcessResourceSample(times: [:], childTimes: [:],
+                                                         memory: [10: 500, 20: 500],
+                                                         at: Date())) == nil)
+    // The meter is not the thing metered here either: a card must not answer "what is holding your
+    // memory" with the app doing the reading.
+    check("…and Tally's own are not eligible to be the answer",
+          ProcessTree.memoryLeader(ProcessResourceSample(times: [:], childTimes: [:],
+                                                         memory: [10: 3_000_000_000, 20: 400_000],
+                                                         at: Date(), ours: [10])) == 20)
+    check("…and a tree holding nothing names nobody",
+          ProcessTree.memoryLeader(ProcessResourceSample(times: [:], childTimes: [:], memory: [:],
+                                                         at: Date())) == nil)
+    // A PORT TWO PROCESSES SHARE GOES TO THE LOWEST PID, and the point is that it is DECIDABLE: the
+    // walk visits pids in whatever order a Set hands them over, so "the first one seen" would give
+    // the card a name that changed every third tick (`SO_REUSEPORT`, a node cluster).
+    check("a port several processes are listening on is credited to one of them, always the same one",
+          ProcessTree.holders(of: [(port: 3000, pid: 900), (port: 3000, pid: 400),
+                                   (port: 5173, pid: 700)]) == [3000: 400, 5173: 700]
+              && ProcessTree.holders(of: [(port: 3000, pid: 400), (port: 3000, pid: 900),
+                                          (port: 5173, pid: 700)]) == [3000: 400, 5173: 700])
+    // Port zero is what an unbound or unreadable socket reports, and a card saying ":0" would be
+    // reporting the read rather than the machine.
+    check("…and a socket with no port is not a port",
+          ProcessTree.holders(of: [(port: 0, pid: 400)]).isEmpty)
 }

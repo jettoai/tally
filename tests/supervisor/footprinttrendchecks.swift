@@ -265,8 +265,7 @@ func runFootprintTrendChecks() {
           FootprintTrendMetric(.processes) == .processes && FootprintTrendMetric(.cpu) == .cpu
               && FootprintTrendMetric(.memory) == .memory)
     check("…and the fields no shape is kept for have none",
-          FootprintTrendMetric(.agents) == nil && FootprintTrendMetric(.disk) == nil
-              && FootprintTrendMetric(.ports) == nil)
+          FootprintTrendMetric(.agents) == nil && FootprintTrendMetric(.disk) == nil)
 
     // The figure is read from the live footprint rather than from the ring, so it is this tick's
     // number and not the one the last bucket closed on.

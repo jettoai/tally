@@ -16,7 +16,9 @@ import Foundation
 /// segment has nothing to say. The readings themselves - the libproc calls with no decisions in
 /// them - are next door in `ProcessTreeReaders.swift`.
 struct ProcessFootprint: Equatable {
-    /// How many live processes the tree holds, Tally's own excluded (`ownFamily`).
+    /// How many live processes this session has STARTED: the tree, less Tally's own (`ownFamily`)
+    /// and less the provider CLI at its head (`dispatched`). Zero is a reading like any other -
+    /// a session that has started nothing.
     var processes: Int
     /// How many subagents are working under this session right now, as Claude Code itself reports
     /// them (`SessionAgentsRecord`). ZERO IS BOTH "none" AND "cannot say", and the line treats them
@@ -36,7 +38,25 @@ struct ProcessFootprint: Equatable {
     var cpuLeader: String?
     /// What the whole tree is holding in physical memory this instant, in bytes. Zero when nothing
     /// could be read, which is how the line knows to say nothing rather than "0 MB".
+    ///
+    /// THE WHOLE TREE, INCLUDING THE PROCESS THE COUNT ABOVE LEAVES OUT, and the two are not
+    /// inconsistent: what the count answers is "how much did this session start", and what this
+    /// answers is "what is this session costing the machine" - which the session's own Claude Code
+    /// is very much part of.
     var memoryBytes: UInt64 = 0
+    /// What to call the one process holding more than half of that, when a single one is.
+    ///
+    /// NOT PUT THROUGH `worthNaming`, WHICH THE CPU SEGMENT IS, and the count above is why. With
+    /// the session's own CLI out of the count, `1 proc · 3.4 GB` leaves a reader asking whether
+    /// those gigabytes are the body or the one thing it started, and this is the only field on the
+    /// card that answers it - so `(claude)` here is the answer rather than the noise it would be
+    /// beside a CPU figure on every card (`ProcessTree.line`).
+    ///
+    /// WHAT A NAME CANNOT SAY, stated rather than implied: it is the EXECUTABLE's name
+    /// (`displayName`), so an MCP server run by a runtime reads `(bun)` or `(node)` rather than by
+    /// the server's own name. Saying which server would mean reading argv (`KERN_PROCARGS2`),
+    /// which is a syscall surface this app does not touch and a string that can carry a token.
+    var memoryLeader: String?
     /// How fast the tree is writing to disk, in bytes per second, or nil when there is no interval
     /// yet - the same two-readings rule the CPU percentage lives by.
     var diskWriteBytesPerSecond: Double?
@@ -47,6 +67,11 @@ struct ProcessFootprint: Equatable {
     /// card at all: it is the one thing a session leaves behind that another session then collides
     /// with, and it is invisible everywhere else in this app.
     var listeningPorts: [UInt16]
+    /// What to call the process holding each of those, where the machine would say what it is
+    /// running. A number says a port is taken and a name says by what, which is the difference
+    /// between "something of mine is on 3000" and "that is the dev server I left running"
+    /// (`ProcessTree.portsText`, and `memoryLeader` for what a name cannot say).
+    var portNames: [UInt16: String] = [:]
     /// Which of these readings are worth somebody's eye, decided over several ticks and against
     /// what the session is doing rather than against the numbers alone (`FootprintAlerts.swift`).
     var alerts = FootprintAlerts()
@@ -59,7 +84,10 @@ struct ProcessFootprint: Equatable {
 /// condition for VoiceOver in its own words: the bundle is over there, and this stays a pure
 /// function of what it is handed (the same division `unit` is already under).
 struct ProcessFootprintSegment: Equatable {
-    enum Kind: Equatable { case processes, agents, cpu, memory, disk, ports }
+    /// THE PORTS ARE NOT ONE OF THESE ANY MORE: they moved to the identity line, where they are
+    /// their own element beside the account and the model rather than the last field of a sentence
+    /// that truncates (`ProcessTree.portsText`, `SessionCardView.sessionIdentityRow`).
+    enum Kind: Equatable { case processes, agents, cpu, memory, disk }
     var kind: Kind
     var text: String
     /// The quieter half of the field: the word a count is counting, or the program blamed for a
@@ -69,11 +97,11 @@ struct ProcessFootprintSegment: Equatable {
     /// a string a reader has to segment for themselves, which is what that row was reported as
     /// (Albert, 2026-08-15: "2 procs · 1% CPU (claude) · 459 MB" is hard to read).
     ///
-    /// ONLY THE FIELDS THAT ROW DRAWS CARRY ONE, which is the process count and the CPU: the fields
-    /// with no shape of their own are drawn as one sentence at one weight
+    /// ONLY THE FIELDS THAT ROW DRAWS CARRY ONE, which is the three trended metrics: the process
+    /// count's word, and the program blamed for the CPU or for the memory. The fields with no shape
+    /// of their own are drawn as one sentence at one weight
     /// (`SessionCardView.sessionFootprint`), so an aside on them would be a second brightness
-    /// nothing reads. A figure with no word in it has none either - a memory reading carries its
-    /// own unit, and a port list is not a quantity at all.
+    /// nothing reads - which is why the named disk writer is a word inside its own sentence instead.
     var aside: String?
     var alert = false
 }

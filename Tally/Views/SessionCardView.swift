@@ -61,15 +61,7 @@ struct SessionCardView: View {
                 // a mark on some cards and not others would put the identity lines of a grid at
                 // two different left edges, which reads worse than the catalog's generic glyph
                 // on the one card whose account id has no head.
-                sessionCardLine {
-                    if let identity = sessionIdentityLine {
-                        HStack(spacing: 4) {
-                            ProviderIconView(providerID: row.providerID ?? "", size: 11)
-                            Text(identity).font(.caption2).foregroundStyle(.secondary)
-                                .lineLimit(1).truncationMode(.tail)
-                        }
-                    }
-                }
+                sessionCardLine { sessionIdentityRow }
                 // THE LAST LINE, AND ONE OF THEM: the two sentences a card can end on take turns in
                 // the same slot rather than stacking. EVERY CARD THE SAME HEIGHT is worth more than
                 // the stats are: a waiting card that carried both stood a line taller than the ones
@@ -113,9 +105,10 @@ struct SessionCardView: View {
                 //
                 // AND THIS ROW IS EMPTY ON THE ORDINARY CARD, which is deliberate rather than a
                 // measurement that failed: what is left here is the fields with no shape - a
-                // fan-out, heavy writing, a port - and a session that is doing none of those has
-                // nothing to say on it. The readings themselves moved one line down when they
-                // gained their shapes (`sessionFootprintTrends`), so the empty slot is holding the
+                // fan-out and heavy writing - and a session that is doing neither has nothing to say
+                // on it. The readings themselves moved one line down when they gained their shapes
+                // (`sessionFootprintTrends`) and the ports moved one line up when they gained a
+                // reader who acts on them (`sessionIdentityRow`), so the empty slot is holding the
                 // board level for the cards that DO have one of those things.
                 sessionCardLine { sessionFootprint }
                 // AND HOW IT GOT THERE: the same three readings as a shape, with the highest one
@@ -258,6 +251,55 @@ struct SessionCardView: View {
                 Text(sessionAge(since, now: tick.date))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// The card's second line: who is serving this session, and what it is HOLDING OPEN.
+    ///
+    /// THE PORTS ARE UP HERE BECAUSE THEY ARE THE ONE READING SOMEBODY ACTS ON. Everything else the
+    /// footprint says is a fact about this session's own cost; a port is a fact about the MACHINE -
+    /// it is what the next `pnpm dev` in another window collides with, and it is invisible
+    /// everywhere else in this app. Down on the footprint sentence it was the last field of a line
+    /// truncated at its tail, so it was the first thing a narrow card dropped (Albert, 2026-08-16).
+    ///
+    /// AND THE IDENTITY IS WHAT GIVES WAY FOR THEM, in two steps rather than one: the card first
+    /// tries the ports with the program holding each one named, then the bare numbers, and the
+    /// identity truncates under either (`ProcessTree.portsText`). A truncated account name still
+    /// says which account; a truncated port number is a wrong port.
+    ///
+    /// A VIEW OF ITS OWN RATHER THAN A SEGMENT OF `sessionIdentityLine`, which is not a style
+    /// choice: that string being nil is how this card knows it has nothing at all to say yet and
+    /// turns an indicator instead (`sessionIsLoading`), so ports written into it would put a
+    /// spinner on a session whose supervisor has published nothing but a dev server's port.
+    @ViewBuilder
+    private var sessionIdentityRow: some View {
+        if let named = sessionPortsText(named: true), let bare = sessionPortsText(named: false) {
+            ViewThatFits(in: .horizontal) {
+                identityRow(ports: named)
+                identityRow(ports: bare)
+            }
+        } else {
+            identityRow(ports: nil)
+        }
+    }
+
+    /// One candidate spelling of that line: the mark, the identity, and the ports at the far end.
+    private func identityRow(ports: String?) -> some View {
+        HStack(spacing: 4) {
+            if let identity = sessionIdentityLine {
+                ProviderIconView(providerID: row.providerID ?? "", size: 11)
+                Text(identity).font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(1).truncationMode(.tail)
+            }
+            if let ports {
+                Spacer(minLength: 6)
+                // Held at its own width, so the identity beside it is what the HStack takes the
+                // room from; monospaced for the reason every other figure on this card is - the
+                // digits are re-read every couple of seconds and must not shuffle the line.
+                Text(verbatim: ports)
+                    .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                    .lineLimit(1).fixedSize()
             }
         }
     }

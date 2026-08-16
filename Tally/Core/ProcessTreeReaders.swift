@@ -142,14 +142,19 @@ extension ProcessTree {
         Double(ticks) * timebase / 1_000_000_000
     }
 
-    /// The TCP ports these processes are LISTENING on, ascending and deduplicated. Not connections:
-    /// a session talking to an API has a socket per request and none of them is a fact about the
-    /// machine, while a port being held is the thing that makes the next `pnpm dev` fail.
+    /// The TCP ports these processes are LISTENING on, each with the process holding it. Not
+    /// connections: a session talking to an API has a socket per request and none of them is a fact
+    /// about the machine, while a port being held is the thing that makes the next `pnpm dev` fail.
+    ///
+    /// THE PID COMES BACK WITH THE PORT, which it did not use to: the walk knows whose descriptor
+    /// table it is reading and threw that away, so the card could say a port was taken and never by
+    /// what. It costs nothing to carry - the pid is the loop variable - and the one decision it
+    /// needs (a port two processes share) is a pure rule next door (`ProcessTree.holders`).
     ///
     /// The most expensive reading here by far - a descriptor table per process, then a call per
     /// socket - which is why it is sampled at its own slower cadence (`ProcessFootprintStore`).
-    static func listeningPorts(of pids: some Sequence<pid_t>) -> [UInt16] {
-        var ports: Set<UInt16> = []
+    static func listeningPorts(of pids: some Sequence<pid_t>) -> [UInt16: pid_t] {
+        var found: [(port: UInt16, pid: pid_t)] = []
         for pid in pids {
             let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
             guard bytes > 0 else { continue }
@@ -169,10 +174,9 @@ extension ProcessTree {
                 else { continue }
                 // The local port is carried in network byte order inside a wider field.
                 let raw = socket.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport
-                let port = UInt16(bigEndian: UInt16(truncatingIfNeeded: raw))
-                if port > 0 { ports.insert(port) }
+                found.append((port: UInt16(bigEndian: UInt16(truncatingIfNeeded: raw)), pid: pid))
             }
         }
-        return ports.sorted()
+        return holders(of: found)
     }
 }

@@ -39,7 +39,7 @@ func runFootprintTrendSurfaceChecks() {
     // The measurement is the card's, exactly: Tally's own processes come out of the tree before
     // anything reaches the ring, so the line and the figure above it are about the same thing.
     check("the trend is recorded from the same measured tree the figures are",
-          store.contains("processes: measured.count),")
+          store.contains("processes: started.count),")
               && store.contains("trends.record(FootprintTrendSample(cpuPercent: percent,"))
     // The rate and the span it covers are handed over together: the two sampling rates meet inside
     // one bucket every time the board is opened, and a fold that weighted every reading alike made
@@ -121,12 +121,31 @@ func runFootprintTrendSurfaceChecks() {
               && card.contains("return Text(verbatim: text).foregroundStyle(TallyColor.warning)"))
     // Asked once per piece and answered in one place, so the three cannot drift into a figure that
     // is warned in parts: the line, the peak dot and the current dot each state the grey they wear
-    // on a calm card and take the warning colour from the same rule.
+    // on a calm card AND the rank they keep on a warned one, and take both from the same rule.
     check("…the line and both of its dots turning amber with the figure",
-          spark.contains("alert ? AnyShapeStyle(warned) : AnyShapeStyle(calm)")
-              && spark.contains(".stroke(tone(calm: .tertiary),")
-              && spark.contains("tone(calm: .secondary,\n")
-              && spark.contains(".foregroundStyle(tone(calm: .primary))"))
+          spark.contains("alert ? AnyShapeStyle(TallyColor.warning.opacity(step))")
+              && spark.contains(".stroke(tone(calm: .tertiary, step: Self.alertLine),")
+              && spark.contains("tone(calm: .secondary, step: Self.alertPeak)")
+              && spark.contains("tone(calm: .primary, step: Self.alertCurrent)"))
+    // THREE STEPS OF ONE COLOUR, IN THE ORDER THE CALM CARD'S GREYS ARE: quietest at the line and
+    // loudest at the current reading, mirroring tertiary, secondary, primary. It was not a mirror
+    // before - the line and the current dot were both full amber, so the shape was as loud as the
+    // reading it is about and the ceiling was the only quiet thing on a warned figure.
+    //
+    // READ AS NUMBERS RATHER THAN AS THREE STRINGS, which is the whole repair to this assertion:
+    // what stood here matched a fragment that broke across a line ending, so setting the two ends
+    // to the SAME value left it green (ledger P4). Parsed, an edit that flattens any two of the
+    // three turns it red.
+    func alertStep(_ name: String) -> Double? {
+        guard let mark = spark.range(of: "private static let \(name): Double = ") else { return nil }
+        return Double(spark[mark.upperBound...].prefix { $0.isNumber || $0 == "." })
+    }
+    let quiet = alertStep("alertLine"), middle = alertStep("alertPeak")
+    let loud = alertStep("alertCurrent")
+    check("the warned figure's three pieces each state their own step of the colour",
+          [quiet, middle, loud].allSatisfy { step in (step ?? 0) > 0 && (step ?? 0) <= 1 })
+    check("…in the order the calm card reads in, quietest line to loudest reading",
+          (quiet ?? 0) < (middle ?? 0) && (middle ?? 0) < (loud ?? 0))
     // THE NEGATIVE HALF OF THE SAME CONTRACT, because a mark is the obvious thing to add back to a
     // warning: nothing on this row draws one, at any width, whether or not the group has a line yet.
     check("…and no triangle rides on this row at all",

@@ -31,7 +31,9 @@ struct FootprintTrendSample: Equatable {
     var seconds: Double
     /// What the tree was holding in physical memory at that instant.
     var memoryBytes: UInt64
-    /// How many processes it held, Tally's own already taken out (`ProcessTree.ownFamily`).
+    /// How many processes the session had STARTED at that instant: Tally's own already taken out
+    /// (`ProcessTree.ownFamily`) and the session's own CLI with them (`ProcessTree.dispatched`), so
+    /// the line and the figure printed beside it are the same quantity.
     var processes: Int
 
     func value(_ metric: FootprintTrendMetric) -> Double {
@@ -98,7 +100,8 @@ struct FootprintTrendSample: Equatable {
 /// DISK IS NOT ONE OF THEM, and its absence is a measurement rather than an omission. Writing is
 /// bursty by nature: a session writes nothing for minutes and then puts out 40 MB in one interval,
 /// so a line of it is a flat zero with a spike in it, which says less than the one number already
-/// on the card. The same goes for the ports, which are not a quantity at all.
+/// on the card. The ports are not here for a different reason: they are not a quantity at all, and
+/// they are not on this row either - they are up on the identity line (`ProcessTree.portsText`).
 enum FootprintTrendMetric: Hashable, CaseIterable {
     case processes, cpu, memory
 
@@ -111,7 +114,7 @@ enum FootprintTrendMetric: Hashable, CaseIterable {
         case .processes: self = .processes
         case .cpu: self = .cpu
         case .memory: self = .memory
-        case .agents, .disk, .ports: return nil
+        case .agents, .disk: return nil
         }
     }
 

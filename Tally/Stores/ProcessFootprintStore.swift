@@ -81,8 +81,11 @@ final class ProcessFootprintStore {
     /// (`ProcessTree.cpuPercent`). One tick of memory, deliberately: the rule that bounds it lives
     /// in the pure function, and this only has to hand the number back.
     @ObservationIgnored private var cpuCarry: [String: Double] = [:]
-    /// The last ports reading per session, held between the ticks that do not take one.
-    @ObservationIgnored private var ports: [String: [UInt16]] = [:]
+    /// The last ports reading per session, each with the pid holding it, held between the ticks
+    /// that do not take one. The NAME beside a port is resolved from the current tick's own table
+    /// of programs rather than cached with it, so a port whose holder has since gone is printed as
+    /// the bare number instead of by a name that is no longer true.
+    @ObservationIgnored private var ports: [String: [UInt16: pid_t]] = [:]
     /// Per session, how long each warning condition has been met or missed. A warning is about a
     /// condition that HOLDS rather than about one tick's reading, so something has to count the
     /// ticks, and this is the only thing here that knows what a tick is (`FootprintAlerts.swift`).
@@ -149,8 +152,14 @@ final class ProcessFootprintStore {
         // the two (`FootprintAlarm`). The state is the supervisor's own published word rather than
         // anything guessed here, and `unknown` is not idle: a session that has not said yet is not
         // a session that said "nothing is running".
+        //
+        // AND WITH THE CHILD THE SUPERVISOR SPAWNED, which the count below is taken without: that
+        // process is the session rather than something the session started (`ProcessTree.
+        // dispatched`). Published rather than guessed, and simply absent on a supervisor too old to
+        // publish it.
         let roots = SessionRosterStore.shared.rows.compactMap { row in
-            pid_t(row.id).map { ($0, row.state == .idle || row.state == .blocked) }
+            pid_t(row.id).map { ($0, row.state == .idle || row.state == .blocked,
+                                 row.childPid.flatMap { pid_t(exactly: $0) }) }
         }
         // A board with nothing on it is not a special case, only an empty one: no table is walked,
         // the loop below does not run, and everything held falls out through the same three lines
@@ -165,7 +174,7 @@ final class ProcessFootprintStore {
         var carried: [String: Double] = [:]
         var alerting: [String: FootprintAlertState] = [:]
         var trends = history
-        for (root, idle) in roots {
+        for (root, idle, child) in roots {
             let members = ProcessTree.members(root: root, processes: processes)
             guard !members.isEmpty else { continue }
             // Every program in the tree, once: the same table answers which of these processes are
@@ -203,8 +212,17 @@ final class ProcessFootprintStore {
             let disk = ProcessTree.diskWrite(from: previous, to: reading)
             carried[key] = cpu.carry
             if readPorts { ports[key] = ProcessTree.listeningPorts(of: measured) }
+            let holding = ports[key] ?? [:]
+            // THE COUNT IS OF WHAT THE SESSION STARTED AND THE REST OF THE READINGS ARE OF THE
+            // WHOLE TREE, which is one decision rather than an inconsistency: the count answers
+            // "how much has this session put on my machine" and the CPU and the memory answer "what
+            // is it costing me", and its own Claude Code is not the first and is very much the
+            // second. What keeps the pair readable is the NAME beside the memory figure - the one
+            // thing on the card that can say those gigabytes are the body rather than the work
+            // (`ProcessTree.memoryLeader`).
+            let started = ProcessTree.dispatched(measured, child: child)
             var footprint = ProcessFootprint(
-                processes: measured.count,
+                processes: started.count,
                 // The subagents are the one reading here that is not taken from the machine: they
                 // are conversations inside a process, so Claude Code's own hooks say how many
                 // (`SessionAgentsRecord`), and a count that cannot be believed is not drawn. Held
@@ -216,9 +234,11 @@ final class ProcessFootprintStore {
                 cpuPercent: cpu.percent,
                 cpuLeader: name(of: cpu.leader),
                 memoryBytes: reading.memoryBytes,
+                memoryLeader: name(of: ProcessTree.memoryLeader(reading)),
                 diskWriteBytesPerSecond: disk.bytesPerSecond,
                 diskLeader: name(of: disk.leader),
-                listeningPorts: ports[key] ?? [])
+                listeningPorts: holding.keys.sorted(),
+                portNames: holding.compactMapValues { name(of: $0) })
             // The warnings are decided from THIS tick's reading and the ticks before it, then put
             // back on the same reading: what the card draws and what the card warns about are one
             // value, so they cannot be a tick apart.
@@ -246,7 +266,7 @@ final class ProcessFootprintStore {
                 trends.record(FootprintTrendSample(cpuPercent: percent,
                                                    seconds: now.timeIntervalSince(since),
                                                    memoryBytes: reading.memoryBytes,
-                                                   processes: measured.count),
+                                                   processes: started.count),
                               for: key, at: now)
             }
         }
@@ -267,6 +287,11 @@ final class ProcessFootprintStore {
         // the points, so a tick that only added to the bucket does move it - what the guard still
         // saves is the idle board where nothing was recorded at all (no session, or no rate yet).
         if trends != history { history = trends }
+        // FIXTURE READINGS FOR A CAPTURE, and only for one: the flag lives in the volatile argument
+        // domain, so an ordinary launch never takes this branch (`DemoUsage`). Painted over the
+        // finished readings rather than substituted for them, so the shapes behind the figures are
+        // still the machine's own and only what a card SAYS is fabricated.
+        if DemoUsage.isActive { next = DemoUsage.footprints(over: next) }
         // A session that has ended must not leave its ports behind for a pid the machine will hand
         // out again: the cache is only ever a stand-in for the tick that did not read them.
         ports = ports.filter { next[$0.key] != nil }

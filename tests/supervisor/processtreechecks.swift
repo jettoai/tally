@@ -26,8 +26,12 @@ import Foundation
 func runProcessTreeChecks() {
     let t0 = Date(timeIntervalSince1970: 1_786_571_200)
 
+    // A start time derived from the pid, so every invented process has one of its own and none of
+    // them collides - the same fixture shape the supervisor's own identity checks use
+    // (transcriptidentitychecks.swift).
     func proc(_ pid: pid_t, ppid: pid_t, group: pid_t) -> ProcessIdentity {
-        ProcessIdentity(pid: pid, parent: ppid, group: group)
+        ProcessIdentity(pid: pid, parent: ppid, group: group,
+                        startedAt: 1_786_000_000_000_000 + Int64(pid) * 1_000)
     }
     // A machine, in the shape a real one has (measured 2026-08-15): launchd (1), the tab's login
     // shell (90) leading its own job, and a supervisor (100) started as a job of its own - so it
@@ -436,4 +440,20 @@ func runProcessTreeChecks() {
     check("one of ours that lived entirely inside one tick is still on the collector",
           percent(from: sample([200: 10], child: [200: 0], at: 0),
                   to: sample([200: 10], child: [200: 0.2], at: 2)) == 10)
+
+    // MARK: the identity the machine hands over with a pid
+
+    // A PID IS NOT AN IDENTITY AND THIS IS THE FIELD THAT MAKES ONE, read out of the very record
+    // the parent and the group come from (`ProcessIdentity.startedAt`). Asserted against the live
+    // machine rather than a fixture, because the way it fails is silent: a field that came back
+    // zero for everybody would still compare equal to itself, so the port cache's guard would pass
+    // for exactly the recycled pids it exists to refuse (`ProcessTree.portNames`).
+    let walked = ProcessTree.liveProcesses()
+    let mine = walked.first { $0.pid == getpid() }
+    check("the walk says when each process began", (mine?.startedAt ?? 0) > 0)
+    check("…the same number on a second walk of the same live process",
+          mine?.startedAt == ProcessTree.liveProcesses().first { $0.pid == getpid() }?.startedAt)
+    let parent = walked.first { $0.pid == getppid() }
+    check("…and a different one for the process that started this one",
+          parent != nil && mine?.startedAt != parent?.startedAt)
 }

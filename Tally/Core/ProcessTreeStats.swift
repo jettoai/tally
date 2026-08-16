@@ -106,7 +106,8 @@ struct ProcessFootprintSegment: Equatable {
     var alert = false
 }
 
-/// A live process as this file identifies it: itself, who started it, and which job it belongs to.
+/// A live process as this file identifies it: itself, who started it, which job it belongs to, and
+/// when it began.
 ///
 /// THE GROUP IS THE ONE THAT SURVIVES, which is the whole reason it is carried (see `members`).
 struct ProcessIdentity: Equatable {
@@ -115,6 +116,19 @@ struct ProcessIdentity: Equatable {
     /// The process group id: the pid of the job's leader, inherited by everything the job spawns and
     /// unchanged by the parent dying.
     var group: pid_t
+    /// Microseconds since the epoch, as the kernel recorded the fork.
+    ///
+    /// THE NUMBER IS NOT AN IDENTITY AND THIS IS WHAT MAKES ONE. A pid is handed out again, so
+    /// anything this app holds across ticks and looks up later - a port's holder is the one here
+    /// (`ProcessPortHolder`) - is a stale key in a fresh table unless something says the process is
+    /// still the same process. Stable for the life of a process and different for the next holder
+    /// of its number, which is the same pair of properties the supervisor identifies a Claude Code
+    /// by, spelled the same way and in the same unit (`ProcessStamp`, TranscriptIdentity.swift):
+    /// one identity rule for pids in this repository rather than two.
+    ///
+    /// It costs nothing to carry: it comes out of the very `proc_bsdinfo` record the parent and the
+    /// group are read from (`ProcessTree.liveProcesses`).
+    var startedAt: Int64
 }
 
 /// One reading of what the tree's processes have used, per pid, and the instant it was taken. Four

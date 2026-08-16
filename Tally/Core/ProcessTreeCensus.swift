@@ -12,24 +12,32 @@ import Foundation
 ///
 /// PURE, like everything either file holds, so the assertion harness can state each of these with
 /// no processes around it.
-/// WHO WAS HOLDING A PORT, AND WHAT THEY WERE RUNNING AT THE TIME.
+/// WHO WAS HOLDING A PORT, AND WHICH PROCESS THAT WAS.
 ///
-/// THE PROGRAM IS CARRIED AS WELL AS THE PID BECAUSE THE PID IS NOT AN IDENTITY. The ports are read
-/// on their own slow beat and held in between - every third visible tick, and not at all behind a
-/// closed panel (`ProcessFootprintStore`) - so a cached pid can be minutes or hours old, and the
-/// machine hands pid numbers out again. A name looked up from the CURRENT table of programs against
-/// a pid from the OLD reading is a confident wrong answer: `:3000 (esbuild)` beside a process that
-/// has never held 3000. Recording what the holder was running at the moment the port was read turns
-/// that into a comparison anybody can make (`ProcessTree.portNames`).
+/// THE START TIME IS CARRIED AS WELL AS THE PID BECAUSE THE PID IS NOT AN IDENTITY. The ports are
+/// read on their own slow beat and held in between - every third visible tick, and dropped
+/// altogether when the last viewer goes (`ProcessFootprintStore.endViewing`), so what is held here
+/// is at most two visible ticks old. The machine hands pid numbers out again, and a name looked up
+/// from the CURRENT table of programs against a pid from the OLD reading is a confident wrong
+/// answer: `:3000 (esbuild)` beside a process that has never held 3000. Recording WHEN the holder
+/// started turns that into a comparison anybody can make (`ProcessTree.portNames`).
+///
+/// THE PROGRAM'S PATH WOULD NOT HAVE DONE, which is what this used to record. Two processes running
+/// the same program have the same path, and a program being restarted is exactly how a pid comes to
+/// be reused inside a tree of node and python workers - so the one recycling that produces a WRONG
+/// name rather than a missing one is the one a path comparison cannot see. A start time is
+/// different for every holder of a number (`ProcessIdentity.startedAt`), which is the property the
+/// supervisor already identifies a Claude Code by (`ProcessStamp`): one pid identity rule in this
+/// repository rather than one per subsystem.
 ///
 /// This is the same shape as the fork join-key defect this repository has already been bitten by
 /// four times (memory `tally-fork-join-key-incident`): a stale key looked up in a fresh table.
 struct ProcessPortHolder: Equatable {
     var pid: pid_t
-    /// The program it was running when the port was read, or nothing when the machine would not
-    /// say. Nothing is not a wildcard: a holder whose program could not be read then cannot be
-    /// confirmed as the same process now, so it is never named.
-    var path: String?
+    /// When it started, or nothing when the machine would not say. Nothing is not a wildcard: a
+    /// holder the table could not state then cannot be confirmed as the same process now, so it is
+    /// never named.
+    var startedAt: Int64?
 }
 
 extension ProcessTree {
@@ -107,15 +115,16 @@ extension ProcessTree {
         return holders
     }
 
-    /// The same answer with each holder's program recorded beside it, which is what makes the
+    /// The same answer with each holder's start time recorded beside it, which is what makes the
     /// reading safe to CACHE (`ProcessPortHolder`).
     ///
-    /// - Parameter executable: the program a pid is running right now, asked as a function for the
-    ///   reason `ownFamily` asks it that way - this stays pure, and the harness can state it with
-    ///   no processes around it.
+    /// - Parameter startedAt: when a pid began, out of the same table walk the tree's membership
+    ///   comes from (`ProcessTree.liveProcesses`), asked as a function for the reason `ownFamily`
+    ///   asks for a program that way - this stays pure, and the harness can state it with no
+    ///   processes around it.
     static func held(_ holders: [UInt16: pid_t],
-                     executable: (pid_t) -> String?) -> [UInt16: ProcessPortHolder] {
-        holders.mapValues { ProcessPortHolder(pid: $0, path: executable($0)) }
+                     startedAt: (pid_t) -> Int64?) -> [UInt16: ProcessPortHolder] {
+        holders.mapValues { ProcessPortHolder(pid: $0, startedAt: startedAt($0)) }
     }
 
     /// What to print beside each held port, which is a name only where the holder is STILL THE
@@ -123,13 +132,20 @@ extension ProcessTree {
     ///
     /// THREE WAYS TO END UP WITH NO NAME, and all three are the same answer for the same reason -
     /// this app cannot say who has that port right now: the pid has gone (nothing to compare), the
-    /// pid is running a different program than it was when the port was read (a recycled number),
-    /// or the program could not be read at either end. The card then prints the bare number, which
-    /// is the fact it is sure of.
+    /// pid belongs to a process that started after the port was read (a recycled number, whether or
+    /// not it is running the same program), or the machine would not state the start time at either
+    /// end. The card then prints the bare number, which is the fact it is sure of.
+    ///
+    /// AND THE NAME IS READ FROM THE CURRENT TABLE once that comparison passes, rather than being
+    /// carried from the reading: the same process is the right thing to name whatever it is running
+    /// now, so a wrapper script that has since exec'd into the program it wraps is named as the
+    /// program (`displayName`) instead of not at all.
     static func portNames(_ holders: [UInt16: ProcessPortHolder],
+                          startedAt: (pid_t) -> Int64?,
                           executable: (pid_t) -> String?) -> [UInt16: String] {
         holders.compactMapValues { holder in
-            guard let path = holder.path, executable(holder.pid) == path else { return nil }
+            guard let began = holder.startedAt, startedAt(holder.pid) == began,
+                  let path = executable(holder.pid) else { return nil }
             return displayName(forPath: path)
         }
     }

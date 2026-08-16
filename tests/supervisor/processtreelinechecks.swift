@@ -176,36 +176,65 @@ func runProcessTreeLineChecks() {
     let holding = ProcessFootprint(processes: 2, cpuPercent: nil,
                                    listeningPorts: [3000, 5173, 8080],
                                    portNames: [3000: "next-server", 5173: "node"])
+    // A RULER OF THE HARNESS'S OWN, because the real one is a font and there is no target with
+    // AppKit in it here (`SessionCardView.portsWidth` is the production one). Two of them, and the
+    // pair is the point: measured with the app's own font at 10pt (2026-08-17),
+    // `:3000 (next-server) :5173 +1` is 142.6pt over 28 characters, while the same shape whose name
+    // is fifteen full-width characters is 213.9pt over the same 28 - so a rule counting characters
+    // cannot tell the fitting spelling from the one that runs off the card.
+    func narrow(_ text: String) -> Double { Double(text.count) * 5.1 }
+    func wide(_ text: String) -> Double { Double(text.count) * 7.6 }
     // THE BUDGET IS WHAT DECIDES HOW MANY NAMES ARE PRINTED, and it is decided here rather than by
     // the layout: the card used to hand two spellings to `ViewThatFits`, which chooses on its
     // candidates' IDEAL width and so measured the whole untruncated identity string against the
     // named ports - a test no ordinary card passes, which left the names silently off.
     check("a card with room says what is holding every port it lists",
-          ProcessTree.portsText(holding, budget: 40) == ":3000 (next-server) :5173 (node) +1")
-    // NAMES GO FROM THE RIGHT AND THE NUMBERS NEVER GO. 30 characters is the measured budget of the
-    // narrowest card: the one-named spelling is 28 characters (146.2pt of the ~155pt a 236pt card
-    // can spare) and naming both is 35 (181.9pt), so the narrow card still names the first port.
+          ProcessTree.portsText(holding, budget: 220, width: narrow)
+              == ":3000 (next-server) :5173 (node) +1")
+    // NAMES GO FROM THE RIGHT AND THE NUMBERS NEVER GO. 155pt is the measured budget of the
+    // narrowest card: the one-named spelling is 142.6pt of it and naming both is 177.5pt, so the
+    // narrow card still names the first port.
     check("…and a narrow one names as many as fit, from the left",
-          ProcessTree.portsText(holding) == ":3000 (next-server) :5173 +1"
-              && ProcessTree.portsBudget == 30)
+          ProcessTree.portsText(holding, width: narrow) == ":3000 (next-server) :5173 +1"
+              && ProcessTree.portsBudget == 155)
     check("…dropping every name rather than any number when even one will not fit",
-          ProcessTree.portsText(holding, budget: 20) == ":3000 :5173 +1")
+          ProcessTree.portsText(holding, budget: 100, width: narrow) == ":3000 :5173 +1")
     check("…and a spelling that cannot fit at all is still the numbers",
-          ProcessTree.portsText(holding, budget: 1) == ":3000 :5173 +1")
+          ProcessTree.portsText(holding, budget: 1, width: narrow) == ":3000 :5173 +1")
+    // THE SAME STRING, THE SAME CHARACTER COUNT, THE OTHER ANSWER - which is the whole of what
+    // changed unit here (codex review of 0cd4a09). A capital-heavy ASCII name does it as readily as
+    // a CJK one: the calibration that produced "thirty characters" was taken over lower-case
+    // program names, and this app ships in five languages.
+    check("a spelling is measured in the points it takes rather than in characters",
+          ProcessTree.portsText(holding, width: wide) == ":3000 :5173 +1"
+              && ProcessTree.portsText(holding, width: narrow) == ":3000 (next-server) :5173 +1")
+    // And the budget stays clear of the width that would CLIP rather than merely crowd: a 264pt
+    // card gives 236pt of content, of which the provider mark (11), three gaps of four and the
+    // minimum gutter (6) leave 207 for a ports string that is laid out at its own width and refuses
+    // to shrink (`SessionCardView.sessionIdentityRow`).
+    check("…and what may be spent is under what would run off the card",
+          ProcessTree.portsBudget <= 207)
     // A name nobody could read is simply absent, which is the same shape as a culprit nobody could
     // name on the line above.
     check("a port nobody could be named for shows the number alone",
           ProcessTree.portsText(ProcessFootprint(processes: 1, cpuPercent: nil,
-                                                 listeningPorts: [3000, 5173]))
-              == ":3000 :5173")
+                                                 listeningPorts: [3000, 5173]),
+                                width: narrow) == ":3000 :5173")
     check("the cap is the caller's to set, and what is past it is a count",
-          ProcessTree.portsText(holding, maxPorts: 1) == ":3000 (next-server) +2")
+          ProcessTree.portsText(holding, maxPorts: 1, width: narrow) == ":3000 (next-server) +2")
+    // A card holding ONE port has room for a long name that two ports could not both carry: 28
+    // characters of `:3000 (Google Chrome Helper)` is 149.5pt measured, inside the budget.
+    check("…and a single port is named even by a program with a long name",
+          ProcessTree.portsText(ProcessFootprint(processes: 1, cpuPercent: nil,
+                                                 listeningPorts: [3000],
+                                                 portNames: [3000: "Google Chrome Helper"]),
+                                width: narrow) == ":3000 (Google Chrome Helper)")
     check("…with nothing added when everything fits",
-          ProcessTree.portsText(holding, maxPorts: 3, budget: 60)
+          ProcessTree.portsText(holding, maxPorts: 3, budget: 330, width: narrow)
               == ":3000 (next-server) :5173 (node) :8080")
     check("a session listening on nothing has no ports line at all",
           ProcessTree.portsText(ProcessFootprint(processes: 4, cpuPercent: 9,
-                                                 listeningPorts: [])) == nil)
+                                                 listeningPorts: []), width: narrow) == nil)
 
     // MARK: the agents field
 
@@ -374,9 +403,11 @@ func runProcessTreeLineChecks() {
           storeSource.contains("memoryBytes: reading.memoryBytes,")
               && storeSource.contains("memoryLeader: name(of: ProcessTree.memoryLeader(reading)),"))
     // A port with nobody's name against it is a port whose holder could not be read, which is why
-    // the name is resolved from THIS tick's table rather than cached with the port number.
+    // the name is resolved from THIS tick's table rather than cached with the port number - and why
+    // the pid it is resolved for has to be confirmed as the same process first
+    // (`ProcessTree.portNames`, processtreecensuschecks.swift).
     check("…and each port is named from the same table of programs the culprits are",
-          storeSource.contains("portNames: ProcessTree.portNames(holding) { paths[$0] })")
+          storeSource.contains("executable: { paths[$0] }))")
               && storeSource.contains("listeningPorts: holding.keys.sorted(),"))
     // AND THE WHOLE TREE IS SAMPLED, ours included, which is the one thing here that looks like the
     // opposite of the line above and is what makes it true. A pid filtered off the list before the
@@ -411,5 +442,16 @@ func runProcessTreeLineChecks() {
     check("…and no candidate list is left on this row to choose between them",
           !boardCardSource.contains("identityRow(ports:"))
     check("…asked of the same pure rule the assertions above state",
-          cardSource.contains("ProcessTree.portsText(footprint)"))
+          cardSource.contains("ProcessTree.portsText(footprint, width: Self.portsWidth)"))
+    // THE RULE IS PURE AND THE RULER IS NOT: the budget is in points, so the one thing the rule
+    // cannot do for itself is turn a spelling into points, and the card hands it a measurement in
+    // the font it is about to draw the string in - digits included, since these strings are mostly
+    // digits and the row asks for monospaced ones.
+    check("…and measured in the very font that row draws, rather than against a guess",
+          cardSource.contains("NSAttributedString(string: text, attributes: [.font: portsFont])")
+              && cardSource.contains("NSFont.monospacedDigitSystemFont(")
+              && cardSource.contains("ofSize: NSFont.preferredFont(forTextStyle: .caption2)"
+                                     + ".pointSize, weight: .regular)")
+              && boardCardSource.contains(".font(.caption2.monospacedDigit()).foregroundStyle"
+                                          + "(.tertiary)"))
 }

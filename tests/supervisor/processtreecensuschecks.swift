@@ -69,32 +69,52 @@ func runProcessTreeCensusChecks() {
     // MARK: a port read three ticks ago, named now
 
     // A PORT READING IS CACHED AND A PID IS NOT AN IDENTITY. The ports are read every third visible
-    // tick and never behind a closed panel, so the pid beside a port can be minutes or hours old,
-    // and the machine hands pid numbers out again. What is recorded with the port is therefore what
-    // its holder was RUNNING at the time, and a name is printed only while that is still true -
-    // otherwise the card states a program that has never held that port (same shape as the fork
-    // join-key defect: a stale key looked up in a fresh table).
+    // tick and held in between, and the machine hands pid numbers out again. What is recorded with
+    // the port is therefore WHEN its holder started, and a name is printed only while the pid still
+    // belongs to that same process - otherwise the card states a program that has never held that
+    // port (same shape as the fork join-key defect: a stale key looked up in a fresh table).
     let programs = [400: "/opt/homebrew/bin/node", 700: "/usr/local/bin/next-server"]
-    let recorded = ProcessTree.held([3000: 400, 5173: 700]) { programs[Int($0)] }
-    check("what each port's holder was running is recorded with the port",
-          recorded == [3000: ProcessPortHolder(pid: 400, path: "/opt/homebrew/bin/node"),
-                       5173: ProcessPortHolder(pid: 700, path: "/usr/local/bin/next-server")])
-    check("…and a holder still running it is named",
-          ProcessTree.portNames(recorded) { programs[Int($0)] }
+    let began: [pid_t: Int64] = [400: 1_786_000_000_000_000, 700: 1_786_000_004_000_000]
+    let recorded = ProcessTree.held([3000: 400, 5173: 700]) { began[$0] }
+    check("when each port's holder started is recorded with the port",
+          recorded == [3000: ProcessPortHolder(pid: 400, startedAt: 1_786_000_000_000_000),
+                       5173: ProcessPortHolder(pid: 700, startedAt: 1_786_000_004_000_000)])
+    check("…and a holder that is still the same process is named",
+          ProcessTree.portNames(recorded, startedAt: { began[$0] }, executable: { programs[Int($0)] })
               == [3000: "node", 5173: "next-server"])
     // The pid number is now somebody else's, and that somebody is in this very tree - which is the
     // only case that produces a WRONG name rather than a missing one.
-    check("…while a pid the machine has handed to another program is not",
-          ProcessTree.portNames(recorded) { pid in
-              pid == 400 ? "/usr/bin/esbuild" : programs[Int(pid)]
-          } == [5173: "next-server"])
+    //
+    // AND THE SUCCESSOR IS RUNNING THE VERY PROGRAM THE OLD HOLDER WAS (the table of programs below
+    // is unchanged), which is the case a comparison of paths could not see and the likeliest one
+    // there is: node, python and shells are what a session's tree is made of, and restarting one is
+    // how its number comes to be handed out again in the first place.
+    func recycled(_ pid: pid_t) -> Int64? { pid == 400 ? 1_786_000_009_000_000 : began[pid] }
+    check("…while a pid the machine has handed to a process that started later is not",
+          ProcessTree.portNames(recorded, startedAt: recycled,
+                                executable: { programs[Int($0)] }) == [5173: "next-server"])
     check("…nor is one that has gone altogether",
-          ProcessTree.portNames(recorded) { pid in pid == 400 ? nil : programs[Int(pid)] }
-              == [5173: "next-server"])
-    // A holder whose program could not be read when the port was taken cannot be confirmed later
-    // either, so it is never named - absent is not a wildcard.
+          ProcessTree.portNames(recorded, startedAt: { pid in pid == 400 ? nil : began[pid] },
+                                executable: { programs[Int($0)] }) == [5173: "next-server"])
+    // A holder the table could not state when the port was taken cannot be confirmed later either,
+    // so it is never named - absent is not a wildcard.
     check("…and a holder nobody could read then is not named now",
-          ProcessTree.portNames([3000: ProcessPortHolder(pid: 400, path: nil)]) { _ in
-              "/opt/homebrew/bin/node"
-          }.isEmpty)
+          ProcessTree.portNames([3000: ProcessPortHolder(pid: 400, startedAt: nil)],
+                                startedAt: { _ in 1_786_000_000_000_000 },
+                                executable: { _ in "/opt/homebrew/bin/node" }).isEmpty)
+    // The name comes from the CURRENT table once the process is confirmed to be the same one, so a
+    // wrapper that has since exec'd into what it wraps is named as what it is now rather than left
+    // bare: the process holding the port never changed.
+    check("…while the same process running a different program now is named as what it is running",
+          ProcessTree.portNames([3000: ProcessPortHolder(pid: 400,
+                                                         startedAt: 1_786_000_000_000_000)],
+                                startedAt: { began[$0] },
+                                executable: { _ in "/usr/local/bin/next-server" })
+              == [3000: "next-server"])
+    // A pid the current table says nothing about is not named either, whichever end of the pair is
+    // missing: the card prints the number it is sure of.
+    check("…and one the machine will not name now shows its number alone",
+          ProcessTree.portNames(recorded, startedAt: { began[$0] },
+                                executable: { pid in pid == 400 ? nil : programs[Int(pid)] })
+              == [5173: "next-server"])
 }

@@ -38,8 +38,13 @@ extension ProcessTree {
             // A process that ended between the listing and this call, or one belonging to another
             // user, simply is not in the list: it can be nobody's descendant here either way.
             guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { continue }
-            processes.append(ProcessIdentity(pid: pid, parent: pid_t(info.pbi_ppid),
-                                             group: pid_t(info.pbi_pgid)))
+            // All three identities come out of this one record, the start time included: it is what
+            // makes a pid held across ticks comparable with the pid the machine is showing now
+            // (`ProcessIdentity.startedAt`), and asking for it separately would be a second call per
+            // process per tick for a field already in hand.
+            processes.append(ProcessIdentity(
+                pid: pid, parent: pid_t(info.pbi_ppid), group: pid_t(info.pbi_pgid),
+                startedAt: Int64(info.pbi_start_tvsec) * 1_000_000 + Int64(info.pbi_start_tvusec)))
         }
         return processes
     }

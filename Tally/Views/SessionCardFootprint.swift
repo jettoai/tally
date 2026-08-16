@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // WHAT THE SESSION IS DOING TO THE MACHINE, as the card draws it. Split from SessionCardView.swift
@@ -34,12 +35,32 @@ extension SessionCardView {
 
     /// What this session is holding open, as the identity line prints it, or nothing when it is
     /// holding nothing. How many of the ports say what is holding them is decided in the pure rule
-    /// on a measured character budget rather than by the layout (`ProcessTree.portsText`, and
+    /// on a measured POINT budget rather than by the layout (`ProcessTree.portsText`, and
     /// `SessionCardView.sessionIdentityRow` for why it is not a choice between two candidates).
+    ///
+    /// THE RULE IS PURE AND THE RULER IS NOT, which is why the measuring is done from here. A
+    /// budget in points needs somebody who can turn a spelling into points, and that is a font -
+    /// which the rule's own file cannot see and the assertion harness has no target for. So the
+    /// rule asks for a ruler and this hands it the real one, the same way it is handed the program
+    /// a pid is running (`ProcessTree.held`).
     var sessionPortsText: String? {
         guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return nil }
-        return ProcessTree.portsText(footprint)
+        return ProcessTree.portsText(footprint, width: Self.portsWidth)
     }
+
+    /// How wide one spelling of the ports is, in the font the identity row draws them in.
+    ///
+    /// MEASURED IN THE FONT THAT IS ACTUALLY DRAWN, digits and all: the row asks for
+    /// `.caption2.monospacedDigit()`, whose digits are a shade wider than the proportional ones, so
+    /// a budget checked against the plain text style would be spending points these strings do not
+    /// have (they are mostly digits). Held as a stored font rather than resolved per call - this is
+    /// asked once per card per spelling on every tick of an open board.
+    static func portsWidth(_ text: String) -> Double {
+        NSAttributedString(string: text, attributes: [.font: portsFont]).size().width
+    }
+
+    private static let portsFont = NSFont.monospacedDigitSystemFont(
+        ofSize: NSFont.preferredFont(forTextStyle: .caption2).pointSize, weight: .regular)
 
     /// The fields no shape is kept for, in the order the whole line is written in: how many agents
     /// are working and what is being written (`FootprintTrendMetric`). The three that DO have a
@@ -185,6 +206,17 @@ extension SessionCardView {
     /// the three, and the one a fifteen-minute line most understates). Everything dropped for room
     /// is still spoken in full (`spokenTrends`).
     ///
+    /// AND THE TWO NAMES GO ONE AT A TIME, which the first version of this order did not do and is
+    /// the whole of what it was reported for (codex review of 0cd4a09). Both names are culprits, so
+    /// the `culpritsOnly` rung keeps or drops them together: measured at 10pt, that rung is 213pt
+    /// on a card naming only the memory's holder and 240pt as soon as the CPU has one too, against
+    /// the 236pt a 264pt card gives its content - so a session busy enough to blame a process for
+    /// BOTH readings fell straight past it to the rung with no names at all. That is the session
+    /// somebody has this board open for, and the name this commit was written to keep is the one it
+    /// lost. There is therefore a rung between them that keeps the memory's name alone
+    /// (`FootprintTrendMetric.asideSurvivesAlone` says why it is that one), and only under it does
+    /// the row go silent.
+    ///
     /// A NAME IS NOT GIVEN A COLUMN OF ITS OWN, unlike the figures and the ceilings, and that is a
     /// live trade rather than an oversight: culprits change length as the culprit changes (`bun` is
     /// 19pt, `Google Chrome Helper` 112pt), so a card whose heaviest process changes will reflow
@@ -202,6 +234,7 @@ extension SessionCardView {
                 trendRow(trends, peaks: 1, asides: .all)
                 trendRow(trends, peaks: 0, asides: .all)
                 trendRow(trends, peaks: 0, asides: .culpritsOnly)
+                trendRow(trends, peaks: 0, asides: .memoryCulpritOnly)
                 trendRow(trends, peaks: 0, asides: .none)
             }
             .accessibilityElement(children: .ignore)
@@ -211,15 +244,18 @@ extension SessionCardView {
 
     /// Which of a row's quiet words a candidate layout keeps (see `sessionFootprintTrends`).
     enum TrendAsides {
-        case all, culpritsOnly, none
+        case all, culpritsOnly, memoryCulpritOnly, none
 
-        /// Whether one metric's word survives this candidate. The middle rung keeps the culprits
-        /// and drops the units, which on this row is exactly the process count's `procs`
-        /// (`FootprintTrendMetric.asideNamesACulprit`).
+        /// Whether one metric's word survives this candidate. The rungs are the words in the order
+        /// a reader can spare them: the units go first, which on this row is exactly the process
+        /// count's `procs` (`FootprintTrendMetric.asideNamesACulprit`); then the CPU's culprit,
+        /// whose figure means something on its own; and the memory's holder is the last word left
+        /// (`FootprintTrendMetric.asideSurvivesAlone`).
         func keeps(_ metric: FootprintTrendMetric) -> Bool {
             switch self {
             case .all: true
             case .culpritsOnly: metric.asideNamesACulprit
+            case .memoryCulpritOnly: metric.asideSurvivesAlone
             case .none: false
             }
         }
@@ -253,14 +289,16 @@ extension SessionCardView {
                         Self.figure(trend.figure, alert: trend.segment.alert)
                     }
                     if let aside = trend.aside, asides.keeps(trend.metric) {
-                        // LAST IN THE QUEUE FOR ROOM, because it is the one piece here that can be
-                        // arbitrarily long: a culprit called `Google Chrome Helper` is 112pt of a
-                        // 236pt card, and left at the ordinary priority the layout would take that
-                        // width off a figure instead. A truncated name still points at a program;
-                        // a truncated figure is a wrong number. Belt and braces now that the
-                        // candidates above measure the names themselves: what this still catches is
-                        // the name too long for even the narrowest candidate.
-                        Text(verbatim: aside).foregroundStyle(.tertiary).layoutPriority(-1)
+                        // WHETHER THIS WORD IS HERE AT ALL IS THE CANDIDATE LIST'S DECISION AND
+                        // NOTHING ELSE'S, which is what a `layoutPriority(-1)` here used to claim
+                        // to be a second line of defence against and could not be: `ViewThatFits`
+                        // takes a candidate only if that candidate's ideal width already fits, so
+                        // nothing here is ever asked to give room up - and the one candidate it
+                        // falls back on when none fit is the one with no names in it. A name too
+                        // long for its rung does not shrink, it takes the whole rung out of the
+                        // running (codex review of 0cd4a09, where the priority was dead code with a
+                        // note explaining a mechanism that could not run).
+                        Text(verbatim: aside).foregroundStyle(.tertiary)
                     }
                     // THE COLUMN IS HELD EVEN WHEN THERE IS NO CEILING TO PRINT IN IT, which is the
                     // last thing in this row that moved: a peak is hidden exactly when the reading

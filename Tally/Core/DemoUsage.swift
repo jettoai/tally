@@ -81,6 +81,12 @@ enum DemoUsage {
     /// cannot be predicted before a capture, only that it stays the same card while the capture
     /// runs. That is the property a screenshot needs - a fixture that moved between ticks would
     /// change the picture between two presses of the shutter.
+    ///
+    /// THE KEYS ARE THE CARDS THAT WILL BE DRAWN, which is the caller's part of the same bargain
+    /// (`ProcessFootprintStore.sample`): handed the roster instead, a session the store turns out
+    /// to have no reading for takes an index with it, and the fixtures after the hole all shift up
+    /// - so the WARNED card, the one state a capture cannot sit and wait for, can be missing from
+    /// a shot that otherwise looks entirely normal.
     static func fixtureOrder(of keys: [String]) -> [String: Int] {
         var order: [String: Int] = [:]
         for (index, key) in keys.sorted().enumerated() { order[key] = index }
@@ -109,6 +115,13 @@ enum DemoUsage {
         case 0:
             one.processes = 3
             one.cpuPercent = 92
+            // BOTH READINGS NAME A PROCESS ON THIS ONE, which is what a warned card looks like on a
+            // real machine: 92% of a core is being burned by something, and a card that warns about
+            // the CPU without saying whose it is answers half of its own alarm. It is also the only
+            // fixture that puts the trend row under its own narrowest rung - two names is the state
+            // a 236pt card cannot hold both of (`SessionCardView.sessionFootprintTrends`), so a
+            // capture shows what that row does about it rather than leaving it to a live board.
+            one.cpuLeader = "node"
             one.memoryBytes = 4_100_000_000
             one.memoryLeader = "bun"
             one.alerts = FootprintAlerts(cpu: true, memory: true)

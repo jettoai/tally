@@ -82,13 +82,20 @@ final class ProcessFootprintStore {
     /// in the pure function, and this only has to hand the number back.
     @ObservationIgnored private var cpuCarry: [String: Double] = [:]
     /// The last ports reading per session, each with the process that was holding it AND the
-    /// program that process was running at the time, held between the ticks that do not take one.
+    /// instant that process started, held between the ticks that do not take one.
     ///
-    /// THE PROGRAM IS WHAT MAKES A HELD READING SAFE TO NAME. This cache can be minutes old with
-    /// the panel open and hours old behind it, and the machine hands pid numbers out again, so a
-    /// name looked up for an old pid in the current table can belong to a process that has never
-    /// held that port. Naming is therefore conditional on the holder still running what it was
-    /// running (`ProcessTree.portNames`), and anything else prints the bare number.
+    /// TWO TICKS IS AS OLD AS THIS GETS, which is worth stating precisely because the cheap thing
+    /// to assume is that it is much older: the reading is taken on one visible tick in three, and
+    /// the whole cache is dropped when the last viewer goes (`endViewing`), which the next opening
+    /// re-reads on its first tick (`beginViewing` puts the count back to zero). So a held pid is at
+    /// most four seconds behind the machine.
+    ///
+    /// THE START TIME IS WHAT MAKES A HELD READING SAFE TO NAME, and it is not the width of that
+    /// window that earns it: the machine hands pid numbers out again, so a name looked up for an
+    /// old pid in the current table can belong to a process that has never held that port, and four
+    /// seconds is enough for a restarted dev server to be a different process wearing the same
+    /// number. Naming is therefore conditional on the holder being the same process it was
+    /// (`ProcessTree.portNames`), and anything else prints the bare number.
     @ObservationIgnored private var ports: [String: [UInt16: ProcessPortHolder]] = [:]
     /// Per session, how long each warning condition has been met or missed. A warning is about a
     /// condition that HOLDS rather than about one tick's reading, so something has to count the
@@ -169,20 +176,29 @@ final class ProcessFootprintStore {
         // the loop below does not run, and everything held falls out through the same three lines
         // that retire a single session that ended.
         let processes = roots.isEmpty ? [] : ProcessTree.liveProcesses()
+        // WHEN EACH LIVE PROCESS BEGAN, out of the walk that has just been made anyway: it is what
+        // a port reading held across a few ticks is compared against, since the number alone cannot
+        // say whether the pid still belongs to the process that opened the port
+        // (`ProcessPortHolder`). One dictionary per tick rather than a lookup through the array per
+        // port, and only while somebody is looking - the ports are the one reading a closed panel
+        // switches off altogether, so behind one this would be a table nothing reads.
+        var startedAt: [pid_t: Int64] = [:]
+        if viewers > 0 { for one in processes { startedAt[one.pid] = one.startedAt } }
         // On screen only, and see the file's note for why: this is the one reading here that costs
         // enough to be worth switching off, and nothing behind a closed panel draws it.
         let readPorts = viewers > 0 && ticks % Self.portsEveryNTicks == 0
-        // Which fixture each card gets during a capture, decided once for the whole tick so a
-        // session keeps the same one from tick to tick, and empty on every ordinary launch
-        // (`DemoUsage.footprint`).
-        let demoOrder = DemoUsage.isActive ? DemoUsage.fixtureOrder(of: roots.map { String($0.0) })
-                                           : [:]
         let now = Date()
         var next: [String: ProcessFootprint] = [:]
         var readings: [String: ProcessResourceSample] = [:]
         var carried: [String: Double] = [:]
         var alerting: [String: FootprintAlertState] = [:]
         var trends = history
+        // Every session that turned out to HAVE a reading, in the order the board listed them, held
+        // until the loop is done rather than published inside it. Only one thing needs that (the
+        // fixtures below are keyed by the cards that will actually be drawn), and it is worth the
+        // one array: keyed by the roster instead, a root the two guards below skip took its
+        // fixture with it and the warned card simply was not in the capture.
+        var measurements: [(key: String, footprint: ProcessFootprint, interval: TimeInterval?)] = []
         for (root, idle, child) in roots {
             let members = ProcessTree.members(root: root, processes: processes)
             guard !members.isEmpty else { continue }
@@ -221,7 +237,9 @@ final class ProcessFootprintStore {
             let disk = ProcessTree.diskWrite(from: previous, to: reading)
             carried[key] = cpu.carry
             if readPorts {
-                ports[key] = ProcessTree.held(ProcessTree.listeningPorts(of: measured)) { paths[$0] }
+                ports[key] = ProcessTree.held(ProcessTree.listeningPorts(of: measured)) {
+                    startedAt[$0]
+                }
             }
             let holding = ports[key] ?? [:]
             // THE COUNT IS OF WHAT THE SESSION STARTED AND THE REST OF THE READINGS ARE OF THE
@@ -249,7 +267,8 @@ final class ProcessFootprintStore {
                 diskWriteBytesPerSecond: disk.bytesPerSecond,
                 diskLeader: name(of: disk.leader),
                 listeningPorts: holding.keys.sorted(),
-                portNames: ProcessTree.portNames(holding) { paths[$0] })
+                portNames: ProcessTree.portNames(holding, startedAt: { startedAt[$0] },
+                                                 executable: { paths[$0] }))
             // The warnings are decided from THIS tick's reading and the ticks before it, then put
             // back on the same reading: what the card draws and what the card warns about are one
             // value, so they cannot be a tick apart.
@@ -262,6 +281,32 @@ final class ProcessFootprintStore {
                                                reading: footprint, idle: idle, at: now)
             alerting[key] = state
             footprint.alerts = state.alerts
+            // WHETHER THERE IS A RATE TO RECORD AT ALL is a question about the PAIR of readings,
+            // which no fixture can answer, so it is settled here on the machine's own numbers: the
+            // first pair has no interval yet, and a zero written where "not measured yet" belongs
+            // would draw a dip the machine never had.
+            //
+            // AND THE INTERVAL GOES WITH THE RATE, because the two rates meet INSIDE a bucket every
+            // time somebody opens the board: the reading taken at that instant covers the ten
+            // seconds the slow timer had been running, and the fast ones after it cover two each.
+            // Folded flat they made a peak out of the opening (`FootprintTrendSample.folded`).
+            let interval = cpu.percent != nil ? previous.map { now.timeIntervalSince($0.at) } : nil
+            measurements.append((key: key, footprint: footprint, interval: interval))
+        }
+        // WHICH FIXTURE EACH CARD GETS DURING A CAPTURE, decided once for the whole tick so a
+        // session keeps the same one from tick to tick, and empty on every ordinary launch
+        // (`DemoUsage.footprint`).
+        //
+        // KEYED BY THE CARDS THAT WILL BE DRAWN rather than by the roster the tick started from,
+        // which is the fix for a fixture that could go missing: the two guards above skip a root
+        // whose session has just ended or whose tree is all Tally's own, and an index handed out
+        // before them left a hole - the first fixture is the WARNED card, the one state a capture
+        // cannot wait for, and nothing about the remaining three cards said one was absent. Decided
+        // on the survivors, every fixture is on the board whenever there are cards for them.
+        let demoOrder = DemoUsage.isActive ? DemoUsage.fixtureOrder(of: measurements.map(\.key))
+                                           : [:]
+        for one in measurements {
+            var footprint = one.footprint
             // FIXTURE READINGS FOR A CAPTURE, and only for one: the flag lives in the volatile
             // argument domain, so an ordinary launch never takes this branch (`DemoUsage`).
             //
@@ -273,32 +318,23 @@ final class ProcessFootprintStore {
             // vertically at the top, on all three metrics, on every fixture card. What a shot is
             // for is what the card looks like, so the fixture reading is the reading - it is what
             // the ring is offered below, and the shapes are as fabricated as the figures.
-            if let index = demoOrder[key] { footprint = DemoUsage.footprint(footprint, at: index) }
-            next[key] = footprint
+            if let index = demoOrder[one.key] { footprint = DemoUsage.footprint(footprint, at: index) }
+            next[one.key] = footprint
             // THE RING IS OFFERED EVERY TICK AND KEEPS ONE POINT IN FIVE OF THEM, folding the rest
             // into it, which is what holds the series to one cadence AND to one meaning across two
-            // rates (`FootprintTrendSeries.record`). Only once there is a rate to keep: the first
-            // pair of readings has no interval yet, and a zero written where "not measured yet"
-            // belongs would draw a dip the machine never had.
-            //
-            // AND THE INTERVAL GOES WITH THE RATE, because the two rates meet INSIDE a bucket every
-            // time somebody opens the board: the reading taken at that instant covers the ten
-            // seconds the slow timer had been running, and the fast ones after it cover two each.
-            // Folded flat they made a peak out of the opening (`FootprintTrendSample.folded`).
+            // rates (`FootprintTrendSeries.record`).
             //
             // AND THE RING IS OFFERED THE FOOTPRINT THE CARD DRAWS, not the raw reading it was
             // built from. The two are the same values on every ordinary launch - the fields are
             // copied from these very numbers - and where they are not (a capture's fixtures), a
             // line drawn from one and a figure printed from the other is a card contradicting
-            // itself. `cpu.percent` still decides WHETHER there is a rate to record: that is a
-            // question about the pair of readings, which no fixture can answer.
-            if cpu.percent != nil, let since = previous?.at,
-               let percent = footprint.cpuPercent {
+            // itself.
+            if let interval = one.interval, let percent = footprint.cpuPercent {
                 trends.record(FootprintTrendSample(cpuPercent: percent,
-                                                   seconds: now.timeIntervalSince(since),
+                                                   seconds: interval,
                                                    memoryBytes: footprint.memoryBytes,
                                                    processes: footprint.processes),
-                              for: key, at: now)
+                              for: one.key, at: now)
             }
         }
         previousSample = readings

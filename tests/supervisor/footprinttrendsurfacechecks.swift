@@ -56,13 +56,26 @@ func runFootprintTrendSurfaceChecks() {
     // The pair of readings still decides whether there IS a rate, which is a question about the
     // machine that no fixture can answer.
     check("…and a fixture cannot invent an interval the machine never measured",
-          store.contains("if cpu.percent != nil, let since = previous?.at,"))
+          store.contains("let interval = cpu.percent != nil"
+                         + " ? previous.map { now.timeIntervalSince($0.at) } : nil"))
     // The rate and the span it covers are handed over together: the two sampling rates meet inside
     // one bucket every time the board is opened, and a fold that weighted every reading alike made
     // a peak out of the opening (`FootprintTrendSample.folded`).
     check("…and only once there is an interval to state a rate over, which goes with it",
-          store.contains("if cpu.percent != nil, let since = previous?.at,")
-              && store.contains("seconds: now.timeIntervalSince(since),"))
+          store.contains("if let interval = one.interval, let percent = footprint.cpuPercent {")
+              && store.contains("seconds: interval,"))
+    // EVERY FIXTURE IS ON THE BOARD, which is a property of WHICH KEYS the indices are handed out
+    // over: the two guards above can drop a root whose session has just ended or whose tree is all
+    // Tally's own, and an index decided before them left a hole in the run - the first fixture is
+    // the WARNED card, the one state a capture cannot sit and wait for, and three normal-looking
+    // cards say nothing about a fourth that never appeared (codex review of 0cd4a09).
+    check("the fixtures are handed out over the cards that will be drawn, not over the roster",
+          store.contains("DemoUsage.fixtureOrder(of: measurements.map(\\.key))")
+              && !store.contains("fixtureOrder(of: roots.map"))
+    let guarded = store.range(of: "guard !measured.isEmpty else { continue }")
+    let keyed = store.range(of: "DemoUsage.fixtureOrder(of:")
+    check("…decided after every guard that can drop one of them",
+          (guarded.map { edge in keyed.map { edge.upperBound < $0.lowerBound } } ?? nil) == true)
     // Swept against the BOARD rather than against this tick's readings: a tree that could not be
     // read for one pass has no entry, and sweeping on that would throw a quarter hour of history
     // away over a single unreadable tick.
@@ -207,17 +220,42 @@ func runFootprintTrendSurfaceChecks() {
     // Then the unit word goes before the names do: `procs` is what the figure counts and a reader
     // of a row whose other two figures carry their own units can infer it, while a culprit's name
     // is a fact only this card holds.
-    check("…and then the unit word goes before the names themselves",
-          chain.suffix(3).map { $0 } == ["peaks: 0, asides: .all",
+    //
+    // AND THE TWO NAMES GO ONE AT A TIME, which they did not when this row was first laid out this
+    // way: both are culprits, so one rung kept or dropped them together and a card that could hold
+    // one name but not two went straight to holding neither (213pt with the memory's holder alone
+    // against 240pt with the CPU's as well, on the 236pt a 264pt card gives its content). The
+    // session that names a process for both readings is the busy one somebody has the board open
+    // for, so it was the reported defect's own case (codex review of 0cd4a09).
+    check("…and then the unit word goes, then one name, then the other",
+          chain.suffix(4).map { $0 } == ["peaks: 0, asides: .all",
                                          "peaks: 0, asides: .culpritsOnly",
+                                         "peaks: 0, asides: .memoryCulpritOnly",
                                          "peaks: 0, asides: .none"])
+    // THE WHOLE TABLE RATHER THAN THE INTERESTING ROW OF IT: every metric on this row is asked both
+    // questions, so a metric added here cannot inherit an answer by omission and a rung cannot
+    // quietly change which words it keeps.
     check("…with the difference between a unit and a culprit stated once, by the metric",
-          FootprintTrendMetric.processes.asideNamesACulprit == false
-              && FootprintTrendMetric.cpu.asideNamesACulprit
-              && FootprintTrendMetric.memory.asideNamesACulprit)
+          FootprintTrendMetric.allCases.map(\.asideNamesACulprit) == [false, true, true])
+    check("…and which single name outlives the other stated the same way",
+          FootprintTrendMetric.allCases.map(\.asideSurvivesAlone) == [false, false, true])
+    // THE RUNGS ONLY EVER GIVE THINGS UP, which is what makes that list an order rather than four
+    // arrangements: whatever a rung keeps, every rung above it keeps too.
+    check("…each rung keeping a subset of the words the rung above it keeps",
+          FootprintTrendMetric.allCases.allSatisfy {
+              !$0.asideSurvivesAlone || $0.asideNamesACulprit
+          })
     check("…and the row asking the metric rather than testing for one by name",
           card.contains("case .culpritsOnly: metric.asideNamesACulprit")
-              && !card.contains("metric != .processes"))
+              && card.contains("case .memoryCulpritOnly: metric.asideSurvivesAlone")
+              && !card.contains("metric != .processes") && !card.contains("metric == .memory"))
+    // A NAME IS DROPPED BY THE CANDIDATE LIST OR NOT AT ALL. A `layoutPriority(-1)` stood on this
+    // word claiming to catch "the name too long for even the narrowest candidate", which cannot
+    // happen: `ViewThatFits` takes a candidate only when its ideal width already fits, and the one
+    // it falls back on when none do has no names in it - so nothing was ever asked to give room up
+    // (codex review of 0cd4a09, dead code with a note explaining a mechanism that could not run).
+    check("…and no priority pretending to shrink a name the candidates already decided about",
+          !card.contains("Text(verbatim: aside).foregroundStyle(.tertiary).layoutPriority"))
     // Read off the source like everything else here, because the order lives on a SwiftUI view this
     // harness cannot construct: every metric is in it (so no group is silently barred from ever
     // printing a peak) and the CPU is the last one dropped.
@@ -277,12 +315,17 @@ func runFootprintTrendSurfaceChecks() {
               && !demo.contains("keyed by the board's own order"))
 
     // A PORT READING IS HELD BETWEEN THE TICKS THAT DO NOT TAKE ONE, and a pid is not an identity:
-    // the machine hands numbers out again, so what is cached with the port is the program its
-    // holder was running, and the name is printed only while that is still what it is running.
-    check("the ports are cached with the program holding them, and named only if it still is",
-          store.contains("ProcessTree.held(ProcessTree.listeningPorts(of: measured)) { paths[$0] }")
-              && store.contains("portNames: ProcessTree.portNames(holding) { paths[$0] })")
-              && store.contains("private var ports: [String: [UInt16: ProcessPortHolder]] = [:]"))
+    // the machine hands numbers out again, so what is cached with the port is WHEN its holder
+    // started, and the name is printed only while the pid still belongs to that same process. The
+    // program's path was what this used to cache, which cannot see the recycling it matters most
+    // for - a restarted node under a tree of them (codex review of 0cd4a09).
+    check("the ports are cached with the identity of the process holding them",
+          store.contains("ProcessTree.held(ProcessTree.listeningPorts(of: measured)) {")
+              && store.contains("private var ports: [String: [UInt16: ProcessPortHolder]] = [:]")
+              && store.contains("if viewers > 0 { for one in processes"
+                                + " { startedAt[one.pid] = one.startedAt } }"))
+    check("…and named only while the pid is still that process",
+          store.contains("portNames: ProcessTree.portNames(holding, startedAt: { startedAt[$0] },"))
 
     // EVERY WORD THIS ROW ADDED IS IN THE CATALOGUE, in all four translations: the app ships five
     // languages, and a string that reaches a person in English on a Japanese machine is a missing

@@ -160,6 +160,28 @@ enum FootprintTrendMetric: Hashable, CaseIterable {
         }
     }
 
+    /// Whether this metric's name is the one that OUTLIVES THE OTHER NAME, on a row with room for
+    /// only one of the two. Both of them blame a program, so the rung above cannot choose between
+    /// them, and a card narrow enough to reach this one used to drop both (codex review of
+    /// 0cd4a09): a busy session names a process for its CPU as well as for its memory, which is
+    /// exactly the session somebody has the board open for.
+    ///
+    /// THE MEMORY'S IS THE ONE KEPT, because the two figures are not equally readable without a
+    /// name. `92%` is worth acting on before anybody knows which process earned it, and the value
+    /// line one row up says the same thing in words; `3.4 GB` beside a count of the processes the
+    /// session started cannot say whether those gigabytes are the session's own Claude Code or the
+    /// thing it started, which is the question this card gained a name to answer at all
+    /// (`ProcessFootprint.memoryLeader`, `ProcessTree.segments`).
+    ///
+    /// Stated here rather than as a `== .memory` test where the row is laid out, for the reason the
+    /// rule above it is: a metric added to this row has to answer the question.
+    var asideSurvivesAlone: Bool {
+        switch self {
+        case .processes, .cpu: false
+        case .memory: true
+        }
+    }
+
     /// The widest figure this metric prints in ordinary use, which is what its column on a card is
     /// sized from: a hundred per cent of three cores, a tree holding ninety-nine and a half
     /// gigabytes, a session running ninety-nine processes. Nothing is clipped when a reading passes

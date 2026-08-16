@@ -42,9 +42,19 @@ extension ProcessTree {
             // makes a pid held across ticks comparable with the pid the machine is showing now
             // (`ProcessIdentity.startedAt`), and asking for it separately would be a second call per
             // process per tick for a field already in hand.
+            //
+            // SATURATING RATHER THAN CONVERTING, at both steps, because the kernel's seconds are
+            // unsigned and this line runs over every process on the machine every two seconds: a
+            // plain `Int64(_:)` and a plain multiply each TRAP on a value they cannot represent, so
+            // one absurd record would take the menu bar app down rather than mis-name one port.
+            // Saturated, a nonsense reading stays nonsense and stays comparable with itself, which
+            // is the whole of what this field is asked for. Nothing here is reachable today (the
+            // field reads about 1.78e15 microseconds against the 9.2e18 an `Int64` holds), which is
+            // the point - the safe spelling costs nothing.
+            let seconds = min(Int64(clamping: info.pbi_start_tvsec), Int64.max / 1_000_000)
             processes.append(ProcessIdentity(
                 pid: pid, parent: pid_t(info.pbi_ppid), group: pid_t(info.pbi_pgid),
-                startedAt: Int64(info.pbi_start_tvsec) * 1_000_000 + Int64(info.pbi_start_tvusec)))
+                startedAt: seconds * 1_000_000 + Int64(clamping: info.pbi_start_tvusec)))
         }
         return processes
     }

@@ -264,10 +264,19 @@ struct SessionCardView: View {
     /// truncated at its tail, so it was the first thing a narrow card dropped (Albert, 2026-08-16).
     ///
     /// AND THE IDENTITY IS WHAT GIVES WAY FOR THEM, by asking for the room LAST rather than by
-    /// being one of two candidates: the ports are laid out at their own width and the identity
-    /// carries `layoutPriority(-1)`, which is the same rule the trend row's culprit names are under
-    /// one file over. How many of the ports say what is holding them is decided before the layout
-    /// ever runs, on a measured character budget (`ProcessTree.portsText`).
+    /// being one of two candidates: the ports are laid out at their own width (`fixedSize`) and the
+    /// identity carries `layoutPriority(-1)`, so a row with too little of it takes the shortfall off
+    /// the name and never off the numbers. How many of the ports say what is holding them is decided
+    /// before the layout ever runs, on a measured POINT budget (`ProcessTree.portsText`).
+    ///
+    /// THAT PRIORITY IS LOAD-BEARING HERE AND WAS NOT ON THE TREND ROW, which is worth writing down
+    /// because the two were once called one rule. This is a plain `HStack`: when the row is short
+    /// something really is compressed, and the priority is what decides which of the two it is. The
+    /// culprit names one file over sat inside a `ViewThatFits`, which only ever takes a candidate
+    /// whose ideal width ALREADY fits - nothing there was ever asked to give room up, so the same
+    /// modifier was dead code and has been removed (`SessionCardView.sessionFootprintTrends`).
+    /// Deleting this one on the strength of that reasoning would compress the PORTS instead, and a
+    /// truncated port number is a wrong port rather than a shortened name.
     ///
     /// IT WAS A `ViewThatFits` AND THAT WAS WRONG, which is worth keeping written down because the
     /// mistake looks like the idiom: that view chooses by its candidates' IDEAL width, and a
@@ -296,9 +305,14 @@ struct SessionCardView: View {
                 // Held at its own width, so the identity beside it is what the HStack takes the
                 // room from; monospaced for the reason every other figure on this card is - the
                 // digits are re-read every couple of seconds and must not shuffle the line.
+                // WHAT THE BUDGET DROPPED IS STILL SPOKEN IN FULL, the rule the trend row below
+                // keeps for its own dropped words (`spokenTrends`): a listener has no width to run
+                // out of, and the name a narrow card gave up is the very thing this row was moved
+                // up here to say.
                 Text(verbatim: ports)
                     .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
                     .lineLimit(1).fixedSize()
+                    .accessibilityLabel(sessionPortsSpoken ?? ports)
             }
         }
     }

@@ -114,7 +114,7 @@ extension ProcessTree {
     /// wrong on every ordinary card: that view picks by its candidates' IDEAL width, and the ideal
     /// width of a truncating identity string is the whole untruncated string - so the fit test was
     /// asking "do the full identity AND the named ports both fit", which a 22-character identity
-    /// (108pt measured) and one named port (98pt) already fail on a 236pt card. The named spelling
+    /// (108pt measured) and one named port (95.1pt) already fail on a 236pt card. The named spelling
     /// was therefore almost never chosen, and the feature this row exists for was silently off.
     ///
     /// SO THE RULE IS A BUDGET, AND THE BUDGET IS IN THE UNIT THE LAYOUT SPENDS. A 264pt card gives
@@ -129,12 +129,21 @@ extension ProcessTree {
     /// IT USED TO BE COUNTED IN CHARACTERS, and thirty of them was calibrated on lower-case ASCII
     /// program names, which run about 5.2 to 5.9 points each. The strings this actually prints do
     /// not: measured with the app's own font at 10pt (2026-08-17),
-    /// `:3000 (MMMMMMMMMMMMMMM) :5173` is 29 characters and 204pt, and the same shape with fifteen
-    /// full-width characters in the name is 28 characters and 214pt - both inside a
-    /// thirty-character budget and both past the 207pt that clips. Tally ships in five languages,
-    /// so a program named in Chinese, Japanese or Korean is an expected reading rather than an
-    /// exotic one, and a capital-heavy ASCII name needs no other language at all. The unit was the
-    /// defect, not the calibration (codex review of 0cd4a09).
+    /// `:3000 (MMMMMMMMMMMMMMM) :5173` is 29 characters and 204.1pt, and the same shape whose name
+    /// is fifteen full-width characters is 29 characters and 220.4pt - the same length, 16pt apart,
+    /// both inside a thirty-character budget and both past the 207pt that clips. Tally ships in five
+    /// languages, so a program named in Chinese, Japanese or Korean is an expected reading rather
+    /// than an exotic one, and a capital-heavy ASCII name needs no other language at all. The unit
+    /// was the defect, not the calibration (codex review of 0cd4a09).
+    ///
+    /// AND THE NEW UNIT IS SLIGHTLY TIGHTER ON ORDINARY NAMES, which is a consequence worth naming
+    /// rather than discovering: `:3000 (webpack-dev-srv) :5173` is 29 characters and 155.6pt, so it
+    /// was printed under the thirty-character rule and loses its name under this one, though it
+    /// would not have been clipped. That is the budget doing what it is for - it is the width at
+    /// which the ACCOUNT NAME beside it stops being readable, not the width at which the row
+    /// overflows - and the exchange is one program name for about two characters of identity on the
+    /// cards that sit right on the line. Raising it towards 207 would buy those names back and spend
+    /// the identity down to an ellipsis.
     ///
     /// NAMES ARE ADDED FROM THE LEFT AND THE NUMBERS ARE NEVER DROPPED. The widest spelling that
     /// fits the budget wins, and a spelling with no names at all is returned even when it does not

@@ -48,6 +48,20 @@ extension SessionCardView {
         return ProcessTree.portsText(footprint, width: Self.portsWidth)
     }
 
+    /// The same ports with EVERY name said and every port listed, whatever the row had room to
+    /// print (`SessionCardView.sessionIdentityRow` hands this to VoiceOver).
+    ///
+    /// A LISTENER HAS NO WIDTH TO RUN OUT OF, which is the rule the trend row one screen down
+    /// already keeps about its own dropped words (`spokenTrends`). Both of the two budgets this
+    /// spelling is subject to are about ROOM - how many points of names fit, and how many ports fit
+    /// beside an identity before the rest become `+N` - so both are lifted here, and what is left is
+    /// the whole fact: every port this session holds, each with whoever holds it.
+    var sessionPortsSpoken: String? {
+        guard let footprint = ProcessFootprintStore.shared.footprints[row.id] else { return nil }
+        return ProcessTree.portsText(footprint, maxPorts: .max, budget: .infinity,
+                                     width: Self.portsWidth)
+    }
+
     /// How wide one spelling of the ports is, in the font the identity row draws them in.
     ///
     /// MEASURED IN THE FONT THAT IS ACTUALLY DRAWN, digits and all: the row asks for
@@ -208,8 +222,10 @@ extension SessionCardView {
     ///
     /// AND THE TWO NAMES GO ONE AT A TIME, which the first version of this order did not do and is
     /// the whole of what it was reported for (codex review of 0cd4a09). Both names are culprits, so
-    /// the `culpritsOnly` rung keeps or drops them together: measured at 10pt, that rung is 213pt
-    /// on a card naming only the memory's holder and 240pt as soon as the CPU has one too, against
+    /// the `culpritsOnly` rung keeps or drops them together: measured at 10pt on the same ledger as
+    /// the figures above (208pt for the shapes, the figures and the unit word; 244 with the unit
+    /// word and the memory's name), that rung is 213pt on a card naming only the memory's holder
+    /// and 240pt as soon as the CPU has one too, against
     /// the 236pt a 264pt card gives its content - so a session busy enough to blame a process for
     /// BOTH readings fell straight past it to the rung with no names at all. That is the session
     /// somebody has this board open for, and the name this commit was written to keep is the one it

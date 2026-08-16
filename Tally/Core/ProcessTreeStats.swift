@@ -123,7 +123,8 @@ struct ProcessIdentity: Equatable {
     /// (`ProcessPortHolder`) - is a stale key in a fresh table unless something says the process is
     /// still the same process. Stable for the life of a process and different for the next holder
     /// of its number, which is the same pair of properties the supervisor identifies a Claude Code
-    /// by, spelled the same way and in the same unit (`ProcessStamp`, TranscriptIdentity.swift):
+    /// by, spelled the same way and in the same unit (`ProcessStamp`,
+    /// `TallyCLI/TranscriptIdentity.swift`):
     /// one identity rule for pids in this repository rather than two.
     ///
     /// It costs nothing to carry: it comes out of the very `proc_bsdinfo` record the parent and the

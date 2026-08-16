@@ -451,6 +451,16 @@ func runProcessTreeChecks() {
     let walked = ProcessTree.liveProcesses()
     let mine = walked.first { $0.pid == getpid() }
     check("the walk says when each process began", (mine?.startedAt ?? 0) > 0)
+    // AND SAYS IT AS MICROSECONDS SINCE THE EPOCH, which is the half a stability test cannot see:
+    // a field carrying only the sub-second part of the reading is just as stable and just as
+    // different between two live processes, and it REPEATS EVERY SECOND - so the one property this
+    // number exists for, that the next holder of a pid gets a different value, would hold only by
+    // luck, and the claim that it is the unit the supervisor stamps by (`ProcessStamp`) would be
+    // quietly false. Bounded against the wall clock rather than against a constant, so what is
+    // pinned is the unit and not merely a magnitude.
+    let clock = Int64(Date().timeIntervalSince1970 * 1_000_000)
+    check("…on the same clock and in the same unit the supervisor stamps a process by",
+          (mine?.startedAt ?? 0) > clock - 3_600_000_000 && (mine?.startedAt ?? 0) <= clock)
     check("…the same number on a second walk of the same live process",
           mine?.startedAt == ProcessTree.liveProcesses().first { $0.pid == getpid() }?.startedAt)
     let parent = walked.first { $0.pid == getppid() }

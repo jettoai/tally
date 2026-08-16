@@ -209,9 +209,13 @@ func runFootprintTrendSurfaceChecks() {
     // AND THE CULPRITS OUTLIVE THE CEILINGS, which is the order that moved when the memory figure
     // gained a name. Attribution is what this row was asked for - a memory reading with no name
     // cannot say whether those gigabytes are the session's own Claude Code or the thing it started
-    // - and a ceiling is a second reading of a number already printed. Re-measured at 10pt
-    // (2026-08-17): the row with both words is 244pt against the 236pt a 264pt card gives its
-    // content, so a narrow card DOES reach these rungs rather than them being decoration.
+    // - and a ceiling is a second reading of a number already printed. ONE LEDGER FOR THE WHOLE
+    // LADDER, re-measured at 10pt (2026-08-17) and stated the same way where the row itself is
+    // written (`SessionCardView.sessionFootprintTrends`): the three shapes, the three figures and
+    // the unit word are 208pt, the unit word plus the memory's name takes it to 244, and the rung
+    // that has dropped the unit word and kept BOTH names is 240 - all of them against the 236pt a
+    // 264pt card gives its content, so a narrow card DOES reach these rungs rather than them being
+    // decoration.
     let chain = card.components(separatedBy: "trendRow(trends, peaks:").dropFirst()
         .map { "peaks:" + ($0.components(separatedBy: ")").first ?? "") }
     check("every candidate keeps its culprits until all three ceilings are gone",
@@ -310,9 +314,18 @@ func runFootprintTrendSurfaceChecks() {
     // which card is the warned one cannot be predicted - only that it stays put while a capture
     // runs and a shutter is pressed twice.
     check("…and the fixture each card gets is stable for the length of a capture",
-          demo.contains("for (index, key) in keys.sorted().enumerated()")
+          demo.contains("for (index, key) in Set(keys).sorted().enumerated()")
               && demo.contains("WHAT THE ORDER BUYS IS STABILITY, NOT AN ARRANGEMENT")
               && !demo.contains("keyed by the board's own order"))
+    // COUNTED OVER THE DISTINCT KEYS, which closes the same hole by its other route: a key listed
+    // twice takes two indices and answers to only the second, so `["100", "100", "200"]` numbered
+    // straight through leaves index 0 - the warned card - belonging to nobody. Read off the source
+    // because this suite has no target that compiles DemoUsage.swift (it reaches AccountUsage, the
+    // token history and the advisor); what can be pinned is that the de-duplication is there and
+    // that the shape it replaced is not.
+    check("…every fixture having somebody to belong to even if a key arrives twice",
+          demo.contains("Set(keys).sorted()") && !demo.contains("in keys.sorted().enumerated()")
+              && demo.contains("COUNTED OVER THE DISTINCT KEYS"))
 
     // A PORT READING IS HELD BETWEEN THE TICKS THAT DO NOT TAKE ONE, and a pid is not an identity:
     // the machine hands numbers out again, so what is cached with the port is WHEN its holder

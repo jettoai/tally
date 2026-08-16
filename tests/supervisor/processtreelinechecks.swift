@@ -179,11 +179,19 @@ func runProcessTreeLineChecks() {
     // A RULER OF THE HARNESS'S OWN, because the real one is a font and there is no target with
     // AppKit in it here (`SessionCardView.portsWidth` is the production one). Two of them, and the
     // pair is the point: measured with the app's own font at 10pt (2026-08-17),
-    // `:3000 (next-server) :5173 +1` is 142.6pt over 28 characters, while the same shape whose name
-    // is fifteen full-width characters is 213.9pt over the same 28 - so a rule counting characters
-    // cannot tell the fitting spelling from the one that runs off the card.
+    // `:3000 (MMMMMMMMMMMMMMM) :5173` is 204.1pt over 29 characters, while the same shape whose
+    // name is fifteen full-width characters is 220.4pt over the same 29 - so a rule counting
+    // characters cannot tell the fitting spelling from the one that runs off the card.
     func narrow(_ text: String) -> Double { Double(text.count) * 5.1 }
     func wide(_ text: String) -> Double { Double(text.count) * 7.6 }
+    // AND A THIRD RULER THAT IS NOT THE CHARACTER COUNT TIMES ANYTHING, which is the only kind that
+    // can state what changed here: against a linear ruler `w(s) = k · s.count` a budget in points
+    // and a budget in characters are the SAME RULE with k divided out, so the two above - useful as
+    // they are for the ends of the budget - would pass just as well on the implementation this
+    // replaced. This one charges per glyph, the way a font does.
+    func perGlyph(_ text: String) -> Double {
+        text.reduce(0) { $0 + ($1.isASCII ? 5.1 : 10.0) }
+    }
     // THE BUDGET IS WHAT DECIDES HOW MANY NAMES ARE PRINTED, and it is decided here rather than by
     // the layout: the card used to hand two spellings to `ViewThatFits`, which chooses on its
     // candidates' IDEAL width and so measured the whole untruncated identity string against the
@@ -208,6 +216,22 @@ func runProcessTreeLineChecks() {
     check("a spelling is measured in the points it takes rather than in characters",
           ProcessTree.portsText(holding, width: wide) == ":3000 :5173 +1"
               && ProcessTree.portsText(holding, width: narrow) == ":3000 (next-server) :5173 +1")
+    // AND THE PAIR THAT SAYS IT WITHOUT THE RULER'S HELP: two cards whose named spellings are the
+    // same LENGTH and different WIDTHS, answered differently. Nothing about a budget in characters
+    // can produce these two answers, whatever constant it is calibrated with - which is what the
+    // pair of rulers above, both of them the character count times something, cannot state.
+    let capitals = ProcessFootprint(processes: 1, cpuPercent: nil, listeningPorts: [3000, 5173],
+                                    portNames: [3000: "MMMMMMMMMMMMMMM"])
+    // Spelled as escapes rather than as the glyphs themselves, so this file stays ASCII: fifteen
+    // full-width characters, exactly as many as the capitals above.
+    let fullWidth = ProcessFootprint(processes: 1, cpuPercent: nil, listeningPorts: [3000, 5173],
+                                     portNames: [3000: String(repeating: "\u{4E00}", count: 15)])
+    check("…the precondition being that the two named spellings are the same length",
+          ProcessTree.portsText(capitals, budget: .infinity, width: perGlyph)?.count
+              == ProcessTree.portsText(fullWidth, budget: .infinity, width: perGlyph)?.count)
+    check("…and the wide one loses its name where the narrow one keeps it, at equal length",
+          ProcessTree.portsText(capitals, width: perGlyph) == ":3000 (MMMMMMMMMMMMMMM) :5173"
+              && ProcessTree.portsText(fullWidth, width: perGlyph) == ":3000 :5173")
     // And the budget stays clear of the width that would CLIP rather than merely crowd: a 264pt
     // card gives 236pt of content, of which the provider mark (11), three gaps of four and the
     // minimum gutter (6) leave 207 for a ports string that is laid out at its own width and refuses
@@ -441,6 +465,27 @@ func runProcessTreeLineChecks() {
               && boardCardSource.contains(".lineLimit(1).fixedSize()"))
     check("…and no candidate list is left on this row to choose between them",
           !boardCardSource.contains("identityRow(ports:"))
+    // THE READER-END COPY OF A RULE SAYS THE SAME THING THE RULE DOES. The budget changed unit and
+    // the paragraph on this card that cites it went on saying "character budget" for a commit,
+    // which is the drift a grep closes and a memory does not (codex review of 707a1a7).
+    check("…described on the card in the unit the rule actually spends",
+          boardCardSource.contains("on a measured POINT budget (`ProcessTree.portsText`)")
+              && !boardCardSource.contains("character budget"))
+    // AND THE PRIORITY ON THIS ROW IS NOT THE ONE THAT WAS DELETED NEXT DOOR. It reads the same and
+    // is not the same: here the row is a plain `HStack` and something really is compressed, while
+    // the trend row's was inside a `ViewThatFits`, which never asks a candidate to give room up. A
+    // note filing the two under one rule invites the next reader to remove this one too, and this
+    // one is what keeps a port number whole.
+    check("…and the live priority here not filed under the dead one's rule",
+          boardCardSource.contains("THAT PRIORITY IS LOAD-BEARING HERE AND WAS NOT ON THE TREND ROW")
+              && !boardCardSource.contains("which is the same rule the trend row's culprit names"))
+    // WHAT THE BUDGET DROPPED IS STILL SPOKEN IN FULL, which is the rule the trend row keeps for
+    // its own dropped words: both of the limits on this spelling are about room, so both are lifted
+    // for a listener who has none.
+    check("…and a listener told every name and every port the row had no room for",
+          boardCardSource.contains(".accessibilityLabel(sessionPortsSpoken ?? ports)")
+              && cardSource.contains("ProcessTree.portsText(footprint, maxPorts: .max,"
+                                     + " budget: .infinity,"))
     check("…asked of the same pure rule the assertions above state",
           cardSource.contains("ProcessTree.portsText(footprint, width: Self.portsWidth)"))
     // THE RULE IS PURE AND THE RULER IS NOT: the budget is in points, so the one thing the rule

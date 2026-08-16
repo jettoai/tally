@@ -87,9 +87,16 @@ enum DemoUsage {
     /// to have no reading for takes an index with it, and the fixtures after the hole all shift up
     /// - so the WARNED card, the one state a capture cannot sit and wait for, can be missing from
     /// a shot that otherwise looks entirely normal.
+    ///
+    /// COUNTED OVER THE DISTINCT KEYS, so that promise does not depend on the caller's list being
+    /// free of repeats. A key listed twice would otherwise take two indices and hand back only the
+    /// second, leaving exactly the same hole by a different route: `["100", "100", "200"]` numbered
+    /// straight through gives nobody index 0. The board's keys are supervisor pids and are expected
+    /// to be distinct, which is why this is a boundary rather than a bug - and why it is closed here
+    /// instead of trusted.
     static func fixtureOrder(of keys: [String]) -> [String: Int] {
         var order: [String: Int] = [:]
-        for (index, key) in keys.sorted().enumerated() { order[key] = index }
+        for (index, key) in Set(keys).sorted().enumerated() { order[key] = index }
         return order
     }
 

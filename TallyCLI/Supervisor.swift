@@ -468,14 +468,17 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // the user, idle, or nothing-to-say. The rules are in SessionStateSync.swift; the model
             // published is the one that ANSWERED the last turn where there is one, falling back to
             // what the child was launched with (SessionContext.swift states why those differ).
-            let boardState = syncSessionState(
+            let board = syncSessionState(
                 &sessionState, pid: supervisorPID, project: boardProject,
                 accountID: account.id, childPid: Int(childPID),
                 model: (axes.observedModel ?? axes.runningModel ?? axes.pinnedModel)
                     .map(shortModelName),
                 watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt)
-            // `tally session send`: type a pending request into this terminal, if the state just
-            // decided allows it. NOT a relaunch reason - it plans nothing, terminates nothing, and
+            // `tally session send`: type a pending request into this terminal, if the reading just
+            // taken allows it. THE READING RATHER THAN THE WORD, because this is the one consumer
+            // for which "working" is two different answers: a conversation mid-turn is not typed
+            // into, one whose dispatched agents are writing is (SessionQuiet.swift argues it).
+            // NOT a relaunch reason - it plans nothing, terminates nothing, and
             // is gated on this tick's own reading rather than on the published file
             // (SessionInput.swift owns every rule, the stall it costs included). It is told whether
             // this tick is ABOUT to terminate the child, which is a fact only the loop holds and the
@@ -485,7 +488,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // is not a relaunch, because the fork hold can stand it down and leave this child
             // running (StandDown.swift carries the whole reasoning, the regression included).
             let replacingChild = relaunchIsHappening(plan: plan, watcher: &watcher)
-            applySessionInput(&sessionInput, session: boardState,
+            applySessionInput(&sessionInput, session: board.state, quiet: board.quiet,
                               keyboardIdle: keyboard.idle(sessionInputKeyboardQuietSeconds),
                               relaunchPlanned: replacingChild)
 

@@ -272,7 +272,10 @@ func runOpenTurnChecks() {
     // `isQuiet` is the one gate every non-urgent path shares (pin, follow, reload, self-update,
     // degradation rescue, fallback), and the cap handoff deliberately does not consult it at all.
     // A pure rule cannot hold either half, so the source carries them.
-    let watcherSource = (try? String(contentsOfFile: "TallyCLI/TranscriptWatcher.swift",
+    // Read off SessionQuiet.swift, which is where that gate lives since the watcher was split: it
+    // is an extension of the same type, and the reading it now returns is asserted for its three
+    // values in the dispatch layout suite.
+    let watcherSource = (try? String(contentsOfFile: "TallyCLI/SessionQuiet.swift",
                                      encoding: .utf8)) ?? ""
     check("the transcript watcher source is readable from the suite", !watcherSource.isEmpty)
     if let start = watcherSource.range(of: "mutating func isQuiet("),

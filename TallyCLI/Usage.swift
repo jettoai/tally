@@ -87,12 +87,16 @@ usage:
                             a permission answer), so typing and sending are one act. Run it inside
                             the session it is meant for (the agent in that conversation can run it
                             as a tool call); --session names another one by the supervisor pid
-                            `tally status --json` lists. It WAITS for the answer: the text is sent
-                            at the first moment that session is waiting on you or idle, so a
-                            request made mid-turn lands when the turn ends, and nothing is sent
-                            while it is working, while it is not reporting what it is doing, or
-                            while somebody is typing in that terminal. At most 200 bytes - a slash
-                            command, an answer to a prompt - and every one of them is recorded in
+                            `tally status --json` lists. The text is typed at the first moment that
+                            session is waiting on you, idle, or finished speaking with only its
+                            subagents still writing, so a request made mid-turn lands when the turn
+                            ends and background agents do not hold it. Nothing is typed while the
+                            conversation itself is in a turn, while it is not reporting what it is
+                            doing, while it is being restarted, or while somebody is typing in that
+                            terminal. Sending to ANOTHER session waits for the answer; sending to
+                            your own returns having queued the line, since waiting would hold open
+                            the very turn it is waiting for. At most 200 bytes - a slash command, an
+                            answer to a prompt - and every one of them is recorded in
                             ~/.tally/logs/input.log
   tally reload [--now]      restart every supervised session at its next idle moment, so edited
                             hooks, skills, and instructions take effect everywhere without

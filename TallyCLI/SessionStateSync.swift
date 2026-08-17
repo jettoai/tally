@@ -177,9 +177,10 @@ struct SessionStateWriter {
 func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: PickProject,
                       accountID: String, childPid: Int?, model: String?,
                       watcher: inout TranscriptWatcher, keyboardBurstAt: Date?,
-                      dir: URL = supervisorStateDir, now: Date = Date()) -> SupervisedState {
-    let quiet = watcher.isQuiet(sessionStateQuietSeconds)
-    // AFTER the locate `isQuiet` runs, so this is the file the conversation is actually in: a
+                      dir: URL = supervisorStateDir, now: Date = Date()) -> SessionTick {
+    let quietness = watcher.quietness(sessionStateQuietSeconds)
+    let quiet = quietness == .quiet
+    // AFTER the locate `quietness` runs, so this is the file the conversation is actually in: a
     // `/clear` or a fork moves it, and the mtime of the file it left says nothing about the answer
     // somebody just gave (TranscriptFork.swift owns that rule).
     let file = watcher.file
@@ -216,7 +217,24 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
                                           project: project.name, worktree: project.worktree,
                                           model: model, childPid: childPid),
                 pid: pid, dir: dir, now: now)
-    return state
+    return SessionTick(state: state, quiet: quietness)
+}
+
+/// What one tick decided about a session: the word every surface reads, and the reading behind it.
+///
+/// THE READING TRAVELS WITH THE WORD because one consumer needs what the word deliberately throws
+/// away. `working` is one answer to two different situations - this conversation is mid-turn, and
+/// this conversation has finished speaking while the agents it dispatched write on - and the board
+/// is right to call both of them working, since both are a session with work in flight. The input
+/// gate is not: it types a line rather than killing anything, so the second case is one it may
+/// serve (SessionQuiet states the whole argument, Albert 2026-08-17). Handing it the state alone
+/// left it unable to tell them apart, and a `/clear` asked for by a head with one agent still
+/// running waited out its whole life and was refused.
+struct SessionTick: Equatable {
+    /// What the board shows and what the state file says.
+    let state: SupervisedState
+    /// What the transcript said on this tick, in the three shapes `SessionQuiet` keeps apart.
+    let quiet: SessionQuiet
 }
 
 /// When a transcript was last written, or nil when there is none (or it cannot be stat'd).

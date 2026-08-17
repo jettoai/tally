@@ -267,7 +267,8 @@ func runSessionSendChecks() {
     // MATCHED ON THE EPOCH, which is the whole reason an answer carries one: a husk from an earlier
     // request can still be at that path, and reading it as this one's would report a delivery that
     // never happened.
-    check("an answer to somebody else's request is not this one's", waited == nil && slept == 4)
+    check("an answer to somebody else's request is not this one's",
+          waited == .timedOut && slept == 4)
     clock = t0
     slept = 0
     husk = nil
@@ -279,9 +280,81 @@ func runSessionSendChecks() {
         },
         read: { _ in husk })
     check("…and the one that is arrives as soon as it is written",
-          arrived?.outcome == "submitted" && slept == 3)
+          arrived == .answered(SessionInputResult(epoch: 8, outcome: "submitted", detail: nil))
+              && slept == 3)
     check("the wait outlasts the request's own life, or it would time out on answers about to come",
           sessionInputWaitSeconds > sessionInputTTL)
+
+    // A WAIT WHOSE END IS ALREADY DECIDED IS NOT WAITED OUT. The only thing that ever writes an
+    // answer is that session's supervisor, so one that has exited leaves a caller sitting for its
+    // whole 150 seconds to be told "nobody answered" about a process that was not there for any of
+    // them (Albert, 2026-08-17: a refusal has to be prompt and has to say why).
+    clock = t0
+    slept = 0
+    let abandoned = awaitSessionInputResult(
+        sessionKey: "9209", epoch: 8, timeout: 150, interval: 0.25, now: { clock },
+        sleep: { slept += 1; clock = clock.addingTimeInterval($0) },
+        abandon: { "session 9209 has exited" }, read: { _ in nil })
+    check("a wait for a session that is gone ends at once, with the reason",
+          abandoned == .abandoned("session 9209 has exited") && slept == 0)
+    // AND AN ANSWER ALREADY ON DISK OUTRANKS IT, which is the ordering inside the loop: a
+    // supervisor that typed the line and then exited has answered, and reporting its absence
+    // instead would turn a delivery into a failure.
+    clock = t0
+    let answeredThenGone = awaitSessionInputResult(
+        sessionKey: "9209", epoch: 8, timeout: 150, interval: 0.25, now: { clock },
+        sleep: { clock = clock.addingTimeInterval($0) }, abandon: { "gone" },
+        read: { _ in SessionInputResult(epoch: 8, outcome: "submitted", detail: nil) })
+    check("…but an answer already written outranks the absence of the writer",
+          answeredThenGone == .answered(SessionInputResult(epoch: 8, outcome: "submitted",
+                                                           detail: nil)))
+    // The condition behind that sentence, over an injected roster so it asks nothing of this
+    // machine: a live supervisor is not abandoned, a dead one is, and a key that is not a pid at
+    // all is left alone (it can only come from a caller that resolved it, and inventing a refusal
+    // for it would be guessing).
+    check("only a session that is really gone is abandoned",
+          sessionInputAbandonment(sessionKey: "9209", alive: { _ in true }) == nil
+              && sessionInputAbandonment(sessionKey: "9209", alive: { _ in false })?
+                  .contains("9209") == true
+              && sessionInputAbandonment(sessionKey: "not-a-pid", alive: { _ in false }) == nil)
+
+    // MARK: - Sending into the session you are running in
+
+    // THE DEADLOCK THIS EXISTS TO AVOID, stated as the two numbers that prove it. A command run
+    // inside a conversation is a tool call, an unfinished tool call is an open turn, and a session
+    // mid-turn is exactly what the supervisor will not type into - so a caller that waits for its
+    // own line to land is waiting for a turn that cannot end until it stops waiting. Measured on
+    // this machine 2026-08-17: three self-sends held their own tool call for 120.2s and were killed
+    // by Claude Code's own timeout, and two thirds of the sends in the preceding day expired
+    // unserved. The short wait is what still catches a session that is already idle or blocked; it
+    // has to be well under both the request's life and the other wait.
+    check("a caller waiting on its own session gives up long before the request does",
+          sessionInputSelfWaitSeconds < sessionInputTTL
+              && sessionInputSelfWaitSeconds < sessionInputWaitSeconds
+              && sessionInputSelfWaitSeconds >= 2 * 2)
+    let queued = sessionInputQueuedMessage(sessionKey: "9209")
+    // It says three things, and a caller that reads only this line has to be able to act on it:
+    // which session, that nothing is waiting, and where the outcome is recorded.
+    check("the queued line names the session, says nothing waits, and points at the record",
+          queued.contains("9209") && queued.contains("nothing here waits")
+              && queued.contains("~/.tally/logs/input.log")
+              && queued.contains("\(Int(sessionInputTTL))s"))
+    // And it cannot be mistaken for a delivery, which is the one way this could mislead: exit 0 is
+    // shared with a real send, so the sentence has to carry the difference.
+    check("…and it does not claim the line was typed",
+          !queued.contains("sent to session"))
+    let waitingLine = sessionInputWaitingLine(sessionKey: "9210", doing: "working",
+                                              timeout: sessionInputWaitSeconds)
+    check("a caller settling in to wait for another session says so, and what it is waiting on",
+          waitingLine.contains("9210") && waitingLine.contains("working")
+              && waitingLine.contains("\(Int(sessionInputWaitSeconds))s"))
+    check("…and says it without inventing a state for a session that has published none",
+          !sessionInputWaitingLine(sessionKey: "9210", doing: nil,
+                                   timeout: sessionInputWaitSeconds).contains("it is"))
+    let timedOut = sessionInputTimeoutMessage(sessionKey: "9210", path: "/tmp/9210",
+                                              timeout: sessionInputWaitSeconds)
+    check("the timeout says where the request still is, so it is not a dead end",
+          timedOut.contains("/tmp/9210") && timedOut.contains("9210"))
 
     // MARK: - The tick's own reading is what the gate sees
 
@@ -299,7 +372,44 @@ func runSessionSendChecks() {
                                      watcher: &watcher, keyboardBurstAt: nil, dir: statedir,
                                      now: Date().addingTimeInterval(sessionStateQuietSeconds + 5))
     check("the state a tick publishes is the state it hands the input gate",
-          published == readSessionState(pid: "9210", dir: statedir)?.supervised)
+          published.state == readSessionState(pid: "9210", dir: statedir)?.supervised)
+    // The fixture's transcript was written a moment ago, so this tick is the ordinary mid-turn
+    // reading: the word and the reading agree, and both travel to the gate.
+    check("…and the reading behind it travels with it, since the word cannot carry the difference",
+          published.quiet == .busy && published.state == .working)
+
+    // THE 2026-08-17 INCIDENT, END TO END: a head that has finished speaking with one agent still
+    // writing. The publisher reads it (`working`, because there is work in flight and the board is
+    // right to say so), the gate is handed the reading behind that word, and the `/clear` is typed.
+    // Built from the same fixture the dispatch layout suite uses, so this is the shape a real Agent
+    // tool dispatch leaves on disk rather than a hand-made one.
+    let dispatchDir = statedir.appendingPathComponent("dispatched")
+    try? FileManager.default.createDirectory(at: dispatchDir, withIntermediateDirectories: true)
+    let running = DispatchLayoutFixture("send-gate", sessionAge: sessionStateQuietSeconds + 60)
+    running.put("subagents/agent-a500d9cae3c919612.jsonl", age: 30)
+    var runningWatcher = running.watcher()
+    var runningWriter = SessionStateWriter()
+    let withAgents = syncSessionState(&runningWriter, pid: "9211",
+                                      project: PickProject(name: "p", path: running.dir.path),
+                                      accountID: "claude:.claude", childPid: nil, model: nil,
+                                      watcher: &runningWatcher, keyboardBurstAt: nil,
+                                      dir: dispatchDir)
+    check("a head with an agent still writing publishes `working`, as the board should show it",
+          withAgents.state == .working && withAgents.quiet == .subagentsWriting)
+    var agentInput = SessionInputState(sessionKey: "9211", servedEpoch: 0)
+    try? writeSessionInputRequest(SessionInputRequest(epoch: Int(Date().timeIntervalSince1970 * 1000),
+                                                      text: "/clear"),
+                                  sessionKey: "9211", dir: dir)
+    var agentTyped: [String] = []
+    applySessionInput(&agentInput, session: withAgents.state, quiet: withAgents.quiet,
+                      keyboardIdle: true, relaunchPlanned: false, dir: dir,
+                      log: dir.appendingPathComponent("dispatch.log")) { text in
+        agentTyped.append(text)
+        return .done
+    }
+    check("…and the line it asked for is typed anyway, which is the whole of the rework",
+          agentTyped == ["/clear"]
+              && readSessionInputResult(sessionKey: "9211", dir: dir)?.outcome == "submitted")
 
 
     // MARK: - Two things no value can be asked about: the wiring, and the shape of the write
@@ -371,6 +481,22 @@ func runSessionSendChecks() {
         check("the command asks whether the address is occupied before it writes to it", false)
         check("…and before it takes away an answer that may be the other caller's", false)
     }
+    // THE SELF PATH, read off the source for the same reason: it is a matter of WHICH timeout and
+    // WHICH exit the command reaches, and nothing can call `runSessionSend` here without writing
+    // into the developer's own conversation. Three shapes, and the defect each one refuses: the
+    // wait is chosen by whether the marker was adopted (rather than by whether `--session` was
+    // typed, which reads `--session <our own pid>` as somebody else's session); the short wait
+    // ends in the queued line rather than in a timeout; and the abandonment question is never
+    // asked of our own supervisor, which is alive by construction.
+    check("the wait a self-send makes is the short one, chosen by the marker it adopted",
+          command.contains("let ownSession = marker.adopted(sessionKey) != nil")
+              && command.contains("timeout: ownSession ? sessionInputSelfWaitSeconds "
+                  + ": sessionInputWaitSeconds"))
+    check("…and running out of it queues rather than fails",
+          command.contains("guard !ownSession else {\n            "
+              + "print(sessionInputQueuedMessage(sessionKey: sessionKey))\n            return 0"))
+    check("…while a wait on another session is announced before it starts",
+          command.contains("if !ownSession {") && command.contains("sessionInputWaitingLine("))
     if let named = command.range(of: "if let named = intent.session {"),
        let end = command.range(of: "\n    } else {", range: named.upperBound ..< command.endIndex) {
         let branch = String(command[named.upperBound ..< end.lowerBound])

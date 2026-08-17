@@ -80,10 +80,16 @@ func runSessionInputChecks() {
     // MARK: - The gate table
 
     /// The decision for one request, with everything else at its permissive setting.
+    ///
+    /// `quiet` DEFAULTS TO THE READING THAT GOES WITH THE STATE, so every check that is not about
+    /// this distinction reads as it did: a `working` session is one mid-turn (`.busy`) and every
+    /// other state is quiet. The checks that ARE about it pass `.subagentsWriting` explicitly.
     func decide(_ pending: SessionInputRequest?, served: Int = 0, state: SupervisedState = .idle,
+                quiet: SessionQuiet? = nil,
                 keyboardIdle: Bool = true, relaunchPlanned: Bool = false,
                 at offset: TimeInterval = 1) -> SessionInputDecision {
         sessionInputDecision(request: pending, servedEpoch: served, state: state,
+                             quiet: quiet ?? (state == .working ? .busy : .quiet),
                              keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
                              now: t0.addingTimeInterval(offset))
     }
@@ -102,28 +108,67 @@ func runSessionInputChecks() {
     // running this as a tool call, so at the instant its request lands the session is `working` by
     // construction: refusing on sight would mean the feature never fires on its main path.
     check("a working session is waited for, not refused", decide(request("y"), state: .working)
-              == .wait)
+              == .wait(.turn))
     check("…as is one that has not said what it is doing yet",
-          decide(request("y"), state: .unknown) == .wait)
+          decide(request("y"), state: .unknown) == .wait(.notReporting))
     check("somebody typing in that terminal is waited for too",
-          decide(request("y"), state: .idle, keyboardIdle: false) == .wait)
+          decide(request("y"), state: .idle, keyboardIdle: false) == .wait(.keyboard))
+    // THE 2026-08-17 CORRECTION, and the two halves of it side by side. `working` covers two
+    // situations and the gate used to refuse both: a conversation mid-turn, and a conversation that
+    // has finished speaking while the agents it dispatched write on. Only the first is a reason not
+    // to type - the second is precisely the head that has written its hand-over and wants its
+    // context cleared, and nothing here kills the agents either way (Albert's rule: an agent
+    // running is not a reason a window cannot be cleared).
+    check("a session whose only busy signal is its subagents IS typed into",
+          decide(request("y"), state: .working, quiet: .subagentsWriting)
+              == .inject(request("y")))
+    check("…while the same session mid-turn is not",
+          decide(request("y"), state: .working, quiet: .busy) == .wait(.turn))
+    // The other gates still outrank it, or the exemption would become a way past all of them.
+    check("…and dispatched work does not let it past the keyboard or a pending restart",
+          decide(request("y"), state: .working, quiet: .subagentsWriting, keyboardIdle: false)
+              == .wait(.keyboard)
+              && decide(request("y"), state: .working, quiet: .subagentsWriting,
+                        relaunchPlanned: true) == .wait(.restart))
+    // The table is one function, asked directly here so the precedence is pinned where the two
+    // readers share it rather than only through the decision that calls it.
+    check("nothing standing in the way is what an injection means",
+          sessionInputHold(state: .idle, quiet: .quiet, keyboardIdle: true,
+                           relaunchPlanned: false) == nil
+              && sessionInputHold(state: .blocked, quiet: .quiet, keyboardIdle: true,
+                                  relaunchPlanned: false) == nil)
+    check("…and a pending restart outranks every reading of the state",
+          sessionInputHold(state: .idle, quiet: .quiet, keyboardIdle: true,
+                           relaunchPlanned: true) == .restart
+              && sessionInputHold(state: .unknown, quiet: .quiet, keyboardIdle: true,
+                                  relaunchPlanned: true) == .restart)
     // THE GATE THE STATE CANNOT SHOW: this tick has already decided to terminate the child, and an
     // idle session is precisely what those planners were waiting for - so the reading that looks
     // most ready is the one that must not be typed into (codex review of 18b3174).
     check("a child this tick is about to terminate is not typed into",
-          decide(request("y"), state: .idle, relaunchPlanned: true) == .wait
-              && decide(request("y"), state: .blocked, relaunchPlanned: true) == .wait)
+          decide(request("y"), state: .idle, relaunchPlanned: true) == .wait(.restart)
+              && decide(request("y"), state: .blocked, relaunchPlanned: true) == .wait(.restart))
     // The TTL keeps running through it, deliberately: whether that line still belongs in a
     // conversation whose child has been replaced is the caller's judgement, not this gate's.
     check("…and a request that expires during a relaunch is still refused, not held for ever",
           decide(request("y"), state: .idle, relaunchPlanned: true, at: sessionInputTTL + 1)
-              == .refuse(.refusedExpired, "still idle after 120s"))
+              == .refuse(.refusedExpired,
+                         "this session was being restarted when the 120s ran out"))
 
     // MARK: - What ends the wait
 
-    check("a request that never reached an injectable moment is refused, not left",
+    // WHAT STOOD IS NAMED, which is the other half of the 2026-08-17 rework: every refusal used to
+    // say "still <state> after 120s" whatever had actually held the line, so the caller could not
+    // tell its own unfinished turn from somebody at the keyboard - and the first is the one it
+    // could have done something about.
+    check("a request that never reached an injectable moment is refused, and names what stood",
           decide(request("y"), state: .working, at: sessionInputTTL + 1)
-              == .refuse(.refusedExpired, "still working after 120s"))
+              == .refuse(.refusedExpired,
+                         "this session was in a turn of its own for the whole 120s"))
+    check("…a terminal somebody was typing in says that instead",
+          decide(request("y"), state: .idle, keyboardIdle: false, at: sessionInputTTL + 1)
+              == .refuse(.refusedExpired,
+                         "somebody was typing in that terminal when the 120s ran out"))
     // A session that cannot report what it is doing would never have become injectable by waiting,
     // and its refusal says so rather than blaming the clock.
     check("…and one that never reported anything is refused in its own words",
@@ -135,7 +180,8 @@ func runSessionInputChecks() {
     // it could otherwise have been typed at.
     check("an expired request is refused even when the session is ready for it",
           decide(request("y"), state: .idle, at: sessionInputTTL + 1)
-              == .refuse(.refusedExpired, "still idle after 120s"))
+              == .refuse(.refusedExpired, "it reached a moment this could be typed at only after "
+                         + "its 120s life had run out"))
     check("the TTL boundary belongs to the request: exactly its life is still live",
           !sessionInputExpired(epoch: epoch(0), now: t0.addingTimeInterval(sessionInputTTL))
               && sessionInputExpired(epoch: epoch(0),
@@ -189,11 +235,13 @@ func runSessionInputChecks() {
     /// One tick against a session key of its own, with the injection recorded rather than performed.
     /// Returns what was typed, so a check can assert both the outcome and the bytes. One value per
     /// injection rather than a pair: whether Return follows is no longer a question anybody asks.
-    func tick(state: SupervisedState, keyboardIdle: Bool = true, relaunchPlanned: Bool = false,
+    func tick(state: SupervisedState, quiet: SessionQuiet? = nil, keyboardIdle: Bool = true,
+              relaunchPlanned: Bool = false,
               at offset: TimeInterval = 1, input: inout SessionInputState,
               inject: @escaping (String) -> SessionInputInjection = { _ in .done }) -> [String] {
         var typed: [String] = []
-        applySessionInput(&input, session: state, keyboardIdle: keyboardIdle,
+        applySessionInput(&input, session: state, quiet: quiet ?? (state == .working ? .busy
+                              : .quiet), keyboardIdle: keyboardIdle,
                           relaunchPlanned: relaunchPlanned, dir: dir, log: log,
                           now: t0.addingTimeInterval(offset)) { text in
             typed.append(text)
@@ -236,6 +284,16 @@ func runSessionInputChecks() {
     check("the turn ends and the waiting request is typed then",
           typed == ["hello"]
               && readSessionInputResult(sessionKey: "9202", dir: dir)?.outcome == "submitted")
+
+    // AND THE TURN ENDING IS ENOUGH, even with the agents it dispatched still running: the state
+    // word is still `working` (the board is right to say so, there is work in flight), and this is
+    // the one reader for which that word is not the answer. This is the hand-over case, whole: the
+    // head has said its piece, its subagents write on, and the `/clear` it asked for is typed.
+    var dispatched = SessionInputState(sessionKey: "9213", servedEpoch: 0)
+    try? writeSessionInputRequest(request("/clear"), sessionKey: "9213", dir: dir)
+    check("a head whose agents are still writing is typed into at the end of its turn",
+          tick(state: .working, quiet: .subagentsWriting, input: &dispatched) == ["/clear"]
+              && readSessionInputResult(sessionKey: "9213", dir: dir)?.outcome == "submitted")
 
     // …and through the tick, where what matters is that a wait writes NOTHING: no bytes, no answer
     // for the caller to read as success, and a request left exactly where it was for the next tick.
@@ -357,7 +415,8 @@ func runSessionInputChecks() {
     var lost = SessionInputState(sessionKey: lostKey, servedEpoch: 0)
     try? writeSessionInputRequest(request("/clear"), sessionKey: lostKey, dir: dir)
     var lostTyped: [String] = []
-    applySessionInput(&lost, session: .idle, keyboardIdle: true, relaunchPlanned: false, dir: dir,
+    applySessionInput(&lost, session: .idle, quiet: .quiet, keyboardIdle: true,
+                      relaunchPlanned: false, dir: dir,
                       log: lostLog, now: t0.addingTimeInterval(1)) { text in
         lostTyped.append(text)
         return .done
@@ -382,7 +441,8 @@ func runSessionInputChecks() {
               && readSessionInputRequest(sessionKey: lostKey, dir: dir) == nil)
     try? writeSessionInputRequest(request("/clear"), sessionKey: lostKey, dir: dir)
     var lostAgain: [String] = []
-    applySessionInput(&lost, session: .idle, keyboardIdle: true, relaunchPlanned: false, dir: dir,
+    applySessionInput(&lost, session: .idle, quiet: .quiet, keyboardIdle: true,
+                      relaunchPlanned: false, dir: dir,
                       log: lostLog, now: t0.addingTimeInterval(2)) { text in
         lostAgain.append(text)
         return .done
@@ -393,7 +453,7 @@ func runSessionInputChecks() {
 
     let written = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
     check("every served request left a line", written.components(separatedBy: "\n")
-              .filter { $0.contains("input=") }.count == 9)
+              .filter { $0.contains("input=") }.count == 10)
     check("…naming the session, the outcome and the text",
           written.contains("pid=9201 input=submitted bytes=5 text=/help"))
     // NO `submit` COLUMN. It read `yes` on every line ever written once typing and sending became

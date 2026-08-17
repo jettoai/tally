@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 17
+    nonisolated static let skillVersion = 18
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -263,10 +263,23 @@ extension IntegrationsStore {
 
         Run with no `--session` it addresses the session it is running in, which is what an
         agent clearing its own context wants: say what you have to say first, because the
-        line is typed at the first moment the session is waiting or idle, and the turn you
-        are in is what it waits for. So a `/clear` asked for mid-answer lands once that
-        answer is finished, not in the middle of it, and the command returns having been
-        told which happened.
+        line is typed at the first quiet moment after the turn you are in, and that turn is
+        what it waits for. So a `/clear` asked for mid-answer lands once that answer is
+        finished, not in the middle of it.
+
+        Into your OWN session the command does not wait to find out: it returns having
+        queued the line, because this command runs inside the turn the line is waiting for
+        and holding it open is the one way to guarantee the line is never typed. Exit 0
+        there means queued with nothing refusing it, the printed line says so, and
+        `~/.tally/logs/input.log` records what became of it. Do not follow it with a second
+        send, a sleep, or a background retry: those were workarounds for the wait and the
+        second send is refused as a duplicate.
+
+        Subagents and background tasks do NOT hold a send. A session that has finished
+        speaking while the agents it dispatched write on is one this line is typed into, so
+        an agent still running is not a reason a window cannot be cleared. What does hold
+        it: the conversation being mid-turn, a restart of it being pending, somebody typing
+        in that terminal, and a session that is not reporting what it is doing at all.
 
         `--session` names any session this machine supervises, by either of its pids: the
         Claude Code that `tally status --json` reports as `sessions[].pid`, or the Tally
@@ -276,16 +289,16 @@ extension IntegrationsStore {
 
         What it costs to get wrong, and how to tell:
 
-        - Exit 0 means the line was typed and Return was pressed. The one line on stdout
-          says which session took it.
+        - Exit 0 means the line was typed and Return was pressed, or (for your own session)
+          that it is queued to be typed when this turn ends. The one line on stdout says
+          which of the two.
         - Exit 3 means nothing was queued, and the reason is on stderr: the text is over
           200 bytes of UTF-8, the pid names nothing this machine supervises, the session
-          never reached a moment the line could be typed at, or another send is still in
-          flight there. One send at a time per session, and a second is refused rather than
-          replacing the first.
-        - Exit 4 means the request was written and nobody answered within 150 seconds. The
-          session's supervisor may be mid-restart; the request is still on disk and the
-          message says where.
+          never reached a moment the line could be typed at (the refusal names what stood
+          in the way), or another send is still in flight there. One send at a time per
+          session, and a second is refused rather than replacing the first.
+        - Exit 4 means the request was written and nobody answered: within 150 seconds, or
+          because that session exited while the line was queued. The message says which.
         - Exit 2 is a usage error and exit 1 is something broken here. Read the message
           rather than retrying: a retry answers none of these four.
 

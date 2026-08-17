@@ -10,24 +10,15 @@ import Foundation
 // different act on the same subject, and putting the first under a bare top-level name would leave
 // the second either homeless or misfiled.
 //
-// IT WAITS, unlike every other request-writing command here. `tally account` and `tally model`
-// return the instant the file is on disk, because what they promise happens at the end of the turn
-// and the person who typed it is inside that turn. This one is normally run by an agent that has to
-// know whether the text landed before it does anything else, and the answer exists (the supervisor
-// writes one) - so returning "queued" and leaving the caller to poll a file would be handing back a
-// job this command is better placed to do.
-
-/// How long to wait for the supervisor's answer.
-///
-/// LONGER THAN THE REQUEST'S OWN LIFE (`sessionInputTTL`, 120s) on purpose: the supervisor answers
-/// every request it reads, including by refusing an expired one, so the wait has to outlast the
-/// thing it is waiting for or it would time out on requests that were about to be answered. The
-/// margin is a poll tick's worth of slack many times over.
-let sessionInputWaitSeconds: TimeInterval = 150
-
-/// How often to look for it. A quarter second is well inside the 2s tick that writes it, so the
-/// answer is read within one interval of being published.
-let sessionInputPollInterval: TimeInterval = 0.25
+// IT WAITS FOR ANOTHER SESSION AND NOT FOR ITS OWN, which is the one asymmetry in this command and
+// the thing to understand before changing anything here. `tally account` and `tally model` return
+// the instant the file is on disk. This one waits, because it is normally run by an agent that has
+// to know whether the text landed and the answer exists - EXCEPT when the session it is sending to
+// is the one it is running in. There the wait is a deadlock: the command is a tool call, an
+// unfinished tool call is an open turn, and a session mid-turn is precisely what the supervisor
+// will not type into. So a self-send waits only long enough to catch a session that is already
+// idle, then says the line is queued and gets out of the turn's way (SessionSendWait.swift carries
+// the measurements and every wording).
 
 /// What `tally session send` asks for. Pure to parse, so the grammar is testable.
 ///
@@ -274,31 +265,16 @@ func sessionInputMessage(_ result: SessionInputResult, sessionKey: String) -> St
 /// The exit code one run ends on. Four answers a script can act on, and they are kept apart on
 /// purpose: 0 it landed; 3 it was refused, with a reason; 4 nobody answered in time; 1 something
 /// here broke. Usage errors are 2, as everywhere else in this binary.
+///
+/// A SELF-SEND THAT WAS QUEUED EXITS 0 WITHOUT A RESULT, which is the one thing this code says that
+/// no `SessionInputResult` can: the caller IS the session, so "did it land" cannot be answered from
+/// inside the turn that has to end first (SessionSendWait.swift). Exit 0 therefore means "typed, or
+/// queued for this session with nothing refusing it", and the line printed says which. A code of
+/// its own was weighed and refused: every caller of this is a hand-over that reads non-zero as
+/// "fall back to doing it by hand", and a queued line is not a failure to fall back from.
 func sessionInputExitCode(_ result: SessionInputResult?) -> Int32 {
     guard let result else { return 4 }
     return result.delivered ? 0 : 3
-}
-
-/// Wait for the answer to this request, or nil when none arrived in time.
-///
-/// Matched on the EPOCH, which is the whole reason a result carries one: a husk from an earlier
-/// request can still be sitting at that path (a caller killed mid-wait, a wait that timed out), and
-/// reading somebody else's outcome as this one's is a fire-and-forget channel's one silent failure.
-///
-/// The clock and the reads are injectable so the suite can exercise the timeout without spending it.
-func awaitSessionInputResult(sessionKey: String, epoch: Int, timeout: TimeInterval,
-                             interval: TimeInterval = sessionInputPollInterval,
-                             now: () -> Date = Date.init,
-                             sleep: (TimeInterval) -> Void = { usleep(useconds_t($0 * 1_000_000)) },
-                             read: (String) -> SessionInputResult? = {
-                                 readSessionInputResult(sessionKey: $0)
-                             }) -> SessionInputResult? {
-    let deadline = now().addingTimeInterval(timeout)
-    while true {
-        if let result = read(sessionKey), result.epoch == epoch { return result }
-        guard now() < deadline else { return nil }
-        sleep(interval)
-    }
 }
 
 /// `tally session send [<text>] [--session <pid>]`: type into a supervised session's own terminal
@@ -405,12 +381,40 @@ func runSessionSend(args: [String]) -> Int32 {
             + "\(error.localizedDescription)")
         return 1
     }
-    let result = awaitSessionInputResult(sessionKey: sessionKey, epoch: request.epoch,
-                                         timeout: sessionInputWaitSeconds)
-    guard let result else {
-        warn("session \(sessionKey) has not answered in \(Int(sessionInputWaitSeconds))s. The "
-            + "request is still at \(sessionInputFile(sessionKey: sessionKey).path); its supervisor "
-            + "may be mid-restart, or running a build that does not read it yet")
+    // IS THIS OUR OWN SESSION? The marker answers it, and only where the resolution actually USED
+    // it: `adopted` is nil when the directory found the session or when `--session` named somebody
+    // else, and both of those are callers standing outside the turn they are writing into.
+    let ownSession = marker.adopted(sessionKey) != nil
+    if !ownSession {
+        // Said before the wait rather than after it, which is the whole point: two and a half
+        // minutes of nothing is indistinguishable from a command that has hung.
+        warn(sessionInputWaitingLine(sessionKey: sessionKey,
+                                     doing: readSessionState(pid: sessionKey)?.state,
+                                     timeout: sessionInputWaitSeconds))
+    }
+    let answer = awaitSessionInputResult(
+        sessionKey: sessionKey, epoch: request.epoch,
+        timeout: ownSession ? sessionInputSelfWaitSeconds : sessionInputWaitSeconds,
+        // Not asked of our own session: this process descends from that supervisor, so it is alive
+        // by construction, and the one thing this wait can never be is abandoned for its absence.
+        abandon: { ownSession ? nil : sessionInputAbandonment(sessionKey: sessionKey) })
+    let result: SessionInputResult
+    switch answer {
+    case .answered(let answered):
+        result = answered
+    case .abandoned(let why):
+        warn(why)
+        return 4
+    case .timedOut:
+        // OUR OWN SESSION IS NOT A TIMEOUT. The line is queued and the turn this command is part of
+        // is what it is waiting for, so leaving is how it gets typed rather than how it is lost.
+        guard !ownSession else {
+            print(sessionInputQueuedMessage(sessionKey: sessionKey))
+            return 0
+        }
+        warn(sessionInputTimeoutMessage(sessionKey: sessionKey,
+                                        path: sessionInputFile(sessionKey: sessionKey).path,
+                                        timeout: sessionInputWaitSeconds))
         return 4
     }
     // Read, so it stops being an answer waiting for somebody.
@@ -433,15 +437,24 @@ triggers nothing. Run it inside the session it is meant for (an agent in that co
 as a tool call); --session names another one by either of its pids, the Claude Code that
 `tally status --json` lists under `sessions[].pid` or the Tally supervising it.
 
-It waits for the answer: the text is sent at the first moment the session is waiting on you or idle,
-so a request made mid-turn lands when that turn ends. Nothing is sent while the session is working,
-while it is not reporting what it is doing, or while somebody is typing in that terminal; a request
-that never reaches such a moment within \(Int(sessionInputTTL))s is refused and says so. One send
-at a time per session: a second one while the first is still waiting is refused rather than
+The text is typed at the first moment the session is waiting on you, idle, or done speaking with
+only its subagents still writing - so a request made mid-turn lands when that turn ends, and agents
+running in the background do not hold it. Nothing is typed while the conversation itself is in a
+turn, while it is not reporting what it is doing, while a restart of it is pending, or while
+somebody is typing in that terminal; a request that never reaches a typeable moment within
+\(Int(sessionInputTTL))s is refused and the refusal names which of those stood in its way.
+
+Sending into ANOTHER session waits up to \(Int(sessionInputWaitSeconds))s for the answer and prints
+what it is waiting on. Sending into your OWN waits \(Int(sessionInputSelfWaitSeconds))s and then
+says the line is queued, because this command is part of the turn the line is waiting for: holding
+it open is the one way to guarantee the line is never typed.
+
+One send at a time per session: a second one while the first is still waiting is refused rather than
 replacing it. At most \(sessionInputMaxBytes) bytes of UTF-8, since this is for a slash command or
 an answer to a prompt rather than for a prompt.
 
-Exit codes: 0 sent, 3 refused (the reason is printed), 4 nobody answered, 1 something went wrong.
+Exit codes: 0 sent (or queued for this session), 3 refused (the reason is printed), 4 nobody
+answered, 1 something went wrong.
 """
 
 /// What a missing or unknown verb is told: the first line of the text above rather than a second

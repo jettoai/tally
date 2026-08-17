@@ -4,7 +4,8 @@ import Foundation
 // TYPING INTO A SESSION ON ITS OWN BEHALF: what a poll tick does about a pending `tally session
 // send`, and the terminal write that carries it out. The channel is SessionInputRequest.swift and
 // the command that writes one is SessionInputCommand.swift; this is the supervisor's half, the way
-// SessionSwitch.swift is `tally account`'s.
+// SessionSwitch.swift is `tally account`'s. The audit trail every served request leaves is one file
+// over in SessionInputLog.swift.
 //
 // WHY THE SUPERVISOR CAN DO THIS AT ALL. It is started by the user's shell and spawns its child with
 // null file actions (`spawnChild`, SupervisorRuntime.swift), so the two share one controlling
@@ -80,11 +81,6 @@ let sessionInputInjectRequest: UInt = TIOCSTI
 /// into Claude Code's composer did not submit, CR did.
 let sessionInputReturnByte: UInt8 = 13
 
-/// The audit trail: one line per served request, so the answer to "what typed into my session, and
-/// when" is never a matter of belief.
-let sessionInputLog = FileManager.default.homeDirectoryForCurrentUser
-    .appendingPathComponent(".tally/logs/input.log")
-
 // MARK: - The decision
 
 /// What this tick does about a pending request. Pure to decide, so the whole gate table is
@@ -92,13 +88,52 @@ let sessionInputLog = FileManager.default.homeDirectoryForCurrentUser
 enum SessionInputDecision: Equatable {
     /// Nothing pending, or nothing new: this tick does nothing and says nothing.
     case ignore
-    /// There IS a request and the gates are shut for now. Deliberately distinct from a refusal: the
-    /// request stays on disk, and the next tick decides again from scratch.
-    case wait
+    /// There IS a request and something is standing in its way for now. Deliberately distinct from a
+    /// refusal: the request stays on disk, and the next tick decides again from scratch. It carries
+    /// WHAT stood, because that is the sentence a refusal at the end of the wait has to print.
+    case wait(SessionInputHold)
     /// Type it.
     case inject(SessionInputRequest)
     /// Consume it and say why.
     case refuse(SessionInputOutcome, String)
+}
+
+/// What is standing between a pending request and the terminal, in the four shapes a caller can act
+/// on differently.
+///
+/// NAMED RATHER THAN COUNTED, and that is the point of the type. The wait used to report "still
+/// working after 120s" whatever had actually held it, so a caller whose line was blocked by
+/// somebody typing, by a restart, or by its own unfinished turn was told the same sentence about
+/// all three - and the one it most often was (its own turn) is the one it could have done something
+/// about. Every refusal below is built from this, so the wait and the sentence cannot drift.
+enum SessionInputHold: Equatable {
+    /// The conversation itself is mid-turn: its transcript is moving, or a tool call it opened has
+    /// not come back. Subagents writing in the background are NOT this (see `sessionInputHold`).
+    case turn
+    /// It has not said what it is doing at all, which is the one hold that never lifts by waiting.
+    case notReporting
+    /// Somebody is typing in that terminal, and injected bytes would interleave with their line.
+    case keyboard
+    /// This tick is about to replace the child, so anything typed now goes to a process that is
+    /// being terminated.
+    case restart
+
+    /// What a refusal says about this hold, worded for the person reading stderr rather than for
+    /// the log. `ttl` is named in every one of them: the sentence has to say what ran out as well
+    /// as what stood.
+    func sentence(ttl: TimeInterval) -> String {
+        let seconds = Int(ttl)
+        switch self {
+        case .turn:
+            return "this session was in a turn of its own for the whole \(seconds)s"
+        case .notReporting:
+            return "this session reported nothing about itself for \(seconds)s"
+        case .keyboard:
+            return "somebody was typing in that terminal when the \(seconds)s ran out"
+        case .restart:
+            return "this session was being restarted when the \(seconds)s ran out"
+        }
+    }
 }
 
 /// Whether a request is past its life. Its own function because two answers depend on it and the
@@ -139,8 +174,19 @@ func sessionInputExpired(epoch: Int, now: Date, ttl: TimeInterval = sessionInput
 ///
 /// It has no default value. A gate that can be forgotten at a call site is one that will be, and the
 /// symptom here is invisible: the injection succeeds, and only the terminal knows it went nowhere.
+///
+/// A SESSION WHOSE SUBAGENTS ARE STILL WRITING IS TYPED INTO, which is the 2026-08-17 correction and
+/// the one gate here that was removed rather than added. `working` covers two situations and this
+/// gate used to refuse both: a conversation mid-turn, and a conversation that has finished speaking
+/// while the agents it dispatched work on. Only the first is a reason not to type - the second is
+/// precisely the head that has written its hand-over and wants its context cleared, and the agents
+/// it is waiting on are not answered by a `/clear` either way. The cost of getting this wrong was
+/// measured rather than argued: over 24 hours of real use, two thirds of every send on this machine
+/// expired unserved (`~/.tally/logs/input.log`, 2026-08-16/17), and the ones that got through did so
+/// on a retry. Albert's rule, in his words: an agent running is not a reason a window cannot be
+/// cleared, because the hand-over file already says what to dispatch again.
 func sessionInputDecision(request: SessionInputRequest?, servedEpoch: Int, state: SupervisedState,
-                          keyboardIdle: Bool, relaunchPlanned: Bool,
+                          quiet: SessionQuiet, keyboardIdle: Bool, relaunchPlanned: Bool,
                           now: Date = Date()) -> SessionInputDecision {
     // Strictly newer than what this supervisor has served, the rule every request file on this
     // track follows: pids are reused and a served request is not unlinked until after it is served,
@@ -153,21 +199,51 @@ func sessionInputDecision(request: SessionInputRequest?, servedEpoch: Int, state
     guard bytes <= sessionInputMaxBytes else {
         return .refuse(.refusedTooLong, "\(bytes) bytes, limit \(sessionInputMaxBytes)")
     }
+    let hold = sessionInputHold(state: state, quiet: quiet, keyboardIdle: keyboardIdle,
+                                relaunchPlanned: relaunchPlanned)
     guard !sessionInputExpired(epoch: request.epoch, now: now) else {
-        return state == .unknown
-            ? .refuse(.refusedNotReporting,
-                      "this session reported nothing about itself for \(Int(sessionInputTTL))s")
-            : .refuse(.refusedExpired, "still \(state.rawValue) after \(Int(sessionInputTTL))s")
+        // WHAT STOOD AT THE END, named rather than summarised as the state word. A session that
+        // never reported anything gets its own outcome, because that hold is the one that would
+        // never have lifted by waiting; every other refusal is the clock running out on a hold
+        // that might have.
+        guard let hold else {
+            return .refuse(.refusedExpired, "it reached a moment this could be typed at only after "
+                + "its \(Int(sessionInputTTL))s life had run out")
+        }
+        return .refuse(hold == .notReporting ? .refusedNotReporting : .refusedExpired,
+                       hold.sentence(ttl: sessionInputTTL))
     }
-    // This child is about to be terminated by the same tick (see above). Ahead of the state gates
-    // because it outranks what they can see: `idle` is precisely the reading a relaunch was waiting
-    // for, so the ready-looking session is the dangerous one.
-    guard !relaunchPlanned else { return .wait }
-    guard state == .blocked || state == .idle else { return .wait }
+    guard let hold else { return .inject(request) }
+    return .wait(hold)
+}
+
+/// What is standing in the way right now, or nil when nothing is and the line may be typed.
+///
+/// ONE TABLE FOR BOTH READERS: the tick asks it to decide whether to wait, and the refusal at the
+/// end of the TTL asks it to say what the waiting was for. Two copies of this order would let a
+/// request wait on one gate and be refused in the name of another.
+///
+/// THE ORDER IS THE PRECEDENCE. A planned relaunch leads because it outranks what the state can
+/// see: `idle` is precisely the reading those planners were waiting for, so the ready-looking
+/// session is the dangerous one, and typing into a child that is about to be SIGTERMed loses the
+/// line while reporting it delivered (codex review of 18b3174). The keyboard comes last because it
+/// is the most transient of the four: it is asked about the instant this tick runs.
+func sessionInputHold(state: SupervisedState, quiet: SessionQuiet, keyboardIdle: Bool,
+                      relaunchPlanned: Bool) -> SessionInputHold? {
+    if relaunchPlanned { return .restart }
+    switch state {
+    case .unknown:
+        return .notReporting
+    case .working:
+        // The one state that depends on WHY it is working: dispatched work writing in the
+        // background is not this conversation being mid-turn (see the note above the decision).
+        guard quiet == .subagentsWriting else { return .turn }
+    case .blocked, .idle:
+        break
+    }
     // Somebody is typing in that terminal: their keystrokes and these bytes would interleave into
     // one line. Waiting costs a tick; interleaving costs whatever the mixture happens to spell.
-    guard keyboardIdle else { return .wait }
-    return .inject(request)
+    return keyboardIdle ? nil : .keyboard
 }
 
 // MARK: - What the supervisor carries between ticks
@@ -241,95 +317,6 @@ func injectSessionInput(_ text: String, tty: String = "/dev/tty",
     return .done
 }
 
-// MARK: - The audit line
-
-/// One line per served request. Pure, so the shape can be asserted without a home directory - the
-/// whole point of these fields is that somebody reads them back weeks later.
-///
-/// The TEXT GOES LAST, the rule `handoffLogLine` states about its own cwd: it is the one field that
-/// can contain a space, so everything before it stays at a fixed offset for an eye or a `grep`. It
-/// is truncated to 40 characters and stripped of anything that is not printable, because a control
-/// byte written verbatim into a log is a log that reformats somebody's terminal when they `cat` it -
-/// and because this file must show WHAT was typed without becoming a transcript of it.
-///
-/// THERE IS NO `submit` FIELD. There was, and it read `yes` on every line ever written once typing
-/// and sending became one act: a column that cannot vary answers nothing anybody greps this file
-/// for, and it costs the eye a stop on every line.
-func sessionInputLogLine(pid: String, outcome: String, text: String,
-                         now: Date = Date()) -> String {
-    let visible = String(text.unicodeScalars.map { scalar -> Character in
-        scalar.properties.isDefaultIgnorableCodePoint || scalar.value < 0x20 || scalar.value == 0x7F
-            ? "·" : Character(scalar)
-    }.prefix(40))
-    return "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=\(outcome) "
-        + "bytes=\(text.utf8.count) text=\(visible)\n"
-}
-
-/// The mode this log is kept at: readable by its owner and by nobody else.
-///
-/// DELIBERATELY UNLIKE ITS NEIGHBOURS, and this is the note for whoever comes to make it consistent.
-/// Everything else under `~/.tally` is 0644 (`handoff.log`, the history, the state directory), and
-/// that is right for what those files hold: accounts, quota windows, which session moved where -
-/// events ABOUT the work. This one holds the work itself. Every line carries the first 40 characters
-/// of text that was typed into a live conversation, which is content rather than telemetry, and the
-/// default mode hands it to every other uid on the machine.
-///
-/// THE CONTENT STAYS AND THE MODE MOVES, which is the trade this feature is built on. An audit line
-/// stripped of what was typed answers "somebody typed something" and nothing a person consulting
-/// this log ever asks; the cost of keeping it is one chmod.
-let sessionInputLogMode = 0o600
-
-/// The line a lost answer leaves (grep `input=receipt-lost`): the request was SERVED, the text is
-/// on the terminal (or the refusal was decided), and the file the caller is polling for could not be
-/// written. So that caller waits out its timeout, is told nobody answered, and may reasonably send
-/// the same line again - which is the one way this feature types a line into a conversation twice.
-///
-/// ITS OWN LINE BESIDE THE SERVED ONE rather than a field inside it, the shape
-/// `sessionInputDirectoryModeLine` uses. The served line's business is what was typed, and it is
-/// what a person greps when asking that; a failure carried as an extra column on it would be
-/// invisible to every one of those greps, and the question this answers ("was I told?") is asked
-/// separately from them.
-func sessionInputReceiptLostLine(pid: String, outcome: String, epoch: Int, failure: String,
-                                 now: Date = Date()) -> String {
-    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=receipt-lost "
-        + "served=\(outcome) epoch=\(epoch) failed=\(failure)\n"
-}
-
-/// The line a directory that could not be narrowed leaves (grep `input=directory-mode`): the
-/// requests in it are readable by every account on this machine, and the write went ahead anyway
-/// (`makeSessionInputDirectory` states why). Its own line rather than a served-request one, because
-/// nothing was typed and no session is named.
-func sessionInputDirectoryModeLine(dir: URL, failure: Error, now: Date = Date()) -> String {
-    "\(ISO8601DateFormatter().string(from: now)) input=directory-mode "
-        + "wanted=\(String(sessionInputDirMode, radix: 8)) failed=\(failure.localizedDescription) "
-        + "dir=\(dir.path)\n"
-}
-
-/// Append one audit line, keeping the log at `sessionInputLogMode`.
-///
-/// IT CONVERGES AN EXISTING FILE rather than only setting the mode at creation, because the file
-/// that matters most is the one that already exists: a machine that ran an earlier build has a 0644
-/// log on it, and a permission applied only at `O_CREAT` would leave every one of those open for
-/// good. Checked before it is set so the ordinary append costs a `stat` rather than a `chmod`.
-///
-/// Created HERE rather than left to the appender below, which opens `O_CREAT` at 0644: a mode is
-/// only applied by `open` when the call actually creates the file, so making it first is what
-/// decides the mode at all.
-func appendSessionInputLine(_ line: String, to log: URL) {
-    let manager = FileManager.default
-    try? manager.createDirectory(at: log.deletingLastPathComponent(),
-                                 withIntermediateDirectories: true)
-    if !manager.fileExists(atPath: log.path) {
-        manager.createFile(atPath: log.path, contents: nil,
-                           attributes: [.posixPermissions: sessionInputLogMode])
-    } else if (try? manager.attributesOfItem(atPath: log.path))?[.posixPermissions] as? Int
-        != sessionInputLogMode {
-        try? manager.setAttributes([.posixPermissions: sessionInputLogMode],
-                                   ofItemAtPath: log.path)
-    }
-    appendHandoffLine(line, to: log)
-}
-
 // MARK: - The tick
 
 /// Serve this session's pending `tally session send`, if there is one to serve.
@@ -348,7 +335,8 @@ func appendSessionInputLine(_ line: String, to log: URL) {
 ///
 /// `inject` is injectable so the suite can drive every branch without a terminal.
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
-                       keyboardIdle: Bool, relaunchPlanned: Bool, dir: URL = sessionInputDir,
+                       quiet: SessionQuiet, keyboardIdle: Bool, relaunchPlanned: Bool,
+                       dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
                        inject: (String) -> SessionInputInjection = {
                            injectSessionInput($0)
@@ -360,12 +348,16 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     let outcome: SessionInputOutcome
     var detail: String?
     switch sessionInputDecision(request: request, servedEpoch: state.servedEpoch, state: session,
-                                keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
-                                now: now) {
+                                quiet: quiet, keyboardIdle: keyboardIdle,
+                                relaunchPlanned: relaunchPlanned, now: now) {
     // NOTHING IS WRITTEN ON EITHER, which is what makes a wait a wait: the request stays on disk
     // exactly as it was, no answer appears for a caller to read, and `servedEpoch` does not move.
     // Every one of those happens below this return.
     case .ignore, .wait:
+        // The hold the wait carries is not written anywhere on purpose: it is this tick's reading
+        // and the next tick decides again from scratch, so recording it would be publishing a
+        // reason that may already be false. It reaches the caller through the refusal, which is
+        // taken at the moment the wait ends.
         return
     case .refuse(let refusal, let why):
         outcome = refusal

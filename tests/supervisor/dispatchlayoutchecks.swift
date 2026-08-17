@@ -187,4 +187,32 @@ func runDispatchLayoutChecks() {
     var endedWatcher = ended.watcher()
     check("the end-of-run workflow state file does not hold the session busy",
           endedWatcher.isQuiet(bar))
+
+    // 8. WHICH SILENCE IT IS, which is the question `tally session send` asks of the same walk.
+    //    Every gate above wants the bit ("may this child be restarted"), and all three silences
+    //    answer it the same way. The gate that types wants the difference, because a head whose
+    //    subagents are writing is a head that may be cleared while a head mid-turn is not
+    //    (SessionQuiet.swift). Asserted over the SAME fixtures, so the two readings cannot drift.
+    var liveWatcher = tool.watcher()
+    check("a live subagent is its own answer rather than plain busy",
+          liveWatcher.quietness(bar) == .subagentsWriting)
+    var finishedWatcher = done.watcher()
+    check("…a session whose packages all finished is quiet outright",
+          finishedWatcher.quietness(bar) == .quiet)
+    // The conversation's own turn is the reading that must NOT be reported as dispatched work: this
+    // fixture has a transcript written inside the bar and no subagents at all.
+    var midTurnWatcher = watcherWatchingSubagents(sessionAge: 1, subagents: nil)
+    check("…and a conversation writing right now is busy in its own context",
+          midTurnWatcher.quietness(bar) == .busy)
+    // Both at once resolves to the conversation, since the subagent walk is only reached once the
+    // session's own file has gone quiet: a head mid-turn is not typed into whatever its agents do.
+    var bothWatcher = watcherWatchingSubagents(
+        sessionAge: 1, subagents: ["agent-a500d9cae3c919612.jsonl": working])
+    check("…and a head mid-turn with agents writing is busy, not dispatched work",
+          bothWatcher.quietness(bar) == .busy)
+    // The flattening is exactly one comparison, so nothing that reads the bit can disagree with
+    // what reads the reading.
+    check("the bit every relaunch gate reads is this reading flattened",
+          !liveWatcher.isQuiet(bar) && !bothWatcher.isQuiet(bar) && finishedWatcher.isQuiet(bar)
+              && !midTurnWatcher.isQuiet(bar))
 }

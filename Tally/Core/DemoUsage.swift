@@ -149,9 +149,10 @@ enum DemoUsage {
             // THE MACHINE-LEVEL CARD, which is the state the amber tier is structurally blind to
             // and the reason the red one exists: a session working hard enough to be why the rest
             // of the desktop has gone slow (`FootprintAlerts`). The tier flags are SET rather than
-            // earned - the rule wants three minutes of held cores and a share of this machine's own
-            // memory (`FootprintAlarm.outlastsABuild`, `MachineCapacity`), which is neither
-            // something a capture can wait for nor something these numbers can promise on hardware
+            // earned - the rule wants three minutes of held cores, a share of this machine's own
+            // memory, and the machine itself reporting memory pressure to go with it
+            // (`FootprintAlarm.outlastsABuild`, `MachineCapacity`, `MachineMemoryPressure`), none of
+            // which a capture can wait for and none of which these numbers can promise on hardware
             // this file has never seen. What the fixture is claiming is the CARD, not the verdict.
             //
             // AND IT IS THE LONG-NAME CARD TOO, which is the second thing a live board will not

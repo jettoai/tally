@@ -188,6 +188,13 @@ final class ProcessFootprintStore {
         // enough to be worth switching off, and nothing behind a closed panel draws it.
         let readPorts = viewers > 0 && ticks % Self.portsEveryNTicks == 0
         let now = Date()
+        // WHAT THE MACHINE SAYS ABOUT ITS OWN MEMORY, once for the whole tick: it is a fact about
+        // the machine rather than about any card, so ten cards must not produce ten readings at ten
+        // instants - "the machine was short when this session was measured" has to mean the same
+        // instant on every card of one board (`MachineMemoryPressure`). It is the second witness
+        // the memory tier needs, because the per-process figures below count a shared page once per
+        // mapper and the kernel counts it once (`FootprintAlarm.saturatedMemoryShare`).
+        let pressure = MachineMemoryPressure.current
         var next: [String: ProcessFootprint] = [:]
         var readings: [String: ProcessResourceSample] = [:]
         var carried: [String: Double] = [:]
@@ -278,7 +285,8 @@ final class ProcessFootprintStore {
             // the board open and fifty behind it, and a warning could be earned by four fast
             // readings and one slow one - evidence over two different spans added together.
             let state = FootprintAlarm.advance(alertState[key] ?? FootprintAlertState(),
-                                               reading: footprint, idle: idle, at: now)
+                                               reading: footprint, idle: idle, at: now,
+                                               pressure: pressure)
             alerting[key] = state
             footprint.alerts = state.alerts
             // WHETHER THERE IS A RATE TO RECORD AT ALL is a question about the PAIR of readings,

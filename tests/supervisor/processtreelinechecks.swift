@@ -413,6 +413,19 @@ func runProcessTreeLineChecks() {
           storeSource.contains("row.state == .idle || row.state == .blocked")
               && storeSource.contains("FootprintAlarm.advance(alertState[key] ?? FootprintAlertState(),")
               && storeSource.contains("alertState = alerting"))
+    // ONE PRESSURE READING PER TICK, TAKEN OUTSIDE THE LOOP. The memory tier's second witness is a
+    // fact about the MACHINE rather than about a card (`MachineMemoryPressure`), so a board of ten
+    // cards must not carry ten readings from ten instants. Asserted by WHERE it is read as well as
+    // that it is: moved inside the loop this would still compile and still be right most of the
+    // time, which is the shape of defect a source check is worth having for.
+    check("the machine's memory pressure is read once a tick and handed to the rule",
+          storeSource.contains("let pressure = MachineMemoryPressure.current")
+              && storeSource.contains("pressure: pressure)")
+              && (storeSource.range(of: "let pressure = MachineMemoryPressure.current")
+                  .flatMap { read in
+                      storeSource.range(of: "for (root, idle, child) in roots {")
+                          .map { read.upperBound < $0.lowerBound }
+                  }) == true)
     // WHAT THE AI IS DOING, NOT WHAT THE METER IS DOING. The exclusion is applied to the members
     // before anything is sampled, so the count, the CPU, the memory, the disk and the ports are all
     // of the same set; a tree with nothing left of the session gets no entry, which is what makes

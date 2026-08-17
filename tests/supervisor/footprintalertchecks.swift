@@ -34,6 +34,10 @@ func runFootprintAlertChecks() {
         var now: Date
         var every: TimeInterval = 2
         var capacity: MachineCapacity
+        /// What the machine is saying about its memory while this run happens. Elevated unless a
+        /// check is about the gate itself: it is the second witness the memory tier needs, so a
+        /// sampler that left it normal would be asserting the gate rather than the rule behind it.
+        var pressure: MachineMemoryPressure = .warning
         @discardableResult
         mutating func run(_ ticks: Int, _ reading: ProcessFootprint,
                           idle: Bool) -> FootprintAlerts {
@@ -48,15 +52,16 @@ func runFootprintAlertChecks() {
                            idle: Bool) -> FootprintAlerts {
             now = now.addingTimeInterval(after)
             state = FootprintAlarm.advance(state, reading: reading, idle: idle, at: now,
-                                           capacity: capacity)
+                                           capacity: capacity, pressure: pressure)
             return state.alerts
         }
     }
     func run(_ ticks: Int, _ state: FootprintAlertState, _ reading: ProcessFootprint, idle: Bool,
              every: TimeInterval = 2, from: Date? = nil,
-             on capacity: MachineCapacity? = nil) -> FootprintAlertState {
+             on capacity: MachineCapacity? = nil,
+             pressure: MachineMemoryPressure = .warning) -> FootprintAlertState {
         var sampler = Sampler(state: state, now: from ?? t0, every: every,
-                              capacity: capacity ?? machine)
+                              capacity: capacity ?? machine, pressure: pressure)
         sampler.run(ticks, reading, idle: idle)
         return sampler.state
     }
@@ -65,9 +70,10 @@ func runFootprintAlertChecks() {
     /// condition, so six two-second readings are ten seconds of it and not twelve
     /// (`FootprintAlarm.advance(_:met:at:sustainedFor:)`).
     func held(_ reading: ProcessFootprint, idle: Bool, for seconds: TimeInterval,
-              every: TimeInterval = 2, on capacity: MachineCapacity? = nil) -> FootprintAlerts {
+              every: TimeInterval = 2, on capacity: MachineCapacity? = nil,
+              pressure: MachineMemoryPressure = .warning) -> FootprintAlerts {
         run(Int(seconds / every) + 1, FootprintAlertState(), reading, idle: idle, every: every,
-            on: capacity).alerts
+            on: capacity, pressure: pressure).alerts
     }
     let hot = reading(cpu: 300)
     check("a working session burning three cores is a build, and says nothing",
@@ -203,6 +209,9 @@ func runFootprintAlertChecks() {
         var cpu: Double, memory: UInt64, idle: Bool, seconds: TimeInterval
         var says: FootprintAlerts
         var why: String
+        /// Held elevated for this table, which is about the WINDOWS: the memory tier's second
+        /// witness is an axis of its own and is enumerated in full in the table below this one.
+        var pressure: MachineMemoryPressure = .warning
     }
     let table = [
         Row(cpu: calmCPU, memory: calmMemory, idle: true, seconds: 200,
@@ -238,9 +247,85 @@ func runFootprintAlertChecks() {
     ]
     for row in table {
         check(row.why,
-              held(reading(cpu: row.cpu, memory: row.memory), idle: row.idle, for: row.seconds)
-                  == row.says)
+              held(reading(cpu: row.cpu, memory: row.memory), idle: row.idle, for: row.seconds,
+                   pressure: row.pressure) == row.says)
     }
+
+    // THE MEMORY TIER TAKES TWO WITNESSES, and this is the whole cross product of them: the share
+    // met or not, each of the three levels the kernel publishes, working or idle. Twelve rows for
+    // twelve states, because the set is small enough to state rather than to sample.
+    //
+    // WHY THE SECOND WITNESS EXISTS AT ALL: the tree's figure counts a shared page once per process
+    // that maps it (`ProcessResourceSample.memoryBytes`), so a fan-out of node workers or a
+    // browser's helpers reads as half a machine it has not taken - and a red drawn on that alone is
+    // a false red on a tier whose whole promise is that it is rare and real (codex review of
+    // 1d2ca9d). The kernel counts that page once, so the two together say what neither says alone.
+    for pressure in [MachineMemoryPressure.normal, .warning, .critical] {
+        for idle in [true, false] {
+            // A tree reading over the machine's own line. The residue tier is a separate question
+            // and still answers it: an idle tree over four gigabytes is a residue whatever the
+            // machine thinks of its own memory.
+            let overTheLine: FootprintAlertLevel = pressure.isElevated ? .saturation
+                                                                      : (idle ? .residue : .calm)
+            check("a tree reading half the machine is \(overTheLine) "
+                      + "under \(pressure) pressure while \(idle ? "idle" : "working")",
+                  held(reading(cpu: calmCPU, memory: saturatedMemory), idle: idle, for: 10,
+                       pressure: pressure).memory == overTheLine)
+            // And one that does not read over the line is never red, however loudly the machine is
+            // complaining: the pressure says the MACHINE is short and this card is about a session,
+            // so the share is what says which session it would be.
+            check("…while one that does not is never red under \(pressure) pressure "
+                      + "while \(idle ? "idle" : "working")",
+                  held(reading(cpu: calmCPU, memory: residueMemory), idle: idle, for: 10,
+                       pressure: pressure).memory == (idle ? .residue : .calm))
+        }
+    }
+    // AND THE GATE CLOSES A RUN OF EVIDENCE THE WAY A TREE LETTING GO DOES: nine of the ten seconds
+    // under a complaining machine and the last one under a calm one is not ten seconds of the
+    // condition, because the condition includes the machine.
+    var easing = Sampler(now: t0, capacity: machine, pressure: .warning)
+    let overTheLine = reading(cpu: calmCPU, memory: saturatedMemory)
+    easing.run(5, overTheLine, idle: false)
+    check("eight seconds of both witnesses is not the ten",
+          easing.state.alerts.memory == .calm)
+    easing.pressure = .normal
+    check("…and the machine going quiet at the tenth second leaves nothing to light",
+          easing.run(1, overTheLine, idle: false).memory == .calm)
+    easing.pressure = .warning
+    check("…the run starting again from there rather than resuming",
+          easing.run(5, overTheLine, idle: false).memory == .calm
+              && easing.run(1, overTheLine, idle: false).memory == .saturation)
+
+    // WHAT THE KERNEL'S LEVELS MEAN, and the one direction an unreadable answer is allowed to fall.
+    check("the three levels are the ones the sysctl publishes",
+          MachineMemoryPressure.normal.rawValue == 1 && MachineMemoryPressure.warning.rawValue == 2
+              && MachineMemoryPressure.critical.rawValue == 4)
+    check("…and everything above normal is a machine that is complaining",
+          !MachineMemoryPressure.normal.isElevated && MachineMemoryPressure.warning.isElevated
+              && MachineMemoryPressure.critical.isElevated)
+    // FAIL-CLOSED, the same direction a capacity that cannot be read takes: a machine that will not
+    // say is not complaining, so the memory tier's second witness stays silent and the card is
+    // amber at worst. The other way round turns every heavy tree red on a kernel that answered
+    // something this enumeration has no case for.
+    check("a level the machine would not give us is not a complaint",
+          MachineMemoryPressure.reading(of: nil) == .normal)
+    check("…and neither is one this enumeration has no case for",
+          MachineMemoryPressure.reading(of: 0) == .normal
+              && MachineMemoryPressure.reading(of: 3) == .normal
+              && MachineMemoryPressure.reading(of: 8) == .normal)
+    check("…while the three it does have are read as themselves",
+          MachineMemoryPressure.reading(of: 1) == .normal
+              && MachineMemoryPressure.reading(of: 2) == .warning
+              && MachineMemoryPressure.reading(of: 4) == .critical)
+    // Read from the machine rather than derived here, which is the one thing a fixture cannot stand
+    // in for: this app cannot work out from a process table what the kernel already knows.
+    let rule = (try? String(contentsOfFile: "Tally/Core/FootprintAlerts.swift",
+                            encoding: .utf8)) ?? ""
+    check("the level is read off the machine's own sysctl",
+          rule.contains("sysctlbyname(\"kern.memorystatus_vm_pressure_level\","))
+    check("…and a read that did not succeed produces no level at all",
+          rule.contains("else { return nil }")
+              && rule.contains("level.flatMap(MachineMemoryPressure.init(rawValue:)) ?? .normal"))
     // RED OUTRANKS AMBER ON THE SAME READING, which the table above states twice and this states as
     // the rule it comes from: an idle tree over the machine's line meets BOTH conditions, and the
     // card has one colour to spend on it.

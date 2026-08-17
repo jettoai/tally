@@ -158,6 +158,12 @@ struct ProcessResourceSample: Equatable {
     /// tree would hand the machine back. Activity Monitor's per-process column adds up exactly the
     /// same way, and as an answer to "which session is the heavy one", which is all the card claims,
     /// it is the right kind of wrong.
+    ///
+    /// WHICH IS WHY THE MACHINE-LEVEL RULE DOES NOT TRUST THIS RULER ALONE. "Is anything actually
+    /// short" is a different claim from "which session is the heavy one", and this number cannot
+    /// make it: a fan-out of workers reads as half a machine it has not taken. So the red tier asks
+    /// the kernel's own pressure level as well, which counts a shared page once, and lights only
+    /// when both agree (`FootprintAlarm`, `MachineMemoryPressure`).
     var memoryBytes: UInt64 {
         memory.reduce(0) { $0 + (ours.contains($1.key) ? 0 : $1.value) }
     }

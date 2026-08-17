@@ -121,13 +121,22 @@ enum SessionInputHold: Equatable {
     /// What a refusal says about this hold, worded for the person reading stderr rather than for
     /// the log. `ttl` is named in every one of them: the sentence has to say what ran out as well
     /// as what stood.
+    ///
+    /// EVERY SENTENCE IS ABOUT THE INSTANT THE CLOCK RAN OUT, and none of them claims anything
+    /// about the two minutes before it. A hold is sampled once, on the tick that finds the request
+    /// expired, and the gates change from tick to tick: a line held by somebody typing for 119
+    /// seconds and by an open turn for the last one was described as having been in a turn "for the
+    /// whole 120s", which is a duration this decision never measured (codex review of 0c9798b). The
+    /// two sentences that said so are now worded like the two that always were right. Recording the
+    /// history instead was weighed and refused: it would mean writing a reason per tick to a file
+    /// the caller does not read, for a sentence whose job is to tell that caller what to do NEXT.
     func sentence(ttl: TimeInterval) -> String {
         let seconds = Int(ttl)
         switch self {
         case .turn:
-            return "this session was in a turn of its own for the whole \(seconds)s"
+            return "it was still inside a turn of its own when its \(seconds)s ran out"
         case .notReporting:
-            return "this session reported nothing about itself for \(seconds)s"
+            return "it was still reporting nothing about itself when its \(seconds)s ran out"
         case .keyboard:
             return "somebody was typing in that terminal when the \(seconds)s ran out"
         case .restart:
@@ -392,8 +401,13 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     // session turns out to have been typed into twice by a caller that retried (codex review of
     // 18b3174).
     state.servedEpoch = request.epoch
+    // THE CALLER'S OWN WAIT RIDES BACK ON THE ANSWER, copied rather than decided here: it says for
+    // how long this receipt is somebody's to collect, and the only end that knows is the end that
+    // is waiting (`SessionInputRequest.waitSeconds`). A request from a CLI that predates the field
+    // carries nil and the answer says nil, which reads as the longest wait, exactly as before.
     let lostReceipt = writeSessionInputResult(
-        SessionInputResult(epoch: request.epoch, outcome: outcome.rawValue, detail: detail),
+        SessionInputResult(epoch: request.epoch, outcome: outcome.rawValue, detail: detail,
+                           waitSeconds: request.waitSeconds),
         sessionKey: pid, dir: dir)
     // Unlinked only when the file still holds the request that was SERVED, the rule
     // `PendingSwitchConsumption.commit` states: injection takes seconds, and a second `tally session

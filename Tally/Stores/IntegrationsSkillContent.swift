@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 18
+    nonisolated static let skillVersion = 19
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -299,6 +299,9 @@ extension IntegrationsStore {
           session, and a second is refused rather than replacing the first.
         - Exit 4 means the request was written and nobody answered: within 150 seconds, or
           because that session exited while the line was queued. The message says which.
+          Neither says the line was not typed, because neither can know: the supervisor
+          types before it writes the receipt. Read `~/.tally/logs/input.log` before
+          sending the same line again, or the session may get it twice.
         - Exit 2 is a usage error and exit 1 is something broken here. Read the message
           rather than retrying: a retry answers none of these four.
 

@@ -250,6 +250,19 @@ func runOpenTurnChecks() {
             [.modificationDate: realNow.addingTimeInterval(-callAge)], ofItemAtPath: file.path)
         return TranscriptWatcher(projectDir: dir, file: file, since: launch)
     }
+    /// A subagent transcript beside a session file, written `age` seconds ago. The WORKFLOW shape
+    /// (`<session>/subagents/workflows/wf_<id>/agent-*.jsonl`) rather than the flat one, because
+    /// that is the dispatch whose parent tool call really does outlive the relaunch ceiling: a
+    /// fan-out holds one `Workflow` call open for the whole run.
+    func dropSubagentWrite(beside file: URL, age: TimeInterval) {
+        let subDir = file.deletingPathExtension().appendingPathComponent("subagents")
+            .appendingPathComponent("workflows").appendingPathComponent("wf_live")
+        try! FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
+        let url = subDir.appendingPathComponent("agent-a3b273b656da7c735.jsonl")
+        try! "{}".write(to: url, atomically: true, encoding: .utf8)
+        try! FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: url.path)
+    }
     // 300s of total silence: past the 120s follow bar, so before this the supervisor relaunched
     // here and killed the build that was running.
     var midBuild = watcherWithTurn(open: true, callAge: 300)
@@ -266,6 +279,31 @@ func runOpenTurnChecks() {
     var stillStreaming = watcherWithTurn(open: false, callAge: 2)
     check("a file written 2s ago is busy on the mtime bar as it always was",
           !stillStreaming.isQuiet(followIdleSeconds))
+
+    // THE CAP IS THE RELAUNCH GATE'S, AND THE TYPING GATE DOES NOT INHERIT IT. Past
+    // `openTurnMaxSeconds` an unmatched call stops holding, which is right for a restart: a child
+    // killed mid-call leaves that call unmatched for ever, and a veto with no ceiling would wedge
+    // the session out of every reload for the rest of its life. But a call that old with a subagent
+    // still WRITING beside it is not that case at all - a dead child writes no subagent transcripts
+    // - so it is a conversation genuinely inside a long turn (a `Workflow` fan-out is the ordinary
+    // one), and `tally session send` must not type into it. The reading says `busy` rather than
+    // `subagentsWriting`, which is what makes the input gate hold (codex review of 0c9798b).
+    var oldTurnWithAgents = watcherWithTurn(open: true, callAge: openTurnMaxSeconds + 120)
+    dropSubagentWrite(beside: oldTurnWithAgents.file!, age: 5)
+    check("an over-age tool call with a subagent still writing reads as the turn, not as dispatch",
+          oldTurnWithAgents.quietness(followIdleSeconds) == .busy)
+    check("…and the input gate holds it as that session's own turn",
+          sessionInputHold(state: .working, quiet: oldTurnWithAgents.quietness(followIdleSeconds),
+                           keyboardIdle: true, relaunchPlanned: false) == .turn)
+    // The escape the cap exists for is untouched: the same over-age call with nothing dispatched
+    // beside it still reads quiet, so a session whose child was killed mid-call is not locked out.
+    var oldTurnAlone = watcherWithTurn(open: true, callAge: openTurnMaxSeconds + 120)
+    check("…while the same call with nothing writing beside it is quiet, as the cap intends",
+          oldTurnAlone.quietness(followIdleSeconds) == .quiet && oldTurnAlone.isQuiet(5))
+    // And the relaunch reading of BOTH is exactly what it was before the three-valued reading
+    // existed: an over-age call alone is quiet, one with a live package is not.
+    check("…and neither answer moved what the relaunch gates see",
+          !oldTurnWithAgents.isQuiet(followIdleSeconds))
 
     // MARK: - 25h. The wiring: the quiet gate consults it, the cap path never does
 

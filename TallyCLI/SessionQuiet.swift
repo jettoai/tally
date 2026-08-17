@@ -45,7 +45,8 @@ enum SessionQuiet: Equatable {
     /// unresolved fork, and no subagent that has written inside `subagentIdleSeconds`.
     case quiet
     /// The conversation's OWN context is as quiet as that, and the only thing still writing is work
-    /// it dispatched (`<session>/subagents/`).
+    /// it dispatched (`<session>/subagents/`). It means no unmatched tool call of ANY age, not
+    /// merely none inside the relaunch ceiling (`boundFileQuietness` argues why).
     case subagentsWriting
     /// The conversation itself is moving: its transcript is being appended to, a tool call it opened
     /// has not come back, or a fork it may have moved into cannot be told apart yet.
@@ -118,11 +119,22 @@ extension TranscriptWatcher {
         // Past the mtime bar is exactly where an idle session lives, so the tail read behind this
         // is cached against the mtime already in hand (see `openScanCache`) rather than repeated
         // on every poll. The verdict itself is still computed here, against the current clock.
-        if openTurnHoldsSession(openedAt: openTurn(of: file, modified: modified)?.startedAt) {
-            return .busy
-        }
-        guard let subagent = newestSubagentWrite() else { return .quiet }
-        return Date().timeIntervalSince(subagent) > subagentIdleSeconds ? .quiet : .subagentsWriting
+        let call = openTurn(of: file, modified: modified)
+        if openTurnHoldsSession(openedAt: call?.startedAt) { return .busy }
+        guard let subagent = newestSubagentWrite(),
+              Date().timeIntervalSince(subagent) <= subagentIdleSeconds else { return .quiet }
+        // DISPATCHED WORK BESIDE A TOOL CALL THAT NEVER CAME BACK IS NOT DISPATCHED WORK, and the
+        // age of that call does not enter into it. `openTurnHoldsSession` stops honouring a call
+        // after `openTurnMaxSeconds`, which is right for what that cap is for: a child SIGKILLed
+        // mid-call leaves its `tool_use` unmatched for ever, and a relaunch gate with no ceiling
+        // would wedge that session out of every restart for the rest of its life. Inheriting the
+        // ceiling here would let a line be typed INTO a live turn, because the two situations are
+        // told apart by exactly this pair: a killed child writes no subagent transcripts either, so
+        // an unmatched call with a subagent still writing beside it is a conversation genuinely
+        // inside a turn that has run long (a `Workflow` fan-out is the ordinary case, and it runs
+        // well past the ceiling). The stale-call escape stays open where it was, which is the row
+        // above: no subagent writing, and the reading is `quiet` exactly as it always was.
+        return call == nil ? .subagentsWriting : .busy
     }
 
     /// The newest write under this session's subagent transcripts, nil when it never dispatched one

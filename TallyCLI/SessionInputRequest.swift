@@ -78,6 +78,21 @@ struct SessionInputRequest: Codable, Equatable {
     /// The text to type, verbatim, before Return is pressed. May be empty, which is a request to
     /// press Return and nothing else - the shape that answers a prompt sitting on its default.
     var text: String
+    /// HOW LONG THE CALLER WILL BE THERE, in seconds from `epoch`, and nil when it did not say.
+    ///
+    /// It exists because the answer to this request occupies the address for as long as somebody
+    /// might still come back for it, and one caller now leaves early by design: a send into its OWN
+    /// session waits `sessionInputSelfWaitSeconds` and then returns, because staying would hold
+    /// open the turn the line is waiting for (SessionSendWait.swift). Judging its answer by the
+    /// long wait made a receipt nobody would ever read squat the address for the rest of two and a
+    /// half minutes, and the next legitimate send there was refused as a duplicate - measured at up
+    /// to 144s (codex review of 0c9798b).
+    ///
+    /// The supervisor copies it onto the answer, which is where it is read (`sessionInputOccupant`).
+    /// OPTIONAL AND ADDITIVE, the rule this whole channel is under: a request from a CLI that
+    /// predates the field decodes with nil, and nil means the longest wait, which is exactly the
+    /// behaviour that stood before it existed.
+    var waitSeconds: Int?
 }
 
 /// What became of one request, in the vocabulary both ends share.
@@ -119,6 +134,10 @@ struct SessionInputResult: Codable, Equatable {
     var outcome: String
     /// Worth saying alongside it: an errno, the state it expired in, the limit it exceeded.
     var detail: String?
+    /// How long the caller that asked for this said it would wait, copied off the request
+    /// (`SessionInputRequest.waitSeconds` states why it travels). nil when it did not say, which
+    /// reads as the longest wait any caller makes.
+    var waitSeconds: Int?
 
     /// The outcome this names, or nil when it is a word this build has never heard of.
     var resolved: SessionInputOutcome? { SessionInputOutcome(rawValue: outcome) }

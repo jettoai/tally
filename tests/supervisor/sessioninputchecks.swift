@@ -57,6 +57,19 @@ func runSessionInputChecks() {
               == answer)
     check("a truncated write is no request at all, rather than half of one",
           (parseSessionInput(Data("{\"epoch\":123,\"te".utf8)) as SessionInputRequest?) == nil)
+    // THE FIELD THAT SAYS HOW LONG ITS CALLER WILL BE THERE, on both documents and additive on
+    // both: a request written by a CLI that predates it decodes with nil, and nil is the longest
+    // wait, which is what every answer was charged before the field existed. Without that fallback
+    // a mixed pair of builds would make a receipt a husk at birth (`sessionInputAnswerLife`).
+    let timed = SessionInputRequest(epoch: 1, text: "/clear", waitSeconds: 6)
+    check("a request carrying its caller's wait round-trips with it",
+          sessionInputData(timed).flatMap { parseSessionInput($0) as SessionInputRequest? } == timed)
+    check("…and one written before that field existed decodes with nothing to say",
+          (parseSessionInput(Data("{\"epoch\":1,\"text\":\"hi\"}".utf8))
+              as SessionInputRequest?) == SessionInputRequest(epoch: 1, text: "hi"))
+    check("…and the same on the answer, which is where it is read",
+          (parseSessionInput(Data("{\"epoch\":1,\"outcome\":\"submitted\"}".utf8))
+              as SessionInputResult?)?.waitSeconds == nil)
     // A word from a newer supervisor decodes rather than being rejected, and reads as NOT delivered:
     // a caller deciding whether to retry must never read "I have not heard of that" as "it landed".
     let future = SessionInputResult(epoch: 1, outcome: "refused-something-new", detail: "why")
@@ -164,7 +177,7 @@ func runSessionInputChecks() {
     check("a request that never reached an injectable moment is refused, and names what stood",
           decide(request("y"), state: .working, at: sessionInputTTL + 1)
               == .refuse(.refusedExpired,
-                         "this session was in a turn of its own for the whole 120s"))
+                         "it was still inside a turn of its own when its 120s ran out"))
     check("…a terminal somebody was typing in says that instead",
           decide(request("y"), state: .idle, keyboardIdle: false, at: sessionInputTTL + 1)
               == .refuse(.refusedExpired,
@@ -174,7 +187,7 @@ func runSessionInputChecks() {
     check("…and one that never reported anything is refused in its own words",
           decide(request("y"), state: .unknown, at: sessionInputTTL + 1)
               == .refuse(.refusedNotReporting,
-                         "this session reported nothing about itself for 120s"))
+                         "it was still reporting nothing about itself when its 120s ran out"))
     // EXPIRY IS JUDGED BEFORE THE STATE GATES, which is the only order that can ever fire: those
     // gates are the reason a request waits at all. So an expired request is refused even at a moment
     // it could otherwise have been typed at.
@@ -294,6 +307,26 @@ func runSessionInputChecks() {
     check("a head whose agents are still writing is typed into at the end of its turn",
           tick(state: .working, quiet: .subagentsWriting, input: &dispatched) == ["/clear"]
               && readSessionInputResult(sessionKey: "9213", dir: dir)?.outcome == "submitted")
+
+    // THE CALLER'S WAIT RIDES BACK ON THE RECEIPT, copied rather than decided by the supervisor:
+    // it is what stops a receipt nobody is waiting for from holding the address shut behind it
+    // (`sessionInputOccupant`), and only the caller knows the number.
+    var leaving = SessionInputState(sessionKey: "9214", servedEpoch: 0)
+    try? writeSessionInputRequest(SessionInputRequest(epoch: epoch(0), text: "/clear",
+                                                      waitSeconds: 6),
+                                  sessionKey: "9214", dir: dir)
+    _ = tick(state: .idle, input: &leaving)
+    check("the answer carries the wait the request named",
+          readSessionInputResult(sessionKey: "9214", dir: dir)?.waitSeconds == 6)
+    // And a request that named none leaves an answer that names none, rather than one that invents
+    // a number: the fallback belongs to the reader, which is the only place it can stay one rule.
+    var silentAbout = SessionInputState(sessionKey: "9215", servedEpoch: 0)
+    try? writeSessionInputRequest(request("/clear"), sessionKey: "9215", dir: dir)
+    _ = tick(state: .idle, input: &silentAbout)
+    check("…and says nothing where the request said nothing",
+          readSessionInputResult(sessionKey: "9215", dir: dir).map {
+              $0.outcome == "submitted" && $0.waitSeconds == nil
+          } == true)
 
     // …and through the tick, where what matters is that a wait writes NOTHING: no bytes, no answer
     // for the caller to read as success, and a request left exactly where it was for the next tick.
@@ -453,7 +486,7 @@ func runSessionInputChecks() {
 
     let written = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
     check("every served request left a line", written.components(separatedBy: "\n")
-              .filter { $0.contains("input=") }.count == 10)
+              .filter { $0.contains("input=") }.count == 12)
     check("…naming the session, the outcome and the text",
           written.contains("pid=9201 input=submitted bytes=5 text=/help"))
     // NO `submit` COLUMN. It read `yes` on every line ever written once typing and sending became

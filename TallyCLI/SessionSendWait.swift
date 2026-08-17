@@ -95,11 +95,20 @@ func awaitSessionInputResult(sessionKey: String, epoch: Int, timeout: TimeInterv
 /// Its own function so the sentence and the condition cannot drift, and so the suite can assert both
 /// without a supervisor: `alive` is injected, the default is the same registry reader every other
 /// per-session channel uses.
+///
+/// IT DOES NOT SAY THE LINE WAS NOT TYPED, and that restraint is the whole wording. A supervisor
+/// types the bytes and writes the receipt afterwards (`applySessionInput`), so one that died
+/// between the two leaves a terminal that HAS the line and an address with no answer on it - which
+/// is indistinguishable from here from one that died before reading the request at all. Telling the
+/// caller nothing was typed invites the retry that puts the line in twice, which is the one failure
+/// this channel has always been built to avoid (codex review of 0c9798b). What the caller is given
+/// instead is the file that does know.
 func sessionInputAbandonment(sessionKey: String,
                              alive: (pid_t) -> Bool = { supervisorAlive($0) }) -> String? {
     guard let pid = pid_t(sessionKey), !alive(pid) else { return nil }
-    return "session \(sessionKey) has exited, so nothing will ever read the line queued for it. "
-        + "Nothing was typed"
+    return "session \(sessionKey) has exited, so nothing will ever answer the line queued for it. "
+        + "Whether it was typed first is unknown from here: the supervisor types before it writes "
+        + "the receipt. Read ~/.tally/logs/input.log rather than sending it again"
 }
 
 /// The line a caller prints as it settles in to wait for another session, so a wait of up to two and

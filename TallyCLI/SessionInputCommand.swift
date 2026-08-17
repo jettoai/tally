@@ -113,13 +113,19 @@ enum SessionInputOccupant: Equatable {
 ///   - A REQUEST is live for `sessionInputTTL`, which is how long the supervisor will still act on
 ///     it. Past that it is a husk the next tick refuses, and treating it as an occupant would take
 ///     the address away for two minutes over a caller that was killed mid-wait.
-///   - An ANSWER is live for `sessionInputWaitSeconds` measured from the same stamp, because what
-///     makes an answer collectable is not the supervisor's willingness to act but the CALLER's
-///     willingness to wait, and that wait is longer than the TTL by design (150s against 120s, so
-///     a refusal of an expired request still reaches the caller it belongs to). Judging an answer
-///     by the TTL would leave exactly the hole this type closes: a `refused-expired` answer is
-///     born already older than the TTL, so it would be a husk at birth and the next caller would
-///     delete it out from under a caller still polling for it.
+///   - An ANSWER is live for as long as THAT caller said it would wait, measured from the same
+///     stamp, because what makes an answer collectable is not the supervisor's willingness to act
+///     but the CALLER's willingness to wait. For the ordinary caller that is `sessionInputWaitSeconds`,
+///     longer than the TTL by design (150s against 120s, so a refusal of an expired request still
+///     reaches the caller it belongs to). Judging an answer by the TTL would leave exactly the hole
+///     this type closes: a `refused-expired` answer is born already older than the TTL, so it would
+///     be a husk at birth and the next caller would delete it out from under a caller still polling
+///     for it.
+///
+///     AND THE CALLER'S OWN NUMBER RATHER THAN THAT ONE FOR EVERYBODY, since a send into its own
+///     session leaves early by design and its receipt is written to an address nobody is standing
+///     at (`SessionInputRequest.waitSeconds` carries the whole argument and the defect it fixes).
+///     A request that named no number at all is charged the long wait, exactly as before.
 func sessionInputOccupant(sessionKey: String, dir: URL = sessionInputDir, now: Date = Date())
     -> SessionInputOccupant? {
     if let waiting = readSessionInputRequest(sessionKey: sessionKey, dir: dir),
@@ -127,9 +133,16 @@ func sessionInputOccupant(sessionKey: String, dir: URL = sessionInputDir, now: D
         return .request(waiting)
     }
     guard let answer = readSessionInputResult(sessionKey: sessionKey, dir: dir),
-          !sessionInputExpired(epoch: answer.epoch, now: now, ttl: sessionInputWaitSeconds)
+          !sessionInputExpired(epoch: answer.epoch, now: now, ttl: sessionInputAnswerLife(answer))
     else { return nil }
     return .answer(answer)
+}
+
+/// How long an answer is somebody's to collect: what its caller said it would wait, and the longest
+/// wait anybody makes when it said nothing. Its own function because the occupant test and the
+/// sentence a second caller is shown must not disagree about when an answer stops mattering.
+func sessionInputAnswerLife(_ answer: SessionInputResult) -> TimeInterval {
+    answer.waitSeconds.map(TimeInterval.init) ?? sessionInputWaitSeconds
 }
 
 /// What the second caller is told. Pure, so the wording is assertable.
@@ -173,7 +186,7 @@ func sessionInputBusyRefusal(_ occupant: SessionInputOccupant, sessionKey: Strin
             + "or wait up to \(expiresIn(waiting.epoch, sessionInputTTL))s for it to expire, then "
             + "ask again"
     case .answer(let answer):
-        let left = expiresIn(answer.epoch, sessionInputWaitSeconds)
+        let left = expiresIn(answer.epoch, sessionInputAnswerLife(answer))
         return "session \(sessionKey) was sent a line already and the answer to it "
             + "(\(answer.outcome)) has not been collected yet, so nothing was queued for this one: "
             + "that answer is what the caller before you is still polling for, and taking it away "
@@ -372,8 +385,17 @@ func runSessionSend(args: [String]) -> Int32 {
     // away so the next reader cannot find it waiting; the epoch match in `awaitSessionInputResult`
     // is what stops it being MISREAD in the meantime.
     clearSessionInputResult(sessionKey: sessionKey)
+    // IS THIS OUR OWN SESSION? The marker answers it, and only where the resolution actually USED
+    // it: `adopted` is nil when the directory found the session or when `--session` named somebody
+    // else, and both of those are callers standing outside the turn they are writing into.
+    //
+    // ASKED BEFORE THE REQUEST IS WRITTEN, because the request carries the answer: how long this
+    // caller will be there decides how long its receipt is anybody's to collect
+    // (`SessionInputRequest.waitSeconds`).
+    let ownSession = marker.adopted(sessionKey) != nil
+    let wait = ownSession ? sessionInputSelfWaitSeconds : sessionInputWaitSeconds
     let request = SessionInputRequest(epoch: Int(Date().timeIntervalSince1970 * 1000),
-                                      text: intent.text)
+                                      text: intent.text, waitSeconds: Int(wait))
     do {
         try writeSessionInputRequest(request, sessionKey: sessionKey)
     } catch {
@@ -381,10 +403,6 @@ func runSessionSend(args: [String]) -> Int32 {
             + "\(error.localizedDescription)")
         return 1
     }
-    // IS THIS OUR OWN SESSION? The marker answers it, and only where the resolution actually USED
-    // it: `adopted` is nil when the directory found the session or when `--session` named somebody
-    // else, and both of those are callers standing outside the turn they are writing into.
-    let ownSession = marker.adopted(sessionKey) != nil
     if !ownSession {
         // Said before the wait rather than after it, which is the whole point: two and a half
         // minutes of nothing is indistinguishable from a command that has hung.
@@ -393,8 +411,7 @@ func runSessionSend(args: [String]) -> Int32 {
                                      timeout: sessionInputWaitSeconds))
     }
     let answer = awaitSessionInputResult(
-        sessionKey: sessionKey, epoch: request.epoch,
-        timeout: ownSession ? sessionInputSelfWaitSeconds : sessionInputWaitSeconds,
+        sessionKey: sessionKey, epoch: request.epoch, timeout: wait,
         // Not asked of our own session: this process descends from that supervisor, so it is alive
         // by construction, and the one thing this wait can never be is abandoned for its absence.
         abandon: { ownSession ? nil : sessionInputAbandonment(sessionKey: sessionKey) })

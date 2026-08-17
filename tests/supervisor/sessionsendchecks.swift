@@ -169,6 +169,40 @@ func runSessionSendChecks() {
           !uncollected.contains("never reached a moment") && !uncollected.contains("never reported"))
     clearSessionInputResult(sessionKey: busyKey, dir: dir)
 
+    // AN ANSWER NOBODY IS WAITING FOR IS NOT AN OCCUPANT, which is the other end of the same rule.
+    // A send into its own session leaves after `sessionInputSelfWaitSeconds` by design, so the
+    // receipt written when the line is finally typed lands at an address with nobody standing at
+    // it: charged the long wait, it shut that address for the rest of two and a half minutes and
+    // the next legitimate send was refused as a duplicate, measured at up to 144s (codex review of
+    // 0c9798b). The caller's own number travels on the request and back on the answer, so the
+    // occupant test can ask how long THAT caller was going to be there.
+    let selfWait = Int(sessionInputSelfWaitSeconds)
+    let unwatched = SessionInputResult(epoch: epoch(0), outcome: "submitted", detail: nil,
+                                       waitSeconds: selfWait)
+    writeSessionInputResult(unwatched, sessionKey: busyKey, dir: dir)
+    check("a receipt for a caller that waits six seconds occupies the address for six seconds",
+          sessionInputOccupant(sessionKey: busyKey, dir: dir,
+                               now: t0.addingTimeInterval(TimeInterval(selfWait) - 1))
+              == .answer(unwatched))
+    check("…and is a husk immediately after that, rather than at 150s",
+          sessionInputOccupant(sessionKey: busyKey, dir: dir,
+                               now: t0.addingTimeInterval(TimeInterval(selfWait) + 1)) == nil
+              && sessionInputOccupant(sessionKey: busyKey, dir: dir,
+                                      now: t0.addingTimeInterval(30)) == nil)
+    // The sentence a second caller would see agrees with that clock rather than quoting the long
+    // one, or the refusal would tell them to wait out a wait nobody is making.
+    let shortLeft = sessionInputBusyRefusal(.answer(unwatched), sessionKey: busyKey,
+                                            now: t0.addingTimeInterval(2))
+    check("…and the refusal names the time THAT answer has left, not the longest wait",
+          shortLeft.contains("\(selfWait - 2)s")
+              && !shortLeft.contains("\(Int(sessionInputWaitSeconds) - 2)s"))
+    // An answer from a build with no such field is charged the longest wait, which is the behaviour
+    // that stood before the field existed: the fallback is what keeps a mixed pair of builds safe.
+    check("…while an answer that names no wait is judged as it always was",
+          sessionInputAnswerLife(unwatched) == TimeInterval(selfWait)
+              && sessionInputAnswerLife(servedAnswer) == sessionInputWaitSeconds)
+    clearSessionInputResult(sessionKey: busyKey, dir: dir)
+
     // MARK: - Which pid --session may name
 
     // Liveness alone says a process is there and nothing about what it is, so `--session <any live
@@ -317,6 +351,15 @@ func runSessionSendChecks() {
               && sessionInputAbandonment(sessionKey: "9209", alive: { _ in false })?
                   .contains("9209") == true
               && sessionInputAbandonment(sessionKey: "not-a-pid", alive: { _ in false }) == nil)
+    // AND IT DOES NOT SAY THE LINE WAS NOT TYPED, which it cannot know: the supervisor types the
+    // bytes and writes the receipt afterwards, so one that died between the two leaves a terminal
+    // holding the line and an address holding nothing - the same thing this caller sees when the
+    // request was never read at all. Claiming the stronger of the two invites the retry that puts
+    // the line in twice (codex review of 0c9798b).
+    let gone = sessionInputAbandonment(sessionKey: "9209", alive: { _ in false }) ?? ""
+    check("…and the sentence claims only what it can know, and points at what does know",
+          !gone.contains("Nothing was typed") && gone.contains("unknown")
+              && gone.contains("~/.tally/logs/input.log"))
 
     // MARK: - Sending into the session you are running in
 
@@ -490,8 +533,15 @@ func runSessionSendChecks() {
     // asked of our own supervisor, which is alive by construction.
     check("the wait a self-send makes is the short one, chosen by the marker it adopted",
           command.contains("let ownSession = marker.adopted(sessionKey) != nil")
-              && command.contains("timeout: ownSession ? sessionInputSelfWaitSeconds "
-                  + ": sessionInputWaitSeconds"))
+              && command.contains("let wait = ownSession ? sessionInputSelfWaitSeconds "
+                  + ": sessionInputWaitSeconds")
+              && command.contains("timeout: wait,"))
+    // AND THE SAME NUMBER IS STAMPED ON THE REQUEST, which is what stops the receipt of a send
+    // nobody is waiting for from holding the address shut behind it: the two must be one value,
+    // since a caller that leaves after six seconds and a receipt judged by 150 is exactly the
+    // mismatch that refused the next legitimate send (codex review of 0c9798b).
+    check("…and the request carries the wait its caller actually makes",
+          command.contains("text: intent.text, waitSeconds: Int(wait)"))
     check("…and running out of it queues rather than fails",
           command.contains("guard !ownSession else {\n            "
               + "print(sessionInputQueuedMessage(sessionKey: sessionKey))\n            return 0"))

@@ -121,7 +121,19 @@ struct SessionCardView: View {
             .padding(.horizontal, TallyMetrics.cardPaddingH)
             .padding(.vertical, TallyMetrics.cardPaddingV)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .tallyCard()
+            // AND THE CARD'S OWN EDGE IS THE FOURTH CHANNEL THE WAIT IS SAID ON, after the dot, the
+            // state word and the reason line. Those three are all INSIDE the card, so finding the
+            // session that is asking for somebody means reading the cards one by one; an outline is
+            // found by a sweep down the board, which is the action this board exists for (Albert,
+            // 2026-08-17). Added rather than substituted: the shape and the words are what a reader
+            // who cannot separate the hues gets, and they stay exactly as they were.
+            //
+            // BLOCKED AND NOTHING ELSE WEARS ONE, the machine-level readings on the row below
+            // included (`FootprintAlertLevel`). Those are red because they need doing something
+            // about, and this is red because it needs doing something about NOW; an edge that also
+            // meant "this session is expensive" would be an edge a reader has to look inside the
+            // card to interpret, which is the whole of what it buys back.
+            .tallyCard(accent: sessionIsWaiting ? TallyColor.critical : nil)
             .contentShape(Rectangle())
             // A session that cannot report itself is still a session and still a way to its
             // terminal, so it is dimmed rather than greyed out: quieter than its neighbours, and

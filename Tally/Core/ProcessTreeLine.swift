@@ -7,6 +7,49 @@ import Foundation
 /// had inside it: over there is what the numbers MEAN (which pids are in a tree, what two
 /// cumulative readings say, who to blame for the difference), and here is what a person sees. Both
 /// halves stay pure, so the assertion harness can state either without a process around it.
+///
+/// The FIELD type below came across the same seam later, when the far side ran out of room a second
+/// time: a segment is what a person sees rather than what a reading means, and it is built and
+/// spelled here.
+
+/// One field of the card's footprint line, with what it says and how loud it is.
+///
+/// THE LINE IS HANDED OVER IN PIECES because one field of it can be drawn differently from the
+/// rest, and a single string cannot say which. The kind is carried so the view can name the
+/// condition for VoiceOver in its own words: the bundle is over there, and this stays a pure
+/// function of what it is handed (the same division `unit` is already under).
+struct ProcessFootprintSegment: Equatable {
+    /// THE PORTS ARE NOT ONE OF THESE ANY MORE: they moved to the identity line, where they are
+    /// their own element beside the account and the model rather than the last field of a sentence
+    /// that truncates (`ProcessTree.portsText`, `SessionCardView.sessionIdentityRow`).
+    enum Kind: Equatable { case processes, agents, cpu, memory, disk }
+    var kind: Kind
+    var text: String
+    /// The quieter half of the field: the word a count is counting, or the program blamed for a
+    /// rate. Carried apart from `text` rather than parsed back out of it, because the row that
+    /// draws figures instead of sentences prints it a shade down from the number
+    /// (`SessionCardView.sessionFootprintTrends`) - three heterogeneous facts at one brightness is
+    /// a string a reader has to segment for themselves, which is what that row was reported as
+    /// (Albert, 2026-08-15: "2 procs · 1% CPU (claude) · 459 MB" is hard to read).
+    ///
+    /// ONLY THE FIELDS THAT ROW DRAWS CARRY ONE, which is the three trended metrics: the process
+    /// count's word, and the program blamed for the CPU or for the memory. The fields with no shape
+    /// of their own are drawn as one sentence at one weight
+    /// (`SessionCardView.sessionFootprint`), so an aside on them would be a second brightness
+    /// nothing reads - which is why the named disk writer is a word inside its own sentence instead.
+    var aside: String?
+    /// How loud this field is: calm, the residue tier, or the machine-level one
+    /// (`FootprintAlertLevel`). Carried as the LEVEL rather than as a flag beside a colour, so the
+    /// surface that only cares whether a field is warned at all and the two that draw the tiers
+    /// apart are reading one value.
+    var level: FootprintAlertLevel = .calm
+    /// Whether this field is warned at all, whichever tier it is: what the sentence's own order is
+    /// decided on (`ProcessTree.segments`) and what a listener is told about
+    /// (`SessionCardView.spoken`). Derived rather than stored, so no caller can set a level and a
+    /// flag that disagree.
+    var alert: Bool { level != .calm }
+}
+
 extension ProcessTree {
 
     /// What to call a process, given the path of the program it is running.
@@ -205,6 +248,12 @@ extension ProcessTree {
     /// saying what it is wrong about. Everything else keeps its reading order inside its group, so
     /// a card only ever reorders across the warning line, never within it.
     ///
+    /// EITHER TIER COUNTS AS WARNED HERE, and the order does not rank them against each other. What
+    /// this rule is for is keeping a NUMBER a reader can act on from falling off the end of a
+    /// truncated line, and a machine-level reading and a residue are equally that; a card carrying
+    /// one of each would gain nothing from sorting them, and would gain a second order to keep in
+    /// step with the colours (`FootprintAlertLevel`).
+    ///
     /// THE AGENTS ARE AN ORDINARY FIELD, warnings and all: a fan-out is a thing somebody chose to
     /// start, so however many are running it is never a condition to be alarmed about, and it is
     /// only shown while at least one is (`ProcessFootprint.agents` says what a zero means and why
@@ -226,18 +275,18 @@ extension ProcessTree {
             let cpuName = diskName == nil ? worthNaming(footprint.cpuLeader) : nil
             parts.append(.init(kind: .cpu,
                                text: blamed("\(Int(cpu.rounded()))% CPU", on: cpuName),
-                               aside: cpuName, alert: footprint.alerts.cpu))
+                               aside: cpuName, level: footprint.alerts.cpu))
         }
         if let memory = memoryText(footprint.memoryBytes) {
             // Named whoever it is, unlike the CPU: see `line` for why this is the one place the
             // expected leader is worth its room.
             parts.append(.init(kind: .memory,
                                text: blamed(memory, on: footprint.memoryLeader),
-                               aside: footprint.memoryLeader, alert: footprint.alerts.memory))
+                               aside: footprint.memoryLeader, level: footprint.alerts.memory))
         }
         if let disk {
             parts.append(.init(kind: .disk, text: blamed(disk, on: diskName),
-                               alert: footprint.alerts.disk))
+                               level: footprint.alerts.disk))
         }
         // Built in reading order above and reordered here in one place, so every field is written
         // where it belongs in the sentence and only one rule decides what a narrow card keeps.

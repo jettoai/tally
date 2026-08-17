@@ -11101,6 +11101,64 @@
         }
       }
     },
+    "using most of this machine's CPU": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "佔用本機大部分 CPU"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "占用本机大部分 CPU"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンの CPU の大半を使用中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 컴퓨터 CPU 대부분 사용 중"
+          }
+        }
+      }
+    },
+    "holding most of this machine's memory": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "佔用本機大部分記憶體"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "占用本机大部分内存"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンのメモリの大半を占有中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 컴퓨터 메모리 대부분 점유 중"
+          }
+        }
+      }
+    },
     "high CPU while nothing is running": {
       "extractionState": "manual",
       "localizations": {

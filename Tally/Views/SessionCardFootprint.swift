@@ -111,7 +111,7 @@ extension SessionCardView {
                 .reduce(Text(verbatim: "")) { line, part in
                     let lead = part.offset == 0 ? Text(verbatim: "")
                                                 : Text(verbatim: pickEffortSeparator)
-                    return line + lead + Self.drawn(part.element.text, alert: part.element.alert)
+                    return line + lead + Self.drawn(part.element.text, level: part.element.level)
                 }
                 .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
                 .lineLimit(1).truncationMode(.tail)
@@ -299,10 +299,10 @@ extension SessionCardView {
                     // A metric sampled once has no line yet and still has a number: the group falls
                     // back to the figure alone rather than waiting half a minute to say anything.
                     if !trend.values.isEmpty {
-                        FootprintSparklineView(values: trend.values, alert: trend.segment.alert)
+                        FootprintSparklineView(values: trend.values, level: trend.segment.level)
                     }
                     Self.column(trend.metric.widestFigure) {
-                        Self.figure(trend.figure, alert: trend.segment.alert)
+                        Self.figure(trend.figure, level: trend.segment.level)
                     }
                     if let aside = trend.aside, asides.keeps(trend.metric) {
                         // WHETHER THIS WORD IS HERE AT ALL IS THE CANDIDATE LIST'S DECISION AND
@@ -385,9 +385,9 @@ extension SessionCardView {
         }.joined(separator: ", ")
     }
 
-    /// ONE GROUP'S FIGURE, amber when its reading is the one worth somebody's eye - and NEVER with
-    /// the triangle the row above marks a warning with, whether or not this group has a shape beside
-    /// it yet.
+    /// ONE GROUP'S FIGURE, in its tier's colour when its reading is one worth somebody's eye
+    /// (`FootprintAlertLevel.tint`) - and NEVER with the triangle the row above marks a warning
+    /// with, whether or not this group has a shape beside it yet.
     ///
     /// THE MARK LEFT THIS ROW BECAUSE THE ROW HAS NO ROOM FOR IT, in two senses that were learned in
     /// that order. It is about nine points wide, so a warning arriving widened its group and pushed
@@ -404,17 +404,17 @@ extension SessionCardView {
     /// those thirty seconds bought a channel this row cannot read anyway at the price of the reflow
     /// the columns exist to prevent - and of a card that draws its warnings one way for half a
     /// minute and another way afterwards.
-    static func figure(_ text: String, alert: Bool) -> Text {
-        guard alert else { return Text(verbatim: text).foregroundStyle(.primary) }
-        return Text(verbatim: text).foregroundStyle(TallyColor.warning)
+    static func figure(_ text: String, level: FootprintAlertLevel) -> Text {
+        guard let tint = level.tint else { return Text(verbatim: text).foregroundStyle(.primary) }
+        return Text(verbatim: text).foregroundStyle(tint)
     }
 
     /// One field as it is drawn, with a warning marked as well as coloured.
-    static func drawn(_ text: String, alert: Bool) -> Text {
-        guard alert else { return Text(verbatim: text) }
+    static func drawn(_ text: String, level: FootprintAlertLevel) -> Text {
+        guard let tint = level.tint else { return Text(verbatim: text) }
         return (Text(Image(systemName: "exclamationmark.triangle.fill")) + Text(verbatim: " ")
                     + Text(verbatim: text))
-            .foregroundStyle(TallyColor.warning)
+            .foregroundStyle(tint)
     }
 
     /// The same fields for a reader who cannot see them, with every warning said rather than drawn.
@@ -422,22 +422,42 @@ extension SessionCardView {
     /// pause in speech.
     static func spoken(_ segments: [ProcessFootprintSegment]) -> String {
         segments.map { segment in
-            guard segment.alert, let warning = warning(about: segment.kind) else {
+            guard let warning = warning(about: segment.kind, level: segment.level) else {
                 return segment.text
             }
             return "\(segment.text), \(warning)"
         }.joined(separator: ", ")
     }
 
-    /// What each warning is about, in the words a person would use for it. All three name the
-    /// idleness because that is the whole of why they are warnings: the same numbers on a working
-    /// session are just work (`FootprintAlarm`).
-    static func warning(about kind: ProcessFootprintSegment.Kind) -> String? {
-        switch kind {
-        case .cpu: L("high CPU while nothing is running")
-        case .disk: L("writing to disk while nothing is running")
-        case .memory: L("holding a lot of memory while nothing is running")
-        default: nil
+    /// What a warning is about, in the words a person would use for it.
+    ///
+    /// THE TWO TIERS ARE TWO DIFFERENT SENTENCES, which is the whole of what the colour says to
+    /// everybody else: the residue ones all name the IDLENESS, because that is why they are
+    /// warnings at all (the same numbers on a working session are just work), and the
+    /// machine-level ones name the MACHINE, because that is why they are said whether or not a turn
+    /// is running (`FootprintAlarm`). A listener who was given one sentence for both would be told
+    /// a working session is idle.
+    ///
+    /// The disk has no machine-level tier to name, because a write rate has no ceiling to be a
+    /// share of and so no track that could light one (`FootprintAlertState`). That pair falls
+    /// through to nothing rather than borrowing the idle sentence for a state it cannot be in.
+    static func warning(about kind: ProcessFootprintSegment.Kind,
+                        level: FootprintAlertLevel) -> String? {
+        switch level {
+        case .calm: nil
+        case .saturation:
+            switch kind {
+            case .cpu: L("using most of this machine's CPU")
+            case .memory: L("holding most of this machine's memory")
+            default: nil
+            }
+        case .residue:
+            switch kind {
+            case .cpu: L("high CPU while nothing is running")
+            case .disk: L("writing to disk while nothing is running")
+            case .memory: L("holding a lot of memory while nothing is running")
+            default: nil
+            }
         }
     }
 }

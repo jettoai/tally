@@ -94,8 +94,8 @@ func runFootprintTrendSurfaceChecks() {
     // sits between the shape it arrived by and the ceiling it came off, and the row above it holds
     // only the fields that have no shape.
     check("the figure is drawn inside its own metric's group",
-          card.contains("FootprintSparklineView(values: trend.values, alert: trend.segment.alert)")
-              && card.contains("Self.figure(trend.figure, alert: trend.segment.alert)"))
+          card.contains("FootprintSparklineView(values: trend.values, level: trend.segment.level)")
+              && card.contains("Self.figure(trend.figure, level: trend.segment.level)"))
     check("…and it is the loudest small text on the card",
           card.contains(".foregroundStyle(.primary)")
               && card.contains(".font(.caption2.monospacedDigit())"))
@@ -124,7 +124,7 @@ func runFootprintTrendSurfaceChecks() {
                                 listeningPorts: [])
     var alarmed = calm
     alarmed.memoryBytes = 4_100_000_000
-    alarmed.alerts = FootprintAlerts(memory: true)
+    alarmed.alerts = FootprintAlerts(memory: .residue)
     func trended(_ footprint: ProcessFootprint) -> [FootprintTrendMetric] {
         ProcessTree.segments(footprint, unit: "procs").compactMap { FootprintTrendMetric($0.kind) }
     }
@@ -146,13 +146,15 @@ func runFootprintTrendSurfaceChecks() {
     // sentence below (Albert, 2026-08-16, having seen both). The row of WORDS above keeps its
     // triangle, and so does every account card.
     check("…the warned group carrying its colour where it stands",
-          card.contains("guard alert else { return Text(verbatim: text).foregroundStyle(.primary) }")
-              && card.contains("return Text(verbatim: text).foregroundStyle(TallyColor.warning)"))
+          card.contains("guard let tint = level.tint else"
+                            + " { return Text(verbatim: text).foregroundStyle(.primary) }")
+              && card.contains("return Text(verbatim: text).foregroundStyle(tint)"))
     // Asked once per piece and answered in one place, so the three cannot drift into a figure that
     // is warned in parts: the line, the peak dot and the current dot each state the grey they wear
     // on a calm card AND the rank they keep on a warned one, and take both from the same rule.
     check("…the line and both of its dots turning amber with the figure",
-          spark.contains("alert ? AnyShapeStyle(TallyColor.warning.opacity(step))")
+          spark.contains("guard let tint = level.tint else { return AnyShapeStyle(calm) }")
+              && spark.contains("return AnyShapeStyle(tint.opacity(step))")
               && spark.contains(".stroke(tone(calm: .tertiary, step: Self.alertLine),")
               && spark.contains("tone(calm: .secondary, step: Self.alertPeak)")
               && spark.contains("tone(calm: .primary, step: Self.alertCurrent)"))
@@ -175,6 +177,51 @@ func runFootprintTrendSurfaceChecks() {
           [quiet, middle, loud].allSatisfy { step in (step ?? 0) > 0 && (step ?? 0) <= 1 })
     check("…in the order the calm card reads in, quietest line to loudest reading",
           (quiet ?? 0) < (middle ?? 0) && (middle ?? 0) < (loud ?? 0))
+    // AND THE SAME THREE STEPS IN EITHER TIER'S COLOUR, which is what keeps the second one from
+    // arriving with a loudness order of its own: the tier decides the hue and nothing else, so the
+    // step constants above are asked once and answered for whichever colour is in them.
+    check("which colour a tier wears is stated once, for every surface that draws one",
+          spark.contains("case .calm: nil")
+              && spark.contains("case .residue: TallyColor.warning")
+              && spark.contains("case .saturation: TallyColor.critical"))
+    check("…and every surface that draws one asks that rather than naming a colour itself",
+          card.components(separatedBy: "TallyColor.warning").count - 1 == 0
+              && card.components(separatedBy: "TallyColor.critical").count - 1 == 0)
+    // THE MACHINE-LEVEL TIER BORROWS THE RED THIS APP ALREADY MEANS "NOW" WITH, rather than adding
+    // a third vocabulary: the blocked session's dot, its state word and the account meter's last
+    // stop are the same literal, and a tree taking the machine belongs in that sentence.
+    check("…the red being the state axis's own red and not a second one",
+          ((try? String(contentsOfFile: "Tally/Views/TallyVisualStyle.swift", encoding: .utf8))
+              ?? "").contains("static let critical = Color("))
+    // A TIER IS A DIFFERENT SENTENCE, not a louder one, for the reader who gets no colour at all:
+    // the amber ones name the IDLENESS, because that is the whole of why they are warnings, and the
+    // red ones name the MACHINE, because that is why they are said while a turn is running. One
+    // sentence for both would tell a listener a working session is idle.
+    check("the spoken row says which tier it is rather than saying warned twice",
+          card.contains("L(\"using most of this machine's CPU\")")
+              && card.contains("L(\"holding most of this machine's memory\")")
+              && card.contains("L(\"high CPU while nothing is running\")")
+              && card.contains("L(\"holding a lot of memory while nothing is running\")"))
+    check("…and asks the level first, so a tier added here cannot inherit a sentence by omission",
+          card.contains("static func warning(about kind: ProcessFootprintSegment.Kind,")
+              && card.contains("level: FootprintAlertLevel) -> String?")
+              && card.contains("case .calm: nil"))
+    // The disk has no machine-level tier to name (a write rate has no ceiling to be a share of), so
+    // that pair says nothing rather than borrowing the idle sentence for a state it cannot be in.
+    let saturationArm = (card.components(separatedBy: "case .saturation:").last ?? "")
+        .components(separatedBy: "case .residue:").first ?? ""
+    check("…the machine-level arm naming the two readings that have a share and no others",
+          saturationArm.contains("case .cpu:") && saturationArm.contains("case .memory:")
+              && !saturationArm.contains("case .disk:"))
+    for key in ["using most of this machine's CPU", "holding most of this machine's memory"] {
+        let entry = (((try? Data(contentsOf: URL(fileURLWithPath:
+            "Tally/Resources/Localizable.xcstrings")))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])?["strings"]
+            as? [String: Any])?[key] as? [String: Any]
+        let localizations = entry?["localizations"] as? [String: Any] ?? [:]
+        check("\"\(key)\" is translated into every language Tally ships",
+              AppLocaleSupported.allSatisfy { localizations[$0] != nil })
+    }
     // THE NEGATIVE HALF OF THE SAME CONTRACT, because a mark is the obvious thing to add back to a
     // warning: nothing on this row draws one, at any width, whether or not the group has a line yet.
     check("…and no triangle rides on this row at all",
@@ -185,11 +232,11 @@ func runFootprintTrendSurfaceChecks() {
     // putting the mark back for those thirty seconds would buy a channel this row cannot read
     // anyway, at the price of the reflow the columns exist to prevent.
     check("…a group with no line yet being warned in the same colour and nothing else",
-          card.contains("static func figure(_ text: String, alert: Bool) -> Text")
-              && card.contains("Self.figure(trend.figure, alert: trend.segment.alert)"))
+          card.contains("static func figure(_ text: String, level: FootprintAlertLevel) -> Text")
+              && card.contains("Self.figure(trend.figure, level: trend.segment.level)"))
     // The row above is unchanged: it has no columns to hold still, and its fields are one sentence.
     check("the fields with no shape are still marked in the sentence itself",
-          card.contains("Self.drawn(part.element.text, alert: part.element.alert)")
+          card.contains("Self.drawn(part.element.text, level: part.element.level)")
               && card.contains("Text(Image(systemName: \"exclamationmark.triangle.fill\"))"))
     // A peak equal to the reading printed beside it is the same number twice with an arrow between
     // them, which is what makes the row fit a narrow card in the ordinary case.
@@ -305,7 +352,7 @@ func runFootprintTrendSurfaceChecks() {
     // happens once, before the fixtures branch, where no new fixture can miss it.
     let demo = (try? String(contentsOfFile: "Tally/Core/DemoUsage.swift", encoding: .utf8)) ?? ""
     let fixture = (demo.components(separatedBy: "static func footprint(_ real: ProcessFootprint")
-        .last ?? "").components(separatedBy: "switch index % 3").first ?? ""
+        .last ?? "").components(separatedBy: "switch index % 4").first ?? ""
     check("the fixture clears every field it could leak before it fills any of them in",
           fixture.contains("one.listeningPorts = []") && fixture.contains("one.portNames = [:]")
               && fixture.contains("one.diskWriteBytesPerSecond = nil"))
@@ -326,6 +373,36 @@ func runFootprintTrendSurfaceChecks() {
     check("…every fixture having somebody to belong to even if a key arrives twice",
           demo.contains("Set(keys).sorted()") && !demo.contains("in keys.sorted().enumerated()")
               && demo.contains("COUNTED OVER THE DISTINCT KEYS"))
+    // FOUR STATES, AND THE COUNT THE INDEX IS TAKEN MODULO IS THE SAME FOUR. A fixture added to the
+    // switch without the divisor moving is a fixture no card can ever be handed, which is the same
+    // silent hole as an index handed out over the wrong keys and is invisible in exactly the same
+    // way: three normal-looking cards say nothing about a fourth that never appeared.
+    let divisor = Int(String((demo.components(separatedBy: "switch index % ").last ?? "")
+        .prefix { $0.isNumber })) ?? 0
+    let arms = (demo.components(separatedBy: "switch index % 4").last ?? "")
+        .components(separatedBy: "return one").first ?? ""
+    let branches = (0 ..< 9).filter { arms.contains("case \($0):") }.count
+        + (arms.contains("default:") ? 1 : 0)
+    check("the number of fixtures and the number the index is taken modulo are one number",
+          divisor == 4 && branches == divisor)
+    // THE ONE A LIVE BOARD CANNOT POSE FOR, twice over: a machine-level reading takes minutes of a
+    // tree holding most of the machine to earn (`FootprintAlarm.outlastsABuild`), and the row's
+    // lower rungs are only reached by a card whose blamed process is named like a real one.
+    let saturated = (arms.components(separatedBy: "case 2:").last ?? "")
+        .components(separatedBy: "default:").first ?? ""
+    check("the fourth fixture is the machine-level card, red on both readings",
+          saturated.contains("FootprintAlerts(cpu: .saturation, memory: .saturation)"))
+    check("…and it is the one that names a culprit at the length real program names run to",
+          saturated.contains("one.cpuLeader = \"Google Chrome Helper\"")
+              && saturated.contains("one.memoryLeader ="))
+    check("…with readings a machine-level card would actually be showing",
+          saturated.contains("one.cpuPercent = 1180")
+              && saturated.contains("one.memoryBytes = 68_000_000_000"))
+    // AND IT CLAIMS THE CARD RATHER THAN THE VERDICT. The tier flags are set, not earned: what the
+    // rule wants is a share of THIS machine's own memory and cores (`MachineCapacity`), which no
+    // number written into a fixture can promise on hardware it has never seen.
+    check("…the fixture saying so rather than implying the rule would have agreed",
+          saturated.contains("The tier flags are SET rather than"))
 
     // A PORT READING IS HELD BETWEEN THE TICKS THAT DO NOT TAKE ONE, and a pid is not an identity:
     // the machine hands numbers out again, so what is cached with the port is WHEN its holder

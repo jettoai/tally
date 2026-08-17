@@ -283,7 +283,7 @@ func runProcessTreeLineChecks() {
     check("a warned field is drawn before the agents, and the count still leads",
           ProcessTree.segments(ProcessFootprint(processes: 6, agents: 2, cpuPercent: 80,
                                                 memoryBytes: 5_000_000_000, listeningPorts: [],
-                                                alerts: FootprintAlerts(cpu: true)),
+                                                alerts: FootprintAlerts(cpu: .residue)),
                                unit: "procs", agentUnit: "agents").map(\.kind)
               == [.processes, .cpu, .agents, .memory])
 
@@ -369,9 +369,17 @@ func runProcessTreeLineChecks() {
     // nine points of triangle in a sentence is a sentence with a triangle in it. The row of eleven
     // point shapes below is where that stops being true, and states the second channel differently
     // (footprinttrendsurfacechecks.swift).
-    check("a warned field is marked as well as coloured, in this app's own warning colour",
+    check("a warned field is marked as well as coloured, in its own tier's colour",
           cardSource.contains("Text(Image(systemName: \"exclamationmark.triangle.fill\"))")
-              && cardSource.contains(".foregroundStyle(TallyColor.warning)"))
+              && cardSource.contains("guard let tint = level.tint else"
+                                     + " { return Text(verbatim: text) }")
+              && cardSource.contains(".foregroundStyle(tint)"))
+    // AND THE AMBER IS STILL THE AMBER, which is what that indirection has to keep true: this row
+    // holds the fields with no machine-level tier to be in (a fan-out, a write rate), so what it
+    // draws is the residue colour it always drew (`FootprintAlertLevel.tint`).
+    check("…the tier this row can be in still being the app's own warning colour",
+          ((try? String(contentsOfFile: "Tally/Views/FootprintSparklineView.swift",
+                        encoding: .utf8)) ?? "").contains("case .residue: TallyColor.warning"))
     // And VoiceOver gets neither of those, so it is handed the condition in words.
     check("…and the reader who hears the line is told what the warning is about",
           cardSource.contains(".accessibilityLabel(Self.spoken(rest))")
@@ -387,9 +395,9 @@ func runProcessTreeLineChecks() {
     // footprinttrendsurfacechecks.swift). What goes down with the numbers is the colour, on the
     // figure and on the shape alike, and the condition is still SAID in full.
     check("a warned reading is coloured where the reading now is, figure and shape together",
-          cardSource.contains("Self.figure(trend.figure, alert: trend.segment.alert)")
+          cardSource.contains("Self.figure(trend.figure, level: trend.segment.level)")
               && cardSource.contains("FootprintSparklineView(values: trend.values,"
-                                     + " alert: trend.segment.alert)"))
+                                     + " level: trend.segment.level)"))
     check("…and the reader who hears the groups is told the same condition",
           cardSource.contains(".accessibilityLabel(Self.spokenTrends(trends))")
               && cardSource.contains("let reading = spoken([trend.segment])"))

@@ -13,9 +13,14 @@ import SwiftUI
 /// last reading, which is the current value in its own group; the quieter, smaller one is the
 /// highest, which is the `↑` figure. Neither is decoration: they are what tie the shape to the two
 /// numbers a reader can act on (`SessionCardView.sessionFootprintTrends`). A warning turns BOTH of
-/// them amber along with the line, and the order of loudness survives the change of colour: three
-/// steps of the one amber, quietest at the line and loudest at the current reading, which is the
-/// mirror of the tertiary, secondary and primary greys a calm card draws them in (`alertLine`).
+/// them along with the line, and the order of loudness survives the change of colour: three steps
+/// of the one hue, quietest at the line and loudest at the current reading, which is the mirror of
+/// the tertiary, secondary and primary greys a calm card draws them in (`alertLine`).
+///
+/// WHICH HUE IS THE TIER'S, and the three steps are the same either way: amber for the residue a
+/// warning has always been about, red for a tree taking a share of the machine itself
+/// (`FootprintAlertLevel`). The step ranks are held apart from the colour on purpose, so a tier
+/// added here cannot arrive with a loudness order of its own.
 ///
 /// THE BRIGHT ONE IS ONLY HONEST BECAUSE THE CALLER PUTS THE LIVE READING IN. The newest reading
 /// the ring has KEPT is up to a bucket old (`FootprintTrendSeries`), so drawn from the ring alone
@@ -28,9 +33,10 @@ import SwiftUI
 /// everywhere and a dot on the earliest of those would point at an arbitrary moment.
 struct FootprintSparklineView: View {
     let values: [Double]
-    /// Whether the reading this shape belongs to is the one worth somebody's eye, which this whole
-    /// figure says by turning amber: the line, the peak dot and the current dot together, so the
-    /// group reads as one warned block rather than as a marked piece beside unmarked ones.
+    /// Whether the reading this shape belongs to is the one worth somebody's eye, and in which
+    /// tier, which this whole figure says by taking that tier's colour: the line, the peak dot and
+    /// the current dot together, so the group reads as one warned block rather than as a marked
+    /// piece beside unmarked ones.
     ///
     /// AND NOTHING ELSE, WHICH IS A DEPARTURE FROM THE ROW ABOVE. That row carries a triangle as
     /// well as the colour, because a warning is not a colour to a reader who cannot separate amber
@@ -47,7 +53,7 @@ struct FootprintSparklineView: View {
     /// (`SessionCardView.spokenTrends`, which names it in words). Warned sparkline cells recolour
     /// their marks everywhere this convention appears, for the same reason. (Albert, 2026-08-16,
     /// having seen both the mark in the text flow and the mark on the shape.)
-    var alert = false
+    var level: FootprintAlertLevel = .calm
 
     /// MEASURED AGAINST THE NARROWEST CARD, which is the only width that constrains it, and
     /// re-measured every time the row around it gains a field. It was 44pt when the row held three
@@ -66,10 +72,11 @@ struct FootprintSparklineView: View {
     private static let stroke: CGFloat = 1
     private static let peakDot: CGFloat = 2
     private static let currentDot: CGFloat = 3
-    /// THREE STEPS OF ONE COLOUR, IN THE ORDER THE CALM CARD'S OWN GREYS ARE. A single named colour
-    /// has no second rank of its own, so the ranks are opacities of it, and they mirror what the
-    /// same three pieces wear when nothing is wrong: the line is the quietest (tertiary), the peak
-    /// dot a step up (secondary), the current reading the loudest (primary).
+    /// THREE STEPS OF ONE COLOUR, IN THE ORDER THE CALM CARD'S OWN GREYS ARE, and the same three
+    /// steps whichever tier's colour is in them. A single named colour has no second rank of its
+    /// own, so the ranks are opacities of it, and they mirror what the same three pieces wear when
+    /// nothing is wrong: the line is the quietest (tertiary), the peak dot a step up (secondary),
+    /// the current reading the loudest (primary).
     ///
     /// IT WAS NOT A MIRROR BEFORE, WHICH IS THE DEFECT: the line and the current dot were both
     /// drawn at full amber and only the peak was stepped down, so on a warned card the SHAPE was as
@@ -106,12 +113,13 @@ struct FootprintSparklineView: View {
     }
 
     /// What one piece of this figure is drawn in: the grey it has on a calm card, or its own step
-    /// of the warning colour (see the three constants above). Every piece asks the same question,
+    /// of this tier's colour (see the three constants above). Every piece asks the same question,
     /// which is what makes a warned figure read as one block - the line, the peak dot and the
-    /// current dot change together or not at all - and each is handed the rank it keeps in both
-    /// states, so the two palettes cannot fall into different orders.
+    /// current dot change together or not at all - and each is handed the rank it keeps in every
+    /// state, so the palettes cannot fall into different orders.
     private func tone(calm: some ShapeStyle, step: Double) -> AnyShapeStyle {
-        alert ? AnyShapeStyle(TallyColor.warning.opacity(step)) : AnyShapeStyle(calm)
+        guard let tint = level.tint else { return AnyShapeStyle(calm) }
+        return AnyShapeStyle(tint.opacity(step))
     }
 
     /// A mark on the line, positioned by its centre. The stack is top-leading, so a point is an
@@ -120,5 +128,26 @@ struct FootprintSparklineView: View {
         Circle()
             .frame(width: diameter, height: diameter)
             .offset(x: point.x - diameter / 2, y: point.y - diameter / 2)
+    }
+}
+
+extension FootprintAlertLevel {
+    /// WHAT A TIER LOOKS LIKE, stated once for every surface that draws one: the shape here, the
+    /// figure beside it and the sentence a row above (`SessionCardView.figure`, `drawn`). Nothing
+    /// for a calm reading, because a calm reading takes the grey it would have had anyway and a
+    /// colour standing for "no colour" is a value somebody eventually draws.
+    ///
+    /// THE RED IS THE ONE THIS BOARD ALREADY MEANS "NOW" WITH, which is what makes a second use of
+    /// it legible rather than a second vocabulary: `critical` is the blocked session's dot, its
+    /// state word and its reason line, and the account meter's last stop. Read as one sentence,
+    /// every red on this app says the same thing - somebody has to do something about this - and a
+    /// tree taking the machine belongs in it. The amber keeps saying the other thing: worth an eye,
+    /// not worth a hand.
+    var tint: Color? {
+        switch self {
+        case .calm: nil
+        case .residue: TallyColor.warning
+        case .saturation: TallyColor.critical
+        }
     }
 }

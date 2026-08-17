@@ -104,6 +104,9 @@ extension EnvironmentValues {
 /// the pinned panel's glass.
 private struct TallyCard: ViewModifier {
     @Environment(\.tallyCardStyle) private var style
+    /// What this card's own EDGE is saying, or nothing for the ordinary hairline that is only
+    /// defining a surface (see `View.tallyCard`).
+    var accent: Color?
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -112,20 +115,51 @@ private struct TallyCard: ViewModifier {
         // the hairline - our border would sit ON that rim and read as a second, duller edge.
         // Reasoned from the material's own lighting, not measured; the two live side by side under
         // `-TallyCardStyle liquid|material` precisely so the call gets made on screen.
+        //
+        // AN ACCENT IS NOT DROPPED THERE, and that is the difference between an edge that defines a
+        // surface and one that is carrying a fact: the rim already says where the card is, and
+        // nothing on that rim says this is the card asking for somebody.
         if style == .liquid, #available(macOS 26.0, *) {
-            content.glassEffect(.regular, in: shape)
+            content.glassEffect(.regular, in: shape).overlay(accentEdge)
         } else {
-            content
-                .background(fill)
-                .overlay(
-                    shape.strokeBorder(Color.primary.opacity(0.08), lineWidth: TallyMetrics.hairline)
-                )
+            content.background(fill).overlay(edge)
         }
     }
 
     private var shape: RoundedRectangle {
         RoundedRectangle(cornerRadius: TallyMetrics.cardRadius, style: .continuous)
     }
+
+    /// The card's edge: its accent if it has one, and the hairline that merely bounds the surface
+    /// otherwise. The two never both draw, so an accented card has one edge rather than a coloured
+    /// line laid over a grey one.
+    @ViewBuilder
+    private var edge: some View {
+        if accent != nil {
+            accentEdge
+        } else {
+            shape.strokeBorder(Color.primary.opacity(0.08), lineWidth: TallyMetrics.hairline)
+        }
+    }
+
+    @ViewBuilder
+    private var accentEdge: some View {
+        if let accent {
+            shape.strokeBorder(accent.opacity(Self.accentOpacity), lineWidth: Self.accentWidth)
+        }
+    }
+
+    /// Twice the hairline, which is what it takes for an edge to be a mark rather than a boundary:
+    /// the hairline is a half point of eight per cent black and reads as "where this card ends",
+    /// and a colour drawn at the same weight would read the same way.
+    private static let accentWidth: CGFloat = 1
+    /// AND NOT AT FULL STRENGTH, because a border is a long mark. The same red fills a seven point
+    /// dot on the card's first line; run round the whole of a card it is far more of that colour on
+    /// screen, and undimmed the edge shouts down the very words inside it that say what the card is
+    /// waiting for. Held back far enough to read as a frame rather than as a fill. A starting point
+    /// judged on screen rather than a measured value, the way this file's other opacity was arrived
+    /// at (`TallyCardStyle.tint`).
+    private static let accentOpacity: Double = 0.55
 
     @ViewBuilder
     private var fill: some View {
@@ -142,7 +176,19 @@ private struct TallyCard: ViewModifier {
 }
 
 extension View {
-    func tallyCard() -> some View { modifier(TallyCard()) }
+    /// - Parameter accent: draw this card's edge in a colour instead of the neutral hairline.
+    ///
+    /// A CARD'S EDGE IS THE ONE PART OF IT A READER FINDS WITHOUT LOOKING AT IT, which is what this
+    /// is for and also why it is rationed. A board is read by sweeping down it for the one card
+    /// that needs somebody, and everything a card says about that is inside it: a dot, a word, a
+    /// line of red text, all of which have to be read card by card. An outline is a pre-attentive
+    /// feature, so the card that has one is found before the grid is read at all.
+    ///
+    /// EXACTLY ONE CONDITION GETS IT, and the rationing is the feature (`SessionCardView.body`): a
+    /// blocked session, which is the only state on this board where a person is what the session is
+    /// waiting for. A second use would put the reader back to reading edges to find out which kind
+    /// of edge this one is, which is the cost the outline was spent to avoid.
+    func tallyCard(accent: Color? = nil) -> some View { modifier(TallyCard(accent: accent)) }
 
     /// Wraps a group of sibling `tallyCard()` surfaces so the system renders their Liquid Glass in
     /// one pass instead of one per card (Apple's guidance for several glass shapes on a layer - a

@@ -101,9 +101,14 @@ enum DemoUsage {
     }
 
     /// One session's readings replaced by a fixture, so a capture can show the states a real board
-    /// reaches rarely and never on demand: readings that are WARNED (which takes ten seconds of a
-    /// heavy idle session to earn) and a port with a name against it (which takes a dev server
-    /// somebody happens to have left running).
+    /// reaches rarely and never on demand: readings warned in EITHER tier (the amber takes ten
+    /// seconds of a heavy idle session to earn, the red three minutes of a tree holding most of the
+    /// machine), a port with a name against it (which takes a dev server somebody happens to have
+    /// left running), and a culprit named at the length real program names run to.
+    ///
+    /// FOUR OF THEM, AND EVERY CARD ON A BOARD OF FOUR IS A DIFFERENT ONE. The count is what the
+    /// index is taken modulo, so a capture of three sessions shows three of the four and the fourth
+    /// is simply not on that shot: a state added here is worth adding a session to see.
     ///
     /// THE CARDS ARE STILL THE MACHINE'S OWN, because the board's rows are: this app has no fixture
     /// sessions, and inventing some would mean a second roster. What is replaced is the READINGS,
@@ -118,7 +123,7 @@ enum DemoUsage {
         one.diskLeader = nil
         one.listeningPorts = []
         one.portNames = [:]
-        switch index % 3 {
+        switch index % 4 {
         case 0:
             one.processes = 3
             one.cpuPercent = 92
@@ -131,7 +136,7 @@ enum DemoUsage {
             one.cpuLeader = "node"
             one.memoryBytes = 4_100_000_000
             one.memoryLeader = "bun"
-            one.alerts = FootprintAlerts(cpu: true, memory: true)
+            one.alerts = FootprintAlerts(cpu: .residue, memory: .residue)
         case 1:
             one.processes = 2
             one.cpuPercent = 4
@@ -140,6 +145,35 @@ enum DemoUsage {
             one.listeningPorts = [3000, 5173, 9229]
             one.portNames = [3000: "next-server", 5173: "vite", 9229: "node"]
             one.alerts = FootprintAlerts()
+        case 2:
+            // THE MACHINE-LEVEL CARD, which is the state the amber tier is structurally blind to
+            // and the reason the red one exists: a session working hard enough to be why the rest
+            // of the desktop has gone slow (`FootprintAlerts`). The tier flags are SET rather than
+            // earned - the rule wants three minutes of held cores and a share of this machine's own
+            // memory (`FootprintAlarm.outlastsABuild`, `MachineCapacity`), which is neither
+            // something a capture can wait for nor something these numbers can promise on hardware
+            // this file has never seen. What the fixture is claiming is the CARD, not the verdict.
+            //
+            // AND IT IS THE LONG-NAME CARD TOO, which is the second thing a live board will not
+            // pose for. A culprit is drawn at whatever width its name happens to be
+            // (`SessionCardView.sessionFootprintTrends` says why it gets no column of its own), so
+            // the row's lower rungs - where the CPU's name is given up and the memory's holder is
+            // the last word left - are only ever reached by a card whose blamed process is named
+            // like a real one. `Google Chrome Helper` is that name on this machine, and a headless
+            // browser fan-out under a test run is where it comes from.
+            //
+            // WHICH RUNG THAT PUTS IT ON, measured at 10pt on the same ledger the row itself is
+            // written against (2026-08-17): this card is 324.4pt with both names and 211.5pt with
+            // the memory's alone, so a 264pt card (236pt of content) draws the rung that keeps one
+            // name and a single-column panel (328pt) draws the one that keeps both. The two rungs
+            // this fixture set demonstrates are therefore adjacent - fixture 0 sits on
+            // `culpritsOnly` at 226.2pt - which is what a capture of the ladder needs.
+            one.processes = 6
+            one.cpuPercent = 1180
+            one.cpuLeader = "Google Chrome Helper"
+            one.memoryBytes = 68_000_000_000
+            one.memoryLeader = "node"
+            one.alerts = FootprintAlerts(cpu: .saturation, memory: .saturation)
         default:
             one.processes = 0
             one.cpuPercent = 1

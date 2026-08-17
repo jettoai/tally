@@ -77,35 +77,6 @@ struct ProcessFootprint: Equatable {
     var alerts = FootprintAlerts()
 }
 
-/// One field of the card's footprint line, with what it says and whether it is a warning.
-///
-/// THE LINE IS HANDED OVER IN PIECES because one field of it can be drawn differently from the
-/// rest, and a single string cannot say which. The kind is carried so the view can name the
-/// condition for VoiceOver in its own words: the bundle is over there, and this stays a pure
-/// function of what it is handed (the same division `unit` is already under).
-struct ProcessFootprintSegment: Equatable {
-    /// THE PORTS ARE NOT ONE OF THESE ANY MORE: they moved to the identity line, where they are
-    /// their own element beside the account and the model rather than the last field of a sentence
-    /// that truncates (`ProcessTree.portsText`, `SessionCardView.sessionIdentityRow`).
-    enum Kind: Equatable { case processes, agents, cpu, memory, disk }
-    var kind: Kind
-    var text: String
-    /// The quieter half of the field: the word a count is counting, or the program blamed for a
-    /// rate. Carried apart from `text` rather than parsed back out of it, because the row that
-    /// draws figures instead of sentences prints it a shade down from the number
-    /// (`SessionCardView.sessionFootprintTrends`) - three heterogeneous facts at one brightness is
-    /// a string a reader has to segment for themselves, which is what that row was reported as
-    /// (Albert, 2026-08-15: "2 procs · 1% CPU (claude) · 459 MB" is hard to read).
-    ///
-    /// ONLY THE FIELDS THAT ROW DRAWS CARRY ONE, which is the three trended metrics: the process
-    /// count's word, and the program blamed for the CPU or for the memory. The fields with no shape
-    /// of their own are drawn as one sentence at one weight
-    /// (`SessionCardView.sessionFootprint`), so an aside on them would be a second brightness
-    /// nothing reads - which is why the named disk writer is a word inside its own sentence instead.
-    var aside: String?
-    var alert = false
-}
-
 /// A live process as this file identifies it: itself, who started it, which job it belongs to, and
 /// when it began.
 ///

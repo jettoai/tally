@@ -96,12 +96,19 @@ final class SessionRosterStore {
     /// so it outlives the sessions), while a seat belongs to a pid that will not exist tomorrow. So
     /// each launch seats the board afresh from what is running then.
     @ObservationIgnored private var seating: [String]?
-    /// How many surfaces are currently showing the board. Three hosts can be open at once (the
-    /// popover, the pinned panel, the dashboard window), so this is a count rather than a flag:
-    /// one of them closing must not stop the polling the other two are relying on, and the one
-    /// that re-seats the board is the one that opens it rather than every one that appears
-    /// (`seatingOnOpen`).
-    @ObservationIgnored private var viewers = 0
+    /// How many surfaces are up at all, WHICHEVER PAGE they are showing: three hosts can be open at
+    /// once (the popover, the pinned panel, the dashboard window), and one of them closing must not
+    /// stop the scanning the other two are relying on. Every page pays for it, because the tab
+    /// switch carries the blocked dot and the durations tick on all of them. What it is NOT is the
+    /// count that decides the seats - a surface sitting on Usage reads no board (`boardViewers`).
+    @ObservationIgnored private var surfaces = 0
+    /// How many surfaces are showing THE BOARD, which is a page rather than a window - and that is
+    /// the whole difference between this count and `surfaces`. They were one count until this was
+    /// written, and being one left the board wrong in both directions: a panel that had sat on Usage
+    /// for an hour was flipped to Sessions and drew the order it had been seated with an hour
+    /// earlier, while a second surface merely being open, on any page, counted as somebody reading
+    /// the board and froze the seats for a first look that had not happened yet.
+    @ObservationIgnored private var boardViewers = 0
 
     private init() {}
 
@@ -257,16 +264,14 @@ final class SessionRosterStore {
         Task { @MainActor in self.refresh() }
     }
 
-    /// A surface showing the board has appeared. Refreshes immediately, because what somebody just
+    /// A surface has appeared, on whatever page. Refreshes immediately, because what somebody just
     /// opened has to be current before the first tick rather than after it.
     ///
-    /// AND THIS IS WHERE THE STATE SORT IS ASKED AGAIN, the once per opening the board allows
-    /// itself (`seatingOnOpen`): a surface arriving onto a board nobody was looking at is the one
-    /// moment an order can change without moving a card out from under a hand already reaching for
-    /// it.
+    /// THE SEATS ARE NOT DECIDED HERE, and that is the fix of 2026-08-17: a window opening is not
+    /// somebody looking at the board, so the state sort is asked by the page instead
+    /// (`beginViewingBoard`).
     func beginViewing() {
-        viewers += 1
-        seating = Self.seatingOnOpen(seating, viewers: viewers, sortsByState: sortsByState())
+        surfaces += 1
         refresh()
         guard timer == nil else { return }
         let timer = Timer(timeInterval: 2, repeats: true) { _ in
@@ -280,10 +285,30 @@ final class SessionRosterStore {
     }
 
     func endViewing() {
-        viewers = max(0, viewers - 1)
-        guard viewers == 0 else { return }
+        surfaces = max(0, surfaces - 1)
+        guard surfaces == 0 else { return }
         timer?.invalidate()
         timer = nil
+    }
+
+    /// A surface is now SHOWING THE BOARD - opened onto it, or flipped to it from another tab - and
+    /// this is where the state sort is asked again, the once per opening the board allows itself
+    /// (`seatingOnOpen`). A board nobody was looking at is the one moment an order can change
+    /// without moving a card out from under a hand already reaching for it.
+    ///
+    /// Refreshes, so the new seats are on screen at the switch rather than up to two seconds later.
+    /// The scan itself is already running: a page cannot appear without its surface (`beginViewing`).
+    func beginViewingBoard() {
+        boardViewers += 1
+        seating = Self.seatingOnOpen(seating, viewers: boardViewers, sortsByState: sortsByState())
+        refresh()
+    }
+
+    /// The board has left this surface: the tab was switched away from, or the whole surface went.
+    /// Nothing is dropped - the seating stands exactly as it is, and the next surface to put the
+    /// board on screen is what asks the states again.
+    func endViewingBoard() {
+        boardViewers = max(0, boardViewers - 1)
     }
 
     // MARK: The scan
@@ -360,10 +385,12 @@ final class SessionRosterStore {
         return (rows, rows.isEmpty ? nil : rows.map(\.id))
     }
 
-    /// THE SEATING A SURFACE OPENS ONTO: nothing at all - meaning take the seats again from the
-    /// states now - when this is the surface that opened the board and the switch asks for that
-    /// order; anything else is the seating handed in, untouched. `viewers` is the count AFTER the
-    /// arrival, so the surface that opened the board is the first one.
+    /// THE SEATING A SURFACE PUTTING THE BOARD ON SCREEN OPENS ONTO: nothing at all - meaning take
+    /// the seats again from the states now - when this is the surface that opened the board and the
+    /// switch asks for that order; anything else is the seating handed in, untouched. `viewers` is
+    /// the count of surfaces SHOWING THE BOARD (`boardViewers`) AFTER the arrival, so the surface
+    /// that opened it is the first one - and a surface up on another tab is not one of them, which
+    /// is what makes flipping a long-open panel to Sessions an opening like any other.
     ///
     /// WHY THE OPENING AND NOT THE SCAN, which is the whole of 2026-08-17. A live sort is right
     /// about the board and wrong about the person reading it: clicking a card is what wakes its
@@ -374,9 +401,9 @@ final class SessionRosterStore {
     /// meanwhile is not lost: it lights the card's own dot, its border and its state word where the
     /// card already sits, which is three ways of saying it without moving anything.
     ///
-    /// AND THE SECOND HOST CHANGES NOTHING. The popover, the pinned panel and the dashboard can be
-    /// open at once; one of them appearing while another is up would re-seat the board under the
-    /// hand already using it, which is the very thing being fixed.
+    /// AND THE SECOND HOST CHANGES NOTHING. The popover, the pinned panel and the dashboard can show
+    /// the board at once; one of them arriving on it while another is already reading it would
+    /// re-seat the board under the hand already using it, which is the very thing being fixed.
     ///
     /// Pure, so the harness can state every case without an app around it.
     nonisolated static func seatingOnOpen(_ seating: [String]?, viewers: Int,

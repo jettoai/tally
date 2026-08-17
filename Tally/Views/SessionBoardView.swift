@@ -94,6 +94,15 @@ extension PopoverRootView {
         // The list changes length when the filter does, and the surface is sized to what this page
         // reports: without this the host jumps to the new height in one frame while the cards fade.
         .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: tabState.sessionFilter)
+        // AND THE SEATS ARE TAKEN WHEN THIS PAGE APPEARS, which is what "the board is opened" means:
+        // a surface can have been up for an hour on another tab, and the seats it was handed then
+        // answered a question nobody had asked yet. The root counts SURFACES, for the scanning that
+        // every page needs (`PopoverRootView`); this counts the surfaces actually showing the board,
+        // which is the count the state sort is asked about (`SessionRosterStore.seatingOnOpen`). A
+        // second host already on the board still changes nothing: the first look may re-seat, every
+        // look after it is somebody's reading in progress.
+        .onAppear { SessionRosterStore.shared.beginViewingBoard() }
+        .onDisappear { SessionRosterStore.shared.endViewingBoard() }
         // THE FOOTPRINT NUMBERS ARE READ ONLY WHILE THIS PAGE IS UP, and this is the page saying so.
         // On the page rather than on the root the roster is switched from (`PopoverRootView`): that
         // one serves the menu bar's blocked dot and the durations on every surface, while walking

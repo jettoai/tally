@@ -19,6 +19,11 @@ import Foundation
 // which the states themselves defeat: clicking a card wakes its session, so the board moved between
 // one click and the next. `seatingOnOpen` is that rule now, and every case of it is stated below.
 //
+// AND "OPENED" MEANS THE PAGE, NOT THE WINDOW (2026-08-17, codex review of 7face21). Counting where
+// the SURFACE appears left the board wrong both ways: a panel that had sat on Usage for an hour was
+// flipped to Sessions and drew the order of an hour ago, while a surface open on some other page
+// counted as a reader and froze the seats for a first look nobody had taken. Two counts now.
+//
 // Pure throughout, both rules: string algebra plus one stable sort, so every case can be stated
 // here without an app around it. The things that are not pure - the board freezing while a card is
 // in flight, the switch and what the drag does to it, and the roster holding its seating between
@@ -304,9 +309,12 @@ func runSessionBoardOrderChecks() {
     // the store meet.
     let statusSource = (try? String(contentsOfFile: "Tally/MenuBar/StatusItemController.swift",
                                     encoding: .utf8)) ?? ""
-    check("the five sources this suite reads are readable",
+    // The surface every host draws, which is where the OTHER count is taken (the scanning one).
+    let rootSource = (try? String(contentsOfFile: "Tally/Views/PopoverRootView.swift",
+                                  encoding: .utf8)) ?? ""
+    check("the six sources this suite reads are readable",
           !boardSource.isEmpty && !reorderSource.isEmpty && !settingsSource.isEmpty
-              && !rosterSource.isEmpty && !statusSource.isEmpty)
+              && !rosterSource.isEmpty && !statusSource.isEmpty && !rootSource.isEmpty)
     // THE SCAN MUST NOT MOVE THE CARD UNDER THE POINTER. The roster rescans twice a second - and
     // with the switch on it re-seats on every one of those scans - while the board draws the
     // membership the drag started on until the hand lets go. That freeze is what defers the live
@@ -375,27 +383,47 @@ func runSessionBoardOrderChecks() {
     // The seating is the store's alone: a second holder of it (the view, the settings) would be a
     // second answer to where a card sits, and the freeze is exactly one answer held over time.
     //
-    // AND THE SCAN MAY NOT ASK THE SWITCH, which is why the two bodies are read apart rather than
+    // AND THE SCAN MAY NOT ASK THE SWITCH, which is why the bodies are read apart rather than
     // the file searched whole: the pure rule above can be perfect while a scan that consults the
     // setting puts the live sort straight back, and a file-wide search cannot tell the difference
     // (the store says the word `sortsByState` in three other places on purpose).
-    let scanBody = rosterSource.components(separatedBy: "func refresh() {").last?
-        .components(separatedBy: "\n    }").first ?? ""
-    let openingBody = rosterSource.components(separatedBy: "func beginViewing() {").last?
-        .components(separatedBy: "\n    }").first ?? ""
-    check("the two bodies this suite reads apart are found",
-          scanBody.contains("liveSessionStates()") && openingBody.contains("viewers += 1"))
+    func body(of function: String) -> String {
+        rosterSource.components(separatedBy: "func \(function)() {").last?
+            .components(separatedBy: "\n    }").first ?? ""
+    }
+    let scanBody = body(of: "refresh")
+    let surfaceBody = body(of: "beginViewing")
+    let openingBody = body(of: "beginViewingBoard")
+    check("the three bodies this suite reads apart are found",
+          scanBody.contains("liveSessionStates()") && surfaceBody.contains("surfaces += 1")
+              && openingBody.contains("boardViewers += 1"))
     check("the roster holds its seating between scans and never re-seats on one",
           rosterSource.contains("private var seating: [String]?")
               && scanBody.contains(
                   "Self.seat(liveSessionStates().map(Self.row), seating: self.seating)")
               && !scanBody.contains("sortsByState"))
-    // And the one place it IS asked: the surface that opened the board, counted after it arrived,
-    // so the second host reads as the 2 it is.
+    // And the one place it IS asked, counted after the arrival so the second host reads as a 2.
     check("…and the surface that opens the board is the one thing that asks the states again",
-          openingBody.contains(
-              "seating = Self.seatingOnOpen(seating, viewers: viewers, sortsByState: sortsByState())")
+          openingBody.contains("Self.seatingOnOpen(seating, viewers: boardViewers,")
+              && openingBody.contains("sortsByState: sortsByState())")
               && rosterSource.contains("viewers == 1 && sortsByState ? nil : seating"))
+    // A WINDOW OPENING IS NOT SOMEBODY READING THE BOARD: a surface that appears on the Usage tab
+    // must leave the seats as it found them, and keep only the count the scan's timer is held by.
+    check("…and a surface merely appearing asks them nothing",
+          !["seatingOnOpen", "sortsByState", "boardViewers"].contains { surfaceBody.contains($0) }
+              && rosterSource.contains("private var surfaces = 0")
+              && rosterSource.contains("private var boardViewers = 0")
+              && body(of: "endViewing").contains("guard surfaces == 0 else { return }")
+              && body(of: "endViewingBoard").contains("boardViewers = max(0, boardViewers - 1)"))
+    // WHERE EACH COUNT IS TAKEN, read from both files: the defect this replaced was a call site one
+    // level too high, not anything wrong with the rule it was calling.
+    check("the board is opened by the page that shows it, not by the window around it",
+          boardSource.contains(".onAppear { SessionRosterStore.shared.beginViewingBoard() }")
+              && boardSource.contains(".onDisappear { SessionRosterStore.shared.endViewingBoard() }")
+              && !boardSource.contains("SessionRosterStore.shared.beginViewing()")
+              && rootSource.contains(".onAppear { SessionRosterStore.shared.beginViewing() }")
+              && rootSource.contains(".onDisappear { SessionRosterStore.shared.endViewing() }")
+              && !rootSource.contains("beginViewingBoard"))
     check("the arrangement is saved and loaded through the one file that spells its key",
           settingsSource.contains("SessionBoardOrder.save(sessionBoardOrder, to: .standard)")
               && settingsSource.contains("let arrangement = SessionBoardOrder.load(from: defaults)")

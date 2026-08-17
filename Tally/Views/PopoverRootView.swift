@@ -245,14 +245,16 @@ struct PopoverRootView: View {
         // run-loop turn, not just to appear: measured, the host has its window on a screen by the
         // next turn and not one moment sooner (`onAppear` itself still reads nil).
         .onAppear { DispatchQueue.main.async { refreshScreenCap() } }
-        // The session board polls only while a surface is showing it, and this is that surface
-        // saying so. On the ROOT rather than on the board's own page, and it stays there now that
-        // the board is a tab: the switch in the header carries the blocked dot, so a surface that
-        // is on Usage is still reading the roster - and the poll serves the things that are only
-        // true while somebody is looking (the durations ticking, a session that started after the
-        // panel opened). The knock keeps the dot honest with no surface open at all
-        // (SessionRosterStore), so nothing here is what makes the alert live. Counted on the
-        // store's side, so the three hosts closing one at a time do not stop each other's ticking.
+        // The roster scans only while a surface is up, and this is that surface saying so. On the
+        // ROOT rather than on the board's own page, and it stays there now that the board is a tab:
+        // the switch in the header carries the blocked dot, so a surface that is on Usage is still
+        // reading the roster - and the scan serves the things that are only true while somebody is
+        // looking (the durations ticking, a session that started after the panel opened). The knock
+        // keeps the dot honest with no surface open at all (SessionRosterStore), so nothing here is
+        // what makes the alert live. Counted on the store's side, so the three hosts closing one at
+        // a time do not stop each other's ticking - and counted apart from the surfaces actually
+        // SHOWING the board, which is the page's own count and the one the seats answer to
+        // (`sessionsPage`): a surface can sit on another tab for an hour.
         .onAppear { SessionRosterStore.shared.beginViewing() }
         .onDisappear { SessionRosterStore.shared.endViewing() }
         .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }

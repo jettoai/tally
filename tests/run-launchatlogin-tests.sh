@@ -12,6 +12,12 @@
 # through (the same closure run-integrations-tests.sh compiles, and for the same reason: one copy
 # of "is this a demo launch", not a second spelling of the flag).
 #
+# THAT CLOSURE NOW REACHES THE FOOTPRINT, which is the last four files: the fixtures paint a session
+# card's readings as well as its account gauges, so DemoUsage names ProcessFootprint, the alert
+# tiers it sets on one, and the line those are spelled into (ProcessTreeLine, whose separator is
+# PickContract's). The list had drifted behind that and this suite would not compile at all; a
+# closure is only a closure while every name in it is followed.
+#
 # The deployment target is pinned because SMAppService starts at macOS 13 and a bare swiftc would
 # leave it to the host's default. Exits non-zero on failure.
 set -euo pipefail
@@ -24,5 +30,7 @@ swiftc -target "$(uname -m)-apple-macos14.0" -o "$out" tests/launchatlogin/main.
   Tally/Core/BuildVariant.swift Tally/Core/DemoUsage.swift Tally/Core/UsageSnapshot.swift \
   Tally/Core/AppLocale.swift Tally/Core/FleetForecast.swift Tally/Core/UsageHistory.swift \
   Tally/Core/TokenStats/TokenTotals.swift Tally/Core/TokenStats/JSONScan.swift \
-  Tally/Providers/ProviderModels.swift TallyCLI/UsageAdvisor.swift
+  Tally/Providers/ProviderModels.swift TallyCLI/UsageAdvisor.swift \
+  Tally/Core/ProcessTreeStats.swift Tally/Core/ProcessTreeLine.swift \
+  Tally/Core/FootprintAlerts.swift Tally/Core/PickContract.swift
 "$out"

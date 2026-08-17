@@ -175,8 +175,19 @@ func sessionInputAnswerLife(_ answer: SessionInputResult) -> TimeInterval {
 func sessionInputBusyRefusal(_ occupant: SessionInputOccupant, sessionKey: String,
                              now: Date = Date()) -> String {
     /// How long the thing at the address has left, on its own clock.
+    ///
+    /// CLAMPED, BECAUSE THE INPUT IS NOT OURS. `Int(someDouble)` traps in Swift when the value does
+    /// not fit, and every `epoch` reaching this line came out of a file in a directory any process
+    /// running as this user can write. A poisoned stamp of 10^30 therefore does not print an absurd
+    /// sentence, it kills the command with SIGILL before it prints anything (exit 133 on a codex
+    /// probe of `fa9533b`) - and it kills the SECOND send, the one whose whole job is to explain
+    /// why the first is still there. Clamping is free and turns that into a number so obviously
+    /// wrong that it reads as the diagnosis it is.
     func expiresIn(_ epoch: Int, _ life: TimeInterval) -> Int {
-        max(0, Int(TimeInterval(epoch) / 1000 + life - now.timeIntervalSince1970))
+        let seconds = TimeInterval(epoch) / 1000 + life - now.timeIntervalSince1970
+        guard seconds > 0 else { return 0 }
+        // `TimeInterval(Int.max)` rounds UP to 2^63, so anything strictly below it converts.
+        return seconds < TimeInterval(Int.max) ? Int(seconds) : Int.max
     }
     switch occupant {
     case .request(let waiting):

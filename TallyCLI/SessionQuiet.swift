@@ -137,8 +137,27 @@ extension TranscriptWatcher {
         return call == nil ? .subagentsWriting : .busy
     }
 
-    /// The newest write under this session's subagent transcripts, nil when it never dispatched one
-    /// (`<projectDir>/<session>.jsonl` pairs with `<projectDir>/<session>/subagents/`).
+    /// The newest write under this session's subagent transcripts THAT THIS CHILD COULD HAVE MADE,
+    /// nil when it dispatched none (`<projectDir>/<session>.jsonl` pairs with
+    /// `<projectDir>/<session>/subagents/`).
+    ///
+    /// ONLY WRITES AFTER `since`, WHICH IS WHEN THIS CHILD STARTED, and that qualifier is a fix
+    /// rather than a nicety. A relaunch resumes the SAME transcript, so the directory it inherits
+    /// still holds whatever the child before it dispatched, and those files were written seconds
+    /// before the kill: to a window measured against the wall clock they look exactly like a live
+    /// package. Paired with the unmatched `tool_use` the killed child also leaves behind, the
+    /// reading came out `busy` (the last line of `boundFileQuietness`: an over-age call is not
+    /// dispatch when something is writing beside it), so a brand new and completely idle child read
+    /// as mid-turn for up to `subagentIdleSeconds` after the handoff. What that cost is not a delay:
+    /// a `tally session send` expires after `sessionInputTTL`, a fifth of that window, so the line
+    /// was not late, it was refused - and the commonest caller is a session clearing its own
+    /// context at the end of a window, which is told `queued` and only learns otherwise from
+    /// `~/.tally/logs/input.log`. Seen live in the four cap handoffs of 2026-08-17 16:33.
+    ///
+    /// A subagent of THIS child cannot predate it, so the filter costs nothing real and cannot hide
+    /// live work. Callers that are not a supervised child pass `.distantPast` (the worktree teardown
+    /// gate, `worktreeActivity`), which asks about every transcript in a directory rather than about
+    /// one running process, and for them this is a no-op by construction.
     ///
     /// Derived from the watched file, so it follows a fork for free: the subagents of a moved
     /// conversation are written under the id actually running (`341bd05d/subagents/` filled up
@@ -198,7 +217,7 @@ extension TranscriptWatcher {
         var newest: Date?
         for case let entry as URL in walk {
             guard let modified = (try? entry.resourceValues(forKeys: Set(keys)))?
-                .contentModificationDate else { continue }
+                .contentModificationDate, modified > since else { continue }
             if modified > newest ?? .distantPast { newest = modified }
         }
         return newest

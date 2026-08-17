@@ -253,6 +253,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // need is whether stamps arrive in RUNS (typing) or alone (terminal chatter), and that is
         // only visible across successive readings (KeyboardIdle.swift).
         var keyboard = KeyboardActivity()
+        /// What this child has been asked to type that closes its own window (WindowRepick.swift).
+        /// Per child, like the keyboard history above: a relaunch replaces the conversation, so
+        /// anything armed against the old one is already answered.
+        var windowRepick = WindowRepickState()
         /// Said once per child rather than on every 2s tick a plan is stood down: the planners keep
         /// re-planning while they wait, and the child is drawing on this terminal. Never reset -
         /// the only way out of the hold is a relaunch, and that child gets a fresh one of these.
@@ -369,28 +373,17 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                   fuseAllows: fuse.allows(), pid: supervisorPID,
                                   keyboardIdle: { keyboard.idle($0) })
 
-            // Idle rebalance: this account has crossed the shared nearly-dry line while a sibling
-            // has room, so move the session now, at an idle moment of its own choosing, instead of
-            // mid-turn after it hits the wall. Lowest priority
-            // of the account moves - every block above is repairing something, this one is only
-            // preventing - and gated on the same fuse plus one move per account per window cycle
-            // across supervisors, so those five sessions never stampede onto the one healthy
-            // sibling. A target comes back only once this supervisor has CLAIMED that cycle, so
-            // there is nothing to record here. The rules live in Rebalance.swift.
-            // `carryable` sits after `isQuiet` because Swift evaluates an argument list in source
-            // order: the locate happens inside `watcher.isQuiet`, and reading `watcher.file` before
-            // it would ask about a binding nobody had attempted yet.
-            if plan == nil, let moveTo = rebalanceMove(
-                   provider: provider.id, account: account, primaryModel: effectivePrimary,
-                   mode: policy.mode,
-                   isQuiet: watcher.isQuiet(followIdleSeconds) && keyboard.idle(followIdleSeconds),
-                   carryable: carryableSession(launchArgs: launchArgs,
-                                               sessionLocated: watcher.file != nil),
-                   fuseAllows: fuse.allows(), quarantine: quarantine) {
-                warn("\(account.label) nearly dry, moving to \(moveTo.label) before the wall " +
-                     "(\(pickReason(moveTo, primaryModel: effectivePrimary)))")
-                plan = RelaunchPlan(target: moveTo, reason: "rebalance", countsFuse: true)
-            }
+            // The two PREVENTIVE movers, lowest priority of the account moves because every block
+            // above is repairing something and neither of these repairs anything: the window repick
+            // (a session that has just cleared its context is empty, so the restart off a dying
+            // account is free) and the idle rebalance (the standing offer for a session nobody
+            // clears). Both gated on the recovery fuse; the order between them is a rule, and it
+            // lives with them in WindowRepick.swift.
+            applyProactiveMoves(plan: &plan, repick: &windowRepick, watcher: &watcher,
+                                keyboardIdle: { keyboard.idle($0) }, provider: provider.id,
+                                account: account, primaryModel: effectivePrimary,
+                                mode: policy.mode, launchArgs: launchArgs,
+                                fuseAllows: fuse.allows(), quarantine: quarantine)
 
             // The app updated under this supervisor, so it now runs stale logic and stamps a stale
             // version into its child: replace THIS process with the new build (SelfUpdate.swift).
@@ -488,9 +481,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // is not a relaunch, because the fork hold can stand it down and leave this child
             // running (StandDown.swift carries the whole reasoning, the regression included).
             let replacingChild = relaunchIsHappening(plan: plan, watcher: &watcher)
-            applySessionInput(&sessionInput, session: board.state, quiet: board.quiet,
-                              keyboardIdle: keyboard.idle(sessionInputKeyboardQuietSeconds),
-                              relaunchPlanned: replacingChild)
+            // What it TYPED arms the window repick above: a `/clear` that reached the composer is
+            // this session's window closing, and the next tick asks Claude Code itself whether it
+            // really did (WindowRepick.swift).
+            windowRepick.arm(typed: applySessionInput(
+                &sessionInput, session: board.state, quiet: board.quiet,
+                keyboardIdle: keyboard.idle(sessionInputKeyboardQuietSeconds),
+                relaunchPlanned: replacingChild), transcript: watcher.transcriptSessionID)
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args. A pending app

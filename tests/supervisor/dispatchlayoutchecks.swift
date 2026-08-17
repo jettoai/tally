@@ -68,7 +68,13 @@ func watcherWatchingSubagents(sessionAge: TimeInterval,
         // nothing about it. See `ageFixtureDirectories` above.
         ageFixtureDirectories(under: subDir)
     }
-    return TranscriptWatcher(projectDir: dir, file: file, since: launch)
+    // `.distantPast` rather than `launch`, because `since` is now read as "when the child running
+    // this transcript started" and the subagent window ignores writes older than it
+    // (`newestSubagentWrite`). These fixtures are about the WALK and the window, not about which
+    // child made the writes: dating them out would answer every check with "residue" and the suite
+    // would go green having tested nothing. The child-start dimension has its own checks, in
+    // openturnchecks (a live fan-out) and windowrepickchecks (the same bytes after a handoff).
+    return TranscriptWatcher(projectDir: dir, file: file, since: .distantPast)
 }
 
 /// One session's worth of on-disk layout: `<dir>/session.jsonl` plus whatever it dispatched.
@@ -104,9 +110,11 @@ struct DispatchLayoutFixture {
             [.modificationDate: Date().addingTimeInterval(-seconds)], ofItemAtPath: url.path)
     }
 
+    /// `since` is `.distantPast` for the reason `watcherWatchingSubagents` states above: these
+    /// fixtures ask about the walk and the window, not about which child left the files.
     func watcher() -> TranscriptWatcher {
         ageFixtureDirectories(under: dir.appendingPathComponent("session"))
-        return TranscriptWatcher(projectDir: dir, file: file, since: launch)
+        return TranscriptWatcher(projectDir: dir, file: file, since: .distantPast)
     }
 }
 

@@ -224,7 +224,12 @@ func runOpenTurnChecks() {
     // transcript on disk, its mtime pushed back so every existing bar calls it idle, read through
     // `isQuiet` itself. Timestamps here are relative to the REAL clock, because that is what
     // `isQuiet` compares against.
-    func watcherWithTurn(open: Bool, callAge: TimeInterval) -> TranscriptWatcher {
+    /// `childLaunchedAt` is the watcher's `since`: when the child WRITING this transcript started.
+    /// It defaults to the distant past, which is what every check below except the residue pair
+    /// wants (the subagent window ignores writes from before the current child, so a fixture that
+    /// dated them out would read as residue and prove nothing about the walk).
+    func watcherWithTurn(open: Bool, callAge: TimeInterval,
+                         childLaunchedAt: Date = .distantPast) -> TranscriptWatcher {
         let realNow = Date()
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -248,7 +253,7 @@ func runOpenTurnChecks() {
         try! body.write(to: file, atomically: true, encoding: .utf8)
         try! FileManager.default.setAttributes(
             [.modificationDate: realNow.addingTimeInterval(-callAge)], ofItemAtPath: file.path)
-        return TranscriptWatcher(projectDir: dir, file: file, since: launch)
+        return TranscriptWatcher(projectDir: dir, file: file, since: childLaunchedAt)
     }
     /// A subagent transcript beside a session file, written `age` seconds ago. The WORKFLOW shape
     /// (`<session>/subagents/workflows/wf_<id>/agent-*.jsonl`) rather than the flat one, because
@@ -260,8 +265,16 @@ func runOpenTurnChecks() {
         try! FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
         let url = subDir.appendingPathComponent("agent-a3b273b656da7c735.jsonl")
         try! "{}".write(to: url, atomically: true, encoding: .utf8)
-        try! FileManager.default.setAttributes(
-            [.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: url.path)
+        // The DIRECTORIES are dated too, not just the file. The walk takes the newest mtime of
+        // everything it enumerates, so a freshly created parent would answer "written just now"
+        // whatever the file says - which is fine while the only question is "is anything writing",
+        // and wrong the moment the question becomes "did the child running now write it".
+        var path = url
+        for _ in 0...3 {
+            try! FileManager.default.setAttributes(
+                [.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: path.path)
+            path = path.deletingLastPathComponent()
+        }
     }
     // 300s of total silence: past the 120s follow bar, so before this the supervisor relaunched
     // here and killed the build that was running.
@@ -288,13 +301,28 @@ func runOpenTurnChecks() {
     // - so it is a conversation genuinely inside a long turn (a `Workflow` fan-out is the ordinary
     // one), and `tally session send` must not type into it. The reading says `busy` rather than
     // `subagentsWriting`, which is what makes the input gate hold (codex review of 0c9798b).
-    var oldTurnWithAgents = watcherWithTurn(open: true, callAge: openTurnMaxSeconds + 120)
+    //
+    // WHICH CHILD WROTE THEM IS PART OF THE QUESTION, and this pair is what that costs. As first
+    // written this check said "a subagent still writing" and meant "a file with a recent mtime",
+    // and those are the same sentence for a live fan-out and for the wreckage a cap handoff leaves:
+    // the killed child's agents wrote seconds before it died, and the relaunch resumes the same
+    // transcript, so the new and completely idle child inherited both halves of the shape below.
+    // The dimension that separates them is when the child running NOW started (`since`), so both
+    // sides of it are asserted here rather than one (codex review of fa9533b; the same pair end to
+    // end, through the board and the input gate, is in windowrepickchecks section 34).
+    var oldTurnWithAgents = watcherWithTurn(open: true, callAge: openTurnMaxSeconds + 120,
+                                            childLaunchedAt: Date().addingTimeInterval(-7200))
     dropSubagentWrite(beside: oldTurnWithAgents.file!, age: 5)
     check("an over-age tool call with a subagent still writing reads as the turn, not as dispatch",
           oldTurnWithAgents.quietness(followIdleSeconds) == .busy)
     check("…and the input gate holds it as that session's own turn",
           sessionInputHold(state: .working, quiet: oldTurnWithAgents.quietness(followIdleSeconds),
                            keyboardIdle: true, relaunchPlanned: false) == .turn)
+    var handedOff = watcherWithTurn(open: true, callAge: openTurnMaxSeconds + 120,
+                                    childLaunchedAt: Date())
+    dropSubagentWrite(beside: handedOff.file!, age: 5)
+    check("the identical shape under a child that started after it is the dead child's wreckage",
+          handedOff.quietness(followIdleSeconds) == .quiet)
     // The escape the cap exists for is untouched: the same over-age call with nothing dispatched
     // beside it still reads quiet, so a session whose child was killed mid-call is not locked out.
     var oldTurnAlone = watcherWithTurn(open: true, callAge: openTurnMaxSeconds + 120)

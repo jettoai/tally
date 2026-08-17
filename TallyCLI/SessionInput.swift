@@ -343,19 +343,28 @@ func injectSessionInput(_ text: String, tty: String = "/dev/tty",
 /// (`sessionInputDecision` carries the whole reasoning). No default, for the reason stated there.
 ///
 /// `inject` is injectable so the suite can drive every branch without a terminal.
+///
+/// RETURNS THE LINE THAT WAS ACTUALLY TYPED, and nothing on any other branch. One reader wants it
+/// (`WindowRepickState.arm`): a `/clear` reaching a composer is the moment a session's window
+/// closes, which is the cheapest moment in its life to leave a dying account. It is the TYPED line
+/// rather than the requested one on purpose - a request that waited, expired or was refused closed
+/// no window, and arming on it would leave a mover waiting for a clear that never happened.
+@discardableResult
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
                        quiet: SessionQuiet, keyboardIdle: Bool, relaunchPlanned: Bool,
                        dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
                        inject: (String) -> SessionInputInjection = {
                            injectSessionInput($0)
-                       }) {
+                       }) -> String? {
     let pid = state.sessionKey
     // Read once, and nothing to decide without one: every branch below is about a request, so the
     // absent case is answered here rather than in each of them.
-    guard let request = readSessionInputRequest(sessionKey: pid, dir: dir) else { return }
+    guard let request = readSessionInputRequest(sessionKey: pid, dir: dir) else { return nil }
     let outcome: SessionInputOutcome
     var detail: String?
+    /// The line that reached the terminal, set on the one branch where that happened.
+    var typed: String?
     switch sessionInputDecision(request: request, servedEpoch: state.servedEpoch, state: session,
                                 quiet: quiet, keyboardIdle: keyboardIdle,
                                 relaunchPlanned: relaunchPlanned, now: now) {
@@ -367,7 +376,7 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         // and the next tick decides again from scratch, so recording it would be publishing a
         // reason that may already be false. It reaches the caller through the refusal, which is
         // taken at the moment the wait ends.
-        return
+        return nil
     case .refuse(let refusal, let why):
         outcome = refusal
         detail = why
@@ -375,6 +384,7 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         switch inject(asked.text) {
         case .done:
             outcome = .submitted
+            typed = asked.text
         case .failed(let code):
             outcome = .failedTTY
             detail = "errno \(code): \(String(cString: strerror(code)))"
@@ -428,4 +438,5 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
                                                           failure: lostReceipt, now: now),
                                to: log)
     }
+    return typed
 }

@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 19
+    nonisolated static let skillVersion = 20
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -218,8 +218,9 @@ extension IntegrationsStore {
           types is answered from the same context on the new account.
         - IT STICKS FOR THE REST OF THE SESSION. The account named is where this
           conversation stays: automatic account selection (the idle rebalance off a nearly
-          dry account, the model-degradation rescue, a pin moved in the Tally panel) stops
-          moving it. Say so when you relay the move, because it is the difference between
+          dry account, the re-pick after a `/clear`, the model-degradation rescue, a pin
+          moved in the Tally panel) stops moving it. Say so when you relay the move, because
+          it is the difference between
           this and asking again in ten minutes.
         - The pin is the user's to release (`tally account --auto`), and a hard cap no longer
           takes it from them. A hard cap is answered inside that decision where it can be: the
@@ -274,6 +275,14 @@ extension IntegrationsStore {
         `~/.tally/logs/input.log` records what became of it. Do not follow it with a second
         send, a sleep, or a background retry: those were workarounds for the wait and the
         second send is refused as a duplicate.
+
+        A cleared window may reopen on a different account, and that is deliberate. A
+        conversation that has just been cleared is empty, so the restart that carries it off
+        an account with nothing left costs nothing, and Tally takes that moment: if the
+        account is under the nearly-dry line and a sibling has room, the session comes back
+        on the sibling a few seconds after the clear. Nothing is lost and nothing needs
+        doing about it. It does not happen when the account still has room, when the session
+        is pinned (`tally account`), or when somebody is typing in that terminal.
 
         Subagents and background tasks do NOT hold a send. A session that has finished
         speaking while the agents it dispatched write on is one this line is typed into, so

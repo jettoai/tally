@@ -432,24 +432,31 @@ func runRebalanceChecks() {
     func at(_ needle: String) -> Int? {
         loop.range(of: needle).map { loop.distance(from: loop.startIndex, to: $0.lowerBound) }
     }
-    check("the tick asks for a proactive move", loop.contains("rebalanceMove("))
-    check("it only asks when nothing else is already relaunching",
-          loop.contains("if plan == nil, let moveTo = rebalanceMove("))
+    check("the tick asks for a proactive move", loop.contains("applyProactiveMoves("))
+    // The decision itself moved out of the loop when a SECOND preventive mover joined it (the
+    // window repick), so what the loop now shows is the call; the rest is read off the station.
+    // Same question, same answers, one file further out - the move the fallback profile already
+    // made when its rule left this file.
+    let station = (try? String(contentsOfFile: "TallyCLI/WindowRepick.swift", encoding: .utf8)) ?? ""
+    check("the preventive station is readable from the rebalance checks", !station.isEmpty)
+    check("it only runs when nothing else is already relaunching",
+          station.contains("guard plan == nil else { return }"))
     check("it waits for the full left-alone bar, transcript and keyboard alike",
-          loop.contains("watcher.isQuiet(followIdleSeconds) && keyboard.idle(followIdleSeconds)"))
+          station.contains("watcher.isQuiet(followIdleSeconds) && keyboardIdle(followIdleSeconds)"))
     check("the move counts against the recovery fuse",
-          loop.contains("RelaunchPlan(target: moveTo, reason: \"rebalance\", countsFuse: true)"))
-    // The cycle is claimed inside the decision, so the loop has nothing to record and no way to
-    // forget: a target it never got is a cycle it never took.
-    check("the loop keeps no rebalance record of its own", !loop.contains("recordRebalance("))
+          station.contains("RelaunchPlan(target: moveTo, reason: \"rebalance\", countsFuse: true)"))
+    // The cycle is claimed inside the decision, so neither the loop nor the station has anything to
+    // record and no way to forget: a target it never got is a cycle it never took.
+    check("nothing outside the decision keeps a rebalance record",
+          !loop.contains("recordRebalance(") && !station.contains("recordRebalance("))
     check("the user is told what is happening and why",
-          loop.contains("nearly dry, moving to") && loop.contains("before the wall"))
+          station.contains("nearly dry, moving to") && station.contains("before the wall"))
     // Placement: last of the account moves (every other one is repairing something), and it goes
     // through the shared plan, which is what makes a pending self-update fold into its restart.
     // The fallback marker is the CALL to the fallback profile: the rule itself moved to
     // ModelDegradation.swift, and what this asserts is where it sits in the tick, which is the
     // call site. Same question, same answer, one file further out.
-    if let rebalance = at("// Idle rebalance:"), let fallback = at("applyFallbackProfile("),
+    if let rebalance = at("// The two PREVENTIVE movers"), let fallback = at("applyFallbackProfile("),
        let selfUpdate = at("// The app updated under this supervisor"),
        let execution = at("// Execute the tick's one relaunch") {
         check("the rebalance is considered after every repair path", fallback < rebalance)

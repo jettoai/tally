@@ -325,9 +325,15 @@ func runPendingNoticeChecks() {
     }
     // The speaking half: every one of these is printed as the child is being terminated, so the
     // terminal is about to be redrawn from scratch and the user needs to know why.
+    // The preventive movers speak from their own station now that there are two of them; the
+    // window repick is the newer one, and it announces the same fact for the same reason.
+    let preventiveSource = (try? String(contentsOfFile: "TallyCLI/WindowRepick.swift",
+                                        encoding: .utf8)) ?? ""
+    check("the preventive station is readable", !preventiveSource.isEmpty)
     for announcement in ["reload requested → restarting this session",
                          "cap hit → handing off to",
                          "nearly dry, moving to",
+                         "window cleared on",
                          "model fell back to",
                          "pinned in Tally → switching to",
                          "switching to \\(named.label) as asked"] {
@@ -335,7 +341,9 @@ func runPendingNoticeChecks() {
             : announcement.hasPrefix("launch default") ? followSource
             : announcement.hasPrefix("model fell back") ? degradationSource
             : announcement.contains("switching to") ? manualMoveSource
-            : announcement.hasPrefix("cap hit") ? capSource : loop
+            : announcement.hasPrefix("cap hit") ? capSource
+            : announcement.hasPrefix("nearly dry") || announcement.hasPrefix("window cleared")
+                ? preventiveSource : loop
         check("\"\(announcement)\" still speaks, because the child is about to go",
               source.contains("warn(\"\(announcement)") || source.contains("\(announcement)"))
     }

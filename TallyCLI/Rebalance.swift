@@ -314,6 +314,33 @@ func rebalanceTarget(mode: String, isQuiet: Bool, carryable: Bool, fuseAllows: B
     return target
 }
 
+/// The live picture any proactive move needs: this account as the snapshot reports it NOW, and the
+/// field of siblings narrowed exactly as the cap handoff narrows it (this provider, eligible for the
+/// model actually running, not the account we are on, nothing quarantined).
+///
+/// nil when the snapshot cannot answer: too old to trust, unreadable, or not naming this account at
+/// all. Every caller reads that as "stay put", the same rule the cap handoff applies
+/// (`CapAction.waitStale`) and for the same reason - moving a session on hours-old numbers is how a
+/// session lands somewhere worse than it started.
+///
+/// SHARED WITH THE WINDOW REPICK (WindowRepick.swift) rather than copied there. The two movers
+/// differ in WHEN they fire and in nothing else about the field: they must never come to disagree
+/// about which siblings exist or which windows count, and a second copy of this narrowing is
+/// exactly how they would.
+func liveMoveField(provider: String, account: Snapshot.Account, primaryModel: String?,
+                   quarantine: [String: (model: String?, until: Date)],
+                   loaded: (Snapshot?, String?), now: Date)
+    -> (current: Snapshot.Account, candidates: [Snapshot.Account])? {
+    let (snapshot, problem) = loaded
+    guard problem == nil, let snapshot,
+          let live = snapshot.accounts.first(where: { $0.id == account.id }) else { return nil }
+    let excluded = quarantinedAccounts(forPrimary: primaryModel, sessionLocal: quarantine, now: now)
+    return (live, snapshot.accounts.filter {
+        $0.provider == provider && eligible($0, primaryModel: primaryModel)
+            && $0.id != account.id && !excluded.contains($0.id)
+    })
+}
+
 /// One poll tick's proactive move, with the live picture the gate above needs. nil on almost every
 /// tick, for any of the reasons above.
 ///
@@ -352,19 +379,14 @@ func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: St
     // re-spelled: `rebalanceTarget` asks the same four again with the same answer, so this can only
     // ever be an early exit, never a second opinion.
     guard rebalanceAllowedForSession(mode: mode, isQuiet: isQuiet, carryable: carryable,
-                                     fuseAllows: fuseAllows) else { return nil }
-    let (snapshot, problem) = loaded()
-    guard problem == nil, let snapshot,
-          let live = snapshot.accounts.first(where: { $0.id == account.id }),
-          let cycle = rebalanceCycleKey(live, primaryModel: primaryModel, now: now)
+                                     fuseAllows: fuseAllows),
+          let field = liveMoveField(provider: provider, account: account,
+                                    primaryModel: primaryModel, quarantine: quarantine,
+                                    loaded: loaded(), now: now),
+          let cycle = rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now)
     else { return nil }
-    let excluded = quarantinedAccounts(forPrimary: primaryModel, sessionLocal: quarantine, now: now)
-    let candidates = snapshot.accounts.filter {
-        $0.provider == provider && eligible($0, primaryModel: primaryModel)
-            && $0.id != account.id && !excluded.contains($0.id)
-    }
     return rebalanceTarget(
         mode: mode, isQuiet: isQuiet, carryable: carryable, fuseAllows: fuseAllows,
-        current: live, candidates: candidates, primaryModel: primaryModel, now: now,
+        current: field.current, candidates: field.candidates, primaryModel: primaryModel, now: now,
         claim: { claimRebalanceCycle(account.id, cycle: cycle, dir: dir) })
 }

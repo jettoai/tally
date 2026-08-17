@@ -382,8 +382,9 @@ check("a card that changed nothing owes nothing",
 //      gives - AppKit windows cannot be driven from here.
 check("the sizing contract records where the card found the surface",
       sizerSource.contains("cardEdges = window.resizeEdges"))
-check("…and puts it back through the one arithmetic",
-      sizerSource.contains("ResizeAnchor.restoredOrigin(for: window.frame, to: edges)"))
+check("…and puts it back through the one decision, conditions and all",
+      sizerSource.contains("ResizeAnchor.restitution(for: window.frame, to: cardEdges,")
+          && sizerSource.contains("if plan.clampsOnScreen { window.clampOnScreen() }"))
 check("…on the card's own presentation, per host",
       sizerSource.contains("var onViewOptionsPresented: (Bool) -> Void"))
 let footerSource = code(of: "Tally/Views/PopoverFooterView.swift")
@@ -406,13 +407,69 @@ check("…named, so the content's placement and the host's report are the same r
 check("…and it is captured in the body rather than re-read in the callback",
       rootSource.contains("let corner = anchorCorner")
           && rootSource.contains("onContentSize?(size, corner)"))
-check("the sizing contract asks the store once, and only before anything was reported",
+check("the sizing contract asks the store once, and only where no measurement is in flight",
       sizerSource.components(separatedBy: "SettingsStore.shared.resizeAnchor").count - 1 == 1
-          && sizerSource.contains("reportedCorner ?? SettingsStore.shared.resizeAnchor(for: host)"))
+          && sizerSource.contains("hold.corner(live: SettingsStore.shared.resizeAnchor(for: host))"))
 check("…so the frame write and the resize correction read the reported corner",
       sizerSource.contains("corner: corner") && observer.contains("self.corner"))
-check("…and the snapshot is spent on the resize it arrived with, never held for the next",
-      observer.contains("self.reportedCorner = nil"))
+
+/// Nothing to do, which is what both skip conditions come out as.
+let noRestitution = ResizeAnchor.Restitution(origin: nil, clampsOnScreen: false)
+
+// 11b. HOW LONG THAT READING SPEAKS FOR, asserted as behaviour rather than as a line of source.
+//      The version of this that read `observer.contains("reportedCorner = nil")` could only say the
+//      clearing was WRITTEN somewhere, never that it is REACHED - and the defect was exactly a path
+//      that does not reach it (codex, 2026-08-17): a measurement whose size differs by a rounding
+//      residue is reported, is answered with no frame write because `needsResize` has a half-point
+//      tolerance, produces no resize notification, and leaves its corner standing. Nothing calls
+//      the surface back either: the report is gated on `onChange(of: proxy.size)`, and closing the
+//      card changes the corner without changing the size, so no new measurement is ever sent.
+var hold = ResizeAnchor.Hold()
+check("with nothing measured the surface follows its host's live answer",
+      hold.corner(live: .topLeading) == .topLeading)
+hold.reported(.bottomTrailing)
+check("a measurement's corner is what the write it asks for has to hold",
+      hold.corner(live: .topLeading) == .bottomTrailing)
+hold.applied(wroteFrame: false)
+check("a measurement that resized nothing leaves no corner behind",
+      hold.corner(live: .topLeading) == .topLeading)
+hold.reported(.bottomTrailing)
+hold.applied(wroteFrame: true)
+check("a write keeps its corner for the resize it is about to cause",
+      hold.corner(live: .topLeading) == .bottomTrailing)
+hold.finished()
+check("…and gives it up once that resize has finished",
+      hold.corner(live: .topLeading) == .topLeading)
+// And the host is driven by that machine rather than by a second copy of the rule.
+check("the sizing contract holds its corner through the one lifetime",
+      sizerSource.contains("private var hold = ResizeAnchor.Hold()")
+          && sizerSource.contains("hold.reported(corner)")
+          && sizerSource.contains("hold.applied(wroteFrame: wroteFrame)")
+          && observer.contains("self.hold.finished()"))
+check("…and the write says whether it actually wrote",
+      sizerSource.contains("wroteFrame = true"))
+
+// 12. AND WHEN THE PUT-BACK IS SKIPPED, which the first version of it did not assert at all: the
+//     new assertions covered the arithmetic ("does it compute the right origin") and none of the
+//     conditions ("is it reached"), and both reported defects lived in the second half.
+//
+//     A SURFACE NOBODY CAN SEE STILL PAYS THE DEBT. The window is order-out before `onDisappear`
+//     reaches this, so a card still open at Cmd-Q or at an update relaunch used to skip the
+//     put-back and cancel the debt in the same breath - while AppKit's frame autosave had been
+//     recording the displaced frame all along, so the panel came back next launch exactly where the
+//     card had pushed it. Writing the origin is what the autosave has to see; clamping it onto a
+//     display is what a hidden window has no use for.
+let hidden = ResizeAnchor.restitution(for: shorter, to: openedEdges, isVisible: false)
+let seen = ResizeAnchor.restitution(for: shorter, to: openedEdges, isVisible: true)
+check("a card that moved the surface writes the origin back", seen.origin != nil)
+check("…and follows it by putting the surface back on a screen", seen.clampsOnScreen)
+check("a surface already off screen pays the same debt", hidden.origin == seen.origin)
+check("…without being clamped onto a display nobody is looking at", !hidden.clampsOnScreen)
+check("no card was recorded, so there is nothing to put back",
+      ResizeAnchor.restitution(for: shorter, to: nil, isVisible: true) == noRestitution)
+check("a card that moved nothing writes no frame at all",
+      ResizeAnchor.restitution(for: settled, to: ResizeAnchor.Edges(frame: settled),
+                               isVisible: true) == noRestitution)
 
 checkPopoverAnchor()
 checkPanelSummon()

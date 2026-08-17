@@ -23,6 +23,70 @@ enum ResizeAnchor {
         case bottomTrailing
     }
 
+    /// THE CORNER A FRAME WRITE IS MADE WITH, AND HOW LONG IT ANSWERS FOR.
+    ///
+    /// The corner has three consumers a run-loop turn apart - where the content places itself, the
+    /// frame write, and the correction the resize notification triggers - and the rule they follow
+    /// is only a rule while all three read the same answer (`ScreenFitStack.HostAnchored`: "the
+    /// transition and its destination are never different anchors"). So the corner travels with the
+    /// measurement, and this is how long that reading is allowed to speak for.
+    ///
+    /// A state machine rather than an optional in the host, because "how long" is exactly the part
+    /// that was wrong and exactly the part a source reading cannot check: a corner held past the
+    /// resize it was taken for answers for a resize nobody measured (a display going away), and the
+    /// host has no way to notice.
+    struct Hold: Sendable {
+        private var pending: Corner?
+
+        init() {}
+
+        /// A measurement arrived, carrying the corner its content was laid out against.
+        mutating func reported(_ corner: Corner) { pending = corner }
+
+        /// Which corner to hold right now: the one that came with the measurement being acted on,
+        /// and the host's own live answer whenever no measurement is in flight.
+        func corner(live: Corner) -> Corner { pending ?? live }
+
+        /// The measurement has been acted on, and `wroteFrame` says whether that produced a
+        /// resize. One that did leaves the corner standing for the notification it is about to
+        /// cause; one that did not - a report whose size differs from the frame by less than the
+        /// half-point tolerance, which this repo has measured down to 6e-14 - causes no
+        /// notification at all, so there is nothing left for the corner to answer for and holding
+        /// it would hand it to the next resize instead.
+        mutating func applied(wroteFrame: Bool) { if !wroteFrame { pending = nil } }
+
+        /// The resize a written frame produced has finished.
+        mutating func finished() { pending = nil }
+    }
+
+    /// WHAT CLOSING THE VIEW-OPTIONS CARD HAS TO DO TO THE SURFACE: where to put it, and whether to
+    /// go on and put it back on a screen.
+    struct Restitution: Sendable, Equatable {
+        /// Where the surface has to be moved to, or nil when there is nothing to pay back (no card
+        /// was recorded, or the surface is already where the card found it).
+        var origin: CGPoint?
+        /// Whether to follow the move with `clampOnScreen()`.
+        var clampsOnScreen: Bool
+    }
+
+    /// The put-back, decided rather than performed, so that WHEN IT IS SKIPPED can be asserted
+    /// (`tests/windowanchor`) instead of only read.
+    ///
+    /// A SURFACE NOBODY CAN SEE STILL PAYS. Visibility gates the clamp and nothing else: the frame
+    /// is what AppKit's autosave records, so a window that goes away with the card still open (Cmd-Q,
+    /// an update relaunch - neither of which any press can precede) has to have its origin written
+    /// anyway or it comes back next launch exactly where the card pushed it. Clamping is the part
+    /// that is meaningless for it: a hidden window has no screen to be put back on, and the one it
+    /// is shown on next is decided when it is shown.
+    static func restitution(for frame: CGRect, to edges: Edges?, isVisible: Bool) -> Restitution {
+        guard let edges else { return Restitution(origin: nil, clampsOnScreen: false) }
+        let corrected = restoredOrigin(for: frame, to: edges)
+        guard needsMove(from: frame.origin, to: corrected) else {
+            return Restitution(origin: nil, clampsOnScreen: false)
+        }
+        return Restitution(origin: corrected, clampsOnScreen: isVisible)
+    }
+
     /// The edges to put back, read off the surface BEFORE the resize (in practice: remembered at the
     /// last time it moved, which is the last position the user chose).
     struct Edges: Sendable, Equatable {

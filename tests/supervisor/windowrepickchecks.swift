@@ -158,6 +158,15 @@ func runWindowRepickChecks() {
         return TranscriptWatcher(projectDir: dir, file: file, since: launch)
     }
 
+    /// That session writing to its own transcript, `secondsAgo` seconds ago: what a turn typed into
+    /// the cleared window leaves behind. Ages rather than timestamps, because a file's mtime is read
+    /// against the wall clock while the state above runs on the suite's own `launch`.
+    func wrote(_ watcher: TranscriptWatcher, secondsAgo: TimeInterval) {
+        guard let file = watcher.file else { return }
+        try! FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-secondsAgo)], ofItemAtPath: file.path)
+    }
+
     /// One tick of the station. Returns the plan it made and whether the rebalance's cross-
     /// supervisor claim was taken, which is how the ORDER of the two movers is observed.
     func tick(repick: inout WindowRepickState, watcher: inout TranscriptWatcher,
@@ -238,6 +247,73 @@ func runWindowRepickChecks() {
     var busyWatcher = session(id: "after", age: 1)
     check("a conversation that is writing again holds the repick",
           tick(repick: &busyState, watcher: &busyWatcher).plan == nil)
+    // AND THE ARM SURVIVES THAT ONE, which is the thing a single reading cannot decide: `/clear`
+    // writes the transcript it creates (ten lines, TranscriptFork.swift), so "written a second ago"
+    // is also exactly what a window that has just opened looks like. What tells the two apart is a
+    // write that arrives AFTER this supervisor has seen the landing, which is the case below.
+    check("…and the arm survives a write nothing can attribute yet", busyState.typedAt == launch)
+
+    // MARK: - 33c-ii. A window that has been worked in is no longer free
+
+    // THE ACCIDENT THE SECOND PIECE OF EVIDENCE EXISTS FOR (codex review of 01799d5): the window
+    // opened, somebody came back, ran a turn in it and then read the answer. Six seconds of reading
+    // satisfies the 5s quiet bar, and the arm is still up because none of the gates that failed
+    // earlier in the window consumed it - so the tick relaunched a conversation with a live turn in
+    // it, which is the accident this whole feature was built to avoid, self-inflicted.
+    //
+    // Two ticks, because that is what the fact is made of: the first sees the clear land and takes
+    // the transcript's mtime as it then stands (the `/clear`'s own records), the turn writes, and
+    // the second reads a file that has moved since. A single tick cannot hold that fact - at the
+    // moment a landing is first seen, its baseline and its reading are the same stat.
+    var workedState = WindowRepickState()
+    workedState.arm(typed: "/clear", transcript: "before", now: launch)
+    var workedWatcher = session(id: "after")
+    let landed = tick(repick: &workedState, watcher: &workedWatcher, keyboardIdle: false)
+    check("the landing tick with somebody at the keyboard plans nothing", landed.plan == nil)
+    check("…and keeps the arm, because that window is still empty", workedState.typedAt == launch)
+    wrote(workedWatcher, secondsAgo: 6)   // the turn they typed, finished six seconds ago
+    let worked = tick(repick: &workedState, watcher: &workedWatcher,
+                      at: launch.addingTimeInterval(8))
+    check("a window that has been worked in is not relaunched, however quiet it has gone",
+          worked.plan == nil)
+    check("…and the arm is dropped for good rather than left to run the window out",
+          workedState.typedAt == nil)
+
+    // The same two ticks with NOTHING written in between, so the refusal above is about the write
+    // and not about the second tick: the free move is still there to be taken.
+    var untouchedState = WindowRepickState()
+    untouchedState.arm(typed: "/clear", transcript: "before", now: launch)
+    var untouchedWatcher = session(id: "after")
+    _ = tick(repick: &untouchedState, watcher: &untouchedWatcher, keyboardIdle: false)
+    let untouched = tick(repick: &untouchedState, watcher: &untouchedWatcher,
+                         at: launch.addingTimeInterval(8))
+    check("a window nobody touched is still moved on a later tick",
+          untouched.plan?.reason == "window-repick" && untouched.plan?.target.id == "B")
+
+    // The signal itself, with no station around it and no clock in it at all.
+    var evidence = WindowRepickState()
+    evidence.arm(typed: "/clear", transcript: "before", now: launch)
+    let cleared = launch.addingTimeInterval(1)
+    check("the first landing seen is the baseline", evidence.noteLanded(in: "after",
+                                                                       writtenAt: cleared))
+    check("…and the same file, unmoved, is still that empty window",
+          evidence.noteLanded(in: "after", writtenAt: cleared))
+    check("a write past that baseline is somebody using the window",
+          !evidence.noteLanded(in: "after", writtenAt: cleared.addingTimeInterval(1)))
+    check("…which disarms, because the ordinary rebalance owns that session now",
+          evidence.typedAt == nil)
+    var movedAgain = WindowRepickState()
+    movedAgain.arm(typed: "/clear", transcript: "before", now: launch)
+    _ = movedAgain.noteLanded(in: "after", writtenAt: cleared)
+    // Mtimes from two different files cannot be compared at all, so a conversation that has moved
+    // AGAIN is not a quieter window, it is one nothing here can say anything about.
+    check("a conversation that moved again is not the file the baseline describes",
+          !movedAgain.noteLanded(in: "later", writtenAt: cleared.addingTimeInterval(-60)))
+    check("…and that disarms too", movedAgain.typedAt == nil)
+    var unstatted = WindowRepickState()
+    unstatted.arm(typed: "/clear", transcript: "before", now: launch)
+    check("a transcript nothing could stat decides nothing, in either direction",
+          !unstatted.noteLanded(in: "after", writtenAt: nil) && unstatted.typedAt == launch)
 
     // The window closes, and closing it clears the arm: a line that never reached a composer must
     // not fire a restart minutes later off some unrelated fork.

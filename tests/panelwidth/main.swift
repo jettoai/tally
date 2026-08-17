@@ -211,10 +211,25 @@ check(!widthWords.contains("tab") && !widthWords.contains("tabState"),
       "the width never asks which page is up")
 check(!widthWords.contains(where: { $0.lowercased().hasPrefix("session") }),
       "…the session board's page included")
+/// The alignment of the stack the PAGES are crossfaded in, found by position: the innermost
+/// `ZStack` opened before the page condition.
+///
+/// Not `contains("ZStack(alignment: .topLeading)")`, which is what this replaced and what it could
+/// not see: the view's outer stack already carried that alignment before the crossfade was fixed,
+/// so a file-wide test was green either way and said nothing about the line it named (review of
+/// c85061f).
+func crossfadeAlignment(_ source: String) -> String? {
+    guard let pages = source.range(of: "if tab == .usage"),
+          let opener = source[..<pages.lowerBound].range(of: "ZStack(alignment: .",
+                                                         options: .backwards) else { return nil }
+    let rest = source[opener.upperBound...]
+    guard let close = rest.firstIndex(of: ")") else { return nil }
+    return String(rest[..<close])
+}
 // And the leaving page is not centred while it fades: a ZStack aligned to the bare `.top` splits
 // any difference in width either side of its children, which is sideways movement in a switch whose
 // whole vocabulary is a fade in place.
-check(rootSource.contains("ZStack(alignment: .topLeading) {"),
+check(crossfadeAlignment(rootSource) == "topLeading",
       "the pages are stacked against the leading edge, not centred")
 
 print("a chosen count is spent on the cards, inside the surface it is given")

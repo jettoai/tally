@@ -87,8 +87,10 @@ extension SettingsView {
         rowDivider
 
         // Directly under the account pages' count, because the two are the same question asked of
-        // two pages: the Sessions board keeps its own answer, and the panel takes the width that
-        // answer needs while the board is up (`SettingsStore.sessionsColumns`).
+        // two pages: the Sessions board keeps its own answer, and spends it on the CARDS rather
+        // than on the surface - that many columns at the card ladder's width, held against the
+        // leading edge, inside a panel whose width never changes with the page in front
+        // (`SettingsStore.sessionsColumns`, `PopoverRootView.popoverWidth`).
         HStack {
             Text(L("Sessions columns")).font(.subheadline)
             Spacer()

@@ -44,9 +44,19 @@ import Foundation
 // runs a turn and settles down to read the answer. Five seconds of that reading satisfies the quiet
 // gate, which only ever answers "has anything been written in the last five seconds", and the
 // restart is taken against a conversation with a live turn in it: the exact accident this feature
-// exists to avoid, self-inflicted. So the arm is dropped the moment the cleared conversation is
-// written to (`noteLanded`), which is a different question from how recent the last write is, and
-// the only one that separates an empty window from a used one.
+// exists to avoid, self-inflicted. So the arm is dropped as soon as that window shows a turn in it
+// (`noteLanded`), which is a different question from how recent the last write is, and the only one
+// that separates an empty window from a used one.
+//
+// AND THAT ANSWER COMES OUT OF THE TRANSCRIPT ITSELF rather than out of its mtime, which is the
+// same choice the landing evidence above makes. An mtime can only be compared against a baseline,
+// the baseline is taken on the first tick that sees the landing, and everything written before that
+// tick is therefore invisible to it - a prompt submitted in the two seconds it takes the report to
+// arrive, or in any tick the station skipped, is absorbed into the baseline and the window reads as
+// untouched while a turn is running in it (codex review of 4d7288a). What that turn LEFT in the file
+// is there whichever tick asks. The mtime stays as a second signal for the one thing the contents
+// cannot see past, a tail window filled by an enormous tool result; the two are a union, so either
+// one refusing refuses.
 //
 // WHAT THE RELAUNCH THEN DOES is the ordinary handoff, unchanged: `performHandoff` locates the live
 // file, which by then IS the cleared transcript the report named, copies it to the target account
@@ -116,50 +126,76 @@ struct WindowRepickState: Equatable {
     /// Arm on the line that was actually typed into the terminal, which is what the input gate
     /// returns and nothing else: a request that waited, expired or was refused typed nothing, so
     /// there is no window to wait for.
+    ///
+    /// EVERY FIELD, INCLUDING THE ONE THIS ARM HAS NOT LOOKED AT YET. A second `/clear` inside one
+    /// child is an ordinary thing (two windows in a working hour), and a `landing` left over from
+    /// the first names a conversation this one has already left: the id comparison in `noteLanded`
+    /// would then fail on the new window's very first tick and disarm it, so the second window could
+    /// never take the free move. Two mutating entry points writing different halves of one state is
+    /// the shape that produces that, so this writes all of it.
     mutating func arm(typed: String?, transcript: String?, now: Date = Date()) {
         guard let typed, isWindowClearCommand(typed) else { return }
         leaving = transcript
         typedAt = now
+        landing = nil
     }
 
     /// Whether the conversation the clear landed in is still the empty one this move rests on,
     /// dropping the arm for good when it is not.
     ///
-    /// WHY A WRITE RATHER THAN SILENCE. The quiet gate beside this one asks whether anything has
-    /// been written in the last five seconds, which is a question about the present: a window that
-    /// was cleared, worked in for a turn and then left to be read answers "quiet" to it, and the
-    /// restart taken there kills a live conversation. What separates the two is not how recent the
-    /// last write is but whether there has BEEN one since the window opened, so that is what is
-    /// asked here. It is a disarm rather than a wait because the premise is gone rather than
-    /// postponed: a window somebody is working in is the ordinary rebalance's to move, at the full
-    /// 120s "left alone" bar it holds for exactly this case.
+    /// WHY THE TRANSCRIPT'S CONTENTS AND NOT ITS SILENCE. The quiet gate beside this one asks
+    /// whether anything has been written in the last five seconds, which is a question about the
+    /// present: a window that was cleared, worked in for a turn and then left to be read answers
+    /// "quiet" to it, and the restart taken there kills a live conversation. What is being asked
+    /// here is whether that window HAS BEEN USED, which is a fact standing in the file itself
+    /// (`windowRepickWindow`), so it is read from there.
     ///
-    /// BASELINED ON THE LANDING, NOT ON THE LINE BEING TYPED, and that is the whole reason this is
-    /// state rather than a comparison. `/clear` writes the transcript it creates (ten lines before
-    /// its first turn, TranscriptFork.swift), so "written since the line was typed" is true of every
-    /// cleared session and would disable the feature outright. The mtime read on the tick that first
-    /// sees the landing IS that write, so anything past it belongs to somebody else.
+    /// THE MTIME IS THE SECOND SIGNAL AND NOT THE FIRST, which is the correction this carries
+    /// (codex review of 4d7288a). Baselining alone had a hole in front of it: the baseline is taken
+    /// on the first tick that sees the landing, so a prompt submitted in the couple of seconds
+    /// between the clear landing and that tick is absorbed INTO the baseline, and a model request
+    /// that has not answered yet writes nothing else - no unmatched `tool_use` for `openToolCall` to
+    /// find, nothing for the 5s bar to notice. The window then read as untouched while a turn was
+    /// running in it. The contents cannot be absorbed that way: what a prompt leaves behind is
+    /// there whichever tick asks, which also closes the same hole where a tick is SKIPPED (a
+    /// higher-priority relaunch takes the station's early return, and the baseline is built late).
     ///
-    /// THE COST, stated rather than hidden: a clear whose own records are still landing when that
-    /// first tick reads them moves the mtime once more, reads as work, and the free move is
-    /// declined. That is the direction every obstacle in this family fails in, and what it costs is
-    /// a convenience.
-    mutating func noteLanded(in transcript: String, writtenAt: Date?) -> Bool {
-        // A file nothing could stat is not evidence in either direction, so it decides neither: the
-        // arm stands and a later tick answers, or the window runs out on its own.
-        guard let writtenAt else { return false }
-        guard let landing else {
-            landing = Landing(transcript: transcript, writtenAt: writtenAt)
-            return true
-        }
-        // A SECOND MOVE IS NOT A QUIETER WINDOW. A conversation that has forked or cleared again is
-        // not the file this baseline describes, and two files' mtimes cannot be compared at all, so
-        // there is nothing here that can call that window empty.
-        guard landing.transcript == transcript, writtenAt <= landing.writtenAt else {
+    /// The mtime is kept for the one case the contents cannot cover: a tool result larger than the
+    /// tail window pushes the messages out of view (`openTurnTailBytes`, 1,567 such results on this
+    /// machine), and a file that has moved since the landing says so regardless. The two are a union
+    /// rather than a choice, so either one refusing is a refusal.
+    ///
+    /// AMBIGUITY NEVER ADVANCES ANYTHING. A window that cannot be read decides neither way: no
+    /// baseline is taken, nothing is disarmed, and the tick simply does not move this session. What
+    /// that costs is a free move; what it buys is that no reading this cannot make becomes a
+    /// relaunch.
+    ///
+    /// It is a disarm rather than a wait because the premise is gone rather than postponed: a window
+    /// somebody is working in is the ordinary rebalance's to move, at the full 120s "left alone" bar
+    /// it holds for exactly this case.
+    mutating func noteLanded(in transcript: String, window: WindowRepickWindow) -> Bool {
+        switch window {
+        case .used:
             disarm()
             return false
+        case .unreadable:
+            // Neither evidence nor its absence: the arm stands, and a later tick answers, or the
+            // window runs out on its own.
+            return false
+        case .empty(let writtenAt):
+            guard let landing else {
+                landing = Landing(transcript: transcript, writtenAt: writtenAt)
+                return true
+            }
+            // A SECOND MOVE IS NOT A QUIETER WINDOW. A conversation that has forked or cleared again
+            // is not the file this baseline describes, and two files' mtimes cannot be compared at
+            // all, so there is nothing here that can call that window empty.
+            guard landing.transcript == transcript, writtenAt <= landing.writtenAt else {
+                disarm()
+                return false
+            }
+            return true
         }
-        return true
     }
 
     mutating func disarm() {
@@ -282,12 +318,12 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
     // none of it. `carryable` is a statement AFTER the quiet reading rather than an argument beside
     // it, because the locate this depends on happens inside `isQuiet`.
     //
-    // The id and the mtime are read as a PAIR off the file the tick adopted, before `isQuiet` can
-    // relocate the watcher under them: what the second one means ("this window has been written to
-    // since it opened") is a statement about the first one, and a stat taken from a file the id
-    // never named would be compared against a baseline from another.
+    // The id and the window reading are taken as a PAIR off the file the tick adopted, before
+    // `isQuiet` can relocate the watcher under them: what the reading says ("this window holds a
+    // turn", "this is its mtime") is a statement about that id, and a file the id never named would
+    // be judged against a baseline belonging to another.
     if windowRepickLanded(&repick, transcript: watcher.transcriptSessionID,
-                          writtenAt: transcriptWrittenAt(watcher.file), now: now),
+                          window: windowRepickWindow(watcher.file), now: now),
        watcher.isQuiet(windowRepickQuietSeconds), keyboardIdle(windowRepickQuietSeconds) {
         let carried = carryableSession(launchArgs: launchArgs,
                                        sessionLocated: watcher.file != nil)
@@ -319,10 +355,12 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
 /// that could fire later off some unrelated fork, and a window somebody has started working in must
 /// leave nothing behind at all.
 ///
-/// `writtenAt` is the bound transcript's mtime, read by the caller off the same file the id above
-/// names.
+/// `window` is that transcript read (`windowRepickWindow`), `@autoclosure` so only a tick that has
+/// actually landed pays for the tail: an armed window is rare and an unarmed one is every other
+/// tick, which would otherwise read a file for an answer nobody asks for.
 private func windowRepickLanded(_ repick: inout WindowRepickState, transcript: String?,
-                                writtenAt: Date?, now: Date) -> Bool {
+                                window: @autoclosure () -> WindowRepickWindow,
+                                now: Date) -> Bool {
     switch windowRepickReadiness(repick, transcript: transcript, now: now) {
     case .idle, .waiting:
         return false
@@ -331,19 +369,81 @@ private func windowRepickLanded(_ repick: inout WindowRepickState, transcript: S
         return false
     case .landed:
         // `.landed` is reached only with a bound transcript (`windowRepickReadiness` answers
-        // `waiting` for a session bound to nothing), so this names the file the mtime came from.
+        // `waiting` for a session bound to nothing), so this names the file that was read.
         guard let transcript else { return false }
-        return repick.noteLanded(in: transcript, writtenAt: writtenAt)
+        return repick.noteLanded(in: transcript, window: window())
     }
 }
 
-/// When the transcript this watcher is bound to was last written, nil when it has no file or the
-/// file cannot be stat'd.
+/// What the cleared conversation's own transcript says about the window this move rests on.
+enum WindowRepickWindow: Equatable {
+    /// A turn is in it: a prompt somebody typed, a tool result, an answer. The window is in use.
+    case used
+    /// Nothing in it but the records the `/clear` itself wrote, as of this write.
+    case empty(writtenAt: Date)
+    /// Nothing could be read: no file, no stat, no tail. Decides neither way.
+    case unreadable
+}
+
+/// That reading, off the file the watcher is bound to.
 ///
-/// Fresh URL on purpose, for the reason `boundFileQuietness` states: resourceValues are cached per
-/// URL instance, and a held one would report a window that has been typed into as untouched.
-private func transcriptWrittenAt(_ file: URL?) -> Date? {
-    guard let file else { return nil }
-    return (try? URL(fileURLWithPath: file.path)
-        .resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+/// Fresh URL for the mtime, for the reason `boundFileQuietness` states: resourceValues are cached
+/// per URL instance, and a held one would report a window that has been typed into as untouched.
+private func windowRepickWindow(_ file: URL?) -> WindowRepickWindow {
+    guard let file,
+          let modified = (try? URL(fileURLWithPath: file.path)
+              .resourceValues(forKeys: [.contentModificationDateKey]))?
+              .contentModificationDate,
+          let tail = transcriptTail(of: file) else { return .unreadable }
+    return windowRepickUsed(inTail: tail) ? .used : .empty(writtenAt: modified)
+}
+
+/// The content of the `/clear`'s own invocation record, which is the ONE record this reader forgives
+/// besides a meta expansion. Anything else a person did in that window counts as using it.
+let windowClearCommandRecord = "<command-name>/clear</command-name>"
+
+/// Whether this tail shows the window has been used, rather than holding only what the `/clear`
+/// left behind.
+///
+/// WHAT A CLEARED TRANSCRIPT ACTUALLY CONTAINS had to be measured rather than assumed, and the
+/// obvious rule ("any main-chain user or assistant event means it was used") is refuted by it: the
+/// `/clear` writes its OWN invocation into the file it creates, as a main-chain `user` event, next
+/// to a `<local-command-caveat>` meta record - so that rule reads every fresh window as used and
+/// turns this feature off entirely. Read off this machine's corpus 2026-08-17, 208 transcripts a
+/// `/clear` created: the fresh ones hold `mode`, `file-history-snapshot`, `attachment`, that caveat,
+/// the invocation, a `system subtype=local_command` and `last-prompt` / `queue-operation`, and no
+/// assistant event anywhere.
+///
+/// NOT `newestMainChainMessage` NEXT DOOR, which walks the same tail for a different question. That
+/// one asks WHEN the newest message was written, to compare against a turn-end boundary, and every
+/// main-chain message counts because any of them can be newer than that boundary. This one asks
+/// whether a window has anything in it at all, where the records the `/clear` itself wrote are the
+/// baseline rather than content - so the two cannot share a walk without one of them lying.
+///
+/// SKIPPING A RECORD IS THE UNSAFE DIRECTION HERE, which is why the forgiveness is a whitelist of
+/// two rather than a family: a record passed over lets a live turn read as an empty window, and the
+/// cost of counting one it need not have is a free move declined. Measured against the same corpus:
+/// of the 198 cleared windows that were then worked in, this answers `used` for 198; of the 10 that
+/// were not, it answers `empty` for 9, and `used` for the one whose owner ran a `/model` in it,
+/// which is the safe direction rather than a miss.
+///
+/// The `type` that decides is the parsed one and the content is read through `lineIsCommandRecord`,
+/// because an attachment can carry another event's JSON inside it and a prompt can quote one. A line
+/// that CLAIMS to be one of the two types and will not parse counts as use for the same reason: the
+/// last line of a tail may be half written, and half an object is not evidence of an empty window.
+func windowRepickUsed(inTail tail: String) -> Bool {
+    for line in tail.split(separator: "\n").reversed() {
+        guard line.contains("\"type\":\"assistant\"") || line.contains("\"type\":\"user\"")
+        else { continue }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))
+                  as? [String: Any],
+              let type = object["type"] as? String, type == "assistant" || type == "user"
+        else { return true }
+        // A meta expansion is Claude Code talking to itself about the window it just opened (the
+        // caveat above all), and the invocation is the line that opened it. Anything else counts.
+        if type == "user", object["isMeta"] as? Bool == true
+            || lineIsCommandRecord(line, opening: windowClearCommandRecord) { continue }
+        return true
+    }
+    return false
 }

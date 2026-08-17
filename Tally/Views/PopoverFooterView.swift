@@ -229,7 +229,9 @@ extension PopoverRootView {
             VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
                 Text(L("Layout")).font(.caption).foregroundStyle(.secondary)
                 // THE PAGE IN FRONT OF THE USER IS THE PAGE THIS EDITS. The session board has its
-                // own count and its own width (`sessionsColumnChoice`), and density is not a word
+                // own count, spent on the width its CARDS are laid out at rather than on the
+                // surface, which is one width whichever page is up (`sessionsBoardWidth`,
+                // `PopoverRootView.popoverWidth`); and density is not a word
                 // it speaks at all - a card or a row is what an ACCOUNT is drawn as - so offering
                 // that switch here would be a control that changes nothing on screen.
                 if tab == .sessions {

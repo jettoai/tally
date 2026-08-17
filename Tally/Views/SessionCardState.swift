@@ -13,8 +13,11 @@ import SwiftUI
 // (`SessionCardView.body`). None of them is redundant - the shape and the words are what a reader
 // who cannot separate red from green gets, and the edge is what a reader sweeping a grid of cards
 // finds without reading any of them. The sentence BEHIND the wait is the fifth, and it is the one
-// thing here that cannot be drawn at this width, so it answers a hover of the word instead
-// (`sessionStateWord`).
+// thing here that cannot be drawn at this width, so it is said twice in channels neither of the
+// other four uses: a hover of the word for a pointer (`sessionStateWord`) and the button's own
+// accessibility VALUE for a listener (`SessionWaitSpoken`), off one property. The listener's half
+// cannot be the hover's - a card is one accessibility element and a hint inside it reaches nobody,
+// which is the correction at the foot of this file.
 //
 // THE MEMBERS THESE REACH ACROSS THE SEAM ARE NO LONGER `private`, which is what a file split
 // costs in Swift: `private` reaches extensions in the same file and no further. The four that had
@@ -52,11 +55,14 @@ extension SessionCardView {
     /// this card on its way to clicking it, so the one word that says a person is being asked for
     /// something is where a hand is most likely to rest.
     ///
-    /// AND IT IS A HOVER, WHICH VOICEOVER DOES NOT HAVE, so the sentence would leave with the line
-    /// if the callout were its only home. It is not: `tallyTooltip` makes its text the element's
-    /// accessibility hint on BOTH of its paths, hosted and not (`TallyTooltipTarget.body`), so a
-    /// listener gets the reason read out where a pointer would have been shown it, from the one
-    /// argument, with nothing to keep in step.
+    /// AND IT IS A HOVER, WHICH VOICEOVER DOES NOT HAVE, so this is the pointer's channel and only
+    /// the pointer's. The callout does hand its text to an accessibility hint on the element it
+    /// wraps (`TallyTooltipTarget.body`), and on this card that element is a `Text` inside a
+    /// `Button` - part of one accessibility node that nothing can land on separately, so the hint
+    /// goes nowhere. The listener's copy is on the button itself, as its VALUE
+    /// (`SessionCardView.body`, `SessionWaitSpoken`), read off the same property so the two cannot
+    /// drift. This note is the correction to a claim that stood here for one commit and was not
+    /// true (codex review of 22e9dcd).
     ///
     /// A card whose wait named no reason simply has the word, with no target and no empty callout.
     @ViewBuilder
@@ -167,5 +173,28 @@ extension SessionCardView {
         let hours = minutes / 60
         if hours < 24 { return "\(hours)h \(minutes % 60)m" }
         return "\(hours / 24)d"
+    }
+}
+
+/// THE WAIT, SAID TO A LISTENER, on the one node a listener can land on.
+///
+/// A session card is a single `Button`, so its accessibility element is the button and everything
+/// spoken about the card has to be an attribute OF it: a child's label composes into the button's
+/// own, and a child's hint or value does not compose into anything at all. The reason a session is
+/// blocked therefore cannot ride on the state word it qualifies, however right that is for a
+/// pointer (`SessionCardView.sessionStateWord`), and this modifier is where it rides instead.
+///
+/// A MODIFIER RATHER THAN A `.accessibilityValue(Text(reason ?? ""))` IN THE CHAIN, because the two
+/// are not the same thing: every card that is not waiting would carry an empty value, and "this
+/// element has a value and it is the empty string" is a different state from "this element has no
+/// value" for anything reading the tree. Only the waiting card gains an attribute.
+struct SessionWaitSpoken: ViewModifier {
+    /// What the session is waiting for, or nothing when it is not waiting or named no reason
+    /// (`SessionCardView.sessionReason`).
+    let reason: String?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let reason { content.accessibilityValue(Text(reason)) } else { content }
     }
 }

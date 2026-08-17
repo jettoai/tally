@@ -21,10 +21,7 @@ func runSessionCardEdgeChecks() {
         .joined(separator: "\n")
     let style = (try? String(contentsOfFile: "Tally/Views/TallyVisualStyle.swift",
                              encoding: .utf8)) ?? ""
-    let tooltip = (try? String(contentsOfFile: "Tally/Views/TallyTooltip.swift",
-                               encoding: .utf8)) ?? ""
-    check("the sources this suite reads are readable from it",
-          !card.isEmpty && !style.isEmpty && !tooltip.isEmpty)
+    check("the sources this suite reads are readable from it", !card.isEmpty && !style.isEmpty)
     // Asked of the CODE rather than of the file: both of these explain in prose why the edge is
     // rationed, and an assertion that cannot tell a comment from a modifier would be green for the
     // sentence and red for nothing (the same treatment the grip checks give this file).
@@ -70,8 +67,13 @@ func runSessionCardEdgeChecks() {
     check("…and the one red sentence left on the card is the state word",
           cardCode.components(separatedBy: ".foregroundStyle(TallyColor.critical)").count - 1 == 1
               && cardCode.contains("Text(L(row.state.rawValue)).font(.caption2)"))
-    check("…the reason no longer being drawn as a line at all",
-          !cardCode.contains("Text(reason)") && !cardCode.contains("sessionIsWaiting, let reason"))
+    // THE REASON IS NEVER DRAWN NOW, and it is counted rather than banned outright: the sentence
+    // still becomes a `Text` once, inside the accessibility value the listener reads
+    // (`SessionWaitSpoken`), so "this file never says Text(reason)" would be asserting the wrong
+    // thing after the a11y correction. A second one is a line back on the card.
+    check("…the reason becoming a Text exactly once, and not on the card's face",
+          cardCode.components(separatedBy: "Text(reason)").count - 1 == 1
+              && !cardCode.contains("sessionIsWaiting, let reason"))
     // THE LAST SLOT IS WHAT THE REASON GAVE BACK: every card, waiting or not, now spends it on the
     // figures, and the only thing that still takes it is a card that knows nothing yet.
     check("…and the card's last line is the figures on every card that has any",
@@ -86,28 +88,36 @@ func runSessionCardEdgeChecks() {
     check("…read off the same guarded question as before, so a stale sentence cannot stand",
           cardCode.contains("guard sessionIsWaiting,")
               && cardCode.contains("let reason = row.reason?.trimmingCharacters("))
-    // A HOVER IS INVISIBLE TO A SCREEN READER, so the sentence would have left with the line if the
-    // callout were its only home. It is not: the callout modifier makes its own text the element's
-    // accessibility hint on BOTH paths - hosted, where Tally draws the chip, and unhosted, where it
-    // falls back to the system tooltip - from the one argument, so the two cannot drift.
+    // A HOVER IS INVISIBLE TO A SCREEN READER, and the callout's own accessibility hint does NOT
+    // cover for it here. What stood in this place asserted that hint on both of the modifier's
+    // paths, which is true of the modifier and says nothing about this card: the target it wraps is
+    // a `Text` inside a `Button`, and a card is ONE accessibility element - a child's label composes
+    // into the button's own, a child's hint composes into nothing. The assertion was measuring a
+    // tree the card does not have (codex review of 22e9dcd), which is the same defect as a mutation
+    // that survives because the assertion never passed through the mutated layer.
     //
-    // ASKED OF EACH BRANCH RATHER THAN OF THE FILE, which is the whole of what makes this an
-    // assertion: the two paths spell the hint identically, so "the file contains that modifier"
-    // stays true with either one of them deleted - and the one a session card actually takes is
-    // the hosted one. Sliced to the function, deleting it turns this red (mutation T3, which
-    // survived the file-wide form).
-    let hosted = (tooltip.components(separatedBy: "private func hoverTracked(").last ?? "")
-        .components(separatedBy: "private var probe").first ?? ""
-    check("the tooltip source can be sliced to the path that draws Tally's own chip",
-          !hosted.isEmpty && hosted.contains(".onHover { hovering in"))
-    check("the callout speaks its text as an accessibility hint under a layer",
-          hosted.contains(".accessibilityHint(Text(payload.spoken))"))
-    check("…and with no layer above it, where it falls back to the system tooltip",
-          tooltip.contains("content.help(payload.spoken).accessibilityHint(Text(payload.spoken))"))
-    check("…which is both of the modifier's paths and nothing left over",
-          tooltip.components(separatedBy: ".accessibilityHint(Text(payload.spoken))").count - 1 == 2)
-    check("…the spoken form being the callout's own lines rather than a second spelling",
-          tooltip.contains("return lines.filter { !$0.isEmpty }.joined(separator: \", \")"))
+    // SO THE LISTENER'S COPY IS ON THE BUTTON, and that is what is asserted: its VALUE, because the
+    // element's one hint is already spent on what a click does and a second hint replaces rather
+    // than joins it. Read off the same property the callout uses, so there is one sentence.
+    check("the reason is spoken on the card's own element, not on a child of it",
+          cardCode.contains(".modifier(SessionWaitSpoken(reason: sessionReason))"))
+    check("…as the element's value, the hint being spent on what a click does",
+          cardCode.contains("content.accessibilityValue(Text(reason))")
+              && cardCode.contains(
+                  ".accessibilityHint(Text(L(\"Click to bring its terminal to the front\")))"))
+    check("…and only on a card that is waiting and named a reason",
+          cardCode.contains("if let reason { content.accessibilityValue(Text(reason)) } else"
+                            + " { content }"))
+    // ONE SENTENCE, TWO CHANNELS: the pointer's callout and the listener's value take the same
+    // property, so a wait cannot be explained to one of them and not the other.
+    check("…both channels reading the one property",
+          cardCode.components(separatedBy: "sessionReason").count - 1 >= 3)
+    // AND THE MODIFIER IS APPLIED TO THE BUTTON RATHER THAN INSIDE ITS LABEL, which is the whole
+    // point of the correction: inside, it would be an attribute of a node nothing can land on.
+    let labelEnd = cardCode.range(of: "}\n        .buttonStyle(.plain)")
+    let spoken = cardCode.range(of: ".modifier(SessionWaitSpoken(reason: sessionReason))")
+    check("…applied outside the button's label, where the element actually is",
+          (labelEnd.flatMap { end in spoken.map { end.upperBound < $0.lowerBound } }) == true)
     // AND THE BOARD HOSTS A LAYER, so the card's one callout is Tally's own chip rather than the
     // NSToolTip the fallback would otherwise draw over the panel's glass. All three surfaces that
     // draw a session card are this one root (`MainWindowController`, `PinnedPanelController`,

@@ -140,11 +140,30 @@ struct SessionCardView: View {
         // WHAT A CLICK DOES, SPOKEN. VoiceOver reads what the session is off the labels above; the
         // one thing it cannot see is that the whole card is the way to that terminal. The callout
         // used to carry this line and handed it to a hint on its way past (`TallyTooltip`), so
-        // taking the callout off took the sentence with it. Stated here rather than left to a
-        // callout even now that the card has one: this is a fact about the WHOLE card, and the one
-        // hover on it belongs to a single word (`sessionStateWord`). A hint rather than `.help()`,
+        // taking the callout off took the sentence with it (dc39003). A hint rather than `.help()`,
         // which is an NSToolTip - Tally's own callout is what this surface speaks in.
         .accessibilityHint(Text(L("Click to bring its terminal to the front")))
+        // AND WHAT IT IS WAITING FOR, ON THIS ELEMENT, WHICH IS THE ONLY ELEMENT THERE IS. The whole
+        // card is one `Button`, so everything a listener gets from it is read off THIS node: child
+        // LABELS compose into its own (the ports, the trend row and the footprint sentence all
+        // arrive that way), and a child's HINT has no such route - it belongs to an element nothing
+        // can land on. The reason spent one commit attached to the state word's callout for exactly
+        // that reason and was unreachable there (codex review of 22e9dcd), which is the second time
+        // this card has lost a sentence by leaving it on something inside the button: the click
+        // sentence above was the first (dc39003).
+        //
+        // A VALUE RATHER THAN A SECOND HINT, and the difference is not decorative. This element has
+        // one hint and it is already spoken for, correctly, by what a click does; a second
+        // `accessibilityHint` does not join it, it REPLACES it, so the wait would have been bought
+        // with the affordance. It is the right channel on its own terms too - a hint says what an
+        // action will do, and "Claude needs your permission to use Bash" is a fact about the state
+        // this card is in, which is what a value is for. VoiceOver reads it between the composed
+        // label and the trait, so the card announces what it is, then what it is waiting for, then
+        // that it is a button and what pressing it does.
+        //
+        // THE CALLOUT IS THE POINTER'S COPY OF THE SAME SENTENCE, from the same property, and is
+        // not a second source (`sessionStateWord`, `sessionReason`).
+        .modifier(SessionWaitSpoken(reason: sessionReason))
         // Asked only where the answer is drawn, exactly as the account card asks it: a card with no
         // grip on it would be re-rendering on every pointer crossing for nothing.
         .onHover { if showsDragHandle { isHovering = $0 } }

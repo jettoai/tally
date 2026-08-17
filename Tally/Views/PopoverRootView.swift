@@ -353,6 +353,13 @@ struct PopoverRootView: View {
     /// Internal: the strip and footer extensions lay themselves out against it. The arithmetic
     /// itself is in `PanelGeometry`, which the column counts above are bounded by.
     var popoverWidth: CGFloat {
+        // WHICHEVER PAGE IS UP DECIDES, and only the session board has an answer of its own: it is a
+        // different page read for a different question, so a count picked there is a width picked
+        // there (`sessionsColumnChoice`). Under auto it asks for nothing and the account pages'
+        // width stands, which is what auto means everywhere else on this surface too.
+        if tab == .sessions, let columns = sessionsColumnChoice {
+            return PanelGeometry.sessionsPanelWidth(columns: columns, in: usableScreenWidth)
+        }
         // The list builds its width from its own column count the same way, only out of row-widths
         // instead of card-widths: 12pt of content padding each side, a comfortable row per column,
         // and the grid's gutter between them.

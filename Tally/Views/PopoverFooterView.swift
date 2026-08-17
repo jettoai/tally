@@ -228,17 +228,27 @@ extension PopoverRootView {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: TallyMetrics.headerToCard) {
                 Text(L("Layout")).font(.caption).foregroundStyle(.secondary)
-                // Density first, then the count: what each element IS comes before how many of them
-                // fit. The footer's own used/left switch is this control, so the card offers one
-                // vocabulary for "pick one of two views" rather than a second hand-rolled one.
-                NeutralSegmentedPicker(selection: $settings.panelDensity,
-                                       options: PanelDensity.allCases,
-                                       size: .small) { $0 == .cards ? L("Cards") : L("List") }
-                // One picker, two remembered numbers: it edits the count of whichever density is on
-                // screen (`densityColumns`), so switching density restores that density's own layout
-                // instead of carrying a number chosen for the other one.
-                LayoutColumnPicker(selection: $settings.densityColumns,
-                                   maxColumns: settings.densityMaxColumns)
+                // THE PAGE IN FRONT OF THE USER IS THE PAGE THIS EDITS. The session board has its
+                // own count and its own width (`sessionsColumnChoice`), and density is not a word
+                // it speaks at all - a card or a row is what an ACCOUNT is drawn as - so offering
+                // that switch here would be a control that changes nothing on screen.
+                if tab == .sessions {
+                    LayoutColumnPicker(selection: $settings.sessionsColumns,
+                                       maxColumns: SettingsStore.maxSessionsColumns)
+                } else {
+                    // Density first, then the count: what each element IS comes before how many of
+                    // them fit. The footer's own used/left switch is this control, so the card
+                    // offers one vocabulary for "pick one of two views" rather than a second
+                    // hand-rolled one.
+                    NeutralSegmentedPicker(selection: $settings.panelDensity,
+                                           options: PanelDensity.allCases,
+                                           size: .small) { $0 == .cards ? L("Cards") : L("List") }
+                    // One picker, two remembered numbers: it edits the count of whichever density is
+                    // on screen (`densityColumns`), so switching density restores that density's own
+                    // layout instead of carrying a number chosen for the other one.
+                    LayoutColumnPicker(selection: $settings.densityColumns,
+                                       maxColumns: settings.densityMaxColumns)
+                }
             }
             Divider()
             // The two strips' own switches, the same ones the Settings pane carries: they decide

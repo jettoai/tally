@@ -53,15 +53,18 @@ extension PopoverRootView {
     /// either once somebody has arranged the board by hand.
     ///
     /// WHAT THE COLUMN PICKER SAYS IS WHAT THIS BOARD LAYS OUT, and it used to be adaptive
-    /// regardless. The panel's width comes from the usage page's column count, so a picker reading
-    /// "1" in the list density opened a 504pt panel and this grid quietly seated two 210pt cards in
-    /// it: the control said one thing and the page did another (Albert, 2026-08-15). Auto is still
-    /// adaptive, because auto is the mode that hands the layout to the system.
+    /// regardless: a picker reading "1" opened a panel one column wide and this grid quietly seated
+    /// two 210pt cards in it, the control saying one thing and the page doing another (Albert,
+    /// 2026-08-15). Auto is still adaptive, because auto is the mode that hands the layout to the
+    /// system.
     ///
-    /// THE PANEL DOES NOT WIDEN FOR THIS. Its width is the usage page's to decide - switching tabs
-    /// must not resize the surface - so a count this width cannot seat steps down to what fits
-    /// (`PanelGeometry.gridColumns`), and a card never goes below the width the whole board's
-    /// column arithmetic is built on (`compactCardWidth`).
+    /// THE PANEL IS AS WIDE AS THIS PAGE ASKED FOR, once somebody has asked: the count is the
+    /// board's own (`sessionsColumnChoice`) and the surface takes the width that count needs while
+    /// the board is up. Switching tabs therefore CAN resize the surface, which is the point - the
+    /// pages are read at different widths, and one of them had to give before. Under auto nothing
+    /// was asked for, the account pages' width stands, and a count that width cannot seat still
+    /// steps down to what fits (`PanelGeometry.gridColumns`); either way a card never goes below the
+    /// width the whole board's column arithmetic is built on (`compactCardWidth`).
     ///
     /// Cells align to the TOP, so a card whose identity line is missing sits under its neighbours'
     /// first lines rather than floating in the middle of its cell.
@@ -104,22 +107,37 @@ extension PopoverRootView {
     /// column down is measured against the gap it will actually be laid out with.
     static let sessionCardGap: CGFloat = 8
 
+    /// What this page was asked for: an explicit count, or nil where nobody has picked one.
+    ///
+    /// THE BOARD'S OWN SETTING (`SettingsStore.sessionsColumns`), not the account pages'. It used to
+    /// read whichever count the density picker was editing, which made one number serve two pages
+    /// that are read for different questions - so "one account per row, two sessions across" could
+    /// not be said at all (Albert, 2026-08-17). The panel's width follows this one while the board
+    /// is up (`PopoverRootView.popoverWidth`), which is what makes an explicit count a promise the
+    /// page can actually keep.
+    ///
+    /// Read here rather than in the width itself so that the count and the width answer to one
+    /// reading of the setting: a page laying out two cards in a panel sized for one is the exact
+    /// defect this pair exists to prevent.
+    var sessionsColumnChoice: Int? {
+        (1 ... SettingsStore.maxSessionsColumns).contains(settings.sessionsColumns)
+            ? settings.sessionsColumns : nil
+    }
+
     /// How many columns this board lays its cards out in, or nil for auto (see
     /// `PanelGeometry.gridColumns`, which says why an explicit count is honoured and why auto is
     /// not simply resolved to a number).
     ///
-    /// IT READS THE PICKER THE USER IS LOOKING AT, which is the density's own setting rather than a
-    /// third one of this page's (`SettingsStore.densityColumns`): there is one columns control on
-    /// the panel, it is what sets the panel's width, and these cards live inside that width. Which
-    /// of the two remembered numbers that control is editing is the store's answer to give, so this
-    /// asks it rather than branching on the density itself.
+    /// Still bounded by the width it is being laid out in, even now that the width follows the
+    /// choice: under auto the surface is as wide as the account pages made it, and an explicit count
+    /// on a display too narrow to seat it has already been stepped down by the width arithmetic
+    /// (`PanelGeometry.sessionsPanelWidth`) - so the two step together rather than the grid
+    /// promising a column the panel did not buy.
     var sessionColumnCount: Int? {
-        let chosen = (1 ... settings.densityMaxColumns).contains(settings.densityColumns)
-            ? settings.densityColumns : nil
-        return PanelGeometry.gridColumns(chosen: chosen,
-                                         in: scrollContentWidth - 2 * PanelGeometry.contentPadding,
-                                         minimum: Self.compactCardWidth,
-                                         gap: Self.sessionCardGap)
+        PanelGeometry.gridColumns(chosen: sessionsColumnChoice,
+                                  in: scrollContentWidth - 2 * PanelGeometry.contentPadding,
+                                  minimum: Self.compactCardWidth,
+                                  gap: Self.sessionCardGap)
     }
 
     /// The grid's columns: the chosen count as equal flexible cells, or the adaptive single item

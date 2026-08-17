@@ -186,6 +186,22 @@ final class SettingsStore {
     /// a row is nearly twice a card's width (Albert's call, 2026-08-04).
     static let maxListColumns = 3
 
+    /// The session board's own column count, in the same vocabulary again (0 = auto, 1...
+    /// `maxSessionsColumns` an explicit width). A THIRD remembered number, and the reason is the one
+    /// the list already gave for being the second: the Sessions page is a different page, read for a
+    /// different question, and a count chosen for a fleet of account cards is not a count anybody
+    /// asked the board for. Sharing one meant the board could only be as wide as the account page
+    /// was - one column of accounts and two of sessions was not expressible at all (Albert,
+    /// 2026-08-17).
+    var sessionsColumns: Int {
+        didSet { UserDefaults.standard.set(sessionsColumns, forKey: "sessionsColumns") }
+    }
+
+    /// The highest explicit count the session board offers. Two: a session card is a compact 210pt
+    /// and three of them need a panel wider than the widest thing on that page has to say, so the
+    /// third column would be spent on air.
+    static let maxSessionsColumns = 2
+
     /// The highest count the picker offers for the density on screen, so the two surfaces that show
     /// that picker cannot disagree about where the tiles stop.
     var densityMaxColumns: Int { panelDensity == .list ? Self.maxListColumns : 4 }
@@ -346,10 +362,12 @@ final class SettingsStore {
         panelDensity = PanelDensity(rawValue: defaults.string(forKey: "panelDensity") ?? "") ?? .cards
         // Clamped into the range the picker still offers: the list used to go up to four, and a
         // machine that stored one has to come back to the highest count that still exists rather
-        // than to a number no tile can select. Anything else reads as auto.
-        let storedListColumns = defaults.integer(forKey: "listColumns")
-        listColumns = storedListColumns > 0
-            ? min(storedListColumns, SettingsStore.maxListColumns) : 0
+        // than to a number no tile can select. Anything else reads as auto
+        // (`PanelGeometry.storedColumns`, which the board's count below is read back through too).
+        listColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "listColumns"),
+                                                  max: SettingsStore.maxListColumns)
+        sessionsColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "sessionsColumns"),
+                                                      max: SettingsStore.maxSessionsColumns)
         isPanelTranslucent = defaults.object(forKey: "isPanelTranslucent") as? Bool ?? true
         groupByProvider = defaults.bool(forKey: "groupByProvider")
         resetDisplay = ResetDisplay(rawValue: defaults.string(forKey: "resetDisplay") ?? "") ?? .relative

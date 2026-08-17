@@ -48,6 +48,28 @@ enum PanelGeometry {
         }
     }
 
+    /// The panel width a page of session cards asks for at an explicit count, on the same ladder the
+    /// account cards climb. Deliberately not a third set of numbers: the surface keeps ONE set of
+    /// widths whichever page is up, so switching tabs steps between widths the user has already seen
+    /// rather than landing on a figure only one page ever produces.
+    ///
+    /// Bounded by the display for the reason every count here is - a panel wider than the screen it
+    /// opens on is a panel with its right-hand column missing, and the popover cannot scroll
+    /// sideways to bring it back.
+    static func sessionsPanelWidth(columns: Int, in usableWidth: CGFloat) -> CGFloat {
+        cardPanelWidth(columns: seated(columns, columnWidth: cardColumnWidth, in: usableWidth))
+    }
+
+    /// A remembered column count, read back into the range that is still on offer: a stored number
+    /// past the highest tile comes back to that tile rather than to a count nothing can select, and
+    /// anything that is not a count at all (zero, a negative, a key that was never written) is auto.
+    ///
+    /// Named once because the ranges move: the compact list used to go to four and now stops at
+    /// three, and every stored count has to survive that without leaving a picker blank.
+    static func storedColumns(_ stored: Int, max limit: Int) -> Int {
+        stored > 0 ? min(stored, limit) : 0
+    }
+
     /// The panel width for a list of comfortable rows: content padding each side, a row per column,
     /// and the gutter between them.
     static func listPanelWidth(columns: Int, rowWidth: CGFloat) -> CGFloat {
@@ -75,19 +97,20 @@ enum PanelGeometry {
     /// HOW MANY COLUMNS A GRID INSIDE THE PANEL LAYS ITSELF OUT IN: what the user asked for, bounded
     /// by what the width can actually hold, or nothing at all when they asked for nothing.
     ///
-    /// WHAT YOU PICKED IS WHAT YOU GET, which the session board did not do. The panel's own width
-    /// comes from the usage page's column count, and that board laid its cards out adaptively
-    /// instead - so a panel one comfortable ROW wide (about 480pt) seated two 210pt session cards
-    /// while the picker beside them read "1". A count is a promise about what is on screen, and a
-    /// page that answers it with a different number is the picker lying (Albert, 2026-08-15).
+    /// WHAT YOU PICKED IS WHAT YOU GET, which the session board did not do. The board laid its cards
+    /// out adaptively whatever the picker said - so a panel one comfortable ROW wide (about 480pt)
+    /// seated two 210pt session cards while the picker beside them read "1". A count is a promise
+    /// about what is on screen, and a page that answers it with a different number is the picker
+    /// lying (Albert, 2026-08-15).
     ///
     /// `nil` IS AUTO AND MEANS ADAPTIVE, not "one". Auto is the mode that delegates the layout to
     /// the system, exactly as it does for the cards on the usage page, so the caller keeps its
     /// adaptive grid and this says only "the user did not pick".
     ///
-    /// THE PANEL'S WIDTH IS NEVER WHAT GIVES. It is the usage page's to decide, and a session board
-    /// that widened the surface would make switching tabs resize the window; so a count the width
-    /// cannot seat steps DOWN to what fits, the same direction `seated` steps for the same reason.
+    /// THE WIDTH IS NEVER WHAT GIVES HERE. A page that has a width of its own has already asked for
+    /// it by the time this is called (`sessionsPanelWidth`), and a page under auto is living in the
+    /// width another page decided; either way a count this width cannot seat steps DOWN to what
+    /// fits, the same direction `seated` steps for the same reason.
     ///
     /// - Parameters:
     ///   - chosen: an explicit count, or nil for auto.

@@ -86,6 +86,20 @@ extension SettingsView {
 
         rowDivider
 
+        // Directly under the account pages' count, because the two are the same question asked of
+        // two pages: the Sessions board keeps its own answer, and the panel takes the width that
+        // answer needs while the board is up (`SettingsStore.sessionsColumns`).
+        HStack {
+            Text(L("Sessions columns")).font(.subheadline)
+            Spacer()
+            LayoutColumnPicker(selection: $settings.sessionsColumns,
+                               maxColumns: SettingsStore.maxSessionsColumns)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+
+        rowDivider
+
         // Next to the column count: both settings answer "how are the cards laid out", and the
         // panel's view options carry the same pair behind one footer icon.
         toggleRow(L("Group by provider"),

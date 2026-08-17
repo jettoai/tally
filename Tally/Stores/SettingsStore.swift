@@ -192,9 +192,14 @@ final class SettingsStore {
     /// `maxSessionsColumns` an explicit width). A THIRD remembered number, and the reason is the one
     /// the list already gave for being the second: the Sessions page is a different page, read for a
     /// different question, and a count chosen for a fleet of account cards is not a count anybody
-    /// asked the board for. Sharing one meant the board could only be as wide as the account page
-    /// was - one column of accounts and two of sessions was not expressible at all (Albert,
-    /// 2026-08-17).
+    /// asked the board for. Sharing one meant the board laid itself out to whatever the density
+    /// picker was last edited to, so a board read one card at a time could not be said at all while
+    /// the accounts were in two columns (Albert, 2026-08-17).
+    ///
+    /// It is spent on the CARDS, not on the window: the board lays out this many columns at a card's
+    /// width inside the surface the account pages sized, because a width that followed the page
+    /// resized the surface on every tab switch (`PopoverRootView.popoverWidth`). A count the surface
+    /// cannot seat steps down to the one it can.
     var sessionsColumns: Int {
         didSet { UserDefaults.standard.set(sessionsColumns, forKey: "sessionsColumns") }
     }

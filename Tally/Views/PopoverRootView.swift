@@ -146,7 +146,11 @@ struct PopoverRootView: View {
                 // exist, and stacked they occupy the taller of the two rather than the sum of them.
                 // In a VStack the host would chase a height neither tab has - the surface would
                 // balloon and collapse on every switch.
-                ZStack(alignment: .top) {
+                //
+                // TOP LEADING, never the bare top: `.top` alone centres its children horizontally,
+                // so a page offered any width but the other's would fade out sliding sideways - the
+                // one movement the held top edge exists to prevent.
+                ZStack(alignment: .topLeading) {
                     if tab == .usage {
                         VStack(spacing: 0) {
                             launchSummaryStrip
@@ -354,14 +358,17 @@ struct PopoverRootView: View {
     /// Constant card width (263pt) across the 2/3/4-column layouts; only the window grows.
     /// Internal: the strip and footer extensions lay themselves out against it. The arithmetic
     /// itself is in `PanelGeometry`, which the column counts above are bounded by.
+    ///
+    /// SWITCHING TABS NEVER RESIZES THE SURFACE, which is why the page in front is not one of the
+    /// questions asked here. A width that followed the page moved everything measured against it:
+    /// the header switch is centred in this width, so the very tab being clicked walked sideways out
+    /// from under the pointer and back again on every switch (Albert, 2026-08-17, the third time
+    /// this face was questioned), while the strips, the footer's credit and the leaving page's own
+    /// cards were all re-decided mid-crossfade. The invariant is older than that regression and was
+    /// paid for three times over - the Tokens column, the Settings window's height, the resize
+    /// anchors - so a page with a layout of its own spends its count on its CARDS instead, held to
+    /// the card ladder's width against the leading edge (`sessionsBoardWidth`).
     var popoverWidth: CGFloat {
-        // WHICHEVER PAGE IS UP DECIDES, and only the session board has an answer of its own: it is a
-        // different page read for a different question, so a count picked there is a width picked
-        // there (`sessionsColumnChoice`). Under auto it asks for nothing and the account pages'
-        // width stands, which is what auto means everywhere else on this surface too.
-        if tab == .sessions, let columns = sessionsColumnChoice {
-            return PanelGeometry.sessionsPanelWidth(columns: columns, in: usableScreenWidth)
-        }
         // The list builds its width from its own column count the same way, only out of row-widths
         // instead of card-widths: 12pt of content padding each side, a comfortable row per column,
         // and the grid's gutter between them.

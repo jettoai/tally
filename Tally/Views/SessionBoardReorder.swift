@@ -58,13 +58,15 @@ extension PopoverRootView {
     /// 2026-08-15). Auto is still adaptive, because auto is the mode that hands the layout to the
     /// system.
     ///
-    /// THE PANEL IS AS WIDE AS THIS PAGE ASKED FOR, once somebody has asked: the count is the
-    /// board's own (`sessionsColumnChoice`) and the surface takes the width that count needs while
-    /// the board is up. Switching tabs therefore CAN resize the surface, which is the point - the
-    /// pages are read at different widths, and one of them had to give before. Under auto nothing
-    /// was asked for, the account pages' width stands, and a count that width cannot seat still
-    /// steps down to what fits (`PanelGeometry.gridColumns`); either way a card never goes below the
-    /// width the whole board's column arithmetic is built on (`compactCardWidth`).
+    /// A COUNT IS A PROMISE ABOUT THE CARDS, NEVER ABOUT THE WINDOW. The count is the board's own
+    /// (`sessionsColumnChoice`) and it is spent here, on how wide the cards are laid out and where
+    /// they sit: that many columns at the width the card ladder gives one, held against the leading
+    /// edge (`sessionsBoardWidth`), whatever the surface around them is. The surface itself is the
+    /// same on all three pages, because a width that followed the page resized the window on every
+    /// tab switch (see `PopoverRootView.popoverWidth`). Under auto nothing was asked for and the
+    /// board stays adaptive across the whole width, and either way a count the width cannot seat
+    /// steps down to what fits (`PanelGeometry.gridColumns`) - a card never goes below the width the
+    /// whole board's column arithmetic is built on (`compactCardWidth`).
     ///
     /// Cells align to the TOP, so a card whose identity line is missing sits under its neighbours'
     /// first lines rather than floating in the middle of its cell.
@@ -83,6 +85,9 @@ extension PopoverRootView {
                     .cardFrame(id: row.id, in: Self.reorderSpace)
             }
         }
+        // Only as wide as the count asked for, against the leading edge; auto asks for nothing and
+        // fills what it is given (`sessionsBoardWidth`).
+        .frame(maxWidth: sessionsBoardWidth ?? .infinity, alignment: .leading)
         // Cards glide to their new seats rather than teleporting, on the same spring the account
         // cards move on: a card moved by hand and a card displaced by that move travel alike.
         .animation(reduceMotion ? nil : CardMotion.spring,
@@ -111,28 +116,42 @@ extension PopoverRootView {
     ///
     /// THE BOARD'S OWN SETTING (`SettingsStore.sessionsColumns`), not the account pages'. It used to
     /// read whichever count the density picker was editing, which made one number serve two pages
-    /// that are read for different questions - so "one account per row, two sessions across" could
-    /// not be said at all (Albert, 2026-08-17). The panel's width follows this one while the board
-    /// is up (`PopoverRootView.popoverWidth`), which is what makes an explicit count a promise the
-    /// page can actually keep.
+    /// that are read for different questions - a board sorted into two columns while the accounts
+    /// were read one per row could not be said at all (Albert, 2026-08-17).
     ///
-    /// Read here rather than in the width itself so that the count and the width answer to one
-    /// reading of the setting: a page laying out two cards in a panel sized for one is the exact
-    /// defect this pair exists to prevent.
+    /// Read here rather than inside the grid so that the count and the width the cards are laid out
+    /// at answer to one reading of the setting: a board laying out two cards in a run sized for one
+    /// is the exact defect this pair exists to prevent.
     var sessionsColumnChoice: Int? {
         (1 ... SettingsStore.maxSessionsColumns).contains(settings.sessionsColumns)
             ? settings.sessionsColumns : nil
+    }
+
+    /// HOW WIDE THE BOARD ITSELF IS LAID OUT, or nil under auto, where it fills the surface.
+    ///
+    /// An explicit count is spent on the cards: that many columns at the width one card column gets
+    /// on the account pages (`PanelGeometry.cardColumnWidth`), plus the gutters between them. What
+    /// is left of the surface stays empty on the trailing side rather than being handed to the
+    /// cards, which is what keeps a chosen "1" from stretching a lone session card across a
+    /// three-column panel - the complaint this count was added for (Albert, 2026-08-17) - without
+    /// the surface having to change width to say it.
+    ///
+    /// Never wider than what it is offered: this is a cap, and the count inside it has already been
+    /// stepped down to what the surface can seat (`sessionColumnCount`), so the two cannot disagree
+    /// about how many cards are on the page.
+    var sessionsBoardWidth: CGFloat? {
+        guard let columns = sessionColumnCount else { return nil }
+        return PanelGeometry.cardsWidth(columns: columns, gap: Self.sessionCardGap)
     }
 
     /// How many columns this board lays its cards out in, or nil for auto (see
     /// `PanelGeometry.gridColumns`, which says why an explicit count is honoured and why auto is
     /// not simply resolved to a number).
     ///
-    /// Still bounded by the width it is being laid out in, even now that the width follows the
-    /// choice: under auto the surface is as wide as the account pages made it, and an explicit count
-    /// on a display too narrow to seat it has already been stepped down by the width arithmetic
-    /// (`PanelGeometry.sessionsPanelWidth`) - so the two step together rather than the grid
-    /// promising a column the panel did not buy.
+    /// Bounded by the width it is being laid out in, which is the surface's and not this page's: a
+    /// count the panel cannot seat steps down to the one it can, rather than the grid promising a
+    /// column the surface never had the room for. The cap the cards are held to is read from the
+    /// count this returns for the same reason (`sessionsBoardWidth`).
     var sessionColumnCount: Int? {
         PanelGeometry.gridColumns(chosen: sessionsColumnChoice,
                                   in: scrollContentWidth - 2 * PanelGeometry.contentPadding,

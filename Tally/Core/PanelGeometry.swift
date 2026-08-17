@@ -48,16 +48,17 @@ enum PanelGeometry {
         }
     }
 
-    /// The panel width a page of session cards asks for at an explicit count, on the same ladder the
-    /// account cards climb. Deliberately not a third set of numbers: the surface keeps ONE set of
-    /// widths whichever page is up, so switching tabs steps between widths the user has already seen
-    /// rather than landing on a figure only one page ever produces.
+    /// How wide a run of `columns` cards is laid out: the cards at the width one card column gets,
+    /// and the gutters between them. Not a panel width - it is what a page whose surface is another
+    /// page's to size spends an explicit count on, so the cards take the width that count asked for
+    /// and the rest of the panel stays empty (`PopoverRootView.sessionsBoardWidth`).
     ///
-    /// Bounded by the display for the reason every count here is - a panel wider than the screen it
-    /// opens on is a panel with its right-hand column missing, and the popover cannot scroll
-    /// sideways to bring it back.
-    static func sessionsPanelWidth(columns: Int, in usableWidth: CGFloat) -> CGFloat {
-        cardPanelWidth(columns: seated(columns, columnWidth: cardColumnWidth, in: usableWidth))
+    /// The gap is asked for rather than assumed: the session board sits its cards 8pt apart where
+    /// the account grid uses 10, and a run measured with the wrong gutter is a run that does not
+    /// fit the grid it describes.
+    static func cardsWidth(columns: Int, gap: CGFloat) -> CGFloat {
+        let count = CGFloat(max(1, columns))
+        return count * cardColumnWidth + (count - 1) * gap
     }
 
     /// A remembered column count, read back into the range that is still on offer: a stored number
@@ -107,10 +108,12 @@ enum PanelGeometry {
     /// the system, exactly as it does for the cards on the usage page, so the caller keeps its
     /// adaptive grid and this says only "the user did not pick".
     ///
-    /// THE WIDTH IS NEVER WHAT GIVES HERE. A page that has a width of its own has already asked for
-    /// it by the time this is called (`sessionsPanelWidth`), and a page under auto is living in the
-    /// width another page decided; either way a count this width cannot seat steps DOWN to what
-    /// fits, the same direction `seated` steps for the same reason.
+    /// THE PANEL'S WIDTH IS NEVER WHAT GIVES. It is the account pages' to decide and it is the same
+    /// on every page, because a session board that widened the surface made switching tabs resize
+    /// the window (shipped once, 2026-08-17, and reported the same day); so a count the width cannot
+    /// seat steps DOWN to what fits, the same direction `seated` steps for the same reason. What an
+    /// explicit count buys instead is the width the CARDS are laid out at inside that panel
+    /// (`PopoverRootView.sessionsBoardWidth`).
     ///
     /// - Parameters:
     ///   - chosen: an explicit count, or nil for auto.

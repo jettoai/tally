@@ -147,11 +147,16 @@ for panel in [PanelGeometry.cardPanelWidth(columns: 1), PanelGeometry.cardPanelW
     }
 }
 
-print("the sessions page keeps its own count, and its own width")
+print("the sessions page keeps its own count, and spends it on the cards")
 // THE SECOND TIME THIS FACE WAS QUESTIONED (Albert, 2026-08-17): the board obeyed the picker after
-// the fix above, but the picker it obeyed was the account pages' - so "one account per row, two
-// sessions across" could not be expressed at all. The page now has a count of its own, and the
-// panel takes the width that count needs while the board is up.
+// the fix above, but the picker it obeyed was the account pages' - so a board read one card at a
+// time could not be expressed while the accounts were in two columns. The page has a count of its
+// own now, and it buys the width the CARDS are laid out at.
+//
+// AND THE THIRD TIME, the same evening: the first answer to it made the panel take the width the
+// page in front asked for, so every tab switch resized the surface by 180pt and the header switch -
+// centred in that width - moved the very tab that had just been clicked. The invariant is back and
+// asserted below: this surface is one width, whichever page is up.
 let storeSource = (try? String(contentsOfFile: "Tally/Stores/SettingsStore.swift",
                                encoding: .utf8)) ?? ""
 let rootSource = (try? String(contentsOfFile: "Tally/Views/PopoverRootView.swift",
@@ -166,40 +171,106 @@ check(storeSource.contains("static let maxSessionsColumns = \(maxSessionsColumns
 // the width asks `sessionsColumnChoice`, and so does the grid that lays the cards out in it.
 check(storeSource.contains("var sessionsColumns: Int"),
       "the board's count is its own stored setting")
-check(rootSource.contains("if tab == .sessions, let columns = sessionsColumnChoice"),
-      "the panel width follows that choice while the board is up")
 check(reorderSource.contains("(1 ... SettingsStore.maxSessionsColumns).contains(settings.sessionsColumns)"),
       "…and the choice itself is read from that setting")
 check(reorderSource.contains("PanelGeometry.gridColumns(chosen: sessionsColumnChoice"),
       "…which is the same choice the grid lays out")
 
-// A chosen count is the card ladder's width, so the surface never lands on a figure only this page
-// produces - switching tabs steps between widths the user has already seen.
-let roomyDisplay = usableWidth(display: 1512)
-check(PanelGeometry.sessionsPanelWidth(columns: 1, in: roomyDisplay), 380,
-      "one session column is the one-column reading width")
-check(PanelGeometry.sessionsPanelWidth(columns: 2, in: roomyDisplay), 560,
-      "two session columns is the two-column width")
-// And the count actually lands: the width asked for seats exactly the number that asked for it.
-for chosen in 1 ... maxSessionsColumns {
-    let panel = PanelGeometry.sessionsPanelWidth(columns: chosen, in: roomyDisplay)
-    check(sessionColumns(chosen, panel: panel) == chosen,
-          "\(chosen) chosen -> a \(Int(panel))pt panel seating \(chosen) session card(s)")
-    let card = sessionCardWidth(panel: panel, columns: chosen)
-    check(card >= sessionCard, "…with cards of \(card)pt, never below \(sessionCard)pt")
+print("switching tabs never resizes the surface")
+/// The body of a declaration, sliced out by brace depth so an assertion can be about what THAT
+/// property reads rather than about words its file happens to use somewhere else - the page names
+/// are all over this view, and the one place they must not appear is the width.
+func declarationBody(_ source: String, _ declaration: String) -> String? {
+    guard let start = source.range(of: declaration) else { return nil }
+    var depth = 1
+    var body = ""
+    for character in source[start.upperBound...] {
+        if character == "{" { depth += 1 }
+        if character == "}" {
+            depth -= 1
+            if depth == 0 { return body }
+        }
+        body.append(character)
+    }
+    return nil
 }
-// Auto asks for nothing at all: the account pages' width stands and the board stays adaptive, which
-// is what auto means everywhere else on this surface (`PanelGeometry.gridColumns` returns nil).
+/// The identifiers a body mentions. Words rather than substrings, because the width measures a
+/// comfor-TAB-le row and a rule written as `contains("tab")` would read that as the page being
+/// asked about.
+func identifiers(_ body: String) -> Set<String> {
+    Set(body.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "_" }).map(String.init))
+}
+let widthBody = declarationBody(rootSource, "var popoverWidth: CGFloat {")
+check(widthBody != nil, "the surface's width is a property this suite can read")
+// THE INVARIANT ITSELF, as a rule about the source rather than about a number: the width may ask
+// about the density and the column count, and about nothing that changes when a tab is clicked. A
+// width that names a page is the 2026-08-17 regression exactly - 560pt on Usage, 380pt on the
+// board, and the header switch walking 90pt sideways under the pointer on every switch.
+let widthWords = identifiers(widthBody ?? "tab session")
+check(!widthWords.contains("tab") && !widthWords.contains("tabState"),
+      "the width never asks which page is up")
+check(!widthWords.contains(where: { $0.lowercased().hasPrefix("session") }),
+      "…the session board's page included")
+// And the leaving page is not centred while it fades: a ZStack aligned to the bare `.top` splits
+// any difference in width either side of its children, which is sideways movement in a switch whose
+// whole vocabulary is a fade in place.
+check(rootSource.contains("ZStack(alignment: .topLeading) {"),
+      "the pages are stacked against the leading edge, not centred")
+
+print("a chosen count is spent on the cards, inside the surface it is given")
+// WHAT THE COUNT BUYS NOW: that many card columns, at the width one card column gets on the account
+// pages, held against the leading edge. So a chosen "1" is a card and not a band across a
+// three-column panel (the complaint the count was added for), and the surface never moves.
+check(reorderSource.contains("var sessionsBoardWidth: CGFloat?"),
+      "the board has a laid-out width of its own")
+check(reorderSource.contains("PanelGeometry.cardsWidth(columns: columns, gap: Self.sessionCardGap)"),
+      "…built from the card ladder's own arithmetic, which this suite compiles")
+check(reorderSource.contains(".frame(maxWidth: sessionsBoardWidth ?? .infinity, alignment: .leading)"),
+      "…applied to the grid as a cap, against the leading edge")
+/// The board's own width at a count. The board's gutter rather than the account grid's, which is
+/// why the arithmetic takes one: the two boards are spaced differently.
+func boardWidth(columns: Int) -> CGFloat {
+    PanelGeometry.cardsWidth(columns: columns, gap: sessionGap)
+}
+check(boardWidth(columns: 1), 263, "one session column is one card wide")
+check(boardWidth(columns: 2), 534, "two session columns are two cards and a gutter")
+// Auto asks for nothing at all: no count, so no cap, and the board fills whatever width the account
+// pages left it (`PanelGeometry.gridColumns` returns nil).
 check(sessionColumns(nil, panel: PanelGeometry.cardPanelWidth(columns: 1)) == nil,
-      "auto on the sessions page leaves the account pages' width alone")
-// THE WIDTH AND THE COUNT STEP DOWN TOGETHER. A display too narrow to seat two cards' worth of
-// panel bounds the width, and the grid inside it is bounded by that same width - a panel sized for
-// one and a grid laying out two is the defect this pair exists to prevent.
-let tinyDisplay = usableWidth(display: 600)
-check(PanelGeometry.sessionsPanelWidth(columns: 2, in: tinyDisplay), 380,
-      "a display too narrow for two card columns bounds the panel to one")
-check(sessionColumns(2, panel: PanelGeometry.sessionsPanelWidth(columns: 2, in: tinyDisplay)) == 1,
-      "…and the board lays out the one that fits, not the two that were asked for")
+      "auto asks for no count, so the board is not capped at all")
+/// What the board is actually laid out in: the cap, or the grid it is offered where that is
+/// narrower - a `maxWidth` frame is proposed the lesser of the two, exactly as the view is.
+func laidOutBoard(chosen: Int, panel: CGFloat) -> (columns: Int, width: CGFloat, card: CGFloat) {
+    let columns = sessionColumns(chosen, panel: panel) ?? 1
+    let width = min(boardWidth(columns: columns), sessionGrid(width: panel))
+    return (columns, width, (width - sessionGap * CGFloat(columns - 1)) / CGFloat(columns))
+}
+// In every panel either density produces: the board fits inside the panel, the count inside it is
+// the one that was asked for or less, and a card is never squeezed below the width the board's
+// arithmetic is built on nor stretched past the card ladder's own column.
+for panel in [PanelGeometry.cardPanelWidth(columns: 1), PanelGeometry.cardPanelWidth(columns: 2),
+              PanelGeometry.cardPanelWidth(columns: 3), PanelGeometry.cardPanelWidth(columns: 4),
+              PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth),
+              PanelGeometry.listPanelWidth(columns: 2, rowWidth: listRowWidth),
+              PanelGeometry.listPanelWidth(columns: 3, rowWidth: listRowWidth)] {
+    for chosen in 1 ... maxSessionsColumns {
+        let board = laidOutBoard(chosen: chosen, panel: panel)
+        check(board.columns <= chosen && board.width <= sessionGrid(width: panel)
+                && board.card >= sessionCard && board.card <= PanelGeometry.cardColumnWidth,
+              "\(Int(panel))pt panel, \(chosen) asked -> \(board.columns) card(s) of \(board.card)pt")
+    }
+}
+// THE ONE THE 380pt PANEL IS FOR: a single column of accounts is a 356pt reading width, and a
+// session card in it is still a card - narrower than the panel, and nothing about the panel changed
+// to make it so.
+check(boardWidth(columns: sessionColumns(1, panel: PanelGeometry.cardPanelWidth(columns: 1)) ?? 0),
+      263, "a one-column panel seats a one-card board, and stays 380pt")
+// A COUNT THE SURFACE CANNOT SEAT STEPS DOWN, which is the same direction it always stepped: the
+// panel is the account pages' to decide, so two cards asked for in a panel that fits one is one.
+check(sessionColumns(2, panel: PanelGeometry.cardPanelWidth(columns: 1)) == 1,
+      "two asked for in a one-column panel lays out the one that fits")
+check(sessionColumns(2, panel: PanelGeometry.cardPanelWidth(columns: 2)) == 2,
+      "…and two in a two-column panel lays out both")
 
 print("a remembered count comes back into the range still on offer")
 check(PanelGeometry.storedColumns(0, max: maxSessionsColumns) == 0, "nothing stored is auto")
@@ -240,14 +311,17 @@ for display in displays {
         check(PanelGeometry.listPanelWidth(columns: columns, rowWidth: listRowWidth) <= usable,
               "\(Int(display))pt display, \(chosen) list columns -> \(columns) fits")
     }
-    // The sessions page's own widths are bounded by the same reading, and the cards it seats in
-    // them never fall below the width the board's arithmetic is built on.
+    // The sessions page is bounded by the same reading, and by way of the same panel: it has no
+    // width of its own to bound, so what is checked here is that the board laid out inside every
+    // panel this display allows still fits it, at cards never below the width the board's
+    // arithmetic is built on.
+    let widest = PanelGeometry.cardPanelWidth(
+        columns: PanelGeometry.seated(4, columnWidth: PanelGeometry.cardColumnWidth, in: usable))
     for chosen in 1 ... maxSessionsColumns {
-        let panel = PanelGeometry.sessionsPanelWidth(columns: chosen, in: usable)
-        let columns = sessionColumns(chosen, panel: panel) ?? 1
-        let card = sessionCardWidth(panel: panel, columns: columns)
-        check(panel <= usable && columns <= chosen && card >= sessionCard,
-              "\(Int(display))pt display, \(chosen) session columns -> \(Int(panel))pt fits \(columns)")
+        let board = laidOutBoard(chosen: chosen, panel: widest)
+        check(widest <= usable && board.width <= sessionGrid(width: widest)
+                && board.columns <= chosen && board.card >= sessionCard,
+              "\(Int(display))pt display, \(chosen) session columns -> \(Int(board.width))pt of board in \(Int(widest))pt")
     }
 }
 

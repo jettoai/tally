@@ -2,8 +2,8 @@ import Foundation
 
 /// THE ORDER SOMEBODY PUT THE SESSION BOARD IN, as project directories rather than as cards.
 ///
-/// The board takes its seats from the state sort once per launch and then holds them
-/// (`SessionRosterStore.seat`: what needs somebody first, frozen at the first scan). From the
+/// The board takes its seats from the state sort each time it is opened and then holds them
+/// (`SessionRosterStore.seat`: what needs somebody first, frozen for as long as it is up). From the
 /// first drag on, the arrangement below replaces that seating outright, blocked cards included: a
 /// waiting card already carries a red dot, its state in words and its reason line, so its POSITION
 /// does not have to be a fourth marker, and a board that kept re-seating the card under the pointer

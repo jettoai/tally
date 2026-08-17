@@ -210,6 +210,17 @@ check(PanelGeometry.storedColumns(4, max: maxSessionsColumns) == 2,
       "a count past the last tile comes back to that tile, not to auto")
 check(PanelGeometry.storedColumns(4, max: 3) == 3,
       "the same rule the compact list is read back through")
+// AND ALL THREE COUNTS ARE READ BACK THROUGH IT, which is a source reading because the store is an
+// app-target file this harness does not compile. The cards' own count was the last one spelling the
+// range by hand (`(1 ... 4).contains(...)`), where a stored count past the ladder fell back to auto
+// rather than to the widest tile - one initializer answering the same question two ways.
+check(storeSource.contains(
+          "panelColumns = PanelGeometry.storedColumns(defaults.integer(forKey: \"panelColumns\")")
+          && storeSource.contains("listColumns = PanelGeometry.storedColumns(")
+          && storeSource.contains("sessionsColumns = PanelGeometry.storedColumns("),
+      "every remembered column count is read back through the one clamping rule")
+check(!storeSource.contains("(1 ... 4).contains(defaults.integer(forKey: \"panelColumns\"))"),
+      "…the cards' count included, rather than spelling its own range")
 
 print("the panel fits the display it opens on")
 // Every display a Mac actually reports, against every count either density lets a user pick. This

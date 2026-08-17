@@ -245,19 +245,24 @@ extension PopoverRootView {
         }
     }
 
-    /// SORT BY STATUS, THE WHOLE TIME IT IS ON. A switch rather than a button (2026-08-15, owner's
-    /// ruling): the old control sorted once and was finished, so a session that started waiting a
-    /// minute later sat where it happened to sit and the board had to be asked again by hand. A
-    /// switch that says the board is sorted by status has to go on being true, which is why the
-    /// roster reads it every scan (`SessionRosterStore.sortsByState`) instead of being pushed an
-    /// order once.
+    /// SORT BY STATUS, EVERY TIME THE BOARD IS OPENED. A switch rather than a button (2026-08-15,
+    /// owner's ruling): the old control sorted once and was finished, so a session that started
+    /// waiting an hour later sat where it happened to sit and the board had to be asked again by
+    /// hand. A switch that says the board is sorted by status has to go on being true of every
+    /// board the user is handed, which is why the roster reads it at each opening
+    /// (`SessionRosterStore.seatingOnOpen`) instead of being pushed an order once.
     ///
-    /// TURNING IT ON RE-SEATS NOW rather than at the next tick (`resortByState`), because the flick
-    /// is the question and a board that answered it half a second later would read as a control
-    /// that did not take. Turning it OFF does nothing at all: the seats the sort last left are
-    /// where the board already is (`seat`), and any arrangement is applied over them by the page
-    /// (`sessionsPage`). Nothing is erased in either direction - the switch is a changeover, and
-    /// the hand's own order is still there to come back to.
+    /// AND NOT WHILE ONE IS BEING READ (2026-08-17, owner's report). It did follow the states scan
+    /// by scan, which is right about the board and wrong about the person: clicking a card wakes
+    /// its session, so the board re-sorted itself between one click and the next and the card that
+    /// was going to be clicked second had moved. The states still show, on the cards themselves.
+    ///
+    /// TURNING IT ON RE-SEATS NOW rather than at the next opening (`resortByState`), because the
+    /// flick is the question and a board that answered it half a second later would read as a
+    /// control that did not take. Turning it OFF does nothing at all: the seats the sort last left
+    /// are where the board already is (`seat`), and any arrangement is applied over them by the
+    /// page (`sessionsPage`). Nothing is erased in either direction - the switch is a changeover,
+    /// and the hand's own order is still there to come back to.
     ///
     /// NO CALLOUT UNDER THE POINTER, as nothing on this board has (`SessionCardView`): the label
     /// says what it does, and the pointer rests here between jumps.

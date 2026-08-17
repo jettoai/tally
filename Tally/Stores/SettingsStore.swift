@@ -42,15 +42,17 @@ final class SettingsStore {
         didSet { SessionBoardOrder.save(sessionBoardOrder, to: .standard) }
     }
 
-    /// WHICH OF THE BOARD'S TWO ORDERS IS GOVERNING IT: the state sort, live, or the user's own
-    /// hand. On, every scan seats the board by what the sessions are doing now (what needs somebody
-    /// first); off, the board holds the seats it has and the arrangement that was dragged into them.
+    /// WHICH OF THE BOARD'S TWO ORDERS IS GOVERNING IT: the state sort, asked afresh whenever the
+    /// board is opened, or the user's own hand. On, an opening surface seats the board by what the
+    /// sessions are doing at that moment (what needs somebody first) and it then holds those seats
+    /// for as long as it is up (`SessionRosterStore.seatingOnOpen`); off, the board holds the seats
+    /// it has and the arrangement that was dragged into them.
     ///
     /// A MODE RATHER THAN AN ACTION (2026-08-15). It was a button that sorted once, which is a
     /// control whose whole effect is over the instant it is pressed: a session that started waiting
     /// a minute later sat wherever it happened to sit, and the only way to see the board as it stood
-    /// was to press again. A switch that is ON has to keep being true, so the sort follows the
-    /// states rather than sampling them.
+    /// was to press again. A switch that is ON has to keep being true of every board handed over,
+    /// so the sort is asked again at each opening rather than only at the one press.
     ///
     /// AND THE HAND TAKES IT BACK BY USING IT: dragging a card while this is on turns it off
     /// (`sessionsReorderGesture`), because a board that re-sorted itself out from under a drag would
@@ -357,13 +359,15 @@ final class SettingsStore {
         showAdvisor = defaults.object(forKey: "showAdvisor") as? Bool ?? true
         collapsedProviders = Set(defaults.stringArray(forKey: "collapsedProviders") ?? [])
         statuslineFullQuota = defaults.bool(forKey: "statuslineFullQuota")
-        panelColumns = (1 ... 4).contains(defaults.integer(forKey: "panelColumns"))
-            ? defaults.integer(forKey: "panelColumns") : 0
+        // ALL THREE REMEMBERED COUNTS COME BACK THROUGH THE ONE RULE
+        // (`PanelGeometry.storedColumns`): clamped into the range the picker still offers, and
+        // anything that is not a count at all read as auto. A stored number past the highest tile
+        // has to come back to that tile rather than to a count nothing can select - the compact
+        // list used to go up to four - and the cards' own count was the last one still spelling
+        // that rule by hand, which made a four-column machine that had once seen a wider ladder
+        // land on auto where its neighbours landed on the widest tile.
+        panelColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "panelColumns"), max: 4)
         panelDensity = PanelDensity(rawValue: defaults.string(forKey: "panelDensity") ?? "") ?? .cards
-        // Clamped into the range the picker still offers: the list used to go up to four, and a
-        // machine that stored one has to come back to the highest count that still exists rather
-        // than to a number no tile can select. Anything else reads as auto
-        // (`PanelGeometry.storedColumns`, which the board's count below is read back through too).
         listColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "listColumns"),
                                                   max: SettingsStore.maxListColumns)
         sessionsColumns = PanelGeometry.storedColumns(defaults.integer(forKey: "sessionsColumns"),

@@ -2,18 +2,22 @@ import Foundation
 
 // THE ORDER THE SESSION BOARD IS DRAWN IN, which is two rules over one sort:
 //
-//   1. THE SEATING (SessionRosterStore.seat): the state sort decides where the cards sit at the
-//      first scan of a launch, and from then on the board holds those seats. A card whose session
+//   1. THE SEATING (SessionRosterStore.seat): the state sort decides where the cards sit when a
+//      surface opens the board, and from then on the board holds those seats. A card whose session
 //      changes state, or whose neighbour ends, does not move. This is what makes the board something
 //      a hand can learn: it was re-sorting itself twice a second before 2026-08-14.
 //   2. THE ARRANGEMENT (Tally/Core/SessionBoardOrder.swift, SessionRosterStore.arranged): written in
 //      project directories, replacing that seating outright until the user says otherwise.
 //
 // AND A SWITCH SAYS WHICH OF THEM IS GOVERNING (SettingsStore.sessionBoardSortsByState, 2026-08-15).
-// On, rule 1 is asked again on every scan instead of once per launch, and rule 2 is held back; off,
-// the board holds its seats and the arrangement is applied over them. Moving a card turns the switch
-// off, because the hand that arranges the board is the one that owns it. Nothing erases the
-// arrangement in either direction: the switch is a changeover, not a reset.
+// On, rule 1 is asked again at every opening of the board instead of once per launch, and rule 2 is
+// held back; off, the board holds its seats and the arrangement is applied over them. Moving a card
+// turns the switch off, because the hand that arranges the board is the one that owns it. Nothing
+// erases the arrangement in either direction: the switch is a changeover, not a reset.
+//
+// WHAT THE SWITCH IS NOT is a live sort (2026-08-17, owner's report). It re-seated on every scan,
+// which the states themselves defeat: clicking a card wakes its session, so the board moved between
+// one click and the next. `seatingOnOpen` is that rule now, and every case of it is stated below.
 //
 // Pure throughout, both rules: string algebra plus one stable sort, so every case can be stated
 // here without an app around it. The things that are not pure - the board freezing while a card is
@@ -91,26 +95,40 @@ func runSessionBoardOrderChecks() {
     check("…which is what the board's own way of asking again does too (`resortByState`)",
           SessionRosterStore.seat(moved, seating: nil).rows.map(\.id) == ["11", "13", "12"])
 
-    // MARK: the switch that keeps that sort live
+    // MARK: the switch, and the one moment it is asked
 
-    // ON IS A MODE, NOT A PRESS. The same sort, asked again on every scan, so a session that starts
-    // waiting an hour after the board was seated goes to the front where somebody will see it -
-    // which a control that sorted once could only do if it was pressed again at that moment.
-    check("with the switch on, a scan seats the board from the states now",
-          SessionRosterStore.seat(moved, seating: seeded.seating, sortsByState: true)
-              .rows.map(\.id) == ["11", "13", "12"])
-    // The seating it leaves behind is that board, which is what makes turning the switch off a
-    // freeze rather than a jump: the cards stay where the user was looking at them, rather than
-    // dropping back onto seats taken hours ago.
-    check("…and the seats it leaves behind are the board it just drew",
-          SessionRosterStore.seat(moved, seating: seeded.seating, sortsByState: true)
-              .seating == ["11", "13", "12"])
-    check("…while the same scan with the switch off holds the seats it was handed",
-          SessionRosterStore.seat(moved, seating: seeded.seating, sortsByState: false)
-              .rows.map(\.id) == ["13", "12", "11"])
-    // A board with nothing on it is nobody's arrangement in either mode.
-    check("…and neither mode seats anybody on an empty scan",
-          SessionRosterStore.seat([], seating: seeded.seating, sortsByState: true).seating == nil)
+    // ON IS A MODE, NOT A PRESS: the same sort, asked again every time somebody opens the board, so
+    // a session that started waiting an hour after the last opening is at the front of the board
+    // that comes up - which a control that sorted once could only manage if it was pressed again at
+    // that moment.
+    check("the surface that opens the board takes the seats again from the states now",
+          SessionRosterStore.seatingOnOpen(seeded.seating, viewers: 1, sortsByState: true) == nil)
+    check("…which seats the board that opening draws from the states as they are then",
+          SessionRosterStore.seat(moved, seating: SessionRosterStore.seatingOnOpen(
+              seeded.seating, viewers: 1, sortsByState: true)).rows.map(\.id) == ["11", "13", "12"])
+    // THE WHOLE OF 2026-08-17. The states go on moving while the board is up - clicking a card is
+    // itself what wakes a session - and not one of those scans may move a card: the next card the
+    // hand is going for has to still be where it was seen.
+    check("…and every scan while it stays open holds those seats, whatever the states do",
+          SessionRosterStore.seat(moved, seating: ["11", "13", "12"]).rows.map(\.id)
+              == ["11", "13", "12"]
+              && SessionRosterStore.seat(scan, seating: ["11", "13", "12"]).seating
+                  == ["11", "13", "12"])
+    // A SECOND HOST IS NOT AN OPENING. The popover, the pinned panel and the dashboard can be up at
+    // once; one arriving beside another would re-seat the board under the hand already using it.
+    check("…while a second surface joining one already open leaves the seats alone",
+          SessionRosterStore.seatingOnOpen(seeded.seating, viewers: 2, sortsByState: true)
+              == seeded.seating)
+    // Off is the arrangement's own mode: the seats are the user's, and opening a board may not
+    // take them back.
+    check("…and with the switch off no opening re-seats anything",
+          SessionRosterStore.seatingOnOpen(seeded.seating, viewers: 1, sortsByState: false)
+              == seeded.seating
+              && SessionRosterStore.seatingOnOpen(seeded.seating, viewers: 2, sortsByState: false)
+                  == seeded.seating)
+    // A board with nothing on it is nobody's arrangement, whatever it was handed.
+    check("…and a scan that finds nothing seats nobody however it was seated before",
+          SessionRosterStore.seat([], seating: seeded.seating).seating == nil)
 
     // The filter SELECTS, it never re-orders: a subset of a seated board is that board's order.
     check("narrowing the board to what is reporting leaves the seats it kept",
@@ -314,9 +332,9 @@ func runSessionBoardOrderChecks() {
               && rosterSource.contains("seating = nil"))
     // A READING RATHER THAN A COPY. Two answers to "which order is this board in" is two places for
     // it to be wrong, and the store is compiled into this harness with no settings around it.
-    check("the roster reads the switch on every scan and keeps no copy of it",
+    check("the roster reads the switch when a board opens and keeps no copy of it",
           rosterSource.contains("var sortsByState: () -> Bool = { false }")
-              && rosterSource.contains("sortsByState: sortsByState()")
+              && rosterSource.contains("sortsByState: sortsByState())")
               && statusSource.contains(
                   "sortsByState = { SettingsStore.shared.sessionBoardSortsByState }"))
     // ONE ORDER GOVERNS AT A TIME. While the switch is on the arrangement is held, not layered over
@@ -356,11 +374,28 @@ func runSessionBoardOrderChecks() {
                   "UserDefaults.standard.set(sessionBoardSortsByState, forKey: \"sessionBoardSortsByState\")"))
     // The seating is the store's alone: a second holder of it (the view, the settings) would be a
     // second answer to where a card sits, and the freeze is exactly one answer held over time.
-    check("the roster holds its seating between scans, and reads the switch on every one",
+    //
+    // AND THE SCAN MAY NOT ASK THE SWITCH, which is why the two bodies are read apart rather than
+    // the file searched whole: the pure rule above can be perfect while a scan that consults the
+    // setting puts the live sort straight back, and a file-wide search cannot tell the difference
+    // (the store says the word `sortsByState` in three other places on purpose).
+    let scanBody = rosterSource.components(separatedBy: "func refresh() {").last?
+        .components(separatedBy: "\n    }").first ?? ""
+    let openingBody = rosterSource.components(separatedBy: "func beginViewing() {").last?
+        .components(separatedBy: "\n    }").first ?? ""
+    check("the two bodies this suite reads apart are found",
+          scanBody.contains("liveSessionStates()") && openingBody.contains("viewers += 1"))
+    check("the roster holds its seating between scans and never re-seats on one",
           rosterSource.contains("private var seating: [String]?")
-              && rosterSource.contains(
-                  "Self.seat(liveSessionStates().map(Self.row), seating: self.seating,")
-              && rosterSource.contains("sortsByState: sortsByState())"))
+              && scanBody.contains(
+                  "Self.seat(liveSessionStates().map(Self.row), seating: self.seating)")
+              && !scanBody.contains("sortsByState"))
+    // And the one place it IS asked: the surface that opened the board, counted after it arrived,
+    // so the second host reads as the 2 it is.
+    check("…and the surface that opens the board is the one thing that asks the states again",
+          openingBody.contains(
+              "seating = Self.seatingOnOpen(seating, viewers: viewers, sortsByState: sortsByState())")
+              && rosterSource.contains("viewers == 1 && sortsByState ? nil : seating"))
     check("the arrangement is saved and loaded through the one file that spells its key",
           settingsSource.contains("SessionBoardOrder.save(sessionBoardOrder, to: .standard)")
               && settingsSource.contains("let arrangement = SessionBoardOrder.load(from: defaults)")

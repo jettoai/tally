@@ -58,10 +58,12 @@ extension PopoverRootView {
         // drop, which is at most half a second later.
         let board = sessionLift?.frozen ?? roster.rows
         // ONE ORDER GOVERNS AT A TIME, and the switch says which (`sessionsSortByStateToggle`).
-        // While it is on the seats in the rows ARE the state sort, kept live by the roster, and the
-        // arrangement is held rather than applied: it is remembered for the moment the switch comes
-        // off, and a page layering one order over the other would draw one nobody chose. The drag
-        // turns the switch off on the first card it moves (`sessionsReorderGesture`).
+        // While it is on the seats in the rows ARE the state sort, taken as this board was opened
+        // and held still by the roster until it is opened again
+        // (`SessionRosterStore.seatingOnOpen`), and the arrangement is held rather than applied: it
+        // is remembered for the moment the switch comes off, and a page layering one order over the
+        // other would draw one nobody chose. The drag turns the switch off on the first card it
+        // moves (`sessionsReorderGesture`).
         //
         // Filtered first, because the arrangement is applied to what is actually on the page: a
         // drag can only mean something about the cards the hand can see. The filter SELECTS and

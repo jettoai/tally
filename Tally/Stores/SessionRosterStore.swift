@@ -35,12 +35,14 @@ func displayModelName(_ id: String) -> String {
 /// rows; it never infers a state, and a session that has published none is drawn as one that has
 /// published none.
 ///
-/// AND THE SEATS ARE TAKEN ONCE PER LAUNCH, unless the user's own switch asks for the other order.
-/// The state sort decides them at the first scan that finds a board, and from then on a card keeps
-/// its seat: a session that goes from working to blocked lights its own dot where it already sits
+/// AND THE SEATS ARE TAKEN WHEN THE BOARD IS OPENED, never while somebody is reading it. The state
+/// sort decides them at the first scan that finds a board and again on every opening after that
+/// (`seatingOnOpen`, while the user's switch asks for that order); in between, a card keeps its
+/// seat. A session that goes from working to blocked lights its own dot where it already sits
 /// rather than jumping to the top, because a board that re-sorted itself twice a second is a board
-/// nobody can learn. `sorted` says what the order IS, `seat` how long it lasts, and `sortsByState`
-/// is the switch that asks for that sort on every scan instead.
+/// nobody can learn - and clicking a card is exactly what changes a state, so a board sorting on
+/// every scan moved the next card out from under the hand reaching for it. `sorted` says what the
+/// order IS, `seat` how long it lasts, and `seatingOnOpen` is the only rule that asks again.
 ///
 /// WHEN IT SCANS, which is the whole of its cost story:
 ///
@@ -78,9 +80,11 @@ final class SessionRosterStore {
     /// blocked dot, which is drawn imperatively (`StatusItemController.updateButton`).
     @ObservationIgnored var onChange: (() -> Void)?
 
-    /// Whether the board's switch asks the state sort to keep deciding the seats, READ RATHER THAN
-    /// COPIED (`SettingsStore.sessionBoardSortsByState` is the one answer) and installed beside
-    /// `onChange`, this file having no settings around it in the harness. Off until then.
+    /// Whether the board's switch asks the state sort to decide the seats each time the board is
+    /// opened, READ RATHER THAN COPIED (`SettingsStore.sessionBoardSortsByState` is the one answer)
+    /// and installed beside `onChange`, this file having no settings around it in the harness. Off
+    /// until then, which is the arrangement's own mode: the seats are held and the order the hand
+    /// dragged is applied over them.
     @ObservationIgnored var sortsByState: () -> Bool = { false }
 
     @ObservationIgnored private var timer: Timer?
@@ -94,7 +98,9 @@ final class SessionRosterStore {
     @ObservationIgnored private var seating: [String]?
     /// How many surfaces are currently showing the board. Three hosts can be open at once (the
     /// popover, the pinned panel, the dashboard window), so this is a count rather than a flag:
-    /// one of them closing must not stop the polling the other two are relying on.
+    /// one of them closing must not stop the polling the other two are relying on, and the one
+    /// that re-seats the board is the one that opens it rather than every one that appears
+    /// (`seatingOnOpen`).
     @ObservationIgnored private var viewers = 0
 
     private init() {}
@@ -253,8 +259,14 @@ final class SessionRosterStore {
 
     /// A surface showing the board has appeared. Refreshes immediately, because what somebody just
     /// opened has to be current before the first tick rather than after it.
+    ///
+    /// AND THIS IS WHERE THE STATE SORT IS ASKED AGAIN, the once per opening the board allows
+    /// itself (`seatingOnOpen`): a surface arriving onto a board nobody was looking at is the one
+    /// moment an order can change without moving a card out from under a hand already reaching for
+    /// it.
     func beginViewing() {
         viewers += 1
+        seating = Self.seatingOnOpen(seating, viewers: viewers, sortsByState: sortsByState())
         refresh()
         guard timer == nil else { return }
         let timer = Timer(timeInterval: 2, repeats: true) { _ in
@@ -277,8 +289,7 @@ final class SessionRosterStore {
     // MARK: The scan
 
     func refresh() {
-        let (rows, seating) = Self.seat(liveSessionStates().map(Self.row), seating: self.seating,
-                                        sortsByState: sortsByState())
+        let (rows, seating) = Self.seat(liveSessionStates().map(Self.row), seating: self.seating)
         self.seating = seating
         // Nothing changed is the ordinary tick, and assigning anyway would re-render every surface
         // twice a second for a board that is standing still.
@@ -289,9 +300,9 @@ final class SessionRosterStore {
 
     /// TAKE THE SEATS AGAIN, from what every session is doing now: what the board's switch calls the
     /// moment it is turned on (`sessionsSortByStateToggle`), so the answer is on screen at the flick
-    /// rather than at the next tick. What keeps it true after that is the switch itself, read by
-    /// every scan (`sortsByState`). The ARRANGEMENT is untouched here, by design: it is the caller's
-    /// to hold, and it is what turning the switch off comes back to.
+    /// rather than at the next tick. What asks after that is the next opening of the board and
+    /// nothing else (`seatingOnOpen`). The ARRANGEMENT is untouched here, by design: it is the
+    /// caller's to hold, and it is what turning the switch off comes back to.
     func resortByState() {
         seating = nil
         refresh()
@@ -312,9 +323,9 @@ final class SessionRosterStore {
     /// what cannot say, and last of all what cannot say ANYTHING. Within a group the OLDEST leads,
     /// because the age of the wait is the thing worth acting on.
     ///
-    /// ASKED ONCE PER LAUNCH while the board holds its seats, and on every scan while the switch is
-    /// on (`seat`). It is the only thing that ever DECIDES an order here; `seat` is what holds that
-    /// decision still, for as long as it is held.
+    /// ASKED WHEN THE BOARD IS OPENED and not once in between (`seatingOnOpen`). It is the only
+    /// thing that ever DECIDES an order here; `seat` is what holds that decision still, for as long
+    /// as it is held.
     /// `nonisolated` because it is a pure function of what it is handed and nothing else, which is
     /// also what lets the assertion harness state the order without an app around it.
     nonisolated static func sorted(_ rows: [SessionRow]) -> [SessionRow] {
@@ -332,8 +343,9 @@ final class SessionRosterStore {
     ///   - Every scan after that keeps each card where it is. A state change rewrites what a card
     ///     SAYS and never where it sits, because the one thing here that reads a state is `sorted`,
     ///     and the seating is what it wrote once rather than what it would write now.
-    ///   - UNLESS THE SWITCH IS ON: that first sort, asked for again on every scan. What comes back
-    ///     seats what is on screen, so switching off freezes the board where the user is looking.
+    ///   - THE SCAN NEVER ASKS THE SWITCH. Being handed no seating is the whole of the question,
+    ///     and only two things ever hand that over: the board being opened while the switch is on
+    ///     (`seatingOnOpen`) and the switch being turned on (`resortByState`).
     ///   - A session the seating never heard of goes to the END, in the order the scan handed it
     ///     over, which is ascending supervisor pid (`liveSessionStates`): one that started later has
     ///     the higher pid, so "new cards join at the bottom" needs no clock of its own.
@@ -341,12 +353,35 @@ final class SessionRosterStore {
     ///     is read off the board rather than maintained beside it - and an empty board comes back
     ///     unseated, so whatever appears after one is sorted again. Nothing is at risk there: an
     ///     empty board has no cards to move.
-    nonisolated static func seat(_ scanned: [SessionRow], seating: [String]?,
-                                 sortsByState: Bool = false)
+    nonisolated static func seat(_ scanned: [SessionRow], seating: [String]?)
         -> (rows: [SessionRow], seating: [String]?) {
-        let order = (sortsByState ? nil : seating) ?? sorted(scanned).map(\.id)
+        let order = seating ?? sorted(scanned).map(\.id)
         let rows = ordered(scanned, by: order) { $0.id }
         return (rows, rows.isEmpty ? nil : rows.map(\.id))
+    }
+
+    /// THE SEATING A SURFACE OPENS ONTO: nothing at all - meaning take the seats again from the
+    /// states now - when this is the surface that opened the board and the switch asks for that
+    /// order; anything else is the seating handed in, untouched. `viewers` is the count AFTER the
+    /// arrival, so the surface that opened the board is the first one.
+    ///
+    /// WHY THE OPENING AND NOT THE SCAN, which is the whole of 2026-08-17. A live sort is right
+    /// about the board and wrong about the person reading it: clicking a card is what wakes its
+    /// session, so a board that followed the states re-seated itself between one click and the next
+    /// and the second card was never where the hand had just seen it. Asked at the opening instead,
+    /// the sort answers the question at the moment it is asked - what needs somebody, right now -
+    /// and then holds still for as long as somebody is reading the answer. A state that changes
+    /// meanwhile is not lost: it lights the card's own dot, its border and its state word where the
+    /// card already sits, which is three ways of saying it without moving anything.
+    ///
+    /// AND THE SECOND HOST CHANGES NOTHING. The popover, the pinned panel and the dashboard can be
+    /// open at once; one of them appearing while another is up would re-seat the board under the
+    /// hand already using it, which is the very thing being fixed.
+    ///
+    /// Pure, so the harness can state every case without an app around it.
+    nonisolated static func seatingOnOpen(_ seating: [String]?, viewers: Int,
+                                          sortsByState: Bool) -> [String]? {
+        viewers == 1 && sortsByState ? nil : seating
     }
 
     /// The board in the order somebody DRAGGED it into, given what they have arranged so far
@@ -413,88 +448,5 @@ final class SessionRosterStore {
     /// with no files beside it has been there since before this feature existed.
     nonisolated private static func ordinal(_ row: SessionRow) -> Date {
         row.since ?? row.lastActivity ?? .distantPast
-    }
-}
-
-/// THE FILES THE SUPERVISOR WRITES BESIDE ITS STATE, as the panel reads them.
-///
-/// `<pid>.session` is the context reading (`SupervisedSession`, TallyCLI/SessionContext.swift),
-/// `<pid>.cwd` the directory the session runs in and `<pid>.child` the Claude Code it spawned. All
-/// three predate the status board, which is exactly why the board reads them: a supervisor too old
-/// to publish a state still writes these, so a session that cannot say what it is DOING can still
-/// say what it is, where, and how big it has grown.
-///
-/// A SEPARATE DECLARATION FROM THE WRITER'S, deliberately. The app compiles the state record itself
-/// (project.yml says why), but the context reading lives in a file full of supervisor machinery -
-/// transcript scanning, the writer's own change gate - that the app has no business carrying. So
-/// this is a reader's view of that document: every field optional, unknown fields ignored, and the
-/// suffixes asserted against the writer's own constants in `tests/supervisor/sessionstatechecks.swift`
-/// so the two spellings cannot drift apart in silence.
-struct SessionSidecar: Equatable, Decodable {
-    var accountID: String?
-    var contextTokens: Int?
-    var updatedAt: Date?
-    var sessionPin: String?
-    var sessionModel: String?
-    var sessionEffort: String?
-    var observedModel: String?
-    var runningModel: String?
-    var runningEffort: String?
-
-    /// The app's spelling of the three suffixes. Held here rather than typed at each call site, and
-    /// locked to the writer's in the assertions above.
-    static let contextSuffix = ".session"
-    static let cwdSuffix = ".cwd"
-    static let childSuffix = ".child"
-
-    /// A document that cannot be read, or cannot be understood, reads as no document: the board
-    /// simply draws the parts it knows. Same best-effort rule the state reading beside it follows.
-    static func read(pid: String, dir: URL = supervisorStateDir) -> SessionSidecar? {
-        guard let data = try? Data(contentsOf: dir.appendingPathComponent(pid + contextSuffix))
-        else { return nil }
-        let decoder = JSONDecoder()
-        // THE WRITER'S FORM AND ANYTHING NEWER. `.iso8601` alone rejects a stamp carrying fractional
-        // seconds outright, and rejecting is losing the whole reading - the same failure the state
-        // record's string-typed state word exists to avoid, one field over (and the fractional form
-        // is not hypothetical: the user-notice file gained one on 2026-08-13).
-        decoder.dateDecodingStrategy = .custom { decoder in
-            let container = try decoder.singleValueContainer()
-            let text = try container.decode(String.self)
-            let forms: [ISO8601DateFormatter.Options] = [
-                [.withInternetDateTime], [.withInternetDateTime, .withFractionalSeconds],
-            ]
-            for options in forms {
-                let parser = ISO8601DateFormatter()
-                parser.formatOptions = options
-                if let date = parser.date(from: text) { return date }
-            }
-            throw DecodingError.dataCorruptedError(in: container,
-                                                   debugDescription: "not an instant: \(text)")
-        }
-        return try? decoder.decode(SessionSidecar.self, from: data)
-    }
-
-    /// The directory this supervisor was started in, or nil when the file is absent or empty (an
-    /// empty one is a write that got as far as the file and no further, which says nothing).
-    static func readCwd(pid: String, dir: URL = supervisorStateDir) -> String? {
-        guard let raw = try? String(contentsOf: dir.appendingPathComponent(pid + cwdSuffix),
-                                    encoding: .utf8) else { return nil }
-        let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return line.isEmpty ? nil : line
-    }
-
-    /// The Claude Code pid this supervisor spawned, IF IT IS STILL RUNNING. A publish that failed
-    /// leaves the previous child's number behind, and a dead pid handed to the terminal jump is a
-    /// click that matches nothing; liveness is what this can check cheaply and it checks exactly
-    /// that. The CLI's own reader (`readSupervisorChild`) additionally proves the process is this
-    /// supervisor's child, which needs the process table - the app settles for less here because
-    /// the cost of being wrong is one fallback, not a wrong decision: the jump falls back to the
-    /// directory match and then to a bare activate.
-    static func readChildPid(pid: String, dir: URL = supervisorStateDir) -> Int? {
-        guard let raw = try? String(contentsOf: dir.appendingPathComponent(pid + childSuffix),
-                                    encoding: .utf8),
-              let child = Int(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let running = pid_t(exactly: child), supervisorAlive(running) else { return nil }
-        return child
     }
 }

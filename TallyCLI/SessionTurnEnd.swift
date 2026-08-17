@@ -150,6 +150,22 @@ func turnEndStillStands(_ event: SessionTurnEnd?, transcript: String?, newestMes
 /// own AFTER a turn's stop hooks return (`stop_hook_summary`, `turn_duration`, a file-history
 /// snapshot), and those are the turn ENDING rather than a new one beginning: counting them would
 /// make every boundary look stale the instant it was reported.
+///
+/// AND `isMeta` USER EVENTS COUNT, WHICH IS LOAD-BEARING RATHER THAN AN OVERSIGHT. A `Stop` this
+/// supervisor's hook reports is only a stop ATTEMPT: another hook on the same event may block it,
+/// and Claude Code then writes the block reason as a main-chain `user` event carrying
+/// `isMeta:true` and continues the turn (measured here 2026-08-17: 1,908 such records across 189
+/// transcripts, one of them `85cbbe13` at 11:08:41.755, with the `stop_hook_summary` at .798 and
+/// the conversation's next assistant event 3s after that). That record is newer than the boundary
+/// this file wrote, so counting it is exactly what makes `turnEndStillStands` answer no and the
+/// `.working` gate hold the line. Filter it out - as the neighbouring `lastUserTurnAt` does, for
+/// its own good reasons - and a blocked stop reads as a finished turn.
+///
+/// THE READER NEXT DOOR POINTS THE OTHER WAY ON THE SAME FIELD, ON PURPOSE: `windowRepickUsed`
+/// (WindowRepick.swift) forgives one meta STRUCTURE, the caveat a `/clear` writes into every window
+/// it opens, because counting it would report every cleared window as used and turn that feature
+/// off. Two readers, one field, opposite directions, both load-bearing - so neither may be
+/// "unified" with the other, and each says so where it stands.
 func newestMainChainMessage(inTail tail: String) -> Date? {
     for line in tail.split(separator: "\n").reversed() {
         guard line.contains("\"type\":\"assistant\"") || line.contains("\"type\":\"user\""),

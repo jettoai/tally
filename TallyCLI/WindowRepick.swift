@@ -148,7 +148,7 @@ struct WindowRepickState: Equatable {
     /// present: a window that was cleared, worked in for a turn and then left to be read answers
     /// "quiet" to it, and the restart taken there kills a live conversation. What is being asked
     /// here is whether that window HAS BEEN USED, which is a fact standing in the file itself
-    /// (`windowRepickWindow`), so it is read from there.
+    /// (`clearedWindow(of:)`), so it is read from there.
     ///
     /// THE MTIME IS THE SECOND SIGNAL AND NOT THE FIRST, which is the correction this carries
     /// (codex review of 4d7288a). Baselining alone had a hole in front of it: the baseline is taken
@@ -323,7 +323,7 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
     // turn", "this is its mtime") is a statement about that id, and a file the id never named would
     // be judged against a baseline belonging to another.
     if windowRepickLanded(&repick, transcript: watcher.transcriptSessionID,
-                          window: windowRepickWindow(watcher.file), now: now),
+                          window: clearedWindow(of: watcher.file), now: now),
        watcher.isQuiet(windowRepickQuietSeconds), keyboardIdle(windowRepickQuietSeconds) {
         let carried = carryableSession(launchArgs: launchArgs,
                                        sessionLocated: watcher.file != nil)
@@ -373,77 +373,4 @@ private func windowRepickLanded(_ repick: inout WindowRepickState, transcript: S
         guard let transcript else { return false }
         return repick.noteLanded(in: transcript, window: window())
     }
-}
-
-/// What the cleared conversation's own transcript says about the window this move rests on.
-enum WindowRepickWindow: Equatable {
-    /// A turn is in it: a prompt somebody typed, a tool result, an answer. The window is in use.
-    case used
-    /// Nothing in it but the records the `/clear` itself wrote, as of this write.
-    case empty(writtenAt: Date)
-    /// Nothing could be read: no file, no stat, no tail. Decides neither way.
-    case unreadable
-}
-
-/// That reading, off the file the watcher is bound to.
-///
-/// Fresh URL for the mtime, for the reason `boundFileQuietness` states: resourceValues are cached
-/// per URL instance, and a held one would report a window that has been typed into as untouched.
-private func windowRepickWindow(_ file: URL?) -> WindowRepickWindow {
-    guard let file,
-          let modified = (try? URL(fileURLWithPath: file.path)
-              .resourceValues(forKeys: [.contentModificationDateKey]))?
-              .contentModificationDate,
-          let tail = transcriptTail(of: file) else { return .unreadable }
-    return windowRepickUsed(inTail: tail) ? .used : .empty(writtenAt: modified)
-}
-
-/// The content of the `/clear`'s own invocation record, which is the ONE record this reader forgives
-/// besides a meta expansion. Anything else a person did in that window counts as using it.
-let windowClearCommandRecord = "<command-name>/clear</command-name>"
-
-/// Whether this tail shows the window has been used, rather than holding only what the `/clear`
-/// left behind.
-///
-/// WHAT A CLEARED TRANSCRIPT ACTUALLY CONTAINS had to be measured rather than assumed, and the
-/// obvious rule ("any main-chain user or assistant event means it was used") is refuted by it: the
-/// `/clear` writes its OWN invocation into the file it creates, as a main-chain `user` event, next
-/// to a `<local-command-caveat>` meta record - so that rule reads every fresh window as used and
-/// turns this feature off entirely. Read off this machine's corpus 2026-08-17, 208 transcripts a
-/// `/clear` created: the fresh ones hold `mode`, `file-history-snapshot`, `attachment`, that caveat,
-/// the invocation, a `system subtype=local_command` and `last-prompt` / `queue-operation`, and no
-/// assistant event anywhere.
-///
-/// NOT `newestMainChainMessage` NEXT DOOR, which walks the same tail for a different question. That
-/// one asks WHEN the newest message was written, to compare against a turn-end boundary, and every
-/// main-chain message counts because any of them can be newer than that boundary. This one asks
-/// whether a window has anything in it at all, where the records the `/clear` itself wrote are the
-/// baseline rather than content - so the two cannot share a walk without one of them lying.
-///
-/// SKIPPING A RECORD IS THE UNSAFE DIRECTION HERE, which is why the forgiveness is a whitelist of
-/// two rather than a family: a record passed over lets a live turn read as an empty window, and the
-/// cost of counting one it need not have is a free move declined. Measured against the same corpus:
-/// of the 198 cleared windows that were then worked in, this answers `used` for 198; of the 10 that
-/// were not, it answers `empty` for 9, and `used` for the one whose owner ran a `/model` in it,
-/// which is the safe direction rather than a miss.
-///
-/// The `type` that decides is the parsed one and the content is read through `lineIsCommandRecord`,
-/// because an attachment can carry another event's JSON inside it and a prompt can quote one. A line
-/// that CLAIMS to be one of the two types and will not parse counts as use for the same reason: the
-/// last line of a tail may be half written, and half an object is not evidence of an empty window.
-func windowRepickUsed(inTail tail: String) -> Bool {
-    for line in tail.split(separator: "\n").reversed() {
-        guard line.contains("\"type\":\"assistant\"") || line.contains("\"type\":\"user\"")
-        else { continue }
-        guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8))
-                  as? [String: Any],
-              let type = object["type"] as? String, type == "assistant" || type == "user"
-        else { return true }
-        // A meta expansion is Claude Code talking to itself about the window it just opened (the
-        // caveat above all), and the invocation is the line that opened it. Anything else counts.
-        if type == "user", object["isMeta"] as? Bool == true
-            || lineIsCommandRecord(line, opening: windowClearCommandRecord) { continue }
-        return true
-    }
-    return false
 }

@@ -164,6 +164,21 @@ func runWindowRepickChecks() {
         """
     /// The two together: a window that was cleared and then worked in.
     let workedWindow = clearRecords + "\n" + typedPrompt
+    /// A SessionStart injection waking the session up: `isMeta`, `promptSource:"system"`, and the
+    /// opening of a REAL turn - 1,963 of them in this machine's corpus, 83 of them the first turn of
+    /// a cleared window. It is the shape a rule that forgave every meta expansion could not see.
+    let metaWakeUp = """
+        {"type":"user","isMeta":true,"isSidechain":false,"promptSource":"system",\
+        "timestamp":"2026-08-17T04:00:00.000Z","message":{"role":"user",\
+        "content":"<system-reminder>inbox: 1 unread</system-reminder>"}}
+        """
+    /// What Claude Code writes AFTER a prompt and before the answer, and therefore all that is left
+    /// in view when the prompt itself is bigger than the tail window.
+    let trailingRecords = """
+        {"type":"attachment","isSidechain":false}
+        {"type":"last-prompt"}
+        {"type":"queue-operation"}
+        """
 
     /// A session bound to `id`, whose transcript was last written `age` seconds ago and holds
     /// `body`.
@@ -377,6 +392,39 @@ func runWindowRepickChecks() {
           skipped.plan == nil)
     check("…and disarmed there", skippedState.typedAt == nil)
 
+    // A META EVENT IS NOT AUTOMATICALLY THE CLEAR'S OWN (codex review of 1db9ebf): Claude Code
+    // opens real turns with them, and a window woken by one is a window with a turn starting in it.
+    // Corpus, 2026-08-17: 1,963 turns opened by nothing but a meta user event, 83 of them the first
+    // turn of a cleared window, one measured at 6.1s of silence before its first assistant event -
+    // past the 5s quiet bar, with the arm still up.
+    var wokenState = WindowRepickState()
+    wokenState.arm(typed: "/clear", transcript: "before", now: launch)
+    var wokenWatcher = session(id: "after", age: 30, body: clearRecords + "\n" + metaWakeUp)
+    let woken = tick(repick: &wokenState, watcher: &wokenWatcher)
+    check("a window woken by a system injection is a window with a turn in it", woken.plan == nil)
+    check("…and it disarms like any other used window", wokenState.typedAt == nil)
+
+    // A FIRST PROMPT TOO BIG FOR THE TAIL, which is the other blind spot: `transcriptTail` opens
+    // mid-file and drops the partial line, so a 300 KB prompt takes itself out of view and leaves
+    // the bookkeeping written after it, which reads as an empty window. Corpus holds typed prompts
+    // of 344 KB and 519 KB, and 13 windows blinded this way.
+    let hugePrompt = #"{"type":"user","isSidechain":false,"promptSource":"typed","message":"#
+        + #"{"role":"user","content":""# + String(repeating: "x", count: 300_000) + #""}}"#
+    var hugeState = WindowRepickState()
+    hugeState.arm(typed: "/clear", transcript: "before", now: launch)
+    var hugeWatcher = session(id: "after", age: 30,
+                              body: clearRecords + "\n" + hugePrompt + "\n" + trailingRecords)
+    // The fixture really does exercise the truncation, rather than passing because the prompt is
+    // still in view: what the tail alone can see reads EMPTY, and the size is what refuses it.
+    check("the tail of that window, read alone, cannot see the prompt at all",
+          !windowRepickUsed(inTail: transcriptTail(of: hugeWatcher.file!) ?? ""))
+    check("…so the reading refuses on the size instead", clearedWindow(of: hugeWatcher.file)
+          == .used)
+    let huge = tick(repick: &hugeState, watcher: &hugeWatcher)
+    check("a window holding a quarter of a megabyte is not an empty one", huge.plan == nil)
+    check("…and disarms, rather than reading the records written after the prompt",
+          hugeState.typedAt == nil)
+
     // And the records a `/clear` leaves behind are NOT a window in use, which is the other half:
     // read as messages they would turn this feature off altogether.
     var freshState = WindowRepickState()
@@ -388,20 +436,31 @@ func runWindowRepickChecks() {
     // The reading itself, over the shapes measured on this machine.
     check("the clear's own caveat and invocation are not a turn", !windowRepickUsed(inTail:
         clearRecords))
-    // Asserted to PARSE for the same reason as the tool result below: a fixture that does not is
-    // read as use by the half-written rule, so every check about it would pass while saying nothing.
-    check("the typed-prompt fixture is a line this reader can parse",
-          (try? JSONSerialization.jsonObject(with: Data(typedPrompt.utf8))) != nil)
-    check("a prompt typed into that window is", windowRepickUsed(inTail: workedWindow))
-    check("so is an answer", windowRepickUsed(inTail: clearRecords + "\n"
-        + #"{"type":"assistant","isSidechain":false,"message":{"model":"claude-opus-5"}}"#))
-    // A tool result is a `user` event carrying work rather than a person, and it has to READ as one
-    // rather than as a line that would not parse - both answer `used`, so a malformed fixture would
-    // pass this check while asserting nothing about the rule it names.
+    // THE FORGIVENESS IS TWO STRUCTURES, NOT THE META FLAG: same flag, different record, opposite
+    // answer. (And `newestMainChainMessage` next door counts BOTH, which is what holds the
+    // blocked-Stop hole shut - the two readers are deliberately opposite here.)
+    check("a meta record that is not the clear's caveat is a turn opening",
+          windowRepickUsed(inTail: clearRecords + "\n" + metaWakeUp))
+    check("…while the caveat, which carries the same flag, is not",
+          !windowRepickUsed(inTail: """
+              {"type":"user","isMeta":true,"isSidechain":false,"message":{"role":"user",\
+              "content":"<local-command-caveat>Caveat: generated by the user."}}
+              """))
+    let answerRecord =
+        #"{"type":"assistant","isSidechain":false,"message":{"model":"claude-opus-5"}}"#
     let toolResult = #"{"type":"user","isSidechain":false,"message":{"role":"user","content":"#
         + #"[{"type":"tool_result","tool_use_id":"toolu_1"}]}}"#
-    check("the tool-result fixture is a line this reader can parse",
-          (try? JSONSerialization.jsonObject(with: Data(toolResult.utf8))) != nil)
+    // EVERY FIXTURE BELOW THAT EXPECTS `used` HAS TO PARSE, because a line that will not parse is
+    // read as use by the half-written rule: a malformed one would pass its check while asserting
+    // nothing at all about the rule that check names. Two of these were malformed when written.
+    for (name, line) in [("typed prompt", typedPrompt), ("meta wake-up", metaWakeUp),
+                         ("answer", answerRecord), ("tool result", toolResult),
+                         ("huge prompt", hugePrompt)] {
+        check("the \(name) fixture is a line this reader can parse",
+              (try? JSONSerialization.jsonObject(with: Data(line.utf8))) != nil)
+    }
+    check("a prompt typed into that window is", windowRepickUsed(inTail: workedWindow))
+    check("so is an answer", windowRepickUsed(inTail: clearRecords + "\n" + answerRecord))
     check("so is a tool result, which is work rather than a person",
           windowRepickUsed(inTail: toolResult))
     // The parsed type decides, so an attachment carrying another event's JSON proves nothing: this

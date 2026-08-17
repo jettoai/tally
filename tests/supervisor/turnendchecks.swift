@@ -155,6 +155,16 @@ func runTurnEndChecks() {
     check("a line still half written is skipped rather than trusted",
           newestIs(transcriptText(turn)
               + #"{"isSidechain":false,"type":"assistant","timest"#, -6))
+    // AND A META USER EVENT COUNTS, which is the one property holding the blocked-Stop hole shut: a
+    // `Stop` another hook blocks is answered by Claude Code with the block reason as a main-chain
+    // `isMeta` user event, and the turn then continues. Skipping it - the way the neighbouring
+    // `lastUserTurnAt` does, and the way a "let us make the two walks agree" cleanup would - reports
+    // that stop attempt as a finished turn and types into a live one.
+    let blocked = turn + [
+        #"{"isSidechain":false,"type":"user","isMeta":true,"timestamp":"\#(at(-1))","message":{"role":"user","content":"Stop hook feedback:\n- inbox gate: 1 unread"}}"#,
+    ]
+    check("a blocked stop's own feedback record is this conversation still talking",
+          newestIs(transcriptText(blocked), -1))
     // A transcript a `/clear` has just started: modes and attachments, and not one message.
     check("a tail with no message in it says so rather than inventing one",
           newestMainChainMessage(inTail: transcriptText([
@@ -279,6 +289,28 @@ func runTurnEndChecks() {
           after.state == .idle && after.quiet == .quiet)
     check("…and the line is typed with nothing from this channel at all",
           tick("7024", board: after, turnEnded: false) == ["/clear"])
+
+    // MARK: - The wiring, which no fixture above can reach
+
+    // EVERY CHECK IN THIS FILE FEEDS THE ANSWER IN, so all of them stay green with the poll loop
+    // handing the gate a constant: the channel would then be a feature that silently never fires,
+    // which is the failure `SessionRosterStore.install()` names about a missed registration. The
+    // loop itself is a `while true` inside a process that spawns children, so the source carries it
+    // - the technique the preventive station and the self-update fold already use.
+    let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("the poll loop was really read", loop.contains("windowRepick.arm(typed: applySessionInput("))
+    // READ OFF THIS CALL rather than off the whole file, for the reason the neighbouring suite
+    // learned by mutation: a file-wide search for an argument name is satisfied by somebody else's
+    // call and says nothing about this one.
+    if let start = loop.range(of: "windowRepick.arm(typed: applySessionInput("),
+       let end = loop.range(of: "transcript: watcher.transcriptSessionID)",
+                            range: start.upperBound ..< loop.endIndex) {
+        let call = String(loop[start.lowerBound ..< end.upperBound])
+        check("the gate is asked this session's own turn-end fact rather than a constant",
+              call.contains("turnEnded: { sessionTurnEnded(pid: supervisorPID, watcher: watcher) }"))
+    } else {
+        check("the gate is asked this session's own turn-end fact rather than a constant", false)
+    }
 
     try? FileManager.default.removeItem(at: root)
 }

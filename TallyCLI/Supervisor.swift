@@ -484,8 +484,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // What it TYPED arms the window repick above: a `/clear` that reached the composer is
             // this session's window closing, and the next tick asks Claude Code itself whether it
             // really did (WindowRepick.swift).
+            // And whether Claude Code has SAID this turn is over, which is the difference between
+            // typing at the end of a turn and typing 30 seconds after it (SessionTurnEnd.swift).
+            // A closure rather than a value: it reads a file and a transcript tail, and only a tick
+            // with a request pending has any use for the answer.
             windowRepick.arm(typed: applySessionInput(
                 &sessionInput, session: board.state, quiet: board.quiet,
+                turnEnded: { sessionTurnEnded(pid: supervisorPID, watcher: watcher) },
                 keyboardIdle: keyboard.idle(sessionInputKeyboardQuietSeconds),
                 relaunchPlanned: replacingChild), transcript: watcher.transcriptSessionID)
 

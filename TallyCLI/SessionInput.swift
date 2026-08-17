@@ -194,9 +194,15 @@ func sessionInputExpired(epoch: Int, now: Date, ttl: TimeInterval = sessionInput
 /// expired unserved (`~/.tally/logs/input.log`, 2026-08-16/17), and the ones that got through did so
 /// on a retry. Albert's rule, in his words: an agent running is not a reason a window cannot be
 /// cleared, because the hand-over file already says what to dispatch again.
+///
+/// A TURN THAT SAID IT ENDED IS THE OTHER WAY PAST `working`, and it is what makes this gate act at
+/// the moment the turn ends rather than 30 seconds later. `turnEnded` is the fact channel Claude
+/// Code's own `Stop` hook leaves (SessionTurnEnd.swift): it is checked for the conversation it names
+/// and for anything written since, and it is false on every machine that has not registered those
+/// hooks, where the silence bar decides alone exactly as it did.
 func sessionInputDecision(request: SessionInputRequest?, servedEpoch: Int, state: SupervisedState,
-                          quiet: SessionQuiet, keyboardIdle: Bool, relaunchPlanned: Bool,
-                          now: Date = Date()) -> SessionInputDecision {
+                          quiet: SessionQuiet, turnEnded: Bool, keyboardIdle: Bool,
+                          relaunchPlanned: Bool, now: Date = Date()) -> SessionInputDecision {
     // Strictly newer than what this supervisor has served, the rule every request file on this
     // track follows: pids are reused and a served request is not unlinked until after it is served,
     // so "newer" is the only thing that makes a decision idempotent.
@@ -208,8 +214,8 @@ func sessionInputDecision(request: SessionInputRequest?, servedEpoch: Int, state
     guard bytes <= sessionInputMaxBytes else {
         return .refuse(.refusedTooLong, "\(bytes) bytes, limit \(sessionInputMaxBytes)")
     }
-    let hold = sessionInputHold(state: state, quiet: quiet, keyboardIdle: keyboardIdle,
-                                relaunchPlanned: relaunchPlanned)
+    let hold = sessionInputHold(state: state, quiet: quiet, turnEnded: turnEnded,
+                                keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned)
     guard !sessionInputExpired(epoch: request.epoch, now: now) else {
         // WHAT STOOD AT THE END, named rather than summarised as the state word. A session that
         // never reported anything gets its own outcome, because that hold is the one that would
@@ -237,16 +243,24 @@ func sessionInputDecision(request: SessionInputRequest?, servedEpoch: Int, state
 /// session is the dangerous one, and typing into a child that is about to be SIGTERMed loses the
 /// line while reporting it delivered (codex review of 18b3174). The keyboard comes last because it
 /// is the most transient of the four: it is asked about the instant this tick runs.
-func sessionInputHold(state: SupervisedState, quiet: SessionQuiet, keyboardIdle: Bool,
-                      relaunchPlanned: Bool) -> SessionInputHold? {
+///
+/// `turnEnded` REACHES EXACTLY ONE ROW, the `working` one, and nothing else here bends to it. It
+/// says the turn is over; it says nothing about somebody typing in that terminal, about a restart
+/// this tick is going to perform, or about a session that has never reported what it is doing - and
+/// a fact that let a line past all four would be a way around the gate rather than a faster route
+/// through it.
+func sessionInputHold(state: SupervisedState, quiet: SessionQuiet, turnEnded: Bool,
+                      keyboardIdle: Bool, relaunchPlanned: Bool) -> SessionInputHold? {
     if relaunchPlanned { return .restart }
     switch state {
     case .unknown:
         return .notReporting
     case .working:
         // The one state that depends on WHY it is working: dispatched work writing in the
-        // background is not this conversation being mid-turn (see the note above the decision).
-        guard quiet == .subagentsWriting else { return .turn }
+        // background is not this conversation being mid-turn (see the note above the decision),
+        // and neither is a turn Claude Code has told us it finished - the board is still right to
+        // call the session working, and its own 30s bar is untouched by this.
+        guard quiet == .subagentsWriting || turnEnded else { return .turn }
     case .blocked, .idle:
         break
     }
@@ -349,10 +363,15 @@ func injectSessionInput(_ text: String, tty: String = "/dev/tty",
 /// closes, which is the cheapest moment in its life to leave a dying account. It is the TYPED line
 /// rather than the requested one on purpose - a request that waited, expired or was refused closed
 /// no window, and arming on it would leave a mover waiting for a clear that never happened.
+///
+/// `turnEnded` is a QUESTION RATHER THAN AN ANSWER, and that is what keeps this feature free: it
+/// reads a file and the tail of a transcript (SessionTurnEnd.swift), and it is asked only after the
+/// line below has established that there is a request to serve at all. On the overwhelming majority
+/// of ticks there is none and nothing is read.
 @discardableResult
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
-                       quiet: SessionQuiet, keyboardIdle: Bool, relaunchPlanned: Bool,
-                       dir: URL = sessionInputDir,
+                       quiet: SessionQuiet, turnEnded: () -> Bool, keyboardIdle: Bool,
+                       relaunchPlanned: Bool, dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
                        inject: (String) -> SessionInputInjection = {
                            injectSessionInput($0)
@@ -366,7 +385,7 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     /// The line that reached the terminal, set on the one branch where that happened.
     var typed: String?
     switch sessionInputDecision(request: request, servedEpoch: state.servedEpoch, state: session,
-                                quiet: quiet, keyboardIdle: keyboardIdle,
+                                quiet: quiet, turnEnded: turnEnded(), keyboardIdle: keyboardIdle,
                                 relaunchPlanned: relaunchPlanned, now: now) {
     // NOTHING IS WRITTEN ON EITHER, which is what makes a wait a wait: the request stays on disk
     // exactly as it was, no answer appears for a caller to read, and `servedEpoch` does not move.

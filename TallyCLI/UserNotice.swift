@@ -68,28 +68,37 @@ func userNoticeFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 // So this pair is millisecond-precise and symmetric. Its neighbours are unaffected: nothing compares
 // `SessionStateRecord.since` against another clock (it is rendered as an age and preserved by value),
 // and `PendingNotice.since` is the same.
+//
+// SHARED WITH THE OTHER HOOK EVENT ON THIS TRACK rather than copied into it: `SessionTurnEnd.at`
+// is compared against instants read out of the transcript for exactly this reason, and a second
+// spelling of "the fractional clock" is how one of the two comes to be written in whole seconds
+// while both files look right.
 
 /// Built per call rather than held in a global, which is the house pattern here
 /// (`recordManifest` does the same) and the only one this target's strict concurrency accepts:
 /// `ISO8601DateFormatter` is not `Sendable`, so a global one is a shared mutable box the compiler
 /// refuses. It costs an allocation on a path that runs once per hook and once per 2s tick.
-private func fractionalNoticeFormatter() -> ISO8601DateFormatter {
+///
+/// File-scoped, unlike the two functions under it: what the other document on this track needs is
+/// the pair of coding strategies, and a formatter a second file can reach for is how a third
+/// spelling of the same clock gets written.
+private func fractionalInstantFormatter() -> ISO8601DateFormatter {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter
 }
 
-private func encodeNoticeDate(_ date: Date, _ encoder: Encoder) throws {
+func encodeFractionalInstant(_ date: Date, _ encoder: Encoder) throws {
     var container = encoder.singleValueContainer()
-    try container.encode(fractionalNoticeFormatter().string(from: date))
+    try container.encode(fractionalInstantFormatter().string(from: date))
 }
 
 /// The fractional form first, then the plain one: a notice on disk across the upgrade that
 /// introduced the fractional clock is at most one wait old, but reading it as unparseable would
 /// DROP that wait, and dropping a wait is the failure this whole file exists to prevent.
-private func decodeNoticeDate(_ decoder: Decoder) throws -> Date {
+func decodeFractionalInstant(_ decoder: Decoder) throws -> Date {
     let raw = try decoder.singleValueContainer().decode(String.self)
-    guard let date = fractionalNoticeFormatter().date(from: raw)
+    guard let date = fractionalInstantFormatter().date(from: raw)
         ?? ISO8601DateFormatter().date(from: raw)
     else {
         throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
@@ -103,7 +112,7 @@ private func decodeNoticeDate(_ decoder: Decoder) throws -> Date {
 func writeUserNotice(_ notice: UserNotice, pid: String, dir: URL = supervisorStateDir) {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .custom(encodeNoticeDate)
+    encoder.dateEncodingStrategy = .custom(encodeFractionalInstant)
     guard let data = try? encoder.encode(notice) else { return }
     try? data.write(to: userNoticeFile(pid: pid, dir: dir), options: .atomic)
 }
@@ -148,7 +157,7 @@ func recordUserNotice(_ notice: UserNotice, pid: String, dir: URL = supervisorSt
 func readUserNotice(pid: String, dir: URL = supervisorStateDir) -> UserNotice? {
     guard let data = try? Data(contentsOf: userNoticeFile(pid: pid, dir: dir)) else { return nil }
     let decoder = JSONDecoder()
-    decoder.dateDecodingStrategy = .custom(decodeNoticeDate)
+    decoder.dateDecodingStrategy = .custom(decodeFractionalInstant)
     return try? decoder.decode(UserNotice.self, from: data)
 }
 

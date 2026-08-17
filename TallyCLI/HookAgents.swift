@@ -27,9 +27,20 @@ func runHookAgents(args: [String]) -> Int32 {
     // who they are for this to decide anything, so an event with no id, or a supervisor too old to
     // publish which conversation it watches, reads as "cannot say" and is recorded: the same
     // fail-open every other witness on this track takes.
-    if let session = payload?["session_id"] as? String, isTranscriptSessionID(session),
-       let watching = readSessionContext(pid: supervisor)?.transcriptSessionID, watching != session {
+    let session = (payload?["session_id"] as? String).flatMap {
+        isTranscriptSessionID($0) ? $0 : nil
+    }
+    if let session, let watching = readSessionContext(pid: supervisor)?.transcriptSessionID,
+       watching != session {
         return 0
+    }
+    // THE TURN BOUNDARY IS A FACT WORTH LEAVING ON ITS OWN, beside the roster this event is folded
+    // into: `Stop` is the moment `tally session send` has always been waiting for and had to infer
+    // from 30 seconds of silence (SessionTurnEnd.swift carries the whole reasoning, the fail-open
+    // included). Written FIRST, so the instant recorded is as close to the boundary as this process
+    // can make it: the fold below may queue on the roster lock for up to a quarter of a second.
+    if let ended = turnEndEvent(event, sessionID: session) {
+        writeSessionTurnEnd(ended, pid: supervisor)
     }
     let claudeCode = ProcessInfo.processInfo.environment[claudeCodeExecPathVariable]
     // THE READ AND THE WRITE ARE ONE ACT (`recordAgentEvent`), never two here. A fan-out starts its

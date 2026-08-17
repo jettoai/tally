@@ -720,6 +720,7 @@ runFootprintAlertChecks()
 runFootprintTrendChecks()
 runSessionCardEdgeChecks()
 runAgentRosterChecks()
+runTurnEndChecks()
 runSessionInputChecks()
 runSessionSendChecks()
 

@@ -98,11 +98,12 @@ func runSessionInputChecks() {
     /// this distinction reads as it did: a `working` session is one mid-turn (`.busy`) and every
     /// other state is quiet. The checks that ARE about it pass `.subagentsWriting` explicitly.
     func decide(_ pending: SessionInputRequest?, served: Int = 0, state: SupervisedState = .idle,
-                quiet: SessionQuiet? = nil,
+                quiet: SessionQuiet? = nil, turnEnded: Bool = false,
                 keyboardIdle: Bool = true, relaunchPlanned: Bool = false,
                 at offset: TimeInterval = 1) -> SessionInputDecision {
         sessionInputDecision(request: pending, servedEpoch: served, state: state,
                              quiet: quiet ?? (state == .working ? .busy : .quiet),
+                             turnEnded: turnEnded,
                              keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
                              now: t0.addingTimeInterval(offset))
     }
@@ -146,15 +147,15 @@ func runSessionInputChecks() {
     // The table is one function, asked directly here so the precedence is pinned where the two
     // readers share it rather than only through the decision that calls it.
     check("nothing standing in the way is what an injection means",
-          sessionInputHold(state: .idle, quiet: .quiet, keyboardIdle: true,
+          sessionInputHold(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                            relaunchPlanned: false) == nil
-              && sessionInputHold(state: .blocked, quiet: .quiet, keyboardIdle: true,
-                                  relaunchPlanned: false) == nil)
+              && sessionInputHold(state: .blocked, quiet: .quiet, turnEnded: false,
+                                  keyboardIdle: true, relaunchPlanned: false) == nil)
     check("…and a pending restart outranks every reading of the state",
-          sessionInputHold(state: .idle, quiet: .quiet, keyboardIdle: true,
+          sessionInputHold(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                            relaunchPlanned: true) == .restart
-              && sessionInputHold(state: .unknown, quiet: .quiet, keyboardIdle: true,
-                                  relaunchPlanned: true) == .restart)
+              && sessionInputHold(state: .unknown, quiet: .quiet, turnEnded: false,
+                                  keyboardIdle: true, relaunchPlanned: true) == .restart)
     // THE GATE THE STATE CANNOT SHOW: this tick has already decided to terminate the child, and an
     // idle session is precisely what those planners were waiting for - so the reading that looks
     // most ready is the one that must not be typed into (codex review of 18b3174).
@@ -248,13 +249,13 @@ func runSessionInputChecks() {
     /// One tick against a session key of its own, with the injection recorded rather than performed.
     /// Returns what was typed, so a check can assert both the outcome and the bytes. One value per
     /// injection rather than a pair: whether Return follows is no longer a question anybody asks.
-    func tick(state: SupervisedState, quiet: SessionQuiet? = nil, keyboardIdle: Bool = true,
-              relaunchPlanned: Bool = false,
+    func tick(state: SupervisedState, quiet: SessionQuiet? = nil, turnEnded: Bool = false,
+              keyboardIdle: Bool = true, relaunchPlanned: Bool = false,
               at offset: TimeInterval = 1, input: inout SessionInputState,
               inject: @escaping (String) -> SessionInputInjection = { _ in .done }) -> [String] {
         var typed: [String] = []
         applySessionInput(&input, session: state, quiet: quiet ?? (state == .working ? .busy
-                              : .quiet), keyboardIdle: keyboardIdle,
+                              : .quiet), turnEnded: { turnEnded }, keyboardIdle: keyboardIdle,
                           relaunchPlanned: relaunchPlanned, dir: dir, log: log,
                           now: t0.addingTimeInterval(offset)) { text in
             typed.append(text)
@@ -448,8 +449,8 @@ func runSessionInputChecks() {
     var lost = SessionInputState(sessionKey: lostKey, servedEpoch: 0)
     try? writeSessionInputRequest(request("/clear"), sessionKey: lostKey, dir: dir)
     var lostTyped: [String] = []
-    applySessionInput(&lost, session: .idle, quiet: .quiet, keyboardIdle: true,
-                      relaunchPlanned: false, dir: dir,
+    applySessionInput(&lost, session: .idle, quiet: .quiet, turnEnded: { false },
+                      keyboardIdle: true, relaunchPlanned: false, dir: dir,
                       log: lostLog, now: t0.addingTimeInterval(1)) { text in
         lostTyped.append(text)
         return .done
@@ -474,8 +475,8 @@ func runSessionInputChecks() {
               && readSessionInputRequest(sessionKey: lostKey, dir: dir) == nil)
     try? writeSessionInputRequest(request("/clear"), sessionKey: lostKey, dir: dir)
     var lostAgain: [String] = []
-    applySessionInput(&lost, session: .idle, quiet: .quiet, keyboardIdle: true,
-                      relaunchPlanned: false, dir: dir,
+    applySessionInput(&lost, session: .idle, quiet: .quiet, turnEnded: { false },
+                      keyboardIdle: true, relaunchPlanned: false, dir: dir,
                       log: lostLog, now: t0.addingTimeInterval(2)) { text in
         lostAgain.append(text)
         return .done

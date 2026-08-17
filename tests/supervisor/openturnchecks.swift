@@ -317,7 +317,8 @@ func runOpenTurnChecks() {
           oldTurnWithAgents.quietness(followIdleSeconds) == .busy)
     check("…and the input gate holds it as that session's own turn",
           sessionInputHold(state: .working, quiet: oldTurnWithAgents.quietness(followIdleSeconds),
-                           keyboardIdle: true, relaunchPlanned: false) == .turn)
+                           turnEnded: false, keyboardIdle: true,
+                           relaunchPlanned: false) == .turn)
     var handedOff = watcherWithTurn(open: true, callAge: openTurnMaxSeconds + 120,
                                     childLaunchedAt: Date())
     dropSubagentWrite(beside: handedOff.file!, age: 5)

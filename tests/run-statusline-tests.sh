@@ -15,7 +15,7 @@ out=$(mktemp -d)/run
 swiftc -o "$out" tests/statusline/main.swift tests/statusline/completionchecks.swift \
   TallyCLI/Statusline.swift TallyCLI/Usage.swift TallyCLI/Completion.swift TallyCLI/CompletionData.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift \
   TallyCLI/AccountComfort.swift TallyCLI/SupervisorRuntime.swift TallyCLI/RelaunchPlan.swift TallyCLI/ReloadRequest.swift \
-  TallyCLI/DriftMonitor.swift TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/SessionContext.swift TallyCLI/AgentRoster.swift \
+  TallyCLI/DriftMonitor.swift TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/SessionContext.swift TallyCLI/AgentRoster.swift \
   TallyCLI/SessionSwitch.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift TallyCLI/GitRepoRoot.swift TallyCLI/Reload.swift \
   TallyCLI/LaunchFlags.swift TallyCLI/ProviderExecutable.swift TallyCLI/ResumePrompt.swift \
   TallyCLI/TranscriptWatcher.swift TallyCLI/SessionQuiet.swift TallyCLI/TranscriptSignals.swift TallyCLI/NativeModelCommand.swift Tally/Core/LaunchAxisNames.swift TallyCLI/TranscriptFork.swift TallyCLI/RequestTranscript.swift TallyCLI/TranscriptIdentity.swift TallyCLI/OpenTurn.swift \

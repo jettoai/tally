@@ -445,6 +445,7 @@ func runSessionSendChecks() {
                                   sessionKey: "9211", dir: dir)
     var agentTyped: [String] = []
     applySessionInput(&agentInput, session: withAgents.state, quiet: withAgents.quiet,
+                      turnEnded: { false },
                       keyboardIdle: true, relaunchPlanned: false, dir: dir,
                       log: dir.appendingPathComponent("dispatch.log")) { text in
         agentTyped.append(text)

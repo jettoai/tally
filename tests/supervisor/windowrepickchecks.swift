@@ -361,7 +361,8 @@ func runWindowRepickChecks() {
         try? writeSessionInputRequest(
             SessionInputRequest(epoch: Int(Date().timeIntervalSince1970 * 1000), text: text),
             sessionKey: "9910", dir: inputDir)
-        return applySessionInput(&input, session: state, quiet: quiet, keyboardIdle: true,
+        return applySessionInput(&input, session: state, quiet: quiet, turnEnded: { false },
+                                 keyboardIdle: true,
                                  relaunchPlanned: false, dir: inputDir, log: inputLog,
                                  inject: { _ in inject })
     }
@@ -438,7 +439,8 @@ func runWindowRepickChecks() {
           liveFanOut.quietness(followIdleSeconds) == .busy)
     check("…and the input gate still holds the line as that turn",
           sessionInputHold(state: .working, quiet: liveFanOut.quietness(followIdleSeconds),
-                           keyboardIdle: true, relaunchPlanned: false) == .turn)
+                           turnEnded: false, keyboardIdle: true,
+                           relaunchPlanned: false) == .turn)
 
     // The same bytes on disk, one relaunch later. The only thing that differs is WHEN the child
     // running now started, which is the dimension the reading was missing.
@@ -448,7 +450,7 @@ func runWindowRepickChecks() {
           afterHandoff.quietness(followIdleSeconds) == .quiet)
     check("…so nothing holds the line",
           sessionInputHold(state: .idle, quiet: afterHandoff.quietness(followIdleSeconds),
-                           keyboardIdle: true, relaunchPlanned: false) == nil)
+                           turnEnded: false, keyboardIdle: true, relaunchPlanned: false) == nil)
 
     // WHAT THE CALLER SAW, which is the reason this is a defect rather than a slow tick. Both ends
     // of it, through the real publisher and the real decision.
@@ -466,8 +468,8 @@ func runWindowRepickChecks() {
         return sessionInputDecision(
             request: SessionInputRequest(epoch: Int(asked.timeIntervalSince1970 * 1000),
                                          text: "/clear"),
-            servedEpoch: 0, state: board.state, quiet: board.quiet, keyboardIdle: true,
-            relaunchPlanned: false)
+            servedEpoch: 0, state: board.state, quiet: board.quiet, turnEnded: false,
+            keyboardIdle: true, relaunchPlanned: false)
     }
     var beforeFix = residueWatcher(callAge: openTurnMaxSeconds + 120, subagentAge: 5,
                                    childLaunchedAt: .distantPast)

@@ -69,7 +69,7 @@ func pendingNoticeFile(pid: String, dir: URL = supervisorStateDir) -> URL {
 let supervisorStateSuffixes = [pendingNoticeSuffix, sessionContextSuffix, supervisorCwdSuffix,
                                supervisorChildSuffix, supervisorAccountSuffix,
                                transcriptIdentitySuffix, sessionStateSuffix, userNoticeSuffix,
-                               sessionAgentsSuffix, sessionAgentsLockSuffix]
+                               sessionAgentsSuffix, sessionAgentsLockSuffix, sessionTurnEndSuffix]
 
 func supervisorStatePid(ofFile name: String) -> pid_t? {
     if let pid = pid_t(name) { return pid }

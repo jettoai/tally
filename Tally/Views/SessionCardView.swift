@@ -25,11 +25,11 @@ struct SessionCardView: View {
     /// never blinks out under the very hand that is dragging by it.
     var handleProminent: Bool = false
 
-    @State private var isHovering = false
+    @State var isHovering = false
 
     /// Colour dot diameter: enough that four states are told apart at a glance, small enough that
     /// the card's first line still reads as a line of text rather than as a bullet list.
-    private static let stateDotSize: CGFloat = 7
+    static let stateDotSize: CGFloat = 7
     /// What a card that cannot report itself is drawn at. Far enough down to read as "this one is
     /// quieter than the others" at a glance, not so far that its own text stops being legible -
     /// the card is still the way to that terminal.
@@ -62,33 +62,29 @@ struct SessionCardView: View {
                 // two different left edges, which reads worse than the catalog's generic glyph
                 // on the one card whose account id has no head.
                 sessionCardLine { sessionIdentityRow }
-                // THE LAST LINE, AND ONE OF THEM: the two sentences a card can end on take turns in
-                // the same slot rather than stacking. EVERY CARD THE SAME HEIGHT is worth more than
-                // the stats are: a waiting card that carried both stood a line taller than the ones
-                // beside it, and a grid of those reads as a ragged page rather than as hierarchy. So
-                // the wait takes the slot on the card that has one - one line of it, red, where a
-                // glance at the grid finds it - and the figures it displaced are simply not shown.
+                // THE LAST LINE, AND EVERY CARD NOW SPENDS IT THE SAME WAY. The waiting card used to
+                // take this slot for the reason it is waiting, drawn in red and truncated at the
+                // tail, and give up its own figures to do it. It does not any more: what the reason
+                // said in a clipped line is said in full on a hover of the state word instead, and
+                // the figures every other card prints here come back (Albert, 2026-08-17).
                 //
-                // NOTHING ON THIS CARD ANSWERS A HOVER, which is where those figures, and the rest
-                // of a reason too long for the line, used to go. The board is where the pointer
-                // WAITS between jumps, so a callout opening under it covers the cards beside it for
-                // as long as the hand rests there; that costs more than a truncated line, and the
-                // whole of a wait is in the terminal this card is the way to (2026-08-15). What is
-                // banned is the LAYER, not the meaning: a card still tells VoiceOver what a click
-                // does, and says it in its own hint rather than through a callout's (see below).
+                // FOUR CHANNELS ALREADY CARRIED THE WAIT WITHOUT IT, which is what made the line
+                // affordable to lose rather than merely long: the dot, the word `blocked`, the age
+                // ticking beside it and the card's own red edge. A fifth statement of the same fact,
+                // spending the one line on the card that says what the SESSION has, was the cheapest
+                // of the five to give up - and it was also the one that could not say the whole
+                // thing, being a sentence from a hook in a 236pt column.
                 //
-                // Written on `sessionIsWaiting` rather than on the reason being there, so the choice
-                // is the card's state and not an accident of what got published. A blocked session
-                // that named no reason keeps its stats: an empty slot would be the ragged card
-                // again, for a sentence nobody wrote.
+                // WHICH IS THE ONE HOVER THIS CARD ANSWERS, and the ban it partly lifts is worth
+                // stating rather than quietly dropping. The board was given no callouts at all
+                // (2026-08-15) because the pointer WAITS here between jumps, so a layer opening
+                // under a resting hand covers the cards beside it. That is still true of the cards'
+                // figures, which stay unhovered; what earns the exception is that this reason has
+                // nowhere else to be said in full, and that the target is one word on the one card
+                // in a state a person is being asked to act on. Nothing else on the card takes a
+                // hover.
                 sessionCardLine {
-                    if sessionIsWaiting, let reason = sessionReason {
-                        Text(reason)
-                            .font(.caption2)
-                            .foregroundStyle(TallyColor.critical)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    } else if sessionIsLoading {
+                    if sessionIsLoading {
                         // The mini indicator is 10pt against the 13pt line box the slot is measured
                         // at, so it turns inside the line rather than setting the card's height.
                         ProgressView().controlSize(.mini)
@@ -144,8 +140,10 @@ struct SessionCardView: View {
         // WHAT A CLICK DOES, SPOKEN. VoiceOver reads what the session is off the labels above; the
         // one thing it cannot see is that the whole card is the way to that terminal. The callout
         // used to carry this line and handed it to a hint on its way past (`TallyTooltip`), so
-        // taking the callout off took the sentence with it. A hint rather than `.help()`, which is
-        // an NSToolTip: the layer is what this board bans, never the meaning.
+        // taking the callout off took the sentence with it. Stated here rather than left to a
+        // callout even now that the card has one: this is a fact about the WHOLE card, and the one
+        // hover on it belongs to a single word (`sessionStateWord`). A hint rather than `.help()`,
+        // which is an NSToolTip - Tally's own callout is what this surface speaks in.
         .accessibilityHint(Text(L("Click to bring its terminal to the front")))
         // Asked only where the answer is drawn, exactly as the account card asks it: a card with no
         // grip on it would be re-rendering on every pointer crossing for nothing.
@@ -176,10 +174,11 @@ struct SessionCardView: View {
 
     /// Whether this is the card that is ASKING for somebody, which is the only difference left
     /// between two of them. It names its state in words, ticks the age of the wait on its first
-    /// line, and spends its last line on what the wait is rather than on what the session has
-    /// spent; everything else about it - its cell, its width, its line COUNT - is what every card
-    /// has.
-    private var sessionIsWaiting: Bool { row.state == .blocked }
+    /// line, and answers a hover of that word with what it is waiting FOR; everything else about
+    /// it - its cell, its width, its lines and the figures on them - is what every card has. It
+    /// used to spend its last line on the wait as well, and that line is what the hover replaced
+    /// (`body`).
+    var sessionIsWaiting: Bool { row.state == .blocked }
 
     /// Whether this card knows nothing about its session YET, as opposed to being one that has
     /// nothing to say. A supervisor writes its state and its sidecars on its first tick, so for
@@ -197,74 +196,6 @@ struct SessionCardView: View {
     /// That card is quiet on purpose - the whole of what the board says about it is what it knows.
     private var sessionIsLoading: Bool {
         !row.isReporting && sessionIdentityLine == nil && sessionStatsLine(now: .now) == nil
-    }
-
-    /// The card's first line: what this session is, and - on the waiting card - what it is doing and
-    /// for how long. Every other card gives the whole line to the name, which truncates at the tail:
-    /// these sit side by side, and a name squeezed between two other things is how a column of cards
-    /// stops being scannable. The waiting one spends that room on the two things a wait is read for.
-    private var sessionCardHeadline: some View {
-        HStack(spacing: 6) {
-            stateDot
-            Text(row.title).font(.callout).lineLimit(1).truncationMode(.tail)
-            Spacer(minLength: 6)
-            if sessionIsWaiting {
-                // Reporting, and red, without asking: `blocked` can only come from a published
-                // record (`SessionRow.state`), so the card carrying this word always has one.
-                Text(L(row.state.rawValue))
-                    .font(.caption2)
-                    .foregroundStyle(TallyColor.critical)
-                sessionDuration
-            }
-            if showsDragHandle { dragHandle }
-        }
-    }
-
-    /// The grip: the same glyph the account cards carry, at the same rest brightness, for the same
-    /// reason (`AccountCardView`). Resident but dim rather than hover-only - an affordance that is
-    /// not there until the pointer arrives is one nobody finds, and the space it would leave empty
-    /// reads as imbalance (2026-07-19). It sits at the trailing end of the headline because that is
-    /// where the account cards keep theirs, after the state word and the age on the card that has
-    /// them: the name still owns the leading edge of every card on the board.
-    ///
-    /// The one place it parts from that pattern is the callout: the account card names the gesture
-    /// under the pointer, this one names it to VoiceOver only, because no part of a session card may
-    /// open a layer over the board (`body`). The glyph itself still answers the hover by brightening,
-    /// which is the affordance the words were only repeating.
-    private var dragHandle: some View {
-        Image(systemName: "line.3.horizontal")
-            .font(.caption)
-            .foregroundStyle(.tertiary)
-            .opacity(isHovering || handleProminent ? 1 : 0.35)
-            .accessibilityLabel(L("Drag to reorder"))
-    }
-
-    /// How long this has been true, ticking.
-    ///
-    /// THE ONE THING ON THIS CARD THAT MOVES WITHOUT ANYTHING CHANGING. The store deliberately
-    /// assigns nothing when a scan finds the board unchanged (a re-render of every surface twice a
-    /// second, otherwise), so an age computed in the body would freeze at the last state change and
-    /// read as a session stuck at "2m" for an hour. A timeline is the SwiftUI answer to "re-render
-    /// because time passed": it drives only this Text, and only while the surface is on screen.
-    ///
-    /// ONCE A SECOND, WHICH IS THE FINEST THING THE TEXT SAYS: under a minute this counts in
-    /// seconds (`sessionAge`), and a two second beat printed those as 1s, 3s, 5s - a clock that
-    /// skips is read as a clock that is wrong. Past a minute the text moves in minutes, so the extra
-    /// tick recomputes the same string and puts nothing new on screen. It is the rate the panel's
-    /// other running clock already keeps (`PopoverHeaderView`).
-    ///
-    /// Nothing at all for a session that has published no state: it has no moment to count from,
-    /// and counting from the file's own age would be dating the supervisor rather than the thing on
-    /// screen (that card says when it last MOVED instead - see `sessionStatsLine`).
-    @ViewBuilder
-    private var sessionDuration: some View {
-        if let since = row.since {
-            TimelineView(.periodic(from: .now, by: 1)) { tick in
-                Text(sessionAge(since, now: tick.date))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-            }
-        }
     }
 
     /// The card's second line: who is serving this session, and what it is HOLDING OPEN.
@@ -390,9 +321,11 @@ struct SessionCardView: View {
 
     /// The time the stats line has room to say. An ordinary card has no state word and no duration
     /// on its first line, so its own duration comes here; the waiting card already ticks one up
-    /// there and gives this slot to when the conversation last MOVED instead (a line that is drawn
-    /// only on the blocked card that named no reason - `body`). A session publishing no state has no
-    /// duration to give either way, and answers the same question the only way it can.
+    /// there and gives this slot to when the conversation last MOVED instead. That used to be drawn
+    /// only on a blocked card whose wait named no reason, every other one having given the slot to
+    /// the reason itself; the reason moved to a hover and this is now on every waiting card
+    /// (`body`). A session publishing no state has no duration to give either way, and answers the
+    /// same question the only way it can.
     private func sessionTime(now: Date) -> String? {
         if !sessionIsWaiting, let since = row.since { return sessionAge(since, now: now) }
         return row.lastActivity.map { sessionAge($0, now: now) + " " + L("ago") }
@@ -407,67 +340,22 @@ struct SessionCardView: View {
 
     /// What a blocked session is waiting for. ONLY while it is blocked: `reason` is what Claude Code
     /// said at the moment it asked, and a sentence still standing under a session that has moved on
-    /// would be worse than no sentence at all. Its callers ask `sessionIsWaiting` first all the
-    /// same, because there the state is what decides which line a card ends on - this guard is the
-    /// belt, not the decision.
-    private var sessionReason: String? {
+    /// would be worse than no sentence at all.
+    ///
+    /// WHICH OF THE TWO TESTS BELOW IS DECIDING ANYTHING HAS CHANGED. A line on the card used to be
+    /// written on `sessionIsWaiting`, so the state test here merely agreed with the call site and
+    /// the reason test was what remained; now the only reader is a hover ON the state word, which is
+    /// already inside that same `if` (`sessionStateWord`). So the state test is the belt - kept
+    /// because a second reader arriving outside that branch would otherwise print what a session
+    /// said before it moved on - and the reason test is the whole decision: a callout with nothing
+    /// in it is not a target, so a wait nobody explained gets the word and no hover at all.
+    var sessionReason: String? {
         guard sessionIsWaiting,
               let reason = row.reason?.trimmingCharacters(in: .whitespacesAndNewlines),
               !reason.isEmpty else { return nil }
         return reason
     }
 
-    /// One dot per state, along the axis this board is actually read for: does this one need me?
-    /// Red for the session that wants somebody, green for the one that is running and needs nobody,
-    /// grey for at rest, and a HOLLOW ring for "cannot say" - which is both the published `unknown`
-    /// and a session that has published nothing (the latter reads as `unknown` by construction -
-    /// `SessionRow.state`), because both are an absence of information rather than a further
-    /// condition. Red against green is the strongest contrasting pair available at 7pt, and those
-    /// two are the ends of that question.
-    ///
-    /// WORKING WAS PURPLE, AND THE PURPLE WAS THE MISPLACED ONE. `TallyColor.ai` means "Tally is
-    /// steering this" (the smart pick's badge, the status line's mark), and that is true of EVERY
-    /// supervised card on this board, the idle ones drawn in grey included. Spending the identity
-    /// accent on one activity state overloaded it, and at 7pt it made the board's one real
-    /// distinction two deep warm tones apart.
-    ///
-    /// The standing objection to green was that the meter palette is one tab away, so a green dot
-    /// would read as "this session has room". It does not: the meter's sage fills a bar (a
-    /// continuous quantity), this fills a dot in a set of discrete categories, and a session card
-    /// carries no quota at all. What had to be avoided was the sage VALUE, which is why this is
-    /// `TallyColor.live` rather than `TallyColor.normal`.
-    ///
-    /// AND COLOUR IS NOT THE ONLY CARRIER, which is the precondition for putting red beside green:
-    /// a viewer who cannot separate those two hues still gets the waiting card's state in words and
-    /// its reason line, both in red text (`sessionCardHeadline`, `body`).
-    @ViewBuilder
-    private var stateDot: some View {
-        let size = Self.stateDotSize
-        switch row.state {
-        case .blocked:
-            Circle().fill(TallyColor.critical).frame(width: size, height: size)
-        case .working:
-            Circle().fill(TallyColor.live).frame(width: size, height: size)
-        case .idle:
-            Circle().fill(Color.secondary.opacity(0.5)).frame(width: size, height: size)
-        case .unknown:
-            Circle().strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1)
-                .frame(width: size, height: size)
-        }
-    }
-
-    /// How long this session has been in this state, at a glance: seconds under a minute, then
-    /// minutes, then hours and minutes. Not a countdown and not a date - the question it answers is
-    /// "how long has this been true", and past a day the answer is "a long time".
-    private func sessionAge(_ since: Date, now: Date = Date()) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(since)))
-        if seconds < 60 { return "\(seconds)s" }
-        let minutes = seconds / 60
-        if minutes < 60 { return "\(minutes)m" }
-        let hours = minutes / 60
-        if hours < 24 { return "\(hours)h \(minutes % 60)m" }
-        return "\(hours / 24)d"
-    }
 }
 
 extension PopoverRootView {

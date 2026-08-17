@@ -373,12 +373,20 @@ func runSessionBoardOrderChecks() {
 
     // MARK: the grip that says a card can be dragged at all
 
-    let cardSource = (try? String(contentsOfFile: "Tally/Views/SessionCardView.swift",
-                                  encoding: .utf8)) ?? ""
+    // THE CARD IS TWO FILES, and this suite reads it as one thing because that is what it is: the
+    // grip lives with the first line it sits on (`SessionCardState.swift`) and the flag it reads
+    // lives on the view itself, and an assertion pointed at only one of them would go green on a
+    // grip that had quietly lost half of itself.
+    let cardSource = ["Tally/Views/SessionCardView.swift", "Tally/Views/SessionCardState.swift"]
+        .map { (try? String(contentsOfFile: $0, encoding: .utf8)) ?? "" }
+        .joined(separator: "\n")
     let accountCardSource = (try? String(contentsOfFile: "Tally/Views/AccountCardView.swift",
                                          encoding: .utf8)) ?? ""
     check("the two card sources this suite compares are readable",
           !cardSource.isEmpty && !accountCardSource.isEmpty)
+    check("…both halves of the session card among them",
+          cardSource.contains("struct SessionCardView: View")
+              && cardSource.contains("var sessionCardHeadline: some View"))
     // ONE AFFORDANCE ACROSS BOTH BOARDS. The account cards' grip is the pattern; a session card
     // spelling its own glyph, brightness or words would teach two gestures for one gesture.
     for shared in ["Image(systemName: \"line.3.horizontal\")",
@@ -390,7 +398,7 @@ func runSessionBoardOrderChecks() {
     // Resident but dim rather than hover-only, and hover is asked only where a grip is drawn: the
     // account card's own comment says why (an affordance nobody finds, and an empty slot beside it).
     check("hover is tracked on the card, and only where the grip is",
-          cardSource.contains("@State private var isHovering = false")
+          cardSource.contains("@State var isHovering = false")
               && cardSource.contains(".onHover { if showsDragHandle { isHovering = $0 } }"))
     // The card the hand is holding is drawn by the floating copy, and a grip that faded out the
     // moment the pointer left the old seat would blink out mid-drag.
@@ -400,17 +408,27 @@ func runSessionBoardOrderChecks() {
     // WHAT A CLICK DOES IS STILL SPOKEN. The callout used to hand that sentence to an accessibility
     // hint on its way past (`TallyTooltip`), so taking the callout off the card took the sentence
     // with it and left a control whose only affordance a screen reader could not see. A hint rather
-    // than `.help()`, which is an NSToolTip: the layer is what this board bans, not the meaning.
-    // Asked of the CODE, comments stripped first: this file says the words `.help()` and "tooltip"
-    // while explaining why it has neither, and an assertion that cannot tell prose from a modifier
-    // would be red for the very sentence that documents it.
+    // than `.help()`, which is an NSToolTip: Tally's own callout is what this surface speaks in.
+    // Asked of the CODE, comments stripped first: these files say the words `.help()` and "tooltip"
+    // while explaining what they do and do not have, and an assertion that cannot tell prose from a
+    // modifier would be red for the very sentence that documents it.
     let cardCode = cardSource.split(separator: "\n", omittingEmptySubsequences: false)
         .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+        .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("///") }
         .joined(separator: "\n")
-    check("the card tells VoiceOver what a click does without opening a layer to say it",
+    // EXACTLY ONE HOVER, WHICH IS THE RULE THAT REPLACED "NONE" (Albert, 2026-08-17). The board was
+    // given no callouts at all because the pointer waits here between jumps, and a layer opening
+    // under a resting hand covers the cards beside it; what earned the exception is a sentence
+    // written by a hook, of any length, which the card had been drawing clipped into a 236pt line.
+    // A ban is not what is being asserted any more, a BUDGET is: one target, and the count is the
+    // assertion, so a second callout arriving anywhere on the card turns this red.
+    check("the card tells VoiceOver what a click does without an NSToolTip to say it",
           cardCode.contains(
               ".accessibilityHint(Text(L(\"Click to bring its terminal to the front\")))")
-              && !cardCode.contains(".help(") && !cardCode.contains("tallyTooltip"))
+              && !cardCode.contains(".help("))
+    check("…and answers exactly one hover, the waiting card's state word",
+          cardCode.components(separatedBy: "tallyTooltip").count - 1 == 1
+              && cardCode.contains("if let reason = sessionReason { word.tallyTooltip(reason) }"))
     // A session that published no directory cannot be lifted at all (`orderKey`), so offering it a
     // grip would promise a gesture that does nothing. One answer, asked at the grab and at the draw.
     check("only a card there is something to arrange by carries a grip",

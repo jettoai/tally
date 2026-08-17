@@ -333,6 +333,7 @@ final class PinnedPanelController {
             AnyView(
                 PopoverRootView(store: .shared, settings: .shared,
                                 onContentSize: sizer.onContentSize,
+                                onViewOptionsPresented: sizer.onViewOptionsPresented,
                                 hostScreen: sizer.screen,
                                 hostTopEdge: sizer.topEdge,
                                 tabState: surfaceTab, host: sizer.host)

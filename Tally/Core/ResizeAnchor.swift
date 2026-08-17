@@ -32,11 +32,16 @@ enum ResizeAnchor {
         var bottom: CGFloat
         /// Maximum x, i.e. the right edge on screen.
         var right: CGFloat
+        /// Minimum x, i.e. the left edge on screen. Read for the same reason the other three are,
+        /// one interaction later: a resize under the bottom-right rule moves this edge, and putting
+        /// the surface back afterwards means knowing where it started (see `restoredOrigin`).
+        var left: CGFloat
 
         init(frame: CGRect) {
             top = frame.maxY
             bottom = frame.minY
             right = frame.maxX
+            left = frame.minX
         }
     }
 
@@ -55,6 +60,26 @@ enum ResizeAnchor {
             // under the pointer; the right edge is held by taking the width change off origin.x.
             return CGPoint(x: edges.right - frame.width, y: edges.bottom)
         }
+    }
+
+    /// WHERE THE SURFACE GOES BACK TO WHEN THE CARD THAT WAS MOVING IT CLOSES: the top left it had
+    /// when the card was opened, with whatever size the content has now hanging off it.
+    ///
+    /// The bottom-right rule is a loan, not a gift. It holds the bottom and right edges so the
+    /// control under the pointer stays under it (`origin(for:edges:corner:)`), and pays for that in
+    /// the two edges it does NOT hold: a board that lost 333pt of height dropped the surface's top
+    /// edge - and its header - 333pt down the screen, where nothing gave it back and the panel had
+    /// to be dragged home by hand (Albert, 2026-08-17, measured on screen). This is the repayment,
+    /// made once, when the card stops being what the pointer is aiming at.
+    ///
+    /// BOTH edges, not just the top. The card's rule holds the right edge, so a width change comes
+    /// off origin.x too - the Usage page's density and column tiles walk the surface sideways by the
+    /// same mechanism the session board's count walks it downward.
+    ///
+    /// Origin only, for the reason everything else here is: the size belongs to the content, and a
+    /// second authority writing one back is the crash this file's neighbour already paid for.
+    static func restoredOrigin(for frame: CGRect, to edges: Edges) -> CGPoint {
+        CGPoint(x: edges.left, y: edges.top - frame.height)
     }
 
     /// Whether that move is worth making. Sub-point differences are rounding in the layout, and

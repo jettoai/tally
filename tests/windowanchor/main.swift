@@ -332,6 +332,88 @@ let claimants = viewFiles.filter { file in
 check("only the view-options card itself claims the anchor (found: \(claimants))",
       claimants == ["PopoverFooterView.swift"])
 
+// 10. THE CARD'S ANCHOR IS A LOAN. Holding the bottom right keeps the control under the pointer,
+//     and pays for it out of the two edges it does not hold: measured on screen 2026-08-17, one
+//     change of the session board's column count took 333pt of height out of the panel and dropped
+//     its top edge - and the header with it - 333pt down the display, where it stayed until the
+//     owner dragged the panel home by hand. `restoredOrigin` is the repayment, made once when the
+//     card goes.
+let opened = CGRect(x: 300, y: 200, width: 560, height: 801)
+let openedEdges = ResizeAnchor.Edges(frame: opened)
+check("edges read the left edge too", near(openedEdges.left, 300))
+// The measured sequence, in this arithmetic: a shorter board under the card's own corner.
+let shorter = CGRect(origin: ResizeAnchor.origin(
+    for: CGRect(origin: opened.origin, size: CGSize(width: 560, height: 468)),
+    edges: openedEdges, corner: .bottomTrailing), size: CGSize(width: 560, height: 468))
+check("the card's corner drops the top edge by the height it lost",
+      near(shorter.maxY, opened.maxY - 333) && near(shorter.minY, opened.minY))
+let repaid = ResizeAnchor.restoredOrigin(for: shorter, to: openedEdges)
+check("closing the card puts the top edge back where the card found it",
+      near(repaid.y + shorter.height, openedEdges.top))
+check("…and the left edge with it", near(repaid.x, openedEdges.left))
+check("…while the height stays whatever the change made it",
+      near(shorter.height, 468))
+// The other axis, which is the Usage page's density and column tiles: the card's corner holds the
+// RIGHT edge, so a wider surface walks its left edge off the screen and the same repayment fetches
+// it back. This is why the restitution is not simply the top-leading correction, which deliberately
+// leaves origin.x alone because an ordinary content resize never moves it.
+let widened = CGRect(origin: ResizeAnchor.origin(
+    for: CGRect(origin: opened.origin, size: CGSize(width: 1108, height: 801)),
+    edges: openedEdges, corner: .bottomTrailing), size: CGSize(width: 1108, height: 801))
+check("the card's corner takes the width change off the left edge",
+      near(widened.minX, openedEdges.right - 1108) && near(widened.maxX, openedEdges.right))
+let repaidWide = ResizeAnchor.restoredOrigin(for: widened, to: openedEdges)
+check("closing the card fetches the left edge back", near(repaidWide.x, openedEdges.left))
+check("…which the top-leading correction would not have done",
+      !near(ResizeAnchor.origin(for: widened, edges: openedEdges, corner: .topLeading).x,
+            openedEdges.left))
+// Made once and idempotent: the put-back is a move, and a move re-reads the edges.
+let settled = CGRect(origin: repaid, size: shorter.size)
+check("repaying an already-repaid surface moves nothing",
+      !ResizeAnchor.needsMove(from: settled.origin,
+                              to: ResizeAnchor.restoredOrigin(
+                                    for: settled, to: ResizeAnchor.Edges(frame: settled))))
+check("a card that changed nothing owes nothing",
+      !ResizeAnchor.needsMove(from: opened.origin,
+                              to: ResizeAnchor.restoredOrigin(for: opened, to: openedEdges)))
+
+// 10b. And the surface that owes it is the one that records the debt: the sizer takes the edges when
+//      the card opens and puts them back when it closes. Read off the code for the reason section 8
+//      gives - AppKit windows cannot be driven from here.
+check("the sizing contract records where the card found the surface",
+      sizerSource.contains("cardEdges = window.resizeEdges"))
+check("…and puts it back through the one arithmetic",
+      sizerSource.contains("ResizeAnchor.restoredOrigin(for: window.frame, to: edges)"))
+check("…on the card's own presentation, per host",
+      sizerSource.contains("var onViewOptionsPresented: (Bool) -> Void"))
+let footerSource = code(of: "Tally/Views/PopoverFooterView.swift")
+check("the card tells its host it is being presented",
+      footerSource.contains("onViewOptionsPresented?(open)"))
+
+// 11. ONE READING OF THE CORNER PER RESIZE. It has three consumers a run-loop turn apart - where the
+//     content is placed, where the frame is written, and the correction the resize notification
+//     triggers - and `HostAnchored` states the invariant they only satisfy together: "the transition
+//     and its destination are never different anchors". Nothing enforced it while each consumer
+//     asked a LIVE answer, and a single click can switch a tab and dismiss the card in one event.
+//     So the corner travels with the measurement, and the store is asked in exactly one place on
+//     each side.
+let rootSource = code(of: "Tally/Views/PopoverRootView.swift")
+check("the surface reads its host's corner in one place",
+      rootSource.components(separatedBy: "settings.resizeAnchor(for: host)").count - 1 == 1)
+check("…named, so the content's placement and the host's report are the same reading",
+      rootSource.contains("var anchorCorner: ResizeAnchor.Corner")
+          && rootSource.contains(".anchoredInHost(anchorCorner"))
+check("…and it is captured in the body rather than re-read in the callback",
+      rootSource.contains("let corner = anchorCorner")
+          && rootSource.contains("onContentSize?(size, corner)"))
+check("the sizing contract asks the store once, and only before anything was reported",
+      sizerSource.components(separatedBy: "SettingsStore.shared.resizeAnchor").count - 1 == 1
+          && sizerSource.contains("reportedCorner ?? SettingsStore.shared.resizeAnchor(for: host)"))
+check("…so the frame write and the resize correction read the reported corner",
+      sizerSource.contains("corner: corner") && observer.contains("self.corner"))
+check("…and the snapshot is spent on the resize it arrived with, never held for the next",
+      observer.contains("self.reportedCorner = nil"))
+
 checkPopoverAnchor()
 checkPanelSummon()
 

@@ -129,8 +129,13 @@ section("which corner the surface waits on, and who may wait at all")
 // visible in a build, a type-check or any other test: the window simply comes up empty.
 let rootSource = (try? String(contentsOfFile: "Tally/Views/PopoverRootView.swift",
                               encoding: .utf8)) ?? ""
-check(rootSource.contains(
-        ".anchoredInHost(settings.resizeAnchor(for: host), enabled: onContentSize != nil)"),
+// The corner is named now rather than read inline, because the same reading has to reach the host
+// with the measurement it belongs to (`SurfaceSizer.corner`) - so this pins BOTH halves: the
+// anchoring is still gated on the host sizing itself from the report, and the name is still the
+// host's own answer rather than a second opinion that happens to look like one.
+check(rootSource.contains(".anchoredInHost(anchorCorner, enabled: onContentSize != nil)")
+          && rootSource.contains(
+              "var anchorCorner: ResizeAnchor.Corner { settings.resizeAnchor(for: host) }"),
       "the surface is anchored only where the host sizes itself from what it reports, "
           + "and to the corner that host is holding")
 

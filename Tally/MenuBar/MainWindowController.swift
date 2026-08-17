@@ -138,6 +138,7 @@ final class MainWindowController {
                                  autosaveName: "TallyMainWindow.v3") { sizer in
                 PopoverRootView(store: .shared, settings: .shared,
                                 onContentSize: sizer.onContentSize,
+                                onViewOptionsPresented: sizer.onViewOptionsPresented,
                                 hostDrawsGlass: false,
                                 // Summoned windows follow the user, so the display to fit is the
                                 // one this window was last put on.

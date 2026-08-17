@@ -158,8 +158,14 @@ extension PopoverRootView {
             // still so the control stays under the pointer (see `ResizeAnchor`). Written from the
             // one place that owns the presentation, so it cannot say "open" while nothing is, and
             // it names this host so the other surface on screen keeps its own rule.
+            // The host hears it too, and for the other half of the same rule: holding the bottom
+            // right walks the surface's top left away with every click in the card, and the window
+            // is put back where the card found it when the card goes
+            // (`SurfaceSizer.onViewOptionsPresented`). Said from this one place, so what the anchor
+            // is claimed for and what pays it back can never describe different moments.
             .onChange(of: showViewOptions) { _, open in
                 settings.setViewOptionsOpen(open, host: host)
+                onViewOptionsPresented?(open)
             }
             Button {
                 StatusItemController.togglePin()

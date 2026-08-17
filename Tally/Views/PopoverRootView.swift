@@ -15,63 +15,22 @@ import AppKit
 /// changes. Capping it in the hosts instead cannot work - see `ScreenFitStack` and
 /// `StatusItemController.applyPopoverSize`.
 
-/// What a surface is showing. Not a window concept: the popover, the pinned panel and the dashboard
-/// window are all this same view, and all three can be flipped to any of its pages and back.
-///
-/// The three answer three different questions and are deliberately not merged: how much quota is
-/// left, where the tokens went, and what is running right now (`SessionBoardView`).
-enum SurfaceTab: String, CaseIterable, Identifiable {
-    case usage, tokens, sessions
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .usage: return L("Usage")
-        case .tokens: return L("Tokens")
-        case .sessions: return L("Sessions")
-        }
-    }
-}
-
-/// Which host is presenting this copy of the surface. The view itself is the same in all three, so
-/// this exists only for the answers that depend on WHICH window is asking: the view-options anchor
-/// has to know whose card is open, because the dashboard and the menu-bar popover can be on screen
-/// at once and only the one actually presenting the card may swap its resize corner (see
-/// `SettingsStore.viewOptionsHost`).
-enum SurfaceHost: Sendable {
-    case popover, panel, window
-}
-
-/// One surface's tab selection, one instance per host - deliberately not shared: flipping the pinned
-/// panel to token history should not also flip the menu-bar popover, which is opened for one glance
-/// at the quota and closed again.
-///
-/// It lives with the host controller rather than in the view's own `@State` because pinning is a
-/// hand-off, not a copy: the panel that replaces the popover has to open on the view the user was
-/// reading, and `@State` can only ever be seeded by the view that owns it. The controllers stay the
-/// only writers from outside, and only at that one moment.
-///
-/// It also outlives a close, because each host's view is built once and reused: reopening shows what
-/// the user last chose rather than silently undoing it, and the header switch says which view this is.
-@MainActor
-@Observable
-final class SurfaceTabState {
-    /// Usage on every real launch. A capture launch can open on another page instead, either by
-    /// naming it (`-TallyTab`) or by naming a graph that lives on one (`-TallyTokenGraphPreview`),
-    /// so the capture needs no click to get there - those flags' whole purpose. Seeded rather than
-    /// switched after launch, so nothing is ever photographed mid-crossfade (`SurfaceTabLaunch`).
-    var tab: SurfaceTab = SurfaceTabLaunch.initialTab
-    /// Which sessions the board lists (`SessionFilter`). Here for the same reasons the tab is: one
-    /// per host, so narrowing the pinned panel's board does not narrow the popover's, and never
-    /// persisted - it is a question asked while looking, not a preference.
-    var sessionFilter: SessionFilter = .all
-}
-
 struct PopoverRootView: View {
     @Bindable var store: UsageStore
     @Bindable var settings: SettingsStore
     /// Reports the content's ACTUAL rendered size so the host (popover / panel) can size itself to it.
     /// Measuring the real size beats asking `sizeThatFits`, which returned a greedy screen-tall height.
-    var onContentSize: ((CGSize) -> Void)? = nil
+    ///
+    /// The corner this content laid itself out against travels with the size, read in the same body
+    /// pass (`anchorCorner`). The host writes the frame a run-loop turn later and must hold the
+    /// corner the content is already waiting at, not whichever one the store answers by then - one
+    /// click can switch a tab and dismiss the view-options card together, and two readings of a live
+    /// answer either side of that click are two different corners (see `SurfaceSizer.corner`).
+    var onContentSize: ((CGSize, ResizeAnchor.Corner) -> Void)? = nil
+    /// Reports the view-options card being presented or dismissed here, so the host can give back
+    /// what the card's own resize rule spent (`SurfaceSizer.onViewOptionsPresented`). Nil for the
+    /// popover, whose position is AppKit's and never this surface's to restore.
+    var onViewOptionsPresented: ((Bool) -> Void)? = nil
     /// Whether the host window itself draws glass (the popover's vibrancy, the pinned panel's
     /// behind-window blur). The dashboard window is opaque, so it opts out and keeps solid cards -
     /// a within-window material there would only sample that window's own grey.
@@ -266,7 +225,13 @@ struct PopoverRootView: View {
         // panel is unpinned), and `onChange` never fires for a view that was torn down: without
         // this the flag would keep claiming a card is open and every later resize would anchor to
         // the wrong corner.
-        .onDisappear { settings.setViewOptionsOpen(false, host: host) }
+        .onDisappear {
+            settings.setViewOptionsOpen(false, host: host)
+            // The host hears it too, so a surface torn down with its card still up leaves no
+            // remembered position behind: a put-back is worth making while the user is looking at
+            // the surface, and worthless against a window that has gone (`SurfaceSizer`).
+            onViewOptionsPresented?(false)
+        }
         .environment(\.tallyCardStyle, cardStyle)
         .id(settings.languageOverride ?? "system")
         // Outermost, because it is about this view's relationship with the window it is in and
@@ -274,7 +239,7 @@ struct PopoverRootView: View {
         // the host catches up with the height the surface just reported (see `HostAnchored`).
         // The corner is read HERE, in the body, so that the card claiming it re-lays the surface out
         // rather than leaving the transition anchored to the corner the host has stopped holding.
-        .anchoredInHost(settings.resizeAnchor(for: host), enabled: onContentSize != nil)
+        .anchoredInHost(anchorCorner, enabled: onContentSize != nil)
     }
 
     /// The card fill for this surface: glass only where the host has glass to sample AND the user
@@ -286,14 +251,24 @@ struct PopoverRootView: View {
         return .glassVariant
     }
 
-    /// Measures the laid-out content size and reports it upward (fires on appear + on change).
+    /// Measures the laid-out content size and reports it upward (fires on appear + on change),
+    /// carrying the corner this pass placed the content against.
+    ///
+    /// The corner is read HERE, in the body, and captured: reading it again inside the callback
+    /// would be a second reading of a live answer, which is the very thing the pair exists to stop.
     private var sizeReporter: some View {
-        GeometryReader { proxy in
+        let corner = anchorCorner
+        return GeometryReader { proxy in
             Color.clear.onChange(of: proxy.size, initial: true) { _, size in
-                onContentSize?(size)
+                onContentSize?(size, corner)
             }
         }
     }
+
+    /// The corner this surface's host holds through a resize (`SettingsStore.resizeAnchor(for:)`),
+    /// named once so the two places that must agree - where the content waits and what the host is
+    /// told - cannot become two readings.
+    var anchorCorner: ResizeAnchor.Corner { settings.resizeAnchor(for: host) }
 
     /// How many card columns. An explicit 1/2/3/4 is a width the user chose and is second-guessed
     /// on one count only: what the display can seat (see `PanelGeometry.seated`). Folding cards

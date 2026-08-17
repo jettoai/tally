@@ -91,7 +91,11 @@ final class StatusItemController: NSObject {
         // engine into a stack-overflow crash.
         let host = NSHostingController(
             rootView: PopoverRootView(store: UsageStore.shared, settings: SettingsStore.shared,
-                                      onContentSize: { [weak self] size in self?.applyPopoverSize(size) },
+                                      // The corner comes with it for the hosts that write a frame;
+                                      // this one writes a content size and nothing else.
+                                      onContentSize: { [weak self] size, _ in
+                                          self?.applyPopoverSize(size)
+                                      },
                                       // The screen the content has to fit inside, which is the one
                                       // the surface is actually on (see `contentHostScreen`).
                                       hostScreen: { [weak self] in self?.contentHostScreen() },

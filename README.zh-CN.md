@@ -137,6 +137,10 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   的会话、也可以全部显示，未回报的会变暗但仍然点得动；看板还记住自己的栏数，与仪表盘的
   分开算。
 
+<p align="center">
+  <img src="assets/screenshot-sessions.png" alt="Tally 的会话看板深色模式、三栏会话卡，每张对应一个受监管的对话：卡上写着它跑在哪个项目或 worktree（atlas、atlas feat-search、dune、ledger、beacon、relay、cinder）、用哪个账号、模型与推理档位（Claude fable-5 high、Codex 2 gpt-5.6-sol high、Claude 3 sonnet-5 medium）、对话的 context 大小与距上次动作多久；atlas 卡有红框并标注 blocked，统计行数着 4 working、1 blocked、2 idle、1 not reporting，页首的 Sessions 标签带红点；每张卡底部一行是该会话的机器足迹（子 agent 数、CPU 百分比、内存、点名最大食客：node、bun），一张 dev server 卡列出它占用的端口（:3000 next-server、:5173）" width="834">
+</p>
+
 ### 启动控制平面
 
 - **智选。** 新会话一律启动在「当下燃烧速率最高」的账号上：用剩余百分比除以距重置的

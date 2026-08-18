@@ -165,6 +165,10 @@ line 시그널까지. 마무리는 세션 보드입니다. Tally가 띄운 대�
   보고가 없는 세션은 흐려지지만 여전히 클릭됩니다. 보드는 대시보드와 별개로 자기 열 수도
   기억합니다.
 
+<p align="center">
+  <img src="assets/screenshot-sessions.png" alt="Tally의 세션 보드 다크 모드, 세 열의 세션 카드, 감독 중인 대화마다 한 장: 각 카드에는 실행 중인 프로젝트 또는 worktree(atlas, atlas feat-search, dune, ledger, beacon, relay, cinder), 사용 중인 계정과 모델, 추론 강도(Claude fable-5 high, Codex 2 gpt-5.6-sol high, Claude 3 sonnet-5 medium), 대화의 컨텍스트 크기와 마지막 움직임 이후 경과 시간이 적혀 있습니다. atlas 카드는 빨간 테두리에 blocked로 표시되고, 요약 줄은 4 working, 1 blocked, 2 idle, 1 not reporting을 세며, 헤더의 Sessions 탭에는 빨간 점이 있습니다. 각 카드 하단 줄은 그 세션의 머신 풋프린트(하위 에이전트 수, CPU 백분율, 메모리, 최대 소비자 지목: node, bun)를 읽고, dev 서버 카드는 점유 중인 포트(:3000 next-server, :5173)를 나열합니다" width="834">
+</p>
+
 ### 실행 컨트롤 플레인
 
 - **스마트 선택.** 새 세션은 5시간, 주간, 최상위 모델 각 쿼터 창에서 「소비 속도가 가장

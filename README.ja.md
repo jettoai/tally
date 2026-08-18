@@ -175,6 +175,10 @@ Tally は **Claude と Codex の AI 使用量（レート制限）を監視す�
   することもでき、未報告のものは薄く表示されますがクリックはできます。ボードは
   ダッシュボードとは別に、自分の列数も覚えています。
 
+<p align="center">
+  <img src="assets/screenshot-sessions.png" alt="Tally のセッションボードをダークモードで、3 列のセッションカード、監視対象の会話ごとに 1 枚：各カードには、それが走っているプロジェクトまたは worktree（atlas、atlas feat-search、dune、ledger、beacon、relay、cinder）、使用中のアカウント・モデル・推論エフォート（Claude fable-5 high、Codex 2 gpt-5.6-sol high、Claude 3 sonnet-5 medium）、会話のコンテキストサイズと最後に動いてからの経過時間が書かれています。atlas のカードは赤枠で blocked と表示され、集計行は 4 working、1 blocked、2 idle、1 not reporting を数え、ヘッダーの Sessions タブには赤い点が付いています。各カードの最下行はそのセッションのマシンフットプリント（サブエージェント数、CPU パーセンテージ、メモリ、最大の消費者の名指し：node、bun）で、dev サーバーのカードは保持しているポート（:3000 next-server、:5173）を並べています" width="834">
+</p>
+
 ### 起動コントロールプレーン
 
 - **スマート選択。** 新しいセッションは、5 時間・毎週・最上位モデルの各クォータ窓の中で

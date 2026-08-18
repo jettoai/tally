@@ -162,6 +162,10 @@ subscriptions at once:
   everything, dimming what is not reporting but keeping it clickable, and the board remembers a
   column count of its own, separate from the dashboard's.
 
+<p align="center">
+  <img src="assets/screenshot-sessions.png" alt="Tally's session board in dark mode, three columns of session cards, one per supervised conversation: each card names the project or worktree it runs in (atlas, atlas feat-search, dune, ledger, beacon, relay, cinder), the account, model and effort it is on (Claude fable-5 high, Codex 2 gpt-5.6-sol high, Claude 3 sonnet-5 medium), the conversation's context size and how long since it last moved; the atlas card is outlined in red and labeled blocked, the summary line counts 4 working, 1 blocked, 2 idle, 1 not reporting, and the Sessions tab in the header carries a red dot; each card's bottom line reads the session's machine footprint (subagent count, CPU percentage, memory, the biggest eater named: node, bun), and a dev-server card lists the ports it is holding (:3000 next-server, :5173)" width="834">
+</p>
+
 ### The launch control plane
 
 - **Smart pick.** New sessions start on the account whose binding quota window sustains the highest

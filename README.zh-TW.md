@@ -136,6 +136,10 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   的 session、也可以全部顯示，未回報的會變暗但仍然點得動；看板還記住自己的欄數，與儀表板
   的分開算。
 
+<p align="center">
+  <img src="assets/screenshot-sessions.png" alt="Tally 的 session 看板深色模式、三欄 session 卡，每張對應一個受監管的對話：卡上寫著它跑在哪個專案或 worktree（atlas、atlas feat-search、dune、ledger、beacon、relay、cinder）、用哪個帳號、模型與推理檔位（Claude fable-5 high、Codex 2 gpt-5.6-sol high、Claude 3 sonnet-5 medium）、對話的 context 大小與距上次動作多久；atlas 卡有紅框並標示 blocked，統計列數著 4 working、1 blocked、2 idle、1 not reporting，頁首的 Sessions 頁籤帶紅點；每張卡底部一行是該 session 的機器足跡（子 agent 數、CPU 百分比、記憶體、點名最大食客：node、bun），一張 dev server 卡列出它佔用的 port（:3000 next-server、:5173）" width="834">
+</p>
+
 ### 啟動控制平面
 
 - **智選。** 新 session 一律啟動在「當下燒錢速率最高」的帳號上：用剩餘百分比除以到重置的

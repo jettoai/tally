@@ -4,7 +4,7 @@
 <h1 align="center">Tally</h1>
 <p align="center"><sub>by <a href="https://jetto.ai">Jetto</a></sub></p>
 
-<p align="center">Every AI subscription you own, at a glance, in your macOS menu bar,<br>plus a launcher that puts every session on the account whose quota goes furthest.</p>
+<p align="center">Every AI subscription you own, at a glance, in your macOS menu bar,<br>plus a launcher that puts every session on the account whose quota goes furthest,<br>and a board that watches every session it started.</p>
 
 <p align="center">
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111827?style=flat-square&logo=apple&logoColor=white">
@@ -23,8 +23,11 @@ which account still has room: every account's 5-hour session, weekly, and top-mo
 sit side by side under a fleet gauge that pools them into one combined budget and forecasts how
 long it lasts at your measured pace, and the Smart pick starts every new session on the account
 whose quota goes furthest right now, weighing reset times, not just remaining percent, then follows through
-mid-conversation: rate-limit handoff, flagship-model rescue, and a status-line signal that shows
-which account is burning.
+mid-conversation: rate-limit handoff, flagship-model rescue, a fresh account pick at every
+`/clear`, a typed heads-up in every session on an account that is running low, and a status-line
+signal that shows which account is burning. A session board rounds it out: every conversation
+Tally launched as a card, with who is blocked waiting on you and what each one is costing the
+machine.
 
 <p align="center">
   <img src="assets/screenshot-menubar.png" alt="Tally's menu bar strip: five Claude accounts with index badges and stacked session/Fable percentages, followed by four Codex accounts with session/weekly" width="445">
@@ -50,7 +53,11 @@ subscriptions at once:
   windows the vendors themselves enforce, instead of estimating dollars from token counts.
 - **A launcher that acts on the answer.** A dashboard's whole point is deciding where to work
   next, so Tally makes that decision for you, every time, automatically, and keeps making it
-  while the session runs (cap handoff, model-degradation rescue).
+  while the session runs (cap handoff, model-degradation rescue, a free re-pick at every
+  `/clear`, a typed heads-up when the account runs low).
+- **The sessions themselves, on a board.** No other usage tool sees the session level at all:
+  Tally shows every conversation it launched as a card, which one is blocked waiting on you,
+  and what each one is costing the machine, down to the process that is eating the memory.
 
 ## Features
 
@@ -106,7 +113,11 @@ subscriptions at once:
   the fallback, and Tally never touches a credential either way).
 - **Add an account without leaving the app.** Settings prepares the next account home, offers the
   shared-harness default (one setup serving every account) with a plain privacy note, and drives
-  the same quiet sign-in; the new card appears when the browser hands back.
+  the same quiet sign-in; the new card appears when the browser hands back. An account you
+  already have can join the same shared harness later (`tally share`, or its row in Settings):
+  conversations, inbox and memory notes merge into the main account, nothing is deleted
+  (whatever is in the way is renamed and left in place), and the row says plainly what sharing
+  means: every account can then read every account's conversations.
 - **Codex reset banking, visible and redeemable.** Banked rate-limit resets show right on the
   card ("3 resets available"), so you know your escape hatches before you hit a wall. Click to
   redeem one, behind a confirmation that names the account, spells out the cost, and warns you
@@ -116,6 +127,40 @@ subscriptions at once:
 <p align="center">
   <img src="assets/screenshot-list.png" alt="The same nine accounts in Tally's compact list density, two columns wide: one row per account carrying the provider mark, the account name and its plan, then every quota window as a small bar with its percentage, a warning triangle on the account whose login expired, a banked-reset count on the Codex rows that have one, the purple Smart mark on the launcher's current pick, and the pin and drag controls at the end of each row; above them the same fleet gauges and advisor line the card density shows, with Codex reading Pro 1.7 · Team 0.9" width="900">
 </p>
+
+### The session board
+
+- **Every conversation on one board.** A third position on the header switch, next to Usage and
+  Tokens: one card per supervised session, saying what it is (account, model, effort, the
+  worktree it runs in), what it is doing right now, and how big the conversation has grown
+  ("142k context"). Four states, published by the session's own supervisor rather than guessed
+  from the outside: working, blocked, idle, and an honest "not reporting" when nothing new
+  enough is attached. Click a card and Tally brings that session's terminal tab to the front
+  (Ghostty by tty, any other terminal by app).
+- **Blocked means it is asking for you.** The one state that needs a human, when Claude Code has
+  put up a permission request, a question, or a plan approval and nobody has answered, gets a
+  red card edge, a waiting timer, and a hover that spells out exactly what it wants ("Claude
+  needs your permission to use Bash"). A summary row counts working / blocked / idle / not
+  reporting across the whole board, and only the blocked count wears a color, only while it is
+  above zero.
+- **A red dot even with the panel closed.** The menu bar strip grows a small red dot the moment
+  any session is waiting on you, and drops it the moment none is; hover says how many.
+- **What each session is costing the machine.** Each card keeps a quarter hour of the whole
+  process tree under that session: CPU, memory and process count as sparklines with the current
+  figure and the period peak, the biggest eater named ("(bun)", "(Google Chrome Helper)"), plus
+  how many subagents it has out, which ports it is holding (the thing your next `pnpm dev` will
+  collide with), and how fast it is writing to disk. Warnings key on mismatch, not size: a
+  session at 300% of a core mid-build is a build, while the same burn twenty seconds after the
+  turn ended is residue and gets an amber note; a session holding most of the machine's memory
+  gets a red one, and memory needs two witnesses (the tree's own figure plus the kernel's
+  pressure reading) before Tally says so. A reading must hold for seconds before a warning
+  appears, so one GC pause never flashes red. No other usage tool reads at the session level at
+  all, let alone the process level.
+- **A board you can learn.** Sort by status seats the cards the moment the board opens and
+  freezes them there (a board that re-sorted itself twice a second is a board nobody can learn);
+  drag one card and the order becomes yours. A filter narrows to connected sessions or shows
+  everything, dimming what is not reporting but keeping it clickable, and the board remembers a
+  column count of its own, separate from the dashboard's.
 
 ### The launch control plane
 
@@ -132,6 +177,52 @@ subscriptions at once:
   If the server silently downgrades your model, a sibling account that can still serve your primary
   model takes the conversation over instead, and only when nobody can does your configured
   fallback pairing apply. Non-urgent switches wait for a quiet moment between turns.
+- **Window boundaries are free moves.** The moment you type `/clear`, the conversation is empty:
+  no turn to interrupt, no context to reload, nothing to lose. So Tally asks the account
+  question again right there, once per unit of work rather than once per launch, and moves the
+  fresh window to the account with the most room when the one it is on is nearly dry. The
+  trigger is a fact, not a guess: Claude Code's own status line reports the new conversation id,
+  so a `/clear` swallowed by a prompt moves nothing.
+- **The account that is running out says so.** When an account's binding window drops under 15%,
+  Tally types one line into the composer of every session on it, naming the bottleneck window,
+  when it refills, how many sessions are sharing it, and which sibling account still has room:
+  "Wrap up and switch accounts, or wait for the reset." When no account has headroom it says
+  that instead, honestly. It re-arms at 30%, so an account hovering at the line speaks once, and
+  a window about to reset counts as full, because calling you off quota that is about to refill
+  would be working against you.
+- **Tell a running session what to do.** `tally session send "<text>"` types one line into a
+  supervised session's own terminal and presses Enter, exactly as if you had typed it there:
+  `/clear`, `/compact`, an answer to a permission prompt. It lands at the first safe moment (the
+  session is waiting, idle, or just finished a turn), queues if that moment has not come yet
+  (queued is success; a refusal is instant and says why), never interrupts a turn, and never
+  fights a human typing in that window; subagents the session sent out do not hold the line
+  back. `tally session clear` is the same act with one power typing cannot have: if that
+  session's account is nearly dry and a sibling has room, the cleared window reopens on the
+  better account in the same motion. Everything is written into your own terminal, never to a
+  vendor, capped at 200 bytes, and logged locally.
+- **Parallel lines of work.** `tally claude -w <name>` opens the session in a git worktree,
+  creating `../<repo>-<name>` if needed, linking the project's Claude memory across, and running
+  the repo's own setup script; bare `-w` lists the existing lines to pick from. `tally worktree
+  tree / list / root / remove` oversees them, and `remove` retires a merged line cleanly: it
+  ends the line's sessions, removes the worktree and the branch, and keeps the transcripts
+  unless you say otherwise.
+- **Pin one conversation, or one repo.** `tally account <name>` moves the session you run it in
+  to another account at the end of the current turn, conversation intact, and keeps it there
+  until `tally account --auto` releases it. `tally model <model> [effort]` runs this one
+  conversation on that model for the rest of its life, surviving every relaunch (cap handoff,
+  reload, app update), which is what Claude Code's own `/model` cannot promise once a supervisor
+  relaunches from its own command line. `tally project set --model <m> [--account <n>]` declares
+  what this repo, and every worktree of it, launches with; app defaults yield to it, flags you
+  type beat it. From inside Claude Code, the bundled `/tally` command switches the account or
+  the model without waking the model, and `/tally-account` / `/tally-model` without arguments
+  raise a native picker panel drawn by the app itself: one list, one click, and the answer goes
+  back to the CLI.
+- **Change your setup once, every session reloads.** `tally reload` restarts every supervised
+  session at its next quiet moment, so an edited hook, skill, or CLAUDE.md reaches every open
+  terminal without you walking them one by one. The conversation survives (the restart rides
+  the same resume path as a cap handoff), a session that is streaming or being typed into is
+  left alone, and a restart that is happening anyway also carries a session off an account that
+  is nearly dry.
 - **Launch defaults, in Settings.** Default permission mode, start mode (continue vs new), model
   and reasoning effort as one pairing, and a separate fallback pairing (fallback model + its own
   effort + extra flags). Injected only when you didn't type the flag yourself: your own arguments
@@ -153,16 +244,21 @@ subscriptions at once:
 - **Claude Code skill.** One click drops a small skill into every Claude account's skills
   folder, teaching agent sessions to answer quota questions and pick accounts from
   `tally status --json` (and to check the binding window before heavy multi-agent work);
-  removed just as cleanly.
-- **`tally` CLI.** `tally claude [args…]`, `tally resume` (move this directory's latest
-  conversation to another account), `tally claude --account <name>`, `tally status`
-  (add `--json` for a versioned machine-readable report: every account's windows, reset
-  times, and which account a launch would land on right now, ready for your own scripts,
-  hooks, and agent skills), `tally add <provider>` (log in one more account: next free
+  removed just as cleanly. The same install adds the `/tally` command and registers the MCP
+  server behind the native picker panels.
+- **`tally` CLI.** Launch: `tally claude [args…]`, `tally claude --account <name>`,
+  `tally claude -w <name>` (worktrees), `tally resume` (move this directory's latest
+  conversation to another account), `tally add <provider>` (log in one more account: next free
   number picked and the config directory created for you; the main account's harness,
   CLAUDE.md/AGENTS.md, skills, hooks, agents, settings, and conversation history, is
   symlinked in by default so one setup serves every account, opt out with `--no-share`),
-  `tally best-dir <provider>`, all script-friendly.
+  `tally share` (put an account you already have on that same harness). Inspect: `tally status`
+  (add `--json` for a versioned machine-readable report: every account's windows, reset times,
+  which account a launch would land on right now, and what every supervised session is running,
+  ready for your own scripts, hooks, and agent skills), `tally worktree tree|list|root`,
+  `tally best-dir <provider>`. Steer: `tally account`, `tally model`, `tally project`,
+  `tally session send|clear`, `tally reload`. Maintenance: `tally update`,
+  `tally completion zsh`, `tally worktree remove`. All script-friendly.
 
 ### The chrome
 
@@ -234,9 +330,14 @@ ln -s <build-products>/tally /usr/local/bin/tally
 
 </details>
 
-Or skip the symlink and the aliases entirely: **Settings → Integrations** installs the CLI tool,
-the shell shims (bare `claude` / `codex` follow your policy), and the status line signal, each
-with one click and a clean removal.
+Or skip the symlink and the aliases entirely: **Settings → Integrations** installs each piece
+with one click and a clean removal, with an Install all switch over the set: the CLI tool, the
+shell shims (bare `claude` / `codex` follow your policy), the status line signal, the session
+board's notification hook, the subagent-count hooks, and the Claude Code skill with its `/tally`
+command. Every hook row keeps the same promise: whatever you already had registered on that
+event keeps running, and removal takes out only Tally's own entry. Sharing an existing account's
+harness has a row here too, deliberately left out of Install all: that one moves conversations
+between config homes, and a press meaning "turn everything on" may not also mean that.
 
 Optional shell sugar:
 
@@ -273,7 +374,10 @@ spend from local logs, and most menu bar meters watch a single account. Tally is
 that shows the quota windows the vendors actually enforce (5-hour, weekly, top-model), across
 multiple Claude and Codex accounts at once, and adds a launcher that acts on those numbers. The
 Tokens view covers the "how much did I burn, and on what" question too, per project, straight
-from the local transcripts, with no dollar guessing. Read-only, on your own paid subscriptions.
+from the local transcripts, with no dollar guessing. And the session board goes a level deeper
+than any of them: every running session as a card, who is blocked waiting on you, and what each
+one is costing the machine, down to the process holding the memory. Read-only, on your own paid
+subscriptions.
 
 **Why does macOS never ask me for keychain permission?**
 Because Tally never reads a credential: usage comes through the providers' own CLIs, and account

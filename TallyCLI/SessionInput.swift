@@ -146,9 +146,9 @@ enum SessionInputHold: Equatable {
 }
 
 /// Whether a request is past its life. Its own function because two answers depend on it and the
-/// boundary is asserted: `at` exactly `sessionInputTTL` old is still live, so a caller who wrote one
-/// at the limit is not refused by a rounding.
-func sessionInputExpired(epoch: Int, now: Date, ttl: TimeInterval = sessionInputTTL) -> Bool {
+/// boundary is asserted: `at` exactly `sessionInputQueuedLife` old is still live, so a caller who
+/// wrote one at the limit is not refused by a rounding.
+func sessionInputExpired(epoch: Int, now: Date, ttl: TimeInterval = sessionInputQueuedLife) -> Bool {
     now.timeIntervalSince1970 - TimeInterval(epoch) / 1000 > ttl
 }
 
@@ -160,12 +160,23 @@ func sessionInputExpired(epoch: Int, now: Date, ttl: TimeInterval = sessionInput
 /// instant its request lands, that session is `working` by construction, because the tool call is
 /// itself a turn that has not closed. Refusing on sight would mean the feature never fires on its
 /// main path. So the request waits, tick by tick, for the state to become one it can be served from,
-/// and the TTL is what ends the wait (`sessionInputTTL` carries the same reasoning from the other
-/// side). The precedent is `manualMoveIdleSeconds`: an instruction typed inside a turn is served at
-/// the end of that turn rather than argued with.
+/// and what ends that wait is a ceiling on staleness rather than a deadline the session is racing
+/// (`sessionInputQueuedLife` carries the reasoning and the measurement). The precedent is
+/// `manualMoveIdleSeconds`: an instruction typed inside a turn is served at the end of that turn
+/// rather than argued with.
+///
+/// QUEUED IS NOT LATE, which is the 2026-08-18 rework and the reason the clock below is fifteen
+/// minutes rather than two. A request waiting for a turn to end is waiting for exactly the thing it
+/// was written for, and charging that wait against a two-minute life made the ordinary hand-over
+/// fail: the caller was told `queued`, the supervisor refused the line 120 seconds later, and the
+/// window it meant to close stayed open (measured across two thirds of every send on this machine,
+/// 2026-08-16/17). Nothing here distinguishes one hold from another for the purposes of that clock,
+/// deliberately: a per-hold life would refuse a line that had waited out a long turn because
+/// somebody happened to touch the keyboard on the tick the wait ended, which is an arbitrary
+/// ending dressed up as a rule.
 ///
 /// EXPIRY IS CHECKED BEFORE THE STATE GATES, and it has to be: those gates are the reason a request
-/// waits at all, so a TTL evaluated after them could only fire on a request that was already being
+/// waits at all, so a life evaluated after them could only fire on a request that was already being
 /// served. What the expiry then reports is WHY it never became injectable - `unknown` gets its own
 /// word, because a session that cannot say what it is doing will not become injectable by waiting,
 /// while a busy one would have.
@@ -178,7 +189,7 @@ func sessionInputExpired(epoch: Int, now: Date, ttl: TimeInterval = sessionInput
 /// SIGTERMed loses an unsent composer outright, and the caller is told `submitted` for a line that
 /// no conversation ever saw (codex review of 18b3174). So a planned relaunch is a WAIT: nothing is
 /// injected, nothing is consumed, no answer is written, and the next tick decides again against the
-/// new child. The TTL keeps running through it, deliberately - whether that line still belongs in a
+/// new child. The life keeps running through it, deliberately - whether that line still belongs in a
 /// conversation whose child has been replaced is the caller's judgement, not this gate's.
 ///
 /// It has no default value. A gate that can be forgotten at a call site is one that will be, and the
@@ -194,6 +205,13 @@ func sessionInputExpired(epoch: Int, now: Date, ttl: TimeInterval = sessionInput
 /// expired unserved (`~/.tally/logs/input.log`, 2026-08-16/17), and the ones that got through did so
 /// on a retry. Albert's rule, in his words: an agent running is not a reason a window cannot be
 /// cleared, because the hand-over file already says what to dispatch again.
+///
+/// AND IN EVERY SHAPE, which is the 2026-08-18 half of that rule and lives one file over. The
+/// exemption below only ever reached the reading `subagentsWriting`, and which reading a session got
+/// depended on what else lay in its transcript: dispatched work beside an over-age unmatched
+/// `tool_use` came out `busy`, so the same hand-over was held after all - not refused any more (a
+/// queued request outlives that window) but late by up to `subagentIdleSeconds`. That distinction is
+/// gone from `boundFileQuietness`, where it belonged: what holds a line here is the head's OWN turn.
 ///
 /// A TURN THAT SAID IT ENDED IS THE OTHER WAY PAST `working`, and it is what makes this gate act at
 /// the moment the turn ends rather than 30 seconds later. `turnEnded` is the fact channel Claude
@@ -223,10 +241,10 @@ func sessionInputDecision(request: SessionInputRequest?, servedEpoch: Int, state
         // that might have.
         guard let hold else {
             return .refuse(.refusedExpired, "it reached a moment this could be typed at only after "
-                + "its \(Int(sessionInputTTL))s life had run out")
+                + "its \(Int(sessionInputQueuedLife))s life had run out")
         }
         return .refuse(hold == .notReporting ? .refusedNotReporting : .refusedExpired,
-                       hold.sentence(ttl: sessionInputTTL))
+                       hold.sentence(ttl: sessionInputQueuedLife))
     }
     guard let hold else { return .inject(request) }
     return .wait(hold)
@@ -235,8 +253,8 @@ func sessionInputDecision(request: SessionInputRequest?, servedEpoch: Int, state
 /// What is standing in the way right now, or nil when nothing is and the line may be typed.
 ///
 /// ONE TABLE FOR BOTH READERS: the tick asks it to decide whether to wait, and the refusal at the
-/// end of the TTL asks it to say what the waiting was for. Two copies of this order would let a
-/// request wait on one gate and be refused in the name of another.
+/// end of a request's life asks it to say what the waiting was for. Two copies of this order would
+/// let a request wait on one gate and be refused in the name of another.
 ///
 /// THE ORDER IS THE PRECEDENCE. A planned relaunch leads because it outranks what the state can
 /// see: `idle` is precisely the reading those planners were waiting for, so the ready-looking
@@ -257,9 +275,10 @@ func sessionInputHold(state: SupervisedState, quiet: SessionQuiet, turnEnded: Bo
         return .notReporting
     case .working:
         // The one state that depends on WHY it is working: dispatched work writing in the
-        // background is not this conversation being mid-turn (see the note above the decision),
-        // and neither is a turn Claude Code has told us it finished - the board is still right to
-        // call the session working, and its own 30s bar is untouched by this.
+        // background is not this conversation being mid-turn (see the note above the decision, and
+        // `boundFileQuietness` for the reading that no longer lets anything lying beside that work
+        // change the answer), and neither is a turn Claude Code has told us it finished - the board
+        // is still right to call the session working, and its own 30s bar is untouched by this.
         guard quiet == .subagentsWriting || turnEnded else { return .turn }
     case .blocked, .idle:
         break
@@ -356,7 +375,9 @@ func injectSessionInput(_ text: String, tty: String = "/dev/tty",
 /// down rather than looked up: only the poll loop knows, and it knows before it acts
 /// (`sessionInputDecision` carries the whole reasoning). No default, for the reason stated there.
 ///
-/// `inject` is injectable so the suite can drive every branch without a terminal.
+/// `inject` is injectable so the suite can drive every branch without a terminal, and `agents` with
+/// it: what a `/clear` costs is read off this session's roster at the instant the line lands
+/// (`landSessionInput`), and a suite must be able to say what that roster held.
 ///
 /// RETURNS THE LINE THAT WAS ACTUALLY TYPED, and nothing on any other branch. One reader wants it
 /// (`WindowRepickState.arm`): a `/clear` reaching a composer is the moment a session's window
@@ -373,6 +394,7 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
                        quiet: SessionQuiet, turnEnded: () -> Bool, keyboardIdle: Bool,
                        relaunchPlanned: Bool, dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
+                       agents: (String) -> Int? = { readSessionAgents(pid: $0)?.reportable },
                        inject: (String) -> SessionInputInjection = {
                            injectSessionInput($0)
                        }) -> String? {
@@ -384,6 +406,9 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     var detail: String?
     /// The line that reached the terminal, set on the one branch where that happened.
     var typed: String?
+    /// How many subagents that line took with it, when it was a line that clears the context and
+    /// this session's roster could be believed.
+    var killed: Int?
     switch sessionInputDecision(request: request, servedEpoch: state.servedEpoch, state: session,
                                 quiet: quiet, turnEnded: turnEnded(), keyboardIdle: keyboardIdle,
                                 relaunchPlanned: relaunchPlanned, now: now) {
@@ -400,10 +425,15 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         outcome = refusal
         detail = why
     case .inject(let asked):
-        switch inject(asked.text) {
+        // THE ONE PLACE A LINE REACHES THE TERMINAL, gathered into a function of its own rather
+        // than performed here (SessionInputLanding.swift states what else that buys).
+        let landing = landSessionInput(asked.text, sessionKey: pid, agents: agents, inject: inject)
+        switch landing.injection {
         case .done:
             outcome = .submitted
             typed = asked.text
+            killed = landing.agents
+            detail = killed.map(sessionInputAgentsNote)
         case .failed(let code):
             outcome = .failedTTY
             detail = "errno \(code): \(String(cString: strerror(code)))"
@@ -449,6 +479,15 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: outcome.rawValue,
                                                text: request.text, now: now),
                            to: log)
+    // AND WHAT THE LINE COST, on a line of its own beside it (the shape `receipt-lost` uses, and for
+    // the same reason: the served line's business is what was typed). This is the one consequence of
+    // a send that nobody standing at the address will read - the caller of a `/clear` is the session
+    // being cleared, and it has left by the time its line lands (SessionInputCommand.swift). So the
+    // log is where "my agents died" gets its answer.
+    if let killed {
+        appendSessionInputLine(sessionInputAgentsKilledLine(pid: pid, count: killed, now: now),
+                               to: log)
+    }
     // AFTER the served line, so the two read in the order they happened: what was typed, and then
     // that nobody was told about it.
     if let lostReceipt {

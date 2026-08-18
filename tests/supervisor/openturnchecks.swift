@@ -296,29 +296,43 @@ func runOpenTurnChecks() {
     // THE CAP IS THE RELAUNCH GATE'S, AND THE TYPING GATE DOES NOT INHERIT IT. Past
     // `openTurnMaxSeconds` an unmatched call stops holding, which is right for a restart: a child
     // killed mid-call leaves that call unmatched for ever, and a veto with no ceiling would wedge
-    // the session out of every reload for the rest of its life. But a call that old with a subagent
-    // still WRITING beside it is not that case at all - a dead child writes no subagent transcripts
-    // - so it is a conversation genuinely inside a long turn (a `Workflow` fan-out is the ordinary
-    // one), and `tally session send` must not type into it. The reading says `busy` rather than
-    // `subagentsWriting`, which is what makes the input gate hold (codex review of 0c9798b).
+    // the session out of every reload for the rest of its life.
     //
-    // WHICH CHILD WROTE THEM IS PART OF THE QUESTION, and this pair is what that costs. As first
-    // written this check said "a subagent still writing" and meant "a file with a recent mtime",
-    // and those are the same sentence for a live fan-out and for the wreckage a cap handoff leaves:
-    // the killed child's agents wrote seconds before it died, and the relaunch resumes the same
-    // transcript, so the new and completely idle child inherited both halves of the shape below.
-    // The dimension that separates them is when the child running NOW started (`since`), so both
-    // sides of it are asserted here rather than one (codex review of fa9533b; the same pair end to
-    // end, through the board and the input gate, is in windowrepickchecks section 34).
+    // THIS PAIR ONCE READ THE OTHER WAY (`fa9533b`), and 2026-08-18 turned it over. The old
+    // reasoning: a dead child writes no subagent transcripts, so an over-age call with a subagent
+    // writing beside it is a conversation genuinely inside a long turn (a `Workflow` fan-out being
+    // the ordinary one), and it answered `busy` so that the input gate would hold. What that missed
+    // is who could see the difference - `busy` and `subagentsWriting` are one answer to every
+    // restart gate - so the whole of its effect was on the gate that TYPES, and Albert's rule for
+    // that gate is that dispatched work never holds a line. It now answers `subagentsWriting`, the
+    // input gate types, and the `/clear` reports how many agents it ended rather than waiting the
+    // fan-out out (`landSessionInput`).
+    //
+    // WHICH CHILD WROTE THEM IS STILL PART OF THE QUESTION, for the reader that is left: a fresh
+    // child inheriting the killed one's subagent transcripts must not decline to be restarted for
+    // ten minutes over them (`newestSubagentWrite`, `since`). Both sides of that are asserted here,
+    // now as a difference between "dispatched work in flight" and "nothing outstanding at all".
     var oldTurnWithAgents = watcherWithTurn(open: true, callAge: openTurnMaxSeconds + 120,
                                             childLaunchedAt: Date().addingTimeInterval(-7200))
     dropSubagentWrite(beside: oldTurnWithAgents.file!, age: 5)
-    check("an over-age tool call with a subagent still writing reads as the turn, not as dispatch",
-          oldTurnWithAgents.quietness(followIdleSeconds) == .busy)
-    check("…and the input gate holds it as that session's own turn",
+    check("an over-age tool call with a subagent still writing reads as dispatched work",
+          oldTurnWithAgents.quietness(followIdleSeconds) == .subagentsWriting)
+    check("…and the input gate types into it, because dispatched work is not this session's turn",
           sessionInputHold(state: .working, quiet: oldTurnWithAgents.quietness(followIdleSeconds),
                            turnEnded: false, keyboardIdle: true,
-                           relaunchPlanned: false) == .turn)
+                           relaunchPlanned: false) == nil)
+    // AND THE HEAD'S OWN TURN STILL HOLDS IT, which is what stops the line above from reading as
+    // "nothing holds a send any more": the same fixture with the call INSIDE the ceiling is the
+    // head mid-turn, and that is the one thing this gate waits for.
+    var freshTurnWithAgents = watcherWithTurn(open: true, callAge: 5,
+                                              childLaunchedAt: Date().addingTimeInterval(-7200))
+    dropSubagentWrite(beside: freshTurnWithAgents.file!, age: 5)
+    check("…while a call still inside the ceiling is the head's own turn, and holds the line",
+          freshTurnWithAgents.quietness(followIdleSeconds) == .busy
+              && sessionInputHold(state: .working,
+                                  quiet: freshTurnWithAgents.quietness(followIdleSeconds),
+                                  turnEnded: false, keyboardIdle: true,
+                                  relaunchPlanned: false) == .turn)
     var handedOff = watcherWithTurn(open: true, callAge: openTurnMaxSeconds + 120,
                                     childLaunchedAt: Date())
     dropSubagentWrite(beside: handedOff.file!, age: 5)

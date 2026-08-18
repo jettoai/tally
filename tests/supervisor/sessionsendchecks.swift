@@ -109,15 +109,32 @@ func runSessionSendChecks() {
           sessionInputOccupant(sessionKey: busyKey, dir: dir, now: t0.addingTimeInterval(1))
               == .request(occupant))
     // A husk does NOT occupy it: the supervisor refuses it the next time it looks, and treating it
-    // as an occupant would take the address away for two minutes over a caller killed mid-wait.
+    // as an occupant would take the address away over a caller killed mid-wait.
     check("…and one past its life does not",
           sessionInputOccupant(sessionKey: busyKey, dir: dir,
-                               now: t0.addingTimeInterval(sessionInputTTL + 1)) == nil)
+                               now: t0.addingTimeInterval(sessionInputQueuedLife + 1)) == nil)
+    // THE TWO CLOCKS ARE ONE NUMBER, which is what the 2026-08-18 rework had to keep true on both
+    // sides: the supervisor holds a queued request for `sessionInputQueuedLife`, so an address
+    // freed any sooner than that would let a second caller write over a line that is pending and
+    // healthy - the overwrite this whole type exists to refuse.
+    check("…and it is occupied for exactly as long as the supervisor will still act on it",
+          sessionInputOccupant(sessionKey: busyKey, dir: dir,
+                               now: t0.addingTimeInterval(sessionInputQueuedLife - 1))
+              == .request(occupant)
+              && !sessionInputExpired(epoch: occupant.epoch,
+                                      now: t0.addingTimeInterval(sessionInputQueuedLife - 1))
+              && sessionInputExpired(epoch: occupant.epoch,
+                                     now: t0.addingTimeInterval(sessionInputQueuedLife + 1)))
     let busy = sessionInputBusyRefusal(.request(occupant), sessionKey: busyKey,
                                        now: t0.addingTimeInterval(20))
     check("the second caller is told nothing was queued, and how long the first one has left",
           busy.contains(busyKey) && busy.contains("nothing was queued")
-              && busy.contains("\(Int(sessionInputTTL) - 20)s"))
+              && busy.contains("\(Int(sessionInputQueuedLife) - 20)s"))
+    // AND IT DESCRIBES A QUEUE RATHER THAN A DEADLINE, since that is what the first line is in
+    // now: telling this caller to "wait for it to expire" would be telling it to wait out the one
+    // ending nobody wants.
+    check("…and it says what will happen to that line rather than only when it dies",
+          busy.contains("out of its own turn"))
     // TELLABLE APART FROM A GATE REFUSAL, which is the point of wording it separately: those mean
     // "the session was busy or silent, this may work later", and this one means "your text was
     // never queued at all, because something else is already using this address".
@@ -137,17 +154,20 @@ func runSessionSendChecks() {
           readSessionInputRequest(sessionKey: busyKey, dir: dir) == nil
               && sessionInputOccupant(sessionKey: busyKey, dir: dir,
                                       now: t0.addingTimeInterval(1)) == .answer(servedAnswer))
-    // AND IT IS LIVE FOR THE CALLER'S WAIT, NOT THE REQUEST'S TTL. The two differ by 30 seconds and
-    // the difference is not academic: a `refused-expired` answer is written when the request has
-    // just passed the TTL, so under the TTL it would be a husk at birth - deletable out from under
-    // a caller who is still polling for exactly it.
-    check("…and it is still there past the request's own TTL, because the caller waits longer",
+    // AND IT IS LIVE FOR THE CALLER'S WAIT RATHER THAN THE REQUEST'S LIFE, which since 2026-08-18
+    // means an answer is normally the SHORTER of the two - the reverse of the arrangement this
+    // check was written under, and right for the same reason it was right then: what makes an
+    // answer collectable is somebody standing at the address, and every caller now leaves after six
+    // seconds. This one names no wait at all (a CLI that predates the field), so it is charged the
+    // longest wait anybody ever made.
+    check("…for as long as the caller that asked for it said it would wait",
           sessionInputOccupant(sessionKey: busyKey, dir: dir,
-                               now: t0.addingTimeInterval(sessionInputTTL + 5))
+                               now: t0.addingTimeInterval(sessionInputWaitSeconds - 1))
               == .answer(servedAnswer))
-    check("…while past the longest wait anybody makes it is a husk like any other",
+    check("…and past that it is a husk like any other, whatever the request's own life is",
           sessionInputOccupant(sessionKey: busyKey, dir: dir,
-                               now: t0.addingTimeInterval(sessionInputWaitSeconds + 1)) == nil)
+                               now: t0.addingTimeInterval(sessionInputWaitSeconds + 1)) == nil
+              && sessionInputWaitSeconds < sessionInputQueuedLife)
     // A REQUEST OUTRANKS AN ANSWER when both are there (a newer send served while an older answer
     // sits uncollected): what the caller is told should name the thing that has not happened yet.
     try? writeSessionInputRequest(request("second", at: 1), sessionKey: busyKey, dir: dir)
@@ -170,13 +190,13 @@ func runSessionSendChecks() {
     clearSessionInputResult(sessionKey: busyKey, dir: dir)
 
     // AN ANSWER NOBODY IS WAITING FOR IS NOT AN OCCUPANT, which is the other end of the same rule.
-    // A send into its own session leaves after `sessionInputSelfWaitSeconds` by design, so the
-    // receipt written when the line is finally typed lands at an address with nobody standing at
-    // it: charged the long wait, it shut that address for the rest of two and a half minutes and
-    // the next legitimate send was refused as a duplicate, measured at up to 144s (codex review of
+    // Every caller now leaves after `sessionInputGraceSeconds` by design, so the receipt written
+    // when the line is finally typed lands at an address with nobody standing at it: charged the
+    // long wait, it shut that address for the rest of two and a half minutes and the next
+    // legitimate send was refused as a duplicate, measured at up to 144s (codex review of
     // 0c9798b). The caller's own number travels on the request and back on the answer, so the
     // occupant test can ask how long THAT caller was going to be there.
-    let selfWait = Int(sessionInputSelfWaitSeconds)
+    let selfWait = Int(sessionInputGraceSeconds)
     let unwatched = SessionInputResult(epoch: epoch(0), outcome: "submitted", detail: nil,
                                        waitSeconds: selfWait)
     writeSessionInputResult(unwatched, sessionKey: busyKey, dir: dir)
@@ -256,10 +276,12 @@ func runSessionSendChecks() {
 
     // MARK: - What the caller is told, and what it exits on
 
-    check("the four exit codes are kept apart",
-          sessionInputExitCode(nil) == 4
-              && sessionInputExitCode(SessionInputResult(epoch: 1, outcome: "submitted",
-                                                         detail: nil)) == 0
+    // TWO CODES COME OFF AN ANSWER and the rest are decided by the run: 4 belongs to a session that
+    // has exited and 0 also means "queued with nothing refusing it", which no answer can say -
+    // since 2026-08-18 the ordinary send has no answer to read at all.
+    check("the exit codes an answer decides are kept apart",
+          sessionInputExitCode(SessionInputResult(epoch: 1, outcome: "submitted",
+                                                  detail: nil)) == 0
               && sessionInputExitCode(SessionInputResult(epoch: 1, outcome: "refused-expired",
                                                          detail: nil)) == 3
               && sessionInputExitCode(SessionInputResult(epoch: 1, outcome: "failed-tty",
@@ -316,8 +338,13 @@ func runSessionSendChecks() {
     check("…and the one that is arrives as soon as it is written",
           arrived == .answered(SessionInputResult(epoch: 8, outcome: "submitted", detail: nil))
               && slept == 3)
-    check("the wait outlasts the request's own life, or it would time out on answers about to come",
-          sessionInputWaitSeconds > sessionInputTTL)
+    // THE WAIT NO LONGER OUTLASTS THE REQUEST, and it is not meant to: a queued line may sit behind
+    // a turn for a quarter of an hour, so a caller that stayed for its receipt would be sitting on
+    // a request that is doing exactly what it should. What the grace still has to be is comfortably
+    // more than the 2s poll it is racing, or a session that was already idle would be missed.
+    check("the grace is a few ticks rather than the request's whole life",
+          sessionInputGraceSeconds < sessionInputQueuedLife
+              && sessionInputGraceSeconds >= 2 * 2)
 
     // A WAIT WHOSE END IS ALREADY DECIDED IS NOT WAITED OUT. The only thing that ever writes an
     // answer is that session's supervisor, so one that has exited leaves a caller sitting for its
@@ -363,41 +390,36 @@ func runSessionSendChecks() {
 
     // MARK: - Sending into the session you are running in
 
-    // THE DEADLOCK THIS EXISTS TO AVOID, stated as the two numbers that prove it. A command run
-    // inside a conversation is a tool call, an unfinished tool call is an open turn, and a session
+    // THE DEADLOCK THIS EXISTS TO AVOID, stated as the numbers that prove it. A command run inside
+    // a conversation is a tool call, an unfinished tool call is an open turn, and a session
     // mid-turn is exactly what the supervisor will not type into - so a caller that waits for its
     // own line to land is waiting for a turn that cannot end until it stops waiting. Measured on
     // this machine 2026-08-17: three self-sends held their own tool call for 120.2s and were killed
     // by Claude Code's own timeout, and two thirds of the sends in the preceding day expired
-    // unserved. The short wait is what still catches a session that is already idle or blocked; it
-    // has to be well under both the request's life and the other wait.
-    check("a caller waiting on its own session gives up long before the request does",
-          sessionInputSelfWaitSeconds < sessionInputTTL
-              && sessionInputSelfWaitSeconds < sessionInputWaitSeconds
-              && sessionInputSelfWaitSeconds >= 2 * 2)
+    // unserved.
+    check("a caller gives up long before the request does",
+          sessionInputGraceSeconds < sessionInputQueuedLife
+              && sessionInputGraceSeconds < sessionInputWaitSeconds)
     let queued = sessionInputQueuedMessage(sessionKey: "9209")
-    // It says three things, and a caller that reads only this line has to be able to act on it:
-    // which session, that nothing is waiting, and where the outcome is recorded.
+    // It says four things, and a caller that reads only this line has to be able to act on it:
+    // which session, that nothing is waiting, when it would be dropped, and where the outcome is
+    // recorded.
     check("the queued line names the session, says nothing waits, and points at the record",
           queued.contains("9209") && queued.contains("nothing here waits")
               && queued.contains("~/.tally/logs/input.log")
-              && queued.contains("\(Int(sessionInputTTL))s"))
+              && queued.contains("\(Int(sessionInputQueuedLife))s"))
     // And it cannot be mistaken for a delivery, which is the one way this could mislead: exit 0 is
     // shared with a real send, so the sentence has to carry the difference.
     check("…and it does not claim the line was typed",
           !queued.contains("sent to session"))
-    let waitingLine = sessionInputWaitingLine(sessionKey: "9210", doing: "working",
-                                              timeout: sessionInputWaitSeconds)
-    check("a caller settling in to wait for another session says so, and what it is waiting on",
-          waitingLine.contains("9210") && waitingLine.contains("working")
-              && waitingLine.contains("\(Int(sessionInputWaitSeconds))s"))
-    check("…and says it without inventing a state for a session that has published none",
-          !sessionInputWaitingLine(sessionKey: "9210", doing: nil,
-                                   timeout: sessionInputWaitSeconds).contains("it is"))
-    let timedOut = sessionInputTimeoutMessage(sessionKey: "9210", path: "/tmp/9210",
-                                              timeout: sessionInputWaitSeconds)
-    check("the timeout says where the request still is, so it is not a dead end",
-          timedOut.contains("/tmp/9210") && timedOut.contains("9210"))
+    // ONE SENTENCE FOR BOTH CALLERS since 2026-08-18, which is what folded the progress note that
+    // used to precede a 150s wait into this: what that note carried and this needed is the state
+    // the session published, so a caller can tell "behind a turn" from "the next tick will take it".
+    let queuedElsewhere = sessionInputQueuedMessage(sessionKey: "9210", doing: "working")
+    check("…and it carries what that session said it was doing, when it said anything",
+          queuedElsewhere.contains("9210") && queuedElsewhere.contains("it is working right now"))
+    check("…without inventing a state for a session that has published none",
+          !queued.contains("right now") && queuedElsewhere.contains("right now"))
 
     // MARK: - The tick's own reading is what the gate sees
 
@@ -454,6 +476,68 @@ func runSessionSendChecks() {
     check("…and the line it asked for is typed anyway, which is the whole of the rework",
           agentTyped == ["/clear"]
               && readSessionInputResult(sessionKey: "9211", dir: dir)?.outcome == "submitted")
+    // THE SHADOW'S FAR EDGE, on the same fixture: an agent that last wrote just inside
+    // `subagentIdleSeconds` is the WORST case of the reading that used to refuse these lines, since
+    // the relaunch gate holds a session for that whole window while a request used to live a fifth
+    // of it. Asserted at 599s rather than at 30 because that is the corner, and a `/clear` typed
+    // there is the corner being closed.
+    let stale = DispatchLayoutFixture("send-gate-shadow", sessionAge: sessionStateQuietSeconds + 60)
+    stale.put("subagents/agent-a500d9cae3c919613.jsonl", age: subagentIdleSeconds - 1)
+    var staleWatcher = stale.watcher()
+    var staleWriter = SessionStateWriter()
+    let deepInShadow = syncSessionState(&staleWriter, pid: "9212",
+                                        project: PickProject(name: "p", path: stale.dir.path),
+                                        accountID: "claude:.claude", childPid: nil, model: nil,
+                                        watcher: &staleWatcher, keyboardBurstAt: nil,
+                                        dir: dispatchDir)
+    check("a head at the far edge of the 600s relaunch shadow is still only its subagents writing",
+          deepInShadow.state == .working && deepInShadow.quiet == .subagentsWriting)
+    check("…so the gate types into it, and the count it would have been refused by is gone",
+          sessionInputHold(state: deepInShadow.state, quiet: deepInShadow.quiet, turnEnded: false,
+                           keyboardIdle: true, relaunchPlanned: false) == nil
+              && sessionInputQueuedLife > subagentIdleSeconds)
+
+    // THE HAND-OVER, WHOLE, WITH A ROSTER BEHIND IT (2026-08-18). The head has stopped speaking,
+    // its agents are writing right now, its Claude Code has published a roster of two - and the
+    // `/clear` lands, ends them, and says so. This is the shape the rule is about: an agent running
+    // is not a reason a window cannot be cleared, and what it costs is reported rather than avoided.
+    var handOver = SessionInputState(sessionKey: "9221", servedEpoch: 0)
+    try? writeSessionInputRequest(
+        SessionInputRequest(epoch: Int(Date().timeIntervalSince1970 * 1000), text: "/clear"),
+        sessionKey: "9221", dir: dir)
+    var handOverTyped: [String] = []
+    applySessionInput(&handOver, session: withAgents.state, quiet: withAgents.quiet,
+                      turnEnded: { false }, keyboardIdle: true, relaunchPlanned: false, dir: dir,
+                      log: dir.appendingPathComponent("handover.log"),
+                      agents: { _ in 2 }) { text in
+        handOverTyped.append(text)
+        return .done
+    }
+    check("a head with agents writing has its /clear typed, and the receipt counts what died",
+          handOverTyped == ["/clear"]
+              && readSessionInputResult(sessionKey: "9221", dir: dir)?.detail
+              == "killed 2 live agents")
+    check("…and the log carries the same count for the caller that has already gone",
+          ((try? String(contentsOf: dir.appendingPathComponent("handover.log"), encoding: .utf8))
+              ?? "").contains("pid=9221 input=agents-killed count=2"))
+    // AND AN ORDINARY LINE INTO THE SAME SESSION lands on exactly the same terms while ending
+    // nothing: the roster is not even read, because nothing about "2" is answered by typing "hello".
+    var ordinary = SessionInputState(sessionKey: "9222", servedEpoch: 0)
+    try? writeSessionInputRequest(
+        SessionInputRequest(epoch: Int(Date().timeIntervalSince1970 * 1000), text: "hello"),
+        sessionKey: "9222", dir: dir)
+    var rosterReads = 0
+    var ordinaryTyped: [String] = []
+    applySessionInput(&ordinary, session: withAgents.state, quiet: withAgents.quiet,
+                      turnEnded: { false }, keyboardIdle: true, relaunchPlanned: false, dir: dir,
+                      log: dir.appendingPathComponent("handover.log"),
+                      agents: { _ in rosterReads += 1; return 2 }) { text in
+        ordinaryTyped.append(text)
+        return .done
+    }
+    check("a line that is not a clear lands the same way, ends nothing, and reads no roster",
+          ordinaryTyped == ["hello"] && rosterReads == 0
+              && readSessionInputResult(sessionKey: "9222", dir: dir)?.detail == nil)
 
 
     // MARK: - Two things no value can be asked about: the wiring, and the shape of the write
@@ -525,29 +609,55 @@ func runSessionSendChecks() {
         check("the command asks whether the address is occupied before it writes to it", false)
         check("…and before it takes away an answer that may be the other caller's", false)
     }
-    // THE SELF PATH, read off the source for the same reason: it is a matter of WHICH timeout and
-    // WHICH exit the command reaches, and nothing can call `runSessionSend` here without writing
-    // into the developer's own conversation. Three shapes, and the defect each one refuses: the
-    // wait is chosen by whether the marker was adopted (rather than by whether `--session` was
-    // typed, which reads `--session <our own pid>` as somebody else's session); the short wait
-    // ends in the queued line rather than in a timeout; and the abandonment question is never
-    // asked of our own supervisor, which is alive by construction.
-    check("the wait a self-send makes is the short one, chosen by the marker it adopted",
-          command.contains("let ownSession = marker.adopted(sessionKey) != nil")
-              && command.contains("let wait = ownSession ? sessionInputSelfWaitSeconds "
-                  + ": sessionInputWaitSeconds")
-              && command.contains("timeout: wait,"))
+    // THE WAIT, read off the source for the same reason: it is a matter of WHICH timeout and WHICH
+    // exit the command reaches, and nothing can call `runSessionSend` here without writing into the
+    // developer's own conversation. Since 2026-08-18 there is one wait for everybody, and the two
+    // shapes below are what that costs and what it refuses: no caller may wait on the long number,
+    // and running the short one out has to END IN A QUEUED LINE AND EXIT 0 rather than in a
+    // failure - a caller told "nobody answered" about a line that is pending and healthy is the
+    // defect this whole rework removed from the supervisor's side.
+    check("every caller makes the same short wait, and nobody waits on the long number",
+          command.contains("let wait = sessionInputGraceSeconds")
+              && command.contains("timeout: wait,")
+              && !command.contains("timeout: sessionInputWaitSeconds"))
     // AND THE SAME NUMBER IS STAMPED ON THE REQUEST, which is what stops the receipt of a send
     // nobody is waiting for from holding the address shut behind it: the two must be one value,
     // since a caller that leaves after six seconds and a receipt judged by 150 is exactly the
     // mismatch that refused the next legitimate send (codex review of 0c9798b).
     check("…and the request carries the wait its caller actually makes",
           command.contains("text: intent.text, waitSeconds: Int(wait)"))
-    check("…and running out of it queues rather than fails",
-          command.contains("guard !ownSession else {\n            "
-              + "print(sessionInputQueuedMessage(sessionKey: sessionKey))\n            return 0"))
-    check("…while a wait on another session is announced before it starts",
-          command.contains("if !ownSession {") && command.contains("sessionInputWaitingLine("))
+    check("…and running out of it queues rather than fails, for both callers",
+          command.contains("    case .timedOut:")
+              && command.contains("print(sessionInputQueuedMessage(sessionKey: sessionKey,")
+              && !command.contains("sessionInputTimeoutMessage("))
+    // THE MARKER STILL DECIDES ONE THING, and only one: whether the supervisor being waited on is
+    // this process's own ancestor, which is the one question a `--session <our own pid>` caller
+    // would get wrong by reading the flag instead.
+    check("…while the marker is left deciding whether that supervisor can be abandoned at all",
+          command.contains("let ownSession = marker.adopted(sessionKey) != nil")
+              && command.contains("abandon: { ownSession ? nil : sessionInputAbandonment("))
+    // FAIL FAST, AND BEFORE ANYTHING IS WRITTEN: every way this can refuse - a usage error, an
+    // over-long line, a pid that is not a session, a session that cannot be resolved, a supervisor
+    // too old to read the request, an address that is already occupied - returns from ABOVE the
+    // write. What that rules out is the shape Albert measured on 2026-08-17: a refusal that arrives
+    // only when a clock runs out, with the sender reading the silence in between as success.
+    if let start = command.range(of: "func runSessionSend("),
+       let written = command.range(of: "try writeSessionInputRequest(",
+                                   range: start.upperBound ..< command.endIndex) {
+        let before = String(command[start.upperBound ..< written.lowerBound])
+        let after = String(command[written.upperBound ..< command.endIndex])
+        // SEVEN OF THEM, counted rather than sampled: a refusal added below the write is a refusal
+        // that can only be reached after a caller has already been told its line was queued.
+        check("every refusal is decided before the request is written, so none of them waits",
+              before.components(separatedBy: "return 3").count == 8
+                  && before.contains("return 2")
+                  && !after.contains("return 3")
+                  // and the one non-zero ending left below it is the session that has exited
+                  && after.components(separatedBy: "return 4").count == 2)
+    } else {
+        check("every refusal is decided before the request is written, so none of them waits",
+              false)
+    }
     if let named = command.range(of: "if let named = intent.session {"),
        let end = command.range(of: "\n    } else {", range: named.upperBound ..< command.endIndex) {
         let branch = String(command[named.upperBound ..< end.lowerBound])

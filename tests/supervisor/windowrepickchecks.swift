@@ -590,10 +590,13 @@ func runWindowRepickChecks() {
     // transcript written seconds ago, which is bit for bit the shape of a live fan-out. The new
     // child, idle and with nothing running, therefore read as `busy`.
     //
-    // The consequence is not a delay. A `tally session send` lives 120s and the misreading lasts up
-    // to `subagentIdleSeconds`, five times that, so the line is not late: it is refused - and the
-    // commonest caller is a head clearing its own context at the end of a window, which returns
-    // exit 0 saying `queued` and only learns otherwise from `~/.tally/logs/input.log`.
+    // The consequence was not a delay. A `tally session send` lived 120s while the misreading lasts
+    // up to `subagentIdleSeconds`, five times that, so the line was not late: it was refused - and
+    // the commonest caller is a head clearing its own context at the end of a window, which returns
+    // exit 0 saying `queued` and only learns otherwise from `~/.tally/logs/input.log`. Since
+    // 2026-08-18 a queued request outlives that window (`sessionInputQueuedLife`), so the same
+    // misreading costs the line ten minutes instead of losing it; this fixture is kept because ten
+    // minutes is still the wrong answer, and because the reading itself is what it pins.
     let realNow = Date()
     let iso8601 = ISO8601DateFormatter()
     iso8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -634,15 +637,19 @@ func runWindowRepickChecks() {
     }
 
     // A child that has been running for hours: the subagent writing beside its over-age call is its
-    // own live fan-out, and typing into that would land in the middle of a turn. Unchanged.
+    // own live fan-out. It reads as dispatched work, and since 2026-08-18 that is a line this gate
+    // TYPES - Albert's rule is that agents running are not a reason a window cannot be cleared, and
+    // what the `/clear` costs is reported rather than avoided (`landSessionInput`). The restart
+    // gates are untouched by that: this session is still not quiet, so nothing relaunches under it.
     var liveFanOut = residueWatcher(callAge: openTurnMaxSeconds + 120, subagentAge: 5,
                                     childLaunchedAt: realNow.addingTimeInterval(-7200))
-    check("a live fan-out past the relaunch ceiling still reads as this session's own turn",
-          liveFanOut.quietness(followIdleSeconds) == .busy)
-    check("…and the input gate still holds the line as that turn",
+    check("a live fan-out past the relaunch ceiling reads as dispatched work rather than a turn",
+          liveFanOut.quietness(followIdleSeconds) == .subagentsWriting
+              && !liveFanOut.isQuiet(followIdleSeconds))
+    check("…and the input gate types into it, dispatched work holding nothing",
           sessionInputHold(state: .working, quiet: liveFanOut.quietness(followIdleSeconds),
                            turnEnded: false, keyboardIdle: true,
-                           relaunchPlanned: false) == .turn)
+                           relaunchPlanned: false) == nil)
 
     // The same bytes on disk, one relaunch later. The only thing that differs is WHEN the child
     // running now started, which is the dimension the reading was missing.
@@ -677,9 +684,24 @@ func runWindowRepickChecks() {
                                    childLaunchedAt: .distantPast)
     // `.distantPast` is what the reading amounted to before the child's start entered it: every
     // write in that directory counted, whoever made it.
-    check("read that way, a self-send is refused rather than delayed",
-          selfSend(&beforeFix, pid: "9920", age: sessionInputTTL + 1)
-              == .refuse(.refusedExpired, SessionInputHold.turn.sentence(ttl: sessionInputTTL)))
+    //
+    // WHAT THE MISREADING COSTS NOW, which is the third answer this pair has had and the one the
+    // 2026-08-18 rework left: the residue is read as dispatched work, and dispatched work holds no
+    // line - so the self-send is TYPED even under the reading that could not tell a dead child's
+    // wreckage from a live package. The `since` filter above is therefore no longer what saves this
+    // send (it saves the restart gates, `newestSubagentWrite`), and this fixture is kept because it
+    // is the shape that reaches both.
+    if case .inject = selfSend(&beforeFix, pid: "9920", age: subagentIdleSeconds - 1) {
+        check("read that way, a self-send is typed rather than held", true)
+    } else {
+        check("read that way, a self-send is typed rather than held", false)
+    }
+    // The one ending that still refuses it is the staleness ceiling, and with nothing holding the
+    // line the sentence is the one that names no hold at all.
+    check("…and refused only once it is past the staleness ceiling",
+          selfSend(&beforeFix, pid: "9920", age: sessionInputQueuedLife + 1)
+              == .refuse(.refusedExpired, "it reached a moment this could be typed at only after "
+                         + "its \(Int(sessionInputQueuedLife))s life had run out"))
     var afterFix = residueWatcher(callAge: openTurnMaxSeconds + 120, subagentAge: 5,
                                   childLaunchedAt: realNow.addingTimeInterval(-1))
     if case .inject = selfSend(&afterFix, pid: "9921", age: 1) {

@@ -88,16 +88,18 @@ usage:
                             the session it is meant for (the agent in that conversation can run it
                             as a tool call); --session names another one by the supervisor pid
                             `tally status --json` lists. The text is typed at the first moment that
-                            session is waiting on you, idle, or finished speaking with only its
-                            subagents still writing, so a request made mid-turn lands when the turn
-                            ends and background agents do not hold it. Nothing is typed while the
-                            conversation itself is in a turn, while it is not reporting what it is
-                            doing, while it is being restarted, or while somebody is typing in that
-                            terminal. Sending to ANOTHER session waits for the answer; sending to
-                            your own returns having queued the line, since waiting would hold open
-                            the very turn it is waiting for. At most 200 bytes - a slash command, an
-                            answer to a prompt - and every one of them is recorded in
-                            ~/.tally/logs/input.log
+                            session is waiting on you, idle, or finished speaking, so a request made
+                            mid-turn lands when the turn ends; agents it dispatched never hold it,
+                            and a `/clear` that lands while they are running ends them. Nothing is
+                            typed while the conversation itself is in a turn, while it is not
+                            reporting what it is doing, while it is being restarted, or while
+                            somebody is typing in that terminal. Queueing is success: every caller
+                            stays a few seconds, long enough to catch a session that is already
+                            idle, then says the line is queued and exits 0 - waiting for delivery
+                            from inside the session would hold open the very turn the line is
+                            waiting for. At most 200 bytes - a slash command, an answer to a
+                            prompt - and every one of them is recorded in ~/.tally/logs/input.log,
+                            including how many running subagents a `/clear` ended when it landed
   tally reload [--now]      restart every supervised session at its next idle moment, so edited
                             hooks, skills, and instructions take effect everywhere without
                             visiting each terminal (--now waits only for a 5s quiet gap, so it

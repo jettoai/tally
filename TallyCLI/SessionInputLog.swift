@@ -64,6 +64,19 @@ func sessionInputReceiptLostLine(pid: String, outcome: String, epoch: Int, failu
         + "served=\(outcome) epoch=\(epoch) failed=\(failure)\n"
 }
 
+/// The line a `/clear` that ended running subagents leaves (grep `input=agents-killed`): the line
+/// was typed, and the session's context went with the work it had dispatched.
+///
+/// ITS OWN LINE BESIDE THE SERVED ONE, the shape above and for the same two reasons. The served
+/// line's business is what was typed, and its fields are at a fixed offset for an eye and a `grep`,
+/// which an occasional extra column in the middle of them would end. And the question this answers
+/// ("where did my agents go") is asked separately from that one - by somebody who was not there:
+/// the caller of a `/clear` is the session being cleared, and it has left with `queued` long before
+/// its line lands, so the receipt naming the same count reaches nobody. This file is the reader.
+func sessionInputAgentsKilledLine(pid: String, count: Int, now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=agents-killed count=\(count)\n"
+}
+
 /// The line a directory that could not be narrowed leaves (grep `input=directory-mode`): the
 /// requests in it are readable by every account on this machine, and the write went ahead anyway
 /// (`makeSessionInputDirectory` states why). Its own line rather than a served-request one, because

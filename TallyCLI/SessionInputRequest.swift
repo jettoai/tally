@@ -33,18 +33,26 @@ import Foundation
 /// belongs in the conversation rather than in a supervisor's terminal write.
 let sessionInputMaxBytes = 200
 
-/// How long a request stays actionable. Beyond this it is refused rather than typed.
+/// How long a queued request stays actionable. Beyond this it is refused rather than typed.
 ///
-/// TWO MINUTES RATHER THAN THE THIRTY SECONDS THE DESIGN FIRST PROPOSED, and the reason is the whole
-/// shape of this feature: the caller is normally an agent INSIDE the session, running this as a tool
-/// call, so at the instant the request lands that session is by definition `working` - the tool call
-/// itself is the turn that has not closed yet. A request that expired in thirty seconds would expire
-/// while the only state it can ever be served from is still on its way.
+/// A CEILING ON STALENESS RATHER THAN A DEADLINE FOR THE SESSION, which is the 2026-08-18 rework and
+/// a change of meaning rather than of number. What stood here before was a 120s TTL, and it was
+/// charged against the ONE condition this whole feature exists to wait for: the caller is normally
+/// an agent inside the session, so its line is queued behind the very turn that asked for it, and a
+/// clock running during that wait turns "still queued" into "failed". Measured on this machine
+/// 2026-08-16/17: two thirds of every send expired unserved, the hand-over sends among them, and the
+/// harness that sent them read `exit 3` while the window it meant to close stayed open for seven
+/// minutes. Lengthening the TTL would have moved that boundary without removing it; what is gone is
+/// the idea that a request waiting for its turn is running out of time.
 ///
-/// It is not merely a courtesy either. Pids are reused, so a request left behind by a session that
-/// exited must not be typed into whatever gets that pid next; the served-epoch seed
-/// (`SessionInputState`) closes the common case and this closes the rest.
-let sessionInputTTL: TimeInterval = 120
+/// So what is left is the only question a clock here can honestly answer: is this line still meant
+/// for the conversation in front of it? FIFTEEN MINUTES because the moment a send is aimed at is a
+/// turn ending (a hand-over's `/clear`, an answer to a prompt), and a turn that has not ended in
+/// fifteen minutes is one whose composer belongs to something else by now. It also keeps the older
+/// promise: pids are reused, so a request left behind by a session that exited must not be typed
+/// into whatever gets that pid next - the served-epoch seed (`SessionInputState`) closes the common
+/// case and this closes the rest.
+let sessionInputQueuedLife: TimeInterval = 900
 
 // MARK: - The files
 
@@ -182,7 +190,7 @@ func parseSessionInput<Record: Decodable>(_ data: Data, as type: Record.Type = R
 // live conversation is CONTENT rather than telemetry, and so is not kept at the 0644 the rest of
 // `~/.tally` uses. Everything in this directory is the same content, and less redacted: the log
 // keeps 40 characters with the control bytes replaced, a request file holds the whole line
-// verbatim, and it can sit here for the length of the TTL waiting for a turn to end.
+// verbatim, and it can sit here for the whole of `sessionInputQueuedLife` waiting for a turn to end.
 //
 // The default modes were exactly what that argument refuses. A umask of 022 makes a `Data.write` a
 // 0644 file, `~/.tally` and `$HOME` are both traversable, and the directory was 0755: measured on

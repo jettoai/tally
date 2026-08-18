@@ -10,15 +10,16 @@ import Foundation
 // different act on the same subject, and putting the first under a bare top-level name would leave
 // the second either homeless or misfiled.
 //
-// IT WAITS FOR ANOTHER SESSION AND NOT FOR ITS OWN, which is the one asymmetry in this command and
-// the thing to understand before changing anything here. `tally account` and `tally model` return
-// the instant the file is on disk. This one waits, because it is normally run by an agent that has
-// to know whether the text landed and the answer exists - EXCEPT when the session it is sending to
-// is the one it is running in. There the wait is a deadlock: the command is a tool call, an
+// IT QUEUES RATHER THAN WAITS, which is the thing to understand before changing anything here.
+// `tally account` and `tally model` return the instant the file is on disk; this one stays a few
+// seconds, because a session that is already idle is served on the next tick and that answer is
+// worth catching - and then it says the line is queued and leaves. Waiting for delivery is a
+// deadlock when the target is the session the command runs in (the command is a tool call, an
 // unfinished tool call is an open turn, and a session mid-turn is precisely what the supervisor
-// will not type into. So a self-send waits only long enough to catch a session that is already
-// idle, then says the line is queued and gets out of the turn's way (SessionSendWait.swift carries
-// the measurements and every wording).
+// will not type into), and it is a lie waiting to happen when it is not: a request may sit queued
+// behind a turn for `sessionInputQueuedLife`, so a caller that gave up before then would report
+// "nobody answered" about a line that is pending and healthy. SessionSendWait.swift carries the
+// measurements and every wording.
 
 /// What `tally session send` asks for. Pure to parse, so the grammar is testable.
 ///
@@ -110,22 +111,22 @@ enum SessionInputOccupant: Equatable {
 /// EXPIRED ONES DO NOT COUNT, and each half has its own clock because each is waited on by a
 /// different thing:
 ///
-///   - A REQUEST is live for `sessionInputTTL`, which is how long the supervisor will still act on
-///     it. Past that it is a husk the next tick refuses, and treating it as an occupant would take
-///     the address away for two minutes over a caller that was killed mid-wait.
+///   - A REQUEST is live for `sessionInputQueuedLife`, which is how long the supervisor will still
+///     act on it. Past that it is a husk the next tick refuses, and treating it as an occupant would
+///     take the address away over a caller that was killed mid-wait. THE TWO CLOCKS ARE THE ONE
+///     NUMBER on purpose: the request half of this test asks the same question the supervisor's own
+///     expiry does, and a shorter one here would free the address while a live request was still
+///     pending at it - which is precisely the overwrite this type exists to refuse.
 ///   - An ANSWER is live for as long as THAT caller said it would wait, measured from the same
 ///     stamp, because what makes an answer collectable is not the supervisor's willingness to act
-///     but the CALLER's willingness to wait. For the ordinary caller that is `sessionInputWaitSeconds`,
-///     longer than the TTL by design (150s against 120s, so a refusal of an expired request still
-///     reaches the caller it belongs to). Judging an answer by the TTL would leave exactly the hole
-///     this type closes: a `refused-expired` answer is born already older than the TTL, so it would
-///     be a husk at birth and the next caller would delete it out from under a caller still polling
-///     for it.
+///     but the CALLER's willingness to wait. Since 2026-08-18 every caller says six seconds
+///     (`sessionInputGraceSeconds`), so a receipt stops occupying the address almost at once, which
+///     is right: nobody is standing at it. A request that named no wait at all is charged
+///     `sessionInputWaitSeconds`, the number every answer was charged before the field existed.
 ///
-///     AND THE CALLER'S OWN NUMBER RATHER THAN THAT ONE FOR EVERYBODY, since a send into its own
-///     session leaves early by design and its receipt is written to an address nobody is standing
-///     at (`SessionInputRequest.waitSeconds` carries the whole argument and the defect it fixes).
-///     A request that named no number at all is charged the long wait, exactly as before.
+///     THE CALLER'S OWN NUMBER RATHER THAN ONE FOR EVERYBODY, because every send now leaves early
+///     by design and its receipt is written to an address nobody is standing at
+///     (`SessionInputRequest.waitSeconds` carries the whole argument and the defect it fixes).
 func sessionInputOccupant(sessionKey: String, dir: URL = sessionInputDir, now: Date = Date())
     -> SessionInputOccupant? {
     if let waiting = readSessionInputRequest(sessionKey: sessionKey, dir: dir),
@@ -193,9 +194,10 @@ func sessionInputBusyRefusal(_ occupant: SessionInputOccupant, sessionKey: Strin
     case .request(let waiting):
         return "session \(sessionKey) already has a line waiting to be typed into it, so nothing "
             + "was queued for this one: a second request at that address would replace the first, "
-            + "and the caller waiting on it would be told nobody answered. Let that one be served, "
-            + "or wait up to \(expiresIn(waiting.epoch, sessionInputTTL))s for it to expire, then "
-            + "ask again"
+            + "and the line somebody queued would be dropped with nothing anywhere recording it. "
+            + "That one is typed at the first moment that session is out of its own turn, or "
+            + "dropped in \(expiresIn(waiting.epoch, sessionInputQueuedLife))s if no such moment "
+            + "arrives; ask again after either"
     case .answer(let answer):
         let left = expiresIn(answer.epoch, sessionInputAnswerLife(answer))
         return "session \(sessionKey) was sent a line already and the answer to it "
@@ -259,46 +261,6 @@ func namedSession(_ named: String, dir: URL = supervisorStateDir) -> NamedSessio
         return .session(String(owner))
     }
     return .notSupervised
-}
-
-/// What to tell the caller about an answer. Pure, so every wording is assertable.
-///
-/// An outcome this build does not recognise is REPORTED VERBATIM rather than flattened into a
-/// generic failure: a CLI one version behind a supervisor is exactly the case where the word itself
-/// is the only information there is.
-func sessionInputMessage(_ result: SessionInputResult, sessionKey: String) -> String {
-    // Appended to EVERY wording, the successes included. A delivery does not normally carry one, but
-    // a supervisor from a later build may say something alongside an outcome this one already
-    // understands, and dropping it because the news was good is how a channel loses exactly the
-    // sentence somebody added for a reason.
-    let detail = result.detail.map { " (\($0))" } ?? ""
-    switch result.resolved {
-    case .submitted: return "sent to session \(sessionKey)\(detail)"
-    case .refusedTooLong: return "refused: too long\(detail)"
-    case .refusedNotReporting:
-        return "refused: session \(sessionKey) never reported what it was doing, so nothing was "
-            + "typed into it\(detail)"
-    case .refusedExpired:
-        return "refused: session \(sessionKey) never reached a moment this could be typed at"
-            + "\(detail)"
-    case .failedTTY: return "failed: the session's terminal refused the write\(detail)"
-    case nil: return "the supervisor answered \"\(result.outcome)\"\(detail)"
-    }
-}
-
-/// The exit code one run ends on. Four answers a script can act on, and they are kept apart on
-/// purpose: 0 it landed; 3 it was refused, with a reason; 4 nobody answered in time; 1 something
-/// here broke. Usage errors are 2, as everywhere else in this binary.
-///
-/// A SELF-SEND THAT WAS QUEUED EXITS 0 WITHOUT A RESULT, which is the one thing this code says that
-/// no `SessionInputResult` can: the caller IS the session, so "did it land" cannot be answered from
-/// inside the turn that has to end first (SessionSendWait.swift). Exit 0 therefore means "typed, or
-/// queued for this session with nothing refusing it", and the line printed says which. A code of
-/// its own was weighed and refused: every caller of this is a hand-over that reads non-zero as
-/// "fall back to doing it by hand", and a queued line is not a failure to fall back from.
-func sessionInputExitCode(_ result: SessionInputResult?) -> Int32 {
-    guard let result else { return 4 }
-    return result.delivered ? 0 : 3
 }
 
 /// `tally session send [<text>] [--session <pid>]`: type into a supervised session's own terminal
@@ -383,7 +345,8 @@ func runSessionSend(args: [String]) -> Int32 {
     // Closing that needs an exclusive publish (`link(2)` rather than `rename(2)`, with its own
     // retry for the expired-overwrite case), and it is not bought here because the race is two
     // invocations inside the same millisecond while the defect this fixes was two callers inside
-    // the same TWO MINUTES - the TTL makes overlap the ordinary case rather than the freak one.
+    // the same QUARTER HOUR - a queued request's life makes overlap the ordinary case rather than
+    // the freak one.
     if let occupant = sessionInputOccupant(sessionKey: sessionKey) {
         warn(sessionInputBusyRefusal(occupant, sessionKey: sessionKey))
         return 3
@@ -398,13 +361,15 @@ func runSessionSend(args: [String]) -> Int32 {
     clearSessionInputResult(sessionKey: sessionKey)
     // IS THIS OUR OWN SESSION? The marker answers it, and only where the resolution actually USED
     // it: `adopted` is nil when the directory found the session or when `--session` named somebody
-    // else, and both of those are callers standing outside the turn they are writing into.
-    //
+    // else, and both of those are callers standing outside the turn they are writing into. It no
+    // longer decides how long to wait (nobody waits long any more, `sessionInputGraceSeconds` says
+    // why); what is left to it is the one question that really does differ - whether the supervisor
+    // being waited on is this process's own ancestor, and so alive by construction.
+    let ownSession = marker.adopted(sessionKey) != nil
     // ASKED BEFORE THE REQUEST IS WRITTEN, because the request carries the answer: how long this
     // caller will be there decides how long its receipt is anybody's to collect
     // (`SessionInputRequest.waitSeconds`).
-    let ownSession = marker.adopted(sessionKey) != nil
-    let wait = ownSession ? sessionInputSelfWaitSeconds : sessionInputWaitSeconds
+    let wait = sessionInputGraceSeconds
     let request = SessionInputRequest(epoch: Int(Date().timeIntervalSince1970 * 1000),
                                       text: intent.text, waitSeconds: Int(wait))
     do {
@@ -413,13 +378,6 @@ func runSessionSend(args: [String]) -> Int32 {
         warn("cannot write \(sessionInputFile(sessionKey: sessionKey).path): "
             + "\(error.localizedDescription)")
         return 1
-    }
-    if !ownSession {
-        // Said before the wait rather than after it, which is the whole point: two and a half
-        // minutes of nothing is indistinguishable from a command that has hung.
-        warn(sessionInputWaitingLine(sessionKey: sessionKey,
-                                     doing: readSessionState(pid: sessionKey)?.state,
-                                     timeout: sessionInputWaitSeconds))
     }
     let answer = awaitSessionInputResult(
         sessionKey: sessionKey, epoch: request.epoch, timeout: wait,
@@ -434,16 +392,15 @@ func runSessionSend(args: [String]) -> Int32 {
         warn(why)
         return 4
     case .timedOut:
-        // OUR OWN SESSION IS NOT A TIMEOUT. The line is queued and the turn this command is part of
-        // is what it is waiting for, so leaving is how it gets typed rather than how it is lost.
-        guard !ownSession else {
-            print(sessionInputQueuedMessage(sessionKey: sessionKey))
-            return 0
-        }
-        warn(sessionInputTimeoutMessage(sessionKey: sessionKey,
-                                        path: sessionInputFile(sessionKey: sessionKey).path,
-                                        timeout: sessionInputWaitSeconds))
-        return 4
+        // THE ORDINARY ENDING RATHER THAN A FAILURE, and the one thing that changed here on
+        // 2026-08-18. The line is queued, the session's own turn is what it is waiting for, and
+        // leaving is how it gets typed rather than how it is lost - for a caller inside that
+        // session because staying holds the turn open, and for one outside it because a request may
+        // legitimately sit queued for a quarter of an hour and "nobody answered" would be a lie
+        // about a line that is very much alive.
+        print(sessionInputQueuedMessage(sessionKey: sessionKey,
+                                        doing: readSessionState(pid: sessionKey)?.state))
+        return 0
     }
     // Read, so it stops being an answer waiting for somebody.
     clearSessionInputResult(sessionKey: sessionKey)
@@ -465,24 +422,26 @@ triggers nothing. Run it inside the session it is meant for (an agent in that co
 as a tool call); --session names another one by either of its pids, the Claude Code that
 `tally status --json` lists under `sessions[].pid` or the Tally supervising it.
 
-The text is typed at the first moment the session is waiting on you, idle, or done speaking with
-only its subagents still writing - so a request made mid-turn lands when that turn ends, and agents
-running in the background do not hold it. Nothing is typed while the conversation itself is in a
-turn, while it is not reporting what it is doing, while a restart of it is pending, or while
-somebody is typing in that terminal; a request that never reaches a typeable moment within
-\(Int(sessionInputTTL))s is refused and the refusal names which of those stood in its way.
+The text is typed at the first moment the session is waiting on you, idle, or done speaking - so a
+request made mid-turn lands when that turn ends. Agents it dispatched do not hold it, whatever they
+are doing: a `/clear` that lands while they are running ends them, and the log records how many.
+Nothing is typed while the conversation itself is in a turn, while it is not reporting what it is
+doing, while a restart of it is pending, or while somebody is typing in that terminal; a request
+that never reaches a typeable moment within \(Int(sessionInputQueuedLife))s is refused and the
+refusal names which of those stood in its way.
 
-Sending into ANOTHER session waits up to \(Int(sessionInputWaitSeconds))s for the answer and prints
-what it is waiting on. Sending into your OWN waits \(Int(sessionInputSelfWaitSeconds))s and then
-says the line is queued, because this command is part of the turn the line is waiting for: holding
-it open is the one way to guarantee the line is never typed.
+QUEUEING IS SUCCESS. Every caller waits \(Int(sessionInputGraceSeconds))s, which is long enough to
+catch a session that is already idle, and then says the line is queued and exits 0. It does not wait
+for delivery: a line behind a turn is doing what it was asked to, and a caller inside that session
+that stayed would hold open the very turn it is waiting for. What became of it is recorded in
+~/.tally/logs/input.log, including how many running subagents a `/clear` ended when it landed.
 
-One send at a time per session: a second one while the first is still waiting is refused rather than
+One send at a time per session: a second one while the first is still queued is refused rather than
 replacing it. At most \(sessionInputMaxBytes) bytes of UTF-8, since this is for a slash command or
 an answer to a prompt rather than for a prompt.
 
-Exit codes: 0 sent (or queued for this session), 3 refused (the reason is printed), 4 nobody
-answered, 1 something went wrong.
+Exit codes: 0 typed, or queued with nothing refusing it; 3 refused, and nothing was queued (the
+reason is printed); 4 that session has exited; 1 something went wrong.
 """
 
 /// What a missing or unknown verb is told: the first line of the text above rather than a second

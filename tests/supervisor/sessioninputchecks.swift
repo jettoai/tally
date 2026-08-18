@@ -144,6 +144,44 @@ func runSessionInputChecks() {
               == .wait(.keyboard)
               && decide(request("y"), state: .working, quiet: .subagentsWriting,
                         relaunchPlanned: true) == .wait(.restart))
+    // THE 2026-08-18 REWORK: QUEUED IS NOT LATE. The clock that used to end a wait was 120s, and it
+    // was charged against the one condition this feature exists to wait for - so the ordinary
+    // hand-over was told `queued`, refused two minutes later, and the window it meant to close
+    // stayed open (measured across two thirds of every send on this machine, 2026-08-16/17). Five
+    // minutes into a turn is well past that boundary and well inside what a request may now wait.
+    check("a line behind its session's own turn is still waiting where the old life would have "
+              + "refused it",
+          decide(request("y"), state: .working, at: 300) == .wait(.turn))
+    // THE HALF THAT MATTERS MOST, and the one a longer TTL alone would not have bought: when that
+    // turn finally ends, the line is TYPED rather than refused for having taken so long to become
+    // typeable. Same request, same age, one gate reading later.
+    check("…and typed the moment that turn ends, however long it took to end",
+          decide(request("y"), state: .idle, at: 300) == .inject(request("y")))
+    // What ends it instead is a ceiling on staleness: a composer that has not come free in a
+    // quarter of an hour belongs to something else by now.
+    check("…while the ceiling that does end it is a quarter of an hour",
+          sessionInputQueuedLife == 900
+              && decide(request("y"), state: .working, at: sessionInputQueuedLife - 1)
+              == .wait(.turn))
+    // AND THE SUBAGENT SHADOW CANNOT REACH THIS GATE, which is the defect this rework is a superset
+    // of. `subagentIdleSeconds` is 600s of "do not restart this child" (SessionQuiet.swift states
+    // why it has to be that long), the old request life was a fifth of it, and a hand-over's
+    // `/clear` follows its agents by seconds - so the structural difference guaranteed a refusal.
+    // Two halves are pinned here: the reading that shadow produces is typed into whatever its age,
+    // and the ceiling now outlives the shadow rather than being outlived by it.
+    check("a head inside the 600s subagent shadow is typed into, and the ceiling outlives that "
+              + "shadow",
+          decide(request("/clear"), state: .working, quiet: .subagentsWriting,
+                 at: subagentIdleSeconds - 1) == .inject(request("/clear"))
+              && sessionInputQueuedLife > subagentIdleSeconds)
+    // THE THIRD HALF IS NOT HERE, and it is worth naming where it went (2026-08-18): whether a
+    // session with agents writing reads as `subagentsWriting` at all used to depend on what else
+    // lay in its transcript, and an over-age unmatched call made it `busy` - which this table holds
+    // as a turn, correctly, since `busy` IS the head's own turn. That row moved to the reading
+    // rather than to this table (`boundFileQuietness`, openturnchecks), so what this gate has to
+    // say is unchanged and complete: dispatched work is typed into, the head's own turn is not.
+    check("…while the reading that means the head itself is moving is still held as a turn",
+          decide(request("/clear"), state: .working, quiet: .busy) == .wait(.turn))
     // The table is one function, asked directly here so the precedence is pinned where the two
     // readers share it rather than only through the decision that calls it.
     check("nothing standing in the way is what an injection means",
@@ -162,44 +200,44 @@ func runSessionInputChecks() {
     check("a child this tick is about to terminate is not typed into",
           decide(request("y"), state: .idle, relaunchPlanned: true) == .wait(.restart)
               && decide(request("y"), state: .blocked, relaunchPlanned: true) == .wait(.restart))
-    // The TTL keeps running through it, deliberately: whether that line still belongs in a
-    // conversation whose child has been replaced is the caller's judgement, not this gate's.
+    // The request's life keeps running through it, deliberately: whether that line still belongs in
+    // a conversation whose child has been replaced is the caller's judgement, not this gate's.
     check("…and a request that expires during a relaunch is still refused, not held for ever",
-          decide(request("y"), state: .idle, relaunchPlanned: true, at: sessionInputTTL + 1)
+          decide(request("y"), state: .idle, relaunchPlanned: true, at: sessionInputQueuedLife + 1)
               == .refuse(.refusedExpired,
-                         "this session was being restarted when the 120s ran out"))
+                         "this session was being restarted when the 900s ran out"))
 
     // MARK: - What ends the wait
 
     // WHAT STOOD IS NAMED, which is the other half of the 2026-08-17 rework: every refusal used to
-    // say "still <state> after 120s" whatever had actually held the line, so the caller could not
-    // tell its own unfinished turn from somebody at the keyboard - and the first is the one it
+    // say "still <state> after its life" whatever had actually held the line, so the caller could
+    // not tell its own unfinished turn from somebody at the keyboard - and the first is the one it
     // could have done something about.
     check("a request that never reached an injectable moment is refused, and names what stood",
-          decide(request("y"), state: .working, at: sessionInputTTL + 1)
+          decide(request("y"), state: .working, at: sessionInputQueuedLife + 1)
               == .refuse(.refusedExpired,
-                         "it was still inside a turn of its own when its 120s ran out"))
+                         "it was still inside a turn of its own when its 900s ran out"))
     check("…a terminal somebody was typing in says that instead",
-          decide(request("y"), state: .idle, keyboardIdle: false, at: sessionInputTTL + 1)
+          decide(request("y"), state: .idle, keyboardIdle: false, at: sessionInputQueuedLife + 1)
               == .refuse(.refusedExpired,
-                         "somebody was typing in that terminal when the 120s ran out"))
+                         "somebody was typing in that terminal when the 900s ran out"))
     // A session that cannot report what it is doing would never have become injectable by waiting,
     // and its refusal says so rather than blaming the clock.
     check("…and one that never reported anything is refused in its own words",
-          decide(request("y"), state: .unknown, at: sessionInputTTL + 1)
+          decide(request("y"), state: .unknown, at: sessionInputQueuedLife + 1)
               == .refuse(.refusedNotReporting,
-                         "it was still reporting nothing about itself when its 120s ran out"))
+                         "it was still reporting nothing about itself when its 900s ran out"))
     // EXPIRY IS JUDGED BEFORE THE STATE GATES, which is the only order that can ever fire: those
     // gates are the reason a request waits at all. So an expired request is refused even at a moment
     // it could otherwise have been typed at.
     check("an expired request is refused even when the session is ready for it",
-          decide(request("y"), state: .idle, at: sessionInputTTL + 1)
+          decide(request("y"), state: .idle, at: sessionInputQueuedLife + 1)
               == .refuse(.refusedExpired, "it reached a moment this could be typed at only after "
-                         + "its 120s life had run out"))
-    check("the TTL boundary belongs to the request: exactly its life is still live",
-          !sessionInputExpired(epoch: epoch(0), now: t0.addingTimeInterval(sessionInputTTL))
+                         + "its 900s life had run out"))
+    check("the boundary belongs to the request: exactly its life is still live",
+          !sessionInputExpired(epoch: epoch(0), now: t0.addingTimeInterval(sessionInputQueuedLife))
               && sessionInputExpired(epoch: epoch(0),
-                                     now: t0.addingTimeInterval(sessionInputTTL + 0.001)))
+                                     now: t0.addingTimeInterval(sessionInputQueuedLife + 0.001)))
 
     // MARK: - The limit, in bytes
 
@@ -252,12 +290,13 @@ func runSessionInputChecks() {
     func tick(state: SupervisedState, quiet: SessionQuiet? = nil, turnEnded: Bool = false,
               keyboardIdle: Bool = true, relaunchPlanned: Bool = false,
               at offset: TimeInterval = 1, input: inout SessionInputState,
+              agents: @escaping (String) -> Int? = { _ in nil },
               inject: @escaping (String) -> SessionInputInjection = { _ in .done }) -> [String] {
         var typed: [String] = []
         applySessionInput(&input, session: state, quiet: quiet ?? (state == .working ? .busy
                               : .quiet), turnEnded: { turnEnded }, keyboardIdle: keyboardIdle,
                           relaunchPlanned: relaunchPlanned, dir: dir, log: log,
-                          now: t0.addingTimeInterval(offset)) { text in
+                          now: t0.addingTimeInterval(offset), agents: agents) { text in
             typed.append(text)
             return inject(text)
         }
@@ -308,6 +347,93 @@ func runSessionInputChecks() {
     check("a head whose agents are still writing is typed into at the end of its turn",
           tick(state: .working, quiet: .subagentsWriting, input: &dispatched) == ["/clear"]
               && readSessionInputResult(sessionKey: "9213", dir: dir)?.outcome == "submitted")
+
+    // MARK: - What a `/clear` cost, said at the moment it landed
+
+    // ALBERT'S RULE UNCHANGED, AND THE HALF THAT WAS MISSING FROM IT. An agent running is not a
+    // reason a window cannot be cleared - so the line is typed and the agents go with it - but
+    // nothing said so anywhere, and the session that asked has left by then. The count is read at
+    // the instant the line lands rather than when it was written, because a request now waits
+    // minutes and a roster read then describes a session that has since changed.
+    var clearing = SessionInputState(sessionKey: "9216", servedEpoch: 0)
+    try? writeSessionInputRequest(request("/clear"), sessionKey: "9216", dir: dir)
+    check("a /clear is typed with agents under it, exactly as before",
+          tick(state: .idle, input: &clearing, agents: { _ in 2 }) == ["/clear"])
+    check("…and the receipt says what it cost",
+          readSessionInputResult(sessionKey: "9216", dir: dir)?.detail == "killed 2 live agents")
+    check("…and so does a line of its own in the log, which is where the caller that has already "
+              + "left can read it",
+          ((try? String(contentsOf: log, encoding: .utf8)) ?? "")
+              .contains("pid=9216 input=agents-killed count=2"))
+    // THE SAME EVENT A SECOND TIME, WITH A DIFFERENT ROSTER BEHIND IT: the count is read per
+    // landing rather than remembered, so the second `/clear` reports its own session rather than
+    // the first one's number (and the singular is a singular).
+    try? writeSessionInputRequest(request("/clear", at: 2), sessionKey: "9216", dir: dir)
+    _ = tick(state: .idle, at: 3, input: &clearing, agents: { _ in 1 })
+    check("a second /clear reports its own roster rather than the first one's",
+          readSessionInputResult(sessionKey: "9216", dir: dir)?.detail == "killed 1 live agent")
+    // Nothing to say is said as nothing: no detail on the receipt, and no line in the log. Both
+    // arms, because they are two different silences - none running, and a Claude Code whose roll
+    // call cannot be believed (`SessionAgentsRecord.reportable` is nil there, fail-closed).
+    var quietClear = SessionInputState(sessionKey: "9217", servedEpoch: 0)
+    try? writeSessionInputRequest(request("/clear"), sessionKey: "9217", dir: dir)
+    _ = tick(state: .idle, input: &quietClear, agents: { _ in 0 })
+    try? writeSessionInputRequest(request("/clear", at: 2), sessionKey: "9217", dir: dir)
+    _ = tick(state: .idle, at: 3, input: &quietClear, agents: { _ in nil })
+    check("a /clear that ended nothing, and one whose roster cannot be believed, both say nothing",
+          readSessionInputResult(sessionKey: "9217", dir: dir)?.detail == nil
+              && !((try? String(contentsOf: log, encoding: .utf8)) ?? "")
+                  .contains("pid=9217 input=agents-killed"))
+    // THE ROSTER IS NOT EVEN ASKED FOR A LINE THAT ENDS NOTHING, which is what keeps this free on
+    // the ordinary send: `/compact` rewrites the context and keeps the conversation, so a note
+    // saying its agents died would be a lie about the one thing this reports.
+    var asked = 0
+    var compacting = SessionInputState(sessionKey: "9218", servedEpoch: 0)
+    try? writeSessionInputRequest(request("/compact"), sessionKey: "9218", dir: dir)
+    _ = tick(state: .idle, input: &compacting, agents: { _ in asked += 1; return 3 })
+    check("a /compact ends no agents, and does not so much as read the roster",
+          asked == 0 && readSessionInputResult(sessionKey: "9218", dir: dir)?.detail == nil)
+    // And a line the terminal refused ended nothing either: the errno is what that receipt says,
+    // and a count beside it would be describing agents that are still running.
+    var refusedClear = SessionInputState(sessionKey: "9219", servedEpoch: 0)
+    try? writeSessionInputRequest(request("/clear"), sessionKey: "9219", dir: dir)
+    _ = tick(state: .idle, input: &refusedClear, agents: { _ in 4 },
+             inject: { _ in .failed(ENXIO) })
+    check("a /clear the terminal refused claims nothing about the agents it did not end",
+          readSessionInputResult(sessionKey: "9219", dir: dir).map {
+              $0.outcome == "failed-tty" && $0.detail?.contains("errno") == true
+          } == true
+              && !((try? String(contentsOf: log, encoding: .utf8)) ?? "")
+                  .contains("pid=9219 input=agents-killed"))
+    // The two pure halves behind all of that, asserted where the wording and the rule live.
+    check("the first word is what makes a line a clear, and a mention of one is not",
+          sessionInputClearsContext("/clear") && sessionInputClearsContext("  /clear")
+              && sessionInputClearsContext("/clear something")
+              && !sessionInputClearsContext("say /clear when you are done")
+              && !sessionInputClearsContext("/compact") && !sessionInputClearsContext("")
+              && !sessionInputClearsContext("/clearcache"))
+    check("…and the note is plural only when it should be",
+          sessionInputAgentsNote(1) == "killed 1 live agent"
+              && sessionInputAgentsNote(2) == "killed 2 live agents")
+    // AND IT IS READ BEFORE THE BYTES GO, which is the whole reason this reading lives at the
+    // landing rather than anywhere earlier or later: the `/clear` is what empties the roster, so a
+    // count taken after the injection is a count of what SURVIVED it. The fixture makes the
+    // injection do exactly what the real one does - the agents are gone by the time it returns.
+    var rosterAtLanding = 2
+    check("the roster is read before the line lands, since the line is what empties it",
+          landSessionInput("/clear", sessionKey: "9220", agents: { _ in rosterAtLanding },
+                           inject: { _ in rosterAtLanding = 0; return .done }).agents == 2)
+    // A ROSTER OF NONE IS ANSWERED BY THERE BEING NO COUNT, one level up rather than by a sentence
+    // about zero: the landing is where "nothing to say" is decided, for all three of its causes.
+    check("…and a landing with nothing to report carries no count for anybody to word",
+          landSessionInput("/clear", sessionKey: "9220", agents: { _ in 0 },
+                           inject: { _ in .done }).agents == nil
+              && landSessionInput("/clear", sessionKey: "9220", agents: { _ in nil },
+                                  inject: { _ in .done }).agents == nil
+              && landSessionInput("/clear", sessionKey: "9220", agents: { _ in 3 },
+                                  inject: { _ in .failed(ENXIO) }).agents == nil
+              && landSessionInput("/clear", sessionKey: "9220", agents: { _ in 3 },
+                                  inject: { _ in .done }).agents == 3)
 
     // THE CALLER'S WAIT RIDES BACK ON THE RECEIPT, copied rather than decided by the supervisor:
     // it is what stops a receipt nobody is waiting for from holding the address shut behind it
@@ -381,7 +507,7 @@ func runSessionInputChecks() {
     var expired = SessionInputState(sessionKey: "9203", servedEpoch: 0)
     try? writeSessionInputRequest(request("late"), sessionKey: "9203", dir: dir)
     check("a request that expired while the session worked is not typed",
-          tick(state: .working, at: sessionInputTTL + 5, input: &expired).isEmpty)
+          tick(state: .working, at: sessionInputQueuedLife + 5, input: &expired).isEmpty)
     check("…it is answered with a refusal and taken away",
           readSessionInputResult(sessionKey: "9203", dir: dir)?.outcome == "refused-expired"
               && readSessionInputRequest(sessionKey: "9203", dir: dir) == nil)
@@ -486,8 +612,10 @@ func runSessionInputChecks() {
     // MARK: - The audit line
 
     let written = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+    // Twelve served requests and the four `/clear` landings above, two of which ended agents and
+    // left the extra line that says so.
     check("every served request left a line", written.components(separatedBy: "\n")
-              .filter { $0.contains("input=") }.count == 12)
+              .filter { $0.contains("input=") }.count == 20)
     check("…naming the session, the outcome and the text",
           written.contains("pid=9201 input=submitted bytes=5 text=/help"))
     // NO `submit` COLUMN. It read `yes` on every line ever written once typing and sending became

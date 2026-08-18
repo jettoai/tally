@@ -36,17 +36,27 @@ let subagentIdleSeconds: TimeInterval = 600
 /// RESTARTS a child (a reload, a self-update, a pin follow, a rebalance) treats all three the same
 /// way and asks `isQuiet`: a restart kills whatever is running, so a work package writing in the
 /// background is exactly as fatal to it as a turn mid-stream. The gate that TYPES a line
-/// (`tally session send`) kills nothing, and for it the difference is the feature: a head that has
-/// finished its answer and left agents running is a head whose context may be cleared, and holding
-/// its `/clear` until every subagent stops is what made a routine hand-over hang for minutes at a
-/// time (Albert, 2026-08-17, after four refusals the day before).
+/// (`tally session send`, and the quota knock beside it) kills nothing of its own, and for it the
+/// difference is the feature: a head that has finished its answer and left agents running is a head
+/// whose context may be cleared, and holding its `/clear` until every subagent stops is what made a
+/// routine hand-over hang for minutes at a time (Albert, 2026-08-17, after four refusals the day
+/// before).
+///
+/// SO DISPATCHED WORK NEVER HOLDS A LINE, in any shape (Albert, 2026-08-18, closing the half of
+/// that rule the wording above left open). `quiet` and `subagentsWriting` are ONE answer to the
+/// typing gate (type it) and TWO to the restart gates (restart, do not restart), and that split is
+/// the whole of what this type exists for. So what the typing gate still waits for is the head's
+/// OWN turn - its transcript moving, or a tool call of its own inside the relaunch ceiling - and
+/// `busy` is exactly that. A `/clear` typed while agents are running does end them, and it says so
+/// rather than being refused (`landSessionInput`).
 enum SessionQuiet: Equatable {
     /// Nothing outstanding at all: the file silent for the bar asked, no tool call open, no
     /// unresolved fork, and no subagent that has written inside `subagentIdleSeconds`.
     case quiet
     /// The conversation's OWN context is as quiet as that, and the only thing still writing is work
-    /// it dispatched (`<session>/subagents/`). It means no unmatched tool call of ANY age, not
-    /// merely none inside the relaunch ceiling (`boundFileQuietness` argues why).
+    /// it dispatched (`<session>/subagents/`). The bound file is silent for the bar asked and no
+    /// open tool call is still being honoured; whether an over-age one is lying there makes no
+    /// difference, exactly as it makes none to the row above (`boundFileQuietness` argues why).
     case subagentsWriting
     /// The conversation itself is moving: its transcript is being appended to, a tool call it opened
     /// has not come back, or a fork it may have moved into cannot be told apart yet.
@@ -123,18 +133,21 @@ extension TranscriptWatcher {
         if openTurnHoldsSession(openedAt: call?.startedAt) { return .busy }
         guard let subagent = newestSubagentWrite(),
               Date().timeIntervalSince(subagent) <= subagentIdleSeconds else { return .quiet }
-        // DISPATCHED WORK BESIDE A TOOL CALL THAT NEVER CAME BACK IS NOT DISPATCHED WORK, and the
-        // age of that call does not enter into it. `openTurnHoldsSession` stops honouring a call
-        // after `openTurnMaxSeconds`, which is right for what that cap is for: a child SIGKILLed
-        // mid-call leaves its `tool_use` unmatched for ever, and a relaunch gate with no ceiling
-        // would wedge that session out of every restart for the rest of its life. Inheriting the
-        // ceiling here would let a line be typed INTO a live turn, because the two situations are
-        // told apart by exactly this pair: a killed child writes no subagent transcripts either, so
-        // an unmatched call with a subagent still writing beside it is a conversation genuinely
-        // inside a turn that has run long (a `Workflow` fan-out is the ordinary case, and it runs
-        // well past the ceiling). The stale-call escape stays open where it was, which is the row
-        // above: no subagent writing, and the reading is `quiet` exactly as it always was.
-        return call == nil ? .subagentsWriting : .busy
+        // AND DISPATCHED WORK IS DISPATCHED WORK WHATEVER IS LYING BESIDE IT. This row used to
+        // answer `busy` when an over-age unmatched `tool_use` was there too, on the reasoning that a
+        // killed child writes no subagent transcripts, so a call plus a live subagent is a
+        // conversation genuinely inside a long turn (`fa9533b`, a `Workflow` fan-out being the
+        // ordinary case). The reasoning was sound and the answer was still wrong, because of who
+        // reads it: `busy` and `subagentsWriting` are the SAME answer to every restart gate (both
+        // are "not quiet"), so the only reader that ever saw the difference was the gate that types
+        // - and Albert's rule for that gate is that dispatched work is never a reason to refuse a
+        // line (2026-08-17, restated 2026-08-18 when the softer version of it turned a refusal into
+        // a ten-minute delay). What the typing gate still waits for is the head's own turn, and the
+        // two rows above are exactly that: the file moving, or a call inside the relaunch ceiling.
+        // A `/clear` that lands on a live fan-out does end it, and says how many it ended
+        // (`landSessionInput`), which is the trade Albert asked for rather than one this reading
+        // gets to make quietly.
+        return .subagentsWriting
     }
 
     /// The newest write under this session's subagent transcripts THAT THIS CHILD COULD HAVE MADE,
@@ -145,14 +158,15 @@ extension TranscriptWatcher {
     /// rather than a nicety. A relaunch resumes the SAME transcript, so the directory it inherits
     /// still holds whatever the child before it dispatched, and those files were written seconds
     /// before the kill: to a window measured against the wall clock they look exactly like a live
-    /// package. Paired with the unmatched `tool_use` the killed child also leaves behind, the
-    /// reading came out `busy` (the last line of `boundFileQuietness`: an over-age call is not
-    /// dispatch when something is writing beside it), so a brand new and completely idle child read
-    /// as mid-turn for up to `subagentIdleSeconds` after the handoff. What that cost is not a delay:
-    /// a `tally session send` expires after `sessionInputTTL`, a fifth of that window, so the line
-    /// was not late, it was refused - and the commonest caller is a session clearing its own
-    /// context at the end of a window, which is told `queued` and only learns otherwise from
-    /// `~/.tally/logs/input.log`. Seen live in the four cap handoffs of 2026-08-17 16:33.
+    /// package, so a brand new and completely idle child read as having work in flight for up to
+    /// `subagentIdleSeconds` after the handoff. Seen live in the four cap handoffs of 2026-08-17
+    /// 16:33, where it cost those sessions their queued `/clear` outright.
+    ///
+    /// WHO IT COSTS NOW IS THE RESTART GATES, and that is the whole of what this filter is for since
+    /// 2026-08-18: dispatched work no longer holds a typed line at all (`boundFileQuietness`), so
+    /// the reading this corrects is the one a reload, a self-update or a pin follow waits on - a
+    /// fresh child would decline to be restarted for ten minutes over transcripts written by the
+    /// child before it.
     ///
     /// A subagent of THIS child cannot predate it, so the filter costs nothing real and cannot hide
     /// live work. Callers that are not a supervised child pass `.distantPast` (the worktree teardown

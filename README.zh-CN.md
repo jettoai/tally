@@ -31,7 +31,7 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally 面板：各 provider 的舰队仪表合并九个账号（五个 Claude Max、四个 Codex），Claude 同时显示两条跑道（Fable 池与周池长条，各附节奏预测“约可再用 4d 12h”与下一次错开回充）、Codex 一条周池（此节奏可持续）；顾问行以账号圆点显示各 provider 的每周实际需求，Claude 单一方案合并计算（5.8 acct/wk）、Codex 按方案拆分（Pro 1.7・Team 0.9），节奏超出时标示应加开一个账号；下方每个账号各自的毛玻璃卡片显示 5 小时会话、每周、旗舰模型额度窗，含重置时间、接近上限警示，以及标出启动器当前选择的紫色智选徽章；标题栏带有“用量／Token”切换" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally 面板：各 provider 的舰队仪表合并九个账号（五个 Claude Max、四个 Codex），Claude 同时显示两条跑道（Fable 池与周池长条，各附节奏预测“约可再用 4d 12h”与下一次错开回充）、Codex 一条周池（此节奏可持续）；顾问行以账号圆点显示各 provider 的每周实际需求，Claude 单一方案合并计算（5.8 acct/wk）、Codex 按方案拆分（Pro 1.7・Team 0.9），节奏超出时标示应加开一个账号；下方每个账号各自的毛玻璃卡片显示 5 小时会话、每周、旗舰模型额度窗，含重置时间、接近上限警示，以及标出启动器当前选择的紫色智选徽章；标题栏带有“用量／Token／会话”切换" width="834">
 </p>
 
 <p align="center">
@@ -115,8 +115,9 @@ Claude（Max/Pro）与 Codex 订阅**、厌倦了猜「哪个账号还有余量�
   旁边：每一段受监督的会话各一张卡片，写明它是什么（账号、模型、effort、跑在哪个
   worktree）、现在正在做什么，以及对话已经长到多大（「142k context」）。四种状态由会话
   自己的 supervisor 发布，而不是从外面猜：工作中、卡住、空闲，以及没有足够新的回报时诚实
-  写出的「未回报」。点一张卡片，Tally 就把那个会话的终端标签页带到最前面（Ghostty 靠 tty，
-  其他终端靠 app）。
+  写出的「未回报」。点一张卡片，Tally 就把那个会话的终端带到最前面。我们建议搭配 Ghostty
+  使用（Tally 就是围绕它打造的）：跳转靠会话自己的 tty，精准落在那个标签页上；其他终端
+  目前只会把整个 app 带到前台，更多终端的标签页级跳转在待开发清单上。
 - **卡住就是它在等你。** 唯一需要人介入的状态：Claude Code 弹出权限请求、提问或计划确认
   而没人回答时，卡片会亮起红边、开始计时等待，鼠标悬停直接写明它要什么（「Claude needs
   your permission to use Bash」）。摘要行统计整块看板的工作中／卡住／空闲／未回报，而且

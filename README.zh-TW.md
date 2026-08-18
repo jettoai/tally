@@ -31,7 +31,7 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
 </p>
 
 <p align="center">
-  <img src="assets/screenshot-panel.png" alt="Tally 面板：各 provider 的艦隊儀表合池九個帳號（五個 Claude Max、四個 Codex），Claude 同時顯示兩條跑道（Fable 池與週池長條，各附節奏預測「約可再用 4d 12h」與下一筆錯開回充）、Codex 一條週池（此節奏可持續）；顧問列以帳號圓點顯示各 provider 的每週實際需求，Claude 單一方案合併計算（5.8 acct/wk）、Codex 依方案拆分（Pro 1.7・Team 0.9），節奏超出時標示該加開一個帳號；下方每個帳號各自的毛玻璃卡片顯示 5 小時工作階段、每週、旗艦模型額度窗，含重置時間、接近上限警示，以及標出啟動器目前選擇的紫色智選徽章；標題列帶有「用量／Token」切換" width="834">
+  <img src="assets/screenshot-panel.png" alt="Tally 面板：各 provider 的艦隊儀表合池九個帳號（五個 Claude Max、四個 Codex），Claude 同時顯示兩條跑道（Fable 池與週池長條，各附節奏預測「約可再用 4d 12h」與下一筆錯開回充）、Codex 一條週池（此節奏可持續）；顧問列以帳號圓點顯示各 provider 的每週實際需求，Claude 單一方案合併計算（5.8 acct/wk）、Codex 依方案拆分（Pro 1.7・Team 0.9），節奏超出時標示該加開一個帳號；下方每個帳號各自的毛玻璃卡片顯示 5 小時工作階段、每週、旗艦模型額度窗，含重置時間、接近上限警示，以及標出啟動器目前選擇的紫色智選徽章；標題列帶有「用量／Token／Sessions」切換" width="834">
 </p>
 
 <p align="center">
@@ -114,8 +114,9 @@ Tally 是原生的 **macOS 選單列 AI 用量監控工具（Claude／Codex 額�
   旁邊：每一段受監督的 session 各一張卡片，寫明它是什麼（帳號、模型、effort、跑在哪個
   worktree）、現在正在做什麼，以及對話已經長到多大（「142k context」）。四種狀態由 session
   自己的 supervisor 發布，而不是從外面猜：工作中、卡住、閒置，以及沒有夠新的回報時誠實寫出
-  的「未回報」。點一張卡片，Tally 就把那個 session 的終端機分頁帶到最前面（Ghostty 靠 tty，
-  其他終端機靠 app）。
+  的「未回報」。點一張卡片，Tally 就把那個 session 的終端機帶到最前面。我們建議搭配 Ghostty
+  使用（Tally 就是圍繞它打造的）：跳轉靠 session 自己的 tty，精準落在那個分頁上；其他終端機
+  目前只會把整個 app 帶到前景，更多終端機的分頁級跳轉在待開發清單上。
 - **卡住就是它在等你。** 唯一需要人介入的狀態：Claude Code 跳出權限請求、提問或計畫確認
   而沒人回答時，卡片會亮起紅邊、開始計時等待，滑鼠懸停直接寫明它要什麼（「Claude needs
   your permission to use Bash」）。摘要列統計整塊看板的工作中／卡住／閒置／未回報，而且

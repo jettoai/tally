@@ -46,13 +46,17 @@ func runQuotaKnockChecks() {
                quiet: SessionQuiet = .quiet, turnEnded: Bool = false, keyboardIdle: Bool = true,
                relaunchPlanned: Bool = false,
                quarantine: [String: (model: String?, until: Date)] = [:],
-               sessions: Int = 2, loaded: (Snapshot?, String?) = (fleet, nil),
+               sessions: Int = 2,
+               // `@autoclosure`, like the parameter it is forwarded to: what the station promises
+               // is that a tick which cannot use the snapshot never reads it, and a helper that
+               // evaluated this eagerly would answer that question for it.
+               loaded: @autoclosure () -> (Snapshot?, String?) = (fleet, nil),
                at moment: Date = t0, injection: SessionInputInjection = .done) -> String? {
         applyQuotaKnock(&state, pid: fixturePid, provider: "claude", account: account,
                         primaryModel: "fable", typedAlready: typedAlready, session: session,
                         quiet: quiet, turnEnded: { turnEnded }, keyboardIdle: keyboardIdle,
                         relaunchPlanned: relaunchPlanned, quarantine: quarantine,
-                        counting: { _ in sessions }, loaded: loaded, now: moment, log: log,
+                        counting: { _ in sessions }, loaded: loaded(), now: moment, log: log,
                         inject: {
                             sent.append($0)
                             return injection
@@ -161,6 +165,29 @@ func runQuotaKnockChecks() {
                                                                  session: 3)]), nil))?
               .contains("consider pausing until the reset") == true)
 
+    // MARK: - 53b. The account a session moves to is a different piece of news
+
+    // THE FIXTURES ARE THE COLLISION, which is why this is asserted here rather than only on the
+    // state: `acct` gives every account the same reset times, so two of them key on the SAME cycle
+    // (this fleet really does have accounts whose windows turn over together, and the tolerance is
+    // five minutes wide). A flag that remembered only the drought would ride across a handoff and
+    // swallow the new account's warning for the length of its drought - the exact moment this
+    // feature exists for (codex review of c12a1df).
+    let sibling = acct("B2", label: "Claude 5", session: 10)
+    let twoDying = Snapshot(version: 2, generatedAt: t0, accounts: [dying, sibling, healthy])
+    check("the two fixtures this is asserted with really do key on the same drought",
+          rebalanceCycleKey(dying, primaryModel: "fable", now: t0)
+              == rebalanceCycleKey(sibling, primaryModel: "fable", now: t0))
+    var handed = QuotaKnockState(forced: false)
+    check("the account a session starts on is announced",
+          knock(&handed, loaded: (twoDying, nil))?.contains("account Claude is") == true)
+    check("…once", knock(&handed, loaded: (twoDying, nil),
+                         at: t0.addingTimeInterval(quotaKnockInterval)) == nil)
+    check("and the account it is handed to is announced too, same drought or not",
+          knock(&handed, account: sibling, loaded: (twoDying, nil),
+                at: t0.addingTimeInterval(2 * quotaKnockInterval))?
+              .contains("account Claude 5 is") == true)
+
     // MARK: - 54. What it costs on an ordinary tick
 
     // The reading is taken at most once per interval: the poll loop runs every two seconds and the
@@ -173,6 +200,25 @@ func runQuotaKnockChecks() {
           knock(&throttled, at: t0.addingTimeInterval(2)) == nil)
     check("…and the reading due after the interval is the one that speaks",
           knock(&throttled, at: t0.addingTimeInterval(quotaKnockInterval)) != nil)
+
+    // AND THE TICK THAT READ NOTHING COUNTS TOO, which is the half that was missing: the snapshot
+    // read is what the interval exists to bound, and a machine with Tally.app closed is where the
+    // read is both most frequent and most pointless. Counted rather than inferred - the reads are
+    // the thing being asserted, so the `@autoclosure` is what answers.
+    var reads = 0
+    func countedNothing() -> (Snapshot?, String?) {
+        reads += 1
+        return (nil, "no snapshot at ~/.tally/snapshot.json - is Tally.app running?")
+    }
+    var closed = QuotaKnockState(forced: false)
+    check("a tick with no snapshot to read says nothing",
+          knock(&closed, loaded: countedNothing()) == nil)
+    check("…having read once", reads == 1)
+    _ = knock(&closed, loaded: countedNothing(), at: t0.addingTimeInterval(2))
+    _ = knock(&closed, loaded: countedNothing(), at: t0.addingTimeInterval(4))
+    check("…and the ticks inside the interval behind it read nothing at all", reads == 1)
+    _ = knock(&closed, loaded: countedNothing(), at: t0.addingTimeInterval(quotaKnockInterval))
+    check("…while the one past it reads again", reads == 2)
 
     // MARK: - 55. The forced knock, and the terminal refusing
 
@@ -231,14 +277,29 @@ func runQuotaKnockChecks() {
         check("the knock was found in the tick", false)
     }
     // Per SESSION rather than per child, unlike the window repick beside it: a relaunch must not
-    // re-announce a drought this conversation has already been told about, and a relaunch that
-    // moves accounts re-arms it by itself (a different account, a different cycle key).
+    // re-announce a drought this conversation has already been told about.
+    //
+    // WHAT THIS ASSERTION MAY AND MAY NOT BACK. A declaration's POSITION in a file is evidence
+    // about one thing, that the state survives the child loop, and it used to be quoted as backing
+    // for a second and larger claim: that a relaunch which MOVES accounts re-arms the knock by
+    // itself. It does not back that at all - two accounts can key on the same drought, and then the
+    // flag rides across the handoff - so the account half is asserted as behaviour in section 53b
+    // and this one says only what it can see (codex review of c12a1df).
     if let declaration = loop.range(of: "var quotaKnock = QuotaKnockState()"),
        let childLoop = loop.range(of: "\n    while true {") {
         check("the arm outlives the child, because the conversation does",
               declaration.lowerBound < childLoop.lowerBound)
     } else {
         check("the knock's state was found in the supervisor", false)
+    }
+    // And the identity that decides the re-arm is the one the snapshot answers with, not the one
+    // the loop was launched holding: an account moved under this session is a different id there.
+    if let start = loop.range(of: "applyQuotaKnock("),
+       let end = loop.range(of: "\n            if let plan {", range: start.upperBound ..< loop.endIndex) {
+        check("the knock is told which account this session is on right now",
+              String(loop[start.lowerBound ..< end.lowerBound]).contains("account: account"))
+    } else {
+        check("the knock's account argument was found", false)
     }
 
     // Nothing in this suite may have touched the user's own log.

@@ -97,8 +97,16 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
                                     primaryModel: primaryModel, quarantine: quarantine,
                                     loaded: loaded(), now: now),
           let binding = bindingWindow(field.current, primaryModel: primaryModel, now: now)
-    else { return nil }
+    else {
+        // THE READING HAPPENED EVEN THOUGH NOTHING CAME OF IT, and saying so is what keeps the
+        // interval real: a machine with Tally.app closed answers nothing here, and this used to
+        // leave `checkedAt` unset, so the next tick two seconds later read and decoded the snapshot
+        // again, forever (codex review of c12a1df).
+        state.noteChecked(now: now)
+        return nil
+    }
     let owed = state.observe(
+        account: field.current.id,
         cycle: rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now),
         remaining: effectiveRemaining(comfortWindow(binding), now: now), now: now)
     guard owed || state.forced else { return nil }

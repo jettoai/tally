@@ -61,7 +61,7 @@ expect(bindingWindow(Snapshot.Account(id: "E", provider: "claude", label: "E", l
 func fires(_ remaining: Double, cycle: String? = "100", state: QuotaKnockState? = nil,
            at moment: Date = now) -> Bool {
     var knock = state ?? QuotaKnockState(forced: false)
-    return knock.observe(cycle: cycle, remaining: remaining, now: moment)
+    return knock.observe(account: "A", cycle: cycle, remaining: remaining, now: moment)
 }
 
 expect(fires(12), "an account under the line is owed the sentence")
@@ -73,34 +73,34 @@ expect(!fires(80), "a healthy account is told nothing")
 // Once per drought. The second reading of the same window says nothing, which is the whole
 // difference between an advisory and a nag.
 var repeated = QuotaKnockState(forced: false)
-expect(repeated.observe(cycle: "100", remaining: 12, now: now), "the first reading fires")
+expect(repeated.observe(account: "A", cycle: "100", remaining: 12, now: now), "the first reading fires")
 repeated.spend()
-expect(!repeated.observe(cycle: "100", remaining: 11, now: now.addingTimeInterval(60)),
+expect(!repeated.observe(account: "A", cycle: "100", remaining: 11, now: now.addingTimeInterval(60)),
        "the same drought is not announced twice")
-expect(!repeated.observe(cycle: "100", remaining: 2, now: now.addingTimeInterval(600)),
+expect(!repeated.observe(account: "A", cycle: "100", remaining: 2, now: now.addingTimeInterval(600)),
        "and it stays quiet as the same window drains further")
 
 // The gap between the two lines is what stops an account hovering at the threshold from talking.
-expect(!repeated.observe(cycle: "100", remaining: quotaKnockRearmPercent,
+expect(!repeated.observe(account: "A", cycle: "100", remaining: quotaKnockRearmPercent,
                          now: now.addingTimeInterval(900)),
        "recovering exactly to the re-arm line does not re-arm it")
-expect(!repeated.observe(cycle: "100", remaining: 12, now: now.addingTimeInterval(960)),
+expect(!repeated.observe(account: "A", cycle: "100", remaining: 12, now: now.addingTimeInterval(960)),
        "so a window bouncing between the two lines says its sentence once")
-expect(!repeated.observe(cycle: "100", remaining: quotaKnockRearmPercent + 0.1,
+expect(!repeated.observe(account: "A", cycle: "100", remaining: quotaKnockRearmPercent + 0.1,
                          now: now.addingTimeInterval(1_000)),
        "a real recovery is not itself news")
-expect(repeated.observe(cycle: "100", remaining: 12, now: now.addingTimeInterval(1_200)),
+expect(repeated.observe(account: "A", cycle: "100", remaining: 12, now: now.addingTimeInterval(1_200)),
        "but draining again after one is a fresh drought")
 
 // A new cycle re-arms it: the window refilled, so the next time it empties is different news.
 var cycled = QuotaKnockState(forced: false)
-_ = cycled.observe(cycle: "100", remaining: 12, now: now)
+_ = cycled.observe(account: "A", cycle: "100", remaining: 12, now: now)
 cycled.spend()
-expect(!cycled.observe(cycle: "160", remaining: 12, now: now.addingTimeInterval(60)),
+expect(!cycled.observe(account: "A", cycle: "160", remaining: 12, now: now.addingTimeInterval(60)),
        "a reset time that drifted by a minute is the same drought")
-expect(!cycled.observe(cycle: "40", remaining: 12, now: now.addingTimeInterval(120)),
+expect(!cycled.observe(account: "A", cycle: "40", remaining: 12, now: now.addingTimeInterval(120)),
        "and so is one that drifted the other way")
-expect(cycled.observe(cycle: "18000", remaining: 12, now: now.addingTimeInterval(180)),
+expect(cycled.observe(account: "A", cycle: "18000", remaining: 12, now: now.addingTimeInterval(180)),
        "a genuinely new reset is a new drought, and is announced")
 
 // The tolerance itself is the CLI's one rule, not a second copy of it.
@@ -114,24 +114,52 @@ expect(!quotaKnockSameCycle(nil, "100") && !quotaKnockSameCycle("100", nil),
        "a window that has started reporting a reset is not the drought that had none")
 
 var unkeyed = QuotaKnockState(forced: false)
-expect(unkeyed.observe(cycle: nil, remaining: 4, now: now),
+expect(unkeyed.observe(account: "A", cycle: nil, remaining: 4, now: now),
        "an account with no reset time still gets its one sentence")
 unkeyed.spend()
-expect(!unkeyed.observe(cycle: nil, remaining: 4, now: now.addingTimeInterval(600)),
+expect(!unkeyed.observe(account: "A", cycle: nil, remaining: 4, now: now.addingTimeInterval(600)),
        "and only one")
+
+// MARK: - 2b. The account the flag belongs to
+
+// A CYCLE KEY IS NOT AN IDENTITY. Two accounts can report the same reset (this fleet's weekly
+// windows turn over within the five-minute tolerance of each other), and two accounts that report
+// none at all both key on nil, which matches every other nil. A session handed from a spent account
+// to a sibling would then arrive carrying a flag raised for somebody else, and the account it is
+// now ON would never be announced.
+var moved = QuotaKnockState(forced: false)
+expect(moved.observe(account: "A", cycle: "100", remaining: 8, now: now),
+       "the account it is on is announced")
+moved.spend()
+expect(!moved.observe(account: "A", cycle: "100", remaining: 8, now: now.addingTimeInterval(60)),
+       "…once")
+expect(moved.observe(account: "B", cycle: "100", remaining: 8, now: now.addingTimeInterval(120)),
+       "a different account with the SAME reset time is a different piece of news")
+moved.spend()
+expect(!moved.observe(account: "B", cycle: "102", remaining: 8, now: now.addingTimeInterval(180)),
+       "…and once there, the drifted reading is still that account's one drought")
+expect(moved.observe(account: "A", cycle: "100", remaining: 8, now: now.addingTimeInterval(240)),
+       "moving back is news again: nothing here remembers two accounts at once")
+
+var unkeyedMove = QuotaKnockState(forced: false)
+expect(unkeyedMove.observe(account: "A", cycle: nil, remaining: 3, now: now),
+       "an account with no published reset is announced")
+unkeyedMove.spend()
+expect(unkeyedMove.observe(account: "B", cycle: nil, remaining: 3, now: now.addingTimeInterval(60)),
+       "and so is the next one, which the nil-matches-nil rule alone would have swallowed")
 
 // MARK: - 3. How often the reading is taken at all
 
 var throttled = QuotaKnockState(forced: false)
 expect(throttled.due(now: now), "the first tick always takes a reading")
-_ = throttled.observe(cycle: "100", remaining: 80, now: now)
+_ = throttled.observe(account: "A", cycle: "100", remaining: 80, now: now)
 expect(!throttled.due(now: now.addingTimeInterval(quotaKnockInterval - 1)),
        "and then not again until the interval is up, whatever the poll loop's own pace")
 expect(throttled.due(now: now.addingTimeInterval(quotaKnockInterval)),
        "the interval is inclusive, so a reading due at exactly 30s is taken")
 
 var forced = QuotaKnockState(forced: true)
-_ = forced.observe(cycle: "100", remaining: 90, now: now)
+_ = forced.observe(account: "A", cycle: "100", remaining: 90, now: now)
 expect(forced.due(now: now.addingTimeInterval(2)),
        "a forced knock does not wait out the interval: somebody is watching for it")
 expect(forced.forced, "…and it is still owed while nothing has been typed")
@@ -142,11 +170,11 @@ expect(!forced.due(now: now.addingTimeInterval(2)), "after which the interval ap
 // The arm is spent by the SEND, never by the reading: a session whose composer was busy at the
 // moment the account crossed the line still gets told.
 var held = QuotaKnockState(forced: false)
-expect(held.observe(cycle: "100", remaining: 12, now: now), "the reading says the sentence is owed")
-expect(held.observe(cycle: "100", remaining: 12, now: now.addingTimeInterval(30)),
+expect(held.observe(account: "A", cycle: "100", remaining: 12, now: now), "the reading says the sentence is owed")
+expect(held.observe(account: "A", cycle: "100", remaining: 12, now: now.addingTimeInterval(30)),
        "and it keeps saying so until something is actually typed")
 held.spend()
-expect(!held.observe(cycle: "100", remaining: 12, now: now.addingTimeInterval(60)),
+expect(!held.observe(account: "A", cycle: "100", remaining: 12, now: now.addingTimeInterval(60)),
        "which is what closes it")
 
 // MARK: - 4. The sentence
@@ -182,22 +210,96 @@ expect(nowhere.contains("No account has headroom; consider pausing until the res
        "with nothing comfortable anywhere the advice is the other one")
 expect(!nowhere.contains("Best alternative"), "…and no account is named")
 
-// The budget is the poll loop's own time (30ms a byte), so the sentence is bounded by construction
-// rather than by hope: what goes is the clause a reader can get for themselves.
+// MARK: - 4b. The budget, which is bytes and is a guarantee
+
+// The budget is the poll loop's own time (30ms a byte) and the channel's own limit, so the sentence
+// is bounded by construction rather than by hope: what goes first is the clause a reader can get
+// for themselves.
 let clipped = line(limit: 120)
 expect(!clipped.contains("Best alternative"),
        "over the budget, the alternative account is what the sentence drops")
 expect(clipped.contains("Wrap up and switch accounts"), "…and never the advice")
-expect(clipped.utf8.count <= 200, "the short form is bounded whatever the labels are")
+expect(clipped.utf8.count <= 120, "…and the form that is returned is inside the budget it was given")
 
 let longLabel = account("C", label: String(repeating: "Very Long Account Label ", count: 4),
                         session: 4)
 let clippedName = line(longLabel, alternative: longLabel, sessions: 2)
-expect(clippedName.contains("Very Long Account Label \u{2026}"),
+expect(clippedName.contains("Very Long Account Label Very \u{2026}"),
        "a label longer than the budget allows is clipped rather than left to eat the sentence")
 expect(clippedName.utf8.count <= 200,
        "so even two absurd labels cannot push the line past the channel's limit "
            + "(\(clippedName.utf8.count) bytes)")
+
+// BYTES, NOT CHARACTERS, which is the correction this section carries. A character budget counted
+// 24 emoji as inside it and handed the channel 230 bytes; 24 CJK characters made 206. Both went
+// through the two returns that did not check the budget at all, so each script is asked here on
+// each of the three forms: with an alternative, without one, and clipped.
+for (script, label) in [("emoji", String(repeating: "🙂", count: 24)),
+                        ("CJK", String(repeating: "額度", count: 12))] {
+    let wide = account("W", label: label, session: 7)
+    for (form, sentence) in [("with an alternative", line(wide, alternative: healthy)),
+                             ("with none", line(wide, alternative: nil)),
+                             ("clipped", line(wide, alternative: healthy, limit: 120))] {
+        expect(sentence.utf8.count <= (form == "clipped" ? 120 : 200),
+               "a \(script) label \(form) stays inside the budget (\(sentence.utf8.count) bytes)")
+    }
+    expect(quotaKnockName(wide).utf8.count <= quotaKnockLabelBytes,
+           "…because the name itself is clipped by BYTES (\(quotaKnockName(wide).utf8.count))")
+    expect(!quotaKnockName(wide).unicodeScalars.contains { $0.value == 0xFFFD },
+           "…on a character boundary, so no scalar is cut in half")
+}
+
+// The one thing nothing here bounds: a window name is published by the provider. The guarantee is
+// held by measuring rather than by reasoning about it, which is what the last cut is for.
+let hugeWindow = Snapshot.Account(
+    id: "H", provider: "claude", label: "Claude", launchHome: "/tmp/H", sessionRemaining: nil,
+    weeklyRemaining: nil, modelRemaining: 9, sessionResetsAt: nil, weeklyResetsAt: nil,
+    modelResetsAt: now.addingTimeInterval(3600),
+    modelWindowName: String(repeating: "fable ", count: 60), resetCreditsAvailable: nil,
+    isStale: false, error: nil)
+let measured = line(hugeWindow, alternative: nil, sessions: 1)
+expect(measured.utf8.count <= 200,
+       "a window name nothing bounds is cut to the budget rather than reasoned about "
+           + "(\(measured.utf8.count) bytes)")
+expect(measured.hasPrefix("[tally] account Claude is running low:"),
+       "…keeping the front of the sentence, which is the news")
+
+// MARK: - 4c. A label is free text on a keystroke channel
+
+// The rename popover trims the ends and accepts everything else, so a label can carry a newline -
+// and every byte of this sentence is pushed into a terminal as though it had been typed, where a
+// newline is a Return: half the sentence submitted, the rest typed into whatever comes up next.
+let awkward = Snapshot.Account(id: "claude:.claude2", provider: "claude",
+                               label: "Claude\n2 \u{1B}[31m", launchHome: "/Users/a/.claude2",
+                               sessionRemaining: 9, weeklyRemaining: 90, modelRemaining: 90,
+                               sessionResetsAt: now.addingTimeInterval(3600), weeklyResetsAt: nil,
+                               modelResetsAt: nil, modelWindowName: nil, resetCreditsAvailable: nil,
+                               isStale: false, error: nil)
+expect(quotaKnockName(awkward) == ".claude2",
+       "a label that cannot be typed is refused and the config-dir name answers instead, "
+           + "which is what `completionAccountNames` does with the same label")
+let typedLine = line(awkward, alternative: awkward, sessions: 1)
+expect(!typedLine.contains("\n") && !typedLine.contains("\u{1B}"),
+       "so nothing that a terminal reads as a keystroke reaches the sentence")
+expect(typedLine.contains("account .claude2 is running low"),
+       "…and the name in it is one `tally account` can resolve, which a repaired label is not")
+
+// Only when there is no usable name at all is the label repaired, because something has to be
+// printed by then.
+let homeless = Snapshot.Account(id: "claude:.claude9", provider: "claude", label: "Cla\nude",
+                                launchHome: nil, sessionRemaining: 9, weeklyRemaining: 90,
+                                modelRemaining: 90, sessionResetsAt: now.addingTimeInterval(3600),
+                                weeklyResetsAt: nil, modelResetsAt: nil, modelWindowName: nil,
+                                resetCreditsAvailable: nil, isStale: false, error: nil)
+expect(quotaKnockName(homeless) == "Claude",
+       "an account with no other name has its label stripped rather than dropped")
+let unnamed = Snapshot.Account(id: "claude:.claude7", provider: "claude", label: "\n",
+                               launchHome: nil, sessionRemaining: 9, weeklyRemaining: 90,
+                               modelRemaining: 90, sessionResetsAt: now.addingTimeInterval(3600),
+                               weeklyResetsAt: nil, modelResetsAt: nil, modelWindowName: nil,
+                               resetCreditsAvailable: nil, isStale: false, error: nil)
+expect(quotaKnockName(unnamed) == "claude:.claude7",
+       "and one whose every name is unusable is called by its id rather than by nothing")
 
 expect(quotaKnockMessage(account: Snapshot.Account(
         id: "E", provider: "claude", label: "E", launchHome: "/tmp/E", sessionRemaining: nil,

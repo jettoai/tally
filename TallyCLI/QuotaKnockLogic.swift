@@ -50,12 +50,15 @@ let quotaKnockRearmPercent = 30.0
 /// what it bounds is the only cost this feature has on an ordinary tick.
 let quotaKnockInterval: TimeInterval = 30
 
-/// How much of an account label the sentence carries.
+/// How much of an account name the sentence carries, in UTF-8 BYTES.
 ///
-/// Labels are free text the user edits, and every byte of this line is 30ms of the poll loop's own
-/// time (`sessionInputByteGap`), so the sentence has to be bounded by construction rather than by
-/// hoping. The fleet this is written for labels accounts "Claude" and "Claude 2".
-let quotaKnockLabelLimit = 24
+/// Bytes rather than characters because bytes are the thing being bounded: the channel's limit is
+/// 200 of them and each one is 30ms of the poll loop's own time (`sessionInputByteGap`), so a
+/// character budget lets one emoji cost four times what a Latin letter does and one CJK label
+/// spend the whole line. Measured against the fleet this is written for, whose labels are "Claude"
+/// and "Claude 2" (8 bytes), 32 leaves room for a name in any script while keeping two of them
+/// well inside the sentence.
+let quotaKnockLabelBytes = 32
 
 /// Whether this supervisor was asked to knock once on its next eligible tick, whatever the quota
 /// says (`TALLY_QUOTA_KNOCK_FORCE=1`).
@@ -93,9 +96,20 @@ func quotaKnockSameCycle(_ one: String?, _ other: String?) -> Bool {
 /// memory and is stated rather than defended against.
 ///
 /// Held per SESSION rather than per child, so a relaunch does not re-announce a drought the
-/// conversation has already been told about. A relaunch that MOVES accounts re-arms this by itself:
-/// the new account's binding window is a different cycle.
+/// conversation has already been told about. A relaunch that MOVES accounts is a different matter
+/// and is handled explicitly below: it re-arms because the ACCOUNT changed, never because the cycle
+/// key happened to.
 struct QuotaKnockState: Equatable {
+    /// The account the flag below belongs to.
+    ///
+    /// IT IS NOT ENOUGH TO REMEMBER THE CYCLE. A cycle key is a reset time, and two accounts can
+    /// report the same one: the fleet this is written for has accounts whose weekly windows turn
+    /// over within the five-minute tolerance of each other, and an account that publishes no reset
+    /// at all keys on nil, which matches every other nil (`quotaKnockSameCycle`). So a session
+    /// handed from a spent account to a sibling could arrive carrying a `fired` flag that named
+    /// nobody, and the new account's warning would be swallowed for the life of its drought - the
+    /// one moment this feature exists for (codex review of c12a1df).
+    private(set) var accountID: String?
     /// The drought the flag below belongs to, keyed as the rebalance keys its claim.
     private(set) var cycleKey: String?
     /// Whether this drought's sentence has been sent.
@@ -114,6 +128,15 @@ struct QuotaKnockState: Equatable {
         return now.timeIntervalSince(checkedAt) >= quotaKnockInterval
     }
 
+    /// A reading was taken at `now`, whatever came of it.
+    ///
+    /// Its own entry point because the reading can end before there is anything to fold in: a
+    /// snapshot too old to trust, or one that does not name this account, answers nothing, and the
+    /// tick that asked still ASKED. Left unrecorded, `due` said yes on the very next tick and the
+    /// station re-read `~/.tally/snapshot.json` every two seconds for as long as Tally.app was not
+    /// running - which is exactly when nothing can come of it (codex review of c12a1df).
+    mutating func noteChecked(now: Date) { checkedAt = now }
+
     /// Fold one reading in, and answer whether this session is owed the sentence.
     ///
     /// IT DOES NOT MARK THE SENTENCE SENT, which is the whole reason this is not one function with
@@ -125,9 +148,14 @@ struct QuotaKnockState: Equatable {
     /// The re-arm is applied before the answer rather than after, so an account that refilled past
     /// `quotaKnockRearmPercent` and drained again inside one cycle (a weekly window under a
     /// session window that reset) is a fresh drought to this.
-    mutating func observe(cycle: String?, remaining: Double, now: Date) -> Bool {
-        checkedAt = now
-        if !quotaKnockSameCycle(cycleKey, cycle) { fired = false }
+    ///
+    /// A DIFFERENT ACCOUNT IS ALWAYS A FRESH START, asked before the cycle and independently of it:
+    /// the account is what the sentence is ABOUT, so a flag raised for one account says nothing
+    /// about another whatever their reset times happen to look like (see `accountID`).
+    mutating func observe(account: String, cycle: String?, remaining: Double, now: Date) -> Bool {
+        noteChecked(now: now)
+        if account != accountID || !quotaKnockSameCycle(cycleKey, cycle) { fired = false }
+        accountID = account
         cycleKey = cycle
         if remaining > quotaKnockRearmPercent { fired = false }
         return remaining <= quotaKnockPercent && !fired
@@ -145,10 +173,68 @@ struct QuotaKnockState: Equatable {
     }
 }
 
-/// The label as the sentence carries it, clipped to `quotaKnockLabelLimit` characters.
-func quotaKnockName(_ label: String) -> String {
-    label.count <= quotaKnockLabelLimit ? label
-        : String(label.prefix(quotaKnockLabelLimit)) + "\u{2026}"
+/// Whether a name can go on a terminal's input queue as it stands.
+///
+/// A LABEL IS FREE TEXT AND THIS IS A KEYSTROKE CHANNEL, which is the whole of the danger: the
+/// rename popover trims the ends and accepts everything else, so a label can carry a newline, and
+/// `injectSessionInput` pushes each byte in as though it had been typed. A newline in the middle of
+/// this sentence is a Return: the first half is submitted as a prompt and the rest is typed into
+/// whatever comes up next. ESC and the other control bytes are the same class of accident one step
+/// further, since a TUI reads them as commands rather than as text.
+/// Asked THROUGH the strip below rather than beside it: two spellings of "what a terminal reads as
+/// a keystroke" is one refusal and one repair that can come to disagree, and the disagreement is
+/// silent - a name judged usable by one and rewritten by the other.
+private func quotaKnockTypeable(_ name: String) -> Bool {
+    !name.isEmpty && quotaKnockStripped(name) == name
+}
+
+/// The same string with those scalars dropped, for the last resort below.
+private func quotaKnockStripped(_ name: String) -> String {
+    String(String.UnicodeScalarView(name.unicodeScalars.filter {
+        !CharacterSet.controlCharacters.contains($0) && !$0.properties.isDefaultIgnorableCodePoint
+    }))
+}
+
+/// `text` cut to at most `limit` UTF-8 BYTES, never through a character.
+///
+/// Bytes because bytes are what is being bounded (the channel's limit, and 30ms of the poll loop
+/// per one), and characters because a cut inside a multi-byte scalar is not a shorter string, it is
+/// a broken one. Whole Characters rather than scalars so an emoji built from several does not lose
+/// half of itself either.
+func quotaKnockClipped(_ text: String, bytes limit: Int) -> String {
+    guard text.utf8.count > limit else { return text }
+    var out = ""
+    var used = 0
+    for character in text {
+        let size = String(character).utf8.count
+        guard used + size <= limit else { break }
+        out.append(character)
+        used += size
+    }
+    return out
+}
+
+/// The name the sentence calls an account, safe to type and inside `quotaKnockLabelBytes`.
+///
+/// THE LABEL IS PREFERRED AND THE CONFIG-DIR NAME IS THE FALLBACK, which is `completionAccountNames`
+/// (CompletionData.swift) exactly: a label carrying something that cannot go on this channel is
+/// REFUSED rather than repaired, because the repaired string is a name that no longer resolves -
+/// "Claude\n2" with the newline dropped is "Claude2", which `tally account` matches against nothing,
+/// and this sentence exists to be acted on. The directory name is what a person can type instead.
+///
+/// The strip is only the last resort, for an account whose every name is unusable: something has to
+/// be printed, and by then a name that merely READS right is the best there is.
+func quotaKnockName(_ account: Snapshot.Account, bytes limit: Int = quotaKnockLabelBytes) -> String {
+    let directory = account.launchHome.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
+    let candidates = [account.label, directory]
+    let name = candidates.first(where: quotaKnockTypeable)
+        ?? candidates.map(quotaKnockStripped).first { !$0.isEmpty }
+        ?? quotaKnockStripped(account.id)
+    // The ellipsis is one character and THREE BYTES, so the room for it is taken out of the budget
+    // before the cut rather than added after it: a name clipped to the budget and then marked would
+    // be three bytes over the thing that was being bounded.
+    let clipped = quotaKnockClipped(name, bytes: limit - 3)
+    return clipped.utf8.count == name.utf8.count ? name : clipped + "\u{2026}"
 }
 
 /// How many conversations are sharing this window, or nothing at all when the count is zero.
@@ -167,26 +253,39 @@ private func quotaKnockSessionsClause(_ sessions: Int) -> String {
 ///
 /// `limit` is the byte budget the caller keeps, handed in rather than read here so this file stays
 /// free of the session-input channel: the caller is the one that pays for those bytes
-/// (`sessionInputMaxBytes` is 200 of them, at 30ms each). Over budget, the alternative account is
-/// what goes, because it is the one clause a reader can get for themselves (`tally status`), and
-/// what stays is the news and the advice. The short form is bounded by construction - two clipped
-/// labels cannot reach the budget - so a long label costs the sentence its detail rather than its
-/// existence.
+/// (`sessionInputMaxBytes` is 200 of them, at 30ms each).
+///
+/// THE INVARIANT IS THAT WHAT COMES BACK IS NEVER LONGER THAN `limit`, and it is held by three
+/// layers rather than by one, because the earlier version held it by hope: it checked the long form
+/// only, so the two returns that skipped the check ("no account has headroom", and the short form
+/// itself) went over the budget on any label of 24 emoji or 24 CJK characters, which a character
+/// budget counted as inside it (codex review of c12a1df, measured at 230 and 206 bytes).
+///
+///  - names are clipped to a byte budget of their own, so the ordinary sentence keeps its detail;
+///  - the forms are tried longest first and the first that FITS is the answer, so an over-long line
+///    costs the alternative account rather than the news (that clause is the one thing a reader can
+///    get for themselves, from `tally status`);
+///  - and whatever is left is cut to the budget, which is what makes this a guarantee: a window
+///    name is published by the provider and nothing here bounds it, so a form built out of one is
+///    not something to reason about, only something to measure.
 func quotaKnockMessage(account: Snapshot.Account, alternative: Snapshot.Account?, sessions: Int,
                        primaryModel: String?, limit: Int, now: Date = Date()) -> String? {
     guard let binding = bindingWindow(account, primaryModel: primaryModel, now: now) else {
         return nil
     }
-    let head = "[tally] account \(quotaKnockName(account.label)) is running low: "
+    let head = "[tally] account \(quotaKnockName(account)) is running low: "
         + windowReason(binding, now: now) + quotaKnockSessionsClause(sessions) + "."
-    guard let alternative else {
-        // Nothing comfortable anywhere is a different instruction, and it is the honest one: moving
-        // to an equally spent account buys minutes and costs a restart, which is the same answer
-        // `capHandoffTarget` gives by returning nothing.
-        return head + " No account has headroom; consider pausing until the reset."
+    // Nothing comfortable anywhere is a different instruction, and it is the honest one: moving to
+    // an equally spent account buys minutes and costs a restart, which is the same answer
+    // `capHandoffTarget` gives by returning nothing.
+    let advice = alternative == nil
+        ? " No account has headroom; consider pausing until the reset."
+        : " Wrap up and switch accounts, or wait for the reset."
+    let short = head + advice
+    let full = alternative.map {
+        head + " Best alternative: \(quotaKnockName($0)) "
+            + "(\(pickReason($0, primaryModel: primaryModel, now: now)))." + advice
     }
-    let advice = " Wrap up and switch accounts, or wait for the reset."
-    let full = head + " Best alternative: \(quotaKnockName(alternative.label)) "
-        + "(\(pickReason(alternative, primaryModel: primaryModel, now: now)))." + advice
-    return full.utf8.count <= limit ? full : head + advice
+    return [full, short].compactMap { $0 }.first { $0.utf8.count <= limit }
+        ?? quotaKnockClipped(short, bytes: limit)
 }

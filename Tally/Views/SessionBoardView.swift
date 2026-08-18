@@ -47,6 +47,35 @@ extension PopoverRootView {
     /// (`sessionsGrid`), and the figure has to stay one number.
     static let compactCardWidth: CGFloat = 210
 
+    /// THE WIDEST A SESSION CARD IS LAID OUT AT, which is what stops the other end of the same
+    /// arithmetic: the cards divide up the room the surface gives them (`sessionsBoardWidth`), and
+    /// without a ceiling a board of one in a four-column panel would be a single 1084pt band across
+    /// the page - the shape the count was added to get rid of (Albert, 2026-08-17).
+    ///
+    /// 480 is the comfortable width this app already reads a line of text at
+    /// (`AccountListRowView.minComfortableWidth`), which is the closest thing the repo has to a
+    /// ruling on how long a line may get before it stops being easy to come back to. What a cap
+    /// leaves over stays empty rather than being handed to the cards.
+    static let defaultSessionCardCap: CGFloat = 480
+
+    /// The cap in force for this launch, which is the constant above unless a capture asked for
+    /// another one: `open Tally.app --args -TallySessionCardCap 356` lays the board out at a
+    /// different ceiling so two of them can be photographed side by side and judged on screen
+    /// rather than argued about in a diff (Albert, 2026-08-18).
+    ///
+    /// Gated on the demo data or a dev build, exactly as `-TallyPanelCapture` and `-TallyAppearance`
+    /// are: it must never be reachable in a release instance somebody is actually using, whatever
+    /// arguments reach its defaults. Read once, because a launch argument cannot change under a
+    /// running app, and never written anywhere: the volatile argument domain is the whole of its
+    /// life, the same as `-TallyDemoData`.
+    static let sessionCardCap: CGFloat = {
+        let asked = UserDefaults.standard.double(forKey: "TallySessionCardCap")
+        guard DemoUsage.isActive || BuildVariant.isDev,
+              asked > PopoverRootView.compactCardWidth
+        else { return PopoverRootView.defaultSessionCardCap }
+        return CGFloat(asked)
+    }()
+
     @ViewBuilder
     var sessionsPage: some View {
         let roster = SessionRosterStore.shared
@@ -103,6 +132,23 @@ extension PopoverRootView {
         // look after it is somebody's reading in progress.
         .onAppear { SessionRosterStore.shared.beginViewingBoard() }
         .onDisappear { SessionRosterStore.shared.endViewingBoard() }
+        // AND AUTO'S COUNT IS TAKEN AT THE SAME MOMENT, for the same reason the seats are: auto
+        // means "as many columns as there are cards", and a board that answered that question live
+        // would re-flow itself under somebody's eyes every time a session started somewhere else on
+        // the machine. Frozen here, a session arriving mid-read is appended to the board it finds;
+        // the count is taken again the next time this page is opened (`sessionsAutoColumns`).
+        //
+        // TAKEN FROM THE FIRST BOARD THAT HAS ANYTHING ON IT, not from the first frame. The roster
+        // scans on its own clock, so a surface opening for the first time appears with an empty
+        // board and fills a moment later: a count taken there is a one-column reading of a machine
+        // running eight sessions, which is what auto measured on the dev instance before this line
+        // said "first board with cards" rather than "first board". Until it is taken the live count
+        // answers (`sessionColumnCount`), so the first frame with cards is already the right shape
+        // and the freeze changes nothing about it.
+        .onAppear { sessionsAutoColumns = listed.isEmpty ? nil : listed.count }
+        .onChange(of: listed.count) { _, count in
+            if sessionsAutoColumns == nil, count > 0 { sessionsAutoColumns = count }
+        }
         // THE FOOTPRINT NUMBERS ARE READ ONLY WHILE THIS PAGE IS UP, and this is the page saying so.
         // On the page rather than on the root the roster is switched from (`PopoverRootView`): that
         // one serves the menu bar's blocked dot and the durations on every surface, while walking

@@ -315,6 +315,29 @@ let tall = ViewOptionsCardPlacement.frame(size: CGSize(width: 268, height: 1_400
 check("a card too tall for the display hangs off the top, not the bottom",
       near(tall.minY, display.minY))
 
+// 9e. WHICH DISPLAY IT IS MEASURED AGAINST: the one the BUTTON is on, not the one holding most of
+//     the surface. A window straddling two displays answers `screen` with the larger share, so a
+//     footer on the right-hand display would have its card clamped into the left-hand one, hundreds
+//     of points from the control it belongs to (codex, review of f19f79b). The repo asks anchors
+//     this question by their centre everywhere it matters (`StatusItemController.menuBarScreen`).
+let leftDisplay = CGRect(x: -1_600, y: 0, width: 1_600, height: 1_000)
+let rightDisplay = CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+let displays = [leftDisplay, rightDisplay]
+check("a button on the right-hand display is placed against that display",
+      ViewOptionsCardPlacement.display(for: CGRect(x: 40, y: 240, width: 28, height: 28),
+                                       in: displays) == 1)
+check("…and one on the left against the left",
+      ViewOptionsCardPlacement.display(for: CGRect(x: -900, y: 240, width: 28, height: 28),
+                                       in: displays) == 0)
+// The seam itself: a button lying across the boundary belongs to whichever display its CENTRE is
+// on, which is the one the majority of the control is drawn on.
+check("a button across the seam goes with its own centre",
+      ViewOptionsCardPlacement.display(for: CGRect(x: -10, y: 240, width: 28, height: 28),
+                                       in: displays) == 1)
+check("…and a button on no display at all is nobody's, so the caller falls back",
+      ViewOptionsCardPlacement.display(for: CGRect(x: 4_000, y: 240, width: 28, height: 28),
+                                       in: displays) == nil)
+
 // 10. WHAT PUTS IT AWAY. Everything but the card itself, which is what makes it read as a popover -
 //     and one thing more, which is what makes it better than one: a press on the panel's drag
 //     regions dismisses the card AND carries the window from the same press (Albert, 2026-08-18).
@@ -348,6 +371,17 @@ check("a card whose button has gone is dismissed by any press at all",
       ViewOptionsCardPlacement.dismisses(press: CGPoint(x: toggle.midX, y: toggle.midY),
                                          card: card, toggle: nil))
 
+// 10b. AND THE ARRIVAL NOBODY PRESSED ANYTHING FOR. Command-, opens Settings and Sparkle posts its
+//      update alert on a timer: each draws over the surface the card belongs to, while the card
+//      floats above it and swallows the Escape that would close it (codex, review of f19f79b). A
+//      window of this app becoming key is therefore asked the same question a press is.
+check("another window of this app coming forward puts the card away",
+      ViewOptionsCardPlacement.dismisses(windowNumber: 42, card: 7, host: 3))
+check("…the card's own window does not, it takes key the moment it opens",
+      !ViewOptionsCardPlacement.dismisses(windowNumber: 7, card: 7, host: 3))
+check("…nor does the surface it belongs to, whose presses the toggle exemption answers",
+      !ViewOptionsCardPlacement.dismisses(windowNumber: 3, card: 7, host: 3))
+
 // 11. AND THE WINDOW THAT CARRIES IT, read off the source for the reason section 6 gives.
 let cardSource = code(of: "Tally/MenuBar/ViewOptionsCard.swift")
 check("the card is placed through that arithmetic, from the button's rectangle on screen",
@@ -357,8 +391,19 @@ check("the card is placed through that arithmetic, from the button's rectangle o
 // the host's moves or resizes is exactly how a card would start following the footer again.
 check("…once, and then left alone",
       cardSource.components(separatedBy: "panel.setFrame(").count - 1 == 1
-          && !cardSource.contains("addObserver") && !cardSource.contains("didMoveNotification")
+          && !cardSource.contains("didMoveNotification")
           && !cardSource.contains("didResizeNotification"))
+// …and against the display the BUTTON is on rather than the one holding most of the window (9e).
+check("…measured against the display the button it stands on is on",
+      cardSource.contains("ViewOptionsCardPlacement.display(for: anchorRect, in: screens.map(\\.frame))"))
+// THE ONE THING IT OBSERVES is which window is in front. Never where the surface is or how big it
+// has become: an observer of those is exactly how the card would start following the footer again.
+check("…and the only notification it watches is a window coming forward",
+      cardSource.components(separatedBy: "addObserver").count - 1 == 1
+          && cardSource.contains("forName: NSWindow.didBecomeKeyNotification"))
+check("…which is taken down with the card, through the door it was registered at",
+      cardSource.contains(
+        "for observer in card.observers { NotificationCenter.default.removeObserver(observer) }"))
 // THE PRESS IS PASSED ON, which is the drag behaviour in one line: the monitor runs before the event
 // reaches the window, so the card is gone by the time the panel's drag region receives the very same
 // press. Swallowing it would cost a click; dismissing after would let the press through to a card

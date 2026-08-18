@@ -196,18 +196,26 @@ final class SettingsStore {
     /// picker was last edited to, so a board read one card at a time could not be said at all while
     /// the accounts were in two columns (Albert, 2026-08-17).
     ///
-    /// It is spent on the CARDS, not on the window: the board lays out this many columns at a card's
-    /// width inside the surface the account pages sized, because a width that followed the page
-    /// resized the surface on every tab switch (`PopoverRootView.popoverWidth`). A count the surface
-    /// cannot seat steps down to the one it can.
+    /// It is spent on the CARDS, not on the window: the board lays out at most this many columns
+    /// inside the surface the account pages sized, because a width that followed the page resized
+    /// the surface on every tab switch (`PopoverRootView.popoverWidth`). A count the surface cannot
+    /// seat steps down to the one it can.
     var sessionsColumns: Int {
         didSet { UserDefaults.standard.set(sessionsColumns, forKey: "sessionsColumns") }
     }
 
-    /// The highest explicit count the session board offers. Two: a session card is a compact 210pt
-    /// and three of them need a panel wider than the widest thing on that page has to say, so the
-    /// third column would be spent on air.
-    static let maxSessionsColumns = 2
+    /// The highest explicit count the session board offers, which is the account cards' four.
+    ///
+    /// It was two, on the reasoning that a third column of session cards would need a panel wider
+    /// than that page has anything to say in - true only while a session card was frozen at the
+    /// account ladder's width and the board could not use the room it was given. The cards divide
+    /// up the surface now, so a 1108pt panel reads four session columns as comfortably as it reads
+    /// four account ones, and auto was already using every column that fits while an explicit choice
+    /// stopped at two: a ceiling the page itself did not have (Albert, 2026-08-18).
+    ///
+    /// Nothing stored has to move: 0, 1 and 2 mean what they always meant, and the range only opens
+    /// upward (`PanelGeometry.storedColumns`).
+    static let maxSessionsColumns = 4
 
     /// The highest count the picker offers for the density on screen, so the two surfaces that show
     /// that picker cannot disagree about where the tiles stop.

@@ -85,6 +85,9 @@ print("a grid inside the panel lays out the count the picker shows")
 // panel and that card, with the board's own 8pt gutter and 12pt of content padding each side.
 let sessionCard: CGFloat = 210
 let sessionGap: CGFloat = 8
+/// The widest one session card is laid out at. A copy, pinned to its line below like the two above:
+/// what a cap leaves over stays empty, so this is the figure the empty space is measured against.
+let sessionCardCap: CGFloat = 480
 // BOTH ARE COPIES, AND A COPY IS A NUMBER FREE TO DRIFT. The board's views live in the app target
 // and this harness compiles the geometry alone, so the two constants are pinned to the lines they
 // were copied from instead - the same static read the other suites use for what they cannot
@@ -100,52 +103,55 @@ check(boardSource.contains("static let compactCardWidth: CGFloat = \(Int(session
       "the card width here is the one the board lays its cards out at")
 check(reorderSource.contains("static let sessionCardGap: CGFloat = \(Int(sessionGap))"),
       "…and the gutter here is the one the grid is spaced with")
+check(boardSource.contains("static let defaultSessionCardCap: CGFloat = \(Int(sessionCardCap))"),
+      "…and the cap here is the one a card is laid out up to")
+// THE CAP CAN BE MOVED FOR A LOOK, AND ONLY FOR A LOOK: the flag that judges two ceilings side by
+// side is gated on the demo data or a dev build, exactly as the capture flags that put a surface on
+// screen are, so a release instance somebody is using cannot be argued into another layout.
+check(boardSource.contains(#"UserDefaults.standard.double(forKey: "TallySessionCardCap")"#)
+        && boardSource.contains("guard DemoUsage.isActive || BuildVariant.isDev,"),
+      "…and the flag that overrides it for a capture is a demo or dev build's alone")
 func sessionGrid(width: CGFloat) -> CGFloat { width - 2 * PanelGeometry.contentPadding }
-/// What one session card comes out at: the grid's width, less the gutters, split between the cards.
-func sessionCardWidth(panel: CGFloat, columns: Int) -> CGFloat {
-    (sessionGrid(width: panel) - sessionGap * CGFloat(columns - 1)) / CGFloat(columns)
+/// What one session card comes out at: the grid's width, less the gutters, split between the cards,
+/// and then held between the narrowest it may be and the widest it is worth reading.
+func sessionCardWidth(panel: CGFloat, columns: Int, cap: CGFloat = sessionCardCap) -> CGFloat {
+    PanelGeometry.flexibleCardWidth(inGridOf: sessionGrid(width: panel), columns: columns,
+                                    gap: sessionGap, minimum: sessionCard, cap: cap)
 }
-func sessionColumns(_ chosen: Int?, panel: CGFloat) -> Int? {
-    PanelGeometry.gridColumns(chosen: chosen, in: sessionGrid(width: panel),
-                              minimum: sessionCard, gap: sessionGap)
+/// How many columns the board lays out for a count (nil for auto) and a number of cards on it.
+func sessionColumns(_ chosen: Int?, cards: Int = 1, panel: CGFloat) -> Int {
+    PanelGeometry.boardColumns(chosen: chosen, cards: cards, in: sessionGrid(width: panel),
+                               minimum: sessionCard, gap: sessionGap)
 }
 check(sessionColumns(1, panel: PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth))
       == 1, "the reported case: one comfortable row wide, one session card across")
-check(sessionColumns(2, panel: PanelGeometry.listPanelWidth(columns: 2, rowWidth: listRowWidth))
+check(sessionColumns(2, cards: 2,
+                     panel: PanelGeometry.listPanelWidth(columns: 2, rowWidth: listRowWidth))
       == 2, "two list columns, two session cards")
 check(sessionColumns(1, panel: PanelGeometry.cardPanelWidth(columns: 1)) == 1,
       "one card column, one session card")
-check(sessionColumns(2, panel: PanelGeometry.cardPanelWidth(columns: 2)) == 2,
+check(sessionColumns(2, cards: 2, panel: PanelGeometry.cardPanelWidth(columns: 2)) == 2,
       "two card columns, two session cards")
-check(sessionColumns(4, panel: PanelGeometry.cardPanelWidth(columns: 4)) == 4,
+check(sessionColumns(4, cards: 4, panel: PanelGeometry.cardPanelWidth(columns: 4)) == 4,
       "four card columns, four session cards")
-// Auto is the mode that hands the layout to the system, so it resolves to no count at all and the
-// caller keeps its adaptive grid.
-check(sessionColumns(nil, panel: PanelGeometry.cardPanelWidth(columns: 2)) == nil,
-      "auto asks for no count")
-check(sessionColumns(0, panel: PanelGeometry.cardPanelWidth(columns: 2)) == nil,
-      "and so does a count that is not one")
+// AUTO ASKS FOR AS MANY COLUMNS AS THERE ARE CARDS, taken when the page is opened: a board of one
+// reads as one column of its own rather than a card squeezed into a fifth of a wide panel, and a
+// board of five uses every column the width can seat.
+check(sessionColumns(nil, cards: 1, panel: PanelGeometry.cardPanelWidth(columns: 4)) == 1,
+      "auto with one card on the board asks for one column")
+check(sessionColumns(nil, cards: 3, panel: PanelGeometry.cardPanelWidth(columns: 4)) == 3,
+      "…three cards, three columns")
+check(sessionColumns(nil, cards: 9, panel: PanelGeometry.cardPanelWidth(columns: 4)) == 5,
+      "…and nine cards take every column a 1108pt panel seats, which is five")
+check(sessionColumns(nil, cards: 0, panel: PanelGeometry.cardPanelWidth(columns: 2)) == 1,
+      "an empty board is still one column rather than none")
 // A COUNT THE WIDTH CANNOT SEAT STEPS DOWN rather than pushing the surface out: a page under auto
 // is living in the width another page decided, and a page with a width of its own has already had
 // that width bounded by the display before the grid inside it is laid out.
-check(sessionColumns(4, panel: PanelGeometry.cardPanelWidth(columns: 1)) == 1,
+check(sessionColumns(4, cards: 4, panel: PanelGeometry.cardPanelWidth(columns: 1)) == 1,
       "four columns asked for in a one-column panel steps down to one")
-check(sessionColumns(3, panel: PanelGeometry.cardPanelWidth(columns: 2)) == 2,
+check(sessionColumns(3, cards: 3, panel: PanelGeometry.cardPanelWidth(columns: 2)) == 2,
       "three in a two-column panel steps down to two")
-// Every count either density offers, in every panel width either density produces: a card is never
-// laid out narrower than the width the whole board's arithmetic is built on.
-for panel in [PanelGeometry.cardPanelWidth(columns: 1), PanelGeometry.cardPanelWidth(columns: 2),
-              PanelGeometry.cardPanelWidth(columns: 3), PanelGeometry.cardPanelWidth(columns: 4),
-              PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth),
-              PanelGeometry.listPanelWidth(columns: 2, rowWidth: listRowWidth),
-              PanelGeometry.listPanelWidth(columns: 3, rowWidth: listRowWidth)] {
-    for chosen in 1 ... 4 {
-        let columns = sessionColumns(chosen, panel: panel) ?? 1
-        let card = sessionCardWidth(panel: panel, columns: columns)
-        check(columns <= chosen && card >= sessionCard,
-              "\(Int(panel))pt panel, \(chosen) asked -> \(columns) cards of \(card)pt")
-    }
-}
 
 print("the sessions page keeps its own count, and spends it on the cards")
 // THE SECOND TIME THIS FACE WAS QUESTIONED (Albert, 2026-08-17): the board obeyed the picker after
@@ -164,7 +170,10 @@ let rootSource = (try? String(contentsOfFile: "Tally/Views/PopoverRootView.swift
 // The highest count on offer is the app target's to state and this harness compiles the geometry
 // alone, so the number below is pinned to the line it was copied from (the same static read the
 // board's card width uses above).
-let maxSessionsColumns = 2
+// FOUR, WHERE IT WAS TWO: the ceiling of two was reasoning about a card frozen at the account
+// ladder's width, and it outlived it - auto was already using every column that fits while an
+// explicit choice stopped at two (Albert, 2026-08-18).
+let maxSessionsColumns = 4
 check(storeSource.contains("static let maxSessionsColumns = \(maxSessionsColumns)"),
       "the highest sessions count here is the one the store offers")
 // ONE SETTING READ BY BOTH SIDES, which is the whole of what keeps the count and the width honest:
@@ -173,8 +182,24 @@ check(storeSource.contains("var sessionsColumns: Int"),
       "the board's count is its own stored setting")
 check(reorderSource.contains("(1 ... SettingsStore.maxSessionsColumns).contains(settings.sessionsColumns)"),
       "…and the choice itself is read from that setting")
-check(reorderSource.contains("PanelGeometry.gridColumns(chosen: sessionsColumnChoice"),
+check(reorderSource.contains("PanelGeometry.boardColumns(chosen: sessionsColumnChoice"),
       "…which is the same choice the grid lays out")
+// THE PREFERENCE IS NEVER REWRITTEN BY THE WIDTH. A count the surface cannot seat steps down for
+// the layout only: the number stays where the user put it, so widening the panel brings the board
+// they asked for back without them having to pick it again.
+check(!reorderSource.contains("settings.sessionsColumns ="),
+      "nothing on the board writes the remembered count back")
+// AUTO'S COUNT IS TAKEN WHEN THE PAGE IS OPENED, not read live off the roster: the scan runs twice
+// a second, and a board that re-flowed as sessions came and went would move under the reader.
+check(boardSource.contains(".onAppear { sessionsAutoColumns = listed.isEmpty ? nil : listed.count }"),
+      "auto resolves its count as the board is opened")
+// …and from the first board that has cards on it. The roster scans on its own clock, so the first
+// frame of a new surface is an empty board: a count taken there froze auto at one column on a
+// machine running eight sessions (measured on the dev instance, 2026-08-18).
+check(boardSource.contains("if sessionsAutoColumns == nil, count > 0 { sessionsAutoColumns = count }"),
+      "…or at the first scan that has any, when the surface opened before the roster answered")
+check(reorderSource.contains("cards: sessionsAutoColumns ?? cards"),
+      "…and the grid lays out that frozen count rather than the live one")
 
 print("switching tabs never resizes the surface")
 /// The body of a declaration, sliced out by brace depth so an assertion can be about what THAT
@@ -233,66 +258,115 @@ check(crossfadeAlignment(rootSource) == "topLeading",
       "the pages are stacked against the leading edge, not centred")
 
 print("a chosen count is spent on the cards, inside the surface it is given")
-// WHAT THE COUNT BUYS NOW: that many card columns, at the width one card column gets on the account
-// pages, held against the leading edge. So a chosen "1" is a card and not a band across a
-// three-column panel (the complaint the count was added for), and the surface never moves.
-check(reorderSource.contains("var sessionsBoardWidth: CGFloat?"),
+// WHAT THE COUNT BUYS NOW: at most that many columns, dividing up the room the surface offers, held
+// against the leading edge. So a chosen "1" is a card that takes the width it is given up to the
+// point a line stops being comfortable to read, and never a band across a four-column panel (the
+// complaint the count was added for), and the surface never moves either way.
+check(reorderSource.contains("func sessionsBoardWidth(columns: Int) -> CGFloat"),
       "the board has a laid-out width of its own")
-check(reorderSource.contains("PanelGeometry.cardsWidth(columns: columns, gap: Self.sessionCardGap)"),
-      "…built from the card ladder's own arithmetic, which this suite compiles")
-check(reorderSource.contains(".frame(maxWidth: sessionsBoardWidth ?? .infinity, alignment: .leading)"),
+check(reorderSource.contains("PanelGeometry.flexibleRunWidth(inGridOf: sessionsGridWidth"),
+      "…built from the flexible arithmetic this suite compiles")
+check(reorderSource.contains(
+        ".frame(maxWidth: sessionsBoardWidth(columns: columns), alignment: .leading)"),
       "…applied to the grid as a cap, against the leading edge")
-/// The board's own width at a count. The board's gutter rather than the account grid's, which is
-/// why the arithmetic takes one: the two boards are spaced differently.
-func boardWidth(columns: Int) -> CGFloat {
-    PanelGeometry.cardsWidth(columns: columns, gap: sessionGap)
+// ONE READING OF THE COUNT PER PASS, which the cells and the run are both laid out from: two
+// readings are two chances for the grid and the width holding it to disagree about how many cards
+// are on the page.
+check(reorderSource.contains("let columns = sessionColumnCount(cards: listed.count)")
+        && reorderSource.contains("sessionGridItems(columns: columns)"),
+      "…and the count behind both is resolved once for the pass")
+/// The board's own width: its columns of cards and the gutters between them. The board's gutter
+/// rather than the account grid's, which is why the arithmetic takes one: the two are spaced
+/// differently.
+func boardWidth(panel: CGFloat, columns: Int, cap: CGFloat = sessionCardCap) -> CGFloat {
+    PanelGeometry.flexibleRunWidth(inGridOf: sessionGrid(width: panel), columns: columns,
+                                   gap: sessionGap, minimum: sessionCard, cap: cap)
 }
-check(boardWidth(columns: 1), 263, "one session column is one card wide")
-check(boardWidth(columns: 2), 534, "two session columns are two cards and a gutter")
-// Auto asks for nothing at all: no count, so no cap, and the board fills whatever width the account
-// pages left it (`PanelGeometry.gridColumns` returns nil).
-check(sessionColumns(nil, panel: PanelGeometry.cardPanelWidth(columns: 1)) == nil,
-      "auto asks for no count, so the board is not capped at all")
-/// What the board is actually laid out in: the cap, or the grid it is offered where that is
-/// narrower - a `maxWidth` frame is proposed the lesser of the two, exactly as the view is.
-func laidOutBoard(chosen: Int, panel: CGFloat) -> (columns: Int, width: CGFloat, card: CGFloat) {
-    let columns = sessionColumns(chosen, panel: panel) ?? 1
-    let width = min(boardWidth(columns: columns), sessionGrid(width: panel))
-    return (columns, width, (width - sessionGap * CGFloat(columns - 1)) / CGFloat(columns))
+/// What the board is actually laid out as, for a count (nil for auto) on a board of `cards`.
+func laidOutBoard(chosen: Int?, cards: Int = 4,
+                  panel: CGFloat, cap: CGFloat = sessionCardCap)
+    -> (columns: Int, width: CGFloat, card: CGFloat) {
+    let columns = sessionColumns(chosen, cards: cards, panel: panel)
+    return (columns, boardWidth(panel: panel, columns: columns, cap: cap),
+            sessionCardWidth(panel: panel, columns: columns, cap: cap))
 }
-// In every panel either density produces: the board fits inside the panel, the count inside it is
-// the one that was asked for or less, and a card is never squeezed below the width the board's
-// arithmetic is built on nor stretched past the card ladder's own column.
-for panel in [PanelGeometry.cardPanelWidth(columns: 1), PanelGeometry.cardPanelWidth(columns: 2),
+
+// THE 2026-08-18 REPORT, AS ONE CELL: a list panel one comfortable row wide, the board set to one
+// column, and 217pt of nothing beside a card frozen at a width borrowed from the account ladder.
+// The card takes the room now. This is the assertion the old arithmetic fails.
+let reported = PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth)
+check(laidOutBoard(chosen: 1, panel: reported).card, 480,
+      "504pt panel, one column: the card is the width it is given, not 263")
+check(laidOutBoard(chosen: 1, panel: reported).width, 480,
+      "…and the board with it, so nothing is left over at that width")
+// AND THE OTHER END OF THE SAME ARITHMETIC, which is the 2026-08-17 complaint: a lone card must not
+// stretch across a wide panel. 834pt offers 810pt of grid and the card stops at the cap.
+check(laidOutBoard(chosen: 1, panel: PanelGeometry.cardPanelWidth(columns: 3)).card, sessionCardCap,
+      "834pt panel, one column: the card stops at the cap rather than becoming a band")
+check(laidOutBoard(chosen: 1, panel: PanelGeometry.cardPanelWidth(columns: 4)).card, sessionCardCap,
+      "…and the widest panel changes nothing about that")
+// The cap is one constant, and moving it moves the card: the demo builds that judge it on screen
+// pass another number through the same arithmetic (`-TallySessionCardCap`).
+check(laidOutBoard(chosen: 1, panel: reported, cap: 356).card, 356,
+      "a capture asking for a 356pt cap gets a 356pt card in that same panel")
+check(laidOutBoard(chosen: 1, panel: reported, cap: 356).width, 356,
+      "…and a board that leaves the remaining 124pt to the surface")
+// The two-column readings the same panels produce.
+check(laidOutBoard(chosen: 2, panel: reported).card, 236,
+      "504pt panel, two columns: two 236pt cards")
+check(laidOutBoard(chosen: 2, panel: PanelGeometry.cardPanelWidth(columns: 2)).card, 264,
+      "560pt panel, two columns: two 264pt cards")
+check(laidOutBoard(chosen: 1, panel: PanelGeometry.cardPanelWidth(columns: 2)).card, sessionCardCap,
+      "…and one column there is a card at the cap, 56pt short of the grid")
+// The narrow direction, where the count cannot be kept: the board lays out the one column that
+// fits, and the picker says "up to" rather than promising the two it cannot seat.
+check(laidOutBoard(chosen: 2, panel: PanelGeometry.cardPanelWidth(columns: 1)).columns == 1,
+      "380pt panel, two asked for: one column, because two do not fit")
+check(laidOutBoard(chosen: 2, panel: PanelGeometry.cardPanelWidth(columns: 1)).card, 356,
+      "…laid out at the whole 356pt grid rather than at 263")
+
+// EVERY COUNT IN EVERY PANEL EITHER DENSITY PRODUCES, auto included: the board fits inside the
+// panel, the count inside it is the one that was asked for or less, and a card is never squeezed
+// below the width the board's arithmetic is built on nor stretched past the cap.
+let panels = [PanelGeometry.cardPanelWidth(columns: 1), PanelGeometry.cardPanelWidth(columns: 2),
               PanelGeometry.cardPanelWidth(columns: 3), PanelGeometry.cardPanelWidth(columns: 4),
               PanelGeometry.listPanelWidth(columns: 1, rowWidth: listRowWidth),
               PanelGeometry.listPanelWidth(columns: 2, rowWidth: listRowWidth),
-              PanelGeometry.listPanelWidth(columns: 3, rowWidth: listRowWidth)] {
-    for chosen in 1 ... maxSessionsColumns {
-        let board = laidOutBoard(chosen: chosen, panel: panel)
-        check(board.columns <= chosen && board.width <= sessionGrid(width: panel)
-                && board.card >= sessionCard && board.card <= PanelGeometry.cardColumnWidth,
-              "\(Int(panel))pt panel, \(chosen) asked -> \(board.columns) card(s) of \(board.card)pt")
+              PanelGeometry.listPanelWidth(columns: 3, rowWidth: listRowWidth)]
+for panel in panels {
+    for cards in [0, 1, 2, 3, 5, 9] {
+        for chosen in [nil] + (1 ... maxSessionsColumns).map(Optional.init) {
+            let board = laidOutBoard(chosen: chosen, cards: cards, panel: panel)
+            let asked = chosen ?? max(1, cards)
+            check(board.columns <= asked && board.columns >= 1
+                    && board.width <= sessionGrid(width: panel)
+                    && board.card >= sessionCard && board.card <= sessionCardCap,
+                  "\(Int(panel))pt panel, \(cards) cards, \(chosen.map(String.init) ?? "auto") "
+                    + "-> \(board.columns) column(s) of \(board.card)pt")
+        }
     }
 }
-// THE ONE THE 380pt PANEL IS FOR: a single column of accounts is a 356pt reading width, and a
-// session card in it is still a card - narrower than the panel, and nothing about the panel changed
-// to make it so.
-check(boardWidth(columns: sessionColumns(1, panel: PanelGeometry.cardPanelWidth(columns: 1)) ?? 0),
-      263, "a one-column panel seats a one-card board, and stays 380pt")
-// A COUNT THE SURFACE CANNOT SEAT STEPS DOWN, which is the same direction it always stepped: the
-// panel is the account pages' to decide, so two cards asked for in a panel that fits one is one.
-check(sessionColumns(2, panel: PanelGeometry.cardPanelWidth(columns: 1)) == 1,
-      "two asked for in a one-column panel lays out the one that fits")
-check(sessionColumns(2, panel: PanelGeometry.cardPanelWidth(columns: 2)) == 2,
-      "…and two in a two-column panel lays out both")
+// The run is exactly its cards and its gutters, which is what makes the flexible cells inside the
+// frame come out at the card width asserted above rather than at some share of a wider box.
+for panel in panels {
+    for columns in 1 ... 4 {
+        check(boardWidth(panel: panel, columns: columns),
+              CGFloat(columns) * sessionCardWidth(panel: panel, columns: columns)
+                + CGFloat(columns - 1) * sessionGap,
+              "\(Int(panel))pt panel, \(columns) columns: the run is its cards and its gutters")
+    }
+}
 
 print("a remembered count comes back into the range still on offer")
 check(PanelGeometry.storedColumns(0, max: maxSessionsColumns) == 0, "nothing stored is auto")
 check(PanelGeometry.storedColumns(-3, max: maxSessionsColumns) == 0, "and so is a nonsense count")
 check(PanelGeometry.storedColumns(1, max: maxSessionsColumns) == 1, "a count on offer is kept")
-check(PanelGeometry.storedColumns(2, max: maxSessionsColumns) == 2, "…including the highest one")
-check(PanelGeometry.storedColumns(4, max: maxSessionsColumns) == 2,
+check(PanelGeometry.storedColumns(4, max: maxSessionsColumns) == 4, "…including the highest one")
+// THE RANGE ONLY OPENED UPWARD, so every count anybody has stored means what it always meant: this
+// is the whole of the migration the ceiling moving from two to four needs.
+check(PanelGeometry.storedColumns(2, max: maxSessionsColumns) == 2,
+      "a two remembered under the old ceiling still comes back as two")
+check(PanelGeometry.storedColumns(6, max: maxSessionsColumns) == 4,
       "a count past the last tile comes back to that tile, not to auto")
 check(PanelGeometry.storedColumns(4, max: 3) == 3,
       "the same rule the compact list is read back through")
@@ -307,6 +381,66 @@ check(storeSource.contains(
       "every remembered column count is read back through the one clamping rule")
 check(!storeSource.contains("(1 ... 4).contains(defaults.integer(forKey: \"panelColumns\"))"),
       "…the cards' count included, rather than spelling its own range")
+
+print("the picker offers the promise the board can keep")
+// A TILE THAT CANNOT BE SEATED IS STILL SELECTABLE, and what changes instead is what the tiles are
+// CALLED: "up to 2 columns" is true in every width, where "2 columns" is the control lying about
+// the page in any panel that seats one (Albert, 2026-08-15, still live in the narrow direction
+// until now). The preference is kept either way, so widening the panel brings it back by itself.
+let pickerSource = (try? String(contentsOfFile: "Tally/Views/LayoutColumnPicker.swift",
+                                encoding: .utf8)) ?? ""
+let footerSource = (try? String(contentsOfFile: "Tally/Views/PopoverFooterView.swift",
+                                encoding: .utf8)) ?? ""
+let settingsPaneSource = (try? String(contentsOfFile: "Tally/Views/SettingsDisplayPane.swift",
+                                      encoding: .utf8)) ?? ""
+check(!pickerSource.isEmpty && !footerSource.isEmpty && !settingsPaneSource.isEmpty,
+      "the picker and both surfaces that show it are readable from this suite")
+check(pickerSource.contains("var atMost: Bool = false"),
+      "the picker knows whether a number here is a maximum")
+check(pickerSource.contains(#"return atMost ? L("Up to one column") : L("One column")"#)
+        && pickerSource.contains(#"String(localized: "Up to \(option) columns""#),
+      "…and says so in the words each tile is described in")
+check(pickerSource.contains("var maxColumns: Int = 4") && !pickerSource.contains("disabled("),
+      "…while every tile it offers stays selectable")
+// BOTH SESSIONS SURFACES SPEAK IT, which is the rule the picker exists for: one control, so the
+// panel and the Settings pane cannot describe the same setting two ways.
+/// What a call site passes, read as the 200 characters after the binding it edits: a file-wide
+/// `contains("atMost")` would be green off any other call in the same file.
+func callSite(_ source: String, editing binding: String) -> String {
+    String((source.components(separatedBy: binding).dropFirst().first ?? "").prefix(200))
+}
+for (name, source) in [("the panel's view options", footerSource),
+                       ("the Settings pane", settingsPaneSource)] {
+    check(callSite(source, editing: "$settings.sessionsColumns").contains("atMost: true"),
+          "\(name) offers the sessions count as a maximum")
+}
+// …and the account pages' own count is NOT a maximum: it decides the panel's width, so it is always
+// kept exactly, and describing it as "up to" would be the mirror-image lie.
+for (name, source) in [("the panel's view options", footerSource),
+                       ("the Settings pane", settingsPaneSource)] {
+    check(!callSite(source, editing: "$settings.densityColumns").contains("atMost"),
+          "\(name) still offers the account count as the exact number it keeps")
+}
+// THE SENTENCE THAT ANSWERS "WHY DID MY 2 LAY OUT 1", standing on the card rather than waiting in a
+// callout nobody hovers.
+let standingLine = "Panel width follows the Usage pages. Auto takes the columns that fit when the "
+    + "board is opened, and a number is the most it will use."
+check(footerSource.contains(standingLine),
+      "the sessions layout section explains what the panel's width follows")
+// EVERY WORD OF IT IS IN THE CATALOGUE, in all four translations: the app ships five languages, and
+// a sentence that reaches somebody in English on a Japanese machine is a missing translation
+// nobody notices until they see it.
+let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
+    "Tally/Resources/Localizable.xcstrings")))
+    .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+let catalogueStrings = catalogue?["strings"] as? [String: Any] ?? [:]
+check(!catalogueStrings.isEmpty, "the string catalogue is readable from this suite")
+for word in ["Up to one column", "Up to %lld columns", standingLine] {
+    let entry = catalogueStrings[word] as? [String: Any]
+    let localizations = entry?["localizations"] as? [String: Any] ?? [:]
+    check(["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { localizations[$0] != nil },
+          "\(word.prefix(28)) is translated into every language Tally ships")
+}
 
 print("the panel fits the display it opens on")
 // Every display a Mac actually reports, against every count either density lets a user pick. This
@@ -335,7 +469,8 @@ for display in displays {
     for chosen in 1 ... maxSessionsColumns {
         let board = laidOutBoard(chosen: chosen, panel: widest)
         check(widest <= usable && board.width <= sessionGrid(width: widest)
-                && board.columns <= chosen && board.card >= sessionCard,
+                && board.columns <= chosen && board.card >= sessionCard
+                && board.card <= sessionCardCap,
               "\(Int(display))pt display, \(chosen) session columns -> \(Int(board.width))pt of board in \(Int(widest))pt")
     }
 }

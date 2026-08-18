@@ -255,7 +255,18 @@ extension PopoverRootView {
                 // that switch here would be a control that changes nothing on screen.
                 if tab == .sessions {
                     LayoutColumnPicker(selection: $settings.sessionsColumns,
-                                       maxColumns: SettingsStore.maxSessionsColumns)
+                                       maxColumns: SettingsStore.maxSessionsColumns,
+                                       atMost: true)
+                    // WHY A NUMBER HERE IS A MAXIMUM, said on the card rather than left to be
+                    // discovered: this board lives in a width the Usage pages decide, so a panel one
+                    // comfortable row wide lays out one column whatever is picked. The tiles all
+                    // stay selectable - a preference is kept even where today's width cannot show it
+                    // off, and it takes effect the moment the panel is wider - and this line is what
+                    // keeps that from reading as a control that did nothing (Albert, 2026-08-18).
+                    Text(L("Panel width follows the Usage pages. Auto takes the columns that fit when the board is opened, and a number is the most it will use."))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else {
                     // Density first, then the count: what each element IS comes before how many of
                     // them fit. The footer's own used/left switch is this control, so the card

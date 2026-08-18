@@ -48,17 +48,37 @@ enum PanelGeometry {
         }
     }
 
-    /// How wide a run of `columns` cards is laid out: the cards at the width one card column gets,
-    /// and the gutters between them. Not a panel width - it is what a page whose surface is another
-    /// page's to size spends an explicit count on, so the cards take the width that count asked for
-    /// and the rest of the panel stays empty (`PopoverRootView.sessionsBoardWidth`).
+    /// WHAT ONE CARD COMES OUT AT IN A RUN THAT DIVIDES UP THE WIDTH IT IS GIVEN: the grid, less the
+    /// gutters, split between the columns, then held between the narrowest the card may be laid out
+    /// at and the widest it is worth reading.
     ///
-    /// The gap is asked for rather than assumed: the session board sits its cards 8pt apart where
-    /// the account grid uses 10, and a run measured with the wrong gutter is a run that does not
-    /// fit the grid it describes.
-    static func cardsWidth(columns: Int, gap: CGFloat) -> CGFloat {
+    /// A COUNT IS A PROMISE ABOUT THE READING TOPOLOGY, NEVER ABOUT THE CARD'S WIDTH. It used to be
+    /// both, because the board spent an explicit count at the width the ACCOUNT card ladder gives one
+    /// (263pt, a figure that means nothing on this page: it is neither the narrowest a session card
+    /// may be nor the widest it should be read at). A count of one in a 504pt panel therefore froze a
+    /// 263pt card beside 217pt of nothing, which is the complaint this arithmetic answers (Albert,
+    /// 2026-08-18). The cards take the room instead, up to `cap`, and what a cap leaves over stays
+    /// empty on the trailing side rather than stretching one card into a band across the surface.
+    ///
+    /// The gap is asked for rather than assumed: the session board sits its cards 8pt apart where the
+    /// account grid uses 10, and a run measured with the wrong gutter is a run that does not fit the
+    /// grid it describes.
+    static func flexibleCardWidth(inGridOf width: CGFloat, columns: Int, gap: CGFloat,
+                                  minimum: CGFloat, cap: CGFloat) -> CGFloat {
         let count = CGFloat(max(1, columns))
-        return count * cardColumnWidth + (count - 1) * gap
+        return min(cap, max(minimum, (width - gap * (count - 1)) / count))
+    }
+
+    /// How wide a run of those cards is laid out: the cards and the gutters between them. Not a panel
+    /// width - it is what a page whose surface is another page's to size lays its board out at, so
+    /// the board is capped to this and the rest of the panel stays empty
+    /// (`PopoverRootView.sessionsBoardWidth`).
+    static func flexibleRunWidth(inGridOf width: CGFloat, columns: Int, gap: CGFloat,
+                                 minimum: CGFloat, cap: CGFloat) -> CGFloat {
+        let count = CGFloat(max(1, columns))
+        let card = flexibleCardWidth(inGridOf: width, columns: columns, gap: gap,
+                                     minimum: minimum, cap: cap)
+        return count * card + (count - 1) * gap
     }
 
     /// A remembered column count, read back into the range that is still on offer: a stored number
@@ -95,40 +115,45 @@ enum PanelGeometry {
         min(max(1, columns), seats(columnWidth: columnWidth, in: usableWidth))
     }
 
-    /// HOW MANY COLUMNS A GRID INSIDE THE PANEL LAYS ITSELF OUT IN: what the user asked for, bounded
-    /// by what the width can actually hold, or nothing at all when they asked for nothing.
+    /// HOW MANY COLUMNS A BOARD INSIDE THE PANEL LAYS ITSELF OUT IN: as many as were asked for, or
+    /// under auto as many as there are cards to seat, bounded either way by what the width can hold.
     ///
-    /// WHAT YOU PICKED IS WHAT YOU GET, which the session board did not do. The board laid its cards
-    /// out adaptively whatever the picker said - so a panel one comfortable ROW wide (about 480pt)
-    /// seated two 210pt session cards while the picker beside them read "1". A count is a promise
-    /// about what is on screen, and a page that answers it with a different number is the picker
-    /// lying (Albert, 2026-08-15).
+    /// AN EXPLICIT COUNT IS THE MOST COLUMNS THE BOARD WILL USE, not a guarantee of that many. The
+    /// promise it can keep is about the reading topology - one column is read top to bottom, two are
+    /// read side by side - and a width that seats fewer than were asked for is a fact about the
+    /// surface rather than a broken promise. The picker says so in the words it offers the count in
+    /// ("Up to 2 columns", `LayoutColumnPicker`), which is what stops a panel one comfortable row
+    /// wide from highlighting "2" over a board laying out one (Albert, 2026-08-15 and 2026-08-18).
     ///
-    /// `nil` IS AUTO AND MEANS ADAPTIVE, not "one". Auto is the mode that delegates the layout to
-    /// the system, exactly as it does for the cards on the usage page, so the caller keeps its
-    /// adaptive grid and this says only "the user did not pick".
+    /// AUTO IS RESOLVED HERE RATHER THAN LEFT ADAPTIVE, and what it resolves to is the number of
+    /// cards the board was opened with: a lone session takes a column of its own instead of being
+    /// squeezed into a fifth of a wide panel, and a board of five uses every column that fits. The
+    /// count is frozen by the caller when the page appears (`PopoverRootView.sessionsAutoColumns`),
+    /// so a session arriving behind the reader's back is appended rather than re-flowing the board
+    /// they are in the middle of reading.
     ///
     /// THE PANEL'S WIDTH IS NEVER WHAT GIVES. It is the account pages' to decide and it is the same
     /// on every page, because a session board that widened the surface made switching tabs resize
     /// the window (shipped once, 2026-08-17, and reported the same day); so a count the width cannot
-    /// seat steps DOWN to what fits, the same direction `seated` steps for the same reason. What an
-    /// explicit count buys instead is the width the CARDS are laid out at inside that panel
+    /// seat steps DOWN to what fits, the same direction `seated` steps for the same reason. What a
+    /// count buys instead is how the CARDS are laid out inside that panel
     /// (`PopoverRootView.sessionsBoardWidth`).
     ///
     /// - Parameters:
     ///   - chosen: an explicit count, or nil for auto.
+    ///   - cards: how many cards the board is seating, which is what auto asks for.
     ///   - width: the grid's own width, padding already taken off.
     ///   - minimum: the narrowest a card may be laid out at.
     ///   - gap: the gutter between two columns.
-    static func gridColumns(chosen: Int?, in width: CGFloat, minimum: CGFloat,
-                            gap: CGFloat) -> Int? {
-        guard let chosen, chosen >= 1 else { return nil }
+    static func boardColumns(chosen: Int?, cards: Int, in width: CGFloat, minimum: CGFloat,
+                             gap: CGFloat) -> Int {
+        let wanted = max(1, chosen ?? cards)
         let step = minimum + gap
-        // A width that is not a number yet (the first layout pass) honours the choice rather than
+        // A width that is not a number yet (the first layout pass) honours the count rather than
         // inventing a bound from it: the next pass corrects it, and one frame at the asked-for
         // count is better than one frame at a number nothing measured.
-        guard step > 0, width.isFinite, width > 0 else { return chosen }
-        return min(chosen, max(1, Int((width + gap) / step)))
+        guard step > 0, width.isFinite, width > 0 else { return wanted }
+        return min(wanted, max(1, Int((width + gap) / step)))
     }
 
     /// What one card comes out at inside a grid of `width`: the columns divide up what is left of it

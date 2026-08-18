@@ -14,6 +14,14 @@ struct LayoutColumnPicker: View {
     /// is nearly twice a card's width and a fourth column of them needs a panel wider than the
     /// screen it would be read on (Albert's call, 2026-08-04).
     var maxColumns: Int = 4
+    /// Whether a number here is the MOST columns the page will use rather than the number it will
+    /// lay out. False for the account pages, whose count decides the panel's own width and is
+    /// therefore always kept exactly. True for the session board, which lives in the width those
+    /// pages decided: a panel one comfortable row wide seats one session column whatever the picker
+    /// says, and a tile that promised two would be the control lying about the page again (Albert,
+    /// 2026-08-15). Said in the words the tile is described in, so the promise is the one the board
+    /// can keep in every width.
+    var atMost: Bool = false
 
     @State private var hovered: Int?
 
@@ -33,7 +41,7 @@ struct LayoutColumnPicker: View {
 
     private func tile(_ option: Int) -> some View {
         let isSelected = selection == option
-        let description = Self.description(option)
+        let description = Self.description(option, atMost: atMost)
         return Button {
             selection = option
         } label: {
@@ -88,11 +96,15 @@ struct LayoutColumnPicker: View {
         .frame(width: Self.glyphWidth, height: Self.glyphHeight, alignment: .top)
     }
 
-    private static func description(_ option: Int) -> String {
+    /// What a tile is called, for the callout under the pointer and for VoiceOver alike: one
+    /// sentence, so the two channels cannot describe the same tile differently.
+    private static func description(_ option: Int, atMost: Bool) -> String {
         switch option {
         case auto: return L("Columns chosen automatically")
-        case 1: return L("One column")
-        default: return String(localized: "\(option) columns", bundle: AppLocale.bundle)
+        case 1: return atMost ? L("Up to one column") : L("One column")
+        default:
+            return atMost ? String(localized: "Up to \(option) columns", bundle: AppLocale.bundle)
+                          : String(localized: "\(option) columns", bundle: AppLocale.bundle)
         }
     }
 }

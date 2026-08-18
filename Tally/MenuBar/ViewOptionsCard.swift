@@ -26,6 +26,12 @@ import SwiftUI
 /// (~/.claude/docs/patterns/swiftui-appkit.md, paid for by the pick panel in 2026-08-09). The press
 /// monitors below answer the same question by watching for the press itself, which is an event that
 /// only happens when somebody makes it happen.
+///
+/// BUT ANOTHER OF THIS APP'S WINDOWS ARRIVING DOES take it away, which is not the same rule wearing
+/// a disguise: losing key is something that happens TO this card while nothing is on screen, and
+/// another window of the app becoming key is a second surface actually drawn over the one the card
+/// belongs to. Command-, and Sparkle's update alert are both that, and neither involves a press for
+/// the monitors to see (`ViewOptionsCardPlacement.dismisses(windowNumber:card:host:)`).
 @MainActor
 final class ViewOptionsCard {
     static let shared = ViewOptionsCard()
@@ -40,10 +46,18 @@ final class ViewOptionsCard {
         /// Where the button that opened it is RIGHT NOW, asked at every press: the surface resizes
         /// while the card is up, and the footer the button sits in moves with it.
         let toggle: () -> CGRect?
+        /// The window the card belongs to, asked the same way and for the same reason it is held
+        /// weakly: a surface can be torn down with its card still standing. It is one of the two
+        /// windows whose arrival does NOT dismiss the card (`ViewOptionsCardPlacement.dismisses`).
+        let surface: () -> NSWindow?
         /// Told to the surface when the card goes by any route other than its own toggle, so the
         /// button it came from stops reading as lit.
         let onDismiss: () -> Void
         var monitors: [Any] = []
+        /// The notification observers, kept apart from the event monitors because they are taken
+        /// down through a different door (`NotificationCenter.removeObserver`), and a token handed
+        /// to `NSEvent.removeMonitor` is a crash rather than a leak.
+        var observers: [NSObjectProtocol] = []
     }
 
     private var presentation: Presentation?
@@ -83,8 +97,13 @@ final class ViewOptionsCard {
         hosting.sizingOptions = [.intrinsicContentSize]
         panel.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
-        let visible = (hostWindow.screen ?? NSScreen.main)?.visibleFrame
-            ?? CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        // The display the BUTTON is on, which is not always the one holding most of the surface
+        // (`ViewOptionsCardPlacement.display`). The window's own answer is the fallback, for the
+        // case where the anchor is on no display at all.
+        let screens = NSScreen.screens
+        let screen = ViewOptionsCardPlacement.display(for: anchorRect, in: screens.map(\.frame))
+            .map { screens[$0] } ?? hostWindow.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1_440, height: 900)
         panel.setFrame(ViewOptionsCardPlacement.frame(size: hosting.fittingSize, anchor: anchorRect,
                                                       visible: visible),
                        display: false)
@@ -95,8 +114,10 @@ final class ViewOptionsCard {
         panel.makeKeyAndOrderFront(nil)
         presentation = Presentation(panel: panel, host: host,
                                     toggle: { [weak anchor] in anchor?.screenRect },
+                                    surface: { [weak hostWindow] in hostWindow },
                                     onDismiss: onDismiss)
         presentation?.monitors = watchForPresses()
+        presentation?.observers = watchForWindows()
     }
 
     /// Take the card down on behalf of the surface that put it up. A no-op for any other host, so
@@ -112,6 +133,7 @@ final class ViewOptionsCard {
         guard let card = presentation else { return }
         presentation = nil
         for monitor in card.monitors { NSEvent.removeMonitor(monitor) }
+        for observer in card.observers { NotificationCenter.default.removeObserver(observer) }
         card.panel.orderOut(nil)
     }
 
@@ -153,10 +175,46 @@ final class ViewOptionsCard {
         return [local, global].compactMap { $0 }
     }
 
+    /// The other way a window arrives in front of the surface: nobody pressed anything.
+    ///
+    /// ONE NOTIFICATION, BECAUSE TAKING THE KEYBOARD IS WHAT BOTH ENTRANCES HAVE IN COMMON. Command-,
+    /// opens Settings and Sparkle posts its update alert, and each takes key on arrival; there is no
+    /// notification for "was ordered front" to watch instead, so a window of this app that came
+    /// forward WITHOUT ever taking the keyboard is honestly not covered here (the press monitors
+    /// still answer the first click anywhere).
+    private func watchForWindows() -> [NSObjectProtocol] {
+        // The window is asked of the application rather than read off the notification: a window is
+        // not Sendable, so carrying the one in the notification across to the main actor is a data
+        // race the compiler is right to refuse. `keyWindow` is the window this notification is
+        // about - it is posted after the change, on the main thread that made it - and asking for
+        // it here also means a notification that somehow arrived late is answered with the state
+        // that is actually on screen.
+        let becameKey = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let window = NSApp.keyWindow,
+                      self.dismisses(windowCameForward: window) else { return }
+                self.dismissAndReport()
+            }
+        }
+        return [becameKey]
+    }
+
     private func dismisses(pressAt point: CGPoint) -> Bool {
         guard let card = presentation else { return false }
         return ViewOptionsCardPlacement.dismisses(press: point, card: card.panel.frame,
                                                   toggle: card.toggle())
+    }
+
+    private func dismisses(windowCameForward window: NSWindow) -> Bool {
+        guard let card = presentation else { return false }
+        // A surface that has gone leaves no number to exempt, and its card is on its way out anyway
+        // (`dismiss(host:)` from the surface's own teardown). Zero is not a window number AppKit
+        // hands out, so the comparison stays honest rather than exempting some other window.
+        return ViewOptionsCardPlacement.dismisses(windowNumber: window.windowNumber,
+                                                  card: card.panel.windowNumber,
+                                                  host: card.surface()?.windowNumber ?? 0)
     }
 }
 

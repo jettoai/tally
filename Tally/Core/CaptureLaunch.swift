@@ -35,6 +35,7 @@ enum CaptureLaunch {
         "TallyDemoData",        // fixture accounts, the README and marketing shots
         "TallyAppearance",      // pins this instance light or dark for a capture
         "TallyCardStyle",       // which glass variant, judged on screen rather than in a diff
+        "TallySessionCardCap",  // how wide a session card may get, the same judgement on the board
         // Surfaces held open so they can be photographed without synthesized input.
         "TallyPanelCapture",    // the pinned usage panel
         "TallyTab",             // which of that surface's pages it opens on (SurfaceTabLaunch)

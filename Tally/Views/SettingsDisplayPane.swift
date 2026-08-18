@@ -88,14 +88,16 @@ extension SettingsView {
 
         // Directly under the account pages' count, because the two are the same question asked of
         // two pages: the Sessions board keeps its own answer, and spends it on the CARDS rather
-        // than on the surface - that many columns at the card ladder's width, held against the
-        // leading edge, inside a panel whose width never changes with the page in front
-        // (`SettingsStore.sessionsColumns`, `PopoverRootView.popoverWidth`).
+        // than on the surface - at most that many columns, dividing up the room they are given and
+        // held against the leading edge, inside a panel whose width never changes with the page in
+        // front (`SettingsStore.sessionsColumns`, `PopoverRootView.popoverWidth`). A number is a
+        // maximum here, which is why the tiles are described as "up to" (`LayoutColumnPicker`).
         HStack {
             Text(L("Sessions columns")).font(.subheadline)
             Spacer()
             LayoutColumnPicker(selection: $settings.sessionsColumns,
-                               maxColumns: SettingsStore.maxSessionsColumns)
+                               maxColumns: SettingsStore.maxSessionsColumns,
+                               atMost: true)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

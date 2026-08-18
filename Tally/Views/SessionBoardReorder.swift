@@ -55,24 +55,28 @@ extension PopoverRootView {
     /// WHAT THE COLUMN PICKER SAYS IS WHAT THIS BOARD LAYS OUT, and it used to be adaptive
     /// regardless: a picker reading "1" opened a panel one column wide and this grid quietly seated
     /// two 210pt cards in it, the control saying one thing and the page doing another (Albert,
-    /// 2026-08-15). Auto is still adaptive, because auto is the mode that hands the layout to the
-    /// system.
+    /// 2026-08-15).
     ///
-    /// A COUNT IS A PROMISE ABOUT THE CARDS, NEVER ABOUT THE WINDOW. The count is the board's own
-    /// (`sessionsColumnChoice`) and it is spent here, on how wide the cards are laid out and where
-    /// they sit: that many columns at the width the card ladder gives one, held against the leading
-    /// edge (`sessionsBoardWidth`), whatever the surface around them is. The surface itself is the
-    /// same on all three pages, because a width that followed the page resized the window on every
-    /// tab switch (see `PopoverRootView.popoverWidth`). Under auto nothing was asked for and the
-    /// board stays adaptive across the whole width, and either way a count the width cannot seat
-    /// steps down to what fits (`PanelGeometry.gridColumns`) - a card never goes below the width the
-    /// whole board's column arithmetic is built on (`compactCardWidth`).
+    /// A COUNT IS A PROMISE ABOUT THE READING, NEVER ABOUT THE WINDOW. The count is the board's own
+    /// (`sessionsColumnChoice`) and it is spent here, on how many columns the cards are read in and
+    /// how wide they are laid out: at most that many columns, dividing up the room the surface gives
+    /// them, held against the leading edge (`sessionsBoardWidth`). The surface itself is the same on
+    /// all three pages, because a width that followed the page resized the window on every tab
+    /// switch (see `PopoverRootView.popoverWidth`), so a count the width cannot seat steps down to
+    /// what fits (`PanelGeometry.boardColumns`) - a card never goes below the width the whole board's
+    /// column arithmetic is built on (`compactCardWidth`), nor past the width a line stops being
+    /// comfortable to read at (`sessionCardCap`).
     ///
     /// Cells align to the TOP, so a card whose identity line is missing sits under its neighbours'
     /// first lines rather than floating in the middle of its cell.
     func sessionsGrid(_ listed: [SessionRosterStore.SessionRow],
                       board: [SessionRosterStore.SessionRow]) -> some View {
-        LazyVGrid(columns: sessionGridItems, spacing: Self.sessionCardGap) {
+        // Resolved once for the whole pass, and the cells and the run are both laid out from it:
+        // two readings of the count are two chances for the grid and its width to disagree, which
+        // is the defect this pair was split apart to prevent (`sessionsBoardWidth`).
+        let columns = sessionColumnCount(cards: listed.count)
+        return LazyVGrid(columns: sessionGridItems(columns: columns),
+                         spacing: Self.sessionCardGap) {
             ForEach(listed) { row in
                 sessionCard(row)
                     // The card being carried is drawn by the floating copy instead, at the pointer
@@ -85,9 +89,9 @@ extension PopoverRootView {
                     .cardFrame(id: row.id, in: Self.reorderSpace)
             }
         }
-        // Only as wide as the count asked for, against the leading edge; auto asks for nothing and
-        // fills what it is given (`sessionsBoardWidth`).
-        .frame(maxWidth: sessionsBoardWidth ?? .infinity, alignment: .leading)
+        // Only as wide as the cards it is laying out, against the leading edge: what a card cap
+        // leaves over is the surface's, not the board's (`sessionsBoardWidth`).
+        .frame(maxWidth: sessionsBoardWidth(columns: columns), alignment: .leading)
         // Cards glide to their new seats rather than teleporting, on the same spring the account
         // cards move on: a card moved by hand and a card displaced by that move travel alike.
         .animation(reduceMotion ? nil : CardMotion.spring,
@@ -127,48 +131,53 @@ extension PopoverRootView {
             ? settings.sessionsColumns : nil
     }
 
-    /// HOW WIDE THE BOARD ITSELF IS LAID OUT, or nil under auto, where it fills the surface.
+    /// HOW WIDE THE BOARD ITSELF IS LAID OUT: its columns of cards and the gutters between them,
+    /// where each card has taken its share of the room the surface offers, up to the width a line
+    /// stops being comfortable to read at (`sessionCardCap`).
     ///
-    /// An explicit count is spent on the cards: that many columns at the width one card column gets
-    /// on the account pages (`PanelGeometry.cardColumnWidth`), plus the gutters between them. What
-    /// is left of the surface stays empty on the trailing side rather than being handed to the
-    /// cards, which is what keeps a chosen "1" from stretching a lone session card across a
-    /// three-column panel - the complaint this count was added for (Albert, 2026-08-17) - without
-    /// the surface having to change width to say it.
+    /// WHAT A CAP LEAVES OVER STAYS EMPTY on the trailing side rather than being handed to the
+    /// cards, which is what keeps a board of one from stretching a lone session card across a
+    /// four-column panel - the complaint the count was added for (Albert, 2026-08-17) - without the
+    /// surface having to change width to say it. What the count no longer does is FREEZE the card at
+    /// a width borrowed from the account ladder: a chosen "1" in a 504pt panel was a 263pt card
+    /// beside 217pt of nothing, and the room belongs to the cards up to the point where a longer
+    /// line stops being worth reading (Albert, 2026-08-18).
     ///
-    /// Never wider than what it is offered: this is a cap, and the count inside it has already been
-    /// stepped down to what the surface can seat (`sessionColumnCount`), so the two cannot disagree
-    /// about how many cards are on the page.
-    var sessionsBoardWidth: CGFloat? {
-        guard let columns = sessionColumnCount else { return nil }
-        return PanelGeometry.cardsWidth(columns: columns, gap: Self.sessionCardGap)
+    /// Never wider than what it is offered: the count inside it has already been stepped down to
+    /// what the surface can seat (`sessionColumnCount`), so the two cannot disagree about how many
+    /// cards are on the page.
+    func sessionsBoardWidth(columns: Int) -> CGFloat {
+        PanelGeometry.flexibleRunWidth(inGridOf: sessionsGridWidth, columns: columns,
+                                       gap: Self.sessionCardGap,
+                                       minimum: Self.compactCardWidth,
+                                       cap: Self.sessionCardCap)
     }
 
-    /// How many columns this board lays its cards out in, or nil for auto (see
-    /// `PanelGeometry.gridColumns`, which says why an explicit count is honoured and why auto is
-    /// not simply resolved to a number).
+    /// The width the board divides between its cards: the surface, less the page's own padding.
+    var sessionsGridWidth: CGFloat { scrollContentWidth - 2 * PanelGeometry.contentPadding }
+
+    /// How many columns this board lays its cards out in (see `PanelGeometry.boardColumns`, which
+    /// says why an explicit count is a maximum and what auto resolves to).
     ///
     /// Bounded by the width it is being laid out in, which is the surface's and not this page's: a
     /// count the panel cannot seat steps down to the one it can, rather than the grid promising a
-    /// column the surface never had the room for. The cap the cards are held to is read from the
-    /// count this returns for the same reason (`sessionsBoardWidth`).
-    var sessionColumnCount: Int? {
-        PanelGeometry.gridColumns(chosen: sessionsColumnChoice,
-                                  in: scrollContentWidth - 2 * PanelGeometry.contentPadding,
-                                  minimum: Self.compactCardWidth,
-                                  gap: Self.sessionCardGap)
+    /// column the surface never had the room for. Auto asks for the number of cards the board was
+    /// opened with, held in `sessionsAutoColumns` until the page is opened again, so the answer is
+    /// the same for the whole of one reading.
+    func sessionColumnCount(cards: Int) -> Int {
+        PanelGeometry.boardColumns(chosen: sessionsColumnChoice,
+                                   cards: sessionsAutoColumns ?? cards,
+                                   in: sessionsGridWidth,
+                                   minimum: Self.compactCardWidth,
+                                   gap: Self.sessionCardGap)
     }
 
-    /// The grid's columns: the chosen count as equal flexible cells, or the adaptive single item
-    /// auto has always used.
-    private var sessionGridItems: [GridItem] {
-        guard let columns = sessionColumnCount else {
-            return [GridItem(.adaptive(minimum: Self.compactCardWidth),
-                             spacing: Self.sessionCardGap, alignment: .top)]
-        }
-        return Array(repeating: GridItem(.flexible(minimum: Self.compactCardWidth),
-                                         spacing: Self.sessionCardGap, alignment: .top),
-                     count: columns)
+    /// The grid's columns: that many equal flexible cells, which divide up the width the board is
+    /// capped to above and so come out at `PanelGeometry.flexibleCardWidth` apiece.
+    private func sessionGridItems(columns: Int) -> [GridItem] {
+        Array(repeating: GridItem(.flexible(minimum: Self.compactCardWidth),
+                                  spacing: Self.sessionCardGap, alignment: .top),
+              count: columns)
     }
 
     /// One drag for the whole board. The grabbed card is locked in from the drag's START location

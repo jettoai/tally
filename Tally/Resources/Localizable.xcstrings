@@ -11477,6 +11477,93 @@
           }
         }
       }
+    },
+    "Up to one column": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多單欄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多单栏"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大 1 列"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 1열"
+          }
+        }
+      }
+    },
+    "Up to %lld columns": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多 %lld 欄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最多 %lld 栏"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大 %lld 列"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 %lld열"
+          }
+        }
+      }
+    },
+    "Panel width follows the Usage pages. Auto takes the columns that fit when the board is opened, and a number is the most it will use.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "面板寬度由用量頁決定。Auto 取開啟看板當下放得下的欄數，選數字則是欄數上限。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "面板宽度由用量页决定。Auto 取打开看板当下放得下的栏数，选数字则是栏数上限。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルの幅は使用状況ページで決まります。Auto はボードを開いた時点で収まる列数を使い、数字はその上限です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널 너비는 사용량 페이지가 정합니다. Auto는 보드를 열 때 들어가는 열 수를 사용하고, 숫자는 최대 열 수입니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -37,6 +37,39 @@ enum ViewOptionsCardPlacement {
         return CGRect(origin: origin, size: size)
     }
 
+    /// WHICH DISPLAY THE CARD IS PLACED ON: the one the button it stands on is on, answered by
+    /// asking which display holds the button's centre.
+    ///
+    /// Deliberately not the host window's own `screen`, which answers with the display holding the
+    /// LARGEST part of that window: a surface straddling two displays with its footer on the
+    /// right-hand one would then be measured against the left-hand display's visible area, and the
+    /// card clamped hundreds of points from the button it belongs to. The repo asks anchors this
+    /// question the same way everywhere it matters (`StatusItemController.menuBarScreen`,
+    /// `StatusAnchor.summonTopLeft`), each time for its own version of this reason.
+    ///
+    /// Nil means NO DISPLAY HOLDS IT - a button on a screen that was just unplugged - which is the
+    /// caller's cue to fall back rather than to place the card against nothing.
+    static func display(for anchor: CGRect, in displays: [CGRect]) -> Int? {
+        let centre = CGPoint(x: anchor.midX, y: anchor.midY)
+        return displays.firstIndex { $0.contains(centre) }
+    }
+
+    /// Whether another window of this app coming forward takes the card away.
+    ///
+    /// A PRESS IS NOT THE ONLY WAY A WINDOW ARRIVES, which is what the press monitors could not see:
+    /// Command-, opens Settings from the keyboard, and Sparkle posts its update alert on a timer.
+    /// Either one draws over the surface the card belongs to while the card, sitting one level above
+    /// that surface, floats on top of the window that just took over - and the keystroke that would
+    /// dismiss it is swallowed by the card's own Escape monitor. So a window becoming key is asked
+    /// the same question a press is.
+    ///
+    /// The card and the surface it belongs to are the two exemptions: the card takes key when it
+    /// opens, and the surface takes it back for its own reasons (a press on it is already answered
+    /// by `dismisses(press:card:toggle:)`, toggle exemption included).
+    static func dismisses(windowNumber: Int, card: Int, host: Int) -> Bool {
+        windowNumber != card && windowNumber != host
+    }
+
     /// Whether a press at `point` puts the card away.
     ///
     /// EVERYTHING BUT THE CARD DOES, and the drag regions are the case that has to be said out loud:

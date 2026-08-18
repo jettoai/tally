@@ -64,6 +64,16 @@ struct PopoverRootView: View {
     /// The session drag's tracking flag, for the reason the account one above gives: cancellation
     /// is the only thing @GestureState is guaranteed to report, and the lift is cleaned up off it.
     @GestureState var isSessionDragActive = false
+    /// WHAT AUTO RESOLVED TO WHEN THIS SURFACE'S BOARD WAS OPENED: as many columns as there were
+    /// cards to seat, bounded afterwards by what the width can hold (`sessionColumnCount`). Nil
+    /// until the page has appeared, where the live count answers instead so the first frame is
+    /// already the right shape.
+    ///
+    /// HELD, BECAUSE THE ROSTER MOVES AND THE READER DOES NOT. The scan runs twice a second; a count
+    /// read from it live would re-flow the board a session at a time while somebody is reading it,
+    /// which is the same thing the seats are frozen against (`SessionRosterStore.seatingOnOpen`).
+    /// One per surface, as the tab selection is: two windows can be on different pages.
+    @State var sessionsAutoColumns: Int?
     /// A need, not a preference - the same rule the glass follows for Reduce Transparency. Every
     /// animated change on this surface reads it and goes instant, the extensions' included (the
     /// session board's filter switch), which is why it is not private.

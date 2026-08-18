@@ -355,7 +355,7 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
 /// that could fire later off some unrelated fork, and a window somebody has started working in must
 /// leave nothing behind at all.
 ///
-/// `window` is that transcript read (`windowRepickWindow`), `@autoclosure` so only a tick that has
+/// `window` is that transcript read (`clearedWindow(of:)`), `@autoclosure` so only a tick that has
 /// actually landed pays for the tail: an armed window is rare and an unarmed one is every other
 /// tick, which would otherwise read a file for an answer nobody asks for.
 private func windowRepickLanded(_ repick: inout WindowRepickState, transcript: String?,

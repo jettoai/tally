@@ -106,10 +106,17 @@ private func isWindowClearCaveat(_ object: [String: Any]) -> Bool {
 ///
 /// Corpus of 1,000 transcripts on this machine, 2026-08-17, 209 windows a `/clear` opened:
 ///  - 199 were then worked in. This answers `used` for 193 of them at ask time.
-///  - the 6 it still reads as empty are one class: no user record of ANY kind between the clear and
-///    the first assistant event. Their clear-to-turn gaps run from 135s to three days, every one of
-///    them past the 60s window, so the arm has expired before the question is asked. Named rather
-///    than hidden: it is the residue, and it is out of reach rather than covered.
+///  - the 6 it still reads as empty are one class: no user record of ANY kind in what this actually
+///    reads, which is the last `openTurnTailBytes` of the FILE and not the stretch of it after the
+///    clear's own records. The difference is load bearing in both directions: records land in this
+///    file out of timestamp order, so the tail routinely shows lines written BEFORE the clear, and
+///    one of them being a user record is enough to answer `used`. A reviewer reading this comment as
+///    "between the clear and the first assistant event", which is what it said until 2026-08-18,
+///    reproduces a narrower window than the code has and reports a miss the code does not have
+///    (codex review of 9ec6f3d, one such report; the fixture in `windowrepickchecks` pins both
+///    halves). Their clear-to-turn gaps run from 135s to three days, every one of them past the 60s
+///    window, so the arm has expired before the question is asked. Named rather than hidden: it is
+///    the residue, and it is out of reach rather than covered.
 ///  - 10 were never worked in. This answers `empty` for 9, and `used` for the one whose owner ran a
 ///    `/model` in the window, which is the safe direction rather than a miss.
 ///

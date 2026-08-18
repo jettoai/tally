@@ -433,6 +433,39 @@ func runWindowRepickChecks() {
     check("a window holding only what the clear itself wrote is still the free move",
           tick(repick: &freshState, watcher: &freshWatcher).plan?.reason == "window-repick")
 
+    // THE RESIDUE, PINNED RATHER THAN DESCRIBED (codex review of 9ec6f3d). The class this reading
+    // is known not to cover: a turn opens in the cleared window and, before its first assistant
+    // event lands, has written no user record at all - so the tail at the moment the repick asks
+    // holds the clear's own records and the bookkeeping around them and nothing else, which is bit
+    // for bit a window nobody came back to. All 6 windows of this shape in the corpus were out of
+    // reach anyway (135s to three days of clear-to-turn gap against a 60s arm), but the one measured
+    // at 9.613s was INSIDE the arm, and what refused it was a `<task-notification>` written before
+    // the clear and still in view because the reader takes the last 256 KiB of the FILE rather than
+    // the stretch after the clear. Both halves are asserted, so the day that coincidence stops
+    // holding is a red suite rather than a relaunched turn.
+    let modeRecord = #"{"type":"mode","mode":"default"}"#
+    let residueTail = clearRecords + "\n" + modeRecord + "\n" + trailingRecords
+    check("a turn that has not written a user record yet is invisible to this reading",
+          !windowRepickUsed(inTail: residueTail))
+    var residueState = WindowRepickState()
+    residueState.arm(typed: "/clear", transcript: "before", now: launch)
+    var residueTurn = session(id: "after", age: 30, body: residueTail)
+    // CURRENT BEHAVIOUR RATHER THAN THE WANTED ONE, which is why it is written down: inside the arm
+    // this window is still read as the free move. The residue's cost, as an assertion.
+    check("so inside the arm that window is still read as free, which is the residue's cost",
+          tick(repick: &residueState, watcher: &residueTurn).plan?.reason == "window-repick")
+    // And what refused the 9.613s one: a single user record from earlier in the file, which the
+    // backwards walk reaches after passing over the clear's own two and forgiving them, and which
+    // neither of those two structures covers.
+    let strayNotification = """
+        {"type":"user","isSidechain":false,"message":{"role":"user",\
+        "content":"<task-notification><task-id>bjz5lotbe</task-id></task-notification>"}}
+        """
+    check("the stray notification fixture is a line this reader can parse",
+          (try? JSONSerialization.jsonObject(with: Data(strayNotification.utf8))) != nil)
+    check("…and one such record, from before the clear, is what refuses the window",
+          windowRepickUsed(inTail: strayNotification + "\n" + residueTail))
+
     // The reading itself, over the shapes measured on this machine.
     check("the clear's own caveat and invocation are not a turn", !windowRepickUsed(inTail:
         clearRecords))

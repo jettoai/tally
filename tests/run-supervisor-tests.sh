@@ -16,6 +16,15 @@
 # axis over: a request file, a tick decision, and the CLI surfaces that write one. LaunchAxisNames
 # is the shared effort enumeration both targets compile, and ResuperviseContract is the exec
 # contract the self-update tests already assert (it was split out of SelfUpdate.swift).
+#
+# DemoSessions.swift is the session board's capture fixtures (demoboardchecks.swift); DemoUsage and
+# the five files after it are what IT needs to compile: the enum those fixtures extend, the usage
+# model its account fixtures are built from, the fleet rate and the token sample it fabricates, and
+# the localisation the token names go through. That is a bigger dependency than a fixture file
+# suggests, and it buys the fixtures being EXERCISED rather than read: what a card would be handed
+# is asserted directly, which is the only way to state that no field of a real session survives
+# onto a screenshot. The two other suites that compile DemoUsage.swift need none of this, which is
+# why the session fixtures are a file of their own.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
@@ -34,6 +43,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/safeguardchecks.swift \
   tests/supervisor/followchecks.swift tests/supervisor/pendingnoticechecks.swift \
   tests/supervisor/sessionstatechecks.swift tests/supervisor/sessionorderchecks.swift \
+  tests/supervisor/demoboardchecks.swift \
   tests/supervisor/processtreechecks.swift tests/supervisor/processtreelinechecks.swift \
   tests/supervisor/processtreecensuschecks.swift \
   tests/supervisor/footprintalertchecks.swift tests/supervisor/footprinttrendchecks.swift \
@@ -89,5 +99,9 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/SessionBoardOrder.swift Tally/Core/ProcessTreeStats.swift \
   Tally/Core/ProcessTreeLine.swift Tally/Core/ProcessTreeCensus.swift \
   Tally/Core/ProcessTreeReaders.swift Tally/Core/FootprintAlerts.swift \
-  Tally/Core/FootprintTrend.swift
+  Tally/Core/FootprintTrend.swift \
+  Tally/Core/DemoSessions.swift Tally/Core/DemoUsage.swift \
+  Tally/Providers/ProviderModels.swift Tally/Core/FleetForecast.swift \
+  Tally/Core/UsageHistory.swift Tally/Core/TokenStats/TokenTotals.swift \
+  Tally/Core/TokenStats/JSONScan.swift Tally/Core/AppLocale.swift
 "$out"

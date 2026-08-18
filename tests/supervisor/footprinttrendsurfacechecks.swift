@@ -367,9 +367,10 @@ func runFootprintTrendSurfaceChecks() {
     // COUNTED OVER THE DISTINCT KEYS, which closes the same hole by its other route: a key listed
     // twice takes two indices and answers to only the second, so `["100", "100", "200"]` numbered
     // straight through leaves index 0 - the warned card - belonging to nobody. Read off the source
-    // because this suite has no target that compiles DemoUsage.swift (it reaches AccountUsage, the
-    // token history and the advisor); what can be pinned is that the de-duplication is there and
-    // that the shape it replaced is not.
+    // rather than exercised, which is a choice again rather than a limit: this suite does compile
+    // DemoUsage.swift now (the session board's own fixtures needed it - demoboardchecks.swift), and
+    // what these lines pin is the WRITTEN rule, so the de-duplication cannot be lost to a rewrite
+    // that still happens to number four distinct keys correctly.
     check("…every fixture having somebody to belong to even if a key arrives twice",
           demo.contains("Set(keys).sorted()") && !demo.contains("in keys.sorted().enumerated()")
               && demo.contains("COUNTED OVER THE DISTINCT KEYS"))

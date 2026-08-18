@@ -6,6 +6,9 @@ import Foundation
 /// The flag lives in the volatile argument domain, so a normal launch always shows real data. Demo
 /// mode never runs a provider CLI and never writes the launch snapshot, so a demo instance on
 /// screen can't steer the `tally` CLI's account picking.
+///
+/// The same launch's SESSION BOARD fixtures are one file over (DemoSessions.swift), which says why
+/// they are not in here.
 enum DemoUsage {
     static var isActive: Bool { UserDefaults.standard.bool(forKey: "TallyDemoData") }
 

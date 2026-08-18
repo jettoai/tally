@@ -314,7 +314,12 @@ final class SessionRosterStore {
     // MARK: The scan
 
     func refresh() {
-        let (rows, seating) = Self.seat(liveSessionStates().map(Self.row), seating: self.seating)
+        // FIXTURE CARDS FOR A CAPTURE, and only for one: the flag lives in the volatile argument
+        // domain, so an ordinary launch never has one (`DemoUsage.sessions`). Laid over the scan
+        // BEFORE the seats are taken and before anything counts these rows, so the fixtures decide
+        // the board's own order, its summary line and the menu bar's dot alike (`blockedCount`).
+        let scanned = DemoUsage.sessions(liveSessionStates().map(Self.row))
+        let (rows, seating) = Self.seat(scanned, seating: self.seating)
         self.seating = seating
         // Nothing changed is the ordinary tick, and assigning anyway would re-render every surface
         // twice a second for a board that is standing still.

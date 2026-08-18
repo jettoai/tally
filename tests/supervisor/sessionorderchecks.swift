@@ -397,10 +397,14 @@ func runSessionBoardOrderChecks() {
     check("the three bodies this suite reads apart are found",
           scanBody.contains("liveSessionStates()") && surfaceBody.contains("surfaces += 1")
               && openingBody.contains("boardViewers += 1"))
+    // WHAT THE SCAN HANDS THE SEATS is the scan itself, through one named step: a capture lays its
+    // fixture cards over the rows before anything is seated (`DemoUsage.sessions`, pinned in
+    // demoboardchecks.swift, and empty on every ordinary launch). What is asserted here is the
+    // seating half - the rows come from the live scan, and the seats handed in are the held ones.
     check("the roster holds its seating between scans and never re-seats on one",
           rosterSource.contains("private var seating: [String]?")
-              && scanBody.contains(
-                  "Self.seat(liveSessionStates().map(Self.row), seating: self.seating)")
+              && scanBody.contains("liveSessionStates().map(Self.row)")
+              && scanBody.contains("Self.seat(scanned, seating: self.seating)")
               && !scanBody.contains("sortsByState"))
     // And the one place it IS asked, counted after the arrival so the second host reads as a 2.
     check("…and the surface that opens the board is the one thing that asks the states again",

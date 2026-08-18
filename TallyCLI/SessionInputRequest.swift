@@ -89,18 +89,30 @@ struct SessionInputRequest: Codable, Equatable {
     /// HOW LONG THE CALLER WILL BE THERE, in seconds from `epoch`, and nil when it did not say.
     ///
     /// It exists because the answer to this request occupies the address for as long as somebody
-    /// might still come back for it, and one caller now leaves early by design: a send into its OWN
-    /// session waits `sessionInputSelfWaitSeconds` and then returns, because staying would hold
-    /// open the turn the line is waiting for (SessionSendWait.swift). Judging its answer by the
-    /// long wait made a receipt nobody would ever read squat the address for the rest of two and a
-    /// half minutes, and the next legitimate send there was refused as a duplicate - measured at up
-    /// to 144s (codex review of 0c9798b).
+    /// might still come back for it, and EVERY caller now leaves early by design: a send waits
+    /// `sessionInputGraceSeconds` and then returns having queued the line, because staying would
+    /// hold open the turn that line is waiting for when the caller is inside it, and would report a
+    /// pending, healthy request as unanswered when it is not (SessionSendWait.swift). Judging such
+    /// an answer by the long wait made a receipt nobody would ever read squat the address for the
+    /// rest of two and a half minutes, and the next legitimate send there was refused as a
+    /// duplicate - measured at up to 144s (codex review of 0c9798b).
     ///
     /// The supervisor copies it onto the answer, which is where it is read (`sessionInputOccupant`).
     /// OPTIONAL AND ADDITIVE, the rule this whole channel is under: a request from a CLI that
     /// predates the field decodes with nil, and nil means the longest wait, which is exactly the
     /// behaviour that stood before it existed.
     var waitSeconds: Int?
+    /// WHICH COMMAND ASKED, and the authority that comes with it. nil is every `tally session send`
+    /// ever written, and it means what this channel has always meant: type these bytes, decide
+    /// nothing. `sessionClearIntent` is the one other value, written only by `tally session clear`,
+    /// and it is what lets the supervisor re-ask the account question at the moment the line lands
+    /// (SessionClear.swift argues why the two are different commands rather than one command with a
+    /// special string in it).
+    ///
+    /// ADDITIVE LIKE ITS NEIGHBOUR, and the degradation is the point: a supervisor too old to know
+    /// this field reads the request as a plain send and types `/clear`, which is exactly what the
+    /// same request meant before this existed. Nothing depends on both ends being the same build.
+    var intent: String?
 }
 
 /// What became of one request, in the vocabulary both ends share.
@@ -121,10 +133,20 @@ enum SessionInputOutcome: String {
     /// no controlling terminal, and a kernel that has retired this ioctl - are told apart by nothing
     /// else.
     case failedTTY = "failed-tty"
+    /// NOTHING WAS TYPED AND THE WINDOW CLOSED ANYWAY: a `tally session clear` landed on a session
+    /// whose account was nearly dry, so the supervisor closed the window by restarting the child on
+    /// a healthier account instead (SessionClear.swift). A relaunch IS a clear - the new child comes
+    /// up with no context - so this is a delivery of what was asked for rather than a refusal, and
+    /// `detail` names the account it reopened on.
+    ///
+    /// Only a request carrying `sessionClearIntent` can ever be answered with it, which is what
+    /// keeps this out of a plain send's vocabulary: a CLI old enough to send one cannot receive it.
+    case movedAccount = "moved-account"
 
-    /// Whether this outcome means the text reached the session. One word, because there is one way
-    /// for it to land: typed and sent.
-    var delivered: Bool { self == .submitted }
+    /// Whether this outcome means what the caller asked for happened. Two words rather than one
+    /// since 2026-08-18: a line typed and sent, and a window closed by moving the session that was
+    /// asked to close it.
+    var delivered: Bool { self == .submitted || self == .movedAccount }
 }
 
 /// The supervisor's answer to one request.

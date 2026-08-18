@@ -566,7 +566,7 @@ func runWindowRepickChecks() {
         return applySessionInput(&input, session: state, quiet: quiet, turnEnded: { false },
                                  keyboardIdle: true,
                                  relaunchPlanned: false, dir: inputDir, log: inputLog,
-                                 inject: { _ in inject })
+                                 inject: { _ in inject }).typed
     }
     check("the gate hands back the line it actually typed", served("/clear") == "/clear")
     // ARMING ON THE REQUEST RATHER THAN ON THE TYPING is the defect this return value exists to
@@ -748,8 +748,15 @@ func runWindowRepickChecks() {
     // Read together they pin what one substring used to - a repick armed from the request rather
     // than from what reached the terminal would fire on a `/clear` that never closed a window.
     check("the repick is armed from what the input gate TYPED, not from the request",
-          loop.contains("let typed = applySessionInput(")
-              && loop.contains("windowRepick.arm(typed: typed,"))
+          loop.contains("let action = applySessionInput(")
+              && loop.contains("windowRepick.arm(typed: action.typed,"))
+    // AND NOT FROM ITS OTHER ENDING, which is the 2026-08-18 addition and the one way this arm could
+    // now fire on a session that was never typed into: a `tally session clear` answered by moving
+    // the session IS the move, so arming a second mover behind it would queue a second relaunch
+    // against a conversation that no longer exists (`SessionInputAction`).
+    check("…and the move it may decide instead becomes the tick's own relaunch rather than an arm",
+          loop.contains("clearBoundaryPlan(action.moveTo,")
+              && !loop.contains("windowRepick.arm(typed: action.moveTo"))
     check("…and it is told which conversation the session was in when the line went out",
           loop.contains("transcript: watcher.transcriptSessionID)"))
     // Per child: a relaunch replaces the conversation, so an arm against the old one is answered.

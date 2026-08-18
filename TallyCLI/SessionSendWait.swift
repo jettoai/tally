@@ -152,6 +152,11 @@ func sessionInputMessage(_ result: SessionInputResult, sessionKey: String) -> St
         return "refused: session \(sessionKey) never reached a moment this could be typed at"
             + "\(detail)"
     case .failedTTY: return "failed: the session's terminal refused the write\(detail)"
+    case .movedAccount:
+        // A DELIVERY WORDED AS WHAT HAPPENED rather than as "sent": nothing was typed into session
+        // \(sessionKey), and a caller told it was would go looking for the line in a conversation
+        // that no longer exists. What it asked for - an empty window - is what it got.
+        return "window closed by moving session \(sessionKey)\(detail)"
     case nil: return "the supervisor answered \"\(result.outcome)\"\(detail)"
     }
 }
@@ -170,6 +175,33 @@ func sessionInputExitCode(_ result: SessionInputResult) -> Int32 {
     result.delivered ? 0 : 3
 }
 
+/// What a caller is told when the supervisor about to read its request is not this build, or nil
+/// when it is (and when it is too old to read one at all, which is a refusal rather than a note).
+///
+/// THE TWO COMMANDS BESIDE THIS ONE ALREADY SAY THE FIRST HALF (`SwitchCommand`, `ModelCommand`):
+/// the supervisor replaces itself at the next idle moment and the instruction is served after that.
+/// What is specific here is the SECOND half, and it is the reason this note exists at all: this
+/// channel's contract changed on 2026-08-18, so a request written by this CLI can be read by a
+/// supervisor that still holds a queued line for 120 seconds and refuses it when they run out. The
+/// caller is told `queued` by this build and can still be refused by that one.
+///
+/// A NOTE RATHER THAN A REFUSAL OR A DOWNGRADE, which was weighed: the request is byte for byte the
+/// same either way, the old build serves it exactly as it always did, and refusing to write one
+/// would take the feature away from every session that has not restarted since an update. What can
+/// honestly be added is which contract is about to read it.
+///
+/// The other direction is left unnamed on purpose: a supervisor NEWER than this CLI is the same
+/// enum case, and what its terms are is not knowable from here - so the sentence names the version
+/// whose behaviour is known and says "that build's terms" for the rest.
+func sessionInputSkewNote(_ honourability: RequestHonourability) -> String? {
+    guard honourability == .afterSelfUpdate else { return nil }
+    return "this session runs a supervisor from another build: it replaces itself with the "
+        + "installed one at the next idle moment, and until then this line is served on that "
+        + "build's terms rather than these. A supervisor from before 0.58.0 holds a queued line "
+        + "for 120s instead of \(Int(sessionInputQueuedLife))s and refuses it when they run out, "
+        + "whatever this command printed"
+}
+
 /// What a caller is told when the grace ends with no answer: the line is queued.
 ///
 /// IT IS NOT A FAILURE AND IT DOES NOT PRETEND TO BE A DELIVERY, which is the whole of the wording.
@@ -185,11 +217,19 @@ func sessionInputExitCode(_ result: SessionInputResult) -> Int32 {
 /// those carried that this needed: what that session's own supervisor last published about it
 /// (`SessionStateRecord.state`), which is the single most useful thing to say here - "working" tells
 /// the caller its line is behind a turn, "idle" that the next tick should take it.
-func sessionInputQueuedMessage(sessionKey: String, doing: String? = nil) -> String {
+func sessionInputQueuedMessage(sessionKey: String, doing: String? = nil,
+                               mayMove: Bool = false) -> String {
     let state = doing.map { " (it is \($0) right now)" } ?? ""
+    // The second ending, named only for the caller that can get it: a `tally session send` cannot,
+    // whatever its text says, and telling every caller about a decision their command never makes
+    // is how a dumb pipe comes to look clever (SessionClear.swift).
+    let moving = mayMove
+        ? " - or, if this session's account is nearly dry, reopened on a healthier one instead,"
+            + " which is the same empty window arrived at from the other side"
+        : ""
     return "queued for session \(sessionKey)\(state): it is typed at the first quiet moment that "
-        + "session is out of its own turn, so nothing here waits for it - waiting from inside that "
-        + "session would hold the turn open and the line would never be typed. It is dropped if no "
-        + "such moment arrives within \(Int(sessionInputQueuedLife))s; either way "
+        + "session is out of its own turn\(moving), so nothing here waits for it - waiting from "
+        + "inside that session would hold the turn open and the line would never be typed. It is "
+        + "dropped if no such moment arrives within \(Int(sessionInputQueuedLife))s; either way "
         + "~/.tally/logs/input.log records what became of it"
 }

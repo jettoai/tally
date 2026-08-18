@@ -88,11 +88,20 @@ func runSessionSendChecks() {
     check("…nor about an empty one, which is the Return-only request",
           sessionSendProblem(SessionSendIntent(text: "", session: nil)) == nil)
 
-    // The one line a namespace with one verb in it says, and the verb it names.
-    check("the usage text documents the verb that exists",
+    // The lines the namespace says, and the verbs they name. TWO of them since 2026-08-18, and the
+    // namespace text is built from each verb's own first line rather than typed a third time: a
+    // verb added without a line here would be a command nothing tells anybody about.
+    check("the usage text documents the verbs that exist",
           sessionSendUsage.contains("tally session send [<text>] [--session <pid>]")
               && !sessionSendUsage.contains("--submit")
-              && sessionUsage == "usage: tally session send [<text>] [--session <pid>]")
+              && sessionClearUsage.contains("tally session clear [--session <pid>]")
+              && sessionUsage.contains("usage: tally session send [<text>] [--session <pid>]")
+              && sessionUsage.contains("tally session clear [--session <pid>]"))
+    // AND THE SEND POINTS AT THE OTHER ONE, which is the whole of how a caller finds the verb that
+    // decides accounts: `send` is deliberately the dumb pipe, so the place it says so is the place
+    // somebody reading about `/clear` is standing.
+    check("…and the send names the verb for a hand-over clear",
+          sessionSendUsage.contains("tally session clear"))
 
     // MARK: - One send at a time at one address
 
@@ -412,6 +421,20 @@ func runSessionSendChecks() {
     // shared with a real send, so the sentence has to carry the difference.
     check("…and it does not claim the line was typed",
           !queued.contains("sent to session"))
+    // THE VERSION SKEW NOTE, which is the one thing this command can say that is about neither the
+    // line nor the session but about the BUILD that will read it: this channel's contract changed
+    // on 2026-08-18, so a supervisor that has not replaced itself yet still drops a queued line
+    // after 120s - and this caller was told `queued` by a CLI that promises fifteen minutes.
+    check("a supervisor from another build is named, with what it changes",
+          sessionInputSkewNote(.afterSelfUpdate).map {
+              $0.contains("another build") && $0.contains("120s")
+                  && $0.contains("\(Int(sessionInputQueuedLife))s")
+          } == true)
+    // NOTHING IS SAID WHEN THERE IS NOTHING TO SAY, both ways: a matching build has no skew, and a
+    // supervisor too old to read the request at all is REFUSED before anything is written, so a
+    // note there would be advice about a line nobody queued.
+    check("…and nothing is said about a build that matches, or one already refused",
+          sessionInputSkewNote(.honoured) == nil && sessionInputSkewNote(.tooOld) == nil)
     // ONE SENTENCE FOR BOTH CALLERS since 2026-08-18, which is what folded the progress note that
     // used to precede a 150s wait into this: what that note carried and this needed is the state
     // the session published, so a caller can tell "behind a turn" from "the next tick will take it".
@@ -573,7 +596,7 @@ func runSessionSendChecks() {
         // That value comes from the one ask, which is a line ABOVE the call and so outside the
         // slice: a search for it has to be made against the file.
         check("…and that answer is the tick's own forced ask",
-              loop.contains("let replacingChild = relaunchIsHappening(plan: plan, "
+              loop.contains("var replacingChild = relaunchIsHappening(plan: plan, "
                   + "watcher: &watcher)"))
         check("…which is the same value the relaunch itself branches on",
               loop.contains("if !replacingChild {")
@@ -591,6 +614,23 @@ func runSessionSendChecks() {
     let command = (try? String(contentsOfFile: "TallyCLI/SessionInputCommand.swift",
                                encoding: .utf8)) ?? ""
     check("the command was really read", command.contains("func runSessionSend("))
+    // THE SKEW NOTE IS A NOTE, NOT A REFUSAL: said after the request is on disk, so the exit code
+    // and the queued line are exactly what they would have been without it. Read off the source
+    // because `runSessionSend` cannot be called here - it writes into a live conversation.
+    if let written = command.range(of: "try writeSessionInputRequest("),
+       let note = command.range(of: "if let skew = sessionInputSkewNote(honourability)",
+                                range: written.upperBound ..< command.endIndex) {
+        check("the skew note is said after something was queued, and changes no exit code",
+              note.lowerBound > written.lowerBound
+                  && !command.contains("sessionInputSkewNote(honourability) { return"))
+    } else {
+        check("the skew note is said after something was queued, and changes no exit code", false)
+    }
+    // And it is asked of the SAME reading the refusal above uses, rather than a second call that
+    // could answer differently a few lines later.
+    check("…off the one honourability reading this command takes",
+          command.contains("let honourability = liveRequestHonourability(")
+              && command.components(separatedBy: "liveRequestHonourability(").count == 2)
     if let start = command.range(of: "func runSessionSend("),
        let occupied = command.range(of: "sessionInputOccupant(sessionKey: sessionKey)",
                                     range: start.upperBound ..< command.endIndex),

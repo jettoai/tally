@@ -95,12 +95,19 @@ let windowRepickWindow: TimeInterval = 60
 /// bar says (`WindowRepickState.noteLanded`).
 let windowRepickQuietSeconds: TimeInterval = 5
 
-/// The line that closes a window. Exactly `/clear`, trimmed.
+/// The line that closes a window.
+///
+/// NAMED ONCE FOR THREE READERS: this file's arm, the input gate's reading of what a landing costs
+/// (`sessionInputClearsContext`), and the command that queues one (`runSessionClear`). Three
+/// literals is how one of them comes to mean something slightly different from the others.
+let windowClearCommand = "/clear"
+
+/// Whether a line closes a window. Exactly `/clear`, trimmed.
 ///
 /// `/compact` deliberately does NOT count. It keeps the conversation, so the restart it would open
 /// is not free: everything this feature rests on is that the session being moved is empty.
 func isWindowClearCommand(_ text: String) -> Bool {
-    text.trimmingCharacters(in: .whitespaces) == "/clear"
+    text.trimmingCharacters(in: .whitespaces) == windowClearCommand
 }
 
 /// What one supervised session remembers between the `/clear` being typed and the window it opens.

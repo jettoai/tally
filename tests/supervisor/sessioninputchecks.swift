@@ -419,21 +419,29 @@ func runSessionInputChecks() {
     // landing rather than anywhere earlier or later: the `/clear` is what empties the roster, so a
     // count taken after the injection is a count of what SURVIVED it. The fixture makes the
     // injection do exactly what the real one does - the agents are gone by the time it returns.
+    /// One landing, with everything not under test at its ordinary setting: a plain send (no
+    /// intent), an idle session, and a boundary that declines - which is every send this repo shipped
+    /// before `tally session clear` existed.
+    func land(_ text: String = windowClearCommand, intent: String? = nil,
+              state: SupervisedState = .idle, agents: @escaping (String) -> Int? = { _ in nil },
+              boundary: @escaping () -> Snapshot.Account? = { nil },
+              inject: @escaping (String) -> SessionInputInjection = { _ in .done })
+        -> SessionInputLanding {
+        landSessionInput(SessionInputRequest(epoch: epoch(0), text: text, intent: intent),
+                         sessionKey: "9220", state: state, agents: agents, boundary: boundary,
+                         inject: inject)
+    }
     var rosterAtLanding = 2
     check("the roster is read before the line lands, since the line is what empties it",
-          landSessionInput("/clear", sessionKey: "9220", agents: { _ in rosterAtLanding },
-                           inject: { _ in rosterAtLanding = 0; return .done }).agents == 2)
+          land(agents: { _ in rosterAtLanding },
+               inject: { _ in rosterAtLanding = 0; return .done }).agents == 2)
     // A ROSTER OF NONE IS ANSWERED BY THERE BEING NO COUNT, one level up rather than by a sentence
     // about zero: the landing is where "nothing to say" is decided, for all three of its causes.
     check("…and a landing with nothing to report carries no count for anybody to word",
-          landSessionInput("/clear", sessionKey: "9220", agents: { _ in 0 },
-                           inject: { _ in .done }).agents == nil
-              && landSessionInput("/clear", sessionKey: "9220", agents: { _ in nil },
-                                  inject: { _ in .done }).agents == nil
-              && landSessionInput("/clear", sessionKey: "9220", agents: { _ in 3 },
-                                  inject: { _ in .failed(ENXIO) }).agents == nil
-              && landSessionInput("/clear", sessionKey: "9220", agents: { _ in 3 },
-                                  inject: { _ in .done }).agents == 3)
+          land(agents: { _ in 0 }).agents == nil
+              && land(agents: { _ in nil }).agents == nil
+              && land(agents: { _ in 3 }, inject: { _ in .failed(ENXIO) }).agents == nil
+              && land(agents: { _ in 3 }).agents == 3)
 
     // THE CALLER'S WAIT RIDES BACK ON THE RECEIPT, copied rather than decided by the supervisor:
     // it is what stops a receipt nobody is waiting for from holding the address shut behind it

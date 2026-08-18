@@ -255,7 +255,7 @@ func runQuotaKnockChecks() {
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     check("the supervisor source is readable from the knock checks", !loop.isEmpty)
     check("the tick runs the knock", loop.contains("applyQuotaKnock("))
-    if let input = loop.range(of: "let typed = applySessionInput("),
+    if let input = loop.range(of: "let action = applySessionInput("),
        let start = loop.range(of: "applyQuotaKnock("),
        let execution = loop.range(of: "\n            if let plan {") {
         check("it speaks after the request station and before the child can go",
@@ -264,7 +264,7 @@ func runQuotaKnockChecks() {
         // The three values only the loop knows, and each of them is a way to type into a
         // conversation that cannot receive it.
         check("…knowing whether this tick already typed somebody's line",
-              call.contains("typedAlready: typed != nil"))
+              call.contains("typedAlready: action.typed != nil"))
         check("…and whether this child is about to be replaced, by the hold-aware answer rather "
                   + "than the bare plan",
               call.contains("relaunchPlanned: replacingChild")

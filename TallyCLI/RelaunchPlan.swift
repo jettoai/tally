@@ -48,6 +48,13 @@ struct RelaunchPlan {
     var extraArgs: [String] = []
     /// True once a follow adoption has folded its pair in, so the same tick does not do it twice.
     var followFolded = false
+    /// True when the relaunch must start a NEW conversation rather than carry this one across.
+    ///
+    /// One mover sets it: a `tally session clear` answered by moving the session asked for an empty
+    /// window (SessionClear.swift), and a relaunch that resumed the transcript would deliver the
+    /// opposite of that on a different account. Every other plan carries the conversation, which is
+    /// what a handoff, a reload and a pin switch all exist to do, so the default is the safe one.
+    var fresh = false
 }
 
 /// The tick's relaunch, handed to a station that may only ADD to it.

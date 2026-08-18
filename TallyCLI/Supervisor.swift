@@ -207,7 +207,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // (cap handoff, degradation rescue), false for deliberate or same-account relaunches (pin
         // switch, follow adoption, fallback profile) - a Settings change must not eat the budget a
         // real cap hit may need minutes later. `reason` is the audit-log tag only.
-        func performHandoff(to target: Snapshot.Account, reason: String, countingFuse: Bool = true) {
+        func performHandoff(to target: Snapshot.Account, reason: String, countingFuse: Bool = true,
+                            fresh: Bool = false) {
             let fromLabel = account.label
             // Read before `account` moves: a same-account relaunch (fallback profile, reload) keeps
             // a `--continue` the watcher cannot yet turn into a session id; a real move drops it.
@@ -222,8 +223,15 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // 2026-07-26; the rule lives in TranscriptWatcher.swift).
             watcher.locateFile(forceForkCheck: true)
             let sessionFile = watcher.file
-            if let sessionFile {
-                shareTranscript(sessionFile, toHome: target.launchHome!, slug: slug)
+            // A FRESH RELAUNCH CARRIES NOTHING, which is the one thing `tally session clear` needs
+            // of this path: the request it answers asked for an empty window, so resuming the
+            // conversation on the target would move the context it was told to drop (and copying it
+            // there would leave the whole transcript in another account's projects directory for
+            // nothing). The id is still LOGGED below - which conversation ended here is what that
+            // line is for - and only the resume and the copy are dropped.
+            let carrying = fresh ? nil : sessionFile
+            if let carrying {
+                shareTranscript(carrying, toHome: target.launchHome!, slug: slug)
             }
 
             // A hard cap is the one mover allowed past a session pin, and it ends it: said here,
@@ -240,8 +248,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             account = target
             launchArgs = relaunchArgs(
                 launchArgs,
-                sessionID: sessionFile?.deletingPathExtension().lastPathComponent,
-                sameAccount: sameAccount)
+                sessionID: carrying?.deletingPathExtension().lastPathComponent,
+                sameAccount: sameAccount && !fresh)
             handoff = true
         }
 
@@ -485,7 +493,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // The tick's last look, and the one answer both readers below need: a PLANNED relaunch
             // is not a relaunch, because the fork hold can stand it down and leave this child
             // running (StandDown.swift carries the whole reasoning, the regression included).
-            let replacingChild = relaunchIsHappening(plan: plan, watcher: &watcher)
+            var replacingChild = relaunchIsHappening(plan: plan, watcher: &watcher)
             // What it TYPED arms the window repick above: a `/clear` that reached the composer is
             // this session's window closing, and the next tick asks Claude Code itself whether it
             // really did (WindowRepick.swift).
@@ -497,17 +505,44 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // the same gate are two gates that can come to disagree about the same instant.
             let composerIdle = keyboard.idle(sessionInputKeyboardQuietSeconds)
             let turnOver = { sessionTurnEnded(pid: supervisorPID, watcher: watcher) }
-            let typed = applySessionInput(&sessionInput, session: board.state, quiet: board.quiet,
-                                          turnEnded: turnOver, keyboardIdle: composerIdle,
-                                          relaunchPlanned: replacingChild)
-            windowRepick.arm(typed: typed, transcript: watcher.transcriptSessionID)
+            // And, for a `tally session clear` only, the account question a window about to be
+            // emptied makes free: the repick's own decision, asked at the landing rather than after
+            // it (SessionClear.swift). A plain send never reaches it.
+            let action = applySessionInput(
+                &sessionInput, session: board.state, quiet: board.quiet, turnEnded: turnOver,
+                keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
+                clearBoundary: {
+                    windowRepickMove(provider: provider.id, account: account,
+                                     primaryModel: effectivePrimary, mode: policy.mode,
+                                     carryable: carryable, fuseAllows: fuse.allows(),
+                                     quarantine: quarantine)
+                })
+            windowRepick.arm(typed: action.typed, transcript: watcher.transcriptSessionID)
+            // A move decided at the landing becomes THIS tick's relaunch, built next door so the
+            // rule and its sentence live with the verb (SessionClear.swift). `plan` is nil by
+            // construction here: the gate that answered the request refuses every tick that has one
+            // (`relaunchPlanned`).
+            if let moved = clearBoundaryPlan(action.moveTo, from: account,
+                                             primaryModel: effectivePrimary) {
+                plan = moved
+                // AND THE TICK'S OWN ANSWER MOVES WITH IT. `replacingChild` was taken before this
+                // decision existed, when nothing was planned, and both the execution block below
+                // and the knock beside it branch on it: left at false, the block would read this
+                // plan as one an unresolved fork had stood down, restore, log a hold that is not
+                // there and `continue` - having already told the caller its window was moved.
+                // A stand-down cannot apply to this plan in any case: what stands one down is an
+                // unresolved fork, and a session with one never reaches this landing (that reading
+                // is `busy`, so the gate holds the line as the session's own turn).
+                replacingChild = true
+            }
             // AND THE ONE LINE NOBODY ASKED FOR: the account under this session is running out, and
             // the movers above cannot help a session that is busy (QuotaKnock.swift). Same door and
             // the same gates, after the request station rather than beside it - a tick that has just
             // typed somebody's line has spent this composer's turn.
             applyQuotaKnock(&quotaKnock, pid: supervisorPID, provider: provider.id,
                             account: account, primaryModel: effectivePrimary,
-                            typedAlready: typed != nil, session: board.state, quiet: board.quiet,
+                            typedAlready: action.typed != nil, session: board.state,
+                            quiet: board.quiet,
                             turnEnded: turnOver, keyboardIdle: composerIdle,
                             relaunchPlanned: replacingChild, quarantine: quarantine)
 
@@ -544,7 +579,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 let upgrade = selfUpdateFold(captured: supervisorVersion,
                                              attempted: selfUpdateAttempted,
                                              home: plan.target.launchHome)
-                performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse)
+                performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse,
+                               fresh: plan.fresh)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)
                 // Republish the account this conversation now runs on, and the pair the next child

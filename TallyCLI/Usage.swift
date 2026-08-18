@@ -100,6 +100,17 @@ usage:
                             waiting for. At most 200 bytes - a slash command, an answer to a
                             prompt - and every one of them is recorded in ~/.tally/logs/input.log,
                             including how many running subagents a `/clear` ended when it landed
+  tally session clear [--session <pid>]
+                            close a session's context window: the same `/clear`, queued on the same
+                            terms, with one thing typing cannot do. At the moment it lands, if the
+                            account under that session is nearly dry and a sibling has room, the
+                            session is REOPENED there instead - restarted with no context, which is
+                            what a clear is - rather than cleared where it stands. A cleared window
+                            is empty, so that restart costs nothing, and it is the one moment a busy
+                            session can be moved off a dying account for free. It stays put when the
+                            account has room, when the session is pinned, and when it is waiting on
+                            a person. Use `session send "/clear"` for the plain typing of those six
+                            characters
   tally reload [--now]      restart every supervised session at its next idle moment, so edited
                             hooks, skills, and instructions take effect everywhere without
                             visiting each terminal (--now waits only for a 5s quiet gap, so it

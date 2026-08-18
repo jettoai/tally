@@ -454,7 +454,7 @@ func runForkChecks() {
     // halves: the tick asks before it kills, and the asking still forces a scan.
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     check("the supervisor source is readable from the suite", !loop.isEmpty)
-    if let start = loop.range(of: "let replacingChild = relaunchIsHappening("),
+    if let start = loop.range(of: "var replacingChild = relaunchIsHappening("),
        let kill = loop.range(of: "performHandoff(to: plan.target",
                              range: start.upperBound ..< loop.endIndex) {
         let preflight = String(loop[start.upperBound ..< kill.lowerBound])

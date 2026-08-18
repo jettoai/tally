@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 21
+    nonisolated static let skillVersion = 22
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -257,10 +257,15 @@ extension IntegrationsStore {
         default) are out of reach from inside a turn. `tally session send` is the way in:
 
         ```
-        tally session send "/clear"              # this session, at the end of this turn
+        tally session clear                      # end this window (the hand-over case)
+        tally session send "/clear"              # type those six characters, nothing more
         tally session send                       # press Return alone
         tally session send "2" --session 65949   # another session, by its pid
         ```
+
+        USE `tally session clear` TO END A WINDOW, and `session send` for everything else.
+        They queue on identical terms; the difference is one decision the clear verb is
+        allowed to make and the send verb is not (below).
 
         Run with no `--session` it addresses the session it is running in, which is what an
         agent clearing its own context wants: say what you have to say first, because the
@@ -268,21 +273,40 @@ extension IntegrationsStore {
         what it waits for. So a `/clear` asked for mid-answer lands once that answer is
         finished, not in the middle of it.
 
-        Into your OWN session the command does not wait to find out: it returns having
-        queued the line, because this command runs inside the turn the line is waiting for
-        and holding it open is the one way to guarantee the line is never typed. Exit 0
-        there means queued with nothing refusing it, the printed line says so, and
+        QUEUEING IS SUCCESS, for both verbs and for any target. The command stays a few
+        seconds, long enough to catch a session that was already idle, then says the line is
+        queued and exits 0. It does not wait for delivery: a line behind a turn is doing
+        what it was asked to, and a caller inside that session that stayed would hold open
+        the very turn it is waiting for. The printed line says which happened, and
         `~/.tally/logs/input.log` records what became of it. Do not follow it with a second
-        send, a sleep, or a background retry: those were workarounds for the wait and the
-        second send is refused as a duplicate.
+        send, a sleep, or a background retry: those were workarounds for a wait that no
+        longer exists, and the second send is refused as a duplicate.
+
+        A queued line is not a late one. It waits for that session to come out of its own
+        turn, however long that takes, and is dropped only if no such moment arrives within
+        fifteen minutes. Subagents do not delay it at all.
 
         A cleared window may reopen on a different account, and that is deliberate. A
         conversation that has just been cleared is empty, so the restart that carries it off
         an account with nothing left costs nothing, and Tally takes that moment: if the
         account is under the nearly-dry line and a sibling has room, the session comes back
-        on the sibling a few seconds after the clear. Nothing is lost and nothing needs
-        doing about it. It does not happen when the account still has room, when the session
-        is pinned (`tally account`), or when somebody is typing in that terminal.
+        on the sibling. Nothing is lost and nothing needs doing about it. It does not happen
+        when the account still has room, when the session is pinned (`tally account`), or
+        when somebody is typing in that terminal.
+
+        WHICH VERB YOU USED DECIDES WHEN THAT QUESTION IS ASKED. `tally session clear` asks
+        it at the moment the line lands: a healthy account is cleared where it stands, and a
+        nearly-dry one is left instead - the session is restarted on the healthier sibling
+        with no context, which is what a clear is. `tally session send "/clear"` types the
+        line and nothing else; the same move can still happen afterwards, when Tally sees
+        the window really closed, but a session woken by its own next turn can outrun that.
+        So a hand-over that is clearing its window for the next one should use the verb.
+
+        Both endings are exit 0 and both are recorded. The receipt reads `sent to session
+        <pid>` when it was typed and `window closed by moving session <pid> (reopened on
+        <account>)` when it was not, and `~/.tally/logs/input.log` has the same pair. A
+        session waiting on a prompt is never restarted away: it is cleared by typing, so a
+        question on screen is answered by a person rather than destroyed by a restart.
 
         Subagents and background tasks do NOT hold a send. A session that has finished
         speaking while the agents it dispatched write on is one this line is typed into, so
@@ -298,19 +322,19 @@ extension IntegrationsStore {
 
         What it costs to get wrong, and how to tell:
 
-        - Exit 0 means the line was typed and Return was pressed, or (for your own session)
-          that it is queued to be typed when this turn ends. The one line on stdout says
-          which of the two.
+        - Exit 0 means the line was typed and Return was pressed, that it is queued to be
+          typed when the target session comes out of its turn, or (for `session clear`)
+          that the window was closed by moving the session instead. The one line on stdout
+          says which.
         - Exit 3 means nothing was queued, and the reason is on stderr: the text is over
           200 bytes of UTF-8, the pid names nothing this machine supervises, the session
           never reached a moment the line could be typed at (the refusal names what stood
           in the way), or another send is still in flight there. One send at a time per
           session, and a second is refused rather than replacing the first.
-        - Exit 4 means the request was written and nobody answered: within 150 seconds, or
-          because that session exited while the line was queued. The message says which.
-          Neither says the line was not typed, because neither can know: the supervisor
-          types before it writes the receipt. Read `~/.tally/logs/input.log` before
-          sending the same line again, or the session may get it twice.
+        - Exit 4 means that session has exited while its line was queued. It does not say
+          the line was not typed, because it cannot know: the supervisor types before it
+          writes the receipt. Read `~/.tally/logs/input.log` before sending the same line
+          again, or the session may get it twice.
         - Exit 2 is a usage error and exit 1 is something broken here. Read the message
           rather than retrying: a retry answers none of these four.
 

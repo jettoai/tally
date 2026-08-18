@@ -270,6 +270,18 @@ func runSessionSend(args: [String]) -> Int32 {
         warn(sessionSendUsage)
         return 2
     }
+    // NO INTENT, which is this command's whole promise: the bytes named are the bytes typed, and
+    // nothing the supervisor finds in them earns it a decision (SessionClear.swift argues why the
+    // verb that DOES decide is a different verb).
+    return queueSessionLine(intent, requestIntent: nil)
+}
+
+/// Queue one line for one session and stay for the grace, shared by both verbs in this namespace.
+///
+/// `requestIntent` is the only difference between them on this path, and it travels on the request
+/// rather than changing anything here: what it authorises happens at the far end, at the instant the
+/// line lands (`sessionClearMovesAccounts`).
+func queueSessionLine(_ intent: SessionSendIntent, requestIntent: String?) -> Int32 {
     if let problem = sessionSendProblem(intent) {
         warn(problem)
         return 3
@@ -320,7 +332,8 @@ func runSessionSend(args: [String]) -> Int32 {
     // model` get. Judged only where the session named ITSELF (`adopted` returns nil when the
     // directory answered, or when --session named somebody else): the version stamped in this
     // environment describes this session's supervisor and says nothing about another one's.
-    if liveRequestHonourability(marker: marker.adopted(sessionKey)) == .tooOld {
+    let honourability = liveRequestHonourability(marker: marker.adopted(sessionKey))
+    if honourability == .tooOld {
         warn("this session's supervisor predates `tally session send` and would never read the "
             + "request, so nothing was queued. Restart this session once (exit, then launch again "
             + "with `tally claude`) and it can be typed into from then on.")
@@ -371,7 +384,8 @@ func runSessionSend(args: [String]) -> Int32 {
     // (`SessionInputRequest.waitSeconds`).
     let wait = sessionInputGraceSeconds
     let request = SessionInputRequest(epoch: Int(Date().timeIntervalSince1970 * 1000),
-                                      text: intent.text, waitSeconds: Int(wait))
+                                      text: intent.text, waitSeconds: Int(wait),
+                                      intent: requestIntent)
     do {
         try writeSessionInputRequest(request, sessionKey: sessionKey)
     } catch {
@@ -379,6 +393,10 @@ func runSessionSend(args: [String]) -> Int32 {
             + "\(error.localizedDescription)")
         return 1
     }
+    // WHICH BUILD IS ABOUT TO READ IT, said only once something was actually queued: a version
+    // skew changes what this line is served on, and the caller is told `queued` either way
+    // (`sessionInputSkewNote` carries the whole argument).
+    if let skew = sessionInputSkewNote(honourability) { warn(skew) }
     let answer = awaitSessionInputResult(
         sessionKey: sessionKey, epoch: request.epoch, timeout: wait,
         // Not asked of our own session: this process descends from that supervisor, so it is alive
@@ -399,7 +417,8 @@ func runSessionSend(args: [String]) -> Int32 {
         // legitimately sit queued for a quarter of an hour and "nobody answered" would be a lie
         // about a line that is very much alive.
         print(sessionInputQueuedMessage(sessionKey: sessionKey,
-                                        doing: readSessionState(pid: sessionKey)?.state))
+                                        doing: readSessionState(pid: sessionKey)?.state,
+                                        mayMove: requestIntent == sessionClearIntent))
         return 0
     }
     // Read, so it stops being an answer waiting for somebody.
@@ -436,6 +455,9 @@ for delivery: a line behind a turn is doing what it was asked to, and a caller i
 that stayed would hold open the very turn it is waiting for. What became of it is recorded in
 ~/.tally/logs/input.log, including how many running subagents a `/clear` ended when it landed.
 
+For a hand-over clear, use `tally session clear`: same queueing, and it may reopen the session on a
+healthier account instead of typing (nothing here decides anything about accounts).
+
 One send at a time per session: a second one while the first is still queued is refused rather than
 replacing it. At most \(sessionInputMaxBytes) bytes of UTF-8, since this is for a slash command or
 an answer to a prompt rather than for a prompt.
@@ -444,16 +466,19 @@ Exit codes: 0 typed, or queued with nothing refusing it; 3 refused, and nothing 
 reason is printed); 4 that session has exited; 1 something went wrong.
 """
 
-/// What a missing or unknown verb is told: the first line of the text above rather than a second
-/// copy of it, so the one thing a namespace with one verb in it can say cannot drift from what that
-/// verb documents.
-let sessionUsage = String(sessionSendUsage.prefix { $0 != "\n" })
+/// What a missing or unknown verb is told: the first line of each verb's own text rather than a
+/// third copy of them, so what the namespace says cannot drift from what its verbs document.
+let sessionUsage = [sessionSendUsage, sessionClearUsage]
+    .map { String($0.prefix { $0 != "\n" }) }
+    .joined(separator: "\n       ")
 
 /// `tally session <verb>`: the acts a supervised session can be asked to perform on itself.
 func runSession(args: [String]) -> Int32 {
     switch args.first {
     case "send":
         return runSessionSend(args: Array(args.dropFirst()))
+    case "clear":
+        return runSessionClear(args: Array(args.dropFirst()))
     default:
         // Named rather than defaulted, the rule `runCompletion` states: a bare `tally session` is a
         // usage error rather than a guess, so the day a second verb arrives nothing that was written

@@ -1,0 +1,192 @@
+import Foundation
+
+// SERVING ONE PENDING REQUEST, which is the whole of what a poll tick does about `tally session
+// send` and `tally session clear`.
+//
+// Split from SessionInput.swift at that file's size cap, along the seam its own MARK already drew:
+// that file decides WHETHER a line may be carried out (the gate table, the wait, the refusal
+// wording) and how a terminal write is performed; this one is the tick that takes such a decision,
+// carries it out through the landing (SessionInputLanding.swift), publishes the answer and leaves
+// the audit trail. Nothing here decides a gate, and nothing there touches a file.
+
+/// What the input station did this tick, in the two facts the loop around it has readers for.
+///
+/// A VALUE RATHER THAN THE TYPED LINE ALONE since the clear boundary existed (2026-08-18): a landing
+/// has two endings now, and a caller that only asked "what was typed" would read the move as
+/// "nothing happened" - which is precisely the tick where the child is about to be replaced.
+struct SessionInputAction: Equatable {
+    /// The line that reached the terminal, and nothing on any other branch.
+    var typed: String?
+    /// The account a `tally session clear` chose to reopen this session on instead of typing. The
+    /// loop turns it into this tick's relaunch, and into this tick's answer to "is the child about
+    /// to be replaced" - which is what stops the knock beside it from typing into a child that is
+    /// already being terminated (Supervisor.swift, where both are set together).
+    var moveTo: Snapshot.Account?
+}
+
+// MARK: - The tick
+
+/// Serve this session's pending `tally session send`, if there is one to serve.
+///
+/// The whole of it lives here rather than in the poll loop for the reason `syncSessionState` does:
+/// Supervisor.swift is over its size cap, so the loop hands over the state it has already decided
+/// this tick and everything else happens on this side.
+///
+/// `state` is THIS TICK'S reading rather than the file's, and the call site is immediately after
+/// `syncSessionState` for that reason: the gate has to judge the session as it is now, not as it was
+/// two seconds ago - the whole feature turns on noticing the moment a turn ends.
+///
+/// `relaunchPlanned` is this tick's own answer to "is the child about to be terminated", handed
+/// down rather than looked up: only the poll loop knows, and it knows before it acts
+/// (`sessionInputDecision` carries the whole reasoning). No default, for the reason stated there.
+///
+/// `inject` is injectable so the suite can drive every branch without a terminal, and `agents` with
+/// it: what a `/clear` costs is read off this session's roster at the instant the line lands
+/// (`landSessionInput`), and a suite must be able to say what that roster held.
+///
+/// `clearBoundary` is the account question a `tally session clear` earns the right to ask at that
+/// same instant: it answers with the account this session should reopen on, or nil to type as
+/// normal. IT HAS A DEFAULT, unlike `relaunchPlanned` two paragraphs up, and the difference is what
+/// forgetting it costs: a caller that leaves this out declines every move, which is the behaviour
+/// that shipped before it existed, while a caller that leaves out `relaunchPlanned` types into a
+/// child that is being killed and reports it delivered.
+///
+/// RETURNS WHAT THIS TICK DID, in the two fields that have readers (`SessionInputAction`). The typed
+/// line is the one `WindowRepickState.arm` wants: a `/clear` reaching a composer is the moment a
+/// session's window closes, which is the cheapest moment in its life to leave a dying account. It is
+/// the TYPED line rather than the requested one on purpose - a request that waited, expired or was
+/// refused closed no window, and arming on it would leave a mover waiting for a clear that never
+/// happened.
+///
+/// `turnEnded` is a QUESTION RATHER THAN AN ANSWER, and that is what keeps this feature free: it
+/// reads a file and the tail of a transcript (SessionTurnEnd.swift), and it is asked only after the
+/// line below has established that there is a request to serve at all. On the overwhelming majority
+/// of ticks there is none and nothing is read.
+@discardableResult
+func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
+                       quiet: SessionQuiet, turnEnded: () -> Bool, keyboardIdle: Bool,
+                       relaunchPlanned: Bool, dir: URL = sessionInputDir,
+                       log: URL = sessionInputLog, now: Date = Date(),
+                       agents: (String) -> Int? = { readSessionAgents(pid: $0)?.reportable },
+                       clearBoundary: () -> Snapshot.Account? = { nil },
+                       inject: (String) -> SessionInputInjection = {
+                           injectSessionInput($0)
+                       }) -> SessionInputAction {
+    let pid = state.sessionKey
+    // Read once, and nothing to decide without one: every branch below is about a request, so the
+    // absent case is answered here rather than in each of them.
+    guard let request = readSessionInputRequest(sessionKey: pid, dir: dir) else {
+        return SessionInputAction()
+    }
+    let outcome: SessionInputOutcome
+    var detail: String?
+    /// The line that reached the terminal, set on the one branch where that happened.
+    var typed: String?
+    /// How many subagents that line took with it, when it was a line that clears the context and
+    /// this session's roster could be believed.
+    var killed: Int?
+    /// The account a clear-boundary move chose instead of typing, on the one branch where that
+    /// happened.
+    var moveTo: Snapshot.Account?
+    switch sessionInputDecision(request: request, servedEpoch: state.servedEpoch, state: session,
+                                quiet: quiet, turnEnded: turnEnded(), keyboardIdle: keyboardIdle,
+                                relaunchPlanned: relaunchPlanned, now: now) {
+    // NOTHING IS WRITTEN ON EITHER, which is what makes a wait a wait: the request stays on disk
+    // exactly as it was, no answer appears for a caller to read, and `servedEpoch` does not move.
+    // Every one of those happens below this return.
+    case .ignore, .wait:
+        // The hold the wait carries is not written anywhere on purpose: it is this tick's reading
+        // and the next tick decides again from scratch, so recording it would be publishing a
+        // reason that may already be false. It reaches the caller through the refusal, which is
+        // taken at the moment the wait ends.
+        return SessionInputAction()
+    case .refuse(let refusal, let why):
+        outcome = refusal
+        detail = why
+    case .inject(let asked):
+        // THE ONE PLACE A LINE IS CARRIED OUT, gathered into a function of its own rather than
+        // performed here (SessionInputLanding.swift states what else that buys). It has two
+        // endings and this switch is the whole of the difference between them here.
+        let landing = landSessionInput(asked, sessionKey: pid, state: session, agents: agents,
+                                       boundary: clearBoundary, inject: inject)
+        // ONE READING OF WHAT IT COST, taken from the landing rather than re-derived per branch:
+        // "a write the terminal refused ended nothing" is a rule, and a rule spelled once here and
+        // again in a pattern below is two rules waiting to disagree.
+        killed = landing.agents
+        switch landing {
+        case .typed(.done, _):
+            outcome = .submitted
+            typed = asked.text
+            detail = killed.map(sessionInputAgentsNote)
+        case .typed(.failed(let code), _):
+            outcome = .failedTTY
+            detail = "errno \(code): \(String(cString: strerror(code)))"
+        case .moved(let target, _):
+            // NOTHING WAS TYPED, and `typed` stays nil for a reason that is not cosmetic: it arms
+            // the window repick (`WindowRepickState.arm`), whose whole job is to move a session
+            // AFTER a clear it observed. A move that armed it would leave a second mover waiting to
+            // move the session again, and the relaunch below is already the move.
+            outcome = .movedAccount
+            detail = sessionClearMovedDetail(to: target, agents: killed)
+            moveTo = target
+        }
+    }
+    // THE ANSWER FIRST, then the request file. The caller is polling for the answer, so writing it
+    // first means there is never a moment where the request has vanished and nothing has replaced
+    // it - which the caller could only read as "still waiting", right up to its timeout.
+    //
+    // AND THE STAMP BEFORE BOTH, WHETHER OR NOT THE ANSWER LANDS. Both orders were weighed, because
+    // the wrong one is the only way this feature types a line twice:
+    //
+    //   - Advancing it here records the fact that cannot be undone: the bytes are on the terminal,
+    //     or the refusal has been decided. Holding it back until the answer is published would
+    //     leave the request stamped newer than the served epoch, so the NEXT tick would decide the
+    //     same request again and type the same line into a conversation that already has it.
+    //   - The opposite failure - a stamp that moves over a request nothing was done about - cannot
+    //     arise here: `.ignore` and `.wait` return above without touching any of this, so every
+    //     branch that reaches this line has either injected the text or consumed the request with a
+    //     refusal that is about to be published.
+    //
+    // So a lost answer costs the caller its wait and nothing more, and it is not silent: the audit
+    // line below records that the text DID land, which is the sentence somebody needs when a
+    // session turns out to have been typed into twice by a caller that retried (codex review of
+    // 18b3174).
+    state.servedEpoch = request.epoch
+    // THE CALLER'S OWN WAIT RIDES BACK ON THE ANSWER, copied rather than decided here: it says for
+    // how long this receipt is somebody's to collect, and the only end that knows is the end that
+    // is waiting (`SessionInputRequest.waitSeconds`). A request from a CLI that predates the field
+    // carries nil and the answer says nil, which reads as the longest wait, exactly as before.
+    let lostReceipt = writeSessionInputResult(
+        SessionInputResult(epoch: request.epoch, outcome: outcome.rawValue, detail: detail,
+                           waitSeconds: request.waitSeconds),
+        sessionKey: pid, dir: dir)
+    // Unlinked only when the file still holds the request that was SERVED, the rule
+    // `PendingSwitchConsumption.commit` states: injection takes seconds, and a second `tally session
+    // send` written in that window is a newer stamp at the same path. An unconditional unlink would
+    // delete an instruction nobody has carried out; leaving it means the next tick serves it,
+    // because `servedEpoch` records the epoch that was served rather than "whatever is pending".
+    if readSessionInputRequest(sessionKey: pid, dir: dir)?.epoch == request.epoch {
+        clearSessionInputRequest(sessionKey: pid, dir: dir)
+    }
+    appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: outcome.rawValue,
+                                               text: request.text, now: now),
+                           to: log)
+    // AND WHAT THE LINE COST, on a line of its own beside it (the shape `receipt-lost` uses, and for
+    // the same reason: the served line's business is what was typed). This is the one consequence of
+    // a send that nobody standing at the address will read - the caller of a `/clear` is the session
+    // being cleared, and it has left by the time its line lands (SessionInputCommand.swift). So the
+    // log is where "my agents died" gets its answer.
+    if let killed {
+        appendSessionInputLine(sessionInputAgentsKilledLine(pid: pid, count: killed, now: now),
+                               to: log)
+    }
+    // AFTER the served line, so the two read in the order they happened: what was typed, and then
+    // that nobody was told about it.
+    if let lostReceipt {
+        appendSessionInputLine(sessionInputReceiptLostLine(pid: pid, outcome: outcome.rawValue,
+                                                          epoch: request.epoch,
+                                                          failure: lostReceipt, now: now),
+                               to: log)
+    }
+    return SessionInputAction(typed: typed, moveTo: moveTo)
+}

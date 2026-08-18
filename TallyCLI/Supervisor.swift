@@ -128,6 +128,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// rules). `resumed` carries the same meaning it does above: a self-update exec keeps the pid
     /// and is the same session, so a request written moments before it must not be seeded away.
     var sessionInput = SessionInputState(sessionKey: supervisorPID, servedEpoch: resumed ? 0 : nil)
+    /// What this session has been TOLD about the account under it running out (QuotaKnock.swift
+    /// owns the rules). Per session rather than per child, so a relaunch does not re-announce a
+    /// drought this conversation has already heard about; a relaunch that moves accounts re-arms it
+    /// by itself, because the new account's binding window is a different cycle.
+    var quotaKnock = QuotaKnockState()
     // A self-update keeps the pid and gives this state a fresh start, so a cancellation notice the
     // replaced image had just raised lives only in its file - where the seeded writer above would
     // take it down on the first tick, as the honest answer to "this session has nothing pending".
@@ -488,11 +493,23 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // typing at the end of a turn and typing 30 seconds after it (SessionTurnEnd.swift).
             // A closure rather than a value: it reads a file and a transcript tail, and only a tick
             // with a request pending has any use for the answer.
-            windowRepick.arm(typed: applySessionInput(
-                &sessionInput, session: board.state, quiet: board.quiet,
-                turnEnded: { sessionTurnEnded(pid: supervisorPID, watcher: watcher) },
-                keyboardIdle: keyboard.idle(sessionInputKeyboardQuietSeconds),
-                relaunchPlanned: replacingChild), transcript: watcher.transcriptSessionID)
+            // The two questions BOTH writers into this composer ask, taken once: two spellings of
+            // the same gate are two gates that can come to disagree about the same instant.
+            let composerIdle = keyboard.idle(sessionInputKeyboardQuietSeconds)
+            let turnOver = { sessionTurnEnded(pid: supervisorPID, watcher: watcher) }
+            let typed = applySessionInput(&sessionInput, session: board.state, quiet: board.quiet,
+                                          turnEnded: turnOver, keyboardIdle: composerIdle,
+                                          relaunchPlanned: replacingChild)
+            windowRepick.arm(typed: typed, transcript: watcher.transcriptSessionID)
+            // AND THE ONE LINE NOBODY ASKED FOR: the account under this session is running out, and
+            // the movers above cannot help a session that is busy (QuotaKnock.swift). Same door and
+            // the same gates, after the request station rather than beside it - a tick that has just
+            // typed somebody's line has spent this composer's turn.
+            applyQuotaKnock(&quotaKnock, pid: supervisorPID, provider: provider.id,
+                            account: account, primaryModel: effectivePrimary,
+                            typedAlready: typed != nil, session: board.state, quiet: board.quiet,
+                            turnEnded: turnOver, keyboardIdle: composerIdle,
+                            relaunchPlanned: replacingChild, quarantine: quarantine)
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args. A pending app

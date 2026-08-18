@@ -346,3 +346,25 @@ func supervisedSessionsByAccount(_ live: [LiveSupervisor]) -> [String: Supervise
     }
     return byAccount
 }
+
+/// How many live sessions are running on one account.
+///
+/// A FOLD OF THE ROSTER, never a scan of its own, the rule the map below states: this answers "how
+/// many mouths are on that window", so it has to describe the same moment as everything else folded
+/// from the same list. The one caller is the advisory knock (QuotaKnockLogic.swift), where the count
+/// is what tells a reader whether waiting for the reset is a plan at all - three conversations drain
+/// a window three times as fast as one.
+///
+/// THE ACCOUNT COMES FROM THE SIDECAR FIRST and from the published reading only when a supervisor
+/// too old to write one is being asked about, which is exactly how `liveSessionInventory` attributes
+/// a row, and for the reason stated there: the sidecar is rewritten whole at both moments that can
+/// move a session, while the reading is best-effort and can be left behind by a publish that failed.
+/// It also counts sessions that have published nothing yet, which the map below cannot: a
+/// conversation with no turn in it is still spending that account's window.
+func supervisedSessionCount(onAccount accountID: String, _ live: [LiveSupervisor],
+                            dir: URL = supervisorStateDir) -> Int {
+    live.filter {
+        (readSupervisorAccount(pid: $0.supervisorPid, dir: dir) ?? $0.session?.accountID)
+            == accountID
+    }.count
+}

@@ -720,8 +720,14 @@ func runWindowRepickChecks() {
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     check("the supervisor source is readable from the window repick checks", !loop.isEmpty)
     check("the tick runs the preventive station", loop.contains("applyProactiveMoves("))
+    // TWO FACTS RATHER THAN ONE SUBSTRING, since the advisory knock joined this station and the
+    // gate's answer had to be given a name to be handed to both (`typedAlready`, QuotaKnock.swift):
+    // the arm is fed the value the input gate RETURNED, and that value is the gate's own return.
+    // Read together they pin what one substring used to - a repick armed from the request rather
+    // than from what reached the terminal would fire on a `/clear` that never closed a window.
     check("the repick is armed from what the input gate TYPED, not from the request",
-          loop.contains("windowRepick.arm(typed: applySessionInput("))
+          loop.contains("let typed = applySessionInput(")
+              && loop.contains("windowRepick.arm(typed: typed,"))
     check("…and it is told which conversation the session was in when the line went out",
           loop.contains("transcript: watcher.transcriptSessionID)"))
     // Per child: a relaunch replaces the conversation, so an arm against the old one is answered.

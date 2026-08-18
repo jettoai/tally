@@ -267,15 +267,41 @@ func smartScore(_ account: Snapshot.Account, primaryModel: String?, now: Date = 
     ratedWindows(account, primaryModel: primaryModel, now: now).map(\.rate).min() ?? -1
 }
 
-/// The human reason behind a pick: its binding window, e.g. "weekly 32% · resets 2d".
-func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = Date()) -> String {
-    guard let binding = ratedWindows(account, primaryModel: primaryModel, now: now)
-        .min(by: { $0.rate < $1.rate }) else { return "no usage windows" }
-    var text = "\(binding.name) \(Int(binding.remaining.rounded()))%"
-    if let resetsAt = binding.resetsAt {
+/// The window that BINDS an account: its emptiest counted window, by the effective remaining the
+/// nearly-dry gate weighs rather than by the raw percentage. A session window at 3% resetting in
+/// five minutes is a full window to that gate, and a reader told the account is dying because of it
+/// would be told something the gate does not believe.
+///
+/// One derivation for every caller that asks "which window is this account's problem": the
+/// rebalance keys its per-drought claim on it, and the advisory knock quotes it. nil when the
+/// account reports no counted windows at all.
+func bindingWindow(_ account: Snapshot.Account, primaryModel: String?,
+                   now: Date = Date()) -> RatedWindow? {
+    ratedWindows(account, primaryModel: primaryModel, now: now)
+        .min { effectiveRemaining(comfortWindow($0), now: now)
+                 < effectiveRemaining(comfortWindow($1), now: now) }
+}
+
+/// One window as a person reads it: "weekly 32% · resets 2d", and without the tail when the
+/// provider published no reset time. Its own function because two sentences quote a window - the
+/// reason behind a pick, and the advisory knock's news about the account a session is on - and two
+/// spellings of the same reading is how they would come to disagree about what 32% of a week means.
+func windowReason(_ window: RatedWindow, now: Date = Date()) -> String {
+    var text = "\(window.name) \(Int(window.remaining.rounded()))%"
+    if let resetsAt = window.resetsAt {
         text += " · resets \(shortETA(resetsAt.timeIntervalSince(now)))"
     }
     return text
+}
+
+/// The human reason behind a pick: its binding window, e.g. "weekly 32% · resets 2d".
+///
+/// The window whose RATE binds, which is the question a pick asks (how hard can this account be
+/// pushed), and deliberately not the one `bindingWindow` names (how close is the wall).
+func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = Date()) -> String {
+    guard let binding = ratedWindows(account, primaryModel: primaryModel, now: now)
+        .min(by: { $0.rate < $1.rate }) else { return "no usage windows" }
+    return windowReason(binding, now: now)
 }
 
 /// Hysteresis: near-equal scores must not flip the pick. Quota percentages are coarse and

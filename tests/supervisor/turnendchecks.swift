@@ -298,16 +298,23 @@ func runTurnEndChecks() {
     // loop itself is a `while true` inside a process that spawns children, so the source carries it
     // - the technique the preventive station and the self-update fold already use.
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
-    check("the poll loop was really read", loop.contains("windowRepick.arm(typed: applySessionInput("))
+    check("the poll loop was really read", loop.contains("let typed = applySessionInput("))
     // READ OFF THIS CALL rather than off the whole file, for the reason the neighbouring suite
     // learned by mutation: a file-wide search for an argument name is satisfied by somebody else's
     // call and says nothing about this one.
-    if let start = loop.range(of: "windowRepick.arm(typed: applySessionInput("),
-       let end = loop.range(of: "transcript: watcher.transcriptSessionID)",
+    //
+    // THE FACT IS ASKED THROUGH A NAME NOW, because two writers into that composer ask it (the
+    // advisory knock joined the station, QuotaKnock.swift) and one spelling shared between them
+    // cannot drift. So this is two assertions: the call is handed that name, and the name is this
+    // session's own reading rather than a constant.
+    if let start = loop.range(of: "let typed = applySessionInput("),
+       let end = loop.range(of: "relaunchPlanned: replacingChild)",
                             range: start.upperBound ..< loop.endIndex) {
         let call = String(loop[start.lowerBound ..< end.upperBound])
         check("the gate is asked this session's own turn-end fact rather than a constant",
-              call.contains("turnEnded: { sessionTurnEnded(pid: supervisorPID, watcher: watcher) }"))
+              call.contains("turnEnded: turnOver")
+                  && loop.contains("let turnOver = { sessionTurnEnded(pid: supervisorPID, "
+                      + "watcher: watcher) }"))
     } else {
         check("the gate is asked this session's own turn-end fact rather than a constant", false)
     }

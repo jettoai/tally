@@ -723,5 +723,6 @@ runAgentRosterChecks()
 runTurnEndChecks()
 runSessionInputChecks()
 runSessionSendChecks()
+runQuotaKnockChecks()
 
 exit(failures == 0 ? 0 : 1)

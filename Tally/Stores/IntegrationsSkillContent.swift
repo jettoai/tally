@@ -18,7 +18,7 @@ extension IntegrationsStore {
     /// keep the old text are exactly the ones that have been running longest. The text and this
     /// number are pinned to each other (tests/integrations/skillversionchecks.swift), so a
     /// forgotten bump is a red suite rather than a silent one.
-    nonisolated static let skillVersion = 20
+    nonisolated static let skillVersion = 21
 
     /// The skill Tally installs into every Claude account's skills folder: Claude Code loads
     /// it on demand and learns to read `tally status --json` instead of guessing at quota.
@@ -382,6 +382,43 @@ extension IntegrationsStore {
         conversation is worth keeping; a session launched through `tally claude` also hands
         itself off automatically when it actually hits a cap. Use `tally account` instead
         when the user names the account to move to: `resume` picks one by headroom.
+
+        # The line Tally types when the account is running out
+
+        Tally speaks into this conversation once, unasked, when the account under it is
+        running low. It looks like this:
+
+        ```
+        [tally] account Claude is running low: session 12% · resets 40m, 3 sessions on it.
+        Best alternative: Claude 2 (weekly 82% · resets 2d). Wrap up and switch accounts,
+        or wait for the reset.
+        ```
+
+        It is typed into the composer by the supervisor watching this session, so it
+        arrives as a prompt nobody sent. Nothing is broken and nothing has been done to
+        the session: it is a fact handed over while there is still room to act on it,
+        because Tally moves a session off a dying account only while that session is
+        idle, and a conversation in the middle of a work package is exactly the one it
+        leaves alone.
+
+        Two answers, and the line carries what you need to choose between them:
+
+        - WRAP UP AND SWITCH. Finish or checkpoint what is in flight (commit, write the
+          hand-over), then run `tally account "<the account it named>"`. The move happens
+          at the end of the turn and the conversation continues there with its context.
+        - WAIT FOR THE RESET, which is right when the reset is close and little else is
+          drawing on that window. Both numbers are in the line for that judgement: three
+          sessions on one account drain it three times as fast as the percentage reads,
+          so "40m" with three sessions on it is not the same runway as "40m" alone.
+
+        `No account has headroom` in place of an alternative means every sibling is as
+        spent as this one, and pausing until the reset is the honest answer there.
+
+        It is said once per window cycle per session, so a second line is a new drought
+        rather than a repeat, and it is never typed mid-turn: whatever you are writing
+        finishes first. Do not reply to it in the conversation, and do not run
+        `tally status` to confirm it: the numbers in it were read from the same snapshot
+        that command prints.
         """
     }
 }

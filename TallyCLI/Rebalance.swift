@@ -65,7 +65,11 @@ let rebalanceCycleTolerance: TimeInterval = 5 * 60
 /// Whether two cycle keys name the same drought: the same reported reset, or one that has moved no
 /// further than the source's own resolution can move it. Keys that are not epochs at all, which
 /// nothing writes, match only themselves.
-private func namesSameDrought(_ one: String, _ other: String) -> Bool {
+///
+/// Not private, because the advisory knock (QuotaKnockLogic.swift) is the second reader of the same
+/// question: it announces one sentence per drought per session, and a second same-drought rule
+/// would let the two disagree about whether a reset time that moved by a minute is a new one.
+func namesSameDrought(_ one: String, _ other: String) -> Bool {
     guard let a = Double(one), let b = Double(other) else { return one == other }
     return abs(a - b) <= rebalanceCycleTolerance
 }
@@ -92,11 +96,14 @@ private func namesSameDrought(_ one: String, _ other: String) -> Bool {
 /// nil when the account reports no windows, or its binding window has no known reset time. With no
 /// cycle to name there is nothing to claim, and callers treat that as "do not move": an unclaimed
 /// rebalance is exactly the stampede the claim exists to prevent.
+///
+/// The binding window itself comes from `bindingWindow` (AccountPick.swift), which is where that
+/// derivation lives now that the advisory knock quotes the same window this keys on: two copies of
+/// "which window is this account's problem" would let the sentence a session is sent name one
+/// window while the claim that stops it being re-sent keyed on another.
 func rebalanceCycleKey(_ account: Snapshot.Account, primaryModel: String?,
                        now: Date = Date()) -> String? {
-    guard let binding = ratedWindows(account, primaryModel: primaryModel, now: now)
-        .min(by: { effectiveRemaining(comfortWindow($0), now: now)
-                     < effectiveRemaining(comfortWindow($1), now: now) }),
+    guard let binding = bindingWindow(account, primaryModel: primaryModel, now: now),
           let resetsAt = binding.resetsAt else { return nil }
     return String(Int(resetsAt.timeIntervalSince1970.rounded()))
 }

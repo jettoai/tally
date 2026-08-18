@@ -257,6 +257,25 @@ struct SessionContextWriter {
                                   transcript: transcript), pid: pid, dir: dir)
     }
 
+    /// This conversation is over, and what replaces it is another one: retire the reading rather
+    /// than move it.
+    ///
+    /// THE IN-MEMORY COPY GOES WITH THE FILE, which is the whole reason this is a method here
+    /// instead of a bare `clearSessionContext` at the call site. Unlinking alone leaves this writer
+    /// still holding the dead conversation's reading as the one it judges the next write against,
+    /// so the next `accountChanged` republishes that token count under the new account - the file is
+    /// back, describing a window nobody is in (codex review of a599a06).
+    ///
+    /// What the readers then see is nothing, which is what they are built for: a session with no
+    /// published reading is one that has not had a turn yet, and the hooks that match an event
+    /// against the conversation being watched read a missing witness as "cannot say" and record the
+    /// event (HookNotify.swift, HookAgents.swift). Silence is recoverable; a stale id is not, because
+    /// it does not read as an absence to anybody.
+    mutating func conversationEnded(pid: String, dir: URL = supervisorStateDir) {
+        clearSessionContext(pid: pid, dir: dir)
+        current = nil
+    }
+
     /// The pin joins the account as a reason to write even when the number has not moved: it
     /// changes on a tick of its own (a `tally switch --auto` moves nothing at all), and a reading
     /// that waited for the next thousand tokens would describe a session that is no longer pinned.

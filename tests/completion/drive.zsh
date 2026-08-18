@@ -231,4 +231,22 @@ out=$(tab full "tally claude " "zstyle ':completion:*' menu no=1" 2)
 check "…with every option still reachable, a press later" \
   "$([[ $out == *"--worktree"* && $out == *"--account"* ]] && print 1)"
 
+# 12. BOTH VERBS OF `tally session`, which is the position a person presses Tab at to learn that the
+#     command has more than one. `clear` shipped in the dispatch, the help and the skill text with
+#     this list left at `send` alone, so the only surface that answers the question "what can this
+#     command do" did not know about it (codex review of a599a06). Named positively, both of them,
+#     because a check that only said "send is offered" passes on exactly the script that was wrong.
+out=$(tab full "tally session ")
+check "the session command offers the verb that types" "$([[ $out == *"send"* ]] && print 1)"
+check "…and the verb that closes a window" "$([[ $out == *"clear"* ]] && print 1)"
+check "…and no file from the directory, since neither verb takes a path" \
+  "$([[ $out != *"a-file-here.txt"* ]] && print 1)"
+# The flag is a word later: this position REQUIRES the verb, so zsh answers it with the verb group
+# alone and offers the options once one is typed. Asked behind both of them, because the second verb
+# takes the same `--session` and a spec that reached only the first would address one of them.
+check "the session flag is offered behind the verb that types" \
+  "$([[ $(tab full "tally session send -") == *"--session"* ]] && print 1)"
+check "…and behind the verb that closes a window" \
+  "$([[ $(tab full "tally session clear -") == *"--session"* ]] && print 1)"
+
 exit $(( failures > 0 ))

@@ -215,6 +215,39 @@ func runSessionClearChecks() {
               == ["--model", "opus"]
               && relaunchArgs(["--continue"], sessionID: nil, sameAccount: false) == [])
 
+    // MARK: - What the published reading does when the window closes
+
+    // THE READING IS ABOUT A CONVERSATION, NOT ABOUT A SESSION, and a clear-boundary move ends one
+    // and starts another. Carrying it across would publish the closed window's size under the
+    // account it reopened on - and, worse, keep naming its transcript id, which is the witness every
+    // hook matches its events against (HookNotify.swift, HookAgents.swift): until it is corrected,
+    // the new conversation's notifications, agent roll call and turn-end fact are all dropped as
+    // somebody else's.
+    var context = SessionContextWriter()
+    let closedPid = "9420"
+    context.sync(tokens: 250_000, accountID: "A", pin: nil, transcript: "conv-OLD", pid: closedPid,
+                 dir: dir, now: t0)
+    check("a session that has had turns has a published reading",
+          readSessionContext(pid: closedPid, dir: dir)?.transcriptSessionID == "conv-OLD")
+    context.conversationEnded(pid: closedPid, dir: dir)
+    check("the conversation ending takes the published reading with it",
+          readSessionContext(pid: closedPid, dir: dir) == nil)
+    // AND THE WRITER'S OWN COPY, which unlinking the file alone does not touch: the republish a
+    // relaunch makes judges itself against that copy, so a writer still holding the dead reading
+    // writes the closed window's id and size straight back under the new account, and the panel and
+    // the hooks are exactly where they were.
+    context.accountChanged(to: "B", pin: nil, transcript: "conv-OLD", pid: closedPid, dir: dir,
+                           now: t0.addingTimeInterval(1))
+    check("…so nothing republishes it under the account the window reopened on",
+          readSessionContext(pid: closedPid, dir: dir) == nil)
+    // The next conversation publishes on its own terms, from its first turn with usage in it, which
+    // is what says the silence above is a gap rather than a session that can never report again.
+    context.sync(tokens: 4_000, accountID: "B", pin: nil, transcript: "conv-NEW", pid: closedPid,
+                 dir: dir, now: t0.addingTimeInterval(2))
+    let reopened = readSessionContext(pid: closedPid, dir: dir)
+    check("…and the window that opened in its place reports itself, from its own first turn",
+          reopened?.transcriptSessionID == "conv-NEW" && reopened?.contextTokens == 4_000)
+
     // MARK: - The wiring no value can be asked about
 
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
@@ -275,6 +308,33 @@ func runSessionClearChecks() {
     }
     check("the plan carries that instruction to it",
           loop.contains("fresh: plan.fresh"))
+    // AND THE SIDECAR IS RETIRED ON THAT SAME FRESHNESS, which no value above can be asked about:
+    // the writer's `conversationEnded` can be perfect while the loop calls the republish anyway, and
+    // the republish is handed the OLD child's watcher (this tick's `watcher` is rebuilt only at the
+    // next spawn), so the conversation that just ended would be published under the new account.
+    if let start = loop.range(of: "performHandoff(to: plan.target"),
+       let end = loop.range(of: "writeSupervisorAccount(account.id, pid: supervisorPID)",
+                            range: start.upperBound ..< loop.endIndex) {
+        let block = String(loop[start.upperBound ..< end.lowerBound])
+        check("a fresh relaunch retires the published reading instead of republishing it",
+              block.contains("if plan.fresh {")
+                  && block.contains("sessionContext.conversationEnded(pid: supervisorPID)"))
+        // THE REPUBLISH IS THE OTHER BRANCH, not a line that runs beside it: one that still ran
+        // after the retirement would write the dead conversation's id back a moment later, and the
+        // check above would pass on it.
+        if let fresh = block.range(of: "if plan.fresh {"),
+           let moved = block.range(of: "sessionContext.accountChanged") {
+            check("…and the account republish is the branch a clear does not take",
+                  fresh.lowerBound < moved.lowerBound
+                      && block.range(of: "} else {",
+                                     range: fresh.upperBound ..< moved.lowerBound) != nil)
+        } else {
+            check("…and the account republish is the branch a clear does not take", false)
+        }
+    } else {
+        check("a fresh relaunch retires the published reading instead of republishing it", false)
+        check("…and the account republish is the branch a clear does not take", false)
+    }
 
     // MARK: - What the caller reads while it waits
 

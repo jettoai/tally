@@ -593,12 +593,27 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // the one about to start has served nothing. Publishing the dead child's reading
                 // here would name a model this session is provably no longer on - the same mistake
                 // one restart later.
-                let nextAxes = publishedSessionAxes(pin: sessionModelState.pin,
-                                                    launchArgs: launchArgs, observed: nil)
-                sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
-                                              axes: nextAxes,
-                                              transcript: watcher.transcriptSessionID,
-                                              pid: supervisorPID)
+                //
+                // A FRESH RELAUNCH HAS NOTHING TO REPUBLISH, because what it starts is a different
+                // conversation: the reading is retired here rather than moved. The watcher standing
+                // beside this line still holds the id and the size of the window that was just
+                // closed, so republishing them under the new account attributes a dead conversation
+                // to it - a context the panel paints for a window nobody is in, and an id every hook
+                // matches its events against, dropping the new conversation's notifications, its
+                // agent roll call and its turn-end fact for as long as it stands (HookNotify.swift,
+                // HookAgents.swift). Nothing corrects it soon either: the next child's watcher starts
+                // with no token reading at all, and `sync` publishes nothing until that conversation
+                // writes its first turn with usage in it (codex review of a599a06).
+                if plan.fresh {
+                    sessionContext.conversationEnded(pid: supervisorPID)
+                } else {
+                    let nextAxes = publishedSessionAxes(pin: sessionModelState.pin,
+                                                        launchArgs: launchArgs, observed: nil)
+                    sessionContext.accountChanged(to: account.id, pin: manualMoves.sessionPin,
+                                                  axes: nextAxes,
+                                                  transcript: watcher.transcriptSessionID,
+                                                  pid: supervisorPID)
+                }
                 // THE ACCOUNT SIDECAR MOVES IN THE SAME BREATH, so the two documents naming this
                 // session's account can never describe different moments. Left to the spawn below,
                 // it would name the account the session has just left for the whole tear-down; and

@@ -402,7 +402,7 @@ func runSessionContextChecks() {
           loop.contains("transcript: watcher.transcriptSessionID, pid: supervisorPID"))
     check("…and so does the republish a handoff makes",
           loop.contains("transcript: watcher.transcriptSessionID,\n"
-              + "                                              pid: supervisorPID"))
+              + "                                                  pid: supervisorPID"))
     // AND THE ACCOUNT SIDECAR MOVES IN THE SAME BREATH AS THAT REPUBLISH. Written only at the spawn,
     // it named the account the session had just left for the whole of a child tear-down, and the two
     // documents about one account described different moments (codex review of 005b5f2). Both

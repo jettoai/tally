@@ -388,7 +388,7 @@ _tally() {
     "share:put an account you already have on the main account's harness"
     "account:pin THIS session to another account, keeping the conversation"
     "model:run THIS conversation on another model and depth, for the rest of its life"
-    "session:type a line into a supervised session's own terminal and send it"
+    "session:send a line into a supervised session, or clear its context window"
     "reload:restart every supervised session at its next idle moment"
     "update:check for app updates now"
     "completion:print the shell completion script"
@@ -450,14 +450,14 @@ _tally() {
             ":account: _tally_accounts claude"
           ;;
         (model) _arguments ":model:_tally_model_targets" ":effort:_tally_model_effort" ;;
-        # The verb and the flags only. NOTHING is offered for the text itself - it is free content
+        # The verbs and the flags only. NOTHING is offered for the text itself - it is free content
         # typed into somebody's live conversation, and the default completer would offer the file
         # names in this directory, every one of which is a plausible-looking thing to send by
         # accident. The pid is likewise left blank rather than completed from the live registry: a
         # menu of other people's sessions at this cursor is an invitation to type into one.
         (session)
           _arguments \
-            ":verb:(send)" \
+            ":verb:(send clear)" \
             "--session[the session to send into, by supervisor pid]:pid:"
           ;;
         (add)

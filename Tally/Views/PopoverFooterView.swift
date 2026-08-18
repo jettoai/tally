@@ -145,27 +145,40 @@ extension PopoverRootView {
             .buttonStyle(.borderless)
             .foregroundStyle(showViewOptions ? Color.accentColor : Color.secondary)
             .tallyTooltip(L("View options"))
-            // The card carries its own callout layer. A popover is a separate presentation: the
-            // environment travels INTO it, so the layout tiles inside read "hosted" and skip the
-            // system-tooltip fallback, but their preference never travels back OUT to the panel's
-            // layer, so the hover was answered with nothing at all. One layer per presentation is
-            // what closes that (see `TallyTooltip`).
-            .popover(isPresented: $showViewOptions, arrowEdge: .bottom) {
+            // WHERE THE CARD STANDS, on the surfaces that place it themselves: this button's own
+            // rectangle on screen, read when the card opens and read again at every press while it
+            // is up (`ViewOptionsAnchor`). Harmless on the popover, which uses neither.
+            .viewOptionsAnchor(viewOptionsAnchor)
+            // The card carries its own callout layer, whichever way it is presented: it is a
+            // separate presentation, so the layout tiles inside read "hosted" and skip the
+            // system-tooltip fallback, while their preference never travels back OUT to the panel's
+            // layer - the hover was answered with nothing at all. One layer per presentation is what
+            // closes that (see `TallyTooltip`).
+            //
+            // ATTACHED ONLY WHERE IT HAS TO BE. On the popover the card is AppKit's popover, hung
+            // off this button; on the two surfaces that own a frame it is a window placed in screen
+            // space, because those resize under it and an attached card travels with the footer
+            // (`SurfaceHost.detachesViewOptionsCard` says which is which, and why).
+            .popover(isPresented: Binding(get: { showViewOptions && !host.detachesViewOptionsCard },
+                                          set: { showViewOptions = $0 }),
+                     arrowEdge: .bottom) {
                 viewOptions.tallyTooltipLayer()
             }
-            // Published upward because the window controllers need it: every control in that card
-            // resizes the surface, and while it is open THAT surface holds the bottom-right corner
-            // still so the control stays under the pointer (see `ResizeAnchor`). Written from the
-            // one place that owns the presentation, so it cannot say "open" while nothing is, and
-            // it names this host so the other surface on screen keeps its own rule.
-            // The host hears it too, and for the other half of the same rule: holding the bottom
-            // right walks the surface's top left away with every click in the card, and the window
-            // is put back where the card found it when the card goes
-            // (`SurfaceSizer.onViewOptionsPresented`). Said from this one place, so what the anchor
-            // is claimed for and what pays it back can never describe different moments.
             .onChange(of: showViewOptions) { _, open in
-                settings.setViewOptionsOpen(open, host: host)
-                onViewOptionsPresented?(open)
+                guard host.detachesViewOptionsCard else { return }
+                guard open else {
+                    ViewOptionsCard.shared.dismiss(host: host)
+                    return
+                }
+                ViewOptionsCard.shared.present(
+                    host: host, anchor: viewOptionsAnchor,
+                    // Rebuilt on every pass of the card's own body, so the controls in it that
+                    // change what the card shows (density changes the column tiles, the gauge switch
+                    // greys the rows under it) are read again rather than frozen at opening.
+                    content: { AnyView(viewOptions.tallyTooltipLayer()) },
+                    // The card can go without this button being pressed - a press anywhere else,
+                    // Escape - and the button has to stop reading as lit when it does.
+                    onDismiss: { showViewOptions = false })
             }
             Button {
                 StatusItemController.togglePin()
@@ -300,10 +313,5 @@ extension PopoverRootView {
         }
         .padding(TallyMetrics.cardPaddingH)
         .frame(width: 268)
-        // The card claiming the resize anchor, and the ONLY thing that ever claims it: every
-        // control below is reached by pointing at this card, so being pointed at is the same fact
-        // as "a control here is about to be clicked" (see `SettingsStore.resizeAnchor(for:)`).
-        // On the card as a whole rather than on each control, so a control added here inherits it.
-        .onHover { settings.viewOptionsPointer(inside: $0, host: host) }
     }
 }

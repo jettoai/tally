@@ -113,6 +113,13 @@ extension ScreenFitStack {
     ///   as they grow, so the room a surface actually has is the room BELOW its own top edge, not
     ///   the height of the display. Pass nil for a host that does not grow this way (the popover
     ///   moves itself to stay attached to the status item), which leaves the screen rule alone.
+    ///
+    ///   THAT PREMISE IS NOW UNCONDITIONAL, which it was not while the view-options card could make
+    ///   a surface hold its bottom right instead: under that rule the top edge moved with the
+    ///   content, so a shorter surface lowered its own top edge, which lowered this cap, which
+    ///   shortened the surface again - a ratchet that stalled at a fixed point for a panel already
+    ///   sitting on the bottom of its display. One anchor for every resize removes the input that
+    ///   fed it (`ResizeAnchor`).
     @MainActor static func maxHeight(on screen: NSScreen?, topEdge: CGFloat? = nil) -> CGFloat {
         guard let visible = (screen ?? NSScreen.main)?.visibleFrame else {
             return max(minSurfaceHeight, 900 - screenMargin)
@@ -168,8 +175,8 @@ extension ScreenFitStack {
     }
 }
 
-/// Takes exactly the size it is offered and puts its content against the corner its host is
-/// holding still.
+/// Takes exactly the size it is offered and puts its content against the top left, which is the
+/// corner its host holds still through every resize (`ResizeAnchor`).
 ///
 /// A surface reports the height it WANTS and its host window follows a beat later - there is no way
 /// to make a window resize and a SwiftUI layout pass the same event - so for a handful of frames
@@ -188,30 +195,21 @@ extension ScreenFitStack {
 /// size, so there is nothing to centre, and the difference goes where it cannot be seen - off the
 /// edge the window is a frame away from growing past.
 ///
-/// WHICH edge is the load-bearing part, and it is not a constant. The host holds one corner still
-/// through a resize (`ResizeAnchor`), so that corner is the only place the content can be put
-/// without the intervening frames moving something: pinning the top while the window is about to
-/// hold its BOTTOM leaves the footer - and the view-options card hanging off it - a whole growth
-/// step out of place until the window lands, which is the jump under the pointer that holding the
-/// bottom right exists to prevent, and it is also how the pointer gets shaken out of the card
-/// (`.onHover(false)` drops the claim, and the resize then finishes to the other corner entirely).
-/// So this takes the corner as an input and uses the same one: the transition and its destination
-/// are never different anchors.
+/// WHICH edge is the load-bearing part. The host holds one corner still through a resize
+/// (`ResizeAnchor`), so that corner is the only place the content can be put without the intervening
+/// frames moving something: waiting against an edge the window is NOT about to hold leaves whatever
+/// hangs off it a whole growth step out of place until the window lands. So the two answers are
+/// derived from one rule rather than stated twice, which is why this file's assertions compute the
+/// window's held edges from `ResizeAnchor.origin` instead of restating them (`tests/screenfit`).
 ///
-/// BOTH axes follow the corner, not just the vertical one. Under the top-left rule a content
-/// resize leaves origin.x alone, but under the bottom-right rule the window holds its RIGHT edge and
-/// takes the width change off origin.x (`ResizeAnchor.origin`) - so a transition that waited against
-/// the leading edge there would slide the whole surface sideways by the width change the moment the
-/// window landed: 380pt to 1108pt is a column-count click away, and the card would be 728pt from
-/// where the pointer left it.
+/// The corner was once an input to this layout, because the view-options card made it conditional on
+/// where the pointer was; the card is a window of its own now and the surface has one anchor for
+/// everything (`ViewOptionsCardPlacement`), so this is the top left, always.
 ///
 /// Nothing about what the surface REPORTS changes: the size the hosts follow is measured inside
 /// this, on the content itself (`PopoverRootView.sizeReporter`), so the host still resizes to the
 /// content's ideal height and this only decides where that content sits until it does.
 struct HostAnchored: Layout {
-    /// The corner the host will hold through the resize this layout is a frame ahead of.
-    var corner: ResizeAnchor.Corner
-
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let ideal = subviews.first?.sizeThatFits(proposal) ?? .zero
         // An unspecified proposal is answered with the content's own size: a host that asks how big
@@ -221,25 +219,20 @@ struct HostAnchored: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
                        cache: inout ()) {
-        let (point, anchor) = Self.placement(in: bounds, corner: corner)
+        let (point, anchor) = Self.placement(in: bounds)
         for subview in subviews { subview.place(at: point, anchor: anchor, proposal: proposal) }
     }
 
-    /// Where the content goes, given the corner the host is holding. Taking its inputs rather than
-    /// reading them off a layout pass, so the rule can be asserted directly
+    /// Where the content goes: the corner the host is holding. Taking its bounds rather than reading
+    /// them off a layout pass, so the rule can be asserted directly
     /// (`tests/run-screenfit-tests.sh`) instead of only being seen on a display.
     ///
-    /// The corner names the two edges the WINDOW keeps still (`ResizeAnchor.origin`), and the
-    /// content waits against those same two. Both of them: the bottom-right rule holds the right
-    /// edge as well as the bottom, so this is bottom TRAILING and not bottom leading - anchoring
-    /// the leading edge there would hold the wrong side of a width change and throw the surface
-    /// sideways when the window caught up (found by review, 2026-08-05).
-    static func placement(in bounds: CGRect,
-                          corner: ResizeAnchor.Corner) -> (CGPoint, UnitPoint) {
-        switch corner {
-        case .topLeading: return (CGPoint(x: bounds.minX, y: bounds.minY), .topLeading)
-        case .bottomTrailing: return (CGPoint(x: bounds.maxX, y: bounds.maxY), .bottomTrailing)
-        }
+    /// It names the two edges the WINDOW keeps still (`ResizeAnchor.origin`), and the content waits
+    /// against those same two. BOTH of them: a rule that held only the vertical would hold the wrong
+    /// side of a width change and throw the surface sideways when the window caught up (found by
+    /// review, 2026-08-05, on the bottom-right rule that has since been retired).
+    static func placement(in bounds: CGRect) -> (CGPoint, UnitPoint) {
+        (CGPoint(x: bounds.minX, y: bounds.minY), .topLeading)
     }
 }
 
@@ -247,9 +240,6 @@ extension View {
     /// Puts this view against the corner its host holds still, and leaves it there while the host
     /// resizes itself to fit (see `HostAnchored`).
     ///
-    /// - Parameter corner: the host's own answer (`SettingsStore.resizeAnchor(for:)`), read by the
-    ///   view body so a change re-lays the surface out. Passed in rather than read here, because a
-    ///   `Layout` is not a view and does not observe anything.
     /// - Parameter enabled: whether the host sizes itself from what this view REPORTS (it passes an
     ///   `onContentSize` and sets `sizingOptions = []`). A host that instead takes its size from
     ///   this view's own layout constraints must not have this: reporting whatever size is proposed
@@ -257,8 +247,8 @@ extension View {
     ///   never grows into its content (measured: the dashboard window opened 1x32 instead of
     ///   504x548). The condition is the `onContentSize` itself rather than a list of hosts, so a
     ///   host that does not size from the report cannot accidentally opt in.
-    @ViewBuilder func anchoredInHost(_ corner: ResizeAnchor.Corner, enabled: Bool) -> some View {
-        if enabled { HostAnchored(corner: corner) { self } } else { self }
+    @ViewBuilder func anchoredInHost(enabled: Bool) -> some View {
+        if enabled { HostAnchored { self } } else { self }
     }
 }
 

@@ -1,9 +1,10 @@
 import CoreGraphics
 import Foundation
 
-// Assertion harness for the resize anchor's geometry (Tally/Core/ResizeAnchor.swift), compiled
-// against the real source. The whole change is origin arithmetic in AppKit's bottom-left origin
-// space, which is exactly the part that can be wrong without anything failing to build.
+// Assertion harness for the resize anchor's geometry (Tally/Core/ResizeAnchor.swift) and for where
+// the view-options card stands (Tally/Core/ViewOptionsCardPlacement.swift), compiled against the
+// real sources. Both are origin arithmetic in AppKit's bottom-left origin space, which is exactly
+// the part that can be wrong without anything failing to build.
 
 var failures = 0
 func check(_ name: String, _ condition: Bool) {
@@ -14,96 +15,67 @@ func near(_ a: CGFloat, _ b: CGFloat, _ tol: CGFloat = 0.001) -> Bool { abs(a - 
 
 // A surface sitting at x 300...800, y 200...700 (500 x 500).
 let before = CGRect(x: 300, y: 200, width: 500, height: 500)
-let edges = ResizeAnchor.Edges(frame: before)
-check("edges read the three screen edges a resize can move",
-      near(edges.top, 700) && near(edges.bottom, 200) && near(edges.right, 800))
+let topEdge = before.maxY
+check("the edge a resize has to put back is the surface's top", near(topEdge, 700))
 
 // AppKit resizes a content-driven window about its BOTTOM edge, so both post-resize frames below
 // keep origin.y and grow upward or shrink downward from it. That is the raw frame the anchor
 // corrects.
 
-// 1. Taller and wider (density switched to something bigger): the top-leading rule holds the header
-//    still, so the surface has to run DOWN the screen - origin.y drops by the height change, and
-//    origin.x is left where it is.
+// 1. Taller and wider (density switched to something bigger): the surface has to run DOWN the
+//    screen - origin.y drops by the height change - and origin.x is left where it is.
 let grown = CGRect(x: 300, y: 200, width: 620, height: 640)
-let topLeft = ResizeAnchor.origin(for: grown, edges: edges, corner: .topLeading)
-check("top-leading keeps the top edge", near(topLeft.y + grown.height, edges.top))
-check("top-leading never moves the left edge", near(topLeft.x, before.origin.x))
+let held = ResizeAnchor.origin(for: grown, topEdge: topEdge)
+check("the top edge is what stays still", near(held.y + grown.height, topEdge))
+check("…and the left edge is never moved", near(held.x, before.origin.x))
+check("so a surface that grew runs down the screen", held.y < before.origin.y)
 
-// 2. The same growth with the view-options card open: the bottom edge does not move at all and the
-//    right edge is held, so the surface grows up and to the left - which is what keeps the card's
-//    controls under the pointer.
-let bottomRight = ResizeAnchor.origin(for: grown, edges: edges, corner: .bottomTrailing)
-check("bottom-trailing leaves origin.y alone", near(bottomRight.y, before.origin.y))
-check("bottom-trailing holds the right edge", near(bottomRight.x + grown.width, edges.right))
-check("…which means the width change comes off origin.x",
-      near(bottomRight.x, before.origin.x - (grown.width - before.width)))
-check("and the surface grows upward, not downward",
-      bottomRight.y + grown.height > before.maxY)
-
-// 3. Shrinking (fewer columns) is the same rule read backwards: the right edge still does not move,
-//    so origin.x travels right by the width lost.
+// 2. Shrinking (fewer columns) is the same rule read backwards: the header stays where the reader
+//    put it and the surface gives up the height at its bottom.
 let shrunk = CGRect(x: 300, y: 200, width: 380, height: 300)
-let shrunkAnchor = ResizeAnchor.origin(for: shrunk, edges: edges, corner: .bottomTrailing)
-check("a narrower surface keeps its right edge too",
-      near(shrunkAnchor.x + shrunk.width, edges.right) && near(shrunkAnchor.y, before.origin.y))
-check("a shorter surface still sits on the same bottom edge",
-      near(shrunkAnchor.y, edges.bottom))
+let shrunkHeld = ResizeAnchor.origin(for: shrunk, topEdge: topEdge)
+check("a shorter surface keeps its top edge too", near(shrunkHeld.y + shrunk.height, topEdge))
+check("…and gives up the height at the bottom", shrunkHeld.y > before.origin.y)
+// A width-only change corrects to no move at all, which is why nothing here needs a left edge as an
+// argument: a content resize cannot move origin.x.
+let wider = CGRect(x: 300, y: 200, width: 620, height: 500)
+check("a width-only resize corrects to where the surface already is",
+      !ResizeAnchor.needsMove(from: wider.origin,
+                              to: ResizeAnchor.origin(for: wider, topEdge: topEdge)))
 
-// 4. A resize that changed nothing must not produce a move: the correction runs on every resize
-//    notification, and writing a sub-point origin back would fire a move notification each pass
-//    (which is what re-reads the edges, so it would also be self-feeding).
-let same = ResizeAnchor.origin(for: before, edges: edges, corner: .bottomTrailing)
+// 3. A resize that changed nothing must not produce a move: the correction runs on every resize,
+//    and writing a sub-point origin back would fire a move notification each pass.
 check("an unchanged frame corrects to where it already is",
-      !ResizeAnchor.needsMove(from: before.origin, to: same))
-let sameTop = ResizeAnchor.origin(for: before, edges: edges, corner: .topLeading)
-check("…under either corner", !ResizeAnchor.needsMove(from: before.origin, to: sameTop))
+      !ResizeAnchor.needsMove(from: before.origin,
+                              to: ResizeAnchor.origin(for: before, topEdge: topEdge)))
 check("sub-point drift is rounding, not a move",
       !ResizeAnchor.needsMove(from: CGPoint(x: 300, y: 200), to: CGPoint(x: 300.4, y: 199.7)))
 check("a real difference is a move",
       ResizeAnchor.needsMove(from: CGPoint(x: 300, y: 200), to: CGPoint(x: 288, y: 200)))
 
-// 5. Applying the correction twice is a no-op: the anchor is re-read at every move, and the move
-//    the correction itself makes must not walk the surface across the screen.
-let corrected = CGRect(origin: bottomRight, size: grown.size)
-let again = ResizeAnchor.origin(for: corrected, edges: ResizeAnchor.Edges(frame: corrected),
-                                corner: .bottomTrailing)
+// 4. Applying the correction twice is a no-op: the surface has to be able to settle.
+let corrected = CGRect(origin: held, size: grown.size)
 check("correcting an already-corrected frame moves nothing",
-      !ResizeAnchor.needsMove(from: corrected.origin, to: again))
+      !ResizeAnchor.needsMove(from: corrected.origin,
+                              to: ResizeAnchor.origin(for: corrected, topEdge: corrected.maxY)))
 
-// 6. Every resize moves at least one of the three remembered edges, so edges read before one are
-//    stale after it. Under the top-leading rule the top is restored and the left never moves, which
-//    leaves the bottom and the right somewhere new - and those two are exactly what a later
-//    bottom-trailing pass anchors on.
-let afterTopLeft = CGRect(origin: topLeft, size: grown.size)
-let refreshed = ResizeAnchor.Edges(frame: afterTopLeft)
-check("a top-leading resize leaves the bottom and the right edges somewhere new",
-      near(refreshed.top, edges.top) && !near(refreshed.bottom, edges.bottom)
-          && !near(refreshed.right, edges.right))
-// Anchoring the next resize on the refreshed edges holds the shape that is actually on screen…
-let next = CGRect(origin: afterTopLeft.origin, size: CGSize(width: 700, height: 700))
-let freshAnchor = ResizeAnchor.origin(for: next, edges: refreshed, corner: .bottomTrailing)
-check("bottom-trailing off refreshed edges holds the frame that is on screen",
-      near(freshAnchor.y, afterTopLeft.minY) && near(freshAnchor.x + next.width, afterTopLeft.maxX))
-// …where the pre-resize edges would have thrown it back to a shape two layouts old. That gap is
-// the whole bug: the size change posts no move notification, so nothing else re-reads the edges.
-let staleAnchor = ResizeAnchor.origin(for: next, edges: edges, corner: .bottomTrailing)
-check("stale edges would have moved it somewhere else entirely",
-      ResizeAnchor.needsMove(from: freshAnchor, to: staleAnchor))
+// 5. A size difference worth acting on, and a height change worth telling from a drag.
+check("a height change is what tells a resize from a drag",
+      ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
+                                 to: CGSize(width: 400, height: 336)))
+check("…a move of the same window is not one",
+      !ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
+                                  to: CGSize(width: 400, height: 300)))
+check("…nor is sub-point rounding, which would move a window for nothing",
+      !ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
+                                  to: CGSize(width: 400, height: 300.4)))
+check("…and a change of width alone leaves the held edge nothing to do",
+      !ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
+                                  to: CGSize(width: 480, height: 300)))
 
-// 7. The case a move notification can never cover: growing only in width under the top-leading
-//    rule corrects to the origin the surface is already at, so no move is written and no move
-//    notification fires - while the right edge, the one this resize did move, is now stale.
-let wider = CGRect(x: 300, y: 200, width: 620, height: 500)
-let widerTopLeft = ResizeAnchor.origin(for: wider, edges: edges, corner: .topLeading)
-check("a width-only top-leading resize corrects to no move at all",
-      !ResizeAnchor.needsMove(from: wider.origin, to: widerTopLeft))
-check("…yet its right edge is no longer the one the anchor remembers",
-      !near(ResizeAnchor.Edges(frame: wider).right, edges.right))
-
-// 8. Which is a rule about the surfaces, not about this arithmetic: the edges have to be re-read
-//    when a RESIZE finishes, not only when a move does. Read off the source, the way the login
-//    suite pins its chain, because AppKit windows cannot be driven from here.
+// 6. Which is a rule about the surfaces, not about this arithmetic: the correction has to be applied
+//    where the resize happens. Read off the source, the way the login suite pins its chain, because
+//    AppKit windows cannot be driven from here.
 //
 //    Assertions from here down match CODE, never comments. The version of this suite that matched
 //    raw source went green on a doc comment that merely MENTIONED the rule while the statement
@@ -150,22 +122,28 @@ else {
     exit(1)
 }
 let observer = String(sizerSource[observerStart.upperBound ..< observerEnd.lowerBound])
-check("a finished resize re-reads the edges the next one anchors against",
-      observer.contains("anchorEdges = ") && observer.contains("resizeEdges"))
-// 9. And it asks about ITS OWN host. The menu-bar popover does not close the dashboard, so both
-//    surfaces can be up at once reading the same settings, and a question that only asked "is a
-//    card open somewhere" swapped the corner on the window the user was not even pointing at.
-//    The answer itself belongs to the store, so that the rule has one statement (see below).
-check("the sizing contract asks the store for its host's anchor",
-      sizerSource.contains("SettingsStore.shared.resizeAnchor(for: host)"))
-check("…and does not decide the corner for itself",
-      !sizerSource.contains("? .bottomTrailing"))
+check("a finished resize puts the surface back on a screen",
+      observer.contains("window.clampOnScreen()"))
+// EXACTLY ONE frame write in the whole contract, and it is the content resize. This is the shape of
+// the change that retired the card's debt: the put-back that used to move the surface when the card
+// closed was a second write, made from a remembered position, and BOTH halves of it were visible on
+// screen. A count rather than an absence, so the write that must exist still has to be there.
+check("the sizing contract writes exactly one frame, and it is the resize",
+      sizerSource.components(separatedBy: "window.setFrame(").count - 1 == 1
+          && !sizerSource.contains("setFrameOrigin"))
+check("…which holds the top edge it read off the window in the same breath",
+      sizerSource.contains("let topEdge = frame.maxY")
+          && sizerSource.contains("ResizeAnchor.origin(for: frame, topEdge: topEdge)"))
+// And nothing is remembered between resizes. A stored position is what a second corner needs, and
+// what a second corner produced was a surface that moved twice per card (see section 8).
+check("…and remembers no position between resizes",
+      !sizerSource.contains("anchorEdges") && !sizerSource.contains("didMoveNotification"))
 
-// 9b. There is exactly ONE implementation of that contract. The panel and the dashboard window each
-//     drove their own copy of this plumbing until 2026-08-05, and the window's copy was the one
-//     that never got `sizingOptions = []` - so it could not take the anchored-transition fix, and
-//     41 of 54 scripted triggers moved the page under the reader. A controller that states any of
-//     it again has forked the invariant, which in this file's history is how invariants die.
+// 7. There is exactly ONE implementation of that contract. The panel and the dashboard window each
+//    drove their own copy of this plumbing until 2026-08-05, and the window's copy was the one
+//    that never got `sizingOptions = []` - so it could not take the anchored-transition fix, and
+//    41 of 54 scripted triggers moved the page under the reader. A controller that states any of
+//    it again has forked the invariant, which in this file's history is how invariants die.
 for (name, path, host) in [("dashboard window", "Tally/MenuBar/MainWindowController.swift", "window"),
                            ("pinned panel", "Tally/MenuBar/PinnedPanelController.swift", "panel")] {
     let source = code(of: path)
@@ -178,7 +156,7 @@ for (name, path, host) in [("dashboard window", "Tally/MenuBar/MainWindowControl
     }
 }
 
-// 9c. The dashboard window is the one surface with a titlebar the user could drag a size out of,
+// 7b. The dashboard window is the one surface with a titlebar the user could drag a size out of,
 //     and it deliberately offers none: a drag would be a second size authority, and the next
 //     content report would write the dragged size straight back out (measured: a frame widened by
 //     200pt behind the content's back came back to the content's width on the next report, holding
@@ -188,7 +166,7 @@ check("the dashboard window offers no size of its own to drag",
       windowSource.contains("styleMask: [.titled, .closable, .miniaturizable]")
           && !windowSource.contains(".resizable"))
 
-// 9d. And it is never SHOWN at a size nobody has measured. The synchronous flush in `show` usually
+// 7c. And it is never SHOWN at a size nobody has measured. The synchronous flush in `show` usually
 //     settles the size before anything is on screen, but the report goes through a SwiftUI update
 //     and can be a run-loop turn behind - measured with that turn injected (2026-08-05, found by
 //     review): the window appeared opaque at the 500x400 placeholder on the wrong display and then
@@ -208,87 +186,21 @@ check("…and it is ordered front regardless, because that is what gets it laid 
       windowSource.contains("window?.makeKeyAndOrderFront(nil)")
           && !windowSource.contains("whenSized { $0.makeKeyAndOrderFront"))
 
-let settingsSource = (try? String(contentsOfFile: "Tally/Stores/SettingsStore.swift",
-                                  encoding: .utf8)) ?? ""
-// Closing is not symmetric with opening: one surface's card going away must not cancel an anchor
-// another surface is still relying on, so a close only clears the slot it owns - and it drops the
-// pointer claim with it, so a card that goes away cannot leave its corner behind.
-check("a close clears the open flag only for the host that owns it",
-      settingsSource.contains("if open { viewOptionsHost = host }")
-          && settingsSource.contains(
-              "else if viewOptionsHost == host { viewOptionsHost = nil; isPointerOnViewOptions = false }"))
-
-// 10. The rule itself, and the reason this file exists at all: the bottom-right corner is claimed,
-//     never inherited. Holding it needs BOTH the card being this host's AND the pointer being on
-//     it; everything else in the surface - a project row, the tab switch, the range picker, a
-//     provider heading, whatever is added next - gets the top left without having to ask for it.
+// 7d. THE PICK PANEL HOLDS ITS TOP EDGE TOO, and it is the one surface here that does so from inside
+//     its own `setFrame` rather than through the shared sizing contract: it is sized by
+//     `sizingOptions` (one authority, and the only one), so there is no resize notification to
+//     answer and nothing here may write a size back. What it corrects is the ORIGIN of a frame
+//     AppKit has already decided, in the one case that has an origin worth correcting.
 //
-//     The previous shape was the other way round (the card being open was enough, and each reading
-//     control had to opt out) and it was wrong for three of them at once: with the card open, the
-//     tab switch moved the whole surface 32pt (measured 2026-08-05). A rule the open set has to opt
-//     out of is a rule that is wrong for whichever member was written last.
-guard let ruleStart = settingsSource.range(of: "func resizeAnchor(for host: SurfaceHost)"),
-      let ruleEnd = settingsSource.range(of: "\n    }\n", range: ruleStart.upperBound ..< settingsSource.endIndex)
-else {
-    check("the anchor rule was found to read", false)
-    exit(1)
-}
-let rule = String(settingsSource[ruleStart.upperBound ..< ruleEnd.lowerBound])
-check("the anchor rule needs the card to be this host's AND the pointer to be on it",
-      rule.contains("viewOptionsHost == host && isPointerOnViewOptions ? .bottomTrailing"))
-check("…and everything else gets the top left",
-      rule.contains(": .topLeading"))
-
-// 10b. And a host that does not place itself by this rule at all cannot be told a corner. The
-//      popover is attached to the status item's arrow by AppKit and `applyPopoverSize` only ever
-//      writes a content size, so answering "bottom right" for it would have the surface wait
-//      against an edge nothing keeps still. Found by review after the first fix shipped it
-//      (2026-08-05); the switch is exhaustive so a fourth surface has to answer for itself.
-guard let popoverCase = rule.range(of: "case .popover:") else {
-    check("the rule answers for the popover explicitly", false)
-    exit(1)
-}
-let afterPopover = rule[popoverCase.upperBound...]
-let popoverAnswer = afterPopover.range(of: "case .panel").map { String(afterPopover[..<$0.lowerBound]) }
-    ?? String(afterPopover)
-check("the popover is never told a resize will hold a corner it does not implement",
-      popoverAnswer.contains(".topLeading") && !popoverAnswer.contains("bottomTrailing"))
-check("…and it says so on its own, not by sharing a case with a host that does place itself",
-      !rule.contains("case .popover, ") && !rule.contains(", .popover"))
-
-// 10b. THE PICK PANEL HOLDS ITS TOP EDGE, and it is the one surface here that does so from inside
-//      its own `setFrame` rather than through the shared sizing contract: it is sized by
-//      `sizingOptions` (one authority, and the only one), so there is no resize notification to
-//      answer and nothing here may write a size back. What it corrects is the ORIGIN of a frame
-//      AppKit has already decided, in the one case that has an origin worth correcting.
-//
-//      WHY IT HOLDS ANYTHING AT ALL: the apply bar appears under the columns when a row is circled
-//      (`pickApplyBlockHeight`), and AppKit holding the bottom-left origin would push every row up
-//      by that much - out from under the pointer that had just circled one.
-check("a taller frame keeps the top edge, so the surface grows downward",
-      near(ResizeAnchor.origin(for: grown, edges: edges, corner: .topLeading).y + grown.height,
-           edges.top))
-check("…and a height change is what tells a resize from a drag",
-      ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
-                                 to: CGSize(width: 400, height: 336)))
-check("…a move of the same window is not one",
-      !ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
-                                  to: CGSize(width: 400, height: 300)))
-check("…nor is sub-point rounding, which would move a window for nothing",
-      !ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
-                                  to: CGSize(width: 400, height: 300.4)))
-// A width-only write is a move as far as this edge is concerned: the edge being held is horizontal,
-// and the left one is where it was already (`ResizeAnchor.origin`).
-check("…and a change of width alone leaves the held edge nothing to do",
-      !ResizeAnchor.changesHeight(from: CGSize(width: 400, height: 300),
-                                  to: CGSize(width: 480, height: 300)))
+//     WHY IT HOLDS ANYTHING AT ALL: the apply bar appears under the columns when a row is circled
+//     (`pickApplyBlockHeight`), and AppKit holding the bottom-left origin would push every row up
+//     by that much - out from under the pointer that had just circled one.
 let pickSource = code(of: "Tally/MenuBar/PickPanelController.swift")
 check("the pick panel holds that edge through its own frame writes",
       pickSource.contains("guard keepsTopEdge, ResizeAnchor.changesHeight(from: frame.size, "
           + "to: frameRect.size) else {")
           && pickSource.contains(
-              "held.origin = ResizeAnchor.origin(for: frameRect, edges: resizeEdges, "
-              + "corner: .topLeading)"))
+              "held.origin = ResizeAnchor.origin(for: frameRect, topEdge: frame.maxY)"))
 // The size is AppKit's, passed through: a panel that wrote one back would be the two-authorities
 // crash this repo has already paid for once (~/.claude/docs/patterns/swiftui-appkit.md).
 check("…rewriting the origin only, never the size",
@@ -320,156 +232,183 @@ let armedAfterPlacement = pickSource.range(of: "panel.centerOnPointerScreen()").
 check("…armed only once the panel has been placed, and off until then",
       pickSource.contains("var keepsTopEdge = false") && armedAfterPlacement)
 
-// 11. And the claim has exactly one claimant. If any view other than the card could report the
-//     pointer, the open set would be back: something in the reading region could hold the card's
-//     corner without anyone noticing until a surface jumped.
-let viewFiles = (try? FileManager.default.contentsOfDirectory(atPath: "Tally/Views")) ?? []
-let claimants = viewFiles.filter { file in
-    guard file.hasSuffix(".swift") else { return false }
-    let text = (try? String(contentsOfFile: "Tally/Views/\(file)", encoding: .utf8)) ?? ""
-    return text.contains("viewOptionsPointer(inside:")
-}
-check("only the view-options card itself claims the anchor (found: \(claimants))",
-      claimants == ["PopoverFooterView.swift"])
-
-// 10. THE CARD'S ANCHOR IS A LOAN. Holding the bottom right keeps the control under the pointer,
-//     and pays for it out of the two edges it does not hold: measured on screen 2026-08-17, one
-//     change of the session board's column count took 333pt of height out of the panel and dropped
-//     its top edge - and the header with it - 333pt down the display, where it stayed until the
-//     owner dragged the panel home by hand. `restoredOrigin` is the repayment, made once when the
-//     card goes.
-let opened = CGRect(x: 300, y: 200, width: 560, height: 801)
-let openedEdges = ResizeAnchor.Edges(frame: opened)
-check("edges read the left edge too", near(openedEdges.left, 300))
-// The measured sequence, in this arithmetic: a shorter board under the card's own corner.
-let shorter = CGRect(origin: ResizeAnchor.origin(
-    for: CGRect(origin: opened.origin, size: CGSize(width: 560, height: 468)),
-    edges: openedEdges, corner: .bottomTrailing), size: CGSize(width: 560, height: 468))
-check("the card's corner drops the top edge by the height it lost",
-      near(shorter.maxY, opened.maxY - 333) && near(shorter.minY, opened.minY))
-let repaid = ResizeAnchor.restoredOrigin(for: shorter, to: openedEdges)
-check("closing the card puts the top edge back where the card found it",
-      near(repaid.y + shorter.height, openedEdges.top))
-check("…and the left edge with it", near(repaid.x, openedEdges.left))
-check("…while the height stays whatever the change made it",
-      near(shorter.height, 468))
-// The other axis, which is the Usage page's density and column tiles: the card's corner holds the
-// RIGHT edge, so a wider surface walks its left edge off the screen and the same repayment fetches
-// it back. This is why the restitution is not simply the top-leading correction, which deliberately
-// leaves origin.x alone because an ordinary content resize never moves it.
-let widened = CGRect(origin: ResizeAnchor.origin(
-    for: CGRect(origin: opened.origin, size: CGSize(width: 1108, height: 801)),
-    edges: openedEdges, corner: .bottomTrailing), size: CGSize(width: 1108, height: 801))
-check("the card's corner takes the width change off the left edge",
-      near(widened.minX, openedEdges.right - 1108) && near(widened.maxX, openedEdges.right))
-let repaidWide = ResizeAnchor.restoredOrigin(for: widened, to: openedEdges)
-check("closing the card fetches the left edge back", near(repaidWide.x, openedEdges.left))
-check("…which the top-leading correction would not have done",
-      !near(ResizeAnchor.origin(for: widened, edges: openedEdges, corner: .topLeading).x,
-            openedEdges.left))
-// Made once and idempotent: the put-back is a move, and a move re-reads the edges.
-let settled = CGRect(origin: repaid, size: shorter.size)
-check("repaying an already-repaid surface moves nothing",
-      !ResizeAnchor.needsMove(from: settled.origin,
-                              to: ResizeAnchor.restoredOrigin(
-                                    for: settled, to: ResizeAnchor.Edges(frame: settled))))
-check("a card that changed nothing owes nothing",
-      !ResizeAnchor.needsMove(from: opened.origin,
-                              to: ResizeAnchor.restoredOrigin(for: opened, to: openedEdges)))
-
-// 10b. And the surface that owes it is the one that records the debt: the sizer takes the edges when
-//      the card opens and puts them back when it closes. Read off the code for the reason section 8
-//      gives - AppKit windows cannot be driven from here.
-check("the sizing contract records where the card found the surface",
-      sizerSource.contains("cardEdges = window.resizeEdges"))
-check("…and puts it back through the one decision, conditions and all",
-      sizerSource.contains("ResizeAnchor.restitution(for: window.frame, to: cardEdges,")
-          && sizerSource.contains("if plan.clampsOnScreen { window.clampOnScreen() }"))
-check("…on the card's own presentation, per host",
-      sizerSource.contains("var onViewOptionsPresented: (Bool) -> Void"))
-let footerSource = code(of: "Tally/Views/PopoverFooterView.swift")
-check("the card tells its host it is being presented",
-      footerSource.contains("onViewOptionsPresented?(open)"))
-
-// 11. ONE READING OF THE CORNER PER RESIZE. It has three consumers a run-loop turn apart - where the
-//     content is placed, where the frame is written, and the correction the resize notification
-//     triggers - and `HostAnchored` states the invariant they only satisfy together: "the transition
-//     and its destination are never different anchors". Nothing enforced it while each consumer
-//     asked a LIVE answer, and a single click can switch a tab and dismiss the card in one event.
-//     So the corner travels with the measurement, and the store is asked in exactly one place on
-//     each side.
-let rootSource = code(of: "Tally/Views/PopoverRootView.swift")
-check("the surface reads its host's corner in one place",
-      rootSource.components(separatedBy: "settings.resizeAnchor(for: host)").count - 1 == 1)
-check("…named, so the content's placement and the host's report are the same reading",
-      rootSource.contains("var anchorCorner: ResizeAnchor.Corner")
-          && rootSource.contains(".anchoredInHost(anchorCorner"))
-check("…and it is captured in the body rather than re-read in the callback",
-      rootSource.contains("let corner = anchorCorner")
-          && rootSource.contains("onContentSize?(size, corner)"))
-check("the sizing contract asks the store once, and only where no measurement is in flight",
-      sizerSource.components(separatedBy: "SettingsStore.shared.resizeAnchor").count - 1 == 1
-          && sizerSource.contains("hold.corner(live: SettingsStore.shared.resizeAnchor(for: host))"))
-check("…so the frame write and the resize correction read the reported corner",
-      sizerSource.contains("corner: corner") && observer.contains("self.corner"))
-
-/// Nothing to do, which is what both skip conditions come out as.
-let noRestitution = ResizeAnchor.Restitution(origin: nil, clampsOnScreen: false)
-
-// 11b. HOW LONG THAT READING SPEAKS FOR, asserted as behaviour rather than as a line of source.
-//      The version of this that read `observer.contains("reportedCorner = nil")` could only say the
-//      clearing was WRITTEN somewhere, never that it is REACHED - and the defect was exactly a path
-//      that does not reach it (codex, 2026-08-17): a measurement whose size differs by a rounding
-//      residue is reported, is answered with no frame write because `needsResize` has a half-point
-//      tolerance, produces no resize notification, and leaves its corner standing. Nothing calls
-//      the surface back either: the report is gated on `onChange(of: proxy.size)`, and closing the
-//      card changes the corner without changing the size, so no new measurement is ever sent.
-var hold = ResizeAnchor.Hold()
-check("with nothing measured the surface follows its host's live answer",
-      hold.corner(live: .topLeading) == .topLeading)
-hold.reported(.bottomTrailing)
-check("a measurement's corner is what the write it asks for has to hold",
-      hold.corner(live: .topLeading) == .bottomTrailing)
-hold.applied(wroteFrame: false)
-check("a measurement that resized nothing leaves no corner behind",
-      hold.corner(live: .topLeading) == .topLeading)
-hold.reported(.bottomTrailing)
-hold.applied(wroteFrame: true)
-check("a write keeps its corner for the resize it is about to cause",
-      hold.corner(live: .topLeading) == .bottomTrailing)
-hold.finished()
-check("…and gives it up once that resize has finished",
-      hold.corner(live: .topLeading) == .topLeading)
-// And the host is driven by that machine rather than by a second copy of the rule.
-check("the sizing contract holds its corner through the one lifetime",
-      sizerSource.contains("private var hold = ResizeAnchor.Hold()")
-          && sizerSource.contains("hold.reported(corner)")
-          && sizerSource.contains("hold.applied(wroteFrame: wroteFrame)")
-          && observer.contains("self.hold.finished()"))
-check("…and the write says whether it actually wrote",
-      sizerSource.contains("wroteFrame = true"))
-
-// 12. AND WHEN THE PUT-BACK IS SKIPPED, which the first version of it did not assert at all: the
-//     new assertions covered the arithmetic ("does it compute the right origin") and none of the
-//     conditions ("is it reached"), and both reported defects lived in the second half.
+// 8. ONE ANCHOR, FOR EVERYTHING, AND NOTHING MAY CLAIM ANOTHER.
 //
-//     A SURFACE NOBODY CAN SEE STILL PAYS THE DEBT. The window is order-out before `onDisappear`
-//     reaches this, so a card still open at Cmd-Q or at an update relaunch used to skip the
-//     put-back and cancel the debt in the same breath - while AppKit's frame autosave had been
-//     recording the displaced frame all along, so the panel came back next launch exactly where the
-//     card had pushed it. Writing the origin is what the autosave has to see; clamping it onto a
-//     display is what a hidden window has no use for.
-let hidden = ResizeAnchor.restitution(for: shorter, to: openedEdges, isVisible: false)
-let seen = ResizeAnchor.restitution(for: shorter, to: openedEdges, isVisible: true)
-check("a card that moved the surface writes the origin back", seen.origin != nil)
-check("…and follows it by putting the surface back on a screen", seen.clampsOnScreen)
-check("a surface already off screen pays the same debt", hidden.origin == seen.origin)
-check("…without being clamped onto a display nobody is looking at", !hidden.clampsOnScreen)
-check("no card was recorded, so there is nothing to put back",
-      ResizeAnchor.restitution(for: shorter, to: nil, isVisible: true) == noRestitution)
-check("a card that moved nothing writes no frame at all",
-      ResizeAnchor.restitution(for: settled, to: ResizeAnchor.Edges(frame: settled),
-                               isVisible: true) == noRestitution)
+//    The rule used to be conditional: the view-options card held the surface's BOTTOM RIGHT while
+//    the pointer was on it, so a tile click kept the tile still by walking the panel 333pt down the
+//    display, and closing the card jumped it back. Equal and opposite, so it cancelled on paper -
+//    and both halves were the panel moving, which is what was reported three times (Albert,
+//    2026-08-17). The card is a window of its own now (`ViewOptionsCardPlacement`), so nothing has
+//    to move for it, and this asserts that the machinery for a second corner is GONE rather than
+//    merely unused: an unused corner is a rule the next reader will find and follow.
+//
+//    Over every source in the app, enumerated rather than sampled: a name checked in the two files
+//    that used to hold it would go green the moment somebody put it in a third.
+let appSources: [String] = {
+    let root = "Tally"
+    guard let walker = FileManager.default.enumerator(atPath: root) else { return [] }
+    return walker.compactMap { $0 as? String }
+        .filter { $0.hasSuffix(".swift") }
+        .map { "\(root)/\($0)" }
+}()
+check("every source in the app was found to read (\(appSources.count))", appSources.count > 40)
+//    The names are the machinery's, not SwiftUI's: `.bottomTrailing` on its own is an alignment and
+//    says nothing about a window's anchor (`MenuBarStrip` uses one), so what is banned is the corner
+//    ARGUMENT and the bookkeeping a second corner needed.
+for banned in ["ResizeAnchor.Corner", "ResizeAnchor.Edges", "ResizeAnchor.Hold", "corner: .",
+               "resizeAnchor(", "restoreAnchor", "restitution", "cardEdges",
+               "isPointerOnViewOptions", "viewOptionsHost", "resizeEdges"] {
+    let carriers = appSources.filter { code(of: $0).contains(banned) }
+    check("no surface states `\(banned)` any more (found in: \(carriers))", carriers.isEmpty)
+}
+// And the corner is not merely unspoken, it is not declarable: the enum a second rule would be
+// written in terms of is gone from the file that used to hold it.
+check("there is no corner left to choose",
+      !code(of: "Tally/Core/ResizeAnchor.swift").contains("enum Corner"))
+// And the positive half, so the sweep above cannot pass by everything having been deleted: the one
+// rule is still applied, in the two places that apply it.
+check("the one rule is still what both frame writers use",
+      sizerSource.contains("ResizeAnchor.origin(for: frame, topEdge:")
+          && pickSource.contains("ResizeAnchor.origin(for: frameRect, topEdge:"))
+
+// 9. WHERE THE CARD STANDS. Above the button that opened it and centred on it, which is where the
+//    popover it replaces sat: nothing about the gesture changed, only what happens afterwards.
+let display = CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+let cardSize = CGSize(width: 268, height: 320)
+let button = CGRect(x: 700, y: 240, width: 28, height: 28)
+let card = ViewOptionsCardPlacement.frame(size: cardSize, anchor: button, visible: display)
+check("the card stands on the button that opened it",
+      near(card.minY, button.maxY + ViewOptionsCardPlacement.gap))
+check("…centred on it", near(card.midX, button.midX))
+check("…at the size its own content laid out at", card.size == cardSize)
+
+// 9b. THE PLACEMENT IS A FUNCTION OF THE BUTTON AND THE SCREEN, AND OF NOTHING ELSE. That is the
+//     whole design: the surface behind the card resizes with every click in it, and a card that took
+//     the surface as an input would have to be moved every time - which is what an attached popover
+//     did, and why the tile walked out from under the pointer.
+let sameButtonAgain = ViewOptionsCardPlacement.frame(size: cardSize, anchor: button, visible: display)
+check("the same button gives the same place, however often it is asked", sameButtonAgain == card)
+
+// 9c. No room above - the surface was dragged to the top of the display - so it stands under the
+//     button instead, the way a popover flips its arrow.
+let highButton = CGRect(x: 700, y: 940, width: 28, height: 28)
+let flipped = ViewOptionsCardPlacement.frame(size: cardSize, anchor: highButton, visible: display)
+check("a card with no room above it hangs under the button",
+      near(flipped.maxY, highButton.minY - ViewOptionsCardPlacement.gap))
+check("…and is still on the screen", display.contains(flipped))
+
+// 9d. And it is kept inside the display on both axes. Nothing else will do it: the card is its own
+//     window, so the surface's clamp does not reach it.
+let edgeButton = CGRect(x: 1_580, y: 240, width: 28, height: 28)
+let clampedRight = ViewOptionsCardPlacement.frame(size: cardSize, anchor: edgeButton,
+                                                  visible: display)
+check("a button against the right edge does not push the card off it",
+      near(clampedRight.maxX, display.maxX) && clampedRight.minX > display.minX)
+let leftButton = CGRect(x: 4, y: 240, width: 28, height: 28)
+check("…nor does one against the left",
+      near(ViewOptionsCardPlacement.frame(size: cardSize, anchor: leftButton,
+                                          visible: display).minX, display.minX))
+// A card taller than the room it has keeps its BOTTOM on screen: the low edge wins, because pushing
+// it off the top would take the controls with it while leaving the surface behind.
+let tall = ViewOptionsCardPlacement.frame(size: CGSize(width: 268, height: 1_400), anchor: button,
+                                          visible: display)
+check("a card too tall for the display hangs off the top, not the bottom",
+      near(tall.minY, display.minY))
+
+// 10. WHAT PUTS IT AWAY. Everything but the card itself, which is what makes it read as a popover -
+//     and one thing more, which is what makes it better than one: a press on the panel's drag
+//     regions dismisses the card AND carries the window from the same press (Albert, 2026-08-18).
+let toggle = CGRect(x: 700, y: 240, width: 28, height: 28)
+check("a press inside the card is the card being used",
+      !ViewOptionsCardPlacement.dismisses(press: CGPoint(x: card.midX, y: card.midY),
+                                          card: card, toggle: toggle))
+check("a press on the surface's drag region puts it away",
+      ViewOptionsCardPlacement.dismisses(press: CGPoint(x: 200, y: 600), card: card, toggle: toggle))
+check("…as does a press in another app entirely",
+      ViewOptionsCardPlacement.dismisses(press: CGPoint(x: -400, y: -400), card: card,
+                                         toggle: toggle))
+// The button that opened it is exempt, and not as a courtesy: it is a TOGGLE, so dismissing on the
+// way down would leave its own action to re-open the card on the way up and the control could never
+// close what it opens.
+check("the button it came from is exempt, or it could never be closed by it",
+      !ViewOptionsCardPlacement.dismisses(press: CGPoint(x: toggle.midX, y: toggle.midY),
+                                          card: card, toggle: toggle))
+// AND THAT EXEMPTION IS READ LIVE. The surface resizes while the card is up, which moves the footer
+// the button sits in - so an exemption remembered from the opening would protect a patch of empty
+// panel and stop protecting the button. The card's own rectangle is the opposite: decided once. The
+// two together are the design.
+let movedToggle = toggle.offsetBy(dx: 0, dy: -333)
+check("a footer that moved takes the exemption with it",
+      !ViewOptionsCardPlacement.dismisses(press: CGPoint(x: movedToggle.midX, y: movedToggle.midY),
+                                          card: card, toggle: movedToggle))
+check("…and where the button used to be is now just surface",
+      ViewOptionsCardPlacement.dismisses(press: CGPoint(x: toggle.midX, y: toggle.midY),
+                                         card: card, toggle: movedToggle))
+check("a card whose button has gone is dismissed by any press at all",
+      ViewOptionsCardPlacement.dismisses(press: CGPoint(x: toggle.midX, y: toggle.midY),
+                                         card: card, toggle: nil))
+
+// 11. AND THE WINDOW THAT CARRIES IT, read off the source for the reason section 6 gives.
+let cardSource = code(of: "Tally/MenuBar/ViewOptionsCard.swift")
+check("the card is placed through that arithmetic, from the button's rectangle on screen",
+      cardSource.contains(
+        "panel.setFrame(ViewOptionsCardPlacement.frame(size: hosting.fittingSize, anchor: anchorRect,"))
+// PLACED ONCE. One frame write in the controller, and nothing watching the surface: an observer of
+// the host's moves or resizes is exactly how a card would start following the footer again.
+check("…once, and then left alone",
+      cardSource.components(separatedBy: "panel.setFrame(").count - 1 == 1
+          && !cardSource.contains("addObserver") && !cardSource.contains("didMoveNotification")
+          && !cardSource.contains("didResizeNotification"))
+// THE PRESS IS PASSED ON, which is the drag behaviour in one line: the monitor runs before the event
+// reaches the window, so the card is gone by the time the panel's drag region receives the very same
+// press. Swallowing it would cost a click; dismissing after would let the press through to a card
+// that was still up.
+let pressPath = cardSource
+    .range(of: "if self.dismisses(pressAt: NSEvent.mouseLocation) { self.dismissAndReport() }")
+    .map { String(cardSource[$0.upperBound...].prefix(60)) } ?? ""
+check("a press that dismisses the card is still delivered, so the drag it started carries on",
+      pressPath.contains("return event") && !pressPath.contains("return nil"))
+check("…and the exemption is asked of the anchor at the press, not remembered from the opening",
+      cardSource.contains("toggle: { [weak anchor] in anchor?.screenRect }")
+          && cardSource.contains("toggle: card.toggle()"))
+check("Escape puts it away, through the monitor and through the panel itself",
+      cardSource.contains("event.keyCode == 53") && cardSource.contains("func cancelOperation"))
+// NOT dismissed on losing key, which is how a popover does it and how this one must not: an
+// accessory app's panel is handed the key window and can have it taken straight back while the
+// activation request settles, so that reading fires before anybody has seen anything
+// (~/.claude/docs/patterns/swiftui-appkit.md, paid for by the pick panel on 2026-08-09).
+check("…and never by losing the key window, which fires before anyone has seen it",
+      !cardSource.contains("didResignKey"))
+// Named per host, so the popover closing behind its own footer cannot take away the pinned panel's
+// card - two surfaces can be on screen at once.
+check("a host only ever dismisses its own card",
+      cardSource.contains("func dismiss(host: SurfaceHost)")
+          && cardSource.contains("guard presentation?.host == host else { return }"))
+// ONE SIZE AUTHORITY, the red line on this repo's SwiftUI-in-AppKit surfaces: the card is the size
+// its content lays out at, and the frame writes here are placement only.
+check("the card has one size authority, and the frame it is given is placement only",
+      cardSource.contains("hosting.sizingOptions = [.intrinsicContentSize]")
+          && cardSource.contains("held.origin = frame.origin") && !cardSource.contains("held.size"))
+check("…and it grows upward, away from the button and the pointer on it",
+      cardSource.contains("var holdsBottomEdge = false")
+          && cardSource.contains("panel.holdsBottomEdge = true"))
+
+// 11b. The surface's end of the same wiring: the button says where it is, the change of state says
+//      when, and a surface being torn down takes its card with it (`onChange` never fires for a view
+//      that has gone, so this is the only hook there is).
+let footerSource = code(of: "Tally/Views/PopoverFooterView.swift")
+check("the button that opens the card is what the card stands on",
+      footerSource.contains(".viewOptionsAnchor(viewOptionsAnchor)")
+          && footerSource.contains("ViewOptionsCard.shared.present("))
+check("…and the attached popover is left to the one host that has to have it",
+      footerSource.contains("showViewOptions && !host.detachesViewOptionsCard")
+          && footerSource.contains("guard host.detachesViewOptionsCard else { return }"))
+check("…which the host answers for itself, exhaustively",
+      code(of: "Tally/Views/SurfaceTabState.swift").contains("var detachesViewOptionsCard: Bool")
+          && code(of: "Tally/Views/SurfaceTabState.swift").contains("case .popover: return false"))
+check("a surface torn down with its card up takes the card with it",
+      code(of: "Tally/Views/PopoverRootView.swift")
+          .contains(".onDisappear { ViewOptionsCard.shared.dismiss(host: host) }"))
 
 checkPopoverAnchor()
 checkPanelSummon()

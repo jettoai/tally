@@ -176,8 +176,12 @@ func checkPanelSummon() {
     let onScreens = String(sizerSource[screensStart.upperBound ..< screensEnd.lowerBound])
     check("a display appearing or going away puts the surface back on screen by itself",
           onScreens.contains("window.clampOnScreen()"))
-    check("…and re-reads the edges the next resize anchors against, like every other write here",
-          onScreens.contains("anchorEdges = ") && onScreens.contains("resizeEdges"))
+    // AND NOTHING ELSE, which is what the one-anchor rule bought: this used to have to write down
+    // the edges the next resize would put back, because a second corner needed a remembered shape to
+    // hold. `sizeNow` reads the edge it holds off the window in the statement that resizes it, so
+    // there is nothing here for a stale copy of it to be.
+    check("…and remembers nothing, because the anchor is read where it is used",
+          !onScreens.contains("anchorEdges"))
 
     // 8. THE ANCHOR'S OWN SHAPE. The status item's width changes under this app's own hand - the
     //    waiting dot appears, a percentage goes from two digits to three - and watching only moves

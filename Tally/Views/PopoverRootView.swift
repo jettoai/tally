@@ -21,16 +21,10 @@ struct PopoverRootView: View {
     /// Reports the content's ACTUAL rendered size so the host (popover / panel) can size itself to it.
     /// Measuring the real size beats asking `sizeThatFits`, which returned a greedy screen-tall height.
     ///
-    /// The corner this content laid itself out against travels with the size, read in the same body
-    /// pass (`anchorCorner`). The host writes the frame a run-loop turn later and must hold the
-    /// corner the content is already waiting at, not whichever one the store answers by then - one
-    /// click can switch a tab and dismiss the view-options card together, and two readings of a live
-    /// answer either side of that click are two different corners (see `SurfaceSizer.corner`).
-    var onContentSize: ((CGSize, ResizeAnchor.Corner) -> Void)? = nil
-    /// Reports the view-options card being presented or dismissed here, so the host can give back
-    /// what the card's own resize rule spent (`SurfaceSizer.onViewOptionsPresented`). Nil for the
-    /// popover, whose position is AppKit's and never this surface's to restore.
-    var onViewOptionsPresented: ((Bool) -> Void)? = nil
+    /// Also what says whether this surface is placed by its own frame at all: a host that passes one
+    /// sizes itself from the report and holds a corner while it does, and one that does not must not
+    /// have the content waiting against an edge nothing keeps still (see `anchoredInHost`).
+    var onContentSize: ((CGSize) -> Void)? = nil
     /// Whether the host window itself draws glass (the popover's vibrancy, the pinned panel's
     /// behind-window blur). The dashboard window is opaque, so it opts out and keeps solid cards -
     /// a within-window material there would only sample that window's own grey.
@@ -47,9 +41,10 @@ struct PopoverRootView: View {
     var tokens: TokenStatsStore = .shared
     /// This surface's own tab selection, held by its host controller (see `SurfaceTabState`).
     @Bindable var tabState: SurfaceTabState
-    /// Which window this copy is in (see `SurfaceHost`). Only the view-options card reads it, and
-    /// only to say whose card is open. Deliberately without a default: a fourth host that forgot to
-    /// answer would silently claim to be the popover, and claim its anchor with it.
+    /// Which window this copy is in (see `SurfaceHost`). Only the view-options card reads it: whose
+    /// card is open, and whether it is a window of its own here. Deliberately without a default: a
+    /// fourth host that forgot to answer would silently claim to be the popover, and keep its card
+    /// attached to a footer that moves under it.
     var host: SurfaceHost
 
     var tab: SurfaceTab { tabState.tab }
@@ -222,24 +217,17 @@ struct PopoverRootView: View {
         .onDisappear { SessionRosterStore.shared.endViewing() }
         .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }
         // A host can go away with its card still up (the popover closes on a click outside, the
-        // panel is unpinned), and `onChange` never fires for a view that was torn down: without
-        // this the flag would keep claiming a card is open and every later resize would anchor to
-        // the wrong corner.
-        .onDisappear {
-            settings.setViewOptionsOpen(false, host: host)
-            // The host hears it too, so a surface torn down with its card still up leaves no
-            // remembered position behind: a put-back is worth making while the user is looking at
-            // the surface, and worthless against a window that has gone (`SurfaceSizer`).
-            onViewOptionsPresented?(false)
-        }
+        // panel is unpinned), and `onChange` never fires for a view that was torn down - so a
+        // detached card would be left standing over nothing, with no surface left to dismiss it.
+        // Named per host, so a popover closing behind its own footer cannot take away the pinned
+        // panel's card.
+        .onDisappear { ViewOptionsCard.shared.dismiss(host: host) }
         .environment(\.tallyCardStyle, cardStyle)
         .id(settings.languageOverride ?? "system")
         // Outermost, because it is about this view's relationship with the window it is in and
         // nothing inside it: the surface stays against the corner the host is about to hold while
         // the host catches up with the height the surface just reported (see `HostAnchored`).
-        // The corner is read HERE, in the body, so that the card claiming it re-lays the surface out
-        // rather than leaving the transition anchored to the corner the host has stopped holding.
-        .anchoredInHost(anchorCorner, enabled: onContentSize != nil)
+        .anchoredInHost(enabled: onContentSize != nil)
     }
 
     /// The card fill for this surface: glass only where the host has glass to sample AND the user
@@ -251,24 +239,14 @@ struct PopoverRootView: View {
         return .glassVariant
     }
 
-    /// Measures the laid-out content size and reports it upward (fires on appear + on change),
-    /// carrying the corner this pass placed the content against.
-    ///
-    /// The corner is read HERE, in the body, and captured: reading it again inside the callback
-    /// would be a second reading of a live answer, which is the very thing the pair exists to stop.
+    /// Measures the laid-out content size and reports it upward (fires on appear + on change).
     private var sizeReporter: some View {
-        let corner = anchorCorner
-        return GeometryReader { proxy in
+        GeometryReader { proxy in
             Color.clear.onChange(of: proxy.size, initial: true) { _, size in
-                onContentSize?(size, corner)
+                onContentSize?(size)
             }
         }
     }
-
-    /// The corner this surface's host holds through a resize (`SettingsStore.resizeAnchor(for:)`),
-    /// named once so the two places that must agree - where the content waits and what the host is
-    /// told - cannot become two readings.
-    var anchorCorner: ResizeAnchor.Corner { settings.resizeAnchor(for: host) }
 
     /// How many card columns. An explicit 1/2/3/4 is a width the user chose and is second-guessed
     /// on one count only: what the display can seat (see `PanelGeometry.seated`). Folding cards
@@ -458,6 +436,10 @@ struct PopoverRootView: View {
     // drag-to-reorder is in PopoverCardGrid.swift.
     @State var showLaunchHelp = false
     @State var showViewOptions = false
+    /// Where the button that opens the view-options card is, for the surfaces that place the card
+    /// themselves (`ViewOptionsCard`). A box rather than a rect: the answer is read at moments
+    /// SwiftUI is not driving, and it has to be the LIVE one - the footer moves while the card is up.
+    @State var viewOptionsAnchor = ViewOptionsAnchor()
     @State var footerWidths = FooterWidths()
     @State var headerWidths = HeaderWidths()
 

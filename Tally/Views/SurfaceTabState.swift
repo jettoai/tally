@@ -26,12 +26,34 @@ enum SurfaceTab: String, CaseIterable, Identifiable {
 }
 
 /// Which host is presenting this copy of the surface. The view itself is the same in all three, so
-/// this exists only for the answers that depend on WHICH window is asking: the view-options anchor
-/// has to know whose card is open, because the dashboard and the menu-bar popover can be on screen
-/// at once and only the one actually presenting the card may swap its resize corner (see
-/// `SettingsStore.viewOptionsHost`).
+/// this exists only for the answers that depend on WHICH window is asking - and there is one:
+/// whether the view-options card is a window of its own (see below). The dashboard and the menu-bar
+/// popover can be on screen at once, so that answer has to name a host rather than say yes or no.
 enum SurfaceHost: Sendable {
     case popover, panel, window
+
+    /// WHETHER THE VIEW-OPTIONS CARD IS PLACED IN SCREEN SPACE HERE, instead of being attached to
+    /// the footer button by AppKit.
+    ///
+    /// The two surfaces that own a frame detach it, and for the reason the card exists as a window
+    /// at all: they resize themselves to their content while holding their top left, so their footer
+    /// travels by the whole height change and an attached card would travel with it
+    /// (`ViewOptionsCardPlacement`).
+    ///
+    /// The popover does not, and this is not an oversight to be tidied up later. It is TRANSIENT:
+    /// AppKit closes it the moment a click lands in another window of this app, so a detached card
+    /// would take the surface it belongs to away with the first tile the user pressed. AppKit also
+    /// moves it to keep it on the status item's arrow, so there is no position for a card to be
+    /// pinned relative to in the first place.
+    ///
+    /// A switch rather than a condition, so a fourth surface cannot inherit an answer: it will not
+    /// compile until somebody says which of these it is.
+    var detachesViewOptionsCard: Bool {
+        switch self {
+        case .popover: return false
+        case .panel, .window: return true
+        }
+    }
 }
 
 /// One surface's tab selection, one instance per host - deliberately not shared: flipping the pinned

@@ -129,15 +129,12 @@ section("which corner the surface waits on, and who may wait at all")
 // visible in a build, a type-check or any other test: the window simply comes up empty.
 let rootSource = (try? String(contentsOfFile: "Tally/Views/PopoverRootView.swift",
                               encoding: .utf8)) ?? ""
-// The corner is named now rather than read inline, because the same reading has to reach the host
-// with the measurement it belongs to (`SurfaceSizer.corner`) - so this pins BOTH halves: the
-// anchoring is still gated on the host sizing itself from the report, and the name is still the
-// host's own answer rather than a second opinion that happens to look like one.
-check(rootSource.contains(".anchoredInHost(anchorCorner, enabled: onContentSize != nil)")
-          && rootSource.contains(
-              "var anchorCorner: ResizeAnchor.Corner { settings.resizeAnchor(for: host) }"),
-      "the surface is anchored only where the host sizes itself from what it reports, "
-          + "and to the corner that host is holding")
+// There is no corner to name any more - the surface holds its top left through every resize
+// (`ResizeAnchor`, and the view-options card that used to claim the other one is a window of its own
+// now) - so what is left to pin is the gate: anchoring is only for a host that sizes itself from
+// what this view reports.
+check(rootSource.contains(".anchoredInHost(enabled: onContentSize != nil)"),
+      "the surface is anchored only where the host sizes itself from what it reports")
 
 // The transition and its destination must be the SAME corner, on BOTH axes. Waiting against the
 // wrong edge leaves whatever hangs off the opposite one a whole size-change out of place until the
@@ -149,24 +146,21 @@ check(rootSource.contains(".anchoredInHost(anchorCorner, enabled: onContentSize 
 // restated. That is the whole point: the version of this test that restated it ("leading under both
 // corners") agreed with the code, and the code was wrong.
 let start = CGRect(x: 300, y: 200, width: 500, height: 500)
-let held = ResizeAnchor.Edges(frame: start)
 let resized = CGRect(x: 300, y: 200, width: 620, height: 640)   // wider AND taller: both axes move
 let bounds = CGRect(x: 10, y: 20, width: 100, height: 200)
 
-for corner in [ResizeAnchor.Corner.topLeading, .bottomTrailing] {
-    let landed = CGRect(origin: ResizeAnchor.origin(for: resized, edges: held, corner: corner),
-                        size: resized.size)
-    let holdsLeft = near(landed.minX, start.minX), holdsRight = near(landed.maxX, start.maxX)
-    let holdsTop = near(landed.maxY, start.maxY), holdsBottom = near(landed.minY, start.minY)
-    let (point, anchor) = HostAnchored.placement(in: bounds, corner: corner)
-    check(holdsLeft == (anchor.x == 0) && holdsRight == (anchor.x == 1),
-          "\(corner): the transition waits on the same HORIZONTAL edge the window will hold")
-    check(holdsTop == (anchor.y == 0) && holdsBottom == (anchor.y == 1),
-          "\(corner): …and on the same vertical edge")
-    check(point.x == (anchor.x == 0 ? bounds.minX : bounds.maxX)
-            && point.y == (anchor.y == 0 ? bounds.minY : bounds.maxY),
-          "\(corner): …at that corner of the bounds it was given")
-}
+let landed = CGRect(origin: ResizeAnchor.origin(for: resized, topEdge: start.maxY),
+                    size: resized.size)
+let holdsLeft = near(landed.minX, start.minX), holdsRight = near(landed.maxX, start.maxX)
+let holdsTop = near(landed.maxY, start.maxY), holdsBottom = near(landed.minY, start.minY)
+let (point, anchor) = HostAnchored.placement(in: bounds)
+check(holdsLeft == (anchor.x == 0) && holdsRight == (anchor.x == 1),
+      "the transition waits on the same HORIZONTAL edge the window will hold")
+check(holdsTop == (anchor.y == 0) && holdsBottom == (anchor.y == 1),
+      "…and on the same vertical edge")
+check(point.x == (anchor.x == 0 ? bounds.minX : bounds.maxX)
+        && point.y == (anchor.y == 0 ? bounds.minY : bounds.maxY),
+      "…at that corner of the bounds it was given")
 
 // Matched against CODE, never comments: the version of this check that read raw source went green
 // on a doc comment that MENTIONED `sizingOptions = []` while the statement itself had moved to

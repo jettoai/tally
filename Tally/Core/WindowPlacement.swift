@@ -79,18 +79,6 @@ extension NSWindow {
         if origin != frame.origin { setFrameOrigin(origin) }
     }
 
-    /// The edges this window would have to put back after a content-driven resize, read now.
-    @MainActor var resizeEdges: ResizeAnchor.Edges { ResizeAnchor.Edges(frame: frame) }
-
-    /// Put the window back so `corner` sits where `edges` says it did. Origin only, and only when the
-    /// move is worth making (see `ResizeAnchor`). The caller decides the corner, because that answer
-    /// depends on what is on screen rather than on anything a window knows about itself.
-    @MainActor func restoreAnchor(_ edges: ResizeAnchor.Edges, corner: ResizeAnchor.Corner) {
-        let corrected = ResizeAnchor.origin(for: frame, edges: edges, corner: corner)
-        guard ResizeAnchor.needsMove(from: frame.origin, to: corrected) else { return }
-        setFrameOrigin(corrected)
-    }
-
     /// Screen-space top-left of the window's CONTENT, i.e. what the user sees the view start at.
     /// Titlebars and borders differ between the surfaces that hand this view to each other (the
     /// popover, the borderless panel, the titled window), so the content rect is the only anchor

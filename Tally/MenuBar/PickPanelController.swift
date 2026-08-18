@@ -457,7 +457,7 @@ final class PickPanel: NSPanel {
             return
         }
         var held = frameRect
-        held.origin = ResizeAnchor.origin(for: frameRect, edges: resizeEdges, corner: .topLeading)
+        held.origin = ResizeAnchor.origin(for: frameRect, topEdge: frame.maxY)
         super.setFrame(held, display: displays)
         // AND BACK ONTO THE SCREEN IT GREW OFF, which is the other half of holding a top edge: this
         // panel is movable by its background, so a person can leave it against the bottom of the

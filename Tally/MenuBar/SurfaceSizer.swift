@@ -14,12 +14,11 @@ import SwiftUI
 ///    with a screen-tall height.
 /// 3. That size is written back one run-loop turn later, so a window is never resized from inside
 ///    the SwiftUI update that measured it.
-/// 4. The write holds a corner still (`ResizeAnchor`, `SettingsStore.resizeAnchor(for:)`) rather
-///    than letting AppKit keep the bottom edge, which would drop the whole view - and the row just
-///    clicked - by the height difference.
-/// 5. Whatever the resize ends up as, the surface is put back on a screen (`clampOnScreen`) and the
-///    edges the NEXT resize anchors against are re-read. A size change posts no move notification,
-///    so nothing else refreshes them.
+/// 4. The write holds the surface's TOP LEFT still (`ResizeAnchor`) rather than letting AppKit keep
+///    the bottom edge, which would drop the whole view - and the row just clicked - by the height
+///    difference. One corner, for every resize, with no exceptions: what used to claim another one
+///    is now a window that does not move (`ViewOptionsCardPlacement`).
+/// 5. Whatever the resize ends up as, the surface is put back on a screen (`clampOnScreen`).
 ///
 /// It lives in one object because it now has two users, and this battle's repeated lesson is that
 /// an invariant produced by two separately maintained copies of the same code drifts: the two cards
@@ -27,17 +26,18 @@ import SwiftUI
 /// the anchor rule that enumerated the reading region's controls and missed three of them. A second
 /// user is the moment to share the implementation, not the moment to copy it.
 ///
-/// Its owner has to be the controller. Everything this hands out - the three callbacks, both
-/// notification observers - captures it weakly, so nothing else keeps it alive, and a surface whose
-/// sizer was released would simply stop following its content.
+/// Its owner has to be the controller. The three callbacks this hands out capture it weakly and the
+/// notification observers below hold nothing but the window, so nothing else keeps it alive and a
+/// surface whose sizer was released would simply stop following its content.
 ///
 /// Not the popover. `NSPopover` is placed by AppKit against the status item's arrow and has no
 /// frame of its own to write, so `StatusItemController.applyPopoverSize` writes a content SIZE and
 /// nothing else. It shares what is genuinely common (the `sizingOptions = []` rule, and
-/// `ResizeAnchor.needsResize` through the same store answer) and none of what is not.
+/// `ResizeAnchor.needsResize`) and none of what is not.
 @MainActor
 final class SurfaceSizer {
-    /// Which surface this is, for the questions whose answer depends on it (the resize anchor).
+    /// Which surface this is, for the questions whose answer depends on it (whether the view-options
+    /// card is a window of its own here, `SurfaceHost.detachesViewOptionsCard`).
     let host: SurfaceHost
 
     /// Held weakly: the window owns its content view, the content view owns this object through
@@ -49,28 +49,6 @@ final class SurfaceSizer {
     /// rather than passed through so that a host being opened can apply the pending measurement on
     /// the spot (see `MainWindowController.show`).
     private var reported: CGSize?
-
-    /// The edges a content-driven resize puts back, refreshed after every resize AND every move: a
-    /// move is the last position the user chose, a resize is the shape they now have to be put
-    /// back to, and only the pair covers it.
-    private var anchorEdges: ResizeAnchor.Edges?
-
-    /// The corner that came with the last measurement, and how long it answers for
-    /// (`ResizeAnchor.Hold`). Read rather than asked again, because asking again is asking a
-    /// question whose answer can have changed in between: one click both switches a tab and
-    /// dismisses the card, and the two readings a run-loop turn apart then place the content
-    /// against one corner and write the frame to the other.
-    private var hold = ResizeAnchor.Hold()
-
-    /// The surface's edges at the moment the view-options card was opened here, and nil whenever
-    /// there is no card up to give anything back.
-    ///
-    /// NOT INVALIDATED BY A MOVE, and that is a statement about the card rather than an oversight:
-    /// it is a transient popover, so a press anywhere else on the surface dismisses it, and the
-    /// dismissal is what runs first. A hand cannot carry a panel that still has this card open, and
-    /// a press that did both would settle the debt and then be carried from wherever the put-back
-    /// left it - which is the same place the hand grabbed.
-    private var cardEdges: ResizeAnchor.Edges?
 
     /// Work that cannot be done until this surface has a real size: placing a window being opened,
     /// and revealing it. Both read the size, and under this contract the size arrives a run-loop
@@ -88,8 +66,7 @@ final class SurfaceSizer {
     ///
     /// - Parameter autosaveName: the frame this surface comes back to (position across launches;
     ///   the size is re-derived from the content). Applied here rather than by the caller because
-    ///   restoring a frame IS a resize, and the anchor edges read below have to be the restored
-    ///   ones, not the placeholder's.
+    ///   restoring a frame IS a resize, and everything about this surface's size is this object's.
     /// - Parameter acceptsFirstMouse: for a surface that is not the active window and must react to
     ///   the very first click anyway (the floating panel: macOS utility panels are expected to, and
     ///   without it dragging a card needed a wake-up click). Off for ordinary windows, where a
@@ -110,34 +87,14 @@ final class SurfaceSizer {
         window.contentView = view
         window.setContentSize(Self.placeholderSize)
         window.setFrameAutosaveName(autosaveName)
-        anchorEdges = window.resizeEdges
         observe(window)
-    }
-
-    /// Which corner has to stay still through the resize being applied: the one the content told us
-    /// it laid itself out against, and the store's live answer only before any content has spoken.
-    ///
-    /// ONE READING PER RESIZE, and how long that reading lasts is `ResizeAnchor.Hold`'s to say:
-    /// this object only supplies the live answer for the passes where no measurement is in flight.
-    var corner: ResizeAnchor.Corner {
-        hold.corner(live: SettingsStore.shared.resizeAnchor(for: host))
     }
 
     // MARK: - What the surface asks its host
 
-    /// Part 2 of the contract, wired for `PopoverRootView.onContentSize`. The corner travels with
-    /// the size because it was read in the same body pass that produced it (see `corner`).
-    var onContentSize: (CGSize, ResizeAnchor.Corner) -> Void {
-        { [weak self] size, corner in self?.contentReported(size, corner: corner) }
-    }
-
-    /// The view-options card being presented or dismissed on this surface
-    /// (`PopoverFooterView.viewOptions`). Wired per host rather than broadcast, because it is the
-    /// host's own window that has something to give back: while the card is up the surface holds
-    /// its bottom right and walks its top left away with every click, and the debt is settled here
-    /// when the card goes (`ResizeAnchor.restoredOrigin`).
-    var onViewOptionsPresented: (Bool) -> Void {
-        { [weak self] open in self?.viewOptionsPresented(open) }
+    /// Part 2 of the contract, wired for `PopoverRootView.onContentSize`.
+    var onContentSize: (CGSize) -> Void {
+        { [weak self] size in self?.contentReported(size) }
     }
 
     /// The display this surface is on, asked of the window rather than assumed: a panel sits
@@ -155,41 +112,10 @@ final class SurfaceSizer {
 
     // MARK: - Writing the frame
 
-    private func contentReported(_ size: CGSize, corner: ResizeAnchor.Corner) {
+    private func contentReported(_ size: CGSize) {
         reported = size
-        hold.reported(corner)
         // Part 3: out of the SwiftUI update that produced this number before touching the window.
         DispatchQueue.main.async { [weak self] in self?.sizeNow() }
-    }
-
-    /// Remember where the card found this surface, and put it back when the card goes.
-    ///
-    /// The record is taken at OPENING rather than at the first click inside the card: opening it
-    /// resizes nothing, so that moment is the last one the user is unambiguously still looking at
-    /// the surface they arranged. Closing settles whatever the clicks in between spent, in one move
-    /// - the individual resizes must keep holding the bottom right, which is the only reason the
-    /// controls stay under the pointer.
-    ///
-    /// The height is NOT put back: what the card changed is what the surface is now showing, and a
-    /// surface that sprang back to its old height would have thrown the change away. Only the top
-    /// left goes home, which is where the reading was (`ResizeAnchor.restoredOrigin`).
-    private func viewOptionsPresented(_ open: Bool) {
-        guard let window else { return }
-        if open {
-            cardEdges = window.resizeEdges
-            return
-        }
-        // Cleared whatever happens below, so a card that closed with nothing to give back cannot
-        // leave a position behind for the next one to be put back to.
-        defer { cardEdges = nil }
-        let plan = ResizeAnchor.restitution(for: window.frame, to: cardEdges,
-                                            isVisible: window.isVisible)
-        guard let origin = plan.origin else { return }
-        window.setFrameOrigin(origin)
-        // The put-back can land a surface that grew while the card was open off the display it was
-        // on, so it ends the way every other frame write here does.
-        if plan.clampsOnScreen { window.clampOnScreen() }
-        anchorEdges = window.resizeEdges
     }
 
     /// Apply the last reported size, and any placement waiting on one. Public so a host that is
@@ -198,10 +124,6 @@ final class SurfaceSizer {
     /// the size is already right.
     func sizeNow() {
         guard let window else { return }
-        // Whatever this call decides, the measurement that scheduled it has now been acted on. A
-        // corner that outlives that is a corner answering for a resize nobody is going to see.
-        var wroteFrame = false
-        defer { hold.applied(wroteFrame: wroteFrame) }
         guard let content = reported,
               content.width.isFinite, content.height.isFinite,
               content.width > 1, content.height > 1 else { return }
@@ -217,13 +139,12 @@ final class SurfaceSizer {
         // produced).
         if ResizeAnchor.needsResize(from: window.frame.size, to: target) {
             var frame = window.frame
-            // Read before the size is changed: these are the edges the resize has to put back.
-            let edges = window.resizeEdges
+            // Read before the size is changed: this is the edge the resize has to put back.
+            let topEdge = frame.maxY
             frame.size = target
             // Origin only. Writing a size back from an anchor is the second authority again.
-            frame.origin = ResizeAnchor.origin(for: frame, edges: edges, corner: corner)
+            frame.origin = ResizeAnchor.origin(for: frame, topEdge: topEdge)
             window.setFrame(frame, display: false)
-            wroteFrame = true
         }
         // Drained after the write, never before: what these were waiting for is a surface that is
         // already the size it is going to be.
@@ -244,60 +165,24 @@ final class SurfaceSizer {
     // MARK: - Bookkeeping
 
     private func observe(_ window: NSWindow) {
-        // DELIBERATELY NOT GUARDED BY `PanelDrag.isActive`, unlike the other per-move work in this
-        // app (`PopoverRootView.refreshScreenCap`). That guard is not about the notification storm,
-        // it is about what the work DOES: the cap feeds SwiftUI state, which re-lays the surface out
-        // and resizes the window, so a carried panel was resized dozens of times on the way. The
-        // whole of this closure is one struct store, and `resizeEdges` is three reads off
-        // `window.frame` (`ResizeAnchor.Edges.init`) - no frame write, no layout, no observable
-        // state, nothing posted. Falsifiable exactly there: a statement in here that touches the
-        // window or any @Observable has to bring the guard with it.
-        //
-        // The value cannot go stale either, in either direction: each move overwrites the last (no
-        // accumulation), so a carry ends with the position it ended at. Guarding it would be the
-        // bug, not the fix - a resize arriving mid-carry (fresh data, a folded provider) would then
-        // anchor the panel to where the hand PICKED IT UP and yank it back mid-drag.
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.didMoveNotification, object: window, queue: .main
-        ) { [weak self, weak window] _ in
-            MainActor.assumeIsolated {
-                guard let self, let window else { return }
-                self.anchorEdges = window.resizeEdges
-            }
-        }
+        // NO MOVE OBSERVER, and its absence is a statement: nothing here remembers where the surface
+        // was. The one rule holds the top edge, and `sizeNow` reads that edge off the window in the
+        // same statement that resizes it, so a position taken down earlier could only ever be a
+        // second answer to a question that already has one. (What used to be remembered here was the
+        // frame the view-options card found - a debt this app no longer runs up, because the card is
+        // a window of its own and the surface never moves for it.)
         NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: window, queue: .main
-        ) { [weak self, weak window] _ in
+        ) { [weak window] _ in
             MainActor.assumeIsolated {
-                guard let self, let window else { return }
-                // Only the bottom-right case corrects here. A top-leading resize is already at the
-                // origin this correction would compute - `sizeNow()` wrote it there - so the
-                // correction is a no-op, and leaving it out keeps a resize this object did not
-                // make (AppKit adjusting a window to a display that changed under it) from being
-                // yanked back to an edge the user can no longer see.
-                if self.corner == .bottomTrailing, let edges = self.anchorEdges {
-                    window.restoreAnchor(edges, corner: .bottomTrailing)
-                }
-                // Holding an edge is what lets a growing view run off the display: the footer
-                // first under the top anchor, the leading edge under the bottom-right one. So the
-                // same growth that needs the anchor also needs the surface put back on screen. The
-                // content stops growing at the screen's edge one layout pass earlier
+                guard let window else { return }
+                // Holding the top edge is what lets a growing view run off the bottom of the
+                // display - the footer first, which is the way out of a fleet too tall to fit. So
+                // the same growth that needs the anchor also needs the surface put back on screen.
+                // The content stops growing at the screen's edge one layout pass earlier
                 // (`ScreenFitStack`); this catches what is left, including the display that went
                 // away under a panel left on it.
                 window.clampOnScreen()
-                // AND THE CORNER IS SPENT HERE, on the resize it was written for. Kept any longer
-                // it would answer for a resize it was not taken for: a display going away under a
-                // panel resizes it without any report at all. The other end of that lifetime is in
-                // `sizeNow`, because a measurement that resized nothing produces no notification
-                // and this line would never run for it (`ResizeAnchor.Hold`).
-                self.hold.finished()
-                // Whatever shape this resize ended in IS what the next one has to put back. The
-                // move observer cannot be the only refresher: a size change through `setFrame`
-                // posts no MOVE notification, so the ordinary top-left resizes (a provider folded,
-                // a tab switched, fresh data arriving) would leave the remembered bottom and right
-                // at the last drag, and the first bottom-trailing correction after that would
-                // anchor to a frame several shapes old.
-                self.anchorEdges = window.resizeEdges
             }
         }
         // AND WHEN THE DISPLAYS THEMSELVES CHANGE, directly rather than through a resize.
@@ -316,12 +201,11 @@ final class SurfaceSizer {
         // again, and the second write would be the one nobody checked.
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
-        ) { [weak self, weak window] _ in
+        ) { [weak window] _ in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self, let window, window.isVisible else { return }
+                    guard let window, window.isVisible else { return }
                     window.clampOnScreen()
-                    self.anchorEdges = window.resizeEdges
                 }
             }
         }

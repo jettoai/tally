@@ -133,12 +133,11 @@ final class MainWindowController {
             // behind them (the popover's vibrancy, the pinned panel's behind-window blur).
             //
             // Everything about the size is the sizer's, including the autosaved frame: restoring
-            // one IS a resize, so the anchor edges have to be read after it and not before.
+            // one IS a resize, and the surface has to be following its content by then.
             sizer = SurfaceSizer(window: window, host: .window,
                                  autosaveName: "TallyMainWindow.v3") { sizer in
                 PopoverRootView(store: .shared, settings: .shared,
                                 onContentSize: sizer.onContentSize,
-                                onViewOptionsPresented: sizer.onViewOptionsPresented,
                                 hostDrawsGlass: false,
                                 // Summoned windows follow the user, so the display to fit is the
                                 // one this window was last put on.

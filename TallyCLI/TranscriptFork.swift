@@ -281,8 +281,15 @@ extension TranscriptWatcher {
     mutating func scanCandidates(marker: String, excluding boundID: String)
         -> (forks: [(url: URL, modified: Date)], unresolved: [Date]) {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .creationDateKey]
+        // NOTHING IS PREFETCHED HERE, and the two dates are asked for below instead, one survivor at
+        // a time. A prefetch attaches a `_FileCache` to every URL the enumeration returns - 320 of
+        // the 979 bytes an entry costs - and most of what it returns is thrown away on the next line:
+        // a project directory is `<id>.jsonl` files mixed with one subdirectory per session (62 of
+        // 169 here, 2026-08-19). Asking per survivor stats exactly the files that are judged, and
+        // reads them at the moment they are judged rather than at the moment the directory was
+        // listed, which is if anything the fresher answer.
         let files = (try? FileManager.default.contentsOfDirectory(
-            at: projectDir, includingPropertiesForKeys: keys)) ?? []
+            at: projectDir, includingPropertiesForKeys: nil)) ?? []
         var found: [(url: URL, modified: Date)] = []
         var unresolved: [Date] = []
         for url in files where url.pathExtension == "jsonl" {

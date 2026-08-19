@@ -6,6 +6,22 @@ import Foundation
 // and the logic that CAN be tested without spawning a child is testable on its own
 // (tests/supervisor compiles this alongside Supervisor.swift + Snapshot.swift).
 
+// MARK: - The poll tick
+
+/// What one poll tick tells its loop to do next.
+///
+/// The tick is a FUNCTION rather than the loop's own body because it runs inside an
+/// `autoreleasepool` (Supervisor.swift says why), and neither `continue` nor `break` crosses a
+/// closure boundary. So the two escapes the body used to spell are values here: the stand-down that
+/// leaves the child running, and the relaunch that has already replaced it.
+enum TickOutcome {
+    /// Nothing ended the child: poll again in two seconds.
+    case keepPolling
+    /// This tick performed the relaunch (or the self-update exec failed and fell through to one),
+    /// so the child it was watching is gone and the outer loop takes over.
+    case childReplaced
+}
+
 // MARK: - Child process
 
 /// posix_spawnp keeping the child in OUR process group. Foundation's `Process` puts the child in

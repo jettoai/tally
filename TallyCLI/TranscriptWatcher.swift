@@ -399,8 +399,11 @@ struct TranscriptWatcher {
             let pinned = projectDir.appendingPathComponent("\(resumeID).jsonl")
             if FileManager.default.fileExists(atPath: pinned.path) { file = pinned; return }
         }
+        // No prefetch, for the reason `scanCandidates` states (TranscriptFork.swift): the mtime is
+        // asked for below, over the files that survive the extension filter, and this pass runs on
+        // every tick of a session whose transcript does not exist yet.
         let files = (try? FileManager.default.contentsOfDirectory(
-            at: projectDir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+            at: projectDir, includingPropertiesForKeys: nil)) ?? []
         let candidate = files
             .filter { $0.pathExtension == "jsonl" }
             .compactMap { url -> (URL, Date)? in

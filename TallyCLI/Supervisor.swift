@@ -275,11 +275,25 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         /// the only way out of the hold is a relaunch, and that child gets a fresh one of these.
         var unresolvedHoldWarned = false
 
-        child.poll()
-        while child.isRunning {
-            usleep(2_000_000)
-            child.poll()
-            guard child.isRunning else { break }
+        /// ONE POLL TICK, and a function rather than the loop's own body so that the loop can run it
+        /// inside an `autoreleasepool`: neither `continue` nor `break` crosses a closure boundary, so
+        /// the two escapes it used to spell are `TickOutcome` values now (SupervisorRuntime.swift).
+        ///
+        /// WHY THE POOL. Swift wraps only `main`, and that pool drains when the process exits - which
+        /// for a supervisor is days later, or never. Every Foundation temporary a tick made therefore
+        /// stood for the life of the session: above all the `NSURL`s and the prefetched `_FileCache`
+        /// behind each one from the transcript-directory passes the idle gates run
+        /// (TranscriptFork.swift), 979 bytes per directory entry, about 3.3 passes per tick, 30 ticks
+        /// a minute. Measured on a live supervisor 2026-08-19: 16.5 MB/min against a 169-file project
+        /// directory, matched within 20% on five processes, and 47 GB on the one that had gone
+        /// longest without a self-update exec - which was the only event that ever gave it back,
+        /// because it replaces the process image. Six of those took the machine down.
+        ///
+        /// `leaks(1)` reports nothing here, and that is why it stood for 25 versions: every one of
+        /// those objects is reachable from the pool's own pages, so none of them is leaked in the
+        /// sense that tool means. The oracle is the slope of the footprint, not a leak report
+        /// (tests/supervisor/footprintchecks.swift asserts the slope, and this pool with it).
+        func tick() -> TickOutcome {
             // Before any relaunch decision reads it: every gate below asks the same tracker, and it
             // only learns anything by being given each tick's reading.
             keyboard.observe(stamp: lastKeyboardInput())
@@ -567,7 +581,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                           to: handoffLog)
                         unresolvedHoldWarned = true
                     }
-                    continue   // the child keeps running; the next tick decides again from scratch
+                    return .keepPolling   // the child keeps running; the next tick decides afresh
                 }
                 // Past the hold, so this relaunch is happening: the safeguard restore's record can
                 // be written now, before the child goes, which is what the supervisor behind the
@@ -631,8 +645,19 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                       pinOverride: manualMoves.overriddenPin,
                                       pendingCap: carriedCap,
                                       sessionModel: sessionModelState.pin, args: launchArgs)
-                break
+                return .childReplaced
             }
+            return .keepPolling
+        }
+
+        child.poll()
+        while child.isRunning {
+            usleep(2_000_000)
+            child.poll()
+            guard child.isRunning else { break }
+            // The pool the whole tick runs in, and the one line this loop exists to hold: what it
+            // reclaims is every Foundation temporary the tick made, which had nowhere else to go.
+            if autoreleasepool(invoking: tick) == .childReplaced { break }
         }
 
         if handoff { continue }

@@ -133,7 +133,9 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     let draft = sessionInputDraftGuard(state: session, suspected: draftSuspected)
     let written = inject(line, draft)
     switch written {
-    case .done:
+    // A REFUSED CTRL-Y IS A SENTENCE THAT LANDED, on the same terms as the served path: what this
+    // log line answers is "what typed into my session", and the knock did.
+    case .done, .restoreFailed:
         appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: quotaKnockOutcome,
                                                   text: line, now: now), to: log)
     case .failed(let code):
@@ -142,5 +144,5 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     // AFTER the line that says what was typed, the order the served path uses: what was typed, and
     // then what became of what was already there.
     appendSessionInputDraftLines(pid: pid, draft: draft, written: written, now: now, to: log)
-    return written == .done ? line : nil
+    return written.sent ? line : nil
 }

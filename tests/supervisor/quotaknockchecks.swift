@@ -103,6 +103,24 @@ func runQuotaKnockChecks() {
     check("…and the log says it was restored rather than dropped",
           ((try? String(contentsOf: log, encoding: .utf8)) ?? "")
               .contains("pid=\(fixturePid) input=draft-restored"))
+    // A REFUSED CTRL-Y IS A SENTENCE THAT LANDED, on the same terms the served path now reads it
+    // (codex review of 1f69cf9): the knock is announced, the drought is spent, and the draft is
+    // reported as dropped rather than the whole knock being reported as never typed.
+    var restoreRefused = QuotaKnockState(forced: false)
+    let knockedPastReturn = knock(&restoreRefused, draftSuspected: true,
+                                  injection: .restoreFailed(ENXIO))
+    let refusedLog = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+    check("a knock whose Ctrl-Y was refused still counts as typed",
+          knockedPastReturn != nil
+              && refusedLog.contains("pid=\(fixturePid) input=draft-restore-dropped "
+                  + "reason=write-failed")
+              && !refusedLog.contains("input=\(quotaKnockFailedOutcome)"))
+    // …while a write that failed before the Return is still nothing typed at all.
+    var sendRefused = QuotaKnockState(forced: false)
+    check("…and one that failed before the Return is still not",
+          knock(&sendRefused, injection: .failed(ENXIO)) == nil
+              && ((try? String(contentsOf: log, encoding: .utf8)) ?? "")
+              .contains("input=\(quotaKnockFailedOutcome)"))
 
     // A supervisor polls every two seconds for the life of a session. Saying this once per drought
     // is the entire difference between an advisory and a nag.

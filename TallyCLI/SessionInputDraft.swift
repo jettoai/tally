@@ -168,7 +168,8 @@ func sessionInputDraftGuard(state: SupervisedState, suspected: Bool) -> SessionI
 
 // MARK: - The keystrokes, as a value
 
-/// One thing an injection does to the terminal: a byte, or the pause after it.
+/// One thing an injection does to the terminal: a byte, the pause after it, or the moment the line
+/// stopped being undoable.
 ///
 /// A PLAN RATHER THAN A LOOP, so the whole sequence is assertable without a terminal. What this
 /// feature can get wrong is an ORDER (a Return before the stash, a restore before the send) and an
@@ -177,6 +178,15 @@ func sessionInputDraftGuard(state: SupervisedState, suspected: Bool) -> SessionI
 enum SessionInputStep: Equatable {
     case press(UInt8)
     case wait(TimeInterval)
+    /// The Return has gone: the conversation has the line, and everything after this is the draft
+    /// going back into a composer the send emptied.
+    ///
+    /// A MARKER IN THE PLAN RATHER THAN A BYTE THE WRITER LOOKS FOR, because the byte it would have
+    /// to look for is 13 and a payload is free to contain one (`session send` takes arbitrary text).
+    /// Matching on the value would move this boundary to whatever the caller happened to type, and
+    /// the consequence of getting it wrong in that direction is the defect this marker exists to
+    /// end: a delivered line reported as failed, and sent again by whoever believed the report.
+    case sent
 }
 
 /// Every byte one injection puts on the terminal, in order.
@@ -209,7 +219,11 @@ func sessionInputInjectionPlan(text: String, draft: SessionInputDraftGuard,
     for byte in Array(text.utf8) {
         plan += [.press(byte), .wait(gap)]
     }
-    plan += [.wait(pause), .press(sessionInputReturnByte)]
+    // THE RETURN, AND THE MARKER THAT SAYS IT HAS GONE. The marker is emitted whether or not a
+    // restore follows, because what it records is a fact about the conversation rather than a step
+    // of the draft machinery: past this point the line is somebody's turn, and any later failure is
+    // a failure of the putting-back rather than of the sending.
+    plan += [.wait(pause), .press(sessionInputReturnByte), .sent]
     if draft.restore {
         plan += [.wait(restorePause), .press(sessionInputRestoreByte)]
     }

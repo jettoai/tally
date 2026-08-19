@@ -10,7 +10,7 @@ import Foundation
 // count honest, which is a real check and not an accounting detail - it is what says no branch here
 // writes a log line nobody accounted for.
 //
-// THE MATRIX IS ENUMERATED, NOT SAMPLED. The母體 is the Phase A measurement matrix
+// THE MATRIX IS ENUMERATED, NOT SAMPLED. The population is the Phase A measurement matrix
 // (docs/plans/reports-20260819/draft-stash-report.md): four session states x suspected or not for
 // the guard, and every cause of a keyboard burst that is not a draft for the evidence. A sampled
 // version of this table would pass with a rule that only happened to be right about the rows
@@ -135,7 +135,7 @@ func runDraftStashChecks() {
     // the shape a session that is not being protected still gets, and the one a blocked session gets.
     check("a landing with no guard types exactly the payload and a Return, as it always did",
           plan("hi", .none) == [.press(0x68), .wait(0.03), .press(0x69), .wait(0.03),
-                                .wait(0.4), .press(13)])
+                                .wait(0.4), .press(13), .sent])
     check("…and a blocked session's landing is byte for byte that same line",
           plan("hi", sessionInputDraftGuard(state: .blocked, suspected: true))
               == plan("hi", .none))
@@ -160,8 +160,16 @@ func runDraftStashChecks() {
     // typed and nothing the person typed can be joined into one prompt.
     let restoring = plan("hi", sessionInputDraftGuard(state: .idle, suspected: true))
     check("a restore is one press behind the Return, after the pause the redraw needs",
-          Array(restoring.suffix(3)) == [.press(13), .wait(0.8),
+          Array(restoring.suffix(4)) == [.press(13), .sent, .wait(0.8),
                                          .press(sessionInputRestoreByte)])
+    // THE MARKER THAT DIVIDES THE SEQUENCE, and it is in every plan rather than only in the ones
+    // that restore: what it records is that the conversation now HAS the line, which is true
+    // whatever the draft machinery does next (`SessionInputStep.sent`). A writer that placed it by
+    // looking for byte 13 would move it into any payload that contains a carriage return.
+    check("every plan says where the line stopped being undoable, right after the Return",
+          plan("hi", .none).firstIndex(of: .sent) == plan("hi", .none).count - 1
+              && restoring.firstIndex(of: .sent) == restoring.count - 3
+              && plan("a\rb", .none).firstIndex(of: .sent) == plan("a\rb", .none).count - 1)
     check("…and it is the only thing that differs from the same line without a draft under it",
           Array(restoring.dropLast(2)) == stashing)
     check("…so nothing pastes anything before the line has been sent",
@@ -190,21 +198,31 @@ func runDraftStashChecks() {
 
     /// One tick, with the injection recorded rather than performed. Answers what the writer was
     /// handed, which is the only way to see the guard from outside.
-    func tick(_ key: String, text: String = "/clear", state: SupervisedState = .idle,
-              suspected: Bool, injection: SessionInputInjection = .done,
-              offset: TimeInterval = 1) -> SessionInputDraftGuard? {
+    func serve(_ key: String, text: String = "/clear", state: SupervisedState = .idle,
+               suspected: Bool, injection: SessionInputInjection = .done,
+               agents: Int? = nil,
+               offset: TimeInterval = 1) -> (guarded: SessionInputDraftGuard?,
+                                             action: SessionInputAction) {
         var input = SessionInputState(sessionKey: key, servedEpoch: 0, dir: dir)
         try? writeSessionInputRequest(SessionInputRequest(epoch: epoch(0), text: text),
                                       sessionKey: key, dir: dir)
         var handed: SessionInputDraftGuard?
-        applySessionInput(&input, session: state, quiet: .quiet, turnEnded: { false },
-                          keyboardIdle: true, relaunchPlanned: false, draftSuspected: suspected,
-                          dir: dir, log: log, now: at(offset), agents: { _ in nil },
-                          inject: { _, guarded in
-                              handed = guarded
-                              return injection
-                          })
-        return handed
+        let action = applySessionInput(
+            &input, session: state, quiet: .quiet, turnEnded: { false },
+            keyboardIdle: true, relaunchPlanned: false, draftSuspected: suspected,
+            dir: dir, log: log, now: at(offset), agents: { _ in agents },
+            inject: { _, guarded in
+                handed = guarded
+                return injection
+            })
+        return (handed, action)
+    }
+    /// The guard alone, for the checks that are only about what the writer was handed.
+    func tick(_ key: String, text: String = "/clear", state: SupervisedState = .idle,
+              suspected: Bool, injection: SessionInputInjection = .done,
+              offset: TimeInterval = 1) -> SessionInputDraftGuard? {
+        serve(key, text: text, state: state, suspected: suspected, injection: injection,
+              offset: offset).guarded
     }
     /// Everything written to the log so far, since every check below is about a line appearing in it.
     func written() -> String { (try? String(contentsOf: log, encoding: .utf8)) ?? "" }
@@ -237,6 +255,47 @@ func runDraftStashChecks() {
           written().contains("pid=9504 input=draft-stashed")
               && written().contains("pid=9504 input=draft-restore-dropped reason=write-failed")
               && !written().contains("pid=9504 input=draft-restored"))
+
+    // MARK: - A refused Ctrl-Y is a delivery, not a failure
+
+    // THE DEFECT THIS SECTION EXISTS FOR (codex review of 1f69cf9): every press failure used to be
+    // one answer, so a Ctrl-Y the terminal refused - which happens AFTER the Return, with the
+    // `/clear` already run and the agents already gone - was reported as `failed-tty` with nothing
+    // typed. The window repick was not armed, this supervisor did not record that it had typed, and
+    // a caller acting on that report sent the same line into the same conversation again.
+    check("the three answers an injection can give divide on whether the line was sent",
+          SessionInputInjection.done.sent && SessionInputInjection.restoreFailed(ENXIO).sent
+              && !SessionInputInjection.failed(ENXIO).sent)
+    let refusedRestore = serve("9506", suspected: true, injection: .restoreFailed(ENXIO),
+                               agents: 2, offset: 6)
+    check("a line whose restore was refused is served as what it is: submitted",
+          readSessionInputResult(sessionKey: "9506", dir: dir)?.outcome == "submitted")
+    check("…and hands the typed line back, which is what arms the window repick",
+          refusedRestore.action.typed == "/clear" && refusedRestore.action.moveTo == nil)
+    check("…and still counts what the /clear ended, because it did end them",
+          written().contains("pid=9506 input=agents-killed count=2")
+              && readSessionInputResult(sessionKey: "9506", dir: dir)?.detail
+              == "killed 2 live agents")
+    check("…while the draft it could not put back is reported as dropped, on the write-failed road",
+          written().contains("pid=9506 input=draft-stashed")
+              && written().contains("pid=9506 input=draft-restore-dropped reason=write-failed")
+              && !written().contains("pid=9506 input=draft-restored"))
+    // AND THE OTHER SIDE OF THE RETURN IS UNCHANGED: a write that never got that far sent nothing,
+    // so it is still a failure, still types nothing back to the caller, and still claims nothing
+    // about agents it did not end. The two are asserted side by side because the whole correction is
+    // the difference between them.
+    let refusedSend = serve("9507", suspected: true, injection: .failed(ENXIO), agents: 2,
+                            offset: 7)
+    check("a write that failed before the Return is still a failure that sent nothing",
+          readSessionInputResult(sessionKey: "9507", dir: dir)?.outcome == "failed-tty"
+              && refusedSend.action.typed == nil
+              && !written().contains("pid=9507 input=agents-killed"))
+    // The landing carries the same rule, since that is where the roster reading is normalised.
+    check("a landing whose restore was refused still reports the agents its line ended",
+          SessionInputLanding.typed(.restoreFailed(ENXIO), agents: 3).agents == 3
+              && SessionInputLanding.typed(.failed(ENXIO), agents: 3).agents == nil
+              && SessionInputLanding.typed(.done, agents: 3).agents == 3)
+
     // ORDER, because these lines are read as a story: what was typed, and then what became of what
     // was already there.
     check("the draft lines come after the line saying what was typed",
@@ -302,6 +361,65 @@ func runDraftStashChecks() {
     check("both writers record when they typed, which is what the next reading discounts",
           loop.contains("if action.typed != nil { lastComposerWrite = Date() }")
               && loop.contains("if knocked != nil { lastComposerWrite = Date() }"))
+
+    // MARK: - The loop that carries a plan out
+
+    // THE FAILURE THIS SECTION ANSWERS FOR: which side of the Return a refused byte was on. Driven
+    // through a fake terminal that refuses the byte of its choosing, because the real one a suite
+    // can reach (`/dev/null`) refuses the FIRST byte and can therefore never reach the far side of
+    // the Return. Caught by mutation: with this loop still inside `injectSessionInput`, collapsing
+    // `restoreFailed` into `failed` passed every other check in this file.
+    /// Run a plan against a terminal that refuses the press at `refuseAt` (nil refuses nothing),
+    /// answering what came of it and every byte it managed to write.
+    var sleptFor: [TimeInterval] = []
+    func carry(_ steps: [SessionInputStep], refuseAt: Int? = nil)
+        -> (SessionInputInjection, [UInt8]) {
+        var written: [UInt8] = []
+        sleptFor = []
+        let outcome = runSessionInputPlan(steps, push: { byte in
+            guard written.count != refuseAt else { return false }
+            written.append(byte)
+            return true
+        }, sleep: { sleptFor.append($0) }, code: { EPERM })
+        return (outcome, written)
+    }
+    let carried = plan("hi", sessionInputDraftGuard(state: .idle, suspected: true))
+    let clean = carry(carried)
+    check("a plan nothing refuses is done, and every byte of it reached the terminal",
+          clean.0 == SessionInputInjection.done && clean.1 == pressed(carried))
+    // The pauses belong to the plan rather than to this loop, so what is asserted is that the loop
+    // observes them: one that dropped them would give a TUI its Return before it had settled, which
+    // is the measurement `sessionInputSubmitPause` carries.
+    check("…and it waits out every pause the plan carries, in order",
+          sleptFor == carried.compactMap { if case .wait(let s) = $0 { return s } else { return nil } })
+    // THE THREE PLACES A REFUSAL CAN LAND, in the order they sit in the plan.
+    check("a refusal during the stash sent nothing, and says so",
+          carry(carried, refuseAt: 0).0 == SessionInputInjection.failed(EPERM)
+              && carry(carried, refuseAt: 3).0 == SessionInputInjection.failed(EPERM))
+    // THE BOUNDARY ITSELF: the Return is the last press that can still fail as `nothing was sent`,
+    // because the marker sits immediately after it. Off by one in either direction is a delivered
+    // line reported as lost, or a lost line reported as delivered.
+    let returnPress = pressed(carried).count - 2
+    check("a refusal ON the Return is still nothing sent",
+          carry(carried, refuseAt: returnPress).0 == SessionInputInjection.failed(EPERM))
+    check("…while the Ctrl-Y one press later is a delivery whose draft stayed in the kill buffer",
+          carry(carried, refuseAt: returnPress + 1).0
+              == SessionInputInjection.restoreFailed(EPERM))
+    // …and what the terminal did take, in that case, is everything up to and including the Return.
+    check("…having written the whole line and the Return before it stopped",
+          carry(carried, refuseAt: returnPress + 1).1
+              == Array(pressed(carried).prefix(returnPress + 1)))
+    // A PAYLOAD MAY CONTAIN A CARRIAGE RETURN, and the boundary must not move to it. This is the
+    // check that separates "the plan says where the line went" from "the loop looks for byte 13":
+    // the refusal below lands on a payload byte that comes AFTER a \r inside the text, so a loop
+    // reading the boundary off the byte would call a line that was never sent a delivery. Caught by
+    // mutation - without this row, byte-matching passed everything else here.
+    let quoting = plan("a\rb", sessionInputDraftGuard(state: .idle, suspected: true))
+    let afterQuotedReturn = pressed(quoting).count - 3
+    check("a carriage return inside the payload does not move the boundary",
+          pressed(quoting)[afterQuotedReturn - 1] == sessionInputReturnByte
+              && carry(quoting, refuseAt: afterQuotedReturn).0
+              == SessionInputInjection.failed(EPERM))
 
     // MARK: - The writer, as far as one can be driven without a terminal
 

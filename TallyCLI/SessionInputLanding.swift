@@ -40,7 +40,10 @@ enum SessionInputLanding: Equatable {
     /// log records the number, and both are this read twice (`sessionInputAgentsNote`).
     var agents: Int? {
         switch self {
-        case .typed(let injection, let agents): return injection == .done ? agents : nil
+        // `sent` RATHER THAN `== .done`, since 2026-08-19: a line whose Ctrl-Y was refused still
+        // reached the conversation, so the `/clear` still ended the agents it ended. Only a write
+        // that never got past the Return ended nothing (`SessionInputInjection.sent`).
+        case .typed(let injection, let agents): return injection.sent ? agents : nil
         case .moved(_, let agents): return agents
         }
     }

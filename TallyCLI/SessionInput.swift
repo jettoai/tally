@@ -320,12 +320,38 @@ struct SessionInputState {
 // MARK: - The terminal write
 
 /// What one injection came to.
+///
+/// THREE ANSWERS BECAUSE THE RETURN DIVIDES THE SEQUENCE IN TWO, which is the correction of
+/// 2026-08-19 (codex review of 1f69cf9). Everything before the Return decides whether the line was
+/// sent; everything after it is the draft going back into a composer the send has already emptied.
+/// One `failed` for both halves told the caller "nothing happened" about a `/clear` that HAD run:
+/// the served answer read `failed-tty`, `typed` came back nil, so the window repick was not armed,
+/// this supervisor did not record that it had typed, and a caller acting on that failure sent the
+/// same line into the same conversation again.
 enum SessionInputInjection: Equatable {
     case done
-    /// The terminal refused a write, with the errno it refused it under. ENXIO means this process
-    /// has no controlling terminal (started from a script, a launch agent); EINVAL on a future macOS
-    /// would mean this ioctl has been retired, which is the risk the header names.
+    /// The line was sent, and the Ctrl-Y that would have put the draft back was refused. To every
+    /// caller this is a DELIVERY (`sent` below), and the draft is where a dropped restore always
+    /// leaves it: in that composer's kill buffer, with Claude Code's own hint on screen.
+    case restoreFailed(Int32)
+    /// The terminal refused a write BEFORE the Return, so nothing was sent, with the errno it
+    /// refused it under. ENXIO means this process has no controlling terminal (started from a
+    /// script, a launch agent); EINVAL on a future macOS would mean this ioctl has been retired,
+    /// which is the risk the header names.
     case failed(Int32)
+
+    /// Whether the line reached the conversation.
+    ///
+    /// THE ONE QUESTION EVERY CALLER OUTSIDE THE DRAFT MACHINERY ASKS, spelled once here rather than
+    /// as a pattern match at each of them: what a landing reports, what arms the window repick, what
+    /// counts the agents a `/clear` ended, and what the knock returns are all this. A second copy
+    /// per call site is how `restoreFailed` would quietly become a failure again at one of them.
+    var sent: Bool {
+        switch self {
+        case .done, .restoreFailed: return true
+        case .failed: return false
+        }
+    }
 }
 
 /// Type `text` into this process's controlling terminal and press Return, moving whatever was in
@@ -344,6 +370,12 @@ enum SessionInputInjection: Equatable {
 /// still to come. A failure part-way through a stash therefore leaves the draft in the kill buffer
 /// and unrestored, which is what the caller's `draft-restore-dropped` line is for.
 ///
+/// AND WHICH SIDE OF THE RETURN IT STOPPED ON IS PART OF THE ANSWER. The plan says where that
+/// boundary is (`SessionInputStep.sent`) rather than this loop looking for a byte 13, which a
+/// payload is free to contain: past that marker the conversation already has the line, so a refused
+/// Ctrl-Y is `restoreFailed` - a delivery whose draft stayed in the kill buffer - and never a
+/// failure that would have a caller send the line twice.
+///
 /// `draft` HAS NO DEFAULT, on the same terms as `relaunchPlanned` next door: a call site that forgot
 /// it would type over somebody's half-written prompt and report the line delivered, which is the
 /// exact defect this parameter exists to end. `SessionInputDraftGuard.none` is how a caller says it
@@ -359,17 +391,43 @@ func injectSessionInput(_ text: String, draft: SessionInputDraftGuard, tty: Stri
     let fd = open(tty, O_RDWR)
     guard fd >= 0 else { return .failed(errno) }
     defer { close(fd) }
-    func push(_ byte: UInt8) -> Bool {
-        var character = CChar(bitPattern: byte)
-        return ioctl(fd, sessionInputInjectRequest, &character) == 0
-    }
-    for step in sessionInputInjectionPlan(text: text, draft: draft, gap: gap, pause: pause,
-                                          restorePause: restorePause) {
+    return runSessionInputPlan(
+        sessionInputInjectionPlan(text: text, draft: draft, gap: gap, pause: pause,
+                                  restorePause: restorePause),
+        push: { byte in
+            var character = CChar(bitPattern: byte)
+            return ioctl(fd, sessionInputInjectRequest, &character) == 0
+        })
+}
+
+/// Perform one plan against an already-open terminal, and answer which side of the Return it
+/// stopped on.
+///
+/// SPLIT OUT OF THE FUNCTION ABOVE SO THE CLASSIFICATION HAS AN ORACLE, and that split was bought by
+/// a surviving mutant rather than by taste (2026-08-19): with the loop inside `injectSessionInput`,
+/// the only failure a suite could produce was on the FIRST byte - a path that is not a terminal
+/// refuses everything - so collapsing `restoreFailed` back into `failed` broke nothing that was
+/// asserted anywhere. Here a fake `push` can refuse the byte of its choosing, which is what makes
+/// "a Ctrl-Y the terminal refused is still a delivery" a checked rule instead of a comment.
+///
+/// `push` returns false when the terminal refused the byte; `sleep` and `code` are injectable for
+/// the same reason, so a suite runs this in microseconds and against an errno it chose.
+func runSessionInputPlan(_ plan: [SessionInputStep], push: (UInt8) -> Bool,
+                         sleep: (TimeInterval) -> Void = {
+                             usleep(useconds_t($0 * 1_000_000))
+                         },
+                         code: () -> Int32 = { errno }) -> SessionInputInjection {
+    /// Whether the Return has gone. Read only by the failure arm, which is the only place the two
+    /// halves of this sequence differ.
+    var sent = false
+    for step in plan {
         switch step {
         case .press(let byte):
-            guard push(byte) else { return .failed(errno) }
+            guard push(byte) else { return sent ? .restoreFailed(code()) : .failed(code()) }
         case .wait(let seconds):
-            usleep(useconds_t(seconds * 1_000_000))
+            sleep(seconds)
+        case .sent:
+            sent = true
         }
     }
     return .done

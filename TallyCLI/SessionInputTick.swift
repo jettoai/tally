@@ -130,15 +130,23 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         // again in a pattern below is two rules waiting to disagree.
         killed = landing.agents
         switch landing {
-        case .typed(.done, _):
-            outcome = .submitted
-            typed = asked.text
-            detail = killed.map(sessionInputAgentsNote)
-            written = .done
+        // THE ONE WRITE THAT SENT NOTHING LEADS, so the arm under it can be everything else: a
+        // terminal that refused a byte BEFORE the Return.
         case .typed(.failed(let code), _):
             outcome = .failedTTY
             detail = "errno \(code): \(String(cString: strerror(code)))"
             written = .failed(code)
+        // WHAT REACHED THE CONVERSATION IS THE QUESTION, and a refused Ctrl-Y is not an answer to it
+        // (`SessionInputInjection.sent`). A restore that failed after the Return is served exactly
+        // as a clean delivery is - `typed` set, the window repick armed - and says what became of
+        // the draft on the audit line below, which is the whole of the difference. Reporting it as a
+        // failure is what had a caller send a line the conversation already had (codex review of
+        // 1f69cf9).
+        case .typed(let injection, _):
+            outcome = .submitted
+            typed = asked.text
+            detail = killed.map(sessionInputAgentsNote)
+            written = injection
         case .moved(let target, _):
             // NOTHING WAS TYPED, and `typed` stays nil for a reason that is not cosmetic: it arms
             // the window repick (`WindowRepickState.arm`), whose whole job is to move a session

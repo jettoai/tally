@@ -134,7 +134,10 @@ func appendSessionInputDraftLines(pid: String, draft: SessionInputDraftGuard,
         appendSessionInputLine(
             sessionInputDraftDroppedLine(pid: pid, reason: sessionInputDraftDropReasonNoTyping,
                                          now: now), to: log)
-    case (true, .failed):
+    // BOTH FAILURES LAND HERE, and they are one fact for this reader: the draft is in the kill
+    // buffer and nothing put it back. Which side of the Return the write stopped on is the served
+    // line's business (`SessionInputInjection`), not this one's.
+    case (true, .failed), (true, .restoreFailed):
         appendSessionInputLine(
             sessionInputDraftDroppedLine(pid: pid, reason: sessionInputDraftDropReasonWriteFailed,
                                          now: now), to: log)

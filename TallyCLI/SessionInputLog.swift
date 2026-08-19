@@ -77,6 +77,79 @@ func sessionInputAgentsKilledLine(pid: String, count: Int, now: Date = Date()) -
     "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=agents-killed count=\(count)\n"
 }
 
+// MARK: - What became of the draft under the line
+
+/// The line a stashed composer leaves (grep `input=draft-stashed`): before the payload went in, this
+/// many rounds of the two kill keys moved whatever was in that composer into its kill buffer
+/// (SessionInputDraft.swift).
+///
+/// A COUNT OF PRESSES AND NOT OF THE DRAFT, because there is no honest number for the draft: the
+/// supervisor cannot see the composer, which is the whole premise of the stash. What this file must
+/// never do is grow a column that could only be filled by reading somebody's half-written prompt.
+func sessionInputDraftStashedLine(pid: String, rounds: Int, now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=draft-stashed "
+        + "rounds=\(rounds)\n"
+}
+
+/// The line a restored composer leaves (grep `input=draft-restored`): the draft went back in behind
+/// the Return, so the person who left it there finds it where they left it.
+func sessionInputDraftRestoredLine(pid: String, now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=draft-restored\n"
+}
+
+/// The line a stash nobody put back leaves (grep `input=draft-restore-dropped`), and the one of
+/// these three that a person actually goes looking for: their composer is empty and they want to
+/// know where it went. The answer is always the same and the reason says which road got there - the
+/// text is in that composer's kill buffer, and Claude Code's own hint (`Ctrl+Y to paste deleted
+/// text`) is on screen saying how to get it back.
+///
+/// THE REASONS ARE A CLOSED SET, named as constants next door so the writer and the reader cannot
+/// drift: `sessionInputDraftDropReason*`.
+func sessionInputDraftDroppedLine(pid: String, reason: String, now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=draft-restore-dropped "
+        + "reason=\(reason)\n"
+}
+
+/// What one injection did about the draft under it, in the one to two lines it leaves.
+///
+/// ONE WRITER FOR BOTH STATIONS, and that is the reason it is a function rather than a switch at the
+/// two call sites: `tally session send` and the advisory knock type through the same door under the
+/// same guard, so a reader searching this file for their draft must not have to know which of them
+/// was typing. Nothing is written where the stash never ran (a blocked session's composer is behind
+/// its dialog, so nothing was touched and there is nothing to explain) or where nothing was typed at
+/// all (a clear answered by moving the session).
+func appendSessionInputDraftLines(pid: String, draft: SessionInputDraftGuard,
+                                  written: SessionInputInjection, now: Date = Date(),
+                                  to log: URL) {
+    guard draft.stash else { return }
+    appendSessionInputLine(sessionInputDraftStashedLine(pid: pid, rounds: sessionInputStashRounds,
+                                                        now: now), to: log)
+    switch (draft.restore, written) {
+    case (true, .done):
+        appendSessionInputLine(sessionInputDraftRestoredLine(pid: pid, now: now), to: log)
+    // THE DECISION IS REPORTED BEFORE THE ACCIDENT, on a line that could name either: a restore this
+    // build chose not to attempt is the ordinary case and the honest reason for it, while a write
+    // that failed is only the reason when there was something to attempt.
+    case (false, _):
+        appendSessionInputLine(
+            sessionInputDraftDroppedLine(pid: pid, reason: sessionInputDraftDropReasonNoTyping,
+                                         now: now), to: log)
+    case (true, .failed):
+        appendSessionInputLine(
+            sessionInputDraftDroppedLine(pid: pid, reason: sessionInputDraftDropReasonWriteFailed,
+                                         now: now), to: log)
+    }
+}
+
+/// No burst of keystrokes since the last prompt and since this supervisor's own last line, so
+/// nothing said there was a draft to put back. The ordinary case, and the deliberately conservative
+/// one (`sessionInputDraftSuspected` states the asymmetry it is conservative about).
+let sessionInputDraftDropReasonNoTyping = "no-typing-evidence"
+
+/// The terminal refused a write part-way through, so the stash may have happened and the restore
+/// certainly did not. Rare, and the only one of the two that means something is wrong.
+let sessionInputDraftDropReasonWriteFailed = "write-failed"
+
 /// The line a directory that could not be narrowed leaves (grep `input=directory-mode`): the
 /// requests in it are readable by every account on this machine, and the write went ahead anyway
 /// (`makeSessionInputDirectory` states why). Its own line rather than a served-request one, because

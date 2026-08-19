@@ -266,6 +266,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // need is whether stamps arrive in RUNS (typing) or alone (terminal chatter), and that is
         // only visible across successive readings (KeyboardIdle.swift).
         var keyboard = KeyboardActivity()
+        /// When this supervisor last typed into this child's composer itself, and nil until it has.
+        /// Per child, like the keyboard history above, and for a sharper reason than symmetry: what
+        /// reads it is the draft guard, whose question is whether a PERSON has typed lately - and
+        /// injected bytes stamp that terminal exactly as fingers do (SessionInputDraft.swift). A
+        /// stamp left by the previous child is not evidence about this one either way.
+        var lastComposerWrite: Date?
         /// What this child has been asked to type that closes its own window (WindowRepick.swift).
         /// Per child, like the keyboard history above: a relaunch replaces the conversation, so
         /// anything armed against the old one is already answered.
@@ -519,12 +525,21 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // the same gate are two gates that can come to disagree about the same instant.
             let composerIdle = keyboard.idle(sessionInputKeyboardQuietSeconds)
             let turnOver = { sessionTurnEnded(pid: supervisorPID, watcher: watcher) }
+            // AND WHETHER THAT COMPOSER ALREADY HOLDS SOMETHING, which is the question the gate
+            // above cannot answer: it asks whether somebody is typing NOW, and a person who typed
+            // six seconds ago and stopped to think has left a half-written prompt behind them. Taken
+            // once for both writers, from the two facts this process has - a run of keystrokes since
+            // the last prompt, and nothing typed by this supervisor since (SessionInputDraft.swift).
+            let draftSuspected = sessionInputDraftSuspected(burstAt: keyboard.lastBurstAt,
+                                                            userTurnAt: watcher.lastUserTurnAt,
+                                                            injectedAt: lastComposerWrite)
             // And, for a `tally session clear` only, the account question a window about to be
             // emptied makes free: the repick's own decision, asked at the landing rather than after
             // it (SessionClear.swift). A plain send never reaches it.
             let action = applySessionInput(
                 &sessionInput, session: board.state, quiet: board.quiet, turnEnded: turnOver,
                 keyboardIdle: composerIdle, relaunchPlanned: replacingChild,
+                draftSuspected: draftSuspected,
                 clearBoundary: {
                     windowRepickMove(provider: provider.id, account: account,
                                      primaryModel: effectivePrimary, mode: policy.mode,
@@ -532,6 +547,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                      quarantine: quarantine)
                 })
             windowRepick.arm(typed: action.typed, transcript: watcher.transcriptSessionID)
+            // What this tick typed is also what the NEXT tick's draft reading has to discount: the
+            // child reads those bytes off the terminal and stamps it doing so, and a supervisor that
+            // read its own footprints as somebody's draft would paste a stale kill buffer into their
+            // composer (SessionInputDraft.swift states the case).
+            if action.typed != nil { lastComposerWrite = Date() }
             // A move decided at the landing becomes THIS tick's relaunch, built next door so the
             // rule and its sentence live with the verb (SessionClear.swift). `plan` is nil by
             // construction here: the gate that answered the request refuses every tick that has one
@@ -553,12 +573,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // the movers above cannot help a session that is busy (QuotaKnock.swift). Same door and
             // the same gates, after the request station rather than beside it - a tick that has just
             // typed somebody's line has spent this composer's turn.
-            applyQuotaKnock(&quotaKnock, pid: supervisorPID, provider: provider.id,
-                            account: account, primaryModel: effectivePrimary,
-                            typedAlready: action.typed != nil, session: board.state,
-                            quiet: board.quiet,
-                            turnEnded: turnOver, keyboardIdle: composerIdle,
-                            relaunchPlanned: replacingChild, quarantine: quarantine)
+            let knocked = applyQuotaKnock(&quotaKnock, pid: supervisorPID, provider: provider.id,
+                                          account: account, primaryModel: effectivePrimary,
+                                          typedAlready: action.typed != nil, session: board.state,
+                                          quiet: board.quiet,
+                                          turnEnded: turnOver, keyboardIdle: composerIdle,
+                                          relaunchPlanned: replacingChild,
+                                          draftSuspected: draftSuspected, quarantine: quarantine)
+            // The second writer into this composer, recorded on the same terms as the first: what
+            // makes the next tick's draft reading right is that BOTH of them say when they typed.
+            if knocked != nil { lastComposerWrite = Date() }
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
             // model/effort/extra flags this plan carries on top of the resumed args. A pending app

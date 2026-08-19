@@ -272,15 +272,15 @@ func runSessionInputChecks() {
     // The failure arm of the writer, on a path that is not a terminal: the errno differs by
     // platform, so what is pinned is that it fails rather than reporting success.
     check("a target that is not a terminal fails rather than pretending",
-          injectSessionInput("a", tty: "/dev/null", gap: 0, pause: 0) != .done)
+          injectSessionInput("a", draft: .none, tty: "/dev/null", gap: 0, pause: 0) != .done)
     check("…and so does one that cannot be opened at all",
-          injectSessionInput("a", tty: dir.appendingPathComponent("nope").path,
+          injectSessionInput("a", draft: .none, tty: dir.appendingPathComponent("nope").path,
                              gap: 0, pause: 0) != .done)
     // RETURN IS PRESSED EVEN WITH NOTHING TO TYPE, which this arm can prove without a terminal: an
     // empty send performs exactly one ioctl, the Return, so a writer that skipped it would have
     // nothing left to fail at and would answer `.done` on a target that is not a terminal at all.
     check("an empty send still presses Return, which is the whole of that request",
-          injectSessionInput("", tty: "/dev/null", gap: 0, pause: 0) != .done)
+          injectSessionInput("", draft: .none, tty: "/dev/null", gap: 0, pause: 0) != .done)
 
     // MARK: - The tick
 
@@ -295,8 +295,9 @@ func runSessionInputChecks() {
         var typed: [String] = []
         applySessionInput(&input, session: state, quiet: quiet ?? (state == .working ? .busy
                               : .quiet), turnEnded: { turnEnded }, keyboardIdle: keyboardIdle,
-                          relaunchPlanned: relaunchPlanned, dir: dir, log: log,
-                          now: t0.addingTimeInterval(offset), agents: agents) { text in
+                          relaunchPlanned: relaunchPlanned, draftSuspected: false, dir: dir,
+                          log: log,
+                          now: t0.addingTimeInterval(offset), agents: agents) { text, _ in
             typed.append(text)
             return inject(text)
         }
@@ -428,8 +429,8 @@ func runSessionInputChecks() {
               inject: @escaping (String) -> SessionInputInjection = { _ in .done })
         -> SessionInputLanding {
         landSessionInput(SessionInputRequest(epoch: epoch(0), text: text, intent: intent),
-                         sessionKey: "9220", state: state, agents: agents, boundary: boundary,
-                         inject: inject)
+                         sessionKey: "9220", state: state, draft: .none, agents: agents,
+                         boundary: boundary, inject: { text, _ in inject(text) })
     }
     var rosterAtLanding = 2
     check("the roster is read before the line lands, since the line is what empties it",
@@ -584,8 +585,8 @@ func runSessionInputChecks() {
     try? writeSessionInputRequest(request("/clear"), sessionKey: lostKey, dir: dir)
     var lostTyped: [String] = []
     applySessionInput(&lost, session: .idle, quiet: .quiet, turnEnded: { false },
-                      keyboardIdle: true, relaunchPlanned: false, dir: dir,
-                      log: lostLog, now: t0.addingTimeInterval(1)) { text in
+                      keyboardIdle: true, relaunchPlanned: false, draftSuspected: false, dir: dir,
+                      log: lostLog, now: t0.addingTimeInterval(1)) { text, _ in
         lostTyped.append(text)
         return .done
     }
@@ -610,8 +611,8 @@ func runSessionInputChecks() {
     try? writeSessionInputRequest(request("/clear"), sessionKey: lostKey, dir: dir)
     var lostAgain: [String] = []
     applySessionInput(&lost, session: .idle, quiet: .quiet, turnEnded: { false },
-                      keyboardIdle: true, relaunchPlanned: false, dir: dir,
-                      log: lostLog, now: t0.addingTimeInterval(2)) { text in
+                      keyboardIdle: true, relaunchPlanned: false, draftSuspected: false, dir: dir,
+                      log: lostLog, now: t0.addingTimeInterval(2)) { text, _ in
         lostAgain.append(text)
         return .done
     }
@@ -621,9 +622,22 @@ func runSessionInputChecks() {
 
     let written = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
     // Twelve served requests and the four `/clear` landings above, two of which ended agents and
-    // left the extra line that says so.
-    check("every served request left a line", written.components(separatedBy: "\n")
-              .filter { $0.contains("input=") }.count == 20)
+    // left the extra line that says so - and, since 2026-08-19, the pair every line that reaches a
+    // terminal leaves about the draft that was under it (SessionInputDraft.swift). Counted rather
+    // than merely greppable, because the number is what says no branch here writes a line nobody
+    // accounted for.
+    let audited = written.components(separatedBy: "\n").filter { $0.contains("input=") }
+    check("every served request left a line", audited.count == 52)
+    // THE DRAFT PAIR, and both halves of it: sixteen landings reached the writer in this suite, none
+    // of them with a draft suspected, so all sixteen stashed and all sixteen said why they put
+    // nothing back. A build that stopped stashing, or one that stopped explaining itself, moves one
+    // of these numbers without moving the outcome of any check above.
+    check("…and every line that reached a terminal said what became of the draft under it",
+          audited.filter { $0.contains("input=draft-stashed rounds=12") }.count == 16
+              && audited.filter {
+                  $0.contains("input=draft-restore-dropped reason=no-typing-evidence")
+              }.count == 16
+              && !written.contains("input=draft-restored"))
     check("…naming the session, the outcome and the text",
           written.contains("pid=9201 input=submitted bytes=5 text=/help"))
     // NO `submit` COLUMN. It read `yes` on every line ever written once typing and sending became

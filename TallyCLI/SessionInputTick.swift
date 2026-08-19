@@ -62,15 +62,22 @@ struct SessionInputAction: Equatable {
 /// reads a file and the tail of a transcript (SessionTurnEnd.swift), and it is asked only after the
 /// line below has established that there is a request to serve at all. On the overwhelming majority
 /// of ticks there is none and nothing is read.
+///
+/// `draftSuspected` is whether somebody has a half-written prompt in that composer, which decides
+/// two things one after the other: whether the line puts the draft back after sending (the writer's
+/// business, SessionInputDraft.swift) and whether a `tally session clear` may answer itself by
+/// restarting the child on another account (SessionClear.swift - that ending cannot save a draft).
+/// It has NO DEFAULT, on the terms `relaunchPlanned` has none: a caller that forgot it would type
+/// over a half-written prompt and report the line delivered.
 @discardableResult
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
                        quiet: SessionQuiet, turnEnded: () -> Bool, keyboardIdle: Bool,
-                       relaunchPlanned: Bool, dir: URL = sessionInputDir,
+                       relaunchPlanned: Bool, draftSuspected: Bool, dir: URL = sessionInputDir,
                        log: URL = sessionInputLog, now: Date = Date(),
                        agents: (String) -> Int? = { readSessionAgents(pid: $0)?.reportable },
                        clearBoundary: () -> Snapshot.Account? = { nil },
-                       inject: (String) -> SessionInputInjection = {
-                           injectSessionInput($0)
+                       inject: (String, SessionInputDraftGuard) -> SessionInputInjection = {
+                           injectSessionInput($0, draft: $1)
                        }) -> SessionInputAction {
     let pid = state.sessionKey
     // Read once, and nothing to decide without one: every branch below is about a request, so the
@@ -88,6 +95,15 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     /// The account a clear-boundary move chose instead of typing, on the one branch where that
     /// happened.
     var moveTo: Snapshot.Account?
+    /// What this landing was allowed to do about a draft in that composer, and what it therefore has
+    /// to say about it in the log. Decided before the landing rather than inside it, because the
+    /// account question reads the same value (SessionInputLanding.swift).
+    let draft = sessionInputDraftGuard(state: session, suspected: draftSuspected)
+    /// What the terminal made of the write, on the one branch where there was one. The draft lines
+    /// below need it and the outcome word cannot answer them: a refused write may still have got the
+    /// stash out before it failed, and that is precisely the case whose draft is sitting in a kill
+    /// buffer nobody has been told about.
+    var written: SessionInputInjection?
     switch sessionInputDecision(request: request, servedEpoch: state.servedEpoch, state: session,
                                 quiet: quiet, turnEnded: turnEnded(), keyboardIdle: keyboardIdle,
                                 relaunchPlanned: relaunchPlanned, now: now) {
@@ -107,8 +123,8 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         // THE ONE PLACE A LINE IS CARRIED OUT, gathered into a function of its own rather than
         // performed here (SessionInputLanding.swift states what else that buys). It has two
         // endings and this switch is the whole of the difference between them here.
-        let landing = landSessionInput(asked, sessionKey: pid, state: session, agents: agents,
-                                       boundary: clearBoundary, inject: inject)
+        let landing = landSessionInput(asked, sessionKey: pid, state: session, draft: draft,
+                                       agents: agents, boundary: clearBoundary, inject: inject)
         // ONE READING OF WHAT IT COST, taken from the landing rather than re-derived per branch:
         // "a write the terminal refused ended nothing" is a rule, and a rule spelled once here and
         // again in a pattern below is two rules waiting to disagree.
@@ -118,9 +134,11 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
             outcome = .submitted
             typed = asked.text
             detail = killed.map(sessionInputAgentsNote)
+            written = .done
         case .typed(.failed(let code), _):
             outcome = .failedTTY
             detail = "errno \(code): \(String(cString: strerror(code)))"
+            written = .failed(code)
         case .moved(let target, _):
             // NOTHING WAS TYPED, and `typed` stays nil for a reason that is not cosmetic: it arms
             // the window repick (`WindowRepickState.arm`), whose whole job is to move a session
@@ -179,6 +197,14 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     if let killed {
         appendSessionInputLine(sessionInputAgentsKilledLine(pid: pid, count: killed, now: now),
                                to: log)
+    }
+    // AND WHAT BECAME OF WHATEVER WAS ALREADY IN THAT COMPOSER, which has the same reader as the
+    // line above and for the same reason: the person who left a draft there is not the caller, and
+    // by the time they come back the only account of it is this file. Written only where a write was
+    // attempted (a move typed nothing) and only where the stash ran at all - a blocked session's
+    // composer is behind its dialog, so nothing was touched and there is nothing to explain.
+    if let written {
+        appendSessionInputDraftLines(pid: pid, draft: draft, written: written, now: now, to: log)
     }
     // AFTER the served line, so the two read in the order they happened: what was typed, and then
     // that nobody was told about it.

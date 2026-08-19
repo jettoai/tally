@@ -84,20 +84,29 @@ func sessionInputAgentsNote(_ count: Int) -> String {
 /// a move - so a count taken afterwards is a count of what survived. The boundary question is asked
 /// SECOND, before anything reaches the terminal, because its whole point is to type nothing.
 ///
+/// `draft` IS CARRIED THROUGH RATHER THAN DECIDED HERE, and it reaches both endings for different
+/// reasons: the typing one hands it to the writer, which stashes the composer and puts it back
+/// (SessionInputDraft.swift), and the moving one is REFUSED by it - a session that may be holding an
+/// unsent draft is not restarted away from it, because a SIGTERM takes the kill buffer with the
+/// child and there is nothing left to restore (`sessionClearMovesAccounts`).
+///
 /// `agents`, `boundary` and `inject` are injectable so a suite can drive every ending without a
 /// terminal, a roster on disk or a snapshot. The roster is read ONLY for a line that clears the
 /// context, and the boundary is asked ONLY for a request that carries the authority to move
 /// accounts: every other send is a file read and a decision this does not make.
 func landSessionInput(_ request: SessionInputRequest, sessionKey: String, state: SupervisedState,
+                      draft: SessionInputDraftGuard,
                       agents: (String) -> Int? = { readSessionAgents(pid: $0)?.reportable },
                       boundary: () -> Snapshot.Account? = { nil },
-                      inject: (String) -> SessionInputInjection) -> SessionInputLanding {
+                      inject: (String, SessionInputDraftGuard) -> SessionInputInjection)
+    -> SessionInputLanding {
     let clearing = sessionInputClearsContext(request.text)
     // Read before either ending, and normalised here so both of them report it the same way: a
     // roster of none and a roster that cannot be believed are one answer, "nothing to say".
     let count = clearing ? agents(sessionKey).flatMap({ $0 > 0 ? $0 : nil }) : nil
-    if sessionClearMovesAccounts(request: request, state: state), let target = boundary() {
+    if sessionClearMovesAccounts(request: request, state: state, draft: draft),
+       let target = boundary() {
         return .moved(target, agents: count)
     }
-    return .typed(inject(request.text), agents: count)
+    return .typed(inject(request.text, draft), agents: count)
 }

@@ -20,7 +20,8 @@ import Foundation
 // into a child that is about to be killed.
 //
 // SYNCHRONOUS, ON THE POLL LOOP'S OWN THREAD, and that is a considered trade. The worst case is
-// `sessionInputMaxBytes` * `sessionInputByteGap` plus the submit pause, about 6.4 seconds, during
+// `sessionInputMaxBytes` * `sessionInputByteGap` plus the submit pause, plus the stash rounds and
+// the restore pause that protect the draft under it (SessionInputDraft.swift), about 7.9s, during
 // which this supervisor's 2s tick does not run: the child is unaffected (it is a separate process
 // reading its own terminal), so what is delayed is the state file, the badge and the next relaunch
 // decision. The alternative is a thread writing to a terminal while the tick that could kill the
@@ -31,7 +32,10 @@ import Foundation
 // input queue, so the child's read stamps the device node's atime, and `KeyboardActivity` sees them
 // on the next tick exactly as it sees a person typing. A non-urgent relaunch queued behind the
 // keyboard gate therefore waits out one burst window after an injection. That is the honest reading
-// (something WAS typed into that terminal) and it is why nothing here tries to suppress it.
+// (something WAS typed into that terminal) and it is why nothing here tries to suppress it. The one
+// reader that must tell the two apart is the draft guard, since its whole question is "did a PERSON
+// type recently", and it is told when this supervisor last typed rather than left to guess
+// (`sessionInputDraftSuspected`, SessionInputDraft.swift).
 
 /// How long to wait between bytes.
 ///
@@ -324,7 +328,8 @@ enum SessionInputInjection: Equatable {
     case failed(Int32)
 }
 
-/// Type `text` into this process's controlling terminal and press Return.
+/// Type `text` into this process's controlling terminal and press Return, moving whatever was in
+/// that composer out of the way first and putting it back afterwards when `draft` says to.
 ///
 /// RETURN IS NOT OPTIONAL, and that is the shape of the whole feature rather than a detail of this
 /// function: what it exists to do is trigger what a session cannot trigger for itself, and text
@@ -336,13 +341,21 @@ enum SessionInputInjection: Equatable {
 /// filters a menu as they arrive; `sessionInputByteGap` carries the measurement that settled the
 /// interval. STOPS AT THE FIRST FAILURE rather than pressing on: a terminal that refused byte three
 /// will refuse byte four, and continuing would leave a partial line in a composer with a Return
-/// still to come.
+/// still to come. A failure part-way through a stash therefore leaves the draft in the kill buffer
+/// and unrestored, which is what the caller's `draft-restore-dropped` line is for.
 ///
-/// `tty` and the two intervals are injectable so a suite can exercise the loop without a terminal
+/// `draft` HAS NO DEFAULT, on the same terms as `relaunchPlanned` next door: a call site that forgot
+/// it would type over somebody's half-written prompt and report the line delivered, which is the
+/// exact defect this parameter exists to end. `SessionInputDraftGuard.none` is how a caller says it
+/// has no reading to offer, in words.
+///
+/// `tty` and the three intervals are injectable so a suite can exercise the loop without a terminal
 /// and without waiting six seconds for it.
-func injectSessionInput(_ text: String, tty: String = "/dev/tty",
+func injectSessionInput(_ text: String, draft: SessionInputDraftGuard, tty: String = "/dev/tty",
                         gap: TimeInterval = sessionInputByteGap,
-                        pause: TimeInterval = sessionInputSubmitPause) -> SessionInputInjection {
+                        pause: TimeInterval = sessionInputSubmitPause,
+                        restorePause: TimeInterval = sessionInputRestorePause)
+    -> SessionInputInjection {
     let fd = open(tty, O_RDWR)
     guard fd >= 0 else { return .failed(errno) }
     defer { close(fd) }
@@ -350,11 +363,14 @@ func injectSessionInput(_ text: String, tty: String = "/dev/tty",
         var character = CChar(bitPattern: byte)
         return ioctl(fd, sessionInputInjectRequest, &character) == 0
     }
-    for byte in Array(text.utf8) {
-        guard push(byte) else { return .failed(errno) }
-        usleep(useconds_t(gap * 1_000_000))
+    for step in sessionInputInjectionPlan(text: text, draft: draft, gap: gap, pause: pause,
+                                          restorePause: restorePause) {
+        switch step {
+        case .press(let byte):
+            guard push(byte) else { return .failed(errno) }
+        case .wait(let seconds):
+            usleep(useconds_t(seconds * 1_000_000))
+        }
     }
-    usleep(useconds_t(pause * 1_000_000))
-    guard push(sessionInputReturnByte) else { return .failed(errno) }
     return .done
 }

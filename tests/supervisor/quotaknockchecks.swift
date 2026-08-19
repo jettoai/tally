@@ -39,12 +39,16 @@ func runQuotaKnockChecks() {
     let fixturePid = "qk-test-\(UInt64.random(in: 60_466_176 ..< 2_176_782_336))"
     /// What reached the terminal, so "returned a line" and "wrote those bytes" stay two claims.
     var sent: [String] = []
+    /// The draft guard each of those lines was written under: the knock types into the same composer
+    /// a person may have a half-written prompt in, so what it does about that prompt is part of what
+    /// this station promises (SessionInputDraft.swift).
+    var guardedBy: [SessionInputDraftGuard] = []
 
     /// One tick, with every gate open by default so each check can close exactly one of them.
     func knock(_ state: inout QuotaKnockState, account: Snapshot.Account = dying,
                typedAlready: Bool = false, session: SupervisedState = .idle,
                quiet: SessionQuiet = .quiet, turnEnded: Bool = false, keyboardIdle: Bool = true,
-               relaunchPlanned: Bool = false,
+               relaunchPlanned: Bool = false, draftSuspected: Bool = false,
                quarantine: [String: (model: String?, until: Date)] = [:],
                sessions: Int = 2,
                // `@autoclosure`, like the parameter it is forwarded to: what the station promises
@@ -55,10 +59,12 @@ func runQuotaKnockChecks() {
         applyQuotaKnock(&state, pid: fixturePid, provider: "claude", account: account,
                         primaryModel: "fable", typedAlready: typedAlready, session: session,
                         quiet: quiet, turnEnded: { turnEnded }, keyboardIdle: keyboardIdle,
-                        relaunchPlanned: relaunchPlanned, quarantine: quarantine,
+                        relaunchPlanned: relaunchPlanned, draftSuspected: draftSuspected,
+                        quarantine: quarantine,
                         counting: { _ in sessions }, loaded: loaded(), now: moment, log: log,
-                        inject: {
-                            sent.append($0)
+                        inject: { text, guarded in
+                            sent.append(text)
+                            guardedBy.append(guarded)
                             return injection
                         })
     }
@@ -78,6 +84,25 @@ func runQuotaKnockChecks() {
               + "one somebody asked for",
           audit.contains("pid=\(fixturePid) input=quota-knock ")
               && audit.contains("[tally] account Claude"))
+    // AND IT PROTECTS THE COMPOSER IT TYPES INTO, on the same terms the requested line does. This is
+    // the writer nobody asked for: a sentence that appended itself to somebody's half-written prompt
+    // and pressed Return would send their draft as part of the knock (SessionInputDraft.swift).
+    check("the knock types under the same draft guard a requested line does",
+          guardedBy == [sessionInputDraftGuard(state: .idle, suspected: false)])
+    check("…and leaves the same trail about the draft it moved",
+          audit.contains("pid=\(fixturePid) input=draft-stashed rounds=12")
+              && audit.contains("pid=\(fixturePid) input=draft-restore-dropped "
+                  + "reason=no-typing-evidence"))
+    // The other half, against a session somebody has been typing in: the sentence still lands, and
+    // the draft goes back where they left it.
+    var drafting = QuotaKnockState(forced: false)
+    guardedBy = []
+    check("a knock into a composer that may hold a draft still lands, and puts the draft back",
+          knock(&drafting, draftSuspected: true) != nil
+              && guardedBy.last?.restore == true)
+    check("…and the log says it was restored rather than dropped",
+          ((try? String(contentsOf: log, encoding: .utf8)) ?? "")
+              .contains("pid=\(fixturePid) input=draft-restored"))
 
     // A supervisor polls every two seconds for the life of a session. Saying this once per drought
     // is the entire difference between an advisory and a nag.

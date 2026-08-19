@@ -36,7 +36,7 @@ let sessionClearIntent = "clear"
 
 /// Whether this request may re-ask the account question at the moment it lands.
 ///
-/// THREE CONDITIONS, and each of them is a decision rather than a formality:
+/// FOUR CONDITIONS, and each of them is a decision rather than a formality:
 ///
 ///   - IT CAME FROM THE CLEAR VERB. Nothing a `session send` writes can move an account, whatever
 ///     its text says (the header states why that boundary is the product's rather than this file's).
@@ -50,9 +50,17 @@ let sessionClearIntent = "clear"
 ///     change, so nothing happened" is the check that catches it (WindowRepick.swift). That
 ///     asymmetry is the reason this row exists - the safety of the typing path does not carry over
 ///     to a path that never types.
-func sessionClearMovesAccounts(request: SessionInputRequest, state: SupervisedState) -> Bool {
+///   - NOBODY IS PROBABLY MID-DRAFT IN IT. The typing path protects a half-written prompt by moving
+///     it into the composer's kill buffer and putting it back afterwards (SessionInputDraft.swift),
+///     and that protection has no equivalent here for a structural reason: the kill buffer lives in
+///     the child, and this ending is a SIGTERM. So a suspected draft sends the clear back down the
+///     path that can save it, at the cost of clearing on the account it stands on. The account
+///     question is preventive and comes round every time this session's window closes; the draft
+///     does not come round at all.
+func sessionClearMovesAccounts(request: SessionInputRequest, state: SupervisedState,
+                               draft: SessionInputDraftGuard) -> Bool {
     request.intent == sessionClearIntent && sessionInputClearsContext(request.text)
-        && state != .blocked
+        && state != .blocked && !draft.suspected
 }
 
 /// What the caller is told when the window was closed by moving the session instead of typing into

@@ -565,8 +565,9 @@ func runWindowRepickChecks() {
             sessionKey: "9910", dir: inputDir)
         return applySessionInput(&input, session: state, quiet: quiet, turnEnded: { false },
                                  keyboardIdle: true,
-                                 relaunchPlanned: false, dir: inputDir, log: inputLog,
-                                 inject: { _ in inject }).typed
+                                 relaunchPlanned: false, draftSuspected: false, dir: inputDir,
+                                 log: inputLog,
+                                 inject: { _, _ in inject }).typed
     }
     check("the gate hands back the line it actually typed", served("/clear") == "/clear")
     // ARMING ON THE REQUEST RATHER THAN ON THE TYPING is the defect this return value exists to

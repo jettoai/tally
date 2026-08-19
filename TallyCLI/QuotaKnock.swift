@@ -73,19 +73,25 @@ func quotaKnockFailureLine(pid: String, code: Int32, now: Date = Date()) -> Stri
 /// `loaded` is the snapshot read, `@autoclosure` for the reason `rebalanceMove` states in full: a
 /// plain default argument is evaluated at the call site, on every tick, for an answer the gates
 /// above throw away.
+///
+/// `draftSuspected` RIDES THE SAME DOOR AS EVERYTHING ELSE HERE, and it has to: this station types a
+/// whole sentence and presses Return, so a half-written prompt underneath it would be sent as part
+/// of the knock - the exact defect the draft guard exists for, arriving through the one writer
+/// nobody requested. The reading is taken once per tick and handed to both stations
+/// (SessionInputDraft.swift).
 @discardableResult
 func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: String,
                      account: Snapshot.Account, primaryModel: String?, typedAlready: Bool,
                      session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
-                     keyboardIdle: Bool, relaunchPlanned: Bool,
+                     keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
                      quarantine: [String: (model: String?, until: Date)] = [:],
                      counting: (String) -> Int = {
                          supervisedSessionCount(onAccount: $0, liveSupervisors())
                      },
                      loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
                      now: Date = Date(), log: URL = sessionInputLog,
-                     inject: (String) -> SessionInputInjection = {
-                         injectSessionInput($0)
+                     inject: (String, SessionInputDraftGuard) -> SessionInputInjection = {
+                         injectSessionInput($0, draft: $1)
                      }) -> String? {
     guard !typedAlready, !relaunchPlanned, state.due(now: now) else { return nil }
     // The live picture, narrowed exactly as every mover narrows it (this provider, eligible for the
@@ -122,13 +128,19 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     // line the bytes are on the terminal or the write has failed, and a failure that repeats every
     // reading is the one way this types the same sentence into a conversation twice.
     state.spend()
-    switch inject(line) {
+    // The same protection the requested line gets, decided from the same reading: a sentence nobody
+    // asked for is the last thing that should cost somebody their draft.
+    let draft = sessionInputDraftGuard(state: session, suspected: draftSuspected)
+    let written = inject(line, draft)
+    switch written {
     case .done:
         appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: quotaKnockOutcome,
                                                   text: line, now: now), to: log)
-        return line
     case .failed(let code):
         appendSessionInputLine(quotaKnockFailureLine(pid: pid, code: code, now: now), to: log)
-        return nil
     }
+    // AFTER the line that says what was typed, the order the served path uses: what was typed, and
+    // then what became of what was already there.
+    appendSessionInputDraftLines(pid: pid, draft: draft, written: written, now: now, to: log)
+    return written == .done ? line : nil
 }

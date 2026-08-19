@@ -63,23 +63,37 @@ func runSessionClearChecks() {
     // the same six characters through it decide nothing about accounts. This is the check that
     // fails if the intent is ever inferred from the text.
     check("a plain send that types /clear may not move an account",
-          !sessionClearMovesAccounts(request: clearRequest(intent: nil), state: .idle))
+          !sessionClearMovesAccounts(request: clearRequest(intent: nil), state: .idle,
+                                     draft: .none))
     check("…while the clear verb's own request may",
-          sessionClearMovesAccounts(request: clearRequest(), state: .idle))
+          sessionClearMovesAccounts(request: clearRequest(), state: .idle, draft: .none))
     // The field is checked against the text as well, because this directory is writable by anything
     // running as this user: a forged request claiming the intent with some other text would
     // otherwise buy a relaunch that no `/clear` was ever queued for.
     check("…and an intent claimed over text that closes nothing does not",
-          !sessionClearMovesAccounts(request: clearRequest(text: "hello"), state: .idle)
-              && !sessionClearMovesAccounts(request: clearRequest(text: "/compact"), state: .idle))
+          !sessionClearMovesAccounts(request: clearRequest(text: "hello"), state: .idle,
+                                     draft: .none)
+              && !sessionClearMovesAccounts(request: clearRequest(text: "/compact"), state: .idle,
+                                            draft: .none))
     // A SESSION WAITING ON A PERSON IS NEVER RESTARTED AWAY. The typing path is safe there because
     // a line a prompt eats moves nothing and the repick's id check catches it; a path that never
     // types has no such backstop, so the prompt is the gate.
     check("a session sitting on a prompt is cleared by typing, never by relaunching",
-          !sessionClearMovesAccounts(request: clearRequest(), state: .blocked))
+          !sessionClearMovesAccounts(request: clearRequest(), state: .blocked, draft: .none))
     check("…while the states that are not somebody's question may move",
-          sessionClearMovesAccounts(request: clearRequest(), state: .working)
-              && sessionClearMovesAccounts(request: clearRequest(), state: .idle))
+          sessionClearMovesAccounts(request: clearRequest(), state: .working, draft: .none)
+              && sessionClearMovesAccounts(request: clearRequest(), state: .idle, draft: .none))
+    // AND NEITHER IS A SESSION THAT MAY BE HOLDING A HALF-WRITTEN PROMPT (2026-08-19). The typing
+    // path can save a draft - it stashes the composer into the kill buffer and puts it back
+    // afterwards - and this path structurally cannot, because the kill buffer lives in the child
+    // this ending SIGTERMs. So the account question loses to the draft, which is the asymmetry: the
+    // account is asked again every time this window closes, the draft is gone for good.
+    check("a session that may hold an unsent draft is cleared by typing, not moved away from it",
+          !sessionClearMovesAccounts(request: clearRequest(), state: .idle,
+                                     draft: sessionInputDraftGuard(state: .idle, suspected: true)))
+    check("…while the same session with nothing suspected still moves",
+          sessionClearMovesAccounts(request: clearRequest(), state: .idle,
+                                    draft: sessionInputDraftGuard(state: .idle, suspected: false)))
 
     // MARK: - The landing's three endings
 
@@ -89,12 +103,14 @@ func runSessionClearChecks() {
     var typedLines: [String] = []
     var boundaryAsked = 0
     func land(_ request: SessionInputRequest, state: SupervisedState = .idle, agents: Int? = nil,
-              boundary: Snapshot.Account? = nil) -> SessionInputLanding {
+              boundary: Snapshot.Account? = nil,
+              draft: SessionInputDraftGuard = .none) -> SessionInputLanding {
         typedLines = []
         boundaryAsked = 0
-        return landSessionInput(request, sessionKey: "9401", state: state, agents: { _ in agents },
+        return landSessionInput(request, sessionKey: "9401", state: state, draft: draft,
+                                agents: { _ in agents },
                                 boundary: { boundaryAsked += 1; return boundary },
-                                inject: { typedLines.append($0); return .done })
+                                inject: { text, _ in typedLines.append(text); return .done })
     }
     check("a healthy account is cleared by typing, exactly as before",
           land(clearRequest()) == .typed(.done, agents: nil)
@@ -118,22 +134,31 @@ func runSessionClearChecks() {
     check("a move reports the agents it took with it, on the same terms typing does",
           land(clearRequest(), agents: 3, boundary: healthy).agents == 3
               && land(clearRequest(), agents: 0, boundary: healthy).agents == nil)
+    // AND THE DRAFT SENDS IT BACK DOWN THE TYPING PATH, through the landing rather than only through
+    // the rule next door: an account waiting to be moved to is exactly the setting in which this
+    // could be got wrong, and the outcome (`typed`) is the only thing that says which ending ran.
+    check("a landing that suspects a draft types instead of moving, however good the account is",
+          land(clearRequest(), boundary: healthy,
+               draft: sessionInputDraftGuard(state: .idle, suspected: true))
+              == .typed(.done, agents: nil)
+              && typedLines == [windowClearCommand])
 
     // MARK: - Through the tick
 
     /// One tick against its own session key, with everything injected.
     func tick(_ request: SessionInputRequest, key: String, state: SupervisedState = .idle,
-              agents: Int? = nil, boundary: Snapshot.Account? = nil,
+              agents: Int? = nil, boundary: Snapshot.Account? = nil, draftSuspected: Bool = false,
               at offset: TimeInterval = 1) -> (action: SessionInputAction, typed: [String]) {
         var input = SessionInputState(sessionKey: key, servedEpoch: 0, dir: dir)
         try? writeSessionInputRequest(request, sessionKey: key, dir: dir)
         var typed: [String] = []
         let action = applySessionInput(&input, session: state, quiet: .quiet,
                                        turnEnded: { false }, keyboardIdle: true,
-                                       relaunchPlanned: false, dir: dir, log: log,
+                                       relaunchPlanned: false, draftSuspected: draftSuspected,
+                                       dir: dir, log: log,
                                        now: t0.addingTimeInterval(offset),
                                        agents: { _ in agents },
-                                       clearBoundary: { boundary }) { text in
+                                       clearBoundary: { boundary }) { text, _ in
             typed.append(text)
             return .done
         }
@@ -176,6 +201,16 @@ func runSessionClearChecks() {
               && second.action.typed == windowClearCommand
               && readSessionInputResult(sessionKey: "9410", dir: dir)?.outcome == "submitted")
 
+    // …AND THE DRAFT READING REACHES THE LANDING THROUGH THE TICK, which is the wiring that could be
+    // forgotten without any check above noticing: same request, same healthy account, one reading
+    // apart. The move is declined and the line is typed, which is the ending that can put the draft
+    // back (SessionInputDraft.swift).
+    let drafting = tick(clearRequest(4), key: "9411", boundary: healthy, draftSuspected: true,
+                        at: 5)
+    check("a tick whose session may hold a draft types the clear rather than moving the session",
+          drafting.typed == [windowClearCommand] && drafting.action.moveTo == nil
+              && drafting.action.typed == windowClearCommand)
+
     // A SUPERVISOR TOO OLD TO KNOW THE FIELD, which is the shape the wire contract promises: the
     // request decodes without it and reads as a plain send, so the line is typed and the window
     // closes the way it did before this verb existed.
@@ -184,7 +219,7 @@ func runSessionClearChecks() {
           (parseSessionInput(legacy) as SessionInputRequest?)?.intent == nil
               && !sessionClearMovesAccounts(
                   request: parseSessionInput(legacy) as SessionInputRequest? ?? clearRequest(),
-                  state: .idle))
+                  state: .idle, draft: .none))
     check("…and the field round-trips where both ends know it",
           sessionInputData(clearRequest()).flatMap {
               parseSessionInput($0) as SessionInputRequest?

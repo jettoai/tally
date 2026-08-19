@@ -54,7 +54,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/turnendchecks.swift \
   tests/supervisor/terminaljumpchecks.swift \
   tests/supervisor/sessioninputchecks.swift tests/supervisor/sessionsendchecks.swift \
-  tests/supervisor/sessionclearchecks.swift \
+  tests/supervisor/sessionclearchecks.swift tests/supervisor/draftstashchecks.swift \
   tests/supervisor/quotaknockchecks.swift \
   tests/supervisor/contextchecks.swift tests/supervisor/inventorychecks.swift \
   tests/supervisor/resumepromptchecks.swift \
@@ -80,6 +80,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/HookNotify.swift TallyCLI/AgentRoster.swift TallyCLI/HookAgents.swift TallyCLI/SessionStateSync.swift TallyCLI/FollowAdoption.swift TallyCLI/StandDown.swift \
   TallyCLI/SessionContext.swift TallyCLI/SessionInventory.swift TallyCLI/MessagingSocket.swift \
   TallyCLI/SessionInput.swift TallyCLI/SessionInputTick.swift TallyCLI/SessionInputLanding.swift \
+  TallyCLI/SessionInputDraft.swift \
   TallyCLI/SessionClear.swift TallyCLI/SessionInputLog.swift \
   TallyCLI/SessionInputRequest.swift \
   TallyCLI/SessionInputCommand.swift TallyCLI/SessionSendWait.swift \

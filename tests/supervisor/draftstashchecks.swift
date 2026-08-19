@@ -309,8 +309,8 @@ func runDraftStashChecks() {
     // THE MATRIX IS THE THREE ROWS THAT DIFFER, and the fourth column of each is the same line: what
     // was DELIVERED never changes here, only what may be done to the child afterwards.
     let armAfterClean = serve("9508", suspected: true, offset: 8)
-    check("a clear typed into a session that may hold a draft is delivered, and arms nothing",
-          armAfterClean.action.typed == "/clear" && armAfterClean.action.armsRepick == nil)
+    check("a clear typed into a session that may hold a draft is delivered, and cancels the repick",
+          armAfterClean.action.typed == "/clear" && armAfterClean.action.repick == .cancel)
     // AND RESTORE SUCCESS DOES NOT EARN THE ARM BACK, which is the half codex's narrower fix would
     // have left open: the draft is in the composer now, its owner has walked away, and the repick's
     // own bar is five seconds of quiet - so the successful restore is exactly the case where the
@@ -319,31 +319,74 @@ func runDraftStashChecks() {
           armAfterClean.guarded?.restore == true)
     let armAfterRefused = serve("9509", suspected: true, injection: .restoreFailed(ENXIO),
                                 offset: 9)
-    check("a clear whose restore was refused is delivered too, and still arms nothing",
-          armAfterRefused.action.typed == "/clear" && armAfterRefused.action.armsRepick == nil)
+    check("a clear whose restore was refused is delivered too, and still cancels",
+          armAfterRefused.action.typed == "/clear" && armAfterRefused.action.repick == .cancel)
     // A BLOCKED SESSION STASHES NOTHING and is the one row where the guard's two fields disagree:
     // its draft is in the composer behind the dialog rather than in a kill buffer, and a SIGTERM
     // ends it just the same. This is why the rule keys on `suspected` and not on whether a stash
     // ran.
     let armWhileBlocked = serve("9510", text: windowClearCommand, state: .blocked, suspected: true,
                                 offset: 10)
-    check("a blocked session that may hold a draft arms nothing either, having stashed nothing",
+    check("a blocked session that may hold a draft cancels too, having stashed nothing",
           armWhileBlocked.guarded?.stash == false && armWhileBlocked.action.typed == "/clear"
-              && armWhileBlocked.action.armsRepick == nil)
+              && armWhileBlocked.action.repick == .cancel)
     // AND THE ORDINARY CLEAR IS UNTOUCHED: nothing suspected, so the repick gets its line and the
     // preventive move this whole feature family exists for still happens.
     let armOrdinary = serve("9511", suspected: false, offset: 11)
     check("a clear with no draft under it arms the repick exactly as it always did",
-          armOrdinary.action.typed == "/clear" && armOrdinary.action.armsRepick == "/clear")
+          armOrdinary.action.typed == "/clear" && armOrdinary.action.repick == .arm("/clear"))
     // …and the arm really is what that value drives, asserted through the repick's own state rather
     // than only through the field: nil arms nothing, the line arms it.
     var armed = WindowRepickState()
-    armed.arm(typed: armOrdinary.action.armsRepick, transcript: "before")
+    armed.apply(armOrdinary.action.repick, transcript: "before")
     var unarmed = WindowRepickState()
-    unarmed.arm(typed: armAfterClean.action.armsRepick, transcript: "before")
+    unarmed.apply(armAfterClean.action.repick, transcript: "before")
     check("the repick is armed by the one and left idle by the other",
           windowRepickReadiness(armed, transcript: "after") != .idle
               && windowRepickReadiness(unarmed, transcript: "after") == .idle)
+
+    // THE ARM THAT WAS ALREADY STANDING, which is the half "do not arm" could not reach (codex
+    // review of e5bfd13). A clear that landed a moment ago with nothing suspected leaves an arm up
+    // for a minute; it fires when Claude Code reports a different conversation. If the NEXT clear
+    // carries a draft, it produces exactly that report - so a signal that merely declined to arm
+    // would let the old arm relaunch the child holding the draft. The fixture is the real sequence:
+    // arm from the clean clear, then apply what the drafting clear said.
+    var standing = WindowRepickState()
+    standing.apply(armOrdinary.action.repick, transcript: "before")
+    check("the fixture really is armed before the second clear lands",
+          windowRepickReadiness(standing, transcript: "after") == .landed)
+    standing.apply(armAfterClean.action.repick, transcript: "after")
+    check("a clear carrying a draft cancels the arm an earlier clear left standing",
+          windowRepickReadiness(standing, transcript: "later") == .idle
+              && standing == WindowRepickState())
+    // AND AN ORDINARY SEND DOES NOT, which is the boundary of the cancellation: what makes a clear
+    // entitled to cancel is that it IS the window-close the standing arm waits for. A prompt changes
+    // no conversation id, so it cannot fire that arm, and disarming on it would drop a preventive
+    // move for a reason unconnected to it - a window that closed while nobody was mid-draft.
+    let ordinarySend = serve("9512", text: "hello", suspected: true, offset: 12)
+    check("an ordinary send over a suspected draft leaves the repick untouched",
+          ordinarySend.action.typed == "hello" && ordinarySend.action.repick == .untouched)
+    var untouched = WindowRepickState()
+    untouched.apply(armOrdinary.action.repick, transcript: "before")
+    untouched.apply(ordinarySend.action.repick, transcript: "after")
+    check("…so an arm standing beside it is still standing",
+          windowRepickReadiness(untouched, transcript: "after") == .landed)
+    // The three answers, asserted against the state they produce rather than only as values: this is
+    // the table `WindowRepickState.apply` is, and the one a caller could get wrong by wiring the
+    // cancelling answer to a nil `arm`.
+    var table = WindowRepickState()
+    table.apply(.arm("/clear"), transcript: "before")
+    check("apply arms, leaves alone, and cancels, in the three shapes it is given",
+          windowRepickReadiness(table, transcript: "after") == .landed)
+    table.apply(.arm("hello"), transcript: "before")
+    check("…a line that closes no window changing nothing, as the arm itself decides",
+          windowRepickReadiness(table, transcript: "after") == .landed)
+    table.apply(.untouched, transcript: "before")
+    check("…the untouched answer changing nothing either",
+          windowRepickReadiness(table, transcript: "after") == .landed)
+    table.apply(.cancel, transcript: "before")
+    check("…and the cancelling one clearing every field the arm had set",
+          table == WindowRepickState())
 
     // ORDER, because these lines are read as a story: what was typed, and then what became of what
     // was already there.
@@ -392,7 +435,7 @@ func runDraftStashChecks() {
     // requested line and the advisory knock type through the same door, and a draft is destroyed by
     // whichever of them was not told (QuotaKnock.swift).
     if let request = loop.range(of: "let action = applySessionInput("),
-       let arm = loop.range(of: "windowRepick.arm(typed: action.armsRepick,",
+       let arm = loop.range(of: "windowRepick.apply(action.repick,",
                             range: request.upperBound ..< loop.endIndex),
        let knock = loop.range(of: "applyQuotaKnock(", range: arm.upperBound ..< loop.endIndex),
        let afterKnock = loop.range(of: "quarantine: quarantine)",

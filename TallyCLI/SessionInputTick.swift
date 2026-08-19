@@ -19,7 +19,7 @@ struct SessionInputAction: Equatable {
     /// the receipt, the knock that must not speak over it, and this supervisor's record of having
     /// typed all read this.
     var typed: String?
-    /// The same line, when a window repick may act on it - and nil when it may not.
+    /// What this tick's landing means for the window repick beside it.
     ///
     /// TWO SIGNALS BECAUSE THEY ANSWER TWO QUESTIONS, which is the correction of 2026-08-19 (codex
     /// review of 002c176). "Did the line land" and "may this session now be restarted onto another
@@ -39,12 +39,42 @@ struct SessionInputAction: Equatable {
     /// draft is sitting in that composer, where a SIGTERM ends it just the same. And it holds
     /// whether or not the restore SUCCEEDED: a draft put back into a composer is still a draft in a
     /// child that a repick would kill.
-    var armsRepick: String?
+    var repick: SessionInputRepick = .untouched
     /// The account a `tally session clear` chose to reopen this session on instead of typing. The
     /// loop turns it into this tick's relaunch, and into this tick's answer to "is the child about
     /// to be replaced" - which is what stops the knock beside it from typing into a child that is
     /// already being terminated (Supervisor.swift, where both are set together).
     var moveTo: Snapshot.Account?
+}
+
+/// What one landing tells the window repick to do, in the three answers it has.
+///
+/// THREE RATHER THAN TWO, which is the correction of 2026-08-19 (codex review of e5bfd13). Saying
+/// "do not arm" is not the same as saying "this session must not be restarted", and the gap between
+/// them is a standing arm: `WindowRepickState.arm` ignores a nil line and leaves everything it was
+/// already holding, so a clear that carried a draft would land INSIDE an arm left by an earlier one
+/// - and that earlier arm is waiting for exactly the event this clear is about to produce, a
+/// conversation id that changes. The next tick reads `landed`, the relaunch is taken, and the child
+/// holding the draft goes. Not arming was never the invariant; the invariant is that at the moment
+/// a suspected draft's clear lands, this session is not in a restartable state.
+enum SessionInputRepick: Equatable {
+    /// Nothing this tick did concerns the repick. What a wait, a refusal, an ordinary send and a
+    /// clear-boundary move all say: the state is left exactly as it was, armed or not.
+    case untouched
+    /// A window closed and nothing suggests a draft: arm on this line, which is what the repick
+    /// filters for a clear and ignores otherwise.
+    case arm(String)
+    /// A window closed while this session may be holding an unsent draft: drop any standing arm,
+    /// including one an earlier clear left.
+    ///
+    /// WHY A CLEAR AND NOT EVERY LINE TYPED INTO A SUSPECTED DRAFT, which is the boundary to hold
+    /// on to. What makes this cancellation legitimate is that THIS line is itself the window-close
+    /// the standing arm is waiting for: it is about to change the conversation id, which is the one
+    /// fact that fires a repick. An ordinary send changes nothing that arm reads, so cancelling on
+    /// it would disarm a preventive move for a reason that has nothing to do with it - and that arm
+    /// belongs to a window that closed while nobody was mid-draft, and expires in a minute by
+    /// itself.
+    case cancel
 }
 
 // MARK: - The tick
@@ -78,9 +108,10 @@ struct SessionInputAction: Equatable {
 /// `/clear` reaching a composer is the moment a session's window closes, which is the cheapest
 /// moment in its life to leave a dying account, and `WindowRepickState.arm` is what waits for it. It
 /// is armed on a line that was TYPED rather than one that was requested - a request that waited,
-/// expired or was refused closed no window - and on `armsRepick` rather than on `typed`, because
-/// that repick ends the child a minute later and a session that may hold an unsent draft is not
-/// restarted away from it.
+/// expired or was refused closed no window - and through `repick` rather than through `typed`,
+/// because that repick ends the child a minute later and a session that may hold an unsent draft is
+/// not restarted away from it: such a clear CANCELS any standing arm rather than merely declining to
+/// add one (`SessionInputRepick`).
 ///
 /// `turnEnded` is a QUESTION RATHER THAN AN ANSWER, and that is what keeps this feature free: it
 /// reads a file and the tail of a transcript (SessionTurnEnd.swift), and it is asked only after the
@@ -113,10 +144,10 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     var detail: String?
     /// The line that reached the terminal, set on the one branch where that happened.
     var typed: String?
-    /// …and the same line where a window repick may act on it: nil when this session may be holding
-    /// an unsent draft, since that repick is a relaunch and the draft lives in the child it would
-    /// kill (`SessionInputAction.armsRepick` carries the whole reasoning).
-    var armsRepick: String?
+    /// …and what that means for the window repick: arm on it, leave it alone, or cancel a standing
+    /// arm because this line closes a window while a draft may be in the child a repick would kill
+    /// (`SessionInputRepick` carries the whole reasoning).
+    var repick = SessionInputRepick.untouched
     /// How many subagents that line took with it, when it was a line that clears the context and
     /// this session's roster could be believed.
     var killed: Int?
@@ -175,8 +206,14 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
             typed = asked.text
             // THE ONE PLACE THE TWO SIGNALS PART. Everything about delivery is above this line;
             // this is about what may be done to the child AFTERWARDS, and a draft is a reason not
-            // to restart it (`SessionInputAction.armsRepick`).
-            armsRepick = draft.suspected ? nil : asked.text
+            // to restart it (`SessionInputRepick`). A suspected draft under a line that closes the
+            // window cancels rather than merely declines to arm: this line is itself the event a
+            // standing arm is waiting for.
+            if !draft.suspected {
+                repick = .arm(asked.text)
+            } else if sessionInputClearsContext(asked.text) {
+                repick = .cancel
+            }
             detail = killed.map(sessionInputAgentsNote)
             written = injection
         case .moved(let target, _):
@@ -254,5 +291,5 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
                                                           failure: lostReceipt, now: now),
                                to: log)
     }
-    return SessionInputAction(typed: typed, armsRepick: armsRepick, moveTo: moveTo)
+    return SessionInputAction(typed: typed, repick: repick, moveTo: moveTo)
 }

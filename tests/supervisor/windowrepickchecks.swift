@@ -750,11 +750,12 @@ func runWindowRepickChecks() {
     // than from what reached the terminal would fire on a `/clear` that never closed a window.
     check("the repick is armed from what the input gate TYPED, not from the request",
           loop.contains("let action = applySessionInput(")
-              && loop.contains("windowRepick.arm(typed: action.armsRepick,"))
+              && loop.contains("windowRepick.apply(action.repick,"))
     // …AND NOT FROM EVERY TYPED LINE EITHER, which is the 2026-08-19 narrowing: this arm ends in a
     // relaunch, and a relaunch ends the composer and the kill buffer of the child it replaces. A
-    // clear typed into a session that may be holding an unsent draft therefore hands back a
-    // delivered line and NO arm (`SessionInputAction.armsRepick`, draftstashchecks holds the table).
+    // clear typed into a session that may be holding an unsent draft hands back a delivered line and
+    // an instruction to CANCEL rather than to arm (`SessionInputRepick`, draftstashchecks holds the
+    // table).
     check("…and a line typed over somebody's suspected draft arms nothing at all",
           !loop.contains("windowRepick.arm(typed: action.typed,"))
     // AND NOT FROM ITS OTHER ENDING, which is the 2026-08-18 addition and the one way this arm could

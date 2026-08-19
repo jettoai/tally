@@ -210,6 +210,25 @@ struct WindowRepickState: Equatable {
         typedAt = nil
         landing = nil
     }
+
+    /// Take what one input-station tick said about this session (`SessionInputRepick`).
+    ///
+    /// THE THREE ANSWERS ARE NOT TWO, and this method exists because the difference is invisible at
+    /// the call site otherwise (codex review of e5bfd13). `arm` ignores a line that is not a clear
+    /// and leaves everything it holds, which is right for "nothing happened here" and wrong for
+    /// "this session must not be restarted": a clear typed over a suspected draft lands inside any
+    /// arm an earlier clear left, and that arm is waiting for precisely the conversation change this
+    /// clear is about to produce. So the cancelling answer reaches `disarm`, not a nil `arm`.
+    mutating func apply(_ signal: SessionInputRepick, transcript: String?, now: Date = Date()) {
+        switch signal {
+        case .untouched:
+            break
+        case .arm(let typed):
+            arm(typed: typed, transcript: transcript, now: now)
+        case .cancel:
+            disarm()
+        }
+    }
 }
 
 /// Where a session is between typing `/clear` and the window it opens. Pure, so the whole table is

@@ -208,14 +208,15 @@ func runWindowRepickChecks() {
     /// supervisor claim was taken, which is how the ORDER of the two movers is observed.
     func tick(repick: inout WindowRepickState, watcher: inout TranscriptWatcher,
               accounts: [Snapshot.Account] = [dying, healthy], mode: String = "auto",
-              keyboardIdle: Bool = true, fuseAllows: Bool = true,
+              keyboardIdle: Bool = true, fuseAllows: Bool = true, draftSuspected: Bool = false,
               plan seed: RelaunchPlan? = nil,
               at when: Date = launch.addingTimeInterval(4)) -> (plan: RelaunchPlan?, claimed: Bool) {
         let claimDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("tally-window-repick-claim-\(UUID().uuidString)")
         var plan = seed
         applyProactiveMoves(plan: &plan, repick: &repick, watcher: &watcher,
-                            keyboardIdle: { _ in keyboardIdle }, provider: "claude",
+                            keyboardIdle: { _ in keyboardIdle },
+                            draftSuspected: draftSuspected, provider: "claude",
                             account: dying, primaryModel: primary, mode: mode, launchArgs: [],
                             fuseAllows: fuseAllows,
                             loaded: (Snapshot(version: 2, generatedAt: launch,
@@ -268,6 +269,49 @@ func runWindowRepickChecks() {
     check("a `/clear` still sitting in the composer relaunches nothing", queued.plan == nil)
     check("…and the arm survives, so the tick after the clear lands can still take it",
           queuedState.typedAt == launch)
+
+    // MARK: - The draft gate, at the trigger end of the same invariant
+
+    // WHAT THIS ANSWERS (2026-08-19, the last of the draft-protection family): the arm end of the
+    // rule lives in the input station - a clear typed over a suspected draft cancels rather than
+    // arms (`SessionInputRepick`) - and it cannot see a draft that was typed AFTERWARDS, in a window
+    // this station cleared cleanly. Five seconds after that person stops typing, both gates above
+    // are satisfied and the relaunch takes their composer with it: the same defect through a
+    // different door. So the reading is asked here too, and it covers BOTH movers below it.
+    var draftState = WindowRepickState()
+    draftState.arm(typed: "/clear", transcript: "before", now: launch)
+    var draftWatcher = session(id: "after")
+    let held = tick(repick: &draftState, watcher: &draftWatcher, draftSuspected: true)
+    check("a session that may hold an unsent draft is not repicked, however free the move is",
+          held.plan == nil)
+    // A DELAY, NOT A CANCELLATION, which is the whole of why this gate is here rather than in the
+    // arm: nothing is consumed, so the move happens as soon as the draft reading clears - a new user
+    // turn, or this supervisor typing. The arm is intact and the very next tick takes it.
+    check("…and the arm is untouched, so this is a delay rather than a cancellation",
+          draftState.typedAt == launch)
+    let released = tick(repick: &draftState, watcher: &draftWatcher)
+    check("…which the next reading proves: the same state plans the same move once the draft clears",
+          released.plan?.target.id == "B" && released.plan?.reason == "window-repick")
+    // AND THE IDLE REBALANCE IS BEHIND THE SAME GATE, which is the half a repick-only fix would have
+    // left open: it restarts the same child for the same reason on a session nobody ever clears.
+    // This fixture has no arm at all, so what answers here can only be the rebalance.
+    var restlessState = WindowRepickState()
+    var restlessWatcher = session(id: "after")
+    let heldRebalance = tick(repick: &restlessState, watcher: &restlessWatcher,
+                             draftSuspected: true)
+    check("a session that may hold an unsent draft is not rebalanced either",
+          heldRebalance.plan == nil)
+    // …AND THE DROUGHT'S ONE CLAIM IS NOT SPENT ON A MOVE THAT DID NOT HAPPEN, which is what makes
+    // this a delay for the whole machine rather than only for this session: the claim is taken
+    // inside `rebalanceMove`, so a gate placed after it would have burned the account's one move per
+    // window cycle every time a draft held this tick.
+    check("…and the account's one rebalance claim is left for a tick that can use it",
+          !heldRebalance.claimed)
+    var restlessAgain = WindowRepickState()
+    var restlessWatcherAgain = session(id: "after")
+    let undrafted = tick(repick: &restlessAgain, watcher: &restlessWatcherAgain)
+    check("…while the same session with nothing suspected is rebalanced exactly as before",
+          undrafted.plan?.reason == "rebalance" && undrafted.claimed)
 
     // Somebody typing in that terminal is the one thing the empty conversation cannot rule out: the
     // composer may hold their next prompt, and a restart takes it with them.
@@ -743,6 +787,27 @@ func runWindowRepickChecks() {
     let loop = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     check("the supervisor source is readable from the window repick checks", !loop.isEmpty)
     check("the tick runs the preventive station", loop.contains("applyProactiveMoves("))
+    // AND HANDS IT THIS TICK'S OWN DRAFT READING, which is the trigger end of the invariant the
+    // input station holds at the arm end. Read off the call rather than off the file, because
+    // `draftSuspected` is also the name of the input station's argument a hundred lines below: a
+    // file-wide search would pass on that one alone.
+    if let station = loop.range(of: "applyProactiveMoves(plan: &plan,"),
+       let end = loop.range(of: "quarantine: quarantine)",
+                            range: station.upperBound ..< loop.endIndex) {
+        let call = String(loop[station.upperBound ..< end.upperBound])
+        check("…under this tick's own draft reading, not a literal",
+              call.contains("draftSuspected: draftSuspected"))
+    } else {
+        check("…under this tick's own draft reading, not a literal", false)
+    }
+    // ONE READING FOR BOTH ENDS OF THE INVARIANT: the movers here and the input station below are
+    // handed the same value, taken once, so the two ends can never disagree about the same instant.
+    check("…and it is the same reading the input station is given, taken once above both",
+          loop.range(of: "let draftSuspected = sessionInputDraftSuspected(").map { taken in
+              loop.range(of: "applyProactiveMoves(plan: &plan,").map {
+                  taken.upperBound < $0.lowerBound
+              } ?? false
+          } ?? false)
     // TWO FACTS RATHER THAN ONE SUBSTRING, since the advisory knock joined this station and the
     // gate's answer had to be given a name to be handed to both (`typedAlready`, QuotaKnock.swift):
     // the arm is fed the value the input gate RETURNED, and that value is the gate's own return.

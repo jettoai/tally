@@ -412,8 +412,21 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // account is free) and the idle rebalance (the standing offer for a session nobody
             // clears). Both gated on the recovery fuse; the order between them is a rule, and it
             // lives with them in WindowRepick.swift.
+            // WHETHER THIS SESSION'S COMPOSER ALREADY HOLDS SOMETHING, taken ONCE for the three
+            // readers below it, from the two facts this process has: a run of keystrokes since the
+            // last prompt, and nothing typed by this supervisor since (SessionInputDraft.swift). It
+            // is read here, ahead of the preventive movers, because those movers are relaunches and
+            // a relaunch ends the composer and the kill buffer of the child it replaces - the same
+            // invariant the input station holds when a clear lands, at the other end of the same
+            // minute. The transcript was scanned at the top of this tick, so this reading is as
+            // fresh here as it was where it used to be taken, and one reading is what stops the two
+            // ends of the invariant from ever disagreeing about the same instant.
+            let draftSuspected = sessionInputDraftSuspected(burstAt: keyboard.lastBurstAt,
+                                                            userTurnAt: watcher.lastUserTurnAt,
+                                                            injectedAt: lastComposerWrite)
             applyProactiveMoves(plan: &plan, repick: &windowRepick, watcher: &watcher,
-                                keyboardIdle: { keyboard.idle($0) }, provider: provider.id,
+                                keyboardIdle: { keyboard.idle($0) },
+                                draftSuspected: draftSuspected, provider: provider.id,
                                 account: account, primaryModel: effectivePrimary,
                                 mode: policy.mode, launchArgs: launchArgs,
                                 fuseAllows: fuse.allows(), quarantine: quarantine)
@@ -525,14 +538,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // the same gate are two gates that can come to disagree about the same instant.
             let composerIdle = keyboard.idle(sessionInputKeyboardQuietSeconds)
             let turnOver = { sessionTurnEnded(pid: supervisorPID, watcher: watcher) }
-            // AND WHETHER THAT COMPOSER ALREADY HOLDS SOMETHING, which is the question the gate
-            // above cannot answer: it asks whether somebody is typing NOW, and a person who typed
-            // six seconds ago and stopped to think has left a half-written prompt behind them. Taken
-            // once for both writers, from the two facts this process has - a run of keystrokes since
-            // the last prompt, and nothing typed by this supervisor since (SessionInputDraft.swift).
-            let draftSuspected = sessionInputDraftSuspected(burstAt: keyboard.lastBurstAt,
-                                                            userTurnAt: watcher.lastUserTurnAt,
-                                                            injectedAt: lastComposerWrite)
             // And, for a `tally session clear` only, the account question a window about to be
             // emptied makes free: the repick's own decision, asked at the landing rather than after
             // it (SessionClear.swift). A plain send never reaches it.

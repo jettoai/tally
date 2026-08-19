@@ -333,7 +333,7 @@ func windowRepickMove(provider: String, account: Snapshot.Account, primaryModel:
 /// all, which is rarer by orders of magnitude than the read it would be saving.
 func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickState,
                          watcher: inout TranscriptWatcher,
-                         keyboardIdle: (TimeInterval) -> Bool,
+                         keyboardIdle: (TimeInterval) -> Bool, draftSuspected: Bool,
                          provider: String, account: Snapshot.Account, primaryModel: String?,
                          mode: String, launchArgs: [String], fuseAllows: Bool,
                          quarantine: [String: (model: String?, until: Date)] = [:],
@@ -347,10 +347,28 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
     // The id and the window reading are taken as a PAIR off the file the tick adopted, before
     // `isQuiet` can relocate the watcher under them: what the reading says ("this window holds a
     // turn", "this is its mtime") is a statement about that id, and a file the id never named would
-    // be judged against a baseline belonging to another.
-    if windowRepickLanded(&repick, transcript: watcher.transcriptSessionID,
-                          window: clearedWindow(of: watcher.file), now: now),
-       watcher.isQuiet(windowRepickQuietSeconds), keyboardIdle(windowRepickQuietSeconds) {
+    // be judged against a baseline belonging to another. Taken as a statement rather than inside the
+    // condition below so that the draft gate can stand between the two without changing either: what
+    // this reading does to the arm (baseline it, drop it when the window has been used or run out)
+    // is bookkeeping about a window, and a draft is no reason to stop keeping it.
+    let landed = windowRepickLanded(&repick, transcript: watcher.transcriptSessionID,
+                                    window: clearedWindow(of: watcher.file), now: now)
+    // THE FOURTH GATE, AND IT COVERS BOTH MOVERS (2026-08-19). Everything under this line is a
+    // RELAUNCH nobody asked for, and a relaunch ends the composer and the kill buffer of the child
+    // it replaces - so a session that may be holding an unsent draft is not moved by either of them.
+    // This is the same invariant the input station holds when a clear LANDS (`SessionInputRepick`),
+    // at the other end of the same minute: without it, a draft typed in a window that was cleared
+    // cleanly is killed by the arm that clear left, which is the identical defect through a
+    // different door.
+    //
+    // A DELAY RATHER THAN A CANCELLATION, which is the whole of why it sits here and not in the
+    // arm: nothing is consumed, nothing is disarmed, and this station is asked again on every tick,
+    // so the move happens as soon as the draft reading clears - a new user turn, or this supervisor
+    // typing (`sessionInputDraftSuspected`). No timeout of its own, deliberately: a second clock
+    // over the same invariant is a second answer to "does this session hold a draft", and the
+    // repick's own minute already ends an arm nobody could act on.
+    guard !draftSuspected else { return }
+    if landed, watcher.isQuiet(windowRepickQuietSeconds), keyboardIdle(windowRepickQuietSeconds) {
         let carried = carryableSession(launchArgs: launchArgs,
                                        sessionLocated: watcher.file != nil)
         if let moveTo = windowRepickMove(provider: provider, account: account,

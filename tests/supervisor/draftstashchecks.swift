@@ -296,6 +296,55 @@ func runDraftStashChecks() {
               && SessionInputLanding.typed(.failed(ENXIO), agents: 3).agents == nil
               && SessionInputLanding.typed(.done, agents: 3).agents == 3)
 
+
+    // MARK: - A window repick is a relaunch, and a relaunch ends the draft
+
+    // THE DEFECT THIS SECTION EXISTS FOR (codex review of 002c176): the window repick arms on a
+    // `/clear` that reached the composer and, a minute later, RESTARTS the child onto a healthier
+    // account. The child is where the composer and its kill buffer live, so a clear typed into a
+    // session that may be holding a draft closed the window and then took the draft with it - the
+    // only copy, whether the restore had put it back into the composer or left it in the kill
+    // buffer. Both are inside the process the repick kills.
+    //
+    // THE MATRIX IS THE THREE ROWS THAT DIFFER, and the fourth column of each is the same line: what
+    // was DELIVERED never changes here, only what may be done to the child afterwards.
+    let armAfterClean = serve("9508", suspected: true, offset: 8)
+    check("a clear typed into a session that may hold a draft is delivered, and arms nothing",
+          armAfterClean.action.typed == "/clear" && armAfterClean.action.armsRepick == nil)
+    // AND RESTORE SUCCESS DOES NOT EARN THE ARM BACK, which is the half codex's narrower fix would
+    // have left open: the draft is in the composer now, its owner has walked away, and the repick's
+    // own bar is five seconds of quiet - so the successful restore is exactly the case where the
+    // relaunch lands on a composer with somebody's prompt in it.
+    check("…and that is true of a restore that SUCCEEDED, which is where the draft now sits",
+          armAfterClean.guarded?.restore == true)
+    let armAfterRefused = serve("9509", suspected: true, injection: .restoreFailed(ENXIO),
+                                offset: 9)
+    check("a clear whose restore was refused is delivered too, and still arms nothing",
+          armAfterRefused.action.typed == "/clear" && armAfterRefused.action.armsRepick == nil)
+    // A BLOCKED SESSION STASHES NOTHING and is the one row where the guard's two fields disagree:
+    // its draft is in the composer behind the dialog rather than in a kill buffer, and a SIGTERM
+    // ends it just the same. This is why the rule keys on `suspected` and not on whether a stash
+    // ran.
+    let armWhileBlocked = serve("9510", text: windowClearCommand, state: .blocked, suspected: true,
+                                offset: 10)
+    check("a blocked session that may hold a draft arms nothing either, having stashed nothing",
+          armWhileBlocked.guarded?.stash == false && armWhileBlocked.action.typed == "/clear"
+              && armWhileBlocked.action.armsRepick == nil)
+    // AND THE ORDINARY CLEAR IS UNTOUCHED: nothing suspected, so the repick gets its line and the
+    // preventive move this whole feature family exists for still happens.
+    let armOrdinary = serve("9511", suspected: false, offset: 11)
+    check("a clear with no draft under it arms the repick exactly as it always did",
+          armOrdinary.action.typed == "/clear" && armOrdinary.action.armsRepick == "/clear")
+    // …and the arm really is what that value drives, asserted through the repick's own state rather
+    // than only through the field: nil arms nothing, the line arms it.
+    var armed = WindowRepickState()
+    armed.arm(typed: armOrdinary.action.armsRepick, transcript: "before")
+    var unarmed = WindowRepickState()
+    unarmed.arm(typed: armAfterClean.action.armsRepick, transcript: "before")
+    check("the repick is armed by the one and left idle by the other",
+          windowRepickReadiness(armed, transcript: "after") != .idle
+              && windowRepickReadiness(unarmed, transcript: "after") == .idle)
+
     // ORDER, because these lines are read as a story: what was typed, and then what became of what
     // was already there.
     check("the draft lines come after the line saying what was typed",
@@ -343,7 +392,7 @@ func runDraftStashChecks() {
     // requested line and the advisory knock type through the same door, and a draft is destroyed by
     // whichever of them was not told (QuotaKnock.swift).
     if let request = loop.range(of: "let action = applySessionInput("),
-       let arm = loop.range(of: "windowRepick.arm(typed: action.typed,",
+       let arm = loop.range(of: "windowRepick.arm(typed: action.armsRepick,",
                             range: request.upperBound ..< loop.endIndex),
        let knock = loop.range(of: "applyQuotaKnock(", range: arm.upperBound ..< loop.endIndex),
        let afterKnock = loop.range(of: "quarantine: quarantine)",

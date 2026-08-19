@@ -546,7 +546,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                      carryable: carryable, fuseAllows: fuse.allows(),
                                      quarantine: quarantine)
                 })
-            windowRepick.arm(typed: action.typed, transcript: watcher.transcriptSessionID)
+            // `armsRepick` RATHER THAN `typed`, which is not a rename: the repick is a relaunch,
+            // and a session that may be holding an unsent draft is not restarted away from it - the
+            // rule `sessionClearMovesAccounts` states about the synchronous move, applied to the
+            // one that happens a minute later (SessionInputTick.swift).
+            windowRepick.arm(typed: action.armsRepick, transcript: watcher.transcriptSessionID)
             // What this tick typed is also what the NEXT tick's draft reading has to discount: the
             // child reads those bytes off the terminal and stamps it doing so, and a supervisor that
             // read its own footprints as somebody's draft would paste a stale kill buffer into their

@@ -170,7 +170,7 @@ func runSessionClearChecks() {
     // THE ARM IS FED `typed`, so a move arms nothing: the relaunch IS the move, and a second mover
     // waiting behind it would move the session again once the new child reported its own id.
     var repick = WindowRepickState()
-    repick.arm(typed: moved.action.typed, transcript: "abc")
+    repick.arm(typed: moved.action.armsRepick, transcript: "abc")
     check("…so the window repick is not armed behind it",
           windowRepickReadiness(repick, transcript: "def") == .idle)
     check("…and a tick that did nothing hands back nothing, which is what every other tick is",
@@ -290,7 +290,7 @@ func runSessionClearChecks() {
     // THE DECISION IS THE REPICK'S OWN, asked with this session's real gates rather than with a
     // second threshold invented here: same function, same account, same fuse, same quarantine.
     if let start = loop.range(of: "let action = applySessionInput("),
-       let end = loop.range(of: "windowRepick.arm(typed: action.typed,",
+       let end = loop.range(of: "windowRepick.arm(typed: action.armsRepick,",
                             range: start.upperBound ..< loop.endIndex) {
         let call = String(loop[start.upperBound ..< end.lowerBound])
         check("the boundary question is the window repick's own decision, not a new one",

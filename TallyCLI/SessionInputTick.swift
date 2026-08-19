@@ -9,14 +9,37 @@ import Foundation
 // carries it out through the landing (SessionInputLanding.swift), publishes the answer and leaves
 // the audit trail. Nothing here decides a gate, and nothing there touches a file.
 
-/// What the input station did this tick, in the two facts the loop around it has readers for.
+/// What the input station did this tick, in the facts the loop around it has readers for.
 ///
 /// A VALUE RATHER THAN THE TYPED LINE ALONE since the clear boundary existed (2026-08-18): a landing
 /// has two endings now, and a caller that only asked "what was typed" would read the move as
 /// "nothing happened" - which is precisely the tick where the child is about to be replaced.
 struct SessionInputAction: Equatable {
-    /// The line that reached the terminal, and nothing on any other branch.
+    /// The line that reached the terminal, and nothing on any other branch. What DELIVERY means:
+    /// the receipt, the knock that must not speak over it, and this supervisor's record of having
+    /// typed all read this.
     var typed: String?
+    /// The same line, when a window repick may act on it - and nil when it may not.
+    ///
+    /// TWO SIGNALS BECAUSE THEY ANSWER TWO QUESTIONS, which is the correction of 2026-08-19 (codex
+    /// review of 002c176). "Did the line land" and "may this session now be restarted onto another
+    /// account" were one field, and the repick is a RELAUNCH: it kills the child a minute or so
+    /// after the clear, and the child is where the composer and its kill buffer live. So a `/clear`
+    /// typed into a session that may be holding an unsent draft closed a window and then, quietly,
+    /// took the draft with it - the one copy of it, since a stash lives in the process being killed
+    /// (Phase A measured that a relaunch ends the kill buffer outright).
+    ///
+    /// THE RULE IS THE ONE `sessionClearMovesAccounts` ALREADY STATES, applied to the other door: a
+    /// session suspected of holding a draft is not restarted away from it. The repick is the same
+    /// move a minute later, so exempting it would leave the rule true only of the ending that
+    /// happens to be synchronous.
+    ///
+    /// IT KEYS ON `suspected` RATHER THAN ON WHETHER A STASH RAN, and the two differ in exactly one
+    /// place: a `blocked` session is not stashed at all (its composer is behind a dialog) and its
+    /// draft is sitting in that composer, where a SIGTERM ends it just the same. And it holds
+    /// whether or not the restore SUCCEEDED: a draft put back into a composer is still a draft in a
+    /// child that a repick would kill.
+    var armsRepick: String?
     /// The account a `tally session clear` chose to reopen this session on instead of typing. The
     /// loop turns it into this tick's relaunch, and into this tick's answer to "is the child about
     /// to be replaced" - which is what stops the knock beside it from typing into a child that is
@@ -51,12 +74,13 @@ struct SessionInputAction: Equatable {
 /// that shipped before it existed, while a caller that leaves out `relaunchPlanned` types into a
 /// child that is being killed and reports it delivered.
 ///
-/// RETURNS WHAT THIS TICK DID, in the two fields that have readers (`SessionInputAction`). The typed
-/// line is the one `WindowRepickState.arm` wants: a `/clear` reaching a composer is the moment a
-/// session's window closes, which is the cheapest moment in its life to leave a dying account. It is
-/// the TYPED line rather than the requested one on purpose - a request that waited, expired or was
-/// refused closed no window, and arming on it would leave a mover waiting for a clear that never
-/// happened.
+/// RETURNS WHAT THIS TICK DID, in the three fields that have readers (`SessionInputAction`). A
+/// `/clear` reaching a composer is the moment a session's window closes, which is the cheapest
+/// moment in its life to leave a dying account, and `WindowRepickState.arm` is what waits for it. It
+/// is armed on a line that was TYPED rather than one that was requested - a request that waited,
+/// expired or was refused closed no window - and on `armsRepick` rather than on `typed`, because
+/// that repick ends the child a minute later and a session that may hold an unsent draft is not
+/// restarted away from it.
 ///
 /// `turnEnded` is a QUESTION RATHER THAN AN ANSWER, and that is what keeps this feature free: it
 /// reads a file and the tail of a transcript (SessionTurnEnd.swift), and it is asked only after the
@@ -89,6 +113,10 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     var detail: String?
     /// The line that reached the terminal, set on the one branch where that happened.
     var typed: String?
+    /// …and the same line where a window repick may act on it: nil when this session may be holding
+    /// an unsent draft, since that repick is a relaunch and the draft lives in the child it would
+    /// kill (`SessionInputAction.armsRepick` carries the whole reasoning).
+    var armsRepick: String?
     /// How many subagents that line took with it, when it was a line that clears the context and
     /// this session's roster could be believed.
     var killed: Int?
@@ -145,6 +173,10 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         case .typed(let injection, _):
             outcome = .submitted
             typed = asked.text
+            // THE ONE PLACE THE TWO SIGNALS PART. Everything about delivery is above this line;
+            // this is about what may be done to the child AFTERWARDS, and a draft is a reason not
+            // to restart it (`SessionInputAction.armsRepick`).
+            armsRepick = draft.suspected ? nil : asked.text
             detail = killed.map(sessionInputAgentsNote)
             written = injection
         case .moved(let target, _):
@@ -222,5 +254,5 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
                                                           failure: lostReceipt, now: now),
                                to: log)
     }
-    return SessionInputAction(typed: typed, moveTo: moveTo)
+    return SessionInputAction(typed: typed, armsRepick: armsRepick, moveTo: moveTo)
 }

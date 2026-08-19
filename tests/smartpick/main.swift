@@ -86,8 +86,11 @@ let anchorBorrowed = account("A", weekly: (100, inHours(72)), model: (100, nil),
 check("a reset-less flagship window is scored off the weekly anchor, 3d out",
       abs(score(anchorBorrowed) - 100.0 / 72) < 1e-9)
 let anchorless = account("A", weekly: (100, nil), model: (100, nil), modelName: "Fable")
-check("and with no weekly reset to borrow, the 168h assumption still stands (guard the premise)",
-      abs(score(anchorless) - 100.0 / 168) < 1e-9)
+// With no weekly reset to borrow, both windows fall through to the rule below them. Here that is
+// the untouched-window rule (7d) rather than the full window, because both still read 100%: the
+// premise being guarded is that 72h was borrowed above and nothing was borrowed here.
+check("and with no weekly reset to borrow, the borrowing stops (guard the premise)",
+      abs(score(anchorless) - 100.0 / 84) < 1e-9)
 
 // THE BORROWED VALUE IS NOT THE REPORTED ONE, and the two are carried in separate fields for it:
 // the pick and the gate may rank on an inferred anchor, and nothing may print one.
@@ -156,13 +159,18 @@ check("banked resets never outvote a real score gap", pick([betterNoHatch, hatch
 //     never "not started yet" - it is only ever "nobody has read one": a v1 snapshot, or an account
 //     the app has not polled. So the near-tie band leaves the pick where it was.
 //
+//     SCOPE, since 7d: this covers a window that was SPENT and whose reset nobody has read, which
+//     is what the rivals below are (95% left). A window still at 100% has not been opened at all
+//     and is read against the half-window expectation instead - a different rule for a state this
+//     one cannot be in.
+//
 //     These are the live 2026-08-12 numbers the tie-breaker was written from: Claude 4 at 55% with
-//     97.5h to run (0.564 %/h) against a reset-less account reading 100/168 = 0.595 %/h.
+//     97.5h to run (0.564 %/h) against a reset-less account reading 95/168 = 0.565 %/h.
 func score(_ account: Snapshot.Account) -> Double {
     smartScore(account, primaryModel: nil, now: now)
 }
 let openedLeader = account("A", weekly: (55, inHours(97.5)))
-let resetlessRival = account("B", weekly: (100, nil))
+let resetlessRival = account("B", weekly: (95, nil))
 check("a missing weekly reset does not take the lead inside the noise band",
       pick([openedLeader, resetlessRival]) == "A")
 check("and it really was inside the band, not simply losing on score (guard the premise)",
@@ -174,37 +182,106 @@ check("and it really was inside the band, not simply losing on score (guard the 
 check("and it leads when it is listed first, on list order alone",
       pick([resetlessRival, openedLeader]) == "B")
 
-// A reset-less weekly reads as a full 168h window (`ratedWindows`), which is the conservative
-// degradation and not a claim about the account: it must not out-score a real advantage either.
+// A spent weekly with no reset reads as a full 168h window (`ratedWindows`), which is the
+// conservative degradation and not a claim about the account: it must not out-score a real
+// advantage either.
 let strongLeader = account("A", weekly: (30, inHours(24)))
 check("a missing weekly reset does not outvote a real score advantage",
       pick([strongLeader, resetlessRival]) == "A")
 
 // A running weekly clock at the same numbers is treated identically: with the tie-breaker gone,
 // "reset known" and "reset unknown" are the same thing to the pick at equal score.
-let openedRival = account("B", weekly: (100, inHours(168)))
+let openedRival = account("B", weekly: (95, inHours(168)))
 check("a known reset and a missing one at the same score both keep the leader",
       pick([openedLeader, openedRival]) == "A" && pick([openedLeader, resetlessRival]) == "A")
 check("…and those two rivals really do score the same (guard the premise)",
       score(openedRival) == score(resetlessRival))
 
-// v1 snapshots carry no reset times at all, so every account looks the same way to this rule. The
-// coarse-percentage case that made removal a fix as well as a correction: 99% vs 100% is one
-// noise-level point, and it used to hand the launch to whichever account reported the rounder
-// number rather than to the leader.
-let v1First = account("A", weekly: (99, nil))
-let v1Second = account("B", weekly: (100, nil))
+// v1 snapshots carry no reset times at all, so every spent account looks the same way to this rule.
+// The coarse-percentage case that made removal a fix as well as a correction: one point apart is
+// one noise-level point, and it used to hand the launch to whichever account reported the rounder
+// number rather than to the leader. (Both are below 100 on purpose: 7d reads a 100 deliberately.)
+let v1First = account("A", weekly: (98, nil))
+let v1Second = account("B", weekly: (99, nil))
 check("a one-point difference between two reset-less accounts keeps the list order",
       pick([v1First, v1Second]) == "A")
-check("and the pair swapped keeps it too (nothing reads the 100)",
+check("and the pair swapped keeps it too (the rounder number buys nothing)",
       pick([v1Second, v1First]) == "B")
 
 // 7c. The banked-reset tie-breaker is the one that stayed, and it still decides the same band the
 //     removed one used to take first - including when the challenger is the reset-less account,
 //     which is where the two rules used to disagree.
-let bankedResetless = account("B", weekly: (100, nil), resets: 2)
+let bankedResetless = account("B", weekly: (95, nil), resets: 2)
 check("banked resets still break a near-tie, reset time or no reset time",
       pick([openedLeader, bankedResetless]) == "B")
+
+// 7d. AN UNTOUCHED WINDOW IS RATED AGAINST HALF ITS LENGTH, not all of it. The provider publishes a
+//     reset only once usage opens the window, so an account that has never run a request reports
+//     100% and a null reset on every window - a state whose PHASE is unknown, not one that is
+//     certainly a full window away. Rating it at the full window is the worst case, and it
+//     deadlocks: the account is never picked, so it never runs, so it never earns a reset to be
+//     rated by.
+//
+//     The deadlock, live at 2026-08-19T16:53Z: a brand new Claude 4 (three windows at 100%, every
+//     reset null) against the working main account (weekly 16% with 24h to run, session 88% with
+//     1.15h, flagship 20% with 24h). The main account binds at 16/24 = 0.667 %/h; the new account
+//     read 100/168 = 0.595 %/h and could not even reach the 1.15x challenge, so the user had to
+//     open its week by hand with `tally account`.
+let virginAccount = account("virgin", session: (100, nil), weekly: (100, nil), model: (100, nil),
+                            modelName: "Fable")
+let workingMain = account("main", session: (88, inHours(1.15)), weekly: (16, inHours(24)),
+                          model: (20, inHours(24)), modelName: "Fable")
+check("the never-launched account takes the launch from the account with 16% of its week",
+      pick([workingMain, virginAccount]) == "virgin")
+check("its weekly is rated against 84h, the midpoint of the window",
+      abs(score(virginAccount) - 100.0 / 84) < 1e-9)
+check("the full-window reading could not have cleared the challenge gates (guard the premise)",
+      !(100.0 / 168 > score(workingMain) * smartPickMargin
+        && 100.0 / 168 > score(workingMain) + smartPickMinGain))
+// Both accounts are in the field on their own merits: neither the eligibility filter nor the
+// nearly-dry gate removed the main account, so this is the ordering deciding and not a walkover.
+check("and the account it beat was a live candidate, not gated out (guard the premise)",
+      eligible(workingMain) && accountIsComfortable(workingMain, primaryModel: nil, now: now))
+
+// Half of each window's own length, so a 5h session window anchors 2.5h out rather than 84h.
+let virginSessionOnly = account("A", session: (100, nil))
+check("an untouched session window is rated against 2.5h",
+      abs(score(virginSessionOnly) - 100.0 / 2.5) < 1e-9)
+
+// The regression the rule must not swallow: BELOW 100% the window was spent by someone and the
+// missing reset is only an unread one, which stays the conservative full window (7b).
+let spentUnread = account("A", weekly: (60, nil))
+check("a spent window with no reset keeps the full-window assumption",
+      abs(score(spentUnread) - 60.0 / 168) < 1e-9)
+// A reported reset always wins over the inference, even at 100%: the rule reads absence, not the
+// percentage.
+let untouchedButRead = account("A", weekly: (100, inHours(168)))
+check("a reported reset outranks the half-window inference",
+      abs(score(untouchedButRead) - 100.0 / 168) < 1e-9)
+
+// The half window is an inference, so it rides in `anchor` exactly like the borrowed one and never
+// reaches a sentence: the reason quotes no countdown the provider never published.
+let virginWindows = ratedWindows(virginAccount, primaryModel: nil, now: now)
+let virginWeekly = virginWindows.first { $0.name == "weekly" }
+check("the untouched weekly window was found at all (guard the premise)", virginWeekly != nil)
+check("the half window rides in `anchor` and `resetsAt` stays empty",
+      virginWeekly?.anchor == inHours(84) && virginWeekly?.resetsAt == nil)
+check("and the pick reason quotes no countdown for it",
+      pickReason(virginAccount, primaryModel: nil, now: now) == "weekly 100%")
+
+// The app scores the same snapshot for its smart badge from its own copy of `ratedWindows`
+// (LaunchPolicyStore.swift, "keep both sides in lockstep"), and a rule living in one copy means the
+// badge naming one account while the launcher takes another. This suite compiles the CLI only, so
+// the mirror is checked as source text: crude, and still the difference between the two halves
+// drifting silently and a failing test.
+let appPolicySource = (try? String(contentsOfFile: "Tally/Stores/LaunchPolicyStore.swift",
+                                   encoding: .utf8)) ?? ""
+check("the app's copy of the scoring is readable from here (guard the premise)",
+      appPolicySource.contains("private static func ratedWindows"))
+check("and it carries the untouched-window anchor too",
+      appPolicySource.contains("metric.remainingPercent >= 100")
+          && appPolicySource.contains("fullWindowHours / 2 * 3600")
+          && appPolicySource.contains("?? inferredAnchor ?? untouchedAnchor"))
 
 // 8. The pick reason names the binding window with its reset ETA.
 let reason = pickReason(dyingA, primaryModel: nil, now: now)

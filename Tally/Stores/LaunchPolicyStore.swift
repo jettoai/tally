@@ -312,17 +312,28 @@ final class LaunchPolicyStore {
     /// only counts when the declared primary model is that tier. Keep both sides in lockstep.
     ///
     /// `resetsAt` is what the provider reported and `anchor` is what the rate was measured
-    /// against, which differ for exactly one window: a flagship window reporting no reset borrows
-    /// the account's weekly one, because both turn over on the account's single fixed weekly
-    /// moment (the CLI side carries the measurement). Inferred, so the badge's REASON quotes
-    /// `resetsAt` and never the anchor. Missing both leaves the full-window assumption in place.
+    /// against, and they differ wherever the anchor is inferred. Two inferences, in this order
+    /// (the CLI side carries the measurements and the reasoning):
+    ///
+    ///   - a flagship window reporting no reset borrows the account's weekly one, because both
+    ///     turn over on the account's single fixed weekly moment;
+    ///   - a window still at 100% with no reset was never opened (the provider publishes a reset
+    ///     only once usage opens the window), so its phase is unknown and it is rated against the
+    ///     midpoint of its own length. Without this a never-launched account is rated at its worst
+    ///     case, loses every pick, and so never earns a reset to be rated by.
+    ///
+    /// A window BELOW 100% with no reset was spent by someone and simply has no reading (a v1
+    /// snapshot, an unpolled account): the conservative full-window assumption stays in place.
+    /// Both anchors are inferences, so the badge's REASON quotes `resetsAt` and never the anchor.
     private static func ratedWindows(_ usage: AccountUsage, primaryModel: String?, now: Date)
         -> [(name: String, remaining: Double, resetsAt: Date?, anchor: Date?, rate: Double)] {
         func window(_ name: String, _ metric: UsageMetric?, inferredAnchor: Date? = nil,
                     fullWindowHours: Double)
             -> (name: String, remaining: Double, resetsAt: Date?, anchor: Date?, rate: Double)? {
             guard let metric else { return nil }
-            let anchor = metric.resetsAt ?? inferredAnchor
+            let untouchedAnchor = metric.remainingPercent >= 100
+                ? now.addingTimeInterval(fullWindowHours / 2 * 3600) : nil
+            let anchor = metric.resetsAt ?? inferredAnchor ?? untouchedAnchor
             let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) }
                 ?? fullWindowHours
             return (name, metric.remainingPercent, metric.resetsAt, anchor,

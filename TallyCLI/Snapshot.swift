@@ -221,8 +221,15 @@ func shortETA(_ seconds: TimeInterval) -> String {
     return h > 0 ? "\(days)d\(h)h" : "\(days)d"
 }
 
+/// What marks a line on stderr as ours. A NAMED VALUE because one sentence reaches a terminal
+/// without going through `warn` at all: the shim throws this process's stderr away, so a reserve
+/// notice travels as a line of the script it evals and is printed by the user's own shell
+/// (`launchExportLines`, LaunchDir.swift). It has to read like every other line Tally prints, and a
+/// second spelling of the prefix is exactly how it would stop doing so.
+let warnPrefix = "[tally] "
+
 func warn(_ message: String) {
-    FileHandle.standardError.write(Data("[tally] \(message)\n".utf8))
+    FileHandle.standardError.write(Data("\(warnPrefix)\(message)\n".utf8))
 }
 
 /// Replace this process with the provider CLI (never returns on success).

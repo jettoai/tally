@@ -34,7 +34,9 @@ import Foundation
 //     do not pass reserves in (`AccountReserves.none` is what a call site says when it means "this
 //     one was asked for by name"), so there is no rule here for them to be exempt from.
 //   - It never leaves the user with no way to launch. When every eligible account is under its own
-//     line, `best` drops the reserves for that one pick and says so on stderr (`reserveDipNotice`).
+//     line, `best` drops the reserves for that one pick and says so on stderr (`reserveDipNotice`),
+//     from every path that makes that pick: `runLaunch` writes it, and the two shim commands put it
+//     in the script they print, their own stderr being read into /dev/null (LaunchDir.swift).
 //     A machine that refuses to start a session because of a preference nobody re-read that morning
 //     is worse than one that spends 3% of a reserve and mentions it.
 //

@@ -369,15 +369,17 @@ let launchDirSource = (try? String(contentsOfFile: "TallyCLI/LaunchDir.swift", e
 let bestDir = topLevelFunction("runBestDir", in: launchDirSource)
 check("best-dir resolves through the shared steering",
       bestDir.contains("launchSteering(provider, appPolicy:"))
-check("…and hands the model over with the home it chose",
-      bestDir.contains("printLaunchExports(provider, home: home, model: model)"))
+let printed = "printLaunchExports(provider, home: steered.home, model: model, notice: steered.dip)"
+check("…and hands the model over with the home it chose", bestDir.contains(printed))
 check("launch-dir does the same, so the two cannot drift apart",
-      topLevelFunction("runLaunchDir", in: launchDirSource)
-          .contains("printLaunchExports(provider, home: home, model: model)"))
+      topLevelFunction("runLaunchDir", in: launchDirSource).contains(printed))
 
 // The lines above are eval'd by the shim, so every value in them has to be data and not source
 // (shellsafetychecks.swift).
 runShellSafetyChecks()
+// And one of those lines is not environment at all: the water line this pick can cross, said in the
+// only way that reaches a shim-steered launch (reservenoticechecks.swift).
+runReserveNoticeChecks()
 
 // MARK: - Writes refuse to run on a file they could not read
 

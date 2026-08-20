@@ -428,6 +428,36 @@ try writeState(["version": 1, "launch": [:], "accounts": [browserHome: ["reserve
 expect(artifactAccountSetting(state) == nil,
        "…and a reserve with no role attached names nobody")
 
+// 10c. "NOT CHOSEN" IS AN ANSWER, AND THE FALLBACK MAY NOT OVERRULE IT. The row's own picker offers
+// it - it is how somebody turns this checking off without removing the hook - and the writer stores
+// it as an EMPTY STRING precisely so it can be told from never having been asked
+// (LaunchPolicyStore.artifactAccount, which spells all three states). Read as a gap it went to the
+// personal role instead, and the guard then refused every publish on the machine on the strength of
+// a marking made elsewhere: the check the user had just switched off, still switched on.
+//
+// THE ORDER THAT REACHES IT IS AN ORDINARY ONE, which is why this is the state to assert: marking an
+// account personal in the Accounts pane writes this setting to that home as well
+// (`setPersonalAccount`), so anybody who then picks "Not chosen" in Integrations has exactly the
+// document below.
+try writeState(["version": 1, "launch": [:], "artifactAccount": "",
+                "accounts": [browserHome: ["role": "personal", "reserve": 30]]])
+expect(artifactAccountSetting(state) == "",
+       "an answer of \"not chosen\" stays that answer, whatever account is marked personal")
+expect(refusal(setting: artifactAccountSetting(state)) == nil,
+       "…so the guard says nothing, which is what turning it off means")
+// The same reading through the setting's own normalization, which is what the guard compares with:
+// a whitespace-only value names no home either, and is an answer for the same reason.
+try writeState(["version": 1, "launch": [:], "artifactAccount": "   ",
+                "accounts": [browserHome: ["role": "personal", "reserve": 30]]])
+expect(refusal(setting: artifactAccountSetting(state)) == nil,
+       "…and a setting that normalizes to no home at all is the same answer")
+// The half that must not move with it: a document that never carried the key is still a gap, and
+// the personal role is still what fills it.
+try writeState(["version": 1, "launch": [:],
+                "accounts": [browserHome: ["role": "personal", "reserve": 30]]])
+expect(artifactAccountSetting(state) == artifactAccountHome(browserHome),
+       "…while a key nobody has written is still the gap the marking fills")
+
 // MARK: - 11. The one line it prints
 
 let quoted = artifactHookOutput(reason: "a \"label\" with quotes \\ and a backslash")

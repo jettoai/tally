@@ -9,26 +9,55 @@ import Foundation
 // this pair cannot say in the environment does not reach the session at all. That constraint is why
 // `Provider.modelEnvKey` exists, and why both commands resolve through one `launchSteering`: an
 // account chosen for a model is only half an answer until that model is handed over too.
+//
+// AND IT IS WHY THE ONE SENTENCE A LAUNCH OWES A PERSON TRAVELS THE SAME WAY. This pair makes the
+// same pick `runLaunch` does, water line and drought fallback included, so it can spend a reserve
+// the owner asked to be left standing - and `warn` cannot tell them, because the shim reads this
+// command with its stderr redirected away. The notice is written into the script instead
+// (`launchExportLines`), where the shell that evals it is the user's own.
 
-/// The config home a launch under `policy` would run in: its manual pin - in Tally or from
-/// `tally project set --account` - when that resolves to a launchable account, and otherwise the
-/// same headroom pick `runLaunch` makes, this project's model and the live cap quarantine included.
-/// A pin resolves regardless of headroom (the user chose by hand) except when its account has
-/// signed out, which is not launchable by anyone (AccountPick.swift).
+/// The launch both commands predict: where it would run, and the one thing it owes the person
+/// running it.
+struct SteeredLaunch {
+    /// The config home a launch under `policy` would run in.
+    let home: String
+    /// The reserve that pick had to spend, in the launcher's own words (`reserveDipNotice`), or nil
+    /// when it spent none. A PIN CARRIES NONE by construction: naming an account is the answer, so
+    /// that branch passes no reserves and has no line to cross.
+    let dip: String?
+}
+
+/// The pick itself: its manual pin - in Tally or from `tally project set --account` - when that
+/// resolves to a launchable account, and otherwise the same headroom pick `runLaunch` makes, this
+/// project's model and the live cap quarantine included. A pin resolves regardless of headroom (the
+/// user chose by hand) except when its account has signed out, which is not launchable by anyone
+/// (AccountPick.swift).
 ///
 /// Shared by `best-dir` and `launch-dir` so neither can print an export line naming an account the
-/// launch itself would skip, which is a wrong answer to the only question either command asks.
-func steeredLaunchHome(_ provider: Provider, in snapshot: Snapshot?,
-                       policy: LaunchPolicy) -> String? {
-    pinnedLaunchHome(snapshot, policy: policy)
-        // Reserves included for the same reason the quarantine is: this PREDICTS the launch, and a
-        // prediction that ignores an exclusion the launcher applies is simply wrong. The shim's
-        // bare `claude` is the launch that most needs it - nobody typed an account there.
-        ?? snapshot.flatMap {
-            launchPick(providerID: provider.id, in: $0, primaryModel: policy.model,
-                       quarantined: quarantinedAccounts(forPrimary: policy.model),
-                       reserves: accountReserves())?.launchHome
-        }
+/// launch itself would skip, which is a wrong answer to the only question either command asks - and
+/// so neither can walk through a water line the third path says out loud that it crossed.
+///
+/// The readings each have an argument so the prediction is assertable without a state file, a
+/// quarantine directory or a clock on the machine running the test.
+func steeredLaunch(_ provider: Provider, in snapshot: Snapshot?, policy: LaunchPolicy,
+                   reserves: AccountReserves = accountReserves(),
+                   quarantined: Set<String>? = nil, now: Date = Date()) -> SteeredLaunch? {
+    if let home = pinnedLaunchHome(snapshot, policy: policy) {
+        return SteeredLaunch(home: home, dip: nil)
+    }
+    // Reserves included for the same reason the quarantine is: this PREDICTS the launch, and a
+    // prediction that ignores an exclusion the launcher applies is simply wrong. The shim's
+    // bare `claude` is the launch that most needs it - nobody typed an account there.
+    guard let snapshot,
+          let account = launchPick(providerID: provider.id, in: snapshot,
+                                   primaryModel: policy.model,
+                                   quarantined: quarantined
+                                       ?? quarantinedAccounts(forPrimary: policy.model),
+                                   reserves: reserves, now: now),
+          let home = account.launchHome else { return nil }
+    return SteeredLaunch(home: home,
+                         dip: reserveDipNotice(account, primaryModel: policy.model,
+                                               reserves: reserves, now: now))
 }
 
 /// The eval-able answer both shim commands print, so the shim gets the same environment either way.
@@ -42,8 +71,11 @@ func steeredLaunchHome(_ provider: Provider, in snapshot: Snapshot?,
 /// follows them until that shell ends. That is the tradeoff taken deliberately: the config home is
 /// exactly as sticky and nobody has ever wanted it otherwise, and a model that outlives its project
 /// is a smaller harm than an account picked for a model the session then does not run.
-func printLaunchExports(_ provider: Provider, home: String, model: String? = nil) {
-    for line in launchExportLines(provider, home: home, model: model) { print(line) }
+func printLaunchExports(_ provider: Provider, home: String, model: String? = nil,
+                        notice: String? = nil) {
+    for line in launchExportLines(provider, home: home, model: model, notice: notice) {
+        print(line)
+    }
 }
 
 /// `value` as one single-quoted shell word, so a line carrying it means exactly what it says.
@@ -64,12 +96,24 @@ func shellSingleQuoted(_ value: String) -> String {
 /// The lines themselves, as values. The shim `eval`s every line of this output
 /// (IntegrationsStore.shimScript), so what this returns IS the environment a bare launch runs in,
 /// and it is worth being able to assert on without capturing stdout.
-func launchExportLines(_ provider: Provider, home: String, model: String? = nil) -> [String] {
+///
+/// `notice` is the one line that is not environment at all, and being a LINE OF THE SCRIPT is the
+/// whole of why it reaches anybody. The shim asks this command inside a command substitution with
+/// `2> /dev/null` (IntegrationsStore.shimScript), which it has to: `launch-dir` also warns about a
+/// stale snapshot, and a bare `claude` is no place for that. So the sentence a launch owes the owner
+/// of a reserve it just spent - the sentence `runLaunch` writes with `warn` - would be thrown away
+/// on the one path that most needs it, the launch nobody typed an account on. Printed by the user's
+/// own shell instead, onto the user's own stderr, carrying the prefix every other line of ours has.
+func launchExportLines(_ provider: Provider, home: String, model: String? = nil,
+                       notice: String? = nil) -> [String] {
+    // Single-quoted for the same reason every value here is: the account label in that sentence is
+    // text somebody typed, and this line is source the shell is about to run.
+    var lines = notice.map { ["printf '%s\\n' \(shellSingleQuoted(warnPrefix + $0)) >&2"] } ?? []
     // Mirror launchEnv: the default home must UNSET the variable (explicitly setting the default
     // path makes Claude Code look up a hashed Keychain item that doesn't exist). Both lines eval.
-    var lines = [launchEnv(provider, home: home) == nil
+    lines.append(launchEnv(provider, home: home) == nil
         ? "unset \(provider.envKey)"
-        : "export \(provider.envKey)=\(shellSingleQuoted(home))"]
+        : "export \(provider.envKey)=\(shellSingleQuoted(home))")
     // The status line reads this to show "this session runs under Tally" (✦). A shim-steered bare
     // launch has no resident supervisor, so mark it unsupervised (the status line stays quiet
     // rather than nagging "supervisor unknown").
@@ -92,11 +136,11 @@ func runBestDir(_ providerID: String) {
     if let problem { warn(problem) }
     let (policy, model) = launchSteering(provider, appPolicy: launchPolicy(provider.id),
                                         project: projectPolicy(provider.id))
-    guard let home = steeredLaunchHome(provider, in: snapshot, policy: policy) else {
+    guard let steered = steeredLaunch(provider, in: snapshot, policy: policy) else {
         warn("no eligible \(providerID) account")
         exit(1)
     }
-    printLaunchExports(provider, home: home, model: model)
+    printLaunchExports(provider, home: steered.home, model: model, notice: steered.dip)
 }
 
 /// What a launch may be steered BY: the app's policy with this project's profile laid over it, and
@@ -148,6 +192,6 @@ func runLaunchDir(_ providerID: String) {
     let (snapshot, problem) = loadSnapshot()
     if let problem { warn(problem) }
     // Nothing eligible - stay silent, the shim runs the bare CLI.
-    guard let home = steeredLaunchHome(provider, in: snapshot, policy: policy) else { return }
-    printLaunchExports(provider, home: home, model: model)
+    guard let steered = steeredLaunch(provider, in: snapshot, policy: policy) else { return }
+    printLaunchExports(provider, home: steered.home, model: model, notice: steered.dip)
 }

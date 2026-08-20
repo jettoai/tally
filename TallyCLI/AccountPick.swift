@@ -325,8 +325,10 @@ let smartPickMinGain = 0.05   // %/h
 ///
 /// WHEN NOBODY IS ABOVE THEIR RESERVE, THIS PICK DROPS THE RESERVES ENTIRELY and ranks the fleet as
 /// it did before the feature existed. A launch has nowhere else to go: refusing to start a session
-/// because of a preference set weeks ago is a worse outcome than spending 3% of it, and the launcher
-/// says so out loud when it happens (`reserveDipNotice`). Dropped rather than ranked-on-negatives,
+/// because of a preference set weeks ago is a worse outcome than spending 3% of it, and every path
+/// that makes this pick says so out loud when it happens - `runLaunch` on its own stderr, the two
+/// shim commands through the script they print (`reserveDipNotice`, and LaunchDir.swift for why the
+/// same sentence needs two ways out). Dropped rather than ranked-on-negatives,
 /// because negative rates are not a scale - the hysteresis gates below were written for a quantity
 /// with a floor at zero, and letting them compare -0.06 against -0.05 would decide the fleet's
 /// worst-case launch by an accident of arithmetic. On a fleet with no reserves set this substitution

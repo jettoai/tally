@@ -62,9 +62,17 @@ enum AccountRoles {
     }
 
     /// Whether this config home is the marked one.
+    ///
+    /// ASKED OF THE WINNER ABOVE rather than of this home's own entry, so the three questions over
+    /// this block cannot answer a hand-edited document differently from one another: reading each
+    /// entry on its own, a file carrying two markings had both rows in Settings badged Personal,
+    /// both accounts holding quota back, and the Artifact guard - which asks `personalHome` -
+    /// naming exactly one of them. There is ONE marked account by construction, so there is one
+    /// here too, and a stray second marking is the leftover the doc above says it is.
     static func isPersonal(_ accounts: [String: AccountRoleSetting], home: String?) -> Bool {
-        guard let key = key(accounts, home: home) else { return false }
-        return accounts[key]?.role == personal
+        guard let key = key(accounts, home: home), let marked = personalHome(accounts)
+        else { return false }
+        return key == marked
     }
 
     /// How much of this account's quota Tally's own choices must leave standing, 0 when there is no
@@ -74,9 +82,13 @@ enum AccountRoles {
     /// control that writes this lives on the personal row and nowhere else, so a reserve sitting on
     /// an account that does not hold the role is a leftover from a hand edit or an older build. Read
     /// literally it would hold quota back on an account with no surface anywhere saying why.
+    ///
+    /// THE MARKING IS THE ONE ABOVE, through `isPersonal`: a document carrying two of them holds
+    /// quota back on ONE account, the same one every other question about this block answers with.
+    /// The number itself is still this home's own, because that is what was asked.
     static func reserve(_ accounts: [String: AccountRoleSetting], home: String?) -> Int {
-        guard let key = key(accounts, home: home), let entry = accounts[key],
-              entry.role == personal, let stored = entry.reserve else { return 0 }
+        guard isPersonal(accounts, home: home), let key = key(accounts, home: home),
+              let stored = accounts[key]?.reserve else { return 0 }
         return min(max(stored, reserveBounds.lowerBound), reserveBounds.upperBound)
     }
 

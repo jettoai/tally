@@ -311,8 +311,14 @@ func artifactAccountName(_ home: String, in accounts: [Snapshot.Account]) -> Art
 /// seeded from whichever config home happened to be listed first, which is a value the user never
 /// chose sitting in a field only they can set.
 ///
-/// The role is read only when the explicit setting is ABSENT, never to override it, so a person who
-/// deliberately publishes from an account other than their personal one keeps doing so.
+/// THE KEY BEING ABSENT IS THE ONLY GAP THE FALLBACK FILLS, and the state it is not allowed to fill
+/// is the one the writer spells with an EMPTY STRING: "Not chosen" in the Integrations row, which is
+/// how a person turns this checking off without removing the hook (`LaunchPolicyStore.
+/// artifactAccount` states all three states). Read as a gap, it handed the question to the personal
+/// role and the guard went on refusing every publish on the machine - the very check the user had
+/// just switched off, from the row they switched it off in. So an answer of any kind comes back as
+/// it stands: an empty one names no home (`artifactAccountHome`), which is the abstention this whole
+/// hook is built around, and the role never gets asked.
 func artifactAccountSetting(_ url: URL = stateURL) -> String? {
     struct StateFile: Decodable {
         // Mirror of the app's `LaunchPolicyStore.StateFile` field of the same name; the schema only
@@ -321,10 +327,8 @@ func artifactAccountSetting(_ url: URL = stateURL) -> String? {
     }
     guard let data = try? Data(contentsOf: url),
           let file = try? JSONDecoder().decode(StateFile.self, from: data) else { return nil }
-    if let chosen = file.artifactAccount, !chosen.trimmingCharacters(in: .whitespaces).isEmpty {
-        return chosen
-    }
-    return accountReserves(url).personalHome
+    guard let chosen = file.artifactAccount else { return accountReserves(url).personalHome }
+    return chosen
 }
 
 /// The published snapshot, read WITHOUT the warnings `loadSnapshot` prints: they go to stderr, and

@@ -456,6 +456,21 @@ let twoRoles: Block = [homeB: AccountRoleSetting(role: AccountRoles.personal, re
                        homeA: AccountRoleSetting(role: AccountRoles.personal, reserve: nil)]
 check("a hand-edited document with two markings answers one of them, always the same one",
       (0 ..< 20).allSatisfy { _ in AccountRoles.personalHome(twoRoles) == homeA })
+// AND EVERY QUESTION OVER THE BLOCK ANSWERS WITH THAT ONE. Read entry by entry, the same document
+// badged both rows Personal in Settings, held quota back on both accounts, and left the Artifact
+// guard - which asks `personalHome` - naming exactly one of them: three surfaces disagreeing about
+// which account this machine is browsed on. There is one marked account by construction, so there
+// is one here.
+check("…and it is the one the marking question answers with",
+      AccountRoles.isPersonal(twoRoles, home: homeA)
+          && !AccountRoles.isPersonal(twoRoles, home: homeB))
+let twoReserved: Block = [homeB: AccountRoleSetting(role: AccountRoles.personal, reserve: 40),
+                          homeA: AccountRoleSetting(role: AccountRoles.personal, reserve: 30)]
+check("…and only that one holds any quota back",
+      AccountRoles.reserve(twoReserved, home: homeA) == 30
+          && AccountRoles.reserve(twoReserved, home: homeB) == 0)
+check("…the same one the Artifact guard reads, on every one of these documents",
+      AccountRoles.personalHome(twoReserved) == homeA)
 
 // The document itself: only the keys that carry something, so a marked account with no reserve
 // writes no reserve key at all and every reader's "absent means zero" stays true.

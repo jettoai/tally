@@ -83,11 +83,13 @@ final class LaunchPolicyStore {
     ///   - nil        - NOBODY HAS ANSWERED. The CLI abstains (the guard is a convenience rather
     ///                  than a gate, so a machine that has never named an account is never told it
     ///                  may not publish), and an install may seed it (`artifactAccountSeed`).
-    ///   - ""         - ANSWERED, AND THE ANSWER IS "NOT CHOSEN". The CLI abstains identically -
-    ///                  `artifactAccountHome("")` is nil, so this reads to every shipped version
-    ///                  exactly as the absent key did - but an install no longer re-guesses over it.
-    ///                  Picking "Not chosen" in the row used to store nil, which is why the next
-    ///                  install, auto-follow pass or repair silently chose an account again.
+    ///   - ""         - ANSWERED, AND THE ANSWER IS "NOT CHOSEN". The CLI abstains on it
+    ///                  (`artifactAccountHome("")` names no home), and an install no longer
+    ///                  re-guesses over it. Picking "Not chosen" in the row used to store nil, which
+    ///                  is why the next install, auto-follow pass or repair silently chose an
+    ///                  account again. NOT the same reading as the absent key any more: absent falls
+    ///                  back to the account marked personal, and this answer is one that fallback
+    ///                  may not overrule (TallyCLI/HookArtifact.swift, `artifactAccountSetting`).
     ///   - a home     - the account the user named.
     private(set) var artifactAccount: String?
 

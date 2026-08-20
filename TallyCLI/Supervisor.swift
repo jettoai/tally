@@ -133,6 +133,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// drought this conversation has already heard about; a relaunch that moves accounts re-arms it
     /// by itself, because the new account's binding window is a different cycle.
     var quotaKnock = QuotaKnockState()
+    /// And HOW it is told: filed for this session's own hooks to deliver where the app has
+    /// registered them, typed into the composer where it has not (QuotaKnockNotice.swift). Beside
+    /// the arm rather than inside it because it is a property of the account's config home rather
+    /// than of the drought, and remembered per home for the reason `QuotaKnockChannel` states.
+    var quotaKnockChannel = QuotaKnockChannel()
     // A self-update keeps the pid and gives this state a fresh start, so a cancellation notice the
     // replaced image had just raised lives only in its file - where the seeded writer above would
     // take it down on the first tick, as the honest answer to "this session has nothing pending".
@@ -145,6 +150,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         manualMoves.adoptCancellation(carried)
         sessionModelState.adoptAdoption(carried)
     }
+    // THE OTHER DOCUMENT AN IMAGE CAN LEAVE UNDER ITS OWN PID, reconciled the other way: a knock
+    // filed and not yet delivered is news rather than a live wait, and this image has announced
+    // nothing, so it is discarded rather than adopted. Unconditional, and outside the `resumed`
+    // branch on purpose - the self-update is the case the sweep below cannot reach, because the pid
+    // never died (QuotaKnockNotice.swift enumerates all four ways the file outlives its arm).
+    discardCarriedQuotaKnockNotice(pid: supervisorPID)
     // Reap drift-state files left by dead supervisors (a SIGKILL skips the clear path) before this
     // one starts writing its own; also shrinks the pid-reuse window for a stale badge.
     sweepDeadSupervisorState()
@@ -590,7 +601,14 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                           quiet: board.quiet,
                                           turnEnded: turnOver, keyboardIdle: composerIdle,
                                           relaunchPlanned: replacingChild,
-                                          draftSuspected: draftSuspected, quarantine: quarantine)
+                                          draftSuspected: draftSuspected, quarantine: quarantine,
+                                          // Asked of the home this session is on RIGHT NOW, which a
+                                          // handoff moves: the hooks are registered per Claude
+                                          // account, so the account decides the channel.
+                                          filing: {
+                                              quotaKnockChannel
+                                                  .hookInstalled(home: account.launchHome)
+                                          })
             // The second writer into this composer, recorded on the same terms as the first: what
             // makes the next tick's draft reading right is that BOTH of them say when they typed.
             if knocked != nil { lastComposerWrite = Date() }

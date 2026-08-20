@@ -727,6 +727,8 @@ runSessionSendChecks()
 runSessionClearChecks()
 runDraftStashChecks()
 runQuotaKnockChecks()
+runKnockChannelChecks()
+runKnockHookChecks()
 // LAST, because it registers the capture flag in this process's defaults and everything after it
 // would then be running in demo mode (`demoboardchecks.swift` says so at its own head).
 runDemoSessionBoardChecks()

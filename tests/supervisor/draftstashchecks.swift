@@ -438,7 +438,10 @@ func runDraftStashChecks() {
        let arm = loop.range(of: "windowRepick.apply(action.repick,",
                             range: request.upperBound ..< loop.endIndex),
        let knock = loop.range(of: "applyQuotaKnock(", range: arm.upperBound ..< loop.endIndex),
-       let afterKnock = loop.range(of: "quarantine: quarantine)",
+       // The statement AFTER the call rather than its last argument: the argument list grows (the
+       // channel choice joined it in 0.59) and an anchor that names one of them turns a check about
+       // the draft reading into a check about argument order (2026-08-20).
+       let afterKnock = loop.range(of: "if knocked != nil {",
                                    range: knock.upperBound ..< loop.endIndex) {
         check("the requested line is typed under this tick's own draft reading",
               loop[request.upperBound ..< arm.lowerBound].contains("draftSuspected: draftSuspected"))

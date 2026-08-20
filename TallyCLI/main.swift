@@ -389,6 +389,11 @@ case "hook-notify":   // internal: Claude Code's Notification hook (UserNotice.s
 // because one subcommand answers all three (HookAgents.swift).
 case "hook-agents":
     exit(runHookAgents(args: Array(arguments.dropFirst())))
+// internal: Claude Code's two context-carrying hooks, which take the event as their argument for
+// the reason the three above do - one subcommand answers both, and the answer has to name the event
+// it is answering (HookKnock.swift).
+case "hook-knock":
+    exit(runHookKnock(args: Array(arguments.dropFirst())))
 // The two the merge replaced. Still answered, because a registration written by an older app is in
 // somebody's settings.json until the self-heal rewrites it, and a hook that runs a subcommand this
 // binary does not have prints usage and lets the expansion through - a model turn, for a command

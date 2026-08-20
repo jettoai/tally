@@ -43,7 +43,7 @@ swiftc -o "$out" \
   TallyCLI/ProviderExecutable.swift \
   TallyCLI/AccountComfort.swift \
   TallyCLI/ReloadRequest.swift \
-  TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/AgentRoster.swift \
+  TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/QuotaKnockNotice.swift TallyCLI/AgentRoster.swift \
   TallyCLI/SessionContext.swift \
   TallyCLI/SessionSwitch.swift TallyCLI/ManualMoveState.swift TallyCLI/SwitchDecision.swift TallyCLI/SwitchRequest.swift TallyCLI/SessionAddressing.swift TallyCLI/AccountHome.swift \
   TallyCLI/Reload.swift

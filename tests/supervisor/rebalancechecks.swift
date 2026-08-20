@@ -16,14 +16,14 @@ func runRebalanceChecks() {
     /// `model` alone decides whether the account reads as dying for a fable session.
     func acct(_ id: String, model: Double, modelResetHours: Double = 100,
               provider: String = "claude", stale: Bool = false,
-              error: String? = nil) -> Snapshot.Account {
+              error: String? = nil, refreshFailed: Bool? = false) -> Snapshot.Account {
         Snapshot.Account(id: id, provider: provider, label: id, launchHome: "/tmp/\(id)",
                          sessionRemaining: 90, weeklyRemaining: 90, modelRemaining: model,
                          sessionResetsAt: launch.addingTimeInterval(4 * 3600),
                          weeklyResetsAt: launch.addingTimeInterval(100 * 3600),
                          modelResetsAt: launch.addingTimeInterval(modelResetHours * 3600),
                          modelWindowName: "fable", resetCreditsAvailable: nil,
-                         isStale: stale, error: error)
+                         isStale: stale, error: error, lastRefreshFailed: refreshFailed)
     }
     let dying = acct("A", model: 3)          // under the nearly-dry line, hours from resetting
     let healthy = acct("B", model: 77)
@@ -442,6 +442,29 @@ func runRebalanceChecks() {
     check("…and so does an errored one", target(current: erroredSpent, claim: { false }) == nil)
     check("…while both still move when the claim is theirs to take",
           target(current: staleSpent)?.id == "B" && target(current: erroredSpent)?.id == "B")
+
+    // AND THE BADGE IS NOT THE EVIDENCE, because it arrives a poll late. The app raises `isStale`
+    // only on a SECOND consecutive failure so the card does not flicker on a token rotation, so the
+    // first failing round republishes the held-over numbers wearing no flag the two checks above
+    // could see: a minute at least in which every idle supervisor on the account reads a zero
+    // nobody has confirmed. `lastRefreshFailed` is set from the first failure for this reader
+    // (`foldLastGood`, Tally/Core/LastGoodFold.swift), and it is asked HERE rather than trusted to
+    // arrive as a badge later.
+    let heldOver = acct("A", model: 0, refreshFailed: true)
+    check("a spent account whose latest poll failed is not spent, badge or no badge",
+          !accountIsSpent(heldOver, primaryModel: primary, now: launch))
+    check("…and it carries no badge at all, which is the state being covered",
+          !heldOver.isStale && heldOver.error == nil)
+    check("…so the claim governs it", target(current: heldOver, claim: { false }) == nil)
+    check("…while it still moves when the claim is its own", target(current: heldOver)?.id == "B")
+    // An older app publishes no such field, and nil is "cannot tell" rather than "the poll
+    // succeeded": the exemption then rests on the badge alone, as it did before the field existed.
+    check("a snapshot from an app that predates the field decides on the badge as before",
+          accountIsSpent(acct("A", model: 0, refreshFailed: nil), primaryModel: primary,
+                         now: launch))
+    check("…and an explicit false is a poll that really succeeded",
+          accountIsSpent(acct("A", model: 0, refreshFailed: false), primaryModel: primary,
+                         now: launch))
 
     // MARK: - 26c. The cycle key
 

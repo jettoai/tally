@@ -51,6 +51,16 @@ struct Snapshot: Decodable {
         /// nil in a snapshot from an app that predates the field (the schema only ever gains
         /// fields), and readers must treat that as "cannot tell" rather than as "fresh".
         var refreshedAt: Date?
+        /// Whether this account's LATEST poll failed, so every number in this row is held over from
+        /// an earlier round. Published from the first failure with no debounce, which is the whole
+        /// reason it exists beside `isStale`: that one waits for a second consecutive failure so the
+        /// app's "Outdated" badge does not flicker on a token rotation, and the interval between the
+        /// two failures is a row that reads as freshly fetched and is not.
+        ///
+        /// nil from an app that predates the field, which is "cannot tell" and not "the poll
+        /// succeeded": a reader that must not act on held-over numbers falls back to `isStale` and
+        /// `error` there, and accepts that such an app leaves the first failure unannounced.
+        var lastRefreshFailed: Bool?
     }
 
     var version: Int

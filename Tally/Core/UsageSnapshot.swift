@@ -47,6 +47,19 @@ struct UsageSnapshot: Codable {
         /// Optional because the schema only ever gains fields: a snapshot written by an older app
         /// decodes with nil, and a reader that needs the stamp treats nil as "cannot tell".
         var refreshedAt: Date?
+        /// Whether THIS ACCOUNT's latest poll failed, published from the first failure with no
+        /// debounce (`foldLastGood`, Core/LastGoodFold.swift). True means every number in this row
+        /// is held over from an earlier round, however recent `refreshedAt` reads.
+        ///
+        /// Deliberately not `isStale`, which waits for a second consecutive failure so the badge
+        /// does not flicker: the interval between the two failures publishes a row that reads as
+        /// freshly fetched and is not, and the supervisor deciding inside it is the reader this
+        /// field exists for (`accountIsSpent`, TallyCLI/AccountPick.swift).
+        ///
+        /// Optional, and false is written out rather than folded into nil: nil means the app that
+        /// wrote this predates the field and cannot answer, which is a different sentence from "the
+        /// last poll succeeded" and is read differently by anyone deciding on it.
+        var lastRefreshFailed: Bool?
     }
 
     var version = 2
@@ -121,7 +134,8 @@ struct UsageSnapshot: Codable {
                     resetCreditsAvailable: usage.resetCreditsAvailable,
                     isStale: usage.isStale,
                     error: usage.error,
-                    refreshedAt: usage.refreshedAt
+                    refreshedAt: usage.refreshedAt,
+                    lastRefreshFailed: usage.lastRefreshFailed
                 )
             },
             statuslineFullQuota: statuslineFullQuota,

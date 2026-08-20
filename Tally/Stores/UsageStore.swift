@@ -455,29 +455,25 @@ final class UsageStore {
     /// last-good numbers unbadged, so the badge stops flickering on every token refresh.
     private static let staleAfterFailures = 2
 
-    /// On success, record the snapshot. On a transient failure keep the last-good numbers as-is; only a
-    /// sustained failure (≥ staleAfterFailures in a row) marks them stale with the error tooltip. An
-    /// account that never succeeded still shows a bare error immediately.
+    /// On success, record the snapshot. On a failure hand the round to `foldLastGood`
+    /// (Core/LastGoodFold.swift), which decides what the card shows and what the CLI is told: the
+    /// last-good numbers either way, flagged as held over from the first failure, and badged
+    /// "Outdated" only once the failures are sustained (≥ staleAfterFailures in a row). An account
+    /// that never succeeded still shows a bare error immediately.
+    ///
+    /// The streak counters stay here because they are this store's state across rounds; the fold
+    /// itself is a function of one round, which is what lets a suite assert it (tests/lastgood).
     private func applyLastGood(_ usage: AccountUsage) -> AccountUsage {
         if usage.error == nil {
             failureStreak[usage.id] = 0
-            lastGood[usage.id] = usage
-            return usage
+            let fresh = foldLastGood(usage, previous: nil, failureStreak: 0,
+                                     staleAfterFailures: Self.staleAfterFailures)
+            lastGood[usage.id] = fresh
+            return fresh
         }
         let streak = (failureStreak[usage.id] ?? 0) + 1
         failureStreak[usage.id] = streak
-        guard var previous = lastGood[usage.id] else { return usage }
-        // The numbers are stale; the identity need not be. Whatever this round established without
-        // the poll (Claude reads plan and email from a local config file) replaces the last-good
-        // copy, so a config dir signed in as somebody else stops showing the previous account's
-        // email. Nil means this round could not tell, not that there is no identity, so it leaves
-        // the known value alone.
-        if let plan = usage.planName { previous.planName = plan }
-        if let email = usage.accountEmail { previous.accountEmail = email }
-        if streak >= Self.staleAfterFailures {
-            previous.isStale = true
-            previous.error = usage.error  // reason, shown as an "Outdated" tooltip
-        }
-        return previous
+        return foldLastGood(usage, previous: lastGood[usage.id], failureStreak: streak,
+                            staleAfterFailures: Self.staleAfterFailures)
     }
 }

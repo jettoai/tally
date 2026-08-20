@@ -106,7 +106,15 @@ struct AccountUsage: Identifiable, Hashable, Sendable {
     var error: String?
     /// True when these metrics are the last-good snapshot shown because the latest refresh failed.
     /// `error` then carries the reason (for a tooltip) while the numbers stay visible.
+    ///
+    /// DEBOUNCED BY TWO FAILURES so the badge does not flicker on a single missed poll, which makes
+    /// it a statement about what is worth SHOWING rather than about what was fetched. Readers that
+    /// need the second question ask `lastRefreshFailed` (`foldLastGood`, Core/LastGoodFold.swift).
     var isStale: Bool = false
+    /// Whether this account's LATEST poll failed, set from the first failure with no debounce: the
+    /// numbers beside it are then held over from an earlier round however fresh they look. The fact
+    /// `isStale` cannot carry, because that one waits for a second failure on purpose.
+    var lastRefreshFailed: Bool = false
     /// Codex reset banking: how many banked rate-limit resets the account can still redeem
     /// (nil = the provider doesn't report the concept).
     var resetCreditsAvailable: Int?

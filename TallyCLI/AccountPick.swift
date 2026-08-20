@@ -336,19 +336,19 @@ func bindingWindow(_ account: Snapshot.Account, primaryModel: String?,
 /// An account reporting no counted windows is not spent. Nothing is known about it, and an
 /// exemption invented out of missing data is a move made on evidence nobody has.
 ///
-/// NEITHER IS A STALE OR ERRORED ONE, which is that same sentence about missing data wearing the
-/// clothes of a reading. A failing refresh keeps the last good numbers in place behind a flag
-/// (`applyLastGood`, UsageStore.swift), so a zero left over from before the failure is spelled
-/// exactly like a zero read a moment ago, while the snapshot around it goes on reading fresh off
-/// some other account's activity. Every idle supervisor on that account then holds the same
-/// remembered zero on the same tick and would be exempted together, landing on one sibling at
-/// once: the stampede the claim was written to stop. What this exemption spends is the only guard
-/// against a crowd, so it may be bought with a number somebody has just seen and with nothing
-/// else. The launch gate has refused such an account since it was written (`eligible` above);
-/// this is that rule reaching the last place still deciding without it.
+/// NEITHER IS A HELD-OVER ONE, the same sentence about missing data wearing the clothes of a
+/// reading. A failed refresh keeps the last good numbers (`foldLastGood`, Core/LastGoodFold.swift),
+/// so a zero left from before the failure is spelled exactly like one read a moment ago, and every
+/// idle supervisor on that account holds it on the same tick: exempted together they land on one
+/// sibling at once, the stampede the claim was written to stop. It asks `lastRefreshFailed` rather
+/// than the badge because `isStale` waits for a second consecutive failure so the app's "Outdated"
+/// badge cannot flicker on a token rotation, and that debounce leaves a poll interval in which a
+/// failed round is published looking like a successful one. Badge and `error` stay behind it for
+/// the sustained case and for snapshots older than the flag, where nil is "cannot tell" and the
+/// first failing round is still unannounced: a gap closed by updating the app, not by guessing.
 func accountIsSpent(_ account: Snapshot.Account, primaryModel: String?,
                     now: Date = Date()) -> Bool {
-    guard account.error == nil, !account.isStale,
+    guard account.lastRefreshFailed != true, account.error == nil, !account.isStale,
           let binding = bindingWindow(account, primaryModel: primaryModel, now: now) else {
         return false
     }

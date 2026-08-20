@@ -119,6 +119,16 @@ func runTurnBoundaryChecks() {
           target(current: erroredSpent, claim: { false }) == nil)
     check("…though both still move when the claim is theirs to take",
           target(current: staleSpent)?.id == "B" && target(current: erroredSpent)?.id == "B")
+    // AND THE UNBADGED CASE, which is the one that actually reaches a live supervisor: the app
+    // raises the badge only on a second consecutive failure, so the first failing round publishes
+    // held-over numbers wearing nothing the two checks above can see. `lastRefreshFailed` is set
+    // from the first failure for exactly this reader (Tally/Core/LastGoodFold.swift).
+    var heldOver = spent
+    heldOver.lastRefreshFailed = true
+    check("…and a spent account whose latest poll failed is not exempt either",
+          target(current: heldOver, claim: { false }) == nil)
+    check("…though it carries no badge at all", !heldOver.isStale && heldOver.error == nil)
+    check("…and it still moves when the claim is its own", target(current: heldOver)?.id == "B")
 
     // The line is the shared one, not a second threshold of this mover's own. Asserted against the
     // constant so a change to `nearlyDryPercent` moves this gate with everything else.

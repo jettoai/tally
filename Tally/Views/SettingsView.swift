@@ -39,7 +39,12 @@ struct SettingsView: View {
         }
     }
 
-    @State private var section: Section = LoginItemPreview.settingsOpening.onLaunchPane ? .launch : .accounts
+    /// The pane this window opens on. A state preview wins over a capture launch that named one,
+    /// the rule `SurfaceTabLaunch` states about its own pair: the preview is the more specific
+    /// instruction, since it puts a particular ROW on screen and the pane follows from it.
+    @State private var section: Section = LoginItemPreview.settingsOpening.onLaunchPane
+        ? .launch
+        : (SettingsCaptureLaunch.openingSection ?? .accounts)
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {

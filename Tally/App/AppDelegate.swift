@@ -58,7 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // following it. Following would not work: the restore activates, and the second preview
         // launch onwards would always find the restore flag set, because opening the window is
         // what sets it.
-        if !openSettingsForLoginItemPreview() {
+        // A capture launch stands in for the restore on the same terms, and is asked second because
+        // the preview is the more specific instruction: it names a row, this one names at most a
+        // pane.
+        if !openSettingsForLoginItemPreview(), !openSettingsForCapture() {
             SettingsWindowController.shared.restoreAtLaunchIfNeeded(activating: mayTakeForeground)
         }
         // Design-preview hook (demo/dev only): -TallyUpdateChip 0.15.0 renders the header's
@@ -171,6 +174,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard LoginItemPreview.fixture != nil else { return false }
         // The same launch-wide answer the restores above got, so all three paths that can put a
         // window up at startup are driven by one value read in one place.
+        SettingsWindowController.shared.show(activating: CaptureLaunch.launchMayTakeForeground)
+        return true
+    }
+
+    /// `-TallySettingsCapture YES` (or a pane name): open the Settings window at launch, so a row in
+    /// it can be photographed without touching the desktop.
+    ///
+    /// It exists for the reason `-TallyPanelCapture` does, one window over: the only way into
+    /// Settings is the menu bar, and driving a menu means synthesizing clicks that take the pointer
+    /// and the frontmost app away from whoever is using the machine
+    /// (~/.claude/docs/patterns/macos-app-verification.md). A real window is what
+    /// `screencapture -o -l <windowID>` can take from the background, and every review of an
+    /// Integrations row is that same act.
+    ///
+    /// Which pane it lands on is not decided here: `SettingsView` seeds its opening section from
+    /// `SettingsCaptureLaunch`, so the flag and the pane cannot disagree.
+    ///
+    /// Reports whether it did, because this replaces the ordinary Settings restore rather than
+    /// running after it, exactly as the state preview above does and for the same reason: opening
+    /// the window is what sets the note the restore reads, so a second capture launch would find it
+    /// set and be restored on top of itself.
+    ///
+    /// Gated on the demo data or a dev build, like every other flag in this family: it must never be
+    /// reachable in a release instance somebody is actually using. There is nothing to keep out of
+    /// the shared defaults, for the reason the preview states: this goes through the ordinary
+    /// `show()`, whose one record is that Settings was open, in that build's own domain.
+    private func openSettingsForCapture() -> Bool {
+        guard SettingsCaptureLaunch.isActive else { return false }
+        // The same launch-wide answer every other unprompted window got, read in one place.
         SettingsWindowController.shared.show(activating: CaptureLaunch.launchMayTakeForeground)
         return true
     }

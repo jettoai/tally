@@ -29,6 +29,12 @@ enum CaptureLaunch {
     /// different flag from this list.
     static let loginItemPreview = "TallyLoginItemPreview"
 
+    /// The Settings window held open for a capture. Named for the same reason, and spelled HERE
+    /// rather than beside the code that reads it (`SettingsCaptureLaunch`): that code reaches
+    /// SwiftUI, and the classification below must stay compilable on its own, which is what lets the
+    /// completeness check compile this file without the app.
+    static let settingsCapture = "TallySettingsCapture"
+
     /// Every flag whose launch is here to be observed. Grouped by what they put on screen.
     static let backgroundKeys: [String] = [
         // Fixtures and chrome the whole app is captured through.
@@ -39,6 +45,9 @@ enum CaptureLaunch {
         // Surfaces held open so they can be photographed without synthesized input.
         "TallyPanelCapture",    // the pinned usage panel
         "TallyTab",             // which of that surface's pages it opens on (SurfaceTabLaunch)
+        // The Settings window, and which pane it opens on: one flag rather than two, because the
+        // pane is the value it carries (SettingsCaptureLaunch).
+        settingsCapture,
         "TallyTooltipPreview",  // one callout, which otherwise needs a real hover
         "TallyEmptyStatePreview",
         "TallyTokenGraphPreview",

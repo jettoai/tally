@@ -397,12 +397,13 @@ for key in CaptureLaunch.backgroundKeys {
 // directions are pinned, a member going missing and one appearing without anybody deciding to.
 let expectedFamily: Set<String> = [
     "TallyDemoData", "TallyAppearance", "TallyCardStyle", "TallySessionCardCap",
-    "TallyPanelCapture", "TallyTab", "TallyTooltipPreview", "TallyEmptyStatePreview",
+    "TallyPanelCapture", "TallyTab", "TallySettingsCapture", "TallyTooltipPreview",
+    "TallyEmptyStatePreview",
     "TallyTokenGraphPreview", "TallyUpdateChip", "TallyPickPreview", "TallyLoginItemPreview",
     "TallyStripSnapshot",
     "TallyDryNotifyTest", "TallyResetHintTest", "TallyLoginExpiryTest",
 ]
-check("the family is exactly these sixteen flags",
+check("the family is exactly these seventeen flags",
       Set(CaptureLaunch.backgroundKeys) == expectedFamily)
 check("and it carries no duplicates",
       CaptureLaunch.backgroundKeys.count == expectedFamily.count)
@@ -455,8 +456,8 @@ check("every flag spelled in the source is classified",
       scanned.subtracting(CaptureLaunch.allFlagKeys).isEmpty)
 check("and every flag classified is spelled in the source",
       Set(CaptureLaunch.allFlagKeys).subtracting(scanned).isEmpty)
-check("which comes to twenty-three, in three buckets",
-      CaptureLaunch.allFlagKeys.count == 23 && scanned.count == 23)
+check("which comes to twenty-four, in three buckets",
+      CaptureLaunch.allFlagKeys.count == 24 && scanned.count == 24)
 check("with nothing counted twice",
       Set(CaptureLaunch.allFlagKeys).count == CaptureLaunch.allFlagKeys.count)
 check("a launch carrying none of them does",

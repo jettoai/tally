@@ -215,8 +215,9 @@ let bankedResetless = account("B", weekly: (95, nil), resets: 2)
 check("banked resets still break a near-tie, reset time or no reset time",
       pick([openedLeader, bankedResetless]) == "B")
 
-// 7d. AN UNTOUCHED WINDOW IS RATED AGAINST HALF ITS LENGTH, not all of it. The provider publishes a
-//     reset only once usage opens the window, so an account that has never run a request reports
+// 7d. AN UNTOUCHED FIXED-CYCLE WINDOW IS RATED AGAINST HALF ITS LENGTH, not all of it (the session
+//     window is the exception, 7e). The provider publishes a reset only once usage opens the
+//     window, so an account that has never run a request reports
 //     100% and a null reset on every window - a state whose PHASE is unknown, not one that is
 //     certainly a full window away. Rating it at the full window is the worst case, and it
 //     deadlocks: the account is never picked, so it never runs, so it never earns a reset to be
@@ -243,10 +244,28 @@ check("the full-window reading could not have cleared the challenge gates (guard
 check("and the account it beat was a live candidate, not gated out (guard the premise)",
       eligible(workingMain) && accountIsComfortable(workingMain, primaryModel: nil, now: now))
 
-// Half of each window's own length, so a 5h session window anchors 2.5h out rather than 84h.
+// 7e. THE SESSION WINDOW IS EXEMPT from that halving, because its phase is not unknown: the 5h
+//     session clock starts on the first message rather than on a moment the provider fixes
+//     (Tally/Views/MetricRowView.swift tells the user the same thing), so an untouched session
+//     window has its whole 5h still ahead of it and the half-window expectation does not apply.
+//     Halving it reads 100/2.5 = 40 %/h where the truth is 100/5 = 20 %/h, doubling the rate of
+//     the one window every idle account carries.
 let virginSessionOnly = account("A", session: (100, nil))
-check("an untouched session window is rated against 2.5h",
-      abs(score(virginSessionOnly) - 100.0 / 2.5) < 1e-9)
+check("an untouched session window is rated against the full 5h, not half of it",
+      abs(score(virginSessionOnly) - 100.0 / 5) < 1e-9)
+//     What the doubling bought at the pick: an idle account whose session has never started held
+//     the launch against a rival sustaining a genuinely faster burn, on the strength of a window
+//     nobody had opened. The idle account's weekly reads 25 %/h either way; only its session moves,
+//     from 40 %/h (never the binding window) to 20 %/h (binding, and correctly so).
+let idleUnstarted = account("idle", session: (100, nil), weekly: (100, inHours(4)))
+let busyRival = account("busy", weekly: (48, inHours(2)))
+check("an idle account's unstarted session no longer holds the launch",
+      pick([idleUnstarted, busyRival]) == "busy")
+check("the halved reading would have kept it: 24 %/h clears 20 but not 25 (guard the premise)",
+      abs(score(idleUnstarted) - 20) < 1e-9 && abs(score(busyRival) - 24) < 1e-9
+          && !(24 > 25 * smartPickMargin && 24 > 25 + smartPickMinGain))
+check("and the rival was a live candidate, not a walkover (guard the premise)",
+      eligible(busyRival) && accountIsComfortable(busyRival, primaryModel: nil, now: now))
 
 // The regression the rule must not swallow: BELOW 100% the window was spent by someone and the
 // missing reset is only an unread one, which stays the conservative full window (7b).
@@ -266,6 +285,13 @@ let virginWeekly = virginWindows.first { $0.name == "weekly" }
 check("the untouched weekly window was found at all (guard the premise)", virginWeekly != nil)
 check("the half window rides in `anchor` and `resetsAt` stays empty",
       virginWeekly?.anchor == inHours(84) && virginWeekly?.resetsAt == nil)
+// The exemption is one window wide, on the one account: its flagship window keeps the midpoint
+// (168h fixed cycle, nothing to borrow) while its session window anchors nowhere at all.
+check("the same account's untouched flagship window still anchors at 84h",
+      virginWindows.first { $0.name == "Fable" }?.anchor == inHours(84))
+let virginSession = virginWindows.first { $0.name == "session" }
+check("and its untouched session window anchors nowhere, rating at 100/5",
+      virginSession?.anchor == nil && abs((virginSession?.rate ?? 0) - 100.0 / 5) < 1e-9)
 check("and the pick reason quotes no countdown for it",
       pickReason(virginAccount, primaryModel: nil, now: now) == "weekly 100%")
 
@@ -278,10 +304,17 @@ let appPolicySource = (try? String(contentsOfFile: "Tally/Stores/LaunchPolicySto
                                    encoding: .utf8)) ?? ""
 check("the app's copy of the scoring is readable from here (guard the premise)",
       appPolicySource.contains("private static func ratedWindows"))
-check("and it carries the untouched-window anchor too",
-      appPolicySource.contains("metric.remainingPercent >= 100")
+check("and it carries the untouched-window anchor too, behind the same fixed-cycle gate",
+      appPolicySource.contains("fixedCycle && metric.remainingPercent >= 100")
           && appPolicySource.contains("fullWindowHours / 2 * 3600")
           && appPolicySource.contains("?? inferredAnchor ?? untouchedAnchor"))
+// And that it exempts the same window: the weekly and flagship call sites opt in, the 5h session
+// one does not. A mirror that halved only on one side would have the badge naming an idle account
+// the launcher passes over.
+check("and it opts its weekly window in",
+      appPolicySource.contains("window(\"weekly\", weekly, fullWindowHours: 168, fixedCycle: true)"))
+check("and leaves its 5h session window out",
+      !appPolicySource.contains("fullWindowHours: 5, fixedCycle: true"))
 
 // 8. The pick reason names the binding window with its reset ETA.
 let reason = pickReason(dyingA, primaryModel: nil, now: now)

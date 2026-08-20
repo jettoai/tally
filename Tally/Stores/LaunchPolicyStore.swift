@@ -317,21 +317,29 @@ final class LaunchPolicyStore {
     ///
     ///   - a flagship window reporting no reset borrows the account's weekly one, because both
     ///     turn over on the account's single fixed weekly moment;
-    ///   - a window still at 100% with no reset was never opened (the provider publishes a reset
-    ///     only once usage opens the window), so its phase is unknown and it is rated against the
-    ///     midpoint of its own length. Without this a never-launched account is rated at its worst
-    ///     case, loses every pick, and so never earns a reset to be rated by.
+    ///   - a FIXED-CYCLE window still at 100% with no reset was never opened (the provider
+    ///     publishes a reset only once usage opens the window), so its phase is unknown and it is
+    ///     rated against the midpoint of its own length. Without this a never-launched account is
+    ///     rated at its worst case, loses every pick, and so never earns a reset to be rated by.
+    ///
+    /// The session window is the exception to the second inference: its 5h clock starts on the
+    /// first message rather than on a moment the provider fixes, so an untouched session window has
+    /// its phase KNOWN and its whole 5h ahead of it. Halving it would rate every idle account's
+    /// session at 100/2.5 = 40 %/h instead of the true 100/5 = 20 %/h.
     ///
     /// A window BELOW 100% with no reset was spent by someone and simply has no reading (a v1
     /// snapshot, an unpolled account): the conservative full-window assumption stays in place.
     /// Both anchors are inferences, so the badge's REASON quotes `resetsAt` and never the anchor.
     private static func ratedWindows(_ usage: AccountUsage, primaryModel: String?, now: Date)
         -> [(name: String, remaining: Double, resetsAt: Date?, anchor: Date?, rate: Double)] {
+        /// `fixedCycle` marks a window that turns over on a moment the account does not set: the
+        /// weekly one, and the flagship window riding on it. Only those get the midpoint reading,
+        /// because only their phase is unknown while untouched (above).
         func window(_ name: String, _ metric: UsageMetric?, inferredAnchor: Date? = nil,
-                    fullWindowHours: Double)
+                    fullWindowHours: Double, fixedCycle: Bool = false)
             -> (name: String, remaining: Double, resetsAt: Date?, anchor: Date?, rate: Double)? {
             guard let metric else { return nil }
-            let untouchedAnchor = metric.remainingPercent >= 100
+            let untouchedAnchor = fixedCycle && metric.remainingPercent >= 100
                 ? now.addingTimeInterval(fullWindowHours / 2 * 3600) : nil
             let anchor = metric.resetsAt ?? inferredAnchor ?? untouchedAnchor
             let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) }
@@ -342,7 +350,7 @@ final class LaunchPolicyStore {
         let weekly = usage.metrics.first { $0.kind == .weeklyAll }
         var windows = [
             window("session", usage.metrics.first { $0.kind == .session }, fullWindowHours: 5),
-            window("weekly", weekly, fullWindowHours: 168),
+            window("weekly", weekly, fullWindowHours: 168, fixedCycle: true),
         ].compactMap { $0 }
         let model = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
         let windowModel = model?.modelName?.lowercased()
@@ -351,7 +359,8 @@ final class LaunchPolicyStore {
             || windowModel!.contains(primary!) || primary!.contains(windowModel!)
         if modelWindowCounts,
            let m = window(model?.modelName?.lowercased() ?? "model", model,
-                          inferredAnchor: weekly?.resetsAt, fullWindowHours: 168) {
+                          inferredAnchor: weekly?.resetsAt, fullWindowHours: 168,
+                          fixedCycle: true) {
             windows.append(m)
         }
         return windows

@@ -176,12 +176,19 @@ func pinnedLaunchHome(_ snapshot: Snapshot?, policy: LaunchPolicy) -> String? {
 ///   - SPENT, reset unread (below 100%): assume the full window. That is the conservative
 ///     degradation rather than a reading, it denies such an account a phantom advantage, and old
 ///     snapshots (a v1 file, an account the app has not polled) degrade to plain headroom ordering.
-///   - UNTOUCHED (still at 100%): the window was never opened, so its PHASE is unknown rather than
-///     late, and the expected distance to a reset drawn uniformly across the window is half of it.
-///     Here the full window is the WORST case rather than a neutral one, and assuming it deadlocks:
-///     a brand new account rated 100/168 = 0.60 %/h loses to a working account holding 16% of its
-///     week with a reset a day out (0.67 %/h), so it is never launched, so it never earns a reset
-///     to be rated by. Broken by hand with `tally account` on 2026-08-19.
+///   - UNTOUCHED (still at 100%) AND ON A FIXED CYCLE: the window was never opened, so its PHASE is
+///     unknown rather than late, and the expected distance to a reset drawn uniformly across the
+///     window is half of it. Here the full window is the WORST case rather than a neutral one, and
+///     assuming it deadlocks: a brand new account rated 100/168 = 0.60 %/h loses to a working
+///     account holding 16% of its week with a reset a day out (0.67 %/h), so it is never launched,
+///     so it never earns a reset to be rated by. Broken by hand with `tally account` on 2026-08-19.
+///
+/// THE SESSION WINDOW IS THE EXCEPTION to that second reading, because its phase is not unknown:
+/// the 5h session clock starts on the first message rather than on a schedule the provider fixes
+/// (MetricRowView.swift says the same to the user), so an untouched session window has its whole
+/// 5h still ahead of it. Halving it would double the rate of every idle account's session window
+/// (100/2.5 = 40 %/h against the true 100/5 = 20 %/h) and let an untouched account outrank the
+/// field on a window nobody has started.
 ///
 /// Both inferences ride in `anchor` and never in `resetsAt`, so no sentence quotes them.
 struct RatedWindow {
@@ -201,13 +208,18 @@ struct RatedWindow {
 
 func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
                   now: Date = Date()) -> [RatedWindow] {
+    /// `fixedCycle` marks a window that turns over on a moment the account does not set: the weekly
+    /// one, and the flagship window riding on it. Only those get the midpoint reading, because only
+    /// their phase is unknown while untouched. The session window is not one of them (above).
     func window(_ name: String, _ remaining: Double?, _ resetsAt: Date?,
-                inferredAnchor: Date? = nil, fullWindowHours: Double) -> RatedWindow? {
+                inferredAnchor: Date? = nil, fullWindowHours: Double,
+                fixedCycle: Bool = false) -> RatedWindow? {
         guard let remaining else { return nil }
-        // An untouched window has published no reset because nothing has opened it yet, so it is
-        // rated against the midpoint of its own length rather than its far edge (above). A spent
-        // one whose reset nobody has read keeps the full-window assumption below.
-        let untouchedAnchor = remaining >= 100
+        // An untouched fixed-cycle window has published no reset because nothing has opened it yet,
+        // so it is rated against the midpoint of its own length rather than its far edge (above). A
+        // spent one whose reset nobody has read keeps the full-window assumption below, and so does
+        // an untouched session window, whose clock has not started rather than started unseen.
+        let untouchedAnchor = fixedCycle && remaining >= 100
             ? now.addingTimeInterval(fullWindowHours / 2 * 3600) : nil
         let anchor = resetsAt ?? inferredAnchor ?? untouchedAnchor
         let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) } ?? fullWindowHours
@@ -216,7 +228,8 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
     }
     var windows = [
         window("session", account.sessionRemaining, account.sessionResetsAt, fullWindowHours: 5),
-        window("weekly", account.weeklyRemaining, account.weeklyResetsAt, fullWindowHours: 168),
+        window("weekly", account.weeklyRemaining, account.weeklyResetsAt, fullWindowHours: 168,
+               fixedCycle: true),
     ].compactMap { $0 }
     // The flagship window only constrains the pick when the declared primary model IS that tier
     // (a sonnet primary doesn't drain the fable window, so a drained fable window must not veto
@@ -235,7 +248,7 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
     if modelWindowCounts,
        let model = window(account.modelWindowName ?? "model", account.modelRemaining,
                           account.modelResetsAt, inferredAnchor: account.weeklyResetsAt,
-                          fullWindowHours: 168) {
+                          fullWindowHours: 168, fixedCycle: true) {
         windows.append(model)
     }
     return windows

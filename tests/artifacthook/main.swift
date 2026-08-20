@@ -274,8 +274,32 @@ expect(artifactShellWord("") == "''", "…and nothing at all is still one argume
 let outOfReach = refusal(standing: .signedOut) ?? ""
 expect(!outOfReach.contains("tally account"),
        "a signed-out account is never offered a move this CLI would refuse")
-expect(outOfReach.contains("Main is signed out; sign in there first (`claude` inside that config dir)"),
-       "…it is told to sign in there, named as the panel names it")
+expect(outOfReach.contains("Main is signed out; use Renew login on its card in Tally"),
+       "…it is pointed at the button that does it, named as the panel names it")
+// AND THE COMMAND IS THE APP'S OWN. The sentence used to say "`claude` inside that config dir",
+// which is not how Claude Code picks an account at all: it reads the variable, not the working
+// directory, so following that instruction signs the user into whichever account they were already
+// on (codex review of e2325e0).
+expect(!outOfReach.contains("inside that config dir"),
+       "…and never the old instruction, which named a directory Claude Code does not read")
+expect(outOfReach.contains("CLAUDE_CONFIG_DIR=\(browserHome) claude --strict-mcp-config auth login"),
+       "…the command names the home through the variable, with the flag before the subcommand")
+// The two things this borrows from Renew login rather than spelling again, each asserted where it
+// would actually be got wrong.
+expect(artifactRenewLoginCommand(home: "/Users/x/.claude2")
+           == "env CLAUDE_CONFIG_DIR=/Users/x/.claude2 claude --strict-mcp-config auth login",
+       "the login command is assembled by the app's own Renew login")
+expect(artifactRenewLoginCommand(home: RenewLoginCommand.defaultHome(providerID: "claude"))
+           == "env -u CLAUDE_CONFIG_DIR claude --strict-mcp-config auth login",
+       "…so the DEFAULT home unsets the variable rather than naming itself, which is where the "
+           + "Keychain item actually lives")
+let spacedLogin = artifactRenewLoginCommand(home: spaced) ?? ""
+// The VARIABLE ASSIGNMENT is the word that gets quoted, which is the shape `env` needs: the whole
+// `NAME=value` pair is one argument, so quoting the path alone would split the pair in two.
+expect(spacedLogin.contains("env 'CLAUDE_CONFIG_DIR=\(spaced)' claude"),
+       "…and a config home with a space in it is quoted, so the line can be copied and run")
+expect(!spacedLogin.contains("''"),
+       "…once, not twice: a command line is not one word in a command line")
 expect(outOfReach.contains("pick another account in Tally \u{2192} Settings \u{2192} Integrations"),
        "…and where the choice itself is changed")
 expect(outOfReach.contains(".html") && outOfReach.contains(artifactAnyAccountVariable),

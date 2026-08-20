@@ -102,6 +102,12 @@ targets:
       # channel: these are separate processes speaking through files, so a drifted field name
       # is a picker that opens and can never be answered.
       - path: Tally/Core/PickContract.swift
+      # What signing an account back in actually runs, which the Artifact guard's refusal has to be
+      # able to print: a signed-out publishing account cannot be reached with `tally account`, so the
+      # way out is a login, and the flag order and the unset-for-the-default-home rule in there are
+      # both things this repo has already got wrong once. One copy, compiled by both targets, rather
+      # than a command line spelled a second time inside a hook.
+      - path: Tally/Core/RenewLoginCommand.swift
       # The Artifact publishing guard's shared vocabulary: the tool the app registers a PreToolUse
       # matcher for, the command it registers, and the environment variable that waives the whole
       # thing. Both targets compile the one copy for the reason above - the app writes these words

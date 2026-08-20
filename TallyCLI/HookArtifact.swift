@@ -117,10 +117,14 @@ func artifactHookRefusal(toolName: String?,
     // could launch, so offering it for a signed-out account is an instruction that fails for a
     // reason the message never mentions, with the thing that would actually fix it (signing in
     // there) unsaid. The rest of the sentence is the same either way.
+    // The command is offered only when there is one to offer, and the rest of the sentence stands
+    // without it: a provider this app cannot log in still has Renew login named, the picker named,
+    // and the two ways out that need no account at all.
+    let renew = artifactRenewLoginCommand(home: setting).map { ", or run `\($0)`" } ?? ""
     let route = chosen == .signedOut
-        ? "\(there.label) is signed out; sign in there first (`claude` inside that config dir), "
-            + "pick another account in Tally \u{2192} Settings \u{2192} Integrations, or write a "
-            + "local .html file and open it instead."
+        ? "\(there.label) is signed out; use Renew login on its card in Tally\(renew), or pick "
+            + "another account in Tally \u{2192} Settings \u{2192} Integrations, or write a local "
+            + ".html file and open it instead."
         : "Run `tally account \(artifactShellWord(there.dir))` to move this session there (takes "
             + "effect when this turn ends), or write a local .html file and open it instead."
     return "Artifacts are private to the account that publishes them. This session is on "
@@ -158,6 +162,33 @@ func artifactShellWord(_ text: String) -> String {
     let unquoted = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/")
     guard text.isEmpty || !text.allSatisfy(unquoted.contains) else { return text }
     return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
+/// The command that signs one config home back in, assembled by the app's OWN Renew login rather
+/// than written out here.
+///
+/// TWO THINGS THIS BORROWS, and both of them have been got wrong before. The arguments carry
+/// `--strict-mcp-config` BEFORE the subcommand, because Commander rejects a parent option written
+/// after one, and the wrong order shipped once (RenewLoginCommand states how it passed review). And
+/// the DEFAULT home is spelled by UNSETTING the variable rather than by naming the path: Claude Code
+/// namespaces its Keychain item by the exact variable string, so `CLAUDE_CONFIG_DIR=~/.claude claude
+/// auth login` signs in somewhere the account is not, and the user would be sent round the loop
+/// again. `env` is the prefix for both cases, which is what the app's own visible-Terminal fallback
+/// shows a user, so the two surfaces teach one command.
+///
+/// The command comes back already quoted for a shell, field by field (`RenewLoginCommand.
+/// shellQuoted`), so a config home with a space in it survives being copied. It is deliberately not
+/// put through `artifactShellWord` afterwards: this is a command line, not one word in one, and
+/// quoting it again would quote the quoting.
+///
+/// nil for a provider the app cannot log in at all, which leaves the sentence naming Renew login and
+/// the other ways out.
+func artifactRenewLoginCommand(home: String) -> String? {
+    let provider = providers[0]
+    guard let plan = RenewLoginCommand.plan(providerID: provider.id) else { return nil }
+    let named = RenewLoginCommand.isDefaultHome(home, providerID: provider.id) ? nil : home
+    return RenewLoginCommand.shellCommand(executable: provider.cli, envKey: provider.envKey,
+                                          home: named, arguments: plan.arguments)
 }
 
 /// What this machine can say about the account artifacts are published from. Three answers, because

@@ -36,9 +36,8 @@ struct SessionInputAction: Equatable {
     ///
     /// IT KEYS ON `suspected` RATHER THAN ON WHETHER A STASH RAN, and the two differ in exactly one
     /// place: a `blocked` session is not stashed at all (its composer is behind a dialog) and its
-    /// draft is sitting in that composer, where a SIGTERM ends it just the same. And it holds
-    /// whether or not the restore SUCCEEDED: a draft put back into a composer is still a draft in a
-    /// child that a repick would kill.
+    /// draft is sitting in that composer, where a SIGTERM ends it just the same. A stashed draft is
+    /// in the child's kill buffer, which the same SIGTERM ends, so both readings point one way.
     var repick: SessionInputRepick = .untouched
     /// The account a `tally session clear` chose to reopen this session on instead of typing. The
     /// loop turns it into this tick's relaunch, and into this tick's answer to "is the child about
@@ -118,12 +117,13 @@ enum SessionInputRepick: Equatable {
 /// line below has established that there is a request to serve at all. On the overwhelming majority
 /// of ticks there is none and nothing is read.
 ///
-/// `draftSuspected` is whether somebody has a half-written prompt in that composer, which decides
-/// two things one after the other: whether the line puts the draft back after sending (the writer's
-/// business, SessionInputDraft.swift) and whether a `tally session clear` may answer itself by
-/// restarting the child on another account (SessionClear.swift - that ending cannot save a draft).
-/// It has NO DEFAULT, on the terms `relaunchPlanned` has none: a caller that forgot it would type
-/// over a half-written prompt and report the line delivered.
+/// `draftSuspected` is whether somebody has a half-written prompt in that composer, and what it
+/// decides is whether this session may be RESTARTED away from it: synchronously, when a `tally
+/// session clear` answers itself by reopening the child on another account (SessionClear.swift), and
+/// a minute later through the window repick above. It reaches nothing that is typed
+/// (SessionInputDraft.swift carries the 2026-08-20 removal). It has NO DEFAULT, on the terms
+/// `relaunchPlanned` has none: a caller that forgot it would let a preventive move kill the child
+/// holding somebody's prompt and report the line delivered.
 @discardableResult
 func applySessionInput(_ state: inout SessionInputState, session: SupervisedState,
                        quiet: SessionQuiet, turnEnded: () -> Bool, keyboardIdle: Bool,
@@ -158,11 +158,11 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     /// to say about it in the log. Decided before the landing rather than inside it, because the
     /// account question reads the same value (SessionInputLanding.swift).
     let draft = sessionInputDraftGuard(state: session, suspected: draftSuspected)
-    /// What the terminal made of the write, on the one branch where there was one. The draft lines
-    /// below need it and the outcome word cannot answer them: a refused write may still have got the
-    /// stash out before it failed, and that is precisely the case whose draft is sitting in a kill
-    /// buffer nobody has been told about.
-    var written: SessionInputInjection?
+    /// Whether this landing went to the terminal at all, which is what the draft line below turns
+    /// on: a refused write may still have got the stash out before it failed, and that is precisely
+    /// the case whose draft is sitting in a kill buffer nobody has been told about, while a landing
+    /// that moved the session never went near that composer.
+    var touchedComposer = false
     switch sessionInputDecision(request: request, servedEpoch: state.servedEpoch, state: session,
                                 quiet: quiet, turnEnded: turnEnded(), keyboardIdle: keyboardIdle,
                                 relaunchPlanned: relaunchPlanned, now: now) {
@@ -188,20 +188,23 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
         // "a write the terminal refused ended nothing" is a rule, and a rule spelled once here and
         // again in a pattern below is two rules waiting to disagree.
         killed = landing.agents
+        // AND WHETHER IT WENT TO THE TERMINAL AT ALL, taken from the landing for the same reason
+        // and in the same place: both endings that typed leave the same draft line, and reading
+        // that off two of the arms below is two copies of one rule.
+        if case .typed = landing { touchedComposer = true }
         switch landing {
         // THE ONE WRITE THAT SENT NOTHING LEADS, so the arm under it can be everything else: a
         // terminal that refused a byte BEFORE the Return.
         case .typed(.failed(let code), _):
             outcome = .failedTTY
             detail = "errno \(code): \(String(cString: strerror(code)))"
-            written = .failed(code)
-        // WHAT REACHED THE CONVERSATION IS THE QUESTION, and a refused Ctrl-Y is not an answer to it
-        // (`SessionInputInjection.sent`). A restore that failed after the Return is served exactly
-        // as a clean delivery is - `typed` set, the window repick armed - and says what became of
-        // the draft on the audit line below, which is the whole of the difference. Reporting it as a
-        // failure is what had a caller send a line the conversation already had (codex review of
-        // 1f69cf9).
-        case .typed(let injection, _):
+        // AND THE OTHER SIDE OF IT: every byte got out, so the conversation has the line. There is
+        // no third ending any more - a plan used to continue past the Return to put a draft back,
+        // and a Ctrl-Y the terminal refused there was a DELIVERY that this switch had to serve as
+        // one, because reporting it as a failure had a caller send a line the conversation already
+        // had (codex review of 1f69cf9). Nothing is pressed after the Return since 2026-08-20
+        // (SessionInputDraft.swift).
+        case .typed:
             outcome = .submitted
             typed = asked.text
             // THE ONE PLACE THE TWO SIGNALS PART. Everything about delivery is above this line;
@@ -215,7 +218,6 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
                 repick = .cancel
             }
             detail = killed.map(sessionInputAgentsNote)
-            written = injection
         case .moved(let target, _):
             // NOTHING WAS TYPED, and `typed` stays nil for a reason that is not cosmetic: it arms
             // the window repick (`WindowRepickState.arm`), whose whole job is to move a session
@@ -280,8 +282,8 @@ func applySessionInput(_ state: inout SessionInputState, session: SupervisedStat
     // by the time they come back the only account of it is this file. Written only where a write was
     // attempted (a move typed nothing) and only where the stash ran at all - a blocked session's
     // composer is behind its dialog, so nothing was touched and there is nothing to explain.
-    if let written {
-        appendSessionInputDraftLines(pid: pid, draft: draft, written: written, now: now, to: log)
+    if touchedComposer {
+        appendSessionInputDraftLines(pid: pid, draft: draft, now: now, to: log)
     }
     // AFTER the served line, so the two read in the order they happened: what was typed, and then
     // that nobody was told about it.

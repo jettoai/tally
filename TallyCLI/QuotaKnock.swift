@@ -86,8 +86,8 @@ func quotaKnockFailureLine(pid: String, code: Int32, outcome: String = quotaKnoc
 ///    interval since the last reading), so the ordinary tick stops here;
 ///  - then the fleet reading, which is one `~/.tally/snapshot.json` read;
 ///  - then whether this session is OWED the sentence, which is pure;
-///  - then which channel this session has, which is one settings.json read the first time it is
-///    asked about a config home and nothing at all afterwards (`QuotaKnockChannel`);
+///  - then which channel this session has, which costs nothing at all here: the reading was taken
+///    when this child was launched and is handed in (`quotaKnockFilingAvailable`);
 ///  - and only then the input gate, which reads a file and a transcript tail through `turnEnded` -
 ///    and which the filed channel does not ask at all.
 ///
@@ -116,10 +116,11 @@ func quotaKnockFailureLine(pid: String, code: Int32, outcome: String = quotaKnoc
 /// nobody requested. The reading is taken once per tick and handed to both stations
 /// (SessionInputDraft.swift). It says nothing about the filed channel, which touches no composer.
 ///
-/// `filing` is whether this session's Claude Code can be handed the sentence instead of having it
-/// typed (`QuotaKnockChannel` holds the reading and remembers it). A closure so the settings.json
-/// behind it is read only on a tick that has something to say, and defaulted to false so every
-/// caller that has not been taught about the hooks keeps the behaviour it had.
+/// `filing` is whether THIS CHILD's Claude Code can be handed the sentence instead of having it
+/// typed. The reading is taken once, when that child is launched, and handed in rather than taken
+/// here (`quotaKnockFilingAvailable` argues why the moment is the whole of it). A closure so a
+/// caller that computes it lazily still may, and defaulted to false so every caller that has not
+/// been taught about the hooks keeps the behaviour it had.
 @discardableResult
 func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: String,
                      account: Snapshot.Account, primaryModel: String?, typedAlready: Bool,
@@ -211,16 +212,14 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     let draft = sessionInputDraftGuard(state: session, suspected: draftSuspected)
     let written = inject(line, draft)
     switch written {
-    // A REFUSED CTRL-Y IS A SENTENCE THAT LANDED, on the same terms as the served path: what this
-    // log line answers is "what typed into my session", and the knock did.
-    case .done, .restoreFailed:
+    case .done:
         appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: quotaKnockOutcome,
                                                   text: line, now: now), to: log)
     case .failed(let code):
         appendSessionInputLine(quotaKnockFailureLine(pid: pid, code: code, now: now), to: log)
     }
     // AFTER the line that says what was typed, the order the served path uses: what was typed, and
-    // then what became of what was already there.
-    appendSessionInputDraftLines(pid: pid, draft: draft, written: written, now: now, to: log)
+    // then where what was already there has gone.
+    appendSessionInputDraftLines(pid: pid, draft: draft, now: now, to: log)
     return written.sent ? line : nil
 }

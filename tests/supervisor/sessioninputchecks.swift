@@ -622,22 +622,20 @@ func runSessionInputChecks() {
 
     let written = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
     // Twelve served requests and the four `/clear` landings above, two of which ended agents and
-    // left the extra line that says so - and, since 2026-08-19, the pair every line that reaches a
-    // terminal leaves about the draft that was under it (SessionInputDraft.swift). Counted rather
+    // left the extra line that says so - and, since 2026-08-19, the line every landing that reaches
+    // a terminal leaves about the draft that was under it (SessionInputDraft.swift). Counted rather
     // than merely greppable, because the number is what says no branch here writes a line nobody
     // accounted for.
     let audited = written.components(separatedBy: "\n").filter { $0.contains("input=") }
-    check("every served request left a line", audited.count == 52)
-    // THE DRAFT PAIR, and both halves of it: sixteen landings reached the writer in this suite, none
-    // of them with a draft suspected, so all sixteen stashed and all sixteen said why they put
-    // nothing back. A build that stopped stashing, or one that stopped explaining itself, moves one
-    // of these numbers without moving the outcome of any check above.
-    check("…and every line that reached a terminal said what became of the draft under it",
+    check("every served request left a line", audited.count == 36)
+    // THE DRAFT LINE: sixteen landings reached the writer in this suite, and all sixteen moved
+    // whatever was in that composer into its kill buffer. A build that stopped stashing moves this
+    // number without moving the outcome of any check above. Nothing follows it, because nothing puts
+    // a draft back since 2026-08-20 - asserted here as an absence, since a build that brought the
+    // restore back would write one of these words and change nothing else this suite reads.
+    check("…and every line that reached a terminal said where the draft under it went",
           audited.filter { $0.contains("input=draft-stashed rounds=12") }.count == 16
-              && audited.filter {
-                  $0.contains("input=draft-restore-dropped reason=no-typing-evidence")
-              }.count == 16
-              && !written.contains("input=draft-restored"))
+              && !written.contains("input=draft-restore"))
     check("…naming the session, the outcome and the text",
           written.contains("pid=9201 input=submitted bytes=5 text=/help"))
     // NO `submit` COLUMN. It read `yes` on every line ever written once typing and sending became

@@ -206,17 +206,41 @@ final class LaunchPolicyStore {
     /// is about an account that no longer exists. Manual mode goes back to Smart with it - manual
     /// with nothing pinned is a provider whose launches are steered by an id that resolves to
     /// nothing.
-    func forget(accountID: String) {
-        var changed = false
+    func forget(accountID: String, home: String) {
+        // THE ARTIFACT ACCOUNT IS STORED AS A HOME, so the id above cannot reach it: it is the one
+        // setting here that names a directory rather than an account, and a removal that left it
+        // standing pointed the guard at a config home in the Trash. What that costs is not a stale
+        // string - it is every publish on the machine refused, with an instruction to move to a
+        // folder that is gone, and a later `~/.claude3` silently inheriting the choice (codex review
+        // of 7113edc). The CLI carries its own defence for the versions that do not do this
+        // (`artifactSettingResolves`); this is the one that keeps the file honest.
+        artifactAccount = Self.artifactAccountAfterRemoving(artifactAccount, home: home)
         for (providerID, policy) in policies where policy.pinnedAccountID == accountID {
             var updated = policy
             updated.pinnedAccountID = nil
             updated.pinnedHome = nil
             if updated.mode == .manual { updated.mode = .auto }
             policies[providerID] = updated
-            changed = true
         }
-        if changed { persist() }
+        // Written whether or not a PIN moved: the account being removed is frequently not the pinned
+        // one, and a clearing that only reached the disk when something else also changed is a
+        // clearing that survives in memory and nowhere else.
+        persist()
+    }
+
+    /// The Artifact publishing account after a config home has been removed: nil when that home IS
+    /// the chosen one, and the choice untouched otherwise.
+    ///
+    /// Compared through `artifactAccountHome`, the same normalization the CLI compares with, so a
+    /// choice stored with a trailing slash or through a symlink is still recognised as the home
+    /// being removed. Text rather than a filesystem identity read because by the time this is asked
+    /// the directory has already gone to the Trash (`artifactAccountHome` states it in full).
+    ///
+    /// Pure, so the rule is assertable without a state file to write into.
+    static func artifactAccountAfterRemoving(_ current: String?, home: String) -> String? {
+        guard let current, let removed = artifactAccountHome(home),
+              artifactAccountHome(current) == removed else { return current }
+        return nil
     }
 
     func isPinned(_ accountID: String, providerID: String) -> Bool {

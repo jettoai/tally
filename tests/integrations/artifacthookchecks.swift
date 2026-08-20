@@ -218,4 +218,47 @@ func runArtifactHookChecks(tmp: URL) throws {
               == "/Users/x/.claude")
     check("…and a machine with no launchable account is left alone",
           IntegrationsStore.artifactAccountSeed(current: nil, homes: []) == nil)
+
+    // MARK: the account being removed out from under that setting
+
+    // THE ONE SETTING HERE KEYED BY A DIRECTORY, so the id-shaped forgetting next to it cannot reach
+    // it. Left standing, it points the guard at a config home in the Trash: every publish on the
+    // machine refused, the way out naming a folder that is gone, and a later `~/.claudeN` in the
+    // same slot inheriting a choice nobody made for it (codex review of 7113edc).
+    typealias Policy = LaunchPolicyStore
+    check("removing the chosen account clears the choice",
+          Policy.artifactAccountAfterRemoving("/Users/x/.claude3", home: "/Users/x/.claude3") == nil)
+    check("…recognised through the same normalization the CLI compares with",
+          Policy.artifactAccountAfterRemoving("/Users/x/.claude3/", home: "/Users/x/.claude3") == nil
+              && Policy.artifactAccountAfterRemoving("/Users/x/.claude3",
+                                                     home: "/Users/x/.claude3/") == nil)
+    check("removing any other account leaves it exactly as it was",
+          Policy.artifactAccountAfterRemoving("/Users/x/.claude3", home: "/Users/x/.claude2")
+              == "/Users/x/.claude3")
+    check("…and a home that is a prefix of it is another account",
+          Policy.artifactAccountAfterRemoving("/Users/x/.claude3", home: "/Users/x/.claude")
+              == "/Users/x/.claude3")
+    check("a machine that never chose one has nothing to clear",
+          Policy.artifactAccountAfterRemoving(nil, home: "/Users/x/.claude3") == nil)
+    check("…and a home that normalizes to nothing clears nothing",
+          Policy.artifactAccountAfterRemoving("/Users/x/.claude3", home: "   ")
+              == "/Users/x/.claude3")
+
+    // THE CALL SITE, read rather than run: RemoveAccountAction draws an alert and cannot be compiled
+    // into this suite, and the whole rule above is worth nothing if the home never arrives. The
+    // parameter is required rather than defaulted for the same reason, so a caller that forgets it
+    // fails to build rather than failing silently.
+    let sourceRoot = URL(fileURLWithPath: #filePath)   // tests/integrations/artifacthookchecks.swift
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    func source(_ name: String) -> String {
+        (try? String(contentsOf: sourceRoot.appendingPathComponent(name), encoding: .utf8)) ?? ""
+    }
+    let removal = source("Tally/Views/RemoveAccountAction.swift")
+    check("the removal source is readable from here at all", removal.contains("static func present"))
+    check("…and it hands the launch policy the home as well as the id",
+          removal.contains("LaunchPolicyStore.shared.forget(accountID: accountID, home: home)"))
+    let policySource = source("Tally/Stores/LaunchPolicyStore.swift")
+    check("…which the forgetting puts through the rule above",
+          policySource.contains(
+            "artifactAccount = Self.artifactAccountAfterRemoving(artifactAccount, home: home)"))
 }

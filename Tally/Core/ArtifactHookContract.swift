@@ -64,3 +64,31 @@ func artifactActionPublishes(_ action: String?) -> Bool {
     let named = action?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     return named.isEmpty || named == "publish"
 }
+
+/// One config home as an identity: tilde expanded, trailing slashes gone, symlinks resolved.
+///
+/// ALL THREE, because the two sides of the comparison are written by different hands. The setting is
+/// a path this app published from its own discovery; the session's is whatever the environment
+/// happens to hold, which on this machine is frequently a home reached through a symlink (a shared
+/// harness setup points several config homes at one tree). Comparing the strings alone would refuse
+/// a publish from the very account the user chose.
+///
+/// TEXT RATHER THAN `pathsAreOne`, which is this repo's usual answer to "is this the same place" and
+/// is deliberately not used here. That one asks the kernel which OBJECT a path arrives at, and both
+/// readers of this rule have to work on a directory that is not there: the app compares the chosen
+/// account against a config home it has just moved to the Trash, and the CLI has to keep answering
+/// after somebody removes an account by hand. An identity read would answer "cannot say" for
+/// exactly the cases these two exist to handle.
+///
+/// Shared by both targets for the reason the spellings above are: the app writes this setting and
+/// the CLI reads it back, and a home normalized one way here and another way there is a guard that
+/// refuses the account the user chose.
+///
+/// nil for nothing to normalize, which is how "no setting" travels.
+func artifactAccountHome(_ path: String?) -> String? {
+    guard let path else { return nil }
+    var expanded = (path.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath
+    while expanded.count > 1, expanded.hasSuffix("/") { expanded.removeLast() }
+    guard !expanded.isEmpty else { return nil }
+    return URL(fileURLWithPath: expanded).resolvingSymlinksInPath().standardizedFileURL.path
+}

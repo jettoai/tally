@@ -52,13 +52,14 @@ func refusal(tool: String? = artifactHookToolName,
              setting: String? = browserHome,
              bypass: String? = nil,
              fallback: String = browserHome,
+             resolves: Bool = true,
              accounts: [Snapshot.Account] = fleet) -> String? {
     var input: [String: Any] = [:]
     if let action { input["action"] = action }
     if let url { input["url"] = url }
     return artifactHookRefusal(toolName: tool, toolInput: input, event: event,
                                sessionHome: session, settingHome: setting, bypass: bypass,
-                               fallbackHome: fallback,
+                               fallbackHome: fallback, settingResolves: { _ in resolves },
                                name: { artifactAccountName($0, in: accounts) })
 }
 
@@ -128,9 +129,37 @@ expect(refusal(session: "", fallback: browserHome) == nil,
 // comparison still runs: what is left is a publish nobody could show was safe.
 expect(artifactHookRefusal(toolName: artifactHookToolName, toolInput: nil, event: nil,
                            sessionHome: sessionHome, settingHome: browserHome, bypass: nil,
-                           fallbackHome: browserHome,
+                           fallbackHome: browserHome, settingResolves: { _ in true },
                            name: { artifactAccountName($0, in: fleet) }) != nil,
        "a payload with no readable tool input is still judged on the two accounts")
+
+// MARK: - 5b. A chosen account that is no longer there
+
+// The app clears this setting when it removes an account, but an older app with a newer CLI does
+// not, and neither does somebody trashing `~/.claudeN` by hand. A setting pointing at a home that
+// has gone would otherwise refuse EVERY publish on the machine and name a folder in the Trash as
+// the way out.
+expect(refusal(resolves: false) == nil, "a chosen account that no longer exists is not compared")
+expect(refusal(resolves: true) != nil, "…while one that is still there is")
+// Either witness answers, and the snapshot is the one that works while the directory cannot be
+// stat'ed at all.
+expect(artifactSettingResolves(browserHome, accounts: fleet, exists: { _ in false }),
+       "a home the snapshot names is real whatever the filesystem says")
+expect(artifactSettingResolves("/gone/.claude9", accounts: fleet, exists: { $0 == "/gone/.claude9" }),
+       "…and a home on disk is real whatever the snapshot says")
+expect(!artifactSettingResolves("/gone/.claude9", accounts: fleet, exists: { _ in false }),
+       "…and neither witness means the setting names nothing")
+expect(!artifactSettingResolves(browserHome, accounts: [account("Codex", home: browserHome,
+                                                               provider: "codex")],
+                                exists: { _ in false }),
+       "a Codex account at that home is not a Claude account being named")
+// The real witness this runs against: these two homes exist, the third never did.
+expect(artifactSettingResolves(browserHome, accounts: [],
+                               exists: { FileManager.default.fileExists(atPath: $0) }),
+       "and the live filesystem answers the same way for a home that is really there")
+expect(!artifactSettingResolves(tmp.appendingPathComponent(".claude404").path, accounts: [],
+                                exists: { FileManager.default.fileExists(atPath: $0) }),
+       "…and for one that is really not")
 
 // MARK: - 6. The way out, and the ways that are not it
 
@@ -157,6 +186,22 @@ expect(message.contains("Main") && message.contains("Work"),
        "the refusal names both accounts by the label the panel gives them")
 expect(message.contains("`tally account .claude`"),
        "…and the command that moves this session, on the config-dir name it always matches")
+// A HOME WHOSE NAME HOLDS A SPACE IS ONE ARGUMENT, not two: `runSwitch` takes one, so an unquoted
+// instruction is one a reader can follow exactly and still get the usage text (codex review).
+let spaced = tmp.appendingPathComponent(".claude work").path
+try FileManager.default.createDirectory(at: URL(fileURLWithPath: spaced),
+                                        withIntermediateDirectories: true)
+let spacedMessage = refusal(setting: spaced,
+                            accounts: [account("Main", home: browserHome),
+                                       account("Spaced", home: spaced)]) ?? ""
+expect(spacedMessage.contains("`tally account '.claude work'`"),
+       "a config-dir name with a space is quoted into one argument")
+expect(artifactShellWord(".claude2") == ".claude2" && artifactShellWord("/Users/x/.claude-work")
+           == "/Users/x/.claude-work",
+       "…while an ordinary name is left bare, with no punctuation to copy by mistake")
+expect(artifactShellWord("it's") == "'it'\\''s'",
+       "…and a single quote is closed, added literally, and reopened")
+expect(artifactShellWord("") == "''", "…and nothing at all is still one argument")
 expect(message.contains(artifactAnyAccountVariable),
        "…and the way to publish anyway, so the refusal carries its own exception")
 expect(message.contains(".html"), "…and the way that needs no account at all")

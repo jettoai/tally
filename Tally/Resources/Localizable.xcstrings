@@ -11738,6 +11738,151 @@
           }
         }
       }
+    },
+    "Artifact publishing account": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact 發佈帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact 发布账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact 公開アカウント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact 게시 계정"
+          }
+        }
+      }
+    },
+    "Holds a Claude Code session back from publishing an artifact under an account other than the one you browse with, since a published page is private to the account that published it and opens as Page not found for everyone else. Installs one PreToolUse hook entry per Claude account, matched to the Artifact tool alone; anything already registered for that event keeps running, and only Tally's entry is removed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擋下 Claude Code session 用你瀏覽器登入以外的帳號發佈 Artifact，因為發佈出來的頁面只屬於發佈它的帳號，其他人打開都是「Page not found」。每個 Claude 帳號安裝一個 PreToolUse hook 項目，只比對 Artifact 工具；該事件上原有的項目照常執行，移除時也只會拿掉 Tally 自己的項目。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "挡下 Claude Code session 用你浏览器登录以外的账号发布 Artifact，因为发布出来的页面只属于发布它的账号，其他人打开都是“Page not found”。每个 Claude 账号安装一个 PreToolUse hook 项目，只匹配 Artifact 工具；该事件上原有的项目照常执行，移除时也只会拿掉 Tally 自己的项目。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザでサインインしているアカウント以外で Claude Code のセッションが Artifact を公開しようとしたときに、それを止めます。公開されたページは公開したアカウント専用で、ほかの人が開くと「Page not found」になるためです。Claude アカウントごとに PreToolUse フックエントリを 1 件登録し、Artifact ツールだけを対象にします。そのイベントに既存の登録があればそのまま動作し、削除されるのは Tally のエントリだけです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 로그인한 계정이 아닌 다른 계정으로 Claude Code 세션이 Artifact를 게시하는 것을 막습니다. 게시된 페이지는 게시한 계정에만 공개되어 다른 사람이 열면 \"Page not found\"가 되기 때문입니다. Claude 계정마다 PreToolUse 후크 항목 하나를 설치하며 Artifact 도구만 대상으로 합니다. 해당 이벤트에 이미 등록된 항목은 그대로 실행되고 Tally의 항목만 제거됩니다."
+          }
+        }
+      }
+    },
+    "Publish artifacts from": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發佈 Artifact 的帳號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发布 Artifact 的账号"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact の公開元アカウント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact를 게시할 계정"
+          }
+        }
+      }
+    },
+    "The account you are signed into on claude.ai. A published artifact is private to the account that published it, so one published from anywhere else opens as Page not found for you.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在 claude.ai 上登入的那個帳號。發佈出來的 Artifact 只屬於發佈它的帳號，所以從別的帳號發佈的頁面，你打開會是「Page not found」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在 claude.ai 上登录的那个账号。发布出来的 Artifact 只属于发布它的账号，所以从别的账号发布的页面，你打开会是“Page not found”。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude.ai でサインインしているアカウントです。公開された Artifact は公開したアカウント専用なので、ほかのアカウントから公開されたページは、あなたが開くと「Page not found」になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude.ai에 로그인되어 있는 계정입니다. 게시된 Artifact는 게시한 계정에만 공개되므로, 다른 계정에서 게시한 페이지는 열면 \"Page not found\"로 표시됩니다."
+          }
+        }
+      }
+    },
+    "Not chosen": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未選擇"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未选择"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未選択"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택 안 함"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -287,11 +287,13 @@ ln -s <build-products>/tally /usr/local/bin/tally
 
 或者完全跳过符号链接和别名：**设置 → Integrations** 里每一项都是一键安装、一键干净移除，
 上方还有一个「全部安装」开关管住整组：CLI 工具、shell shim（让裸的 `claude` / `codex`
-也遵循你的策略）、status line 信号、会话看板的通知 hook、subagent 计数 hook，以及带着
-`/tally` 命令的 Claude Code skill。每一行 hook 都给同一个承诺：你原本注册在那个事件上的
-东西照常运行，移除时也只拿掉 Tally 自己那一条。把既有账号接上共享配置在这里也有一行，
-但刻意不纳入「全部安装」：那一项会在 config home 之间搬动对话，而一个意思是「全部打开」
-的按键，未必也代表那件事。
+也遵循你的策略）、status line 信号、会话看板的通知 hook、subagent 计数 hook、额度警示
+hook、Artifact 发布防护（发布出来的 Artifact 只属于发布它的账号，所以 Tally 会挡下那些
+用你浏览器登录以外的账号发出的发布，那一行也会指名该账号），以及带着 `/tally` 命令的
+Claude Code skill。每一行 hook 都给同一个承诺：你原本注册在那个事件上的东西照常运行，
+移除时也只拿掉 Tally 自己那一条。把既有账号接上共享配置在这里也有一行，但刻意不纳入
+「全部安装」：那一项会在 config home 之间搬动对话，而一个意思是「全部打开」的按键，
+未必也代表那件事。
 
 可选的 shell 快捷方式：
 

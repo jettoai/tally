@@ -20,8 +20,8 @@ import Foundation
 // into a child that is about to be killed.
 //
 // SYNCHRONOUS, ON THE POLL LOOP'S OWN THREAD, and that is a considered trade. The worst case is
-// `sessionInputMaxBytes` * `sessionInputByteGap` plus the submit pause, plus the stash rounds and
-// the restore pause that protect the draft under it (SessionInputDraft.swift), about 7.9s, during
+// `sessionInputMaxBytes` * `sessionInputByteGap` plus the submit pause, plus the stash rounds that
+// move the draft under it out of the way (SessionInputDraft.swift), about 7.1s, during
 // which this supervisor's 2s tick does not run: the child is unaffected (it is a separate process
 // reading its own terminal), so what is delayed is the state file, the badge and the next relaunch
 // decision. The alternative is a thread writing to a terminal while the tick that could kill the
@@ -321,41 +321,37 @@ struct SessionInputState {
 
 /// What one injection came to.
 ///
-/// THREE ANSWERS BECAUSE THE RETURN DIVIDES THE SEQUENCE IN TWO, which is the correction of
-/// 2026-08-19 (codex review of 1f69cf9). Everything before the Return decides whether the line was
-/// sent; everything after it is the draft going back into a composer the send has already emptied.
-/// One `failed` for both halves told the caller "nothing happened" about a `/clear` that HAD run:
-/// the served answer read `failed-tty`, `typed` came back nil, so the window repick was not armed,
-/// this supervisor did not record that it had typed, and a caller acting on that failure sent the
-/// same line into the same conversation again.
+/// TWO ANSWERS SINCE THE RETURN ENDS THE SEQUENCE, which is the 2026-08-20 removal of the automatic
+/// restore (SessionInputDraft.swift carries the incident). There was a third, `restoreFailed`: a
+/// Ctrl-Y refused AFTER the Return, which is a delivery whose draft stayed in the kill buffer, and
+/// telling it apart from a failure mattered because reporting it as one had a caller send the same
+/// line into the same conversation twice (codex review of 1f69cf9). Nothing is pressed after the
+/// Return any more, so a write either got the line out or did not.
 enum SessionInputInjection: Equatable {
     case done
-    /// The line was sent, and the Ctrl-Y that would have put the draft back was refused. To every
-    /// caller this is a DELIVERY (`sent` below), and the draft is where a dropped restore always
-    /// leaves it: in that composer's kill buffer, with Claude Code's own hint on screen.
-    case restoreFailed(Int32)
-    /// The terminal refused a write BEFORE the Return, so nothing was sent, with the errno it
-    /// refused it under. ENXIO means this process has no controlling terminal (started from a
-    /// script, a launch agent); EINVAL on a future macOS would mean this ioctl has been retired,
-    /// which is the risk the header names.
+    /// The terminal refused a write, so nothing was sent, with the errno it refused it under. ENXIO
+    /// means this process has no controlling terminal (started from a script, a launch agent);
+    /// EINVAL on a future macOS would mean this ioctl has been retired, which is the risk the header
+    /// names.
     case failed(Int32)
 
     /// Whether the line reached the conversation.
     ///
-    /// THE ONE QUESTION EVERY CALLER OUTSIDE THE DRAFT MACHINERY ASKS, spelled once here rather than
-    /// as a pattern match at each of them: what a landing reports, what arms the window repick, what
-    /// counts the agents a `/clear` ended, and what the knock returns are all this. A second copy
-    /// per call site is how `restoreFailed` would quietly become a failure again at one of them.
+    /// THE ONE QUESTION EVERY CALLER ASKS, spelled once here rather than as a pattern match at each
+    /// of them: what a landing reports, what arms the window repick, what counts the agents a
+    /// `/clear` ended, and what the knock returns are all this. It is kept as a name rather than
+    /// collapsed into `== .done` because it is the question, and the answer to it has changed shape
+    /// once already.
     var sent: Bool {
         switch self {
-        case .done, .restoreFailed: return true
+        case .done: return true
         case .failed: return false
         }
     }
 }
 
 /// Type `text` into this process's controlling terminal and press Return, moving whatever was in
-/// that composer out of the way first and putting it back afterwards when `draft` says to.
+/// that composer out of the way first when `draft` says the composer is reachable at all.
 ///
 /// RETURN IS NOT OPTIONAL, and that is the shape of the whole feature rather than a detail of this
 /// function: what it exists to do is trigger what a session cannot trigger for itself, and text
@@ -367,48 +363,39 @@ enum SessionInputInjection: Equatable {
 /// filters a menu as they arrive; `sessionInputByteGap` carries the measurement that settled the
 /// interval. STOPS AT THE FIRST FAILURE rather than pressing on: a terminal that refused byte three
 /// will refuse byte four, and continuing would leave a partial line in a composer with a Return
-/// still to come. A failure part-way through a stash therefore leaves the draft in the kill buffer
-/// and unrestored, which is what the caller's `draft-restore-dropped` line is for.
-///
-/// AND WHICH SIDE OF THE RETURN IT STOPPED ON IS PART OF THE ANSWER. The plan says where that
-/// boundary is (`SessionInputStep.sent`) rather than this loop looking for a byte 13, which a
-/// payload is free to contain: past that marker the conversation already has the line, so a refused
-/// Ctrl-Y is `restoreFailed` - a delivery whose draft stayed in the kill buffer - and never a
-/// failure that would have a caller send the line twice.
+/// still to come. A failure part-way through a stash therefore leaves the draft in the kill buffer,
+/// which is where every stash leaves it and where Claude Code's own on-screen hint says to look.
 ///
 /// `draft` HAS NO DEFAULT, on the same terms as `relaunchPlanned` next door: a call site that forgot
 /// it would type over somebody's half-written prompt and report the line delivered, which is the
 /// exact defect this parameter exists to end. `SessionInputDraftGuard.none` is how a caller says it
 /// has no reading to offer, in words.
 ///
-/// `tty` and the three intervals are injectable so a suite can exercise the loop without a terminal
+/// `tty` and the two intervals are injectable so a suite can exercise the loop without a terminal
 /// and without waiting six seconds for it.
 func injectSessionInput(_ text: String, draft: SessionInputDraftGuard, tty: String = "/dev/tty",
                         gap: TimeInterval = sessionInputByteGap,
-                        pause: TimeInterval = sessionInputSubmitPause,
-                        restorePause: TimeInterval = sessionInputRestorePause)
+                        pause: TimeInterval = sessionInputSubmitPause)
     -> SessionInputInjection {
     let fd = open(tty, O_RDWR)
     guard fd >= 0 else { return .failed(errno) }
     defer { close(fd) }
     return runSessionInputPlan(
-        sessionInputInjectionPlan(text: text, draft: draft, gap: gap, pause: pause,
-                                  restorePause: restorePause),
+        sessionInputInjectionPlan(text: text, draft: draft, gap: gap, pause: pause),
         push: { byte in
             var character = CChar(bitPattern: byte)
             return ioctl(fd, sessionInputInjectRequest, &character) == 0
         })
 }
 
-/// Perform one plan against an already-open terminal, and answer which side of the Return it
-/// stopped on.
+/// Perform one plan against an already-open terminal.
 ///
-/// SPLIT OUT OF THE FUNCTION ABOVE SO THE CLASSIFICATION HAS AN ORACLE, and that split was bought by
-/// a surviving mutant rather than by taste (2026-08-19): with the loop inside `injectSessionInput`,
-/// the only failure a suite could produce was on the FIRST byte - a path that is not a terminal
-/// refuses everything - so collapsing `restoreFailed` back into `failed` broke nothing that was
-/// asserted anywhere. Here a fake `push` can refuse the byte of its choosing, which is what makes
-/// "a Ctrl-Y the terminal refused is still a delivery" a checked rule instead of a comment.
+/// SPLIT OUT OF THE FUNCTION ABOVE SO THE LOOP HAS AN ORACLE, and that split was bought by a
+/// surviving mutant rather than by taste (2026-08-19): with the loop inside `injectSessionInput`,
+/// the only failure a suite could produce was on the FIRST byte, because a path that is not a
+/// terminal refuses everything. Here a fake `push` can refuse the byte of its choosing and record
+/// what reached the terminal before it, which is what makes "it stops at the first refusal" and "it
+/// waits out every pause the plan carries" checked rules instead of comments.
 ///
 /// `push` returns false when the terminal refused the byte; `sleep` and `code` are injectable for
 /// the same reason, so a suite runs this in microseconds and against an errno it chose.
@@ -417,17 +404,12 @@ func runSessionInputPlan(_ plan: [SessionInputStep], push: (UInt8) -> Bool,
                              usleep(useconds_t($0 * 1_000_000))
                          },
                          code: () -> Int32 = { errno }) -> SessionInputInjection {
-    /// Whether the Return has gone. Read only by the failure arm, which is the only place the two
-    /// halves of this sequence differ.
-    var sent = false
     for step in plan {
         switch step {
         case .press(let byte):
-            guard push(byte) else { return sent ? .restoreFailed(code()) : .failed(code()) }
+            guard push(byte) else { return .failed(code()) }
         case .wait(let seconds):
             sleep(seconds)
-        case .sent:
-            sent = true
         }
     }
     return .done

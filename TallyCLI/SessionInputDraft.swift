@@ -9,34 +9,50 @@ import Foundation
 // keyboard gate asks whether somebody is typing NOW, and somebody who typed six seconds ago and
 // stopped to think is not typing now. A composer holds text long after the fingers stop.
 //
-// THE SHAPE, and the reason it is three acts rather than a fourth gate:
+// THE SHAPE, and the reason it is two acts rather than a fourth gate:
 //
-//     [(Ctrl-K Ctrl-U) × sessionInputStashRounds]  payload  CR  [Ctrl-Y]
+//     [(Ctrl-K Ctrl-U) × sessionInputStashRounds]  payload  CR
 //
-// Claude Code's composer keeps a kill buffer (it says so itself: `Ctrl+Y to paste deleted text`), so
-// the draft can be moved out of the way and put back rather than waited for. Refusing to type while
-// a composer MIGHT hold something would be the other answer, and it is worse in both directions: the
-// supervisor cannot see the composer, so the refusal would have to be permanent (a session whose
-// owner left a draft in it would never be typed into again), and the case this feature exists for is
-// exactly the hand-over that must land.
+// Claude Code's composer keeps a kill buffer and says so on screen (`Ctrl+Y to paste deleted text`),
+// so the draft can be moved out of the way and its owner can put it back with one key rather than
+// this line waiting for them. Refusing to type while a composer MIGHT hold something would be the
+// other answer, and it is worse in both directions: the supervisor cannot see the composer, so the
+// refusal would have to be permanent (a session whose owner left a draft in it would never be typed
+// into again), and the case this feature exists for is exactly the hand-over that must land.
 //
 // MEASURED, 2026-08-19, on real Claude Code sessions in a pty sandbox (twelve cases in Phase A,
 // four more in Phase B, judged on the session's own screen;
 // docs/plans/reports-20260819/draft-stash-report.md carries the matrix): the kill keys ACCUMULATE
 // into one buffer that a single Ctrl-Y restores whole and in order; kills onto an empty composer are
-// harmless; the buffer survives `/clear`, so the restore can ride the tail of the same injection
-// rather than waiting for a fact channel; a slash popup and a permission dialog are both unharmed by
-// any of these keys.
+// harmless (Phase A cases A4 and A6, which is why the stash below is unconditional); a slash popup
+// and a permission dialog are both unharmed by any of these keys. Those are the rows the stash still
+// stands on. The rest of that matrix was about putting the draft back automatically, which this file
+// no longer does.
 //
-// AND THE ONE ASYMMETRY THE WHOLE DESIGN TURNS ON (Phase A case A4, re-measured in Phase B against
-// the round below): a stash onto an EMPTY composer does not empty the kill buffer, so an
-// unconditional Ctrl-Y at the end pastes back whatever was killed minutes ago into a composer
-// somebody deliberately left empty. So the stash is unconditional and
-// the RESTORE is not: it asks `sessionInputDraftSuspected` below, and every uncertainty in that
-// answer is resolved towards NOT restoring. The two mistakes do not cost the same. A restore that
-// does not happen leaves the draft in the kill buffer with Claude Code's own hint on screen saying
-// how to get it back; a restore that should not have happened puts text nobody meant to type into a
-// composer, which is how an unauthorised prompt gets written.
+// NOTHING IS PUT BACK AUTOMATICALLY, and that is the 2026-08-20 removal. The tail of this sequence
+// used to be a Ctrl-Y, asked for by `sessionInputDraftSuspected` below, and twice that day it fired
+// on a composer nobody had typed into: two supervisor injections (a quota knock and a `/clear`)
+// landed, `draft-stashed rounds=12` and `draft-restored` went into the log, and text appeared in a
+// composer its owner had left empty.
+//
+// THE EVIDENCE CHANNEL CANNOT CARRY THAT DECISION, which is why the answer was to remove the act
+// rather than to tighten the question. This supervisor has no master side of the pty, so a run of
+// keystroke timestamps is the whole of what it has, and bytes that are not fingers arrive on it as
+// keystrokes: Claude Code's TUI turns mouse reporting on, so somebody scrolling back through a
+// conversation writes a burst that is indistinguishable from typing, and an IME composing a word is
+// the same shape (named as blind spot #1 in the report).
+//
+// SO THE ASYMMETRY THE DESIGN ALWAYS TURNED ON NOW ARGUES THE OTHER WAY, on the same two sentences
+// it always did. A restore that does not happen leaves the draft in the kill buffer with Claude
+// Code's own hint on screen saying how to get it back, and its owner presses one key. A restore that
+// should not have happened puts text nobody meant to type into a composer, which is how an
+// unauthorised prompt gets written. Only the first of those is a mistake this file can still make.
+//
+// `sessionInputDraftSuspected` STAYS, and the account question is why. A session that may be holding
+// a draft is not RESTARTED away from it (`sessionClearMovesAccounts`, and `SessionInputRepick` for
+// the same rule a minute later), because a SIGTERM takes the composer and the kill buffer with the
+// child. Being wrong there costs a preventive account move; being wrong about a Ctrl-Y cost somebody
+// a prompt they never wrote.
 
 /// Kill to the END of the line: the byte a Ctrl-K is (0x0B).
 ///
@@ -51,9 +67,6 @@ let sessionInputStashKillByte: UInt8 = 0x0B
 
 /// Kill to the start of the line: the byte a Ctrl-U is (0x15).
 let sessionInputStashByte: UInt8 = 0x15
-
-/// Paste what was killed: the byte a Ctrl-Y is (0x19).
-let sessionInputRestoreByte: UInt8 = 0x19
 
 /// How many times the pair above is pressed before the payload.
 ///
@@ -70,19 +83,6 @@ let sessionInputRestoreByte: UInt8 = 0x19
 /// into somebody's conversation, and this is the supervisor getting its own way in.
 let sessionInputStashRounds = 12
 
-/// How long to wait after Return before pasting the draft back.
-///
-/// The restore is the tail of the SAME injection rather than a later tick, which is what the
-/// measurement bought: at 30ms after the Return, and again at 400ms, the draft came back whole into
-/// a session that had just run `/clear` (cases A3b/A3c). Doing it here rather than through a fact
-/// channel removes a delayed state machine and every race in it - a pending restore that a second
-/// request overtakes, that a relaunch outlives, that a timeout has to give up on.
-///
-/// 800ms rather than the 30ms that was green, because what was measured was a small conversation:
-/// `/clear` on a session at 10% of its context redraws faster than one at 90%, and the cost of being
-/// generous is 0.8s of a poll tick on the rare tick that types at all.
-let sessionInputRestorePause: TimeInterval = 0.800
-
 /// How much newer than the last thing that could have caused it a keyboard burst has to be before it
 /// is read as somebody's unsent draft.
 ///
@@ -93,12 +93,18 @@ let sessionInputRestorePause: TimeInterval = 0.800
 /// this supervisor just injected stamps the terminal a moment AFTER the write returned.
 ///
 /// Two seconds is far below the gap that separates a person who stopped typing from one who is still
-/// at it (the keyboard gate ahead of this already asks for five), and the direction it errs in is the
-/// cheap one: a draft begun within two seconds of the last prompt is not restored, and its owner gets
-/// it back with Ctrl-Y.
+/// at it (the keyboard gate ahead of this already asks for five), and it errs towards NOT suspecting
+/// a draft: a burst begun within two seconds of the last prompt does not hold off the preventive
+/// account move, which is the one thing this answer still decides.
 let sessionInputDraftGrace: TimeInterval = 2
 
 /// Whether that composer probably holds something its owner has not sent.
+///
+/// WHAT IT STILL DECIDES, since the removal above: whether this session may be RESTARTED onto
+/// another account, synchronously at the clear boundary (`sessionClearMovesAccounts`) or a minute
+/// later through the window repick (`SessionInputRepick`). A relaunch ends the child, and the child
+/// is where the composer and its kill buffer live, so a draft in it has no copy anywhere else.
+/// Nothing this answer says reaches the terminal any more.
 ///
 /// EVIDENCE, NOT OBSERVATION. Nothing here can read a composer: the supervisor shares the terminal
 /// but has no master side of it, and the screen is not a source either - Claude Code paints dimmed
@@ -110,14 +116,19 @@ let sessionInputDraftGrace: TimeInterval = 2
 /// `injectedAt` is when this supervisor last typed into this composer itself, and it is not
 /// optional politeness: injected bytes are read by the child off the same terminal and arrive as a
 /// burst indistinguishable from typing (SessionInput.swift says so where the injection is
-/// performed). Without it, a second `/clear` into a session that has produced no user turn since the
-/// first would read its own footprints as a draft and yank whatever the kill buffer held - which is
-/// case A4 arriving through the front door.
+/// performed). Without it, every line this supervisor types would leave the session looking drafty
+/// to the next tick, and the preventive move would be declined for the rest of that session's life.
 ///
-/// PASTED TEXT IS A NAMED BLIND SPOT rather than an oversight. A paste is one read and one stamp, so
-/// it is a lone stamp, and lone stamps are the shape terminal chatter has; counting them would put
-/// stale kill-buffer text into composers all day to save a draft that arrived without fingers. It is
-/// stated in the plan document as a limitation, and its cost is the recoverable one.
+/// A BURST IS NOT ONLY FINGERS, which is the limit that ended the restore on 2026-08-20 (see the
+/// header) and is stated here because it is this function's limit rather than the caller's: mouse
+/// reporting and an IME both write runs of bytes onto that terminal, and this answer counts them.
+/// What that costs now is an account move that was not taken. What it cost while a Ctrl-Y hung off
+/// the same answer was somebody's composer.
+///
+/// PASTED TEXT IS THE NAMED BLIND SPOT IN THE OTHER DIRECTION rather than an oversight. A paste is
+/// one read and one stamp, so it is a lone stamp, and lone stamps are the shape terminal chatter
+/// has. It is stated in the plan document as a limitation, and a session moved away from a pasted
+/// draft loses it exactly as one moved away from a typed one would.
 func sessionInputDraftSuspected(burstAt: Date?, userTurnAt: Date?, injectedAt: Date?,
                                 grace: TimeInterval = sessionInputDraftGrace) -> Bool {
     guard let burstAt else { return false }
@@ -135,58 +146,57 @@ func sessionInputDraftSuspected(burstAt: Date?, userTurnAt: Date?, injectedAt: D
 ///
 /// TWO FIELDS RATHER THAN TWO BOOLEANS DECIDED SEPARATELY, because the account question next door
 /// asks about the EVIDENCE (`sessionClearMovesAccounts`: a session that may hold a draft is not
-/// restarted away from it) while the terminal write asks about the ACTIONS. Deriving both from one
+/// restarted away from it) while the terminal write asks about the ACTION. Deriving both from one
 /// value is what stops those two readers from ever disagreeing about the same instant.
+///
+/// THE EVIDENCE NO LONGER REACHES THE TERMINAL, since 2026-08-20 (see the header): `suspected` is
+/// read by the account question alone, and what gets typed is decided by `touching` and nothing
+/// else. The two fields are kept together anyway, because they are one reading of one instant and
+/// splitting them is how the two readers would come to disagree.
 struct SessionInputDraftGuard: Equatable {
     /// That composer probably holds an unsent draft (`sessionInputDraftSuspected`).
     var suspected: Bool
     /// The composer is the thing this line reaches, so the kill buffer keys mean something.
     var touching: Bool
 
-    /// Nothing is stashed and nothing is restored: what every injection did before this existed, and
-    /// what a caller with no draft reading to offer gets.
+    /// Nothing is stashed: what every injection did before this existed, and what a caller with no
+    /// draft reading to offer gets.
     static let none = SessionInputDraftGuard(suspected: false, touching: false)
 
-    /// Move whatever is in the composer out of the way first. Unconditional wherever the composer is
-    /// the target, because it is harmless where there is nothing to move (cases A4, A6).
+    /// Move whatever is in the composer out of the way first, and leave it in the kill buffer for
+    /// whoever put it there. Unconditional wherever the composer is the target, because it is
+    /// harmless where there is nothing to move (cases A4, A6).
     var stash: Bool { touching }
-    /// …and put it back afterwards, which is the half that has to be earned.
-    var restore: Bool { touching && suspected }
 }
 
 /// The guard for a landing into a session in this state.
 ///
 /// `blocked` TOUCHES NOTHING, and it is the one row that is about the session rather than about the
 /// draft. A blocked session is sitting on a dialog - a permission request, a plan approval - and its
-/// composer is behind that dialog: both keys were measured inert there (case A7), and the draft is
-/// already safe, since answering the dialog gives the composer back untouched (case A7e). So a
-/// stash that would find nothing is not performed, and a restore that could only paste something
-/// older is not either.
+/// composer is behind that dialog: the kill keys were measured inert there (case A7), and the draft
+/// is already safe, since answering the dialog gives the composer back untouched (case A7e). So a
+/// stash that would find nothing is not performed.
 func sessionInputDraftGuard(state: SupervisedState, suspected: Bool) -> SessionInputDraftGuard {
     SessionInputDraftGuard(suspected: suspected, touching: state != .blocked)
 }
 
 // MARK: - The keystrokes, as a value
 
-/// One thing an injection does to the terminal: a byte, the pause after it, or the moment the line
-/// stopped being undoable.
+/// One thing an injection does to the terminal: a byte, or the pause after it.
 ///
 /// A PLAN RATHER THAN A LOOP, so the whole sequence is assertable without a terminal. What this
-/// feature can get wrong is an ORDER (a Return before the stash, a restore before the send) and an
-/// order is invisible to a test that can only see the text it was asked to type: the suite drives
-/// the writer through `/dev/null` and can prove it fails, not what it would have written.
+/// feature can get wrong is an ORDER (a Return before the stash, a payload typed into a composer
+/// that was never emptied) and an order is invisible to a test that can only see the text it was
+/// asked to type: the suite drives the writer through `/dev/null` and can prove it fails, not what
+/// it would have written.
+///
+/// THERE IS NO MARKER FOR THE RETURN ANY MORE, and its absence is the same fact as the tail this
+/// sequence lost on 2026-08-20: a plan used to continue past the Return to put a draft back, so the
+/// writer had to know which side of it a refused byte was on. Nothing follows the Return now, so a
+/// write either sent the line or did not.
 enum SessionInputStep: Equatable {
     case press(UInt8)
     case wait(TimeInterval)
-    /// The Return has gone: the conversation has the line, and everything after this is the draft
-    /// going back into a composer the send emptied.
-    ///
-    /// A MARKER IN THE PLAN RATHER THAN A BYTE THE WRITER LOOKS FOR, because the byte it would have
-    /// to look for is 13 and a payload is free to contain one (`session send` takes arbitrary text).
-    /// Matching on the value would move this boundary to whatever the caller happened to type, and
-    /// the consequence of getting it wrong in that direction is the defect this marker exists to
-    /// end: a delivered line reported as failed, and sent again by whoever believed the report.
-    case sent
 }
 
 /// Every byte one injection puts on the terminal, in order.
@@ -197,13 +207,11 @@ enum SessionInputStep: Equatable {
 ///   - the Return goes after the submit pause, because a TUI filters its menus between keystrokes
 ///     and a Return that arrives mid-filter picks the wrong entry (SessionInput.swift carries that
 ///     measurement, and the Codex one that disagrees with it);
-///   - the restore goes LAST, after the Return, which is what makes it safe: the draft comes back
-///     into a composer that has already been emptied by the send, so nothing this supervisor typed
-///     and nothing the person typed can be joined into one prompt.
+///   - and the Return goes LAST. Nothing this plan does can put text into a composer after the send
+///     has emptied it, which is the whole of the 2026-08-20 removal in one line of code.
 func sessionInputInjectionPlan(text: String, draft: SessionInputDraftGuard,
                                gap: TimeInterval = sessionInputByteGap,
-                               pause: TimeInterval = sessionInputSubmitPause,
-                               restorePause: TimeInterval = sessionInputRestorePause)
+                               pause: TimeInterval = sessionInputSubmitPause)
     -> [SessionInputStep] {
     var plan: [SessionInputStep] = []
     if draft.stash {
@@ -219,13 +227,8 @@ func sessionInputInjectionPlan(text: String, draft: SessionInputDraftGuard,
     for byte in Array(text.utf8) {
         plan += [.press(byte), .wait(gap)]
     }
-    // THE RETURN, AND THE MARKER THAT SAYS IT HAS GONE. The marker is emitted whether or not a
-    // restore follows, because what it records is a fact about the conversation rather than a step
-    // of the draft machinery: past this point the line is somebody's turn, and any later failure is
-    // a failure of the putting-back rather than of the sending.
-    plan += [.wait(pause), .press(sessionInputReturnByte), .sent]
-    if draft.restore {
-        plan += [.wait(restorePause), .press(sessionInputRestoreByte)]
-    }
+    // AND THE RETURN, which ends the plan: past this byte the line is somebody's turn, and there is
+    // nothing left for this supervisor to do to that composer.
+    plan += [.wait(pause), .press(sessionInputReturnByte)]
     return plan
 }

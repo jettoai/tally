@@ -90,34 +90,25 @@ func runQuotaKnockChecks() {
     check("the knock types under the same draft guard a requested line does",
           guardedBy == [sessionInputDraftGuard(state: .idle, suspected: false)])
     check("…and leaves the same trail about the draft it moved",
-          audit.contains("pid=\(fixturePid) input=draft-stashed rounds=12")
-              && audit.contains("pid=\(fixturePid) input=draft-restore-dropped "
-                  + "reason=no-typing-evidence"))
-    // The other half, against a session somebody has been typing in: the sentence still lands, and
-    // the draft goes back where they left it.
+          audit.contains("pid=\(fixturePid) input=draft-stashed rounds=12"))
+    // The other half, against a session somebody has been typing in: the sentence still lands, the
+    // draft is still only stashed, and nothing claims to have put it back (SessionInputDraft.swift
+    // carries the 2026-08-20 removal, and this is the door the knock types through).
     var drafting = QuotaKnockState(forced: false)
     guardedBy = []
-    check("a knock into a composer that may hold a draft still lands, and puts the draft back",
+    check("a knock into a composer that may hold a draft still lands, and stashes it",
           knock(&drafting, draftSuspected: true) != nil
-              && guardedBy.last?.restore == true)
-    check("…and the log says it was restored rather than dropped",
+              && guardedBy.last?.stash == true && guardedBy.last?.suspected == true)
+    check("…and the log says the composer was stashed and nothing more",
           ((try? String(contentsOf: log, encoding: .utf8)) ?? "")
-              .contains("pid=\(fixturePid) input=draft-restored"))
-    // A REFUSED CTRL-Y IS A SENTENCE THAT LANDED, on the same terms the served path now reads it
-    // (codex review of 1f69cf9): the knock is announced, the drought is spent, and the draft is
-    // reported as dropped rather than the whole knock being reported as never typed.
-    var restoreRefused = QuotaKnockState(forced: false)
-    let knockedPastReturn = knock(&restoreRefused, draftSuspected: true,
-                                  injection: .restoreFailed(ENXIO))
-    let refusedLog = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
-    check("a knock whose Ctrl-Y was refused still counts as typed",
-          knockedPastReturn != nil
-              && refusedLog.contains("pid=\(fixturePid) input=draft-restore-dropped "
-                  + "reason=write-failed")
-              && !refusedLog.contains("input=\(quotaKnockFailedOutcome)"))
-    // …while a write that failed before the Return is still nothing typed at all.
+              .contains("pid=\(fixturePid) input=draft-stashed"))
+    check("…with nothing on either of the two lines a restore used to leave",
+          !((try? String(contentsOf: log, encoding: .utf8)) ?? "")
+              .contains("input=draft-restore"))
+    // A write the terminal refused is still nothing typed at all, which is the one classification
+    // this station makes.
     var sendRefused = QuotaKnockState(forced: false)
-    check("…and one that failed before the Return is still not",
+    check("a knock the terminal refused is not a sentence anybody was told",
           knock(&sendRefused, injection: .failed(ENXIO)) == nil
               && ((try? String(contentsOf: log, encoding: .utf8)) ?? "")
               .contains("input=\(quotaKnockFailedOutcome)"))

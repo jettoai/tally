@@ -40,9 +40,10 @@ enum SessionInputLanding: Equatable {
     /// log records the number, and both are this read twice (`sessionInputAgentsNote`).
     var agents: Int? {
         switch self {
-        // `sent` RATHER THAN `== .done`, since 2026-08-19: a line whose Ctrl-Y was refused still
-        // reached the conversation, so the `/clear` still ended the agents it ended. Only a write
-        // that never got past the Return ended nothing (`SessionInputInjection.sent`).
+        // `sent` RATHER THAN `== .done`: what this asks is whether the line reached the
+        // conversation, and that question has changed shape once already (the answer used to have a
+        // third case, a Ctrl-Y refused after the Return, which was a delivery -
+        // `SessionInputInjection`). A write that never got the Return out ended nothing.
         case .typed(let injection, let agents): return injection.sent ? agents : nil
         case .moved(_, let agents): return agents
         }
@@ -88,7 +89,7 @@ func sessionInputAgentsNote(_ count: Int) -> String {
 /// SECOND, before anything reaches the terminal, because its whole point is to type nothing.
 ///
 /// `draft` IS CARRIED THROUGH RATHER THAN DECIDED HERE, and it reaches both endings for different
-/// reasons: the typing one hands it to the writer, which stashes the composer and puts it back
+/// reasons: the typing one hands it to the writer, which stashes the composer into its kill buffer
 /// (SessionInputDraft.swift), and the moving one is REFUSED by it - a session that may be holding an
 /// unsent draft is not restarted away from it, because a SIGTERM takes the kill buffer with the
 /// child and there is nothing left to restore (`sessionClearMovesAccounts`).

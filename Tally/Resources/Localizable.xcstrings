@@ -11884,31 +11884,31 @@
         }
       }
     },
-    "Keep at least %lld%% for web use": {
+    "Keep at least %lld%% of the week for web use": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "網頁版使用至少保留 %lld%%"
+            "value": "每週用量至少保留 %lld%% 給網頁版使用"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "网页版使用至少保留 %lld%%"
+            "value": "每周用量至少保留 %lld%% 给网页版使用"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Web 用に最低 %lld%% を残す"
+            "value": "週の使用量のうち最低 %lld%% を Web 用に残す"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "웹 사용을 위해 최소 %lld%% 남기기"
+            "value": "주간 사용량 중 최소 %lld%%를 웹 사용을 위해 남기기"
           }
         }
       }
@@ -12000,60 +12000,60 @@
         }
       }
     },
-    "Tally leaves this much of the account's quota alone when it picks or moves sessions by itself. Launching on it yourself always works.": {
+    "Tally leaves this much of the account's weekly quota alone when it picks or moves sessions by itself. Its other windows are untouched, and launching on it yourself always works.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 自行挑選帳號或搬移工作階段時，會保留這個帳號這麼多的額度。你自己指定這個帳號啟動時仍然照常可用。"
+            "value": "Tally 自行挑選帳號或搬移工作階段時，會保留這個帳號這麼多的每週用量。其他視窗不受影響，你自己指定這個帳號啟動時也仍然照常可用。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally 自行挑选账号或迁移会话时，会保留这个账号这么多的额度。你自己指定这个账号启动时仍然照常可用。"
+            "value": "Tally 自行挑选账号或迁移会话时，会保留这个账号这么多的每周用量。其他窗口不受影响，你自己指定这个账号启动时也仍然照常可用。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally が自分でアカウントを選んだりセッションを移したりするときは、このアカウントの使用量をこれだけ残します。自分でこのアカウントを指定して起動するのは、いつでも可能です。"
+            "value": "Tally が自分でアカウントを選んだりセッションを移したりするときは、このアカウントの週の使用量をこれだけ残します。ほかのウィンドウには手を付けず、自分でこのアカウントを指定して起動するのはいつでも可能です。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tally가 스스로 계정을 고르거나 세션을 옮길 때 이 계정의 사용량을 이만큼 남겨 둡니다. 직접 이 계정을 지정해 실행하는 것은 언제나 가능합니다."
+            "value": "Tally가 스스로 계정을 고르거나 세션을 옮길 때 이 계정의 주간 사용량을 이만큼 남겨 둡니다. 다른 창은 건드리지 않으며, 직접 이 계정을 지정해 실행하는 것은 언제나 가능합니다."
           }
         }
       }
     },
-    "The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its quota free for you.": {
+    "The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its weekly quota free for you.": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 claude.ai 上登入的帳號。Tally 會從這個帳號發佈 artifact，也可以替你保留一部分額度。"
+            "value": "你在 claude.ai 上登入的帳號。Tally 會從這個帳號發佈 artifact，也可以替你保留一部分每週用量。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你在 claude.ai 上登录的账号。Tally 会从这个账号发布 artifact，也可以替你保留一部分额度。"
+            "value": "你在 claude.ai 上登录的账号。Tally 会从这个账号发布 artifact，也可以替你保留一部分每周用量。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "claude.ai でサインインしているアカウントです。Tally はこのアカウントからアーティファクトを公開し、使用量の一部をあなたのために残しておくこともできます。"
+            "value": "claude.ai でサインインしているアカウントです。Tally はこのアカウントからアーティファクトを公開し、週の使用量の一部をあなたのために残しておくこともできます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "claude.ai에 로그인되어 있는 계정입니다. Tally는 이 계정에서 아티팩트를 게시하며, 사용량의 일부를 남겨 둘 수도 있습니다."
+            "value": "claude.ai에 로그인되어 있는 계정입니다. Tally는 이 계정에서 아티팩트를 게시하며, 주간 사용량의 일부를 남겨 둘 수도 있습니다."
           }
         }
       }

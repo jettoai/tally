@@ -227,8 +227,15 @@ struct AccountListRowView: View {
                     .frame(width: max(2, Self.barWidth * fraction), height: Self.barHeight)
             }
             // The personal account's water line, on the same track and at the same boundary the
-            // card draws it (ReserveMark.swift): a density is not a reduced feature set.
-            .overlay { ReserveMark(reserve: facts.reservePercent) }
+            // card draws it (ReserveMark.swift): a density is not a reduced feature set. On the same
+            // window too - the weekly all-models one and no other (`PersonalAccount.reserved`).
+            .overlay { ReserveMark(reserve: barReserve(metric)) }
+    }
+
+    /// The water line this window carries: the account's number where the reserve is held back from
+    /// the window, and nothing where it is not, so the hatch and the callout below agree.
+    private func barReserve(_ metric: UsageMetric) -> Int {
+        PersonalAccount.reserved(metric.kind) ? facts.reservePercent : 0
     }
 
     /// The window's name and its own reset, in the same words the card prints under the bar and in
@@ -242,7 +249,7 @@ struct AccountListRowView: View {
         // What the hatching at the end of the track is. The card can afford to let the mark speak
         // for itself beside a 100pt bar; at 34pt the words have to be somewhere, and this callout is
         // where every other word this row folds away already lives.
-        if facts.reservePercent > 0 { text += "\n" + L("Kept for web use") }
+        if barReserve(metric) > 0 { text += "\n" + L("Kept for web use") }
         return text
     }
 

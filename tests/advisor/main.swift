@@ -273,6 +273,25 @@ check("a reserved account starves at its own line, not at the raw one",
       (starved?.starvedHoursPerWeek ?? 0) > 0)
 check("…and the same fleet reports no starvation without the reserve",
       (notStarved?.starvedHoursPerWeek ?? -1) == 0)
+// 12e. THE ACCOUNT-WIDE POOL IS THE ONLY ONE THAT HAS A RESERVE. The number is a slice of the weekly
+//      all-models window and of no other (Albert's ruling, 2026-08-21; Tally/Core/AccountReserve.
+//      swift), so a model pool reads it as zero - taking it off there as well would hold the same
+//      points back twice and report a flagship pool as saturated on capacity nothing withholds.
+let modelOnly = [
+    s("a1", "weeklyModel", used: 70, at: daysAgo(9), model: "fable"),
+    s("a1", "weeklyModel", used: 70, at: daysAgo(1), model: "fable"),
+    s("a2", "weeklyModel", used: 100, at: daysAgo(9), model: "fable"),
+    s("a2", "weeklyModel", used: 100, at: daysAgo(1), model: "fable"),
+]
+check("a reserve moves no reading on a model pool",
+      UsageAdvisor.reading(provider: "claude", samples: modelOnly, now: now,
+                           reserveOf: { $0 == "a1" ? 30 : 0 })?.starvedHoursPerWeek
+          == UsageAdvisor.reading(provider: "claude", samples: modelOnly, now: now)?
+              .starvedHoursPerWeek)
+// The same rows in the account-wide window DO move, which is what makes the check above a scope
+// rather than a fixture that could not have starved either way.
+check("…while the identical rows in the account-wide window do",
+      (starved?.starvedHoursPerWeek ?? 0) > (notStarved?.starvedHoursPerWeek ?? 0))
 // 12d. The provider-wide entry point carries the lookup through, exactly as it does the plan one.
 check("readings() passes the reserve lookup down",
       UsageAdvisor.readings(samples: brownout, now: now,

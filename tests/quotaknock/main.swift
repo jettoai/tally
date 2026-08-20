@@ -334,15 +334,28 @@ expect(quiet.contains("session 6%") && !quiet.contains("resets"),
 let reserved = AccountReserves(settings: [
     "/tmp/R": AccountRoleSetting(role: AccountRoles.personal, reserve: 30),
 ])
-let browsing = account("R", session: 40, weekly: 90)
+// THE WEEK IS WHAT A RESERVE IS ABOUT, so the account this section is about is thin THERE: the
+// reserve is held back from the weekly all-models window and from no other (AccountReserve.swift
+// states the ruling), and a reading taken through the same pair the gates use inherits that without
+// this station knowing anything about it.
+let browsing = account("R", session: 90, weekly: 40)
 func knockReading(_ acct: Snapshot.Account, reserves: AccountReserves) -> Double {
     let binding = bindingWindow(acct, primaryModel: nil, reserves: reserves, now: now)
     return binding.map { effectiveRemaining(comfortWindow($0), now: now) } ?? .nan
 }
 expect(knockReading(browsing, reserves: reserved) <= quotaKnockPercent,
-       "a reserved account at 40% is already inside the knock's threshold")
+       "a reserved account with 40% of its week left is already inside the knock's threshold")
 expect(knockReading(browsing, reserves: .none) > quotaKnockPercent,
        "and the same account is nowhere near it when nobody reserved anything")
+// AND THE 5H WINDOW IS NOT PULLED IN WITH IT. A session window at 40% is 40% to this station
+// whatever the owner reserved: it refills five hours after it opened, so a knock announcing it as
+// nearly spent would be warning about a wall that comes down by itself.
+let sessionThin = account("R", session: 40, weekly: 90)
+expect(knockReading(sessionThin, reserves: reserved)
+           == knockReading(sessionThin, reserves: .none),
+       "a reserve moves no reading on the 5h window at all")
+expect(knockReading(sessionThin, reserves: reserved) > quotaKnockPercent,
+       "…so a session at 40% stays outside the threshold on a reserved account")
 // AND THE SENTENCE STILL QUOTES THE PROVIDER'S OWN PERCENTAGE. What the reader is owed is the
 // number their provider published - it has to mean the same thing here, in the panel and on
 // claude.ai - so the reserve moves the threshold and never the news.
@@ -351,7 +364,7 @@ let reservedLine = quotaKnockMessage(
     alternative: bindingWindow(browsing, primaryModel: nil, reserves: reserved, now: now)
         .map { _ in healthy },
     sessions: 1, primaryModel: nil, limit: 200, now: now) ?? ""
-expect(reservedLine.contains("session 40%"),
+expect(reservedLine.contains("weekly 40%"),
        "the knock quotes the reading the provider published, not the reserved one")
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }

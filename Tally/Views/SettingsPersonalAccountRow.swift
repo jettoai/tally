@@ -16,16 +16,20 @@ extension SettingsAccountsView {
             .padding(.horizontal, 5).padding(.vertical, 1)
             .background(Capsule().fill(TallyColor.ai.opacity(0.15)))
             .fixedSize()   // a badge must never wrap
-            .help(L("The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its quota free for you."))
+            .help(L("The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its weekly quota free for you."))
     }
 
-    /// "Keep at least 30% for web use", and the stepper that sets it.
+    /// "Keep at least 30% of the week for web use", and the stepper that sets it.
     ///
     /// THE NUMBER IS IN THE SENTENCE rather than in a field beside it, because the sentence is what
     /// the setting means and a bare "30" next to "Reserve" is a number the reader has to translate
     /// every time. The stepper is the only control: this is a rough "leave me some room" figure and
     /// a typed field invites a precision the number does not have (`AccountRoles.reserveStep` says
     /// what one press moves and why).
+    ///
+    /// AND THE SENTENCE SAYS THE WEEK, because that is what the number does: the reserve is held
+    /// back from the account's weekly window and from no other one (Tally/Core/AccountReserve.swift
+    /// states why). A sentence saying "quota" would promise a line on bars that carry none.
     ///
     /// The second line is the part somebody will otherwise get wrong in the expensive direction: a
     /// reserve binds TALLY'S OWN choices and nothing else, so naming this account still launches on
@@ -38,9 +42,9 @@ extension SettingsAccountsView {
             : LaunchPolicyStore.shared.reserve(home: home)
         return HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(format: L("Keep at least %lld%% for web use"), shown))
+                Text(String(format: L("Keep at least %lld%% of the week for web use"), shown))
                     .font(.subheadline)
-                Text(L("Tally leaves this much of the account's quota alone when it picks or moves sessions by itself. Launching on it yourself always works."))
+                Text(L("Tally leaves this much of the account's weekly quota alone when it picks or moves sessions by itself. Its other windows are untouched, and launching on it yourself always works."))
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

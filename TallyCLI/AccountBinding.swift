@@ -12,7 +12,9 @@ import Foundation
 // EVERY READING HERE IS RESERVE-AWARE, through the one subtraction in `effectiveRemaining`
 // (AccountComfort.swift). Callers hand in the reserves they are entitled to apply: a decision Tally
 // made for itself passes the fleet's, a path a person named an account on passes `.none`
-// (AccountReserve.swift states that rule in full).
+// (AccountReserve.swift states that rule in full). WHICH WINDOW carries one is settled before any of
+// this, where the windows are built (`ratedWindows`): the weekly all-models window does and nothing
+// else does, so nothing here has to know the difference.
 
 /// One rated window as the nearly-dry gate (AccountComfort.swift) sees it, keyed on the ANCHOR: the
 /// gate asks when the wall comes down, and a flagship window with no reset of its own hits the
@@ -102,8 +104,9 @@ func bindingWindow(_ account: Snapshot.Account, primaryModel: String?,
 /// about which window made the account dry.
 ///
 /// A RESERVE COUNTS HERE TOO, and that is a ruling rather than a side effect (2026-08-20): an
-/// account under the line its owner drew is spent AS FAR AS TALLY IS CONCERNED, which is the only
-/// sense this function has ever been asked in. Its one reader exempts such an account from the
+/// account whose WEEK is under the line its owner drew is spent AS FAR AS TALLY IS CONCERNED, which
+/// is the only sense this function has ever been asked in. A spent 5h or flagship window makes an
+/// account spent on its own merits, reserve or no reserve, which is what it always did. Its one reader exempts such an account from the
 /// per-drought claim, and the whole of that argument carries: the cap handoff cannot rescue an idle
 /// session either way, and the sessions this releases are precisely the ones the reserve exists to
 /// get off the account. One scale for the gate and for this, or "dying" would mean two things.
@@ -158,8 +161,16 @@ func windowReason(_ window: RatedWindow, now: Date = Date()) -> String {
 
 // MARK: - The reserve, read through the same scale
 
-/// Whether this account still has quota ABOVE the line its owner drew: the tightest window the
-/// declared primary model spends, read through the gate's own scale, with the reserve taken off.
+/// Whether this account still has quota ABOVE the line its owner drew: its RESERVED window - the one
+/// that carries the number, there being exactly one - read through the gate's own scale.
+///
+/// THE QUESTION IS ABOUT THE LINE, so it is asked only of the window the line is drawn on - the
+/// weekly all-models one (`AccountRoles.reservedWindowName`). Asked of every window instead, an
+/// account whose 5h session had simply run out would answer "below its water line" and a launch onto
+/// it would announce a dip into a reserve it never touched: a sentence about the owner's preference,
+/// printed for a window that preference does not cover and that refills by itself within the hour.
+/// The same goes for a drained flagship window, which is a sub-allowance of the very week this
+/// number is a slice of.
 ///
 /// The far end of `accountIsSpent` without its trust guards, and that difference is the point of
 /// having both. That one is asked of the account a session is RUNNING on, where acting on numbers
@@ -167,14 +178,15 @@ func windowReason(_ window: RatedWindow, now: Date = Date()) -> String {
 /// have already been through `eligible` (a failed poll, a stale row and an errored one are all
 /// refused there), so asking again would only be a second spelling of the same filter.
 ///
-/// An account reporting no counted windows at all is treated as above its line: nothing is known
-/// about it, and refusing it on the strength of missing data is the mistake `accountIsSpent` names.
+/// An account reporting no weekly window at all is treated as above its line: nothing is known about
+/// it, and refusing it on the strength of missing data is the mistake `accountIsSpent` names.
 func aboveReserve(_ account: Snapshot.Account, primaryModel: String?,
                   reserves: AccountReserves, now: Date = Date()) -> Bool {
     guard reserves.reserve(for: account) > 0,
-          let binding = bindingWindow(account, primaryModel: primaryModel, reserves: reserves,
-                                      now: now) else { return true }
-    return effectiveRemaining(comfortWindow(binding), now: now) > 0
+          let reserved = ratedWindows(account, primaryModel: primaryModel, reserves: reserves,
+                                      now: now).first(where: { $0.reserve > 0 })
+    else { return true }
+    return effectiveRemaining(comfortWindow(reserved), now: now) > 0
 }
 
 /// The candidates an automatic MOVE may land on: everything still above its own reserve.
@@ -197,11 +209,17 @@ func aboveReserve(_ accounts: [Snapshot.Account], primaryModel: String?,
 ///
 /// It names the account and the size of the reserve rather than how far in the launch went: the
 /// reader's next act is either to stop working or to accept it, and neither turns on the depth.
+///
+/// AND IT SAYS WEEKLY, because that is the only thing it can be about: the line is drawn on the
+/// weekly all-models window alone, so a launch that crossed it crossed the week (`aboveReserve`
+/// above, and AccountReserve.swift for the ruling). A bare "reserve" would leave the reader looking
+/// at a spent 5h window wondering whether that is what this is.
 func reserveDipNotice(_ account: Snapshot.Account, primaryModel: String?,
                       reserves: AccountReserves, now: Date = Date()) -> String? {
     let reserve = reserves.reserve(for: account)
     guard reserve > 0,
           !aboveReserve(account, primaryModel: primaryModel, reserves: reserves, now: now)
     else { return nil }
-    return "dipping into \(account.label)'s reserve (\(Int(reserve.rounded()))% kept for web use)"
+    return "dipping into \(account.label)'s weekly reserve "
+        + "(\(Int(reserve.rounded()))% kept for web use)"
 }

@@ -102,13 +102,15 @@ enum UsageAdvisor {
     /// plan in it and never will retroactively: a plan change is rare, and the 28-day window heals
     /// one within a month, whereas a stored-per-sample plan would have to be back-filled.
     ///
-    /// `reserveOf` names the percentage points of each account its owner keeps for their own use
-    /// (Tally's per-account reserve), a lookup for the same reason `planOf` is one: the history has
-    /// no reserve in it and never will retroactively, and what the question here means - "do these
-    /// accounts cover the demand" - is about the part of them Tally may actually spend. An account
-    /// with 30 points held back is 0.7 of an account to this reading, and it is starved 30 points
-    /// earlier than its siblings. Defaults to no reserve anywhere, which is every fleet that has not
-    /// set one and every caller that has not been taught to ask.
+    /// `reserveOf` names the percentage points of each account's WEEKLY window its owner keeps for
+    /// their own use (Tally's per-account reserve), a lookup for the same reason `planOf` is one:
+    /// the history has no reserve in it and never will retroactively, and what the question here
+    /// means - "do these accounts cover the demand" - is about the part of them Tally may actually
+    /// spend. An account with 30 points held back is 0.7 of an account-week to this reading, and it
+    /// is starved 30 points earlier than its siblings - in the ACCOUNT-WIDE pool, which is the only
+    /// place the reserve exists (the model pools below read it as zero). Defaults to no reserve
+    /// anywhere, which is every fleet that has not set one and every caller that has not been taught
+    /// to ask.
     static func readings(samples: [Sample], now: Date = Date(),
                          planOf: (String) -> String? = { _ in nil },
                          reserveOf: @escaping (String) -> Double = { _ in 0 }) -> [Reading] {
@@ -134,10 +136,14 @@ enum UsageAdvisor {
         // Binding constraint: the most saturated pool relative to its OWN account capacity - the
         // account-wide weekly, or any single model window. A fable window can be the wall while
         // the account-wide weekly still reads healthy.
+        // A RESERVE IS TAKEN OFF THE ACCOUNT-WIDE POOL ONLY. It is a slice of the weekly all-models
+        // window and of no other (Tally/Core/AccountReserve.swift), so subtracting it from a model
+        // pool as well would hold the same points back twice - and would report a flagship pool as
+        // saturated on capacity nothing actually withholds there.
         var bindingRatio = poolRatio(weeklyAll, weeks: weeks, reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {
             bindingRatio = max(bindingRatio, poolRatio(weeklyModel.filter { $0.model == model },
-                                                       weeks: weeks, reserveOf: reserveOf))
+                                                       weeks: weeks, reserveOf: { _ in 0 }))
         }
 
         let (burn, activeHours) = activeBurn(weeklyAll)
@@ -148,9 +154,11 @@ enum UsageAdvisor {
         // absorb a handoff). Provider value = the most-starved pool, mirroring bindingRatio.
         var starvedSeconds = poolStarvedSeconds(weeklyAll, now: now, reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {
+            // The account-wide pool only, for the reason the ratio above states: a model window is
+            // not a window anybody reserved anything on.
             starvedSeconds = max(starvedSeconds,
                                  poolStarvedSeconds(weeklyModel.filter { $0.model == model },
-                                                    now: now, reserveOf: reserveOf))
+                                                    now: now, reserveOf: { _ in 0 }))
         }
         let starvedHoursPerWeek = starvedSeconds / 3_600 / weeks
 

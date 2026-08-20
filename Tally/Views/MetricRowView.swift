@@ -12,10 +12,15 @@ struct MetricRowView: View {
     /// counters yet. An exhausted row then reports the pending reset rather than the limit it is
     /// about to lose.
     var settlingReset: Bool = false
-    /// The personal account's water line, 0 on every other account (ReserveMark.swift). Per window
-    /// because the bar is per window, one number because the reserve is: it is a slice of the
-    /// account, not of a particular quota window.
+    /// The personal account's water line, 0 on every other account (ReserveMark.swift). Passed for
+    /// every window because the bar is per window, and DRAWN on the one the reserve is held back
+    /// from: the weekly all-models bar, never the 5h or flagship ones, which no pick treats as
+    /// reserved (PersonalAccount.reserved, Tally/Core/AccountReserve.swift).
     var reserve: Int = 0
+
+    /// What this row's own bar reserves: the number above where the window carries one, and zero
+    /// where it does not, so the mark and the tooltip cannot disagree about it.
+    private var barReserve: Int { PersonalAccount.reserved(metric.kind) ? reserve : 0 }
 
     private static let labelWidth: CGFloat = 72
 
@@ -51,11 +56,11 @@ struct MetricRowView: View {
                 Capsule()
                     .fill(metric.severity.color)
                     .frame(width: max(3, geo.size.width * UsageFormat.fillFraction(metric, mode: mode)))
-                ReserveMark(reserve: reserve)
+                ReserveMark(reserve: barReserve)
             }
         }
         .frame(height: prominent ? 7 : 6)
-        .tallyTooltip(reserve > 0 ? L("Kept for web use") : "")
+        .tallyTooltip(barReserve > 0 ? L("Kept for web use") : "")
     }
 
     /// An untouched session window: the provider starts the 5h clock on the first message, so there

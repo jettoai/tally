@@ -136,6 +136,30 @@ func runSmartBadgeChecks() {
           pick(doubleMarked, reserves: ["marked": 60, "marked2": 60]) == pick(doubleMarked)
               && pick(doubleMarked) == "marked")
 
+    // AND IT IS THE WEEKLY WINDOW THE LINE IS DRAWN ON, here as in the launcher (Albert's ruling,
+    // 2026-08-21; Tally/Core/AccountReserve.swift). A 5h window refills by itself, so a badge that
+    // stepped off an account because its session dipped under a reserve would be predicting a launch
+    // the CLI does not make - the drift this whole file exists to catch, in the one direction the
+    // scope change could introduce it.
+    // THE FIXTURE DISCRIMINATES: 95% of the week less 30 points is still fuller than the sibling's
+    // 60, so the week alone leaves the badge where it is - and the 5h window at 20% is the only
+    // thing a wider reserve could have taken it away on (it scored -3.3 %/h when the subtraction
+    // reached that window, which loses to anything).
+    let sessionField = [account("personal", session: 20, weekly: 95),
+                        account("sibling", session: 70, weekly: 60)]
+    check("without a reserve the badge sits on the fuller week (guard the premise)",
+          pick(sessionField) == "personal")
+    check("a reserve moves no badge on the strength of a thin 5h window",
+          pick(sessionField, reserves: ["personal": 30]) == "personal")
+    // The app half of `aboveReserve` reads the same one window, which is what keeps the drought
+    // fallback from firing on a fleet whose only problem is a spent 5h window.
+    check("an account whose 5h window is empty is still above its water line",
+          LaunchPolicyStore.aboveReserve(account("personal", session: 0, weekly: 90),
+                                         primaryModel: nil, reserve: 30, now: Date()))
+    check("…and one whose week is under the line is not",
+          !LaunchPolicyStore.aboveReserve(account("personal", session: 90, weekly: 25),
+                                          primaryModel: nil, reserve: 30, now: Date()))
+
     // AND A PINNED CARD NEVER ASKS. Both surfaces draw the pinned badge from the pin itself and
     // only consult the reserve-aware pick in auto mode, which is the app end of "naming an account
     // is the answer" (the CLI end is asserted on values in tests/smartpick/reservechecks.swift).

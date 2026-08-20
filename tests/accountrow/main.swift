@@ -471,6 +471,14 @@ check("…and only that one holds any quota back",
           && AccountRoles.reserve(twoReserved, home: homeB) == 0)
 check("…the same one the Artifact guard reads, on every one of these documents",
       AccountRoles.personalHome(twoReserved) == homeA)
+// AND THE STEPPER WRITES WHERE THE READER LOOKS. A write landing on the entry the reader has already
+// decided is the leftover is a control that appears to do nothing: the number goes into the file and
+// every reading of it still answers with the other account's.
+check("…and a write to the leftover marking changes nothing",
+      AccountRoles.settingReserve(twoRoles, home: homeB, percent: 40) == twoRoles)
+check("…while a write to the marking that wins is read straight back",
+      AccountRoles.reserve(AccountRoles.settingReserve(twoRoles, home: homeA, percent: 40),
+                           home: homeA) == 40)
 
 // The document itself: only the keys that carry something, so a marked account with no reserve
 // writes no reserve key at all and every reader's "absent means zero" stays true.
@@ -502,10 +510,28 @@ check("the pane draws the reserve row only under the marked account",
       paneSource.contains("PersonalAccount.isPersonal(accountID: item.id, home: home) {")
           && paneSource.components(separatedBy: "reserveRow(home,").count == 2)
 // One reading for every surface, so a bar cannot draw a water line the pane says is not there.
+let cardMeter = readSource("Tally/Views/MetricRowView.swift")
+let listMeter = readSource("Tally/Views/AccountListRowView.swift")
 check("both meters ask the shared reading rather than the store directly",
       facts.contains("PersonalAccount.isPersonal(") && facts.contains("PersonalAccount.reserve(")
-          && !readSource("Tally/Views/MetricRowView.swift").contains("LaunchPolicyStore")
-          && !readSource("Tally/Views/AccountListRowView.swift").contains("LaunchPolicyStore"))
+          && !cardMeter.contains("LaunchPolicyStore") && !listMeter.contains("LaunchPolicyStore"))
+// AND THEY ASK IT PER BAR. The reserve is held back from the weekly all-models window and from no
+// other (the top of AccountReserve.swift states the ruling), so a hatch on the 5h bar or on a
+// flagship one would be a line nothing enforces - and the bar is the only place a person ever sees
+// what this number does, which makes it the one surface where a scope error is invisible to every
+// check that reads numbers alone.
+let personalSource = readSource("Tally/Core/PersonalAccount.swift")
+check("the app's per-window reading covers the weekly all-models window and nothing else",
+      personalSource.contains(
+          "static func reserved(_ kind: MetricKind) -> Bool { kind == .weeklyAll }"))
+check("…and both meters draw the mark through it rather than off the account's number",
+      cardMeter.contains("PersonalAccount.reserved(metric.kind) ? reserve : 0")
+          && cardMeter.contains("ReserveMark(reserve: barReserve)")
+          && listMeter.contains("PersonalAccount.reserved(metric.kind) ? facts.reservePercent : 0")
+          && listMeter.contains("ReserveMark(reserve: barReserve(metric))"))
+check("…so neither draws it from the account's number on every window it reports",
+      !cardMeter.contains("ReserveMark(reserve: reserve)")
+          && !listMeter.contains("ReserveMark(reserve: facts.reservePercent)"))
 // The removal reaches this block as well as the Artifact setting beside it - the one other thing in
 // that file keyed by a directory rather than by an account id.
 check("removing an account puts this block through the rule above",
@@ -563,12 +589,14 @@ let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
     .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
 let catalogueStrings = catalogue?["strings"] as? [String: Any] ?? [:]
 check("the string catalogue is readable from this suite", !catalogueStrings.isEmpty)
-for word in ["Personal", "Personal account (web)", "Keep at least %lld%% for web use",
+for word in ["Personal", "Personal account (web)",
+             "Keep at least %lld%% of the week for web use",
              "Kept for web use",
-             "Tally leaves this much of the account's quota alone when it picks or moves sessions "
-                 + "by itself. Launching on it yourself always works.",
+             "Tally leaves this much of the account's weekly quota alone when it picks or moves "
+                 + "sessions by itself. Its other windows are untouched, and launching on it "
+                 + "yourself always works.",
              "The account you are signed into on claude.ai. Tally publishes artifacts from it, and "
-                 + "can keep part of its quota free for you."] {
+                 + "can keep part of its weekly quota free for you."] {
     let entry = catalogueStrings[word] as? [String: Any]
     let localizations = entry?["localizations"] as? [String: Any] ?? [:]
     check("\(word.prefix(30)) is translated into every language Tally ships",

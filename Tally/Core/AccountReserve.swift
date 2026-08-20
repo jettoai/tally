@@ -7,7 +7,16 @@ import Foundation
 // lands on, which one a running session is moved to when a wall comes down - spends that account's
 // quota without ever being asked, and the person only finds out when their own browser says they are
 // out of messages. So one account may be MARKED as theirs, and given a water line: a percentage of
-// its quota that Tally's own choices are not allowed to go below.
+// its WEEK that Tally's own choices are not allowed to go below.
+//
+// ONE WINDOW, AND IT IS THE WEEKLY ALL-MODELS ONE (Albert's ruling, 2026-08-21). Every other window
+// an account reports is outside the feature: the 5h session window refills five hours after it
+// opened whatever anybody does, so holding a slice of one back buys its owner nothing they would not
+// have had by making a cup of tea while costing them the launches Tally declined to make in the
+// meantime; and the per-model flagship window is a sub-allowance of the same week, so reserving it
+// as well would take the same points off the account twice. What a browser runs out of is the week,
+// and the account's 7-day pool is where that is counted. `AccountRoles.reservedWindowName` below is
+// that rule, asked at the one place each burn-rate mirror builds a window.
 //
 // TWO FACTS, ONE MARKING. The role also answers the question the Artifact guard asks (which account
 // this machine's browser is signed into - Tally/Core/ArtifactHookContract.swift), which is why the
@@ -28,7 +37,8 @@ import Foundation
 struct AccountRoleSetting: Codable, Equatable {
     /// `AccountRoles.personal`, or nil for an account holding no role.
     var role: String?
-    /// The percentage of this account's quota Tally's own choices must leave standing (0-100).
+    /// The percentage of this account's WEEK Tally's own choices must leave standing (0-100), held
+    /// back from its weekly all-models window and from no other (`reservedWindowName`).
     /// Absent is zero: no reserve at all, which is what every account starts as.
     var reserve: Int?
 
@@ -51,6 +61,17 @@ enum AccountRoles {
     /// figure, and a percent-at-a-time control would be twenty presses to reach a number the user
     /// cannot feel the difference of anyway.
     static let reserveStep = 5
+
+    /// The ONE window a reserve is held back from, spelled the way both burn-rate mirrors label it:
+    /// the account's 7-day all-models pool.
+    ///
+    /// A NAME RATHER THAN A PREDICATE OVER WINDOWS, because the two mirrors build their windows from
+    /// different types (a snapshot row on one side, a `UsageMetric` on the other) and the only thing
+    /// they share is this label. Each one marks that window as reserved where it builds it, so
+    /// everything downstream - the score, the nearly-dry gate, the spent test, the water line a
+    /// launch says it crossed, the hatching on the bar - inherits the scope without a rule of its
+    /// own. A window that carries no reserve is a window this feature does not exist for.
+    static let reservedWindowName = "weekly"
 
     /// The home holding the personal role, or nil while nobody holds it.
     ///
@@ -75,8 +96,9 @@ enum AccountRoles {
         return key == marked
     }
 
-    /// How much of this account's quota Tally's own choices must leave standing, 0 when there is no
-    /// answer.
+    /// How much of this account's WEEK Tally's own choices must leave standing, 0 when there is no
+    /// answer. Which window it is held back from is `reservedWindowName` above; this answers only
+    /// how much.
     ///
     /// ONLY THE MARKED ACCOUNT HAS ONE, asked here rather than trusted from the document: the
     /// control that writes this lives on the personal row and nowhere else, so a reserve sitting on
@@ -118,14 +140,17 @@ enum AccountRoles {
 
     /// The block with this account's reserve set, clamped into range.
     ///
-    /// A NO-OP ON AN ACCOUNT THAT DOES NOT HOLD THE ROLE, matching `reserve` above: the two have to
-    /// agree, or the stepper would write a number the reader then ignores. Zero clears the key
-    /// rather than storing it, because absent and zero are the same answer and the shorter one is
-    /// the one an older reader cannot misread.
+    /// A NO-OP ON AN ACCOUNT THAT DOES NOT HOLD THE ROLE, and it asks `isPersonal` to find out for
+    /// exactly the reason `reserve` does: the writer and the reader have to agree about which
+    /// account holds the marking, or the stepper writes a number the reader then ignores - which on
+    /// a hand-edited document carrying two markings is what happened, the write landing on the entry
+    /// the reader had already decided was the leftover. Zero clears the key rather than storing it,
+    /// because absent and zero are the same answer and the shorter one is the one an older reader
+    /// cannot misread.
     static func settingReserve(_ accounts: [String: AccountRoleSetting], home: String?,
                                percent: Int) -> [String: AccountRoleSetting] {
-        guard let key = key(accounts, home: home), var entry = accounts[key],
-              entry.role == personal else { return accounts }
+        guard isPersonal(accounts, home: home), let key = key(accounts, home: home),
+              var entry = accounts[key] else { return accounts }
         let clamped = min(max(percent, reserveBounds.lowerBound), reserveBounds.upperBound)
         entry.reserve = clamped == reserveBounds.lowerBound ? nil : clamped
         var updated = accounts

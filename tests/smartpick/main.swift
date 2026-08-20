@@ -312,7 +312,8 @@ check("and it carries the untouched-window anchor too, behind the same fixed-cyc
 // one does not. A mirror that halved only on one side would have the badge naming an idle account
 // the launcher passes over.
 check("and it opts its weekly window in",
-      appPolicySource.contains("window(\"weekly\", weekly, fullWindowHours: 168, fixedCycle: true)"))
+      appPolicySource.contains("window(AccountRoles.reservedWindowName, weekly, "
+                                   + "fullWindowHours: 168, fixedCycle: true,"))
 check("and leaves its 5h session window out",
       !appPolicySource.contains("fullWindowHours: 5, fixedCycle: true"))
 // AND IT TAKES THE RESERVE OFF THE RATE, the same subtraction in the same place as `ratedWindows`
@@ -322,7 +323,17 @@ check("and leaves its 5h session window out",
 // (The behaviour itself is asserted on values in tests/integrations/smartbadgechecks.swift, the one
 // suite that compiles the app's store.)
 check("and its rate is what Tally may spend, the reserve taken off",
-      appPolicySource.contains("(metric.remainingPercent - reserve) / hours"))
+      appPolicySource.contains("(metric.remainingPercent - held) / hours"))
+// AND OFF THE SAME ONE WINDOW. The reserve covers the weekly all-models window and nothing else
+// (Tally/Core/AccountReserve.swift owns the ruling; each mirror marks that window where it builds
+// it), so a copy that subtracted on every window would have the badge stepping off an account whose
+// session dipped while the launcher stayed on it.
+check("…and only from the window the reserve is held back from",
+      appPolicySource.contains("let held = reserved ? reserve : 0"))
+check("…which is the weekly one, named from the file that owns the ruling",
+      appPolicySource.contains("window(AccountRoles.reservedWindowName, weekly, "
+                                   + "fullWindowHours: 168, fixedCycle: true,")
+          && appPolicySource.components(separatedBy: "reserved: true").count == 2)
 // THE REST OF THAT SUBTRACTION'S JOURNEY, because taking it off the rate is only the first of three
 // places it has to land. The rules the two targets share are compiled from one file
 // (Tally/Core/AccountReserve.swift, listed under both targets); the SCORING is mirrored, so these

@@ -316,9 +316,11 @@ func artifactAccountName(_ home: String, in accounts: [Snapshot.Account]) -> Art
 /// how a person turns this checking off without removing the hook (`LaunchPolicyStore.
 /// artifactAccount` states all three states). Read as a gap, it handed the question to the personal
 /// role and the guard went on refusing every publish on the machine - the very check the user had
-/// just switched off, from the row they switched it off in. So an answer of any kind comes back as
-/// it stands: an empty one names no home (`artifactAccountHome`), which is the abstention this whole
-/// hook is built around, and the role never gets asked.
+/// just switched off, from the row they switched it off in. So an answer of any kind comes back from
+/// THIS READER as it stands, unnormalized: what an empty or whitespace-only one means is settled one
+/// step down, where the guard puts every home through `artifactAccountHome` and gets nil - the
+/// abstention this whole hook is built around. Read here, the only question is whether the user
+/// answered at all, and the role is asked only when they did not.
 func artifactAccountSetting(_ url: URL = stateURL) -> String? {
     struct StateFile: Decodable {
         // Mirror of the app's `LaunchPolicyStore.StateFile` field of the same name; the schema only

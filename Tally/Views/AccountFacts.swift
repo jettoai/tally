@@ -63,7 +63,8 @@ struct AccountFacts {
     }
 
     /// Whether this is the account the user is also signed into on claude.ai, and the slice of its
-    /// quota Tally's own choices must leave standing (0 on every other account). Both through
+    /// WEEK Tally's own choices must leave standing (0 on every other account; which window that
+    /// covers is `PersonalAccount.reserved`, and the meters ask it per bar). Both through
     /// `PersonalAccount`, which is where the fixtures and the "Claude only" rule live, so no surface
     /// carries a demo branch of its own.
     var isPersonalAccount: Bool {

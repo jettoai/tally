@@ -31,7 +31,17 @@ enum PersonalAccount {
         return LaunchPolicyStore.shared.isPersonalAccount(home: home)
     }
 
-    /// The slice of its quota Tally's own choices must leave standing, 0 for every account that is
+    /// Whether a reserve is held back from a window of this kind, so the meters draw the water line
+    /// exactly where the launcher applies it.
+    ///
+    /// THE WEEKLY ALL-MODELS WINDOW ONLY - the ruling lives in Tally/Core/AccountReserve.swift,
+    /// which cannot name a `MetricKind` (the CLI target compiles it and has no such type), so this
+    /// is the same sentence said in the app's own vocabulary. A hatch on a 5h bar, or on a flagship
+    /// window that is a slice of the same week, would draw a line nothing enforces - which is worse
+    /// than drawing none: the bar is the only place the user ever sees what the number does.
+    static func reserved(_ kind: MetricKind) -> Bool { kind == .weeklyAll }
+
+    /// The slice of its WEEK Tally's own choices must leave standing, 0 for every account that is
     /// not the marked one.
     static func reserve(accountID: String, home: String?) -> Int {
         if DemoUsage.isActive {

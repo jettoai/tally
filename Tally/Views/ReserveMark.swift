@@ -3,6 +3,11 @@ import SwiftUI
 /// THE WATER LINE ON A USAGE BAR: where the personal account's reserve starts, and the stretch below
 /// it hatched out (Tally/Core/AccountReserve.swift owns what the number means).
 ///
+/// WHICH BAR GETS ONE IS THE CALLER'S ANSWER, not this view's: the reserve is held back from the
+/// weekly all-models window alone, so the meters hand this a zero on every other bar
+/// (`PersonalAccount.reserved`). Drawing it everywhere would put a line on windows no pick treats as
+/// reserved.
+///
 /// AN ABSOLUTE POSITION ON THE TRACK, not a second fill. The track is the whole quota, 0% spent at
 /// the left edge and 100% at the right, and a reserve of 30 says "leave 30% standing" - so the line
 /// sits at 70% of the width whichever way the bar is filled. That is what lets one mark serve both

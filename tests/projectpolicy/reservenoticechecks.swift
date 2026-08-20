@@ -50,7 +50,7 @@ func runReserveNoticeChecks() {
           dipped?.dip == reserveDipNotice(acct("A", weekly: 25), primaryModel: nil,
                                           reserves: personalA, now: instant))
     check("…which is that sentence itself rather than a second spelling of it",
-          dipped?.dip == "dipping into A's reserve (30% kept for web use)")
+          dipped?.dip == "dipping into A's weekly reserve (30% kept for web use)")
     let ample = fleet([acct("A", weekly: 60), acct("B", weekly: 55)])
     check("a launch that stayed above every line says nothing at all",
           steeredLaunch(claude, in: ample, policy: auto, reserves: personalA, quarantined: [],

@@ -222,7 +222,9 @@ struct RatedWindow {
     let anchor: Date?
     /// Percentage points of this window its owner reserved for themselves, carried so the gate one
     /// step downstream weighs the same window this rate was measured on (`comfortWindow`). Zero
-    /// unless the caller handed reserves in.
+    /// unless the caller handed reserves in - AND zero on every window but the weekly all-models one
+    /// whatever they handed in, which is where the reserve's scope is applied for the whole product
+    /// (`AccountRoles.reservedWindowName`).
     var reserve: Double = 0
     /// How fast the part of this window Tally may spend can be spent: the EFFECTIVE remaining over
     /// the hours until the anchor. Reserve-aware because ranking is where "spend somewhere else if
@@ -242,7 +244,7 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
     /// their phase is unknown while untouched. The session window is not one of them (above).
     func window(_ name: String, _ remaining: Double?, _ resetsAt: Date?,
                 inferredAnchor: Date? = nil, fullWindowHours: Double,
-                fixedCycle: Bool = false) -> RatedWindow? {
+                fixedCycle: Bool = false, reserved: Bool = false) -> RatedWindow? {
         guard let remaining else { return nil }
         // An untouched fixed-cycle window has published no reset because nothing has opened it yet,
         // so it is rated against the midpoint of its own length rather than its far edge (above). A
@@ -252,13 +254,19 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
             ? now.addingTimeInterval(fullWindowHours / 2 * 3600) : nil
         let anchor = resetsAt ?? inferredAnchor ?? untouchedAnchor
         let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) } ?? fullWindowHours
+        // THE RESERVE REACHES ONE WINDOW, THE WEEKLY ALL-MODELS ONE (AccountReserve.swift states the
+        // ruling). Applied here, at the one place a window is built, so the score below and every
+        // gate downstream of it inherit the scope rather than each restating it - and so neither a
+        // spent 5h window nor a drained flagship one can be the thing that makes an account read as
+        // under somebody's water line.
+        let held = reserved ? reserve : 0
         return RatedWindow(name: name, remaining: remaining, resetsAt: resetsAt, anchor: anchor,
-                           reserve: reserve, rate: (remaining - reserve) / hours)
+                           reserve: held, rate: (remaining - held) / hours)
     }
     var windows = [
         window("session", account.sessionRemaining, account.sessionResetsAt, fullWindowHours: 5),
-        window("weekly", account.weeklyRemaining, account.weeklyResetsAt, fullWindowHours: 168,
-               fixedCycle: true),
+        window(AccountRoles.reservedWindowName, account.weeklyRemaining, account.weeklyResetsAt,
+               fullWindowHours: 168, fixedCycle: true, reserved: true),
     ].compactMap { $0 }
     // The flagship window only constrains the pick when the declared primary model IS that tier
     // (a sonnet primary doesn't drain the fable window, so a drained fable window must not veto

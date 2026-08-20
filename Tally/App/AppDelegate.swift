@@ -101,6 +101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // And keep them there: the sync above runs once, while the file it writes into is the
         // user's and can be rewritten by anything (IntegrationsSelfHeal.swift).
         IntegrationsStore.shared.refreshSettingsWatcher()
+        // The upkeep the two above cannot do, because it is not about an install going stale: a hook
+        // this version ADDED to a settings.json the user has already let Tally manage. Opt-in is
+        // right for the first press and invisible for every one after it, so the new row follows the
+        // presses already made and says so once (IntegrationsAutoFollow.swift).
+        IntegrationsStore.shared.followNewIntegrations()
         // Volatile launch flag (argument domain): post one sample low-tier notification so the
         // permission prompt and the alert's look can be verified without waiting for a real
         // tripwire. No state is persisted, so a normal launch is unaffected.

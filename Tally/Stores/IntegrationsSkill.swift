@@ -49,12 +49,19 @@ extension IntegrationsStore {
         }
     }
 
+    /// The whole provenance record, or an empty one when the file is absent, unreadable, or not a
+    /// JSON object. One reader for every asker, which is what lets a question about the manifest as
+    /// a WHOLE be asked at all: whether any component has ever written a Claude settings.json is not
+    /// answerable one component at a time (`settingsWriteAuthorized`).
+    static func manifestDocument(_ url: URL = manifestURL) -> [String: Any] {
+        ((try? JSONSerialization.jsonObject(
+            with: (try? Data(contentsOf: url)) ?? Data())) as? [String: Any]) ?? [:]
+    }
+
     /// The paths the manifest records for one component; empty when the entry, or the file, is
     /// absent or unreadable. Internal for the unit tests.
     static func manifestPaths(_ component: String, manifest url: URL = manifestURL) -> [String] {
-        let manifest = (try? JSONSerialization.jsonObject(
-            with: (try? Data(contentsOf: url)) ?? Data())) as? [String: Any]
-        return ((manifest?[component] as? [String: Any])?["paths"] as? [String]) ?? []
+        ((manifestDocument(url)[component] as? [String: Any])?["paths"] as? [String]) ?? []
     }
 
     static func detectSkill() -> Status {

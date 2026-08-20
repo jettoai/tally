@@ -53,6 +53,9 @@ try MainActor.assumeIsolated {
     try runNotificationHookChecks(tmp: tmp)
     try runAgentHookChecks(tmp: tmp)
     try runKnockHookChecks(tmp: tmp)
+    // And the one pass that installs one of those without anybody pressing anything: what a machine
+    // has to have already said before a new hook may follow (autofollowchecks.swift).
+    try runAutoFollowChecks(tmp: tmp)
 
     // MARK: Claude Code skill surgery - install, refuse foreign files, remove cleanly.
     let skillFile = IntegrationsStore.claudeSkillFile(inHome: tmp)

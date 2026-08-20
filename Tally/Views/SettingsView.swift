@@ -178,6 +178,7 @@ struct SettingsView: View {
                 .padding(.horizontal, 14).padding(.vertical, 8)
             rowDivider
         }
+        autoFollowNotices(integrations)
         allIntegrationsRow(integrations)
         rowDivider
         integrationRow(
@@ -267,6 +268,44 @@ struct SettingsView: View {
                 .foregroundStyle(TallyColor.warning)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
+        }
+    }
+
+    /// What the app did without being asked, said once, with the way back beside it
+    /// (IntegrationsAutoFollow.swift).
+    ///
+    /// A ROW AT THE TOP OF THIS PANE rather than a window, an alert or a badge somewhere else: this
+    /// is where the thing it is about lives, so the sentence sits above the row it names and the
+    /// Undo beside it is the row's own Remove. It stands until it is dismissed or undone, launches
+    /// included, because nobody was at the machine when the install happened and a notice they were
+    /// not there for is not a notice.
+    @ViewBuilder
+    private func autoFollowNotices(_ integrations: IntegrationsStore) -> some View {
+        ForEach(integrations.autoFollowNotices, id: \.self) { key in
+            if let component = IntegrationsStore.autoFollowComponent(key) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        // The name is an ARGUMENT, never spelled into the key: a message built by
+                        // interpolation has a catalog key that only exists for whatever it was
+                        // built from that day (localizationchecks.swift).
+                        Text(String(format: L("Tally enabled %@ for your Claude accounts."),
+                                    component.title()))
+                            .font(.subheadline)
+                        Text(L("Your other Claude integrations were already installed, so this one followed. Undo removes it again, and Tally will not put it back."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button(L("Undo")) { integrations.undoAutoFollow(component) }
+                        .controlSize(.small)
+                    Button(L("Dismiss")) { integrations.dismissAutoFollowNotice(key) }
+                        .controlSize(.small)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                rowDivider
+            }
         }
     }
 

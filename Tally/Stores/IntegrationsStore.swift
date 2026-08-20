@@ -174,8 +174,17 @@ final class IntegrationsStore {
     /// Set when an install/remove fails (e.g. /usr/local/bin not writable); shown inline.
     /// Setter internal (not private): the skill extension file writes it too.
     var lastError: String?
+    /// Integrations this app installed on its own, on a machine that had already authorized the file
+    /// they go in, and which nobody has been told about yet (IntegrationsAutoFollow.swift). Setter
+    /// internal (not private): that extension file writes it, and `private` is file-scoped.
+    var autoFollowNotices: [String] = []
 
-    private init() { refresh() }
+    /// Seeded before the first refresh, so the pane's first frame already carries what a previous
+    /// launch installed and nobody has read yet.
+    private init() {
+        autoFollowNotices = Self.storedAutoFollowNotices()
+        refresh()
+    }
 
     // MARK: Status
 
@@ -481,8 +490,7 @@ final class IntegrationsStore {
 
     /// Internal (not private): the skill extension file uses it too.
     func recordManifest(_ component: String, paths: [String]?) {
-        var manifest = (try? JSONSerialization.jsonObject(
-            with: (try? Data(contentsOf: Self.manifestURL)) ?? Data())) as? [String: Any] ?? [:]
+        var manifest = Self.manifestDocument()
         if let paths {
             manifest[component] = [
                 "paths": paths,

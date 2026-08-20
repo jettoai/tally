@@ -11622,6 +11622,122 @@
           }
         }
       }
+    },
+    "Tally enabled %@ for your Claude accounts.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 已為你的 Claude 帳號啟用「%@」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally 已为你的 Claude 账号启用“%@”。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally が Claude アカウントで「%@」を有効にしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tally가 Claude 계정에서 \"%@\"을(를) 활성화했습니다."
+          }
+        }
+      }
+    },
+    "Your other Claude integrations were already installed, so this one followed. Undo removes it again, and Tally will not put it back.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你其他的 Claude 整合都已安裝，所以這一項也跟著裝上。按「復原」即可再次移除，Tally 不會把它裝回去。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你其他的 Claude 集成都已安装，所以这一项也跟着装上。点“撤销”即可再次移除，Tally 不会把它装回去。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他の Claude 連携がすでに導入されていたため、この項目も追随しました。「取り消す」で再び削除でき、Tally が戻すことはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Claude 통합이 이미 설치되어 있어 이 항목도 따라 설치했습니다. \"실행 취소\"로 다시 제거할 수 있으며, Tally가 되돌려 놓지 않습니다."
+          }
+        }
+      }
+    },
+    "Undo": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復原"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 취소"
+          }
+        }
+      }
+    },
+    "Dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "知道了"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "知道了"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "了解"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

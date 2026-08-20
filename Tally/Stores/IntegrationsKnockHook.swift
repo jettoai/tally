@@ -321,6 +321,13 @@ extension IntegrationsStore {
         lastError = nil
         let pass = Self.removeKnockHooks(from: Self.knockHookSettingsFiles())
         recordManifest(Self.knockHookManifest, paths: pass.remembered)
+        // AND THE PRESS IS REMEMBERED, because nothing else about it is. This removal takes the
+        // hooks out of settings.json and the entry out of the manifest, which leaves a later launch
+        // unable to tell a row somebody removed on purpose from one that was never installed - and
+        // that launch installs the second (IntegrationsAutoFollow.swift). Recorded here rather than
+        // at the button so that every press reaches it: the row's Remove, "Remove all", and the
+        // notice's own Undo are all this one function.
+        recordAutoFollowHandled(Self.knockHookManifest)
         lastError = pass.failure?.localizedDescription
         refresh()
     }

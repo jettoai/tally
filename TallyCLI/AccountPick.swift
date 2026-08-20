@@ -314,6 +314,35 @@ func bindingWindow(_ account: Snapshot.Account, primaryModel: String?,
                  < effectiveRemaining(comfortWindow($1), now: now) }
 }
 
+/// Whether an account is SPENT rather than merely nearly dry: its binding window has no effective
+/// remaining at all, so there is no work left on it to be had. The far end of the same scale
+/// `accountIsComfortable` reads, beside it for that reason.
+///
+/// ITS ONE READER IS THE REBALANCE CLAIM (Rebalance.swift), where a spent account is exempt from
+/// the one-move-per-drought record: what justifies refusing a move here is that the cap handoff
+/// will make it later, and a cap handoff needs a turn to hit a wall, which an idle session on an
+/// empty account never produces.
+///
+/// EFFECTIVE remaining, through the gate's own scale rather than a raw percentage, which is what
+/// keeps the exemption honest at both ends. A window minutes from resetting reads as FULL there, so
+/// "0% resetting in five minutes" is not a spent account and the claim still governs it; and it
+/// asks about the same window the claim keys on, so the exemption and the record can never disagree
+/// about which window made the account dry.
+///
+/// ZERO AND NOT THE 5% LINE, deliberately. The stampede the claim exists to stop is a real drought,
+/// and 1% is one - the 2026-08-02 double move ran on a 1% window. What changes at zero is not how
+/// dry the account is but what NOT moving costs, which is the whole of the argument above.
+///
+/// An account reporting no counted windows is not spent. Nothing is known about it, and an
+/// exemption invented out of missing data is a move made on evidence nobody has.
+func accountIsSpent(_ account: Snapshot.Account, primaryModel: String?,
+                    now: Date = Date()) -> Bool {
+    guard let binding = bindingWindow(account, primaryModel: primaryModel, now: now) else {
+        return false
+    }
+    return effectiveRemaining(comfortWindow(binding), now: now) <= 0
+}
+
 /// One window as a person reads it: "weekly 32% · resets 2d", and without the tail when the
 /// provider published no reset time. Its own function because two sentences quote a window - the
 /// reason behind a pick, and the advisory knock's news about the account a session is on - and two

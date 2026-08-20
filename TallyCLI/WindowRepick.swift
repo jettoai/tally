@@ -7,12 +7,13 @@ import Foundation
 // standing offer: a session on a nearly dry account moves to a healthy sibling at an idle moment of
 // its own choosing. Its gate is the full "left alone" bar, 120 seconds of silence across the
 // transcript, the subagents, the open tool call and the keyboard, plus one move per account per
-// window cycle across supervisors. On a machine running one or two sessions that bar arrives
-// constantly. On a heavy day it never does: measured on this machine 2026-08-17, `~/.tally/handoff
-// .log` holds 29 rebalances in its whole life and the most recent is 2026-08-06, eleven days of
-// nothing, while four sessions rode the main account into the wall inside one minute (16:33) and a
-// running executor died with the child that was handed off. Placement, in other words, happens at
-// launch and then never again for exactly the sessions that need it most.
+// window cycle across supervisors (waived on an account that is already spent, Rebalance.swift). On
+// a machine running one or two sessions that bar arrives constantly. On a heavy day it never does:
+// measured on this machine 2026-08-17, `~/.tally/handoff.log` holds 29 rebalances in its whole life
+// and the most recent is 2026-08-06, eleven days of nothing, while four sessions rode the main
+// account into the wall inside one minute (16:33) and a running executor died with the child that
+// was handed off. Placement, in other words, happens at launch and then never again for exactly
+// the sessions that need it most.
 //
 // THE MOMENT THIS ADDS. A conversation that has just been cleared is empty. There is no turn to
 // interrupt, no context to reload, and no work to lose, so the restart that the rebalance has to
@@ -281,14 +282,14 @@ func windowRepickReadiness(_ state: WindowRepickState, transcript: String?,
 ///  - a comfortable sibling exists, chosen by the same `capHandoffTarget` every other mover uses.
 ///
 /// THE EXCEPTION IS THE CROSS-SUPERVISOR CLAIM, and leaving it out is a decision rather than an
-/// omission. The rebalance takes one move per account per WINDOW CYCLE machine-wide, because every
-/// session re-reads the same picture on every 2s tick and would otherwise stampede onto the one
-/// healthy sibling. That reasoning does not carry: this fires on a discrete event that costs
-/// somebody a whole unit of work, not on a tick, so it cannot repeat while a drought lasts. Reusing
-/// the claim would actively break it - a weekly drought runs for days, so the FIRST session to
-/// clear its window would take the account's one move and every session that cleared afterwards
-/// would be refused for the rest of the drought, which is precisely the "eleven days of nothing"
-/// this feature exists to answer. What is left is the launch pick's own residual, in the launch
+/// omission. The rebalance takes one move per account per WINDOW CYCLE machine-wide (except off an
+/// account that is already spent, where it takes none), because every session re-reads the same
+/// picture on every 2s tick and would otherwise stampede onto the one healthy sibling. That
+/// reasoning does not carry: this fires on a discrete event that costs somebody a whole unit of
+/// work, not on a tick, so it cannot repeat while a drought lasts. Reusing the claim would actively
+/// break it - a weekly drought runs for days, so the FIRST session to clear its window would take
+/// the account's one move and every session that cleared afterwards would be refused for the rest
+/// of the drought, which is precisely the "eleven days of nothing" this feature exists to answer. What is left is the launch pick's own residual, in the launch
 /// pick's own shape: several sessions clearing inside one snapshot refresh read the same numbers
 /// and choose the same sibling. That sibling is comfortable by the gate above, which is more than
 /// can be said for the account they are all leaving.

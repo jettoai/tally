@@ -82,6 +82,29 @@ func runTurnBoundaryChecks() {
     check("13. and an empty field the same", target(candidates: []) == nil)
     check("14. a claim another supervisor holds does not move it", target(claim: { false }) == nil)
 
+    // 15. THE CLAIM'S ONE EXEMPTION, shared with the idle rebalance rather than invented here
+    // (Rebalance.swift, 2026-08-20): an account with no effective remaining left is left without
+    // asking for the claim, because what justifies waiting for one is the cap handoff making the
+    // move later, and an account with nothing left never serves the turn a cap lands in. Two movers
+    // that disagreed about when the claim is required would strand a session on a spent account
+    // precisely because the other mover had already moved one off it.
+    let spent = acct("A", model: 0)
+    check("15. a spent account moves even while another supervisor holds the claim",
+          target(current: spent, claim: { false })?.id == "B")
+    var spentAsked = false
+    _ = target(current: spent, claim: { spentAsked = true; return true })
+    check("…and does not ask for the claim at all", !spentAsked)
+    check("…while 1% is not exempt, which is the 2026-08-02 red line",
+          target(current: acct("A", model: 1), claim: { false }) == nil)
+    check("…an observe-only fleet still moves nothing off a spent account",
+          target(steering: false, current: spent, claim: { false }) == nil)
+    check("…the recovery fuse is still a hard wall",
+          target(fuseAllows: false, current: spent, claim: { false }) == nil)
+    check("…so is a live fan-out", target(agentsIdle: false, current: spent,
+                                          claim: { false }) == nil)
+    check("…and so is having nowhere better to go",
+          target(current: spent, candidates: [alsoDry], claim: { false }) == nil)
+
     // The line is the shared one, not a second threshold of this mover's own. Asserted against the
     // constant so a change to `nearlyDryPercent` moves this gate with everything else.
     check("the dry line is exactly the one the rest of the product draws",
@@ -392,6 +415,16 @@ func runTurnBoundaryChecks() {
     check("an all-dry field plans nothing", barren.plan == nil)
     check("…and spends no claim doing it", !barren.claimed)
 
+    // THE EXEMPTION THROUGH THE WHOLE STATION, which is where it has to hold: the account this
+    // session is on is empty, so the move is planned and the drought's record is never written -
+    // and the boundary is spent either way, so nothing holds the idle rebalance behind it.
+    var spentBoundary = TurnBoundaryState()
+    let spentMove = tick(state: &spentBoundary, event: first, accounts: [spent, healthy])
+    check("the station moves a session off a spent account", spentMove.plan?.target.id == "B")
+    check("…without taking the drought's claim", !spentMove.claimed)
+    check("…and records the boundary as decided",
+          !turnBoundaryPending(spentBoundary, event: first))
+
     var noEvent = TurnBoundaryState()
     check("a session whose Claude Code reports no boundary at all is never moved by this",
           tick(state: &noEvent, event: nil).plan == nil)
@@ -464,10 +497,17 @@ func runTurnBoundaryChecks() {
     let mover = (try? String(contentsOfFile: "TallyCLI/TurnBoundaryMove.swift",
                              encoding: .utf8)) ?? ""
     check("the turn boundary claims the cycle through the rebalance's own record",
-          mover.contains("claimRebalanceCycle(account.id, cycle: cycle, dir: dir)")
+          mover.contains("claimRebalanceCycle(account.id, cycle: $0, dir: dir)")
               && mover.contains("dir: URL = rebalanceDir"))
     check("and reads the same cycle key, so the two agree about which drought they are in",
           mover.contains("rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now)"))
+    // ONE CLAIM MEANS ONE EXEMPTION TOO, spelled identically in both movers rather than twice in
+    // two ways: a mover with a threshold of its own would hold a session on an account the other
+    // one had already emptied by leaving it.
+    let idle = (try? String(contentsOfFile: "TallyCLI/Rebalance.swift", encoding: .utf8)) ?? ""
+    let waiver = "accountIsSpent(current, primaryModel: primaryModel, now: now) || claim()"
+    check("the two movers waive the claim on one shared reading of the account",
+          !idle.isEmpty && mover.contains(waiver) && idle.contains(waiver))
 
     // MARK: - 36g. The hook writes the roster before it publishes the boundary
 

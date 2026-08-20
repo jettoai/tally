@@ -44,6 +44,13 @@ import Foundation
 // price is stated plainly: one session per account per window cycle moves this way, and the rest
 // wait for their own account's next cycle or for the cap handoff. Two movers, one claim, so a
 // drought can never hand out two moves for one account.
+//
+// AND IT SHARES THE CLAIM'S ONE EXEMPTION with it (2026-08-20): an account with no effective
+// remaining left at all (`accountIsSpent`) is moved off without asking for the claim, by this
+// mover on the same terms as by the idle one. Rebalance.swift carries the whole argument. Sharing
+// it is not a convenience here, it is the same requirement that made the claim shared in the first
+// place: two movers that disagreed about when the claim is required would let one of them hold a
+// session on a spent account precisely because the other had already left one.
 
 /// The audit tag a turn-boundary move is logged under, and the reason it is not `rebalance`: the
 /// two are measured against each other (does moving at a turn boundary reach the sessions the idle
@@ -149,7 +156,10 @@ func turnBoundaryAllowedForSession(steering: Bool, mode: String, blocked: Bool, 
 /// policy, exactly as Rebalance.swift says.
 ///
 /// `claim` is last because it is the only gate with a side effect: asked earlier it would spend
-/// this account's one move of the cycle on a tick that then declines to move.
+/// this account's one move of the cycle on a tick that then declines to move. It is not asked at
+/// all once the account is spent (`accountIsSpent`), the one exemption, shared with the idle
+/// rebalance and argued in full there: what justifies refusing is that the cap handoff will make
+/// the move later, and an account with nothing left has no turn for a cap to land in.
 func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdle: Bool,
                         draftSuspected: Bool, carryable: Bool, fuseAllows: Bool,
                         agentsIdle: Bool, turnEnded: Bool, toolCallOpen: Bool,
@@ -163,7 +173,9 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
           agentsIdle, turnEnded, !toolCallOpen,
           !accountIsComfortable(current, primaryModel: primaryModel, now: now),
           let target = capHandoffTarget(candidates, primaryModel: primaryModel, now: now),
-          claim()
+          // Short-circuits, so an exempt move does not ignore the claim's answer: it never asks
+          // and takes no record (`claimRebalanceCycle` says why that is the property that matters).
+          accountIsSpent(current, primaryModel: primaryModel, now: now) || claim()
     else { return nil }
     return target
 }
@@ -372,7 +384,9 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
     // answers nothing, the rule the cap handoff applies for the same reason - moving a session on
     // hours-old numbers is how it lands somewhere worse than it started. An account whose binding
     // window names no reset has no cycle to claim, and an unclaimed move is the stampede the claim
-    // exists to prevent, so that stays put too.
+    // exists to prevent, so that stays put too - unless the account is SPENT, which asks for no
+    // claim and therefore needs no cycle to name (the key is read inside the claim for that
+    // reason).
     //
     // The three facts go in as literals because the guards above have just established them, which
     // is the one thing to keep in step if a gate ever moves: `turnBoundaryTarget` is the complete
@@ -380,14 +394,15 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
     // assumption only as long as it sits below those guards.
     guard let field = liveMoveField(provider: provider, account: account,
                                     primaryModel: primaryModel, quarantine: quarantine,
-                                    loaded: loaded(), now: now),
-          let cycle = rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now),
-          let moveTo = turnBoundaryTarget(
-              steering: steering, mode: mode, blocked: blocked, keyboardIdle: keyboardIdle,
-              draftSuspected: draftSuspected, carryable: carryable, fuseAllows: fuseAllows,
-              agentsIdle: true, turnEnded: true, toolCallOpen: false,
-              current: field.current, candidates: field.candidates, primaryModel: primaryModel,
-              now: now, claim: { claimRebalanceCycle(account.id, cycle: cycle, dir: dir) })
+                                    loaded: loaded(), now: now)
+    else { return }
+    let cycle = rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now)
+    guard let moveTo = turnBoundaryTarget(
+        steering: steering, mode: mode, blocked: blocked, keyboardIdle: keyboardIdle,
+        draftSuspected: draftSuspected, carryable: carryable, fuseAllows: fuseAllows,
+        agentsIdle: true, turnEnded: true, toolCallOpen: false,
+        current: field.current, candidates: field.candidates, primaryModel: primaryModel, now: now,
+        claim: { cycle.map { claimRebalanceCycle(account.id, cycle: $0, dir: dir) } ?? false })
     else { return }
     warn("\(account.label) nearly dry, moving to \(moveTo.label) at the end of this turn "
         + "(\(pickReason(moveTo, primaryModel: primaryModel)))")

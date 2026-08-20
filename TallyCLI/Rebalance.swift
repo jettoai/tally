@@ -32,6 +32,26 @@ import Foundation
 //    which is how the 02:22 storm started. The first session to CLAIM the cycle moves; the rest
 //    lose the claim and stay, and the account re-arms when the window that binds it resets.
 //
+// THE SECOND GUARDRAIL IS SUSPENDED ON AN ACCOUNT THAT IS ALREADY SPENT (2026-08-20), because what
+// justifies every refusal here is one sentence - not moving costs at worst the cap handoff doing it
+// later - and that sentence is false once the account is empty. A cap handoff is triggered by a
+// turn hitting the wall and an idle session has no turn, so the real cost is the session sitting on
+// a spent account for the rest of the window. Measured that day: one session took Claude 4's claim
+// for the drought at 12:41Z, so when a `tally reload` restarted nine sessions at 13:31Z three fell
+// straight back onto the account they were leaving; seven ended up sharing it, its 5h window went
+// 5% to 0% in nine minutes, and every rebalance after that was refused until 13:59Z.
+//
+// So with no EFFECTIVE remaining left at all (`accountIsSpent`, AccountPick.swift) the claim is not
+// asked for, and the other two guardrails carry the decision alone: the per-session fuse above, and
+// a target that still has to be comfortable. 1% is NOT exempt, which is the point rather than an
+// omission - the 2026-08-02 double move this claim was tightened for ran on a 1% window, and an
+// account at 1% can still serve the turn that would summon the cap handoff.
+//
+// WHAT THE EXEMPTION COSTS, stated rather than hidden: several idle sessions leaving one spent
+// account on consecutive ticks read the same snapshot and land on the same best sibling. Accepted
+// deliberately - concentrating on a 95% sibling beats stranding on a 0% account - and it cannot
+// oscillate, because that sibling is not spent, so the ordinary claim governs whatever follows.
+//
 // "The window that binds it resets" is a question about a REPORTED reset time, and reported reset
 // times move: they are parsed out of `/usage`'s human text, whose finest unit is the minute
 // ("resets Aug 2 at 2:39pm"), so the same unbroken window is reported a minute later or earlier as
@@ -147,6 +167,11 @@ func rebalanceCycleKey(_ account: Snapshot.Account, primaryModel: String?,
 /// Refusing when the claim cannot be written for any other reason is deliberate. A rebalance repairs
 /// nothing, it is only ever early, so not moving costs at worst the cap handoff doing it later;
 /// moving without a claim costs every session on the account landing on one sibling.
+///
+/// THE SPENT-ACCOUNT EXEMPTION TURNS THAT COMPARISON OVER, and it is the CALLER's to make
+/// (`rebalanceTarget`): an exempt move never asks this function anything. So the exemption writes
+/// no record, reads none, and leaves no marker for another supervisor to misread - there is one
+/// kind of file in this directory and it still means exactly one thing.
 func claimRebalanceCycle(_ accountID: String, cycle: String, dir: URL = rebalanceDir) -> Bool {
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     guard let lock = acquireRebalanceLock(accountID, dir: dir) else { return false }
@@ -360,7 +385,11 @@ func rebalanceAllowedForSession(steering: Bool, mode: String, blocked: Bool, age
 ///  - `claim`: the cross-supervisor per-cycle claim above, and deliberately LAST. It is the only
 ///    gate with a side effect, so asking it earlier would spend this account's one move of the cycle
 ///    on a tick that then declines to move (a pinned session, a session mid-turn, nowhere better to
-///    go), and the account would sit un-rebalanceable until its window reset.
+///    go), and the account would sit un-rebalanceable until its window reset. NOT ASKED AT ALL when
+///    the account is already spent (`accountIsSpent`), which is the one exemption and the header
+///    carries the whole of why: every other gate above still holds, and the two that make this safe
+///    to do without a claim - the per-session fuse, and a target that must be comfortable - are
+///    both in this list already.
 ///
 /// `carryable` is declared AFTER `isQuiet` on purpose, and every caller passes it after too: Swift
 /// evaluates an argument list in source order, so the expression that runs the transcript locate
@@ -379,7 +408,9 @@ func rebalanceTarget(steering: Bool, mode: String, blocked: Bool, agentsWorking:
                                      carryable: carryable, fuseAllows: fuseAllows),
           !accountIsComfortable(current, primaryModel: primaryModel, now: now),
           let target = capHandoffTarget(candidates, primaryModel: primaryModel, now: now),
-          claim()
+          // `||` short-circuits, so an exempt move does not merely ignore the claim's answer: it
+          // never asks, and takes no record. See `claimRebalanceCycle` for why that matters.
+          accountIsSpent(current, primaryModel: primaryModel, now: now) || claim()
     else { return nil }
     return target
 }
@@ -414,9 +445,12 @@ func liveMoveField(provider: String, account: Snapshot.Account, primaryModel: St
 /// One poll tick's proactive move, with the live picture the gate above needs. nil on almost every
 /// tick, for any of the reasons above.
 ///
-/// A target comes back only once this supervisor HOLDS the cycle's claim, so there is no moment
-/// between deciding to move and recording it for a sibling supervisor to decide the same thing. The
-/// caller cannot forget to record it either, because there is nothing left to record.
+/// A target comes back only once this supervisor HOLDS the cycle's claim, or the account is spent
+/// and exempt from it (`rebalanceTarget`), so there is no moment between deciding to move and
+/// recording it for a sibling supervisor to decide the same thing, and nothing is left for the
+/// caller to forget to record. The cycle key is read INSIDE the claim for the same reason: an
+/// account whose binding window names no reset has no cycle, which refuses an ordinary move exactly
+/// as it always did, and must not also strand a spent one for want of a reset time to key on.
 ///
 /// The snapshot is read rather than trusted from the loop's own `account`, which was fixed at launch
 /// and, after a self-update exec, carries no quota fields at all: "is the account I am ON dying" is
@@ -454,12 +488,12 @@ func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: St
                                      carryable: carryable, fuseAllows: fuseAllows),
           let field = liveMoveField(provider: provider, account: account,
                                     primaryModel: primaryModel, quarantine: quarantine,
-                                    loaded: loaded(), now: now),
-          let cycle = rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now)
+                                    loaded: loaded(), now: now)
     else { return nil }
+    let cycle = rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now)
     return rebalanceTarget(
         steering: steering, mode: mode, blocked: blocked, agentsWorking: agentsWorking,
         isQuiet: isQuiet, carryable: carryable, fuseAllows: fuseAllows,
         current: field.current, candidates: field.candidates, primaryModel: primaryModel, now: now,
-        claim: { claimRebalanceCycle(account.id, cycle: cycle, dir: dir) })
+        claim: { cycle.map { claimRebalanceCycle(account.id, cycle: $0, dir: dir) } ?? false })
 }

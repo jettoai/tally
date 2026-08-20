@@ -339,6 +339,89 @@ func runRebalanceChecks() {
           !claimAsked(current: acct("A", model: 40)))
     check("and neither does having nowhere better to go", !claimAsked(candidates: [alsoDry]))
 
+    // MARK: - 26b2. The claim's one exemption: an account that is already spent
+
+    // WHY IT EXISTS (2026-08-20). Every refusal in Rebalance.swift is justified by one sentence -
+    // not moving costs at worst the cap handoff doing it later - and a cap handoff needs a turn to
+    // hit a wall. An IDLE session has no turn, so on an empty account that sentence is false and
+    // the refusal costs the rest of the window instead: one session took Claude 4's claim for the
+    // drought at 12:41Z, a reload re-placed three sessions back onto it at 13:31Z because the
+    // repick could not have that claim, seven ended up sharing it at 0%, and every rebalance after
+    // that was refused until the window reset at 13:59Z.
+    let spent = acct("A", model: 0)
+    check("an account with no effective remaining at all is spent",
+          accountIsSpent(spent, primaryModel: primary, now: launch))
+    check("…and a session leaves it even while another supervisor holds the drought's claim",
+          target(current: spent, claim: { false })?.id == "B")
+    // AND IT NEVER ASKS, which is what keeps the exemption off the disk altogether: nothing is
+    // written, nothing is read, and no marker is left for a sibling supervisor to misread.
+    var spentAsked = false
+    _ = target(current: spent, claim: { spentAsked = true; return true })
+    check("…without asking for the claim at all", !spentAsked)
+
+    // THE RED LINE, and the reason the exemption is keyed on zero rather than on the dry line: the
+    // 2026-08-02 double move this claim was tightened for ran on a 1% window, and an account at 1%
+    // can still serve the turn that summons the cap handoff.
+    check("a 1% account still loses to a claim another supervisor holds",
+          target(current: acct("A", model: 1), claim: { false }) == nil)
+    check("…and so does one exactly on the nearly-dry line",
+          target(current: acct("A", model: nearlyDryPercent), claim: { false }) == nil)
+    check("…while both still move when the claim is theirs to take",
+          target(current: acct("A", model: 1))?.id == "B"
+              && target(current: acct("A", model: nearlyDryPercent))?.id == "B")
+    check("neither of them is spent by the gate's own scale",
+          !accountIsSpent(acct("A", model: 1), primaryModel: primary, now: launch)
+              && !accountIsSpent(acct("A", model: nearlyDryPercent), primaryModel: primary,
+                                 now: launch))
+
+    // THE IMMINENT-RESET EXEMPTION CARRIES IN FOR FREE, because the scale is the comfort gate's
+    // own: 0% resetting in six minutes is a FULL window there, so such an account is neither dying
+    // nor spent and nothing moves. That is what stops this from firing on a window about to refill.
+    let refilling = acct("A", model: 0, modelResetHours: 0.1)
+    check("a spent window minutes from resetting is not a spent account",
+          !accountIsSpent(refilling, primaryModel: primary, now: launch))
+    check("…so that session stays put, claim or no claim",
+          target(current: refilling, claim: { false }) == nil && target(current: refilling) == nil)
+
+    // THE OTHER GUARDRAILS ARE UNTOUCHED. The exemption suspends the claim and nothing else, so
+    // every gate that was a hard wall before is one still.
+    check("a spent account with a spent fuse moves nobody",
+          target(fuseAllows: false, current: spent, claim: { false }) == nil)
+    check("…nor one whose siblings are all dry too",
+          target(current: spent, candidates: [alsoDry], claim: { false }) == nil)
+    check("…nor one with no sibling at all",
+          target(current: spent, candidates: [], claim: { false }) == nil)
+    check("…nor a pinned session",
+          target(mode: "manual", current: spent, claim: { false }) == nil)
+    check("…nor one waiting on a person",
+          target(blocked: true, current: spent, claim: { false }) == nil)
+    check("…nor one whose Claude Code names a live worker",
+          target(agentsWorking: true, current: spent, claim: { false }) == nil)
+    check("…nor one that is in use",
+          target(isQuiet: false, current: spent, claim: { false }) == nil)
+    check("…nor one whose conversation cannot be carried",
+          target(carryable: false, current: spent, claim: { false }) == nil)
+    // OBSERVE ONLY OUTRANKS IT, which is the gate that is not about this session at all: a fleet
+    // told never to steer is not overruled by an account being empty (AutoSteering.swift).
+    check("…and an observe-only fleet moves nothing off a spent account",
+          target(steering: false, current: spent, claim: { false }) == nil)
+
+    // THE BINDING WINDOW IS WHAT IS ASKED, not one particular window: an account emptied by its
+    // SESSION window is spent however healthy the rest of it reads.
+    var sessionSpent = acct("A", model: 90)
+    sessionSpent.sessionRemaining = 0
+    check("an account emptied by its session window is spent too",
+          accountIsSpent(sessionSpent, primaryModel: primary, now: launch))
+    check("…and is exempted on the same terms",
+          target(current: sessionSpent, claim: { false })?.id == "B")
+    // Missing data is not an exemption: an account that reports no counted windows is not spent,
+    // and a move made on evidence nobody has is the thing every refusal here exists to prevent.
+    var blankAccount = acct("A", model: 3)
+    (blankAccount.sessionRemaining, blankAccount.weeklyRemaining, blankAccount.modelRemaining)
+        = (nil, nil, nil)
+    check("an account reporting no windows at all is not spent",
+          !accountIsSpent(blankAccount, primaryModel: primary, now: launch))
+
     // MARK: - 26c. The cycle key
 
     // Derived from the BINDING window's reset time, in whole seconds: the same derivation the app's
@@ -523,6 +606,59 @@ func runRebalanceChecks() {
     _ = move([dying, alsoDry], dir: sparedDir)
     check("a tick that refused to move leaves the cycle's claim untaken",
           move([dying, healthy], dir: sparedDir)?.id == "B")
+
+    // THE EXEMPTION ON THE LIVE PATH, and its accepted cost written down as a test rather than as a
+    // hope. Two idle sessions leave one spent account against ONE shared claim directory - the
+    // second is exactly the session the claim would have refused - and both land on the same
+    // sibling, because they read the same snapshot. That concentration is accepted deliberately:
+    // a 95% sibling is strictly better than a 0% account, and it cannot chain, because the sibling
+    // is not spent and the ordinary claim governs whatever happens there next.
+    let spentDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-rebalance-move-\(UUID().uuidString)")
+    let spentLive = acct("A", model: 0)
+    // A field with TWO comfortable siblings in it, so "they both chose B" is a statement about the
+    // ordering rather than about there being nowhere else to go.
+    let secondBest = acct("D", model: 40)
+    let field = [spentLive, healthy, secondBest]
+    check("a session on a spent account has more than one comfortable sibling to choose from",
+          accountIsComfortable(secondBest, primaryModel: primary, now: launch))
+    check("…the first one leaves, to the best of them",
+          move(field, on: spentLive, dir: spentDir)?.id == "B")
+    check("…and so does the second, which the claim would have stranded",
+          move(field, on: spentLive, dir: spentDir)?.id == "B")
+    check("…having recorded no claim for that drought at all",
+          !claimExists(spentLive.id, cycle: rebalanceCycleKey(spentLive, primaryModel: primary,
+                                                              now: launch)!, in: spentDir))
+    check("the sibling they land on is not itself spent",
+          !accountIsSpent(healthy, primaryModel: primary, now: launch))
+    check("…so nothing moves off it again and the exemption cannot oscillate",
+          move([spentLive, healthy], on: healthy, dir: spentDir) == nil)
+    // A SPENT ACCOUNT WITH NO REPORTED RESET IS MOVED OFF TOO, which is the other half of not
+    // asking for the claim: with no cycle to name there is nothing to claim, and that used to end
+    // the decision before the gates were reached. It still refuses an ORDINARY move, exactly as it
+    // always did; what it may not do is strand a session on an empty account for want of a reset
+    // time to key a record on.
+    var spentNoReset = acct("A", model: 0)
+    spentNoReset.modelResetsAt = nil
+    check("a spent account whose binding window names no reset has no cycle to claim",
+          rebalanceCycleKey(spentNoReset, primaryModel: primary, now: launch) == nil)
+    check("…and is spent all the same", accountIsSpent(spentNoReset, primaryModel: primary,
+                                                       now: launch))
+    check("…so the session leaves it", move([spentNoReset, healthy], on: spentNoReset,
+                                            dir: spentDir)?.id == "B")
+    var dyingNoReset = acct("A", model: 3)
+    dyingNoReset.modelResetsAt = nil
+    check("while a merely dying account with no reset still moves nobody",
+          move([dyingNoReset, healthy], on: dyingNoReset, dir: spentDir) == nil)
+    // And observe-only reaches the whole move, not only the pure decision, leaving nothing behind.
+    let spentOffDir = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("tally-rebalance-move-\(UUID().uuidString)")
+    check("an observe-only fleet moves nobody off a spent account here either",
+          move([spentLive, healthy], steering: false, on: spentLive, dir: spentOffDir) == nil)
+    check("…and writes nothing while refusing",
+          ((try? FileManager.default.contentsOfDirectory(atPath: spentOffDir.path)) ?? []).isEmpty)
+    try? FileManager.default.removeItem(at: spentDir)
+    try? FileManager.default.removeItem(at: spentOffDir)
 
     // The incident end to end, on the path that produced it. An account whose SESSION window is the
     // spent one keys off that window's reset, and that reset is reported to the minute: the same 1%

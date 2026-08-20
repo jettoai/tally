@@ -177,7 +177,8 @@ enum TurnBoundaryAgents: Equatable {
     case idle
     /// Ask again on a later tick. Either it names somebody still working - the head has finished
     /// speaking and the work it dispatched has not - or it has not caught up with this boundary
-    /// yet and still may.
+    /// yet and still may. The first of those has no deadline: a roll call is not overruled by an
+    /// inference about how long a subagent has gone without writing (see `turnBoundaryAgents`).
     case retry
     /// Nothing here is ever going to answer for this boundary. The caller must SPEND the boundary
     /// rather than hold it: an undecided one stands the idle rebalance down on every tick
@@ -232,64 +233,45 @@ func rosterCoversBoundary(updatedAt: Date, boundary: Date) -> Bool {
 
 /// What this session's Claude Code says about the work in flight at `boundary`.
 ///
-/// FAIL-CLOSED ON THE MOVE IN EVERY DIRECTION THAT MATTERS: no roster at all (the hooks are not
-/// installed, or the file cannot be read), a roster whose count cannot be believed (`reportable` is
-/// nil below `agentCensusClaudeVersion`, where edge events drift upward with nothing to correct
-/// them), and a roster that never caught up with this boundary all answer `unavailable` - which
-/// moves nothing. What separates them from `retry` is only whether waiting could change the answer,
-/// and that distinction is about the REBALANCE rather than about this mover: a boundary held open
-/// forever blocks it, a boundary spent releases it.
+/// `record` is this child's own roster and nothing else: `currentGenerationRoster` has already
+/// dropped a roster left by a previous child, one this Claude Code cannot vouch for, and the case
+/// where there is no roster at all (AgentRoster.swift states why that test is structural). All
+/// three arrive here as nil and answer `unavailable`, which moves nothing.
 ///
-/// THE BINDING TO THE BOUNDARY IS THE POINT, and it is what this function grew (codex review of
-/// d21f2e0, P1). Read without it, a roster is just "the last thing the hooks said" - and the last
-/// thing they said may be the PREVIOUS turn's roll call, taken before this turn dispatched
-/// anything. Trusting an empty one of those is a SIGTERM into a live fan-out, which is the one
-/// thing this mover may never do.
+/// THE THREE ANSWERS SPLIT ON ONE QUESTION: could waiting change this? That distinction is about
+/// the REBALANCE rather than about this mover - a boundary held open stands it down through
+/// `turnBoundaryPending`, a boundary spent releases it - so `unavailable` is reserved for the
+/// readings no later tick can improve.
 ///
-/// AND A ROSTER THAT NAMES SOMEBODY IS BELIEVED ONLY WHILE THE DISK AGREES, which is the second
-/// half of that binding and closes the way `retry` could stand forever (review of e52a436, B1).
-/// The roster is edge-counted: an agent that DIES takes its `SubagentStop` with it, so its id sits
-/// there until a roll call corrects it, and a roll call only arrives with the next `Stop`. Two
-/// ordinary things produce exactly that ghost and then no next `Stop`:
+/// THE BINDING TO THE BOUNDARY IS THE POINT (codex review of d21f2e0, P1). Read without it, a
+/// roster is just "the last thing the hooks said" - and the last thing they said may be the
+/// PREVIOUS turn's roll call, taken before this turn dispatched anything. Trusting an empty one of
+/// those is a SIGTERM into a live fan-out, which is the one thing this mover may never do.
 ///
-///   - A RELAUNCH THAT KILLED A FAN-OUT. The roster file is named for the SUPERVISOR pid and the
-///     supervisor outlives its children, so a `tally session clear`, a cap handoff or a reload that
-///     ends a live fan-out leaves every one of those ids behind for the next child to read.
-///   - A SUBAGENT THAT CRASHED, which `advanceAgentRoster` says outright it cannot answer.
+/// A ROLL CALL IS NOT OVERRULED BY AN MTIME, which is the correction this carries (codex review of
+/// 388fc84) and it reverses what the previous version did. That version arbitrated a roster naming
+/// workers against `subagentIdleSeconds` of silence under `subagents/`, so a subagent sitting
+/// inside one long tool call - an eight-minute build, a fifteen-minute package, both ordinary here
+/// - was declared gone after ten minutes of writing nothing, the boundary was spent, and the next
+/// tick's rebalance reached the same conclusion from the same mtime and restarted the child on top
+/// of work the roster was still naming. The roster is a ROLL CALL from Claude Code itself and the
+/// mtime is an INFERENCE about it; an inference may not overrule the census it is an inference
+/// about. So a current-generation roster that names workers answers `retry` for as long as it says
+/// so, with no clock of its own.
 ///
-/// Left unchecked, either one holds this boundary in `retry` on every tick for the life of the
-/// child - and an undecided boundary stands the idle rebalance down with it, so the session that
-/// most needs moving is the one that never can be. So the roster's claim is arbitrated against the
-/// evidence on disk: `lastAgentWrite` is the newest write under this session's `subagents/` THAT
-/// THIS CHILD COULD HAVE MADE (`newestSubagentWrite` filters on the child's own start, so a
-/// previous child's transcripts are excluded by construction), and a roster naming workers while
-/// nothing has been written for `subagentIdleSeconds` is a roster describing work that has stopped.
-///
-/// THE ARBITRATION IS THE `isQuiet` WITNESS ITSELF, deliberately, rather than a clock of this
-/// mover's own. `subagentIdleSeconds` is the window the rebalance already judges dispatched work
-/// by, so this answers `retry` on exactly the ticks the rebalance would refuse anyway - which is
-/// what makes the stand-down it causes free (WindowRepick.swift carries that table). A blind
-/// timeout would instead give up on a genuine fifteen-minute fan-out, which is the case this mover
-/// was asked to wait for.
-func turnBoundaryAgents(pid: String, boundary: Date, lastAgentWrite: Date?,
-                        dir: URL = supervisorStateDir,
+/// AND THAT UNBOUNDED WAIT COSTS NOTHING, which is what makes it safe to have no clock: the
+/// rebalance the stand-down defers now reads the same roster and refuses on the same fact
+/// (`rebalanceAllowedForSession`), so the ticks this holds are ticks it would have declined
+/// anyway. What ends the wait is the work ending: a `SubagentStop` or the next `Stop` rewrites the
+/// roster, and the tick after that moves the session. What bounds a roster inflated by a subagent
+/// that crashed is the roll call every turn boundary carries.
+func turnBoundaryAgents(_ record: SessionAgentsRecord?, boundary: Date,
                         now: Date = Date()) -> TurnBoundaryAgents {
-    guard let record = readSessionAgents(pid: pid, dir: dir),
-          let working = record.reportable else { return .unavailable }
+    guard let record, let working = record.reportable else { return .unavailable }
     guard rosterCoversBoundary(updatedAt: record.updatedAt, boundary: boundary) else {
         return now.timeIntervalSince(boundary) <= turnBoundaryRosterGrace ? .retry : .unavailable
     }
-    guard working > 0 else { return .idle }
-    return agentWorkIsLive(lastAgentWrite, now: now) ? .retry : .unavailable
-}
-
-/// Whether this child's dispatched work has written anything inside the window the rest of the repo
-/// judges a subagent idle by. nil - no `subagents/` directory, or nothing in it this child wrote -
-/// is NOT live: a roster naming workers that have left no trace at all under this child is the
-/// ghost case above, and answering "live" to it is what would hold the boundary forever.
-func agentWorkIsLive(_ lastAgentWrite: Date?, now: Date = Date()) -> Bool {
-    guard let lastAgentWrite else { return false }
-    return now.timeIntervalSince(lastAgentWrite) <= subagentIdleSeconds
+    return working == 0 ? .idle : .retry
 }
 
 /// Whether a tool call this conversation opened is still outstanding.

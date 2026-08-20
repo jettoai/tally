@@ -108,14 +108,20 @@ func runTurnBoundaryChecks() {
     let stateDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("tally-turn-boundary-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: stateDir) }
-    /// The reading for a boundary at `launch`, asked a moment after it. `wrote` is the newest write
-    /// this child left under its `subagents/` directory; the default is "a moment ago", so a roster
-    /// naming workers is taken at its word unless a check says otherwise.
-    func roster(_ pid: String, at asked: TimeInterval = 1,
-                wrote: TimeInterval? = 0) -> TurnBoundaryAgents {
-        turnBoundaryAgents(pid: pid, boundary: launch,
-                           lastAgentWrite: wrote.map { launch.addingTimeInterval($0) },
-                           dir: stateDir, now: launch.addingTimeInterval(asked))
+    /// The child this suite's rosters are judged against: started a minute before the boundary, so
+    /// a record stamped at `launch` belongs to it and one stamped before that does not.
+    ///
+    /// DELIBERATELY OFF A WHOLE SECOND. A child that started exactly on one makes flooring a no-op,
+    /// and the fixture below - the one that asserts the comparison is EXACT rather than at the
+    /// roster's whole-second resolution - then passes whether the comparison is exact or not. It
+    /// did, and a mutant that floored this test survived the whole suite (2026-08-21).
+    let childStartedAt = launch.addingTimeInterval(-59.5)
+    /// The reading for a boundary at `launch`, asked a moment after it, through the same two
+    /// functions the tick uses: the generation filter and the pure decision over what it kept.
+    func roster(_ pid: String, at asked: TimeInterval = 1) -> TurnBoundaryAgents {
+        turnBoundaryAgents(currentGenerationRoster(pid: pid, childStartedAt: childStartedAt,
+                                                   dir: stateDir),
+                           boundary: launch, now: launch.addingTimeInterval(asked))
     }
     // NO ROSTER AT ALL is the machine whose hooks are not installed, and it is `unavailable` rather
     // than `retry`: waiting for a file nothing writes would hold this boundary open forever, and an
@@ -136,33 +142,67 @@ func runTurnBoundaryChecks() {
                        pid: "4", dir: stateDir)
     check("an empty roster that cannot be believed answers for nothing", roster("4") == .unavailable)
 
-    // MARK: - 36c1a. A roster naming workers is believed only while the disk agrees
+    // MARK: - 36c1a. A roll call is not overruled by an inference about it
 
-    // THE GHOST (review of e52a436, B1). The roster is edge-counted, so an agent that dies without
-    // a `SubagentStop` sits there until a roll call corrects it - and a roll call only arrives with
-    // the next `Stop`. A relaunch that ended a live fan-out leaves exactly that behind for the next
-    // child, because the roster file is named for the SUPERVISOR pid. Believed forever, it answers
-    // `retry` on every tick, the boundary is never spent, and the idle rebalance is stood down for
-    // the life of a session that may never have another turn.
-    check("a roster naming workers whose transcripts are still moving is asked again",
-          roster("3", wrote: 0) == .retry)
-    check("…and one whose work has left no trace under this child at all is a ghost",
-          roster("3", wrote: nil) == .unavailable)
-    check("…as is one that has written nothing for the whole subagent window",
-          roster("3", at: subagentIdleSeconds + 2, wrote: 0) == .unavailable)
-    check("…while the last second of that window still counts as live",
-          roster("3", at: subagentIdleSeconds, wrote: 0) == .retry)
-    // The window is the one the rebalance judges dispatched work by, not a clock of this mover's
-    // own: that is what makes the stand-down it causes free, because those are the same ticks the
-    // rebalance refuses anyway.
-    check("the arbitration window is the repo's own subagent window",
-          agentWorkIsLive(launch, now: launch.addingTimeInterval(subagentIdleSeconds))
-              && !agentWorkIsLive(launch, now: launch.addingTimeInterval(subagentIdleSeconds + 1)))
-    check("no write at all is never live", !agentWorkIsLive(nil, now: launch))
-    // AND IT REACHES ONLY THE ROSTER THAT NAMES SOMEBODY. An empty roll call is an answer, not a
-    // claim, so nothing about the disk can turn it into a wait.
-    check("an empty roster is idle whatever the subagents directory says",
-          roster("2", wrote: nil) == .idle)
+    // THE REVERSAL (codex review of 388fc84). The previous version arbitrated a roster naming
+    // workers against `subagentIdleSeconds` of silence under `subagents/`, which declared a subagent
+    // sitting inside ONE long tool call gone after ten minutes of writing nothing - and the
+    // rebalance then reached the same conclusion from the same mtime and restarted the child on top
+    // of it. Claude Code's roll call is a census; the mtime is an inference about that census; an
+    // inference may not overrule it.
+    check("a current roster naming a worker is waited for, however long it stays silent",
+          roster("3", at: subagentIdleSeconds * 3) == .retry)
+    check("…and the wait has no deadline of its own at all",
+          roster("3", at: 60 * 60 * 24) == .retry)
+
+    // WHAT DOES END IT is the roster ceasing to name anybody, which is what a `SubagentStop` or the
+    // next `Stop` writes.
+    writeSessionAgents(SessionAgentsRecord(live: [], trusted: true, updatedAt: launch),
+                       pid: "3b", dir: stateDir)
+    check("a roster that has stopped naming anybody is idle", roster("3b") == .idle)
+
+    // MARK: - 36c1b. Whose roster it is, which is the structural test that replaced the clock
+
+    // The ghost: the file is named for the SUPERVISOR pid and the supervisor outlives its children,
+    // so a relaunch that ended a live fan-out leaves ids nothing will ever strike off. That is a
+    // question about WHICH PROCESS WROTE IT, so it is answered by the stamp against this child's
+    // start rather than by any reading of whether the contents are still true.
+    writeSessionAgents(SessionAgentsRecord(live: ["ghost"], trusted: true,
+                                           updatedAt: childStartedAt.addingTimeInterval(-30)),
+                       pid: "5b", dir: stateDir)
+    check("a roster written before this child started belongs to the one before it",
+          roster("5b") == .unavailable)
+    check("…which is the generation filter's answer, not this decision's",
+          currentGenerationRoster(pid: "5b", childStartedAt: childStartedAt, dir: stateDir) == nil)
+    check("…while the same record inside this child's life is kept",
+          currentGenerationRoster(pid: "3", childStartedAt: childStartedAt, dir: stateDir) != nil)
+    // THE COMPARISON IS EXACT, not at the roster's whole-second resolution, because the two errors
+    // are not alike: reading a current roster as old costs one preventive move, reading an old one
+    // as current holds a boundary open forever.
+    // Inside the SAME whole second as the child's start, but before it: flooring the comparison
+    // would keep this record, and keeping it is the ghost surviving.
+    writeSessionAgents(SessionAgentsRecord(live: ["ghost"], trusted: true,
+                                           updatedAt: childStartedAt.addingTimeInterval(-0.4)),
+                       pid: "5c", dir: stateDir)
+    check("a fraction of a second before the child started is still the previous generation",
+          currentGenerationRoster(pid: "5c", childStartedAt: childStartedAt, dir: stateDir) == nil)
+    check("…and that fixture really does sit inside the same whole second as the start",
+          childStartedAt.addingTimeInterval(-0.4).timeIntervalSince1970.rounded(.down)
+              == childStartedAt.timeIntervalSince1970.rounded(.down))
+    // An untrusted count never reaches the decision either, whatever generation it is from.
+    check("a count this Claude Code cannot vouch for is dropped by the same filter",
+          currentGenerationRoster(pid: "4", childStartedAt: childStartedAt, dir: stateDir) == nil)
+    check("…and what the filter drops reads as unavailable here", roster("4") == .unavailable)
+
+    // AND THE CLAIM ITSELF, which the rebalance now reads too (Rebalance.swift).
+    check("a kept roster naming somebody reports work in flight",
+          rosterReportsWorking(currentGenerationRoster(pid: "3", childStartedAt: childStartedAt,
+                                                       dir: stateDir)))
+    check("an empty one does not",
+          !rosterReportsWorking(currentGenerationRoster(pid: "2", childStartedAt: childStartedAt,
+                                                        dir: stateDir)))
+    check("and nothing at all does not, so a mover with no roster keeps the evidence it had",
+          !rosterReportsWorking(nil))
 
     // MARK: - 36c2. The roster has to describe THIS boundary
 
@@ -205,8 +245,9 @@ func runTurnBoundaryChecks() {
     check("the roster round-trips truncated to the second, which is why the test is not a bare >=",
           readSessionAgents(pid: "7", dir: stateDir)?.updatedAt == launch)
     check("…and one hook run's own pair still reads as describing each other",
-          turnBoundaryAgents(pid: "7", boundary: readBack?.at ?? .distantPast, lastAgentWrite: nil,
-                             dir: stateDir,
+          turnBoundaryAgents(currentGenerationRoster(pid: "7", childStartedAt: childStartedAt,
+                                                     dir: stateDir),
+                             boundary: readBack?.at ?? .distantPast,
                              now: sharedInstant.addingTimeInterval(1)) == .idle)
 
     // The open tool call, read from a transcript rather than from the tick's cached scan (the cache
@@ -377,13 +418,18 @@ func runTurnBoundaryChecks() {
           } ?? false)
     check("…taking the board's hard-wait reading rather than a second opinion",
           loop.contains("blocked: board.waitingOnPerson"))
-    // AND THE ROSTER'S CLAIM IS HANDED THE DISK EVIDENCE THAT ARBITRATES IT, filtered to what this
-    // child could have written (`newestSubagentWrite` takes the child's own start as its floor),
-    // which is what makes the ghost a previous child left readable as a ghost.
-    check("…and the roster reading is given this child's own subagent writes",
-          loop.contains("lastAgentWrite: watcher.newestSubagentWrite()"))
-    // ONE CLOCK FOR THE STATION: the grace and the subagent window are judged against the same
-    // instant the quota gates below them use, rather than a reading the closure takes for itself.
+    // ONE ROSTER READ FOR BOTH MOVERS, generation-filtered where it is read rather than at each
+    // consumer: two reads are two answers to "who is working" that can disagree about one tick.
+    check("the tick filters the roster by generation once, above both movers",
+          loop.contains("let roster = currentGenerationRoster(pid: supervisorPID, "
+                        + "childStartedAt: launchedAt)")
+              && loop.contains("let agentsWorking = rosterReportsWorking(roster)"))
+    check("…and hands that same record to this station",
+          loop.contains("agents: { turnBoundaryAgents(roster, boundary: $0, now: $1) }"))
+    check("…and the claim from it to the rebalance",
+          loop.contains("agentsWorking: agentsWorking"))
+    // ONE CLOCK FOR THE STATION: the grace is judged against the same instant the quota gates below
+    // it use, rather than a reading the closure takes for itself.
     check("…on the station's own clock rather than one of the closure's",
           loop.contains("now: $1"))
     check("…and never the word that also covers the soft prompt fired a minute after every turn",

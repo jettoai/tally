@@ -211,7 +211,8 @@ func runWindowRepickChecks() {
     func tick(repick: inout WindowRepickState, watcher: inout TranscriptWatcher,
               accounts: [Snapshot.Account] = [dying, healthy], mode: String = "auto",
               keyboardIdle: Bool = true, fuseAllows: Bool = true, draftSuspected: Bool = false,
-              steering: Bool = true, blocked: Bool = false, turnBoundaryPending: Bool = false,
+              steering: Bool = true, blocked: Bool = false, agentsWorking: Bool = false,
+              turnBoundaryPending: Bool = false,
               plan seed: RelaunchPlan? = nil,
               at when: Date = launch.addingTimeInterval(4)) -> (plan: RelaunchPlan?, claimed: Bool) {
         let claimDir = FileManager.default.temporaryDirectory
@@ -221,7 +222,8 @@ func runWindowRepickChecks() {
                             keyboardIdle: { _ in keyboardIdle },
                             draftSuspected: draftSuspected, provider: "claude",
                             account: dying, primaryModel: primary, mode: mode,
-                            steering: steering, blocked: blocked, launchArgs: [],
+                            steering: steering, blocked: blocked, agentsWorking: agentsWorking,
+                            launchArgs: [],
                             fuseAllows: fuseAllows, turnBoundaryPending: turnBoundaryPending,
                             loaded: (Snapshot(version: 2, generatedAt: launch,
                                               accounts: accounts), nil),
@@ -631,6 +633,16 @@ func runWindowRepickChecks() {
     check("a session waiting on a person is not rebalanced by the station",
           waitingOnUser.plan == nil)
     check("…and no drought claim is spent on it", !waitingOnUser.claimed)
+
+    // AND THE ROLL CALL REACHES THE STATION TOO. This fixture is the one that rebalances; the only
+    // thing that changes is Claude Code saying a subagent is still working, which the mtime behind
+    // `isQuiet` cannot see while that subagent sits inside one long tool call.
+    var rollCallState = WindowRepickState()
+    var rollCallWatcher = session(id: "quiet")
+    let namedWorker = tick(repick: &rollCallState, watcher: &rollCallWatcher, agentsWorking: true)
+    check("a session whose Claude Code names a live worker is not rebalanced by the station",
+          namedWorker.plan == nil)
+    check("…and no drought claim is spent on that either", !namedWorker.claimed)
     check("…while the same session with nobody waiting on it is rebalanced",
           { var s = WindowRepickState(); var w = session(id: "quiet")
             return tick(repick: &s, watcher: &w).plan?.reason == "rebalance" }())

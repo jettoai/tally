@@ -345,12 +345,23 @@ func windowRepickMove(provider: String, account: Snapshot.Account, primaryModel:
 ///   somebody typing         the rebalance wants 120s of keyboard silence, this one wants 5s
 ///   suspected draft         `guard !draftSuspected` above, which covers both movers here
 ///   not carryable, no fuse  `rebalanceAllowedForSession` again, the same two terms
-///   live subagents          a written-to `subagents/` directory makes `isQuiet` false for 600s
+///   live subagents          the rebalance reads the SAME roll call (`agentsWorking`), and the
+///                           mtime under `subagents/` behind it
 ///
-/// THE SUBAGENT ROW IS THE ONE THAT IS NOT AN EXACT MATCH, and it errs the safe way: the roster is
-/// a roll call and `isQuiet` is an mtime, so an agent that hangs without writing for ten minutes is
-/// live to the first and gone to the second. On those ticks the stand-down carries the stricter
-/// witness's answer to the rebalance, which is a restart NOT taken out from under a work package.
+/// THE SUBAGENT ROW USED TO BE THE ONE THAT WAS NOT AN EXACT MATCH, and it is exact now (2026-08-21):
+/// the rebalance was given the roster as a witness of its own, so a boundary held in `retry` because
+/// Claude Code names a worker is held on a fact the rebalance refuses on too. Before that the two
+/// disagreed - the roster is a roll call, `isQuiet` is an mtime, and a subagent inside one long tool
+/// call is live to the first and gone to the second after `subagentIdleSeconds` - and the way that
+/// disagreement was resolved (letting the mtime overrule the roll call) is what put a relaunch on
+/// top of a running package (codex review of 388fc84).
+///
+/// WHAT IS UNBOUNDED HERE IS THEREFORE FREE. A `retry` on a live fan-out has no deadline, so the
+/// stand-down has none either; both movers are refusing the same session for the same reason, and
+/// what releases them is the same event - the roster being rewritten when the work ends. A roster
+/// left inflated by a subagent that CRASHED (no stop event, so nothing strikes it off) holds both
+/// until the next turn end, whose roll call corrects it: bounded by one turn, and the direction is
+/// "neither mover restarts this session", which is the free direction to be wrong in.
 ///
 /// THE ONE RESIDUAL, so this table is not read for more than it says: a roster that has not yet
 /// caught up with its own boundary also holds the stand-down, and that state is NOT one the
@@ -376,7 +387,8 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
                          watcher: inout TranscriptWatcher,
                          keyboardIdle: (TimeInterval) -> Bool, draftSuspected: Bool,
                          provider: String, account: Snapshot.Account, primaryModel: String?,
-                         mode: String, steering: Bool, blocked: Bool, launchArgs: [String],
+                         mode: String, steering: Bool, blocked: Bool, agentsWorking: Bool,
+                         launchArgs: [String],
                          fuseAllows: Bool, turnBoundaryPending: Bool,
                          quarantine: [String: (model: String?, until: Date)] = [:],
                          loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
@@ -431,7 +443,8 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
     let carryable = carryableSession(launchArgs: launchArgs, sessionLocated: watcher.file != nil)
     guard let moveTo = rebalanceMove(provider: provider, account: account,
                                      primaryModel: primaryModel, mode: mode, steering: steering,
-                                     blocked: blocked, isQuiet: quiet,
+                                     blocked: blocked, agentsWorking: agentsWorking,
+                                     isQuiet: quiet,
                                      carryable: carryable, fuseAllows: fuseAllows,
                                      quarantine: quarantine, loaded: loaded(), now: now,
                                      dir: dir) else { return }

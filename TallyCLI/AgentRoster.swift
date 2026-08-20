@@ -158,6 +158,48 @@ func advanceAgentRoster(_ record: SessionAgentsRecord?, event: AgentRosterEvent,
                                updatedAt: now)
 }
 
+// MARK: - Whose roster this is, and what it claims
+
+/// This session's roster, but only when it describes the CHILD now running - nil for a roster left
+/// by the one before it, for a count this Claude Code cannot vouch for, and for no roster at all.
+///
+/// THE GENERATION TEST IS STRUCTURAL, and that is the whole reason it exists rather than any
+/// reasoning about time or activity. The file is named for the SUPERVISOR pid and the supervisor
+/// outlives its children, so a relaunch that ended a live fan-out (a `tally session clear`, a cap
+/// handoff, a reload) leaves every one of those agent ids behind: they die with the child and take
+/// their `SubagentStop` with them, so nothing ever strikes them off. A reader that believed such a
+/// record would see workers that cannot exist. Comparing the roster's own stamp against the moment
+/// this child started is a fact about which process wrote it, not a guess about whether its
+/// contents are still true.
+///
+/// COMPARED EXACTLY, not at the roster's whole-second resolution as `rosterCoversBoundary` is, and
+/// the asymmetry is deliberate because the two errors are not alike. Reading a CURRENT roster as
+/// previous-generation costs one preventive move and moves nothing; reading a PREVIOUS one as
+/// current is the ghost above, which holds a boundary open forever. So the strict comparison takes
+/// the safe error. It costs nothing in practice either: the `Stop` hook rewrites this file at every
+/// turn end, so by the time there is a boundary to judge, the roster carrying it was written by the
+/// same hook run.
+///
+/// WHAT IT DOES NOT ANSWER is drift inside one child: a subagent that CRASHES takes its stop event
+/// with it too, and its id sits in a current-generation roster until a roll call corrects it.
+/// `advanceAgentRoster` says as much where it folds the events. The bound on that is the roll call
+/// itself, which every turn boundary carries, so an inflated count survives at most until this
+/// conversation's next turn ends - and while it stands, both readers below err towards NOT moving
+/// the session, which is the direction a wrong guess is free in.
+func currentGenerationRoster(pid: String, childStartedAt: Date,
+                             dir: URL = supervisorStateDir) -> SessionAgentsRecord? {
+    guard let record = readSessionAgents(pid: pid, dir: dir), record.reportable != nil,
+          record.updatedAt >= childStartedAt else { return nil }
+    return record
+}
+
+/// Whether that roster names anybody still working. A record this build will not vouch for reads as
+/// NO rather than as a wait: it is the answer that leaves every caller on the evidence it had
+/// before this reading existed.
+func rosterReportsWorking(_ record: SessionAgentsRecord?) -> Bool {
+    (record?.reportable ?? 0) > 0
+}
+
 // MARK: - Which Claude Code can be believed
 
 /// The first Claude Code that puts `background_tasks` on a hook payload, and so the first whose

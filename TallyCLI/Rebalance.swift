@@ -257,7 +257,7 @@ func rebalanceRecordName(_ accountID: String) -> String {
 }
 
 /// The gates that need nothing but what the caller already holds - no snapshot, no account, no
-/// filesystem - in the order they bite. They are the first six of the list documented under
+/// filesystem - in the order they bite. They are the first seven of the list documented under
 /// `rebalanceTarget` below, and one definition answers both readers: that decision asks them, and
 /// `rebalanceMove` asks them again BEFORE its snapshot read, so a tick that could not move this
 /// session anyway never pays for the read. Two copies of this list would be free to disagree, and
@@ -291,9 +291,29 @@ func rebalanceRecordName(_ accountID: String) -> String {
 /// Handed the word, this gate refused every rebalance there has ever been on a machine with the
 /// notification hook installed. Callers pass `SessionTick.waitingOnPerson`, which is the hard half
 /// alone and fails open to hard for anything it has not been taught.
-func rebalanceAllowedForSession(steering: Bool, mode: String, blocked: Bool, isQuiet: Bool,
-                                carryable: Bool, fuseAllows: Bool) -> Bool {
-    steering && mode != "manual" && !blocked && isQuiet && carryable && fuseAllows
+/// `agentsWorking` IS A SECOND WITNESS ON THE SAME QUESTION `isQuiet` ALREADY ASKS, added 2026-08-21
+/// because the first one answers by inference and can be wrong in the direction that destroys work.
+/// `isQuiet` reads dispatched work off the mtimes under `<session>/subagents/` and calls it finished
+/// after `subagentIdleSeconds`; a subagent sitting inside ONE long tool call - an eight-minute
+/// build, a fifteen-minute package - writes nothing for the whole of it, so ten minutes in, the
+/// mtime says the fan-out is over while it is still running. That is the 2026-07-25 incident's
+/// shape, and until now the only thing standing between it and a relaunch was the length of the
+/// window.
+///
+/// The roster is not an inference: it is Claude Code's own roll call, folded from `SubagentStart`,
+/// `SubagentStop` and the `background_tasks` list every turn boundary carries (AgentRoster.swift).
+/// When it names somebody, this session is not one that has been left alone, whatever the mtimes
+/// say. Callers pass `rosterReportsWorking(currentGenerationRoster(...))`, so a roster left by a
+/// previous child cannot vote and neither can a count this Claude Code will not vouch for - both
+/// read as false, which leaves this mover on exactly the evidence it had before.
+///
+/// WHAT IT COSTS is a roster inflated by a subagent that crashed without a stop event: it holds
+/// this mover off until a roll call corrects the count, which the next turn end does. Bounded by
+/// one turn, and the direction is "do not move", which is the direction a wrong guess here is free
+/// in.
+func rebalanceAllowedForSession(steering: Bool, mode: String, blocked: Bool, agentsWorking: Bool,
+                                isQuiet: Bool, carryable: Bool, fuseAllows: Bool) -> Bool {
+    steering && mode != "manual" && !blocked && !agentsWorking && isQuiet && carryable && fuseAllows
 }
 
 /// The account a running session should move to before its own account runs out, or nil to stay put.
@@ -319,6 +339,8 @@ func rebalanceAllowedForSession(steering: Bool, mode: String, blocked: Bool, isQ
 ///    Listed HERE rather than second because this list claims to be the order the gates bite, and
 ///    the implementation asks `mode` first (review of e52a436, B8: the first version of this entry
 ///    was written above `mode` and was therefore already the drift this list exists to prevent).
+///  - `agentsWorking`: this session's Claude Code says a subagent is still working. A roll call
+///    outranks the mtime inference beside it; see `rebalanceAllowedForSession`.
 ///  - `isQuiet`: the full non-urgent bar. This is a convenience, so it may never cost a keystroke.
 ///  - `carryable`: whether moving this session can lose a conversation (`carryableSession`,
 ///    SupervisorRuntime.swift). Crossing accounts costs a resume id: `performHandoff` strips
@@ -346,14 +368,15 @@ func rebalanceAllowedForSession(steering: Bool, mode: String, blocked: Bool, isQ
 /// (`watcher.file != nil`). Reversed, the caller would be reading a binding that had not been
 /// attempted yet, and the gate would refuse every first tick for no reason. There is no default:
 /// a mover that has not thought about whether it can carry the conversation is the bug itself.
-func rebalanceTarget(steering: Bool, mode: String, blocked: Bool, isQuiet: Bool, carryable: Bool,
+func rebalanceTarget(steering: Bool, mode: String, blocked: Bool, agentsWorking: Bool,
+                     isQuiet: Bool, carryable: Bool,
                      fuseAllows: Bool,
                      current: Snapshot.Account, candidates: [Snapshot.Account],
                      primaryModel: String?, now: Date = Date(),
                      claim: () -> Bool = { true }) -> Snapshot.Account? {
     guard rebalanceAllowedForSession(steering: steering, mode: mode, blocked: blocked,
-                                     isQuiet: isQuiet, carryable: carryable,
-                                     fuseAllows: fuseAllows),
+                                     agentsWorking: agentsWorking, isQuiet: isQuiet,
+                                     carryable: carryable, fuseAllows: fuseAllows),
           !accountIsComfortable(current, primaryModel: primaryModel, now: now),
           let target = capHandoffTarget(candidates, primaryModel: primaryModel, now: now),
           claim()
@@ -414,8 +437,8 @@ func liveMoveField(provider: String, account: Snapshot.Account, primaryModel: St
 /// `observeCapHit` reaches it a third way, with a plain closure it calls only on the tick a cap
 /// lands, which is the same property spelled differently and deliberately left alone.
 func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: String?,
-                   mode: String, steering: Bool, blocked: Bool, isQuiet: Bool, carryable: Bool,
-                   fuseAllows: Bool,
+                   mode: String, steering: Bool, blocked: Bool, agentsWorking: Bool, isQuiet: Bool,
+                   carryable: Bool, fuseAllows: Bool,
                    quarantine: [String: (model: String?, until: Date)] = [:],
                    loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
                    now: Date = Date(),
@@ -424,19 +447,19 @@ func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: St
     // could actually move this session. `mode` is the one that bites most: a pinned session (the
     // app's pin, this project's profile, or a `tally switch` of its own) never rebalances, and it
     // asks nothing of the filesystem to know that. Asked through the shared predicate, never
-    // re-spelled: `rebalanceTarget` asks the same six again with the same answer, so this can only
-    // ever be an early exit, never a second opinion.
+    // re-spelled: `rebalanceTarget` asks the same seven again with the same answer, so this can
+    // only ever be an early exit, never a second opinion.
     guard rebalanceAllowedForSession(steering: steering, mode: mode, blocked: blocked,
-                                     isQuiet: isQuiet, carryable: carryable,
-                                     fuseAllows: fuseAllows),
+                                     agentsWorking: agentsWorking, isQuiet: isQuiet,
+                                     carryable: carryable, fuseAllows: fuseAllows),
           let field = liveMoveField(provider: provider, account: account,
                                     primaryModel: primaryModel, quarantine: quarantine,
                                     loaded: loaded(), now: now),
           let cycle = rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now)
     else { return nil }
     return rebalanceTarget(
-        steering: steering, mode: mode, blocked: blocked, isQuiet: isQuiet, carryable: carryable,
-        fuseAllows: fuseAllows,
+        steering: steering, mode: mode, blocked: blocked, agentsWorking: agentsWorking,
+        isQuiet: isQuiet, carryable: carryable, fuseAllows: fuseAllows,
         current: field.current, candidates: field.candidates, primaryModel: primaryModel, now: now,
         claim: { claimRebalanceCycle(account.id, cycle: cycle, dir: dir) })
 }

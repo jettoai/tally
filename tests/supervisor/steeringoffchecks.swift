@@ -141,26 +141,28 @@ func runSteeringOffChecks() {
     // MARK: - 35d. Path 3, the idle rebalance (and Path 4, the reload's ride on it)
 
     check("the shared cheap gate refuses an observe-only fleet",
-          !rebalanceAllowedForSession(steering: false, mode: "auto", blocked: false, isQuiet: true,
+          !rebalanceAllowedForSession(steering: false, mode: "auto", blocked: false,
+                                      agentsWorking: false, isQuiet: true,
                                       carryable: true, fuseAllows: true))
     check("…and allows one that steers",
-          rebalanceAllowedForSession(steering: true, mode: "auto", blocked: false, isQuiet: true,
+          rebalanceAllowedForSession(steering: true, mode: "auto", blocked: false,
+                                     agentsWorking: false, isQuiet: true,
                                      carryable: true, fuseAllows: true))
     check("the rebalance decision answers nothing for it",
-          rebalanceTarget(steering: false, mode: "auto", blocked: false, isQuiet: true,
-                          carryable: true,
+          rebalanceTarget(steering: false, mode: "auto", blocked: false, agentsWorking: false,
+                          isQuiet: true, carryable: true,
                           fuseAllows: true, current: dying, candidates: [healthy],
                           primaryModel: primary, now: launch) == nil)
     check("…and answers the sibling when it steers",
-          rebalanceTarget(steering: true, mode: "auto", blocked: false, isQuiet: true,
-                          carryable: true,
+          rebalanceTarget(steering: true, mode: "auto", blocked: false, agentsWorking: false,
+                          isQuiet: true, carryable: true,
                           fuseAllows: true, current: dying, candidates: [healthy],
                           primaryModel: primary, now: launch)?.id == "B")
     let rebalanceOffDir = claimDir()
     check("the whole rebalance move refuses",
           rebalanceMove(provider: "claude", account: dying, primaryModel: primary, mode: "auto",
-                        steering: false, blocked: false, isQuiet: true, carryable: true,
-                        fuseAllows: true,
+                        steering: false, blocked: false, agentsWorking: false, isQuiet: true,
+                        carryable: true, fuseAllows: true,
                         loaded: (Snapshot(version: 2, generatedAt: launch,
                                           accounts: [dying, healthy]), nil),
                         now: launch, dir: rebalanceOffDir) == nil)
@@ -169,8 +171,8 @@ func runSteeringOffChecks() {
     let rebalanceOnDir = claimDir()
     check("…while a steering fleet moves and takes it",
           rebalanceMove(provider: "claude", account: dying, primaryModel: primary, mode: "auto",
-                        steering: true, blocked: false, isQuiet: true, carryable: true,
-                        fuseAllows: true,
+                        steering: true, blocked: false, agentsWorking: false, isQuiet: true,
+                        carryable: true, fuseAllows: true,
                         loaded: (Snapshot(version: 2, generatedAt: launch,
                                           accounts: [dying, healthy]), nil),
                         now: launch, dir: rebalanceOnDir)?.id == "B"

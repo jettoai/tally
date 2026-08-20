@@ -516,12 +516,21 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // them has to be bought this way). One read, so the two cannot disagree about which
             // boundary they are talking about.
             let boundary = readSessionTurnEnd(pid: supervisorPID)
+            // AND THIS CHILD'S OWN AGENT ROLL CALL, read ONCE for the two movers that consult it and
+            // dropped here if it belongs to the child before this one (AgentRoster.swift: the file
+            // is named for the supervisor, which outlives its children, so a relaunch that ended a
+            // fan-out leaves ids nothing will ever strike off). The rebalance treats a named worker
+            // as a session that has NOT been left alone; the turn-boundary station waits for it.
+            // One read, so the two cannot come to disagree about who is working.
+            let roster = currentGenerationRoster(pid: supervisorPID, childStartedAt: launchedAt)
+            let agentsWorking = rosterReportsWorking(roster)
             applyProactiveMoves(plan: &plan, repick: &windowRepick, watcher: &watcher,
                                 keyboardIdle: { keyboard.idle($0) },
                                 draftSuspected: draftSuspected, provider: provider.id,
                                 account: account, primaryModel: effectivePrimary,
                                 mode: policy.mode, steering: steering,
-                                blocked: board.waitingOnPerson, launchArgs: launchArgs,
+                                blocked: board.waitingOnPerson, agentsWorking: agentsWorking,
+                                launchArgs: launchArgs,
                                 fuseAllows: fuse.allows(),
                                 turnBoundaryPending: turnBoundaryPending(turnBoundary,
                                                                         event: boundary),
@@ -582,6 +591,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                  // holding is lost either way. All this closure
                                                  // decides is WHICH ACCOUNT that restart lands on.
                                                  blocked: false,
+                                                 // NOR THIS ONE, for the same reason: the restart
+                                                 // is the reload's and it ends whatever is running
+                                                 // whichever account it lands on.
+                                                 agentsWorking: false,
                                                  isQuiet: true, carryable: carryable,
                                                  fuseAllows: fuse.allows(),
                                                  quarantine: quarantine)
@@ -624,17 +637,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                   blocked: board.waitingOnPerson, keyboardIdle: composerIdle,
                                   draftSuspected: draftSuspected, carryable: carryable,
                                   fuseAllows: fuse.allows(),
-                                  agents: {
-                                      turnBoundaryAgents(pid: supervisorPID, boundary: $0,
-                                                         // The roster's claim, arbitrated against
-                                                         // what this CHILD has actually written
-                                                         // under its subagents directory: an
-                                                         // edge-counted roster keeps the ids of
-                                                         // agents a relaunch killed
-                                                         // (TurnBoundaryMove.swift).
-                                                         lastAgentWrite: watcher.newestSubagentWrite(),
-                                                         now: $1)
-                                  },
+                                  agents: { turnBoundaryAgents(roster, boundary: $0, now: $1) },
                                   turnEnded: turnOver(),
                                   toolCallOpen: turnBoundaryToolCallOpen(watcher.file),
                                   quarantine: quarantine)

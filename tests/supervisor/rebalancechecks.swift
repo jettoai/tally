@@ -31,12 +31,13 @@ func runRebalanceChecks() {
     let primary = "fable"
 
     func target(mode: String = "auto", steering: Bool = true, blocked: Bool = false,
+                agentsWorking: Bool = false,
                 isQuiet: Bool = true, carryable: Bool = true,
                 fuseAllows: Bool = true, current: Snapshot.Account = dying,
                 candidates: [Snapshot.Account] = [healthy],
                 claim: () -> Bool = { true }) -> Snapshot.Account? {
-        rebalanceTarget(steering: steering, mode: mode, blocked: blocked, isQuiet: isQuiet,
-                        carryable: carryable,
+        rebalanceTarget(steering: steering, mode: mode, blocked: blocked,
+                        agentsWorking: agentsWorking, isQuiet: isQuiet, carryable: carryable,
                         fuseAllows: fuseAllows, current: current, candidates: candidates,
                         primaryModel: primary, now: launch, claim: claim)
     }
@@ -148,6 +149,28 @@ func runRebalanceChecks() {
           publishedPermission.wait == .hard && publishedPermission.waitingOnPerson)
     check("…and that session is left where it stands",
           target(blocked: publishedPermission.waitingOnPerson) == nil)
+
+    // THE ROLL CALL, WHICH OUTRANKS THE MTIME BESIDE IT (2026-08-21). `isQuiet` decides dispatched
+    // work is over after `subagentIdleSeconds` of nothing being written under `subagents/`, and a
+    // subagent sitting inside ONE long tool call writes nothing for the whole of it - so ten minutes
+    // into an eight-minute build plus a package, the inference says the fan-out ended while Claude
+    // Code's own roll call still names it. Restarting there is the 2026-07-25 incident.
+    //
+    // THE THREE CASES THIS COMMIT IS ABOUT, in the order they were asked for:
+    // 1. current-generation roster naming a worker, disk silent past the window: NOT moved.
+    check("a session whose Claude Code names a live worker is not rebalanced, mtime notwithstanding",
+          target(agentsWorking: true, isQuiet: true) == nil)
+    check("…and the same session with nobody named is", target(agentsWorking: false)?.id == "B")
+    // 2. previous-generation roster: filtered out upstream, so this mover sees no claim at all and
+    //    behaves exactly as it always did. The filter itself is asserted in the turn-boundary
+    //    checks; what belongs here is that a dropped roster votes false.
+    check("a roster the generation filter dropped casts no vote", !rosterReportsWorking(nil))
+    check("…so that session is rebalanced on the evidence this mover always had",
+          target(agentsWorking: rosterReportsWorking(nil))?.id == "B")
+    // 3. no usable roster at all: the mtime is still the only witness, unchanged.
+    check("with no roster the mtime still decides, and a busy one still refuses",
+          target(agentsWorking: false, isQuiet: false) == nil)
+    check("…while a quiet one still moves", target(agentsWorking: false, isQuiet: true)?.id == "B")
 
     // A pin is a statement about WHERE the session runs, so quota reasoning never overrides it. The
     // cap handoff already refuses to move a pinned session (`CapAction.waitPinned`); a convenience
@@ -390,7 +413,7 @@ func runRebalanceChecks() {
         Snapshot(version: 2, generatedAt: launch, accounts: accounts)
     }
     func move(_ accounts: [Snapshot.Account], problem: String? = nil, mode: String = "auto",
-              steering: Bool = true, blocked: Bool = false,
+              steering: Bool = true, blocked: Bool = false, agentsWorking: Bool = false,
               isQuiet: Bool = true, carryable: Bool = true, fuseAllows: Bool = true,
               quarantine: [String: (model: String?, until: Date)] = [:],
               on: Snapshot.Account = dying, dir: URL? = nil) -> Snapshot.Account? {
@@ -402,8 +425,8 @@ func runRebalanceChecks() {
             target = fresh
         }
         return rebalanceMove(provider: "claude", account: on, primaryModel: primary, mode: mode,
-                             steering: steering, blocked: blocked, isQuiet: isQuiet,
-                             carryable: carryable,
+                             steering: steering, blocked: blocked, agentsWorking: agentsWorking,
+                             isQuiet: isQuiet, carryable: carryable,
                              fuseAllows: fuseAllows, quarantine: quarantine,
                              loaded: (snapshot(accounts), problem), now: launch, dir: target!)
     }
@@ -413,6 +436,10 @@ func runRebalanceChecks() {
     // the cheap terms, so a session waiting on a person never even reads the snapshot.
     check("a session waiting on a person is refused by the whole move too",
           move([dying, healthy], blocked: true) == nil)
+    // Same for the roll call, and for the same reason: it is one of the cheap terms, so a session
+    // whose Claude Code names a worker never even reads the snapshot.
+    check("a session whose Claude Code names a live worker is refused by the whole move too",
+          move([dying, healthy], agentsWorking: true) == nil)
     // Answering IS claiming, so a sibling supervisor asking the same question a moment later is
     // refused. There is no window between deciding to move and recording it for a second supervisor
     // to decide the same move in, and no caller left holding a record it could forget to write.
@@ -465,14 +492,15 @@ func runRebalanceChecks() {
         return (snapshot(accounts), nil)
     }
     func lazyMove(mode: String = "auto", steering: Bool = true, blocked: Bool = false,
+                  agentsWorking: Bool = false,
                   isQuiet: Bool = true, carryable: Bool = true,
                   fuseAllows: Bool = true) -> Snapshot.Account? {
         let fresh = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("tally-rebalance-lazy-\(UUID().uuidString)")
         scratchDirs.append(fresh)
         return rebalanceMove(provider: "claude", account: dying, primaryModel: primary, mode: mode,
-                             steering: steering, blocked: blocked, isQuiet: isQuiet,
-                             carryable: carryable,
+                             steering: steering, blocked: blocked, agentsWorking: agentsWorking,
+                             isQuiet: isQuiet, carryable: carryable,
                              fuseAllows: fuseAllows,
                              loaded: countedSnapshot([dying, healthy]), now: launch, dir: fresh)
     }

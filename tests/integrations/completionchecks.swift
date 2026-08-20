@@ -124,10 +124,6 @@ func runCompletionChecks(tmp: URL) throws {
     // prompt. The shape is identical here and the answer is no, because the signature is not.
     check("a path shaped exactly like ours, carrying somebody else's signature, is not ours",
           !isOurs(recorded: [link], destination: moved))
-    // "Cannot tell" and "not ours" are one word: the real check answers false for a missing file, an
-    // unsigned one, a broken seal and any OSStatus it has no name for (`codeSignedLike`).
-    check("…and a signing check that cannot answer at all leaves it not ours",
-          !isOurs(recorded: [link], destination: moved, signed: []))
     check("a signature with no record of our ever installing that link is not enough",
           !isOurs(recorded: [], destination: moved, signed: [moved]))
     check("a package manager's tally is not this app's, however installed it looks",
@@ -154,6 +150,78 @@ func runCompletionChecks(tmp: URL) throws {
           !IntegrationsStore.codeSignedLike("/no/such/tally", reference: "/bin/ls"))
     check("…and neither is anything at all when the reference cannot be read",
           !IntegrationsStore.codeSignedLike("/bin/ls", reference: "/no/such/bundled"))
+
+    // MARK: Every architecture, not the one this process happens to be running.
+    //
+    // The slices of a universal binary carry their own signatures and can be signed by different
+    // people, and a validity check looks only at the slice matching the current process unless it is
+    // told otherwise. The shipped CLI is arm64 and x86_64, so a file whose arm64 half is genuinely
+    // ours and whose x86_64 half is a stranger's would pass on this machine and then run the
+    // stranger's half under Rosetta, in a hook, on every prompt (codex review of dd404cc).
+    //
+    // ASSERTED WITH A FILE BUILT FOR IT, because a flag is invisible from the outside: `lipo` puts
+    // the slices of two Apple-signed system binaries into one file, which is that attack exactly.
+    // THE CONTROL IS HALF THE ASSERTION - /bin/ls taken apart and put back together has to still
+    // pass, or a no from the mixed file would only be saying that repackaging breaks a seal.
+    let installer = (try? String(contentsOf: root.appendingPathComponent(
+        "Tally/Stores/IntegrationsCompletion.swift"), encoding: .utf8)) ?? ""
+    func lipo(_ arguments: [String]) -> String? {
+        let output = Pipe(), process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/lipo")
+        process.arguments = arguments
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let text = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+        process.waitUntilExit()
+        return process.terminationStatus == 0 ? (text ?? "") : nil
+    }
+    func slices(_ binary: String) -> [String] {
+        (lipo(["-archs", binary]) ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+    }
+    /// The files, or nil on a machine that cannot cut one up: no `lipo`, or a `/bin/ls` and
+    /// `/bin/cat` with fewer than two architectures in common. The source check below is what is
+    /// left there, and it is what a removal of the flags changes.
+    ///
+    /// BOTH ORIENTATIONS ARE BUILT, and asserting only one would have proved nothing: a mixed file
+    /// whose FOREIGN half is the one this process runs is rejected by the default flags too, so the
+    /// arrangement that catches a missing `kSecCSCheckAllArchitectures` is the one where the slice
+    /// this machine runs is genuinely ours. Which of the two that is depends on the host, so both
+    /// are made and both have to be refused, and no test here has to know what it is running on.
+    func mixedArchitectureFixtures() -> (control: String, mixed: [String])? {
+        let catSlices = Set(slices("/bin/cat"))
+        let shared = slices("/bin/ls").filter(catSlices.contains)
+        guard shared.count >= 2 else { return nil }
+        func thin(_ binary: String, _ arch: String, _ name: String) -> String? {
+            let out = tmp.appendingPathComponent(name).path
+            return lipo([binary, "-thin", arch, "-output", out]) == nil ? nil : out
+        }
+        guard let oursFirst = thin("/bin/ls", shared[0], "ls-\(shared[0])"),
+              let oursSecond = thin("/bin/ls", shared[1], "ls-\(shared[1])"),
+              let theirsFirst = thin("/bin/cat", shared[0], "cat-\(shared[0])"),
+              let theirsSecond = thin("/bin/cat", shared[1], "cat-\(shared[1])") else { return nil }
+        func fuse(_ first: String, _ second: String, _ name: String) -> String? {
+            let out = tmp.appendingPathComponent(name).path
+            return lipo(["-create", first, second, "-output", out]) == nil ? nil : out
+        }
+        guard let control = fuse(oursFirst, oursSecond, "universal-control"),
+              let theirsSecondHalf = fuse(oursFirst, theirsSecond, "universal-mixed-second"),
+              let theirsFirstHalf = fuse(theirsFirst, oursSecond, "universal-mixed-first")
+        else { return nil }
+        return (control, [theirsSecondHalf, theirsFirstHalf])
+    }
+    if let fixtures = mixedArchitectureFixtures() {
+        check("a universal binary taken apart and put together again still satisfies its requirement",
+              IntegrationsStore.codeSignedLike(fixtures.control, reference: "/bin/ls"))
+        check("…while one whose other slice is somebody else's does not, either way round",
+              fixtures.mixed.allSatisfy {
+                  !IntegrationsStore.codeSignedLike($0, reference: "/bin/ls")
+              })
+    }
+    check("the validity check is asked about every architecture, and strictly",
+          installer.contains(
+              "SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)"))
+
     // A relative destination is resolved against the LINK's directory, which is where the kernel
     // resolves it, and not against whatever directory this process happens to be started in.
     check("a relative link target is resolved against the link's own directory",
@@ -162,8 +230,30 @@ func runCompletionChecks(tmp: URL) throws {
               == "/usr/local/Cellar/tally/1.0/bin/tally"
               && IntegrationsStore.resolvedLinkTarget(bundled,
                                                       link: URL(fileURLWithPath: link)) == bundled)
-    let installer = (try? String(contentsOf: root.appendingPathComponent(
-        "Tally/Stores/IntegrationsCompletion.swift"), encoding: .utf8)) ?? ""
+
+    // MARK: The seam between the two halves, which is a thing that can be wrong on its own.
+    //
+    // `cliToolIsAppManaged` hands the raw symlink destination to the signing check THROUGH the
+    // resolver, and dropping that one call would leave every check above green while answering no
+    // to every relative link on the machine. Asserted against a copy of an Apple-signed binary
+    // reached the way a package manager writes a link, relatively, from a directory that is not
+    // this process's.
+    let signedCopy = tmp.appendingPathComponent("ls-copy").path
+    let otherCopy = tmp.appendingPathComponent("cat-copy").path
+    let linkInTmp = tmp.appendingPathComponent("bin").appendingPathComponent("tally")
+    if (try? fm.copyItem(atPath: "/bin/ls", toPath: signedCopy)) != nil,
+       (try? fm.copyItem(atPath: "/bin/cat", toPath: otherCopy)) != nil {
+        check("a relative link target is resolved before it is asked about, not after",
+              IntegrationsStore.linkTargetSignedByUs("../ls-copy", link: linkInTmp,
+                                                     reference: "/bin/ls"))
+        check("…and resolving it is not the same as accepting it",
+              !IntegrationsStore.linkTargetSignedByUs("../cat-copy", link: linkInTmp,
+                                                      reference: "/bin/ls"))
+    }
+    // The one edge left, which no assertion can reach: the closure inside `cliToolIsAppManaged` is
+    // over this machine's own symlink and bundle, so what it is wired to is read rather than run.
+    check("the machine's own answer goes through the resolver too",
+          installer.contains("signedByUs: { linkTargetSignedByUs($0, link: cliSymlinkURL,"))
     // Asked in ONE place, which is the place both entrances go through: a second gate in
     // `autoUpdateCompletion` would be a second spelling of the same rule, free to drift from it.
     check("the install refuses outright to work beside a CLI this app did not put there",

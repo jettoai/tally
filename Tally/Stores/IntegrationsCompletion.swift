@@ -198,6 +198,15 @@ extension IntegrationsStore {
     /// FAIL-CLOSED AT EVERY STEP: a missing file, an unsigned one, a broken seal, an OSStatus nobody
     /// has a name for, all of them are no. This answer decides whether a program is registered into
     /// a hook that runs on every prompt, so "cannot tell" and "not ours" have to be one word.
+    ///
+    /// EVERY ARCHITECTURE, NOT THE ONE WE HAPPEN TO BE RUNNING. A validity check defaults to the
+    /// slice matching the current process, and the slices of a universal binary carry their own
+    /// signatures, which may be by different signers: our CLI ships arm64 and x86_64, so a file
+    /// whose arm64 slice is genuinely ours and whose x86_64 slice is somebody else's would pass on
+    /// this machine and then run the other half under Rosetta or from an x86_64 parent. The hooks
+    /// downstream do not choose the slice, so this check may not either
+    /// (`kSecCSCheckAllArchitectures`, codex review of dd404cc). `kSecCSStrictValidate` comes with
+    /// it to refuse the older, laxer sealing rules that let a bundle carry files nothing covers.
     static func codeSignedLike(_ path: String, reference: String) -> Bool {
         var referenceCode: SecStaticCode?
         guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: reference) as CFURL, [],
@@ -210,7 +219,8 @@ extension IntegrationsStore {
         guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [],
                                           &candidate) == errSecSuccess,
               let candidate else { return false }
-        return SecStaticCodeCheckValidity(candidate, [], requirement) == errSecSuccess
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+        return SecStaticCodeCheckValidity(candidate, flags, requirement) == errSecSuccess
     }
 
     /// A symlink's destination as an absolute path, resolved the way the kernel resolves it: against
@@ -224,6 +234,18 @@ extension IntegrationsStore {
             .standardizedFileURL.path
     }
 
+    /// The signing question exactly as the machine asks it: where the link points, made absolute,
+    /// compared against the CLI in this bundle.
+    ///
+    /// A NAMED FUNCTION RATHER THAN A CLOSURE INSIDE THE CALLER, because the joint between the two
+    /// halves is a thing that can be wrong on its own: handing the raw destination to the signing
+    /// check reads every relative link against this process's working directory and answers no to
+    /// links that are ours, and the suite could not see that seam while it lived in a closure over
+    /// machine state nothing can fix up in a test.
+    static func linkTargetSignedByUs(_ destination: String, link: URL, reference: String) -> Bool {
+        codeSignedLike(resolvedLinkTarget(destination, link: link), reference: reference)
+    }
+
     /// `cliToolIsOurs` for this machine.
     static func cliToolIsAppManaged() -> Bool {
         cliToolIsOurs(recorded: manifestPaths(cliToolManifest),
@@ -231,9 +253,8 @@ extension IntegrationsStore {
                           .destinationOfSymbolicLink(atPath: cliSymlinkURL.path),
                       bundled: bundledCLIURL.path,
                       link: cliSymlinkURL.path,
-                      signedByUs: {
-                          codeSignedLike(resolvedLinkTarget($0), reference: bundledCLIURL.path)
-                      })
+                      signedByUs: { linkTargetSignedByUs($0, link: cliSymlinkURL,
+                                                         reference: bundledCLIURL.path) })
     }
 
     /// Whether the launch-time pass has anything to look at, which is the gate that keeps the steady

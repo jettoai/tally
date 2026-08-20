@@ -57,13 +57,30 @@ extension IntegrationsStore {
         let deliverable: () -> Bool
     }
 
+    /// TWO QUESTIONS ABOUT THE PROGRAM THE HOOKS NAME, and a silent install may not skip either:
+    /// can it run, and is it ours.
+    ///
+    /// `quotaKnockCLIDeliverable` answers the first, over `/usr/local/bin/tally` itself: an entry is
+    /// not a delivery, and hooks naming a path with nothing runnable at it take the typed channel
+    /// away in favour of nothing.
+    ///
+    /// `cliToolIsAppManaged` answers the second, and it is the half a press cannot need. A row
+    /// somebody CLICKS is them deciding what the command on their PATH is; this pass decides for
+    /// them, on a machine where that path is shared with every other program on it. A `tally` that
+    /// Homebrew or anything else put there is executable, so the first question alone would have
+    /// this app register two hooks that run a STRANGER'S program on every prompt and every tool call
+    /// - and, worse than merely useless, the supervisor then reads the registration as a working
+    /// filing channel and stops typing the warning down the tty that did work
+    /// (`quotaKnockFilingAvailable`). The strict question is the completion install's own gate
+    /// (`cliToolIsOurs`: the link points into this bundle, or the manifest says we made it), for the
+    /// same reason and against the same Homebrew case.
     static var autoFollowComponents: [AutoFollowComponent] {
         [AutoFollowComponent(component: knockHookManifest,
                              title: { L("Claude quota warning") },
                              status: { $0.knockHookStatus },
                              install: { $0.installKnockHooks() },
                              remove: { $0.removeKnockHooks() },
-                             deliverable: { quotaKnockCLIDeliverable() })]
+                             deliverable: { quotaKnockCLIDeliverable() && cliToolIsAppManaged() })]
     }
 
     static func autoFollowComponent(_ component: String) -> AutoFollowComponent? {
@@ -157,6 +174,22 @@ extension IntegrationsStore {
     /// invariant hold: an install that landed, a launch that found the component already there, and
     /// ANY removal of one of these rows (`removeKnockHooks`, which every press reaches - the row's
     /// Remove, Remove all, and the notice's own Undo).
+    ///
+    /// THE ONE VERSION THIS RECORD CANNOT REACH BACK TO, stated because it is a real gap rather than
+    /// an oversight: 0.59.0 shipped the quota warning row with a removal that wrote nothing here,
+    /// because none of this existed yet. Somebody who installed that row by hand on 0.59.0 and then
+    /// removed it has it put back, once, on their first launch of a version carrying this file.
+    ///
+    /// There is no migration, and that is a fact about what the old removal DID rather than a
+    /// decision taken here: it took the hooks out of settings.json AND the entry out of the
+    /// manifest, so the machine holds nothing that separates "removed on purpose" from "never
+    /// installed". A migration would have to invent the difference, which is the same guess this
+    /// whole record exists to avoid making.
+    ///
+    /// What that user gets instead is the design's own remedy: the notice says what happened, its
+    /// Undo takes it straight back out, and THAT removal is recorded here permanently. The window is
+    /// also exactly one version wide (0.59.0 was still the day's release when this landed), which is
+    /// why one notice was judged a fair price for closing the silence that shipped it.
     nonisolated static let autoFollowHandledKey = "integrationAutoFollowHandled"
 
     /// The components installed without being asked for, still waiting to be read.

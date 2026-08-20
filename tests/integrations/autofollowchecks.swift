@@ -117,6 +117,25 @@ func runAutoFollowChecks(tmp: URL) throws {
     check("the handled list and the notice list are kept apart",
           IntegrationsStore.autoFollowHandledKey != IntegrationsStore.autoFollowNoticeKey)
 
+    // THE GATE THAT CANNOT BE EXERCISED FROM HERE, so it is READ instead, the way the launch-flag
+    // suite reads the settings controller it cannot compile. Whether the hooks may be registered
+    // asks two things about /usr/local/bin/tally: can it run, and is it OURS. A machine running this
+    // suite has Tally installed, so it answers yes to both, and no input this harness can produce
+    // separates a build that asks both from one that asks only the first: producing that input means
+    // owning a shared path and putting somebody else's program at it. So what is pinned is the
+    // wiring, which is exactly what a silent install may not get wrong (a Homebrew `tally` is
+    // executable, and hooks naming it would run a stranger's program on every prompt while the
+    // supervisor stopped typing the warning down the channel that worked).
+    let sourceRoot = URL(fileURLWithPath: #filePath)   // tests/integrations/autofollowchecks.swift
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let source = (try? String(
+        contentsOf: sourceRoot.appendingPathComponent("Tally/Stores/IntegrationsAutoFollow.swift"),
+        encoding: .utf8)) ?? ""
+    check("the auto-follow source is readable from here at all",
+          source.contains("static var autoFollowComponents"))
+    check("…and its deliverable gate asks both questions, not merely whether something runs",
+          source.contains("deliverable: { quotaKnockCLIDeliverable() && cliToolIsAppManaged() }"))
+
     // MARK: reading the manifest as a whole
 
     let manifestFile = tmp.appendingPathComponent("autofollow-manifest.json")

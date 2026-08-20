@@ -90,52 +90,78 @@ func runCompletionChecks(tmp: URL) throws {
 
     let link = "/usr/local/bin/tally"
     let bundled = "/Applications/Tally.app/Contents/Helpers/tally"
+    let moved = "/Applications/Other/Tally.app/Contents/Helpers/tally"
+    /// The signing check as a fixture: `signed` is the set of paths the real one would say yes to,
+    /// so each case below names only whether the program at that path is ours today.
+    func isOurs(recorded: [String], destination: String?, bundled: String = bundled,
+                signed: Set<String> = []) -> Bool {
+        IntegrationsStore.cliToolIsOurs(recorded: recorded, destination: destination,
+                                        bundled: bundled, link: link,
+                                        signedByUs: { signed.contains($0) })
+    }
+    // The direct proof needs no signature: the destination IS the CLI in this bundle, which is the
+    // path this app links to and the one it would have to have written.
     check("a link pointing at the CLI inside this bundle is ours",
-          IntegrationsStore.cliToolIsOurs(recorded: [], destination: bundled, bundled: bundled,
-                                          link: link))
+          isOurs(recorded: [], destination: bundled))
     check("…and one we recorded is ours even after the app moved out from under it",
-          IntegrationsStore.cliToolIsOurs(recorded: [link],
-                                          destination: "/Volumes/Old/Tally.app/Contents/Helpers/tally",
-                                          bundled: bundled, link: link))
+          isOurs(recorded: [link], destination: "/Volumes/Old/Tally.app/Contents/Helpers/tally",
+                 signed: ["/Volumes/Old/Tally.app/Contents/Helpers/tally"]))
     // The manifest is a record of an INSTALL, not of what is at that path today. `brew link
     // --overwrite` (or anything else) replaces the symlink and leaves the record exactly where it
     // was, and the registration downstream of this answer runs the program at that path on every
     // prompt and every tool call (codex review of 72ebfc6).
     check("a recorded path whose link a package manager has since taken over is not ours",
-          !IntegrationsStore.cliToolIsOurs(recorded: [link],
-                                           destination: "/opt/homebrew/Cellar/tally/1.0/bin/tally",
-                                           bundled: bundled, link: link))
+          !isOurs(recorded: [link], destination: "/opt/homebrew/Cellar/tally/1.0/bin/tally"))
     check("…nor when it was taken over by a relative link into the same prefix",
-          !IntegrationsStore.cliToolIsOurs(recorded: [link],
-                                           destination: "../Cellar/tally/1.0/bin/tally",
-                                           bundled: bundled, link: link))
+          !isOurs(recorded: [link], destination: "../Cellar/tally/1.0/bin/tally"))
     // The case the manifest proof exists for, which is the app having MOVED: a different directory,
-    // the same bundle underneath. The tail is taken from `bundled` rather than written down in the
-    // app, because the release bundle and the dev one are not named the same thing.
+    // the same signature underneath.
     check("…while a link into the same bundle somewhere else is still ours after the app moved",
-          IntegrationsStore.cliToolIsOurs(
-              recorded: [link], destination: "/Applications/Other/Tally.app/Contents/Helpers/tally",
-              bundled: bundled, link: link))
-    check("the bundle-relative tail is read off the bundled path, name and all",
-          IntegrationsStore.bundleRelativeCLIPath(bundled) == "Tally.app/Contents/Helpers/tally"
-              && IntegrationsStore.bundleRelativeCLIPath(
-                  "/Users/u/build/Tally Dev.app/Contents/Helpers/tally")
-              == "Tally Dev.app/Contents/Helpers/tally")
-    check("…and a bundled path with no bundle in it proves nothing rather than everything",
-          IntegrationsStore.bundleRelativeCLIPath("/usr/local/libexec/tally") == nil
-              && !IntegrationsStore.cliToolIsOurs(recorded: [link], destination: "/somewhere/tally",
-                                                  bundled: "/usr/local/libexec/tally", link: link))
+          isOurs(recorded: [link], destination: moved, signed: [moved]))
+    // THE HOLE THIS CLOSED. The proof used to be the tail of the path
+    // (`<something>/Tally.app/Contents/Helpers/tally`), so anybody who named a directory `Tally.app`
+    // and put a binary in it passed it, and the hooks downstream would then run that binary on every
+    // prompt. The shape is identical here and the answer is no, because the signature is not.
+    check("a path shaped exactly like ours, carrying somebody else's signature, is not ours",
+          !isOurs(recorded: [link], destination: moved))
+    // "Cannot tell" and "not ours" are one word: the real check answers false for a missing file, an
+    // unsigned one, a broken seal and any OSStatus it has no name for (`codeSignedLike`).
+    check("…and a signing check that cannot answer at all leaves it not ours",
+          !isOurs(recorded: [link], destination: moved, signed: []))
+    check("a signature with no record of our ever installing that link is not enough",
+          !isOurs(recorded: [], destination: moved, signed: [moved]))
     check("a package manager's tally is not this app's, however installed it looks",
-          !IntegrationsStore.cliToolIsOurs(recorded: [],
-                                           destination: "/opt/homebrew/Cellar/tally/1.0/bin/tally",
-                                           bundled: bundled, link: link))
+          !isOurs(recorded: [], destination: "/opt/homebrew/Cellar/tally/1.0/bin/tally"))
     check("…and a record of some OTHER path does not make it ours either",
-          !IntegrationsStore.cliToolIsOurs(recorded: ["/opt/homebrew/bin/tally"],
-                                           destination: "/opt/homebrew/Cellar/tally/1.0/bin/tally",
-                                           bundled: bundled, link: link))
+          !isOurs(recorded: ["/opt/homebrew/bin/tally"],
+                  destination: "/opt/homebrew/Cellar/tally/1.0/bin/tally",
+                  signed: ["/opt/homebrew/Cellar/tally/1.0/bin/tally"]))
     check("…nor does a real file somebody put there, which is no symlink at all",
-          !IntegrationsStore.cliToolIsOurs(recorded: [link], destination: nil, bundled: bundled,
-                                           link: link))
+          !isOurs(recorded: [link], destination: nil))
+
+    // MARK: The signing check itself, against binaries every machine has.
+    //
+    // ASKED OF REAL BINARIES rather than mocked, because the thing worth asserting is that the
+    // Security calls are wired up at all: a designated requirement taken off one program and checked
+    // against another is the whole mechanism, and a stub that returned true would look exactly like
+    // a working one everywhere else in this file. /bin/ls and /bin/cat are both Apple signed, which
+    // is the case a shape test cannot tell apart and this one can.
+    check("a binary satisfies its own designated requirement",
+          IntegrationsStore.codeSignedLike("/bin/ls", reference: "/bin/ls"))
+    check("…and another program signed by the same authority does not",
+          !IntegrationsStore.codeSignedLike("/bin/cat", reference: "/bin/ls"))
+    check("nothing at the path is not ours",
+          !IntegrationsStore.codeSignedLike("/no/such/tally", reference: "/bin/ls"))
+    check("…and neither is anything at all when the reference cannot be read",
+          !IntegrationsStore.codeSignedLike("/bin/ls", reference: "/no/such/bundled"))
+    // A relative destination is resolved against the LINK's directory, which is where the kernel
+    // resolves it, and not against whatever directory this process happens to be started in.
+    check("a relative link target is resolved against the link's own directory",
+          IntegrationsStore.resolvedLinkTarget("../Cellar/tally/1.0/bin/tally",
+                                               link: URL(fileURLWithPath: link))
+              == "/usr/local/Cellar/tally/1.0/bin/tally"
+              && IntegrationsStore.resolvedLinkTarget(bundled,
+                                                      link: URL(fileURLWithPath: link)) == bundled)
     let installer = (try? String(contentsOf: root.appendingPathComponent(
         "Tally/Stores/IntegrationsCompletion.swift"), encoding: .utf8)) ?? ""
     // Asked in ONE place, which is the place both entrances go through: a second gate in

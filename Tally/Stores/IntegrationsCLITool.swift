@@ -29,8 +29,9 @@ extension IntegrationsStore {
         ///
         /// Deliberately the same judgement the row's word is made on, symlink-ness and no more: a
         /// link a package manager made to its own `tally` is read as ours here, exactly as the row
-        /// has always read it as installed. `cliToolIsAppManaged` is the stricter title deed (the
-        /// manifest, or our own bundle) and is what the completion install gates on; using it here
+        /// has always read it as installed. `cliToolIsAppManaged` is the stricter title deed (our own
+        /// bundle, or the manifest plus our signature on what the link points at) and is what the
+        /// completion install gates on; using it here
         /// would let the row say "Installed" over a button that refuses, which is a worse lie than
         /// the one it would fix.
         case link(destination: String)

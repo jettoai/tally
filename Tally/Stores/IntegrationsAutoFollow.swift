@@ -72,8 +72,9 @@ extension IntegrationsStore {
     /// - and, worse than merely useless, the supervisor then reads the registration as a working
     /// filing channel and stops typing the warning down the tty that did work
     /// (`quotaKnockFilingAvailable`). The strict question is the completion install's own gate
-    /// (`cliToolIsOurs`: the link points into this bundle, or the manifest says we made it), for the
-    /// same reason and against the same Homebrew case.
+    /// (`cliToolIsOurs`: the link points into this bundle, or the manifest says we made that link and
+    /// the program at it still carries our signature), for the same reason and against the same
+    /// Homebrew case.
     static var autoFollowComponents: [AutoFollowComponent] {
         [AutoFollowComponent(component: knockHookManifest,
                              title: { L("Claude quota warning") },

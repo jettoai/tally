@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 // The tab completion that arrives with the command, because a completion nobody installs completes
 // nothing.
@@ -152,38 +153,75 @@ extension IntegrationsStore {
     /// a Homebrew install answers yes to it, so using it as the launch-time gate had the app writing
     /// into a shared directory for a user who never pressed anything of ours (review, 2026-08-11).
     ///
-    /// TWO PROOFS, AND THE SECOND ONE IS ABOUT THE LINK AS IT IS NOW. The direct proof is the link
-    /// pointing at the CLI inside this bundle. The second exists for the app having MOVED, which
-    /// changes `bundledCLIURL` under a link we really did make - so it asks the manifest for the
-    /// path AND asks the link where it points, and what it has to point at is another copy of this
-    /// same bundle: `<something>/Tally.app/Contents/Helpers/tally`, the tail taken from `bundled`
-    /// rather than written down here, because the bundle name differs between the release app and
-    /// the dev one.
+    /// TWO PROOFS, AND THEY ANSWER TWO DIFFERENT QUESTIONS. The direct proof is the link pointing at
+    /// the CLI inside this bundle. The second exists for the app having MOVED, which changes
+    /// `bundledCLIURL` under a link we really did make, and it takes both halves: the manifest says
+    /// THIS app installed THIS path, and the signature says the program at it is still ours today.
+    /// A record is a record of an install, not of what is at that path now.
     ///
     /// The manifest alone was not enough, and reading it as enough was a defect (codex review of
     /// 72ebfc6): a path we once installed is still in the manifest after `brew link --overwrite`,
-    /// or anything else, has replaced the symlink with its own. The registration downstream of this
-    /// answer runs the program at that path on every prompt and every tool call
-    /// (IntegrationsAutoFollow.swift), so a stale record is a stranger's binary in a Claude Code
-    /// hook. A record is a record of an install, not of what is at that path today.
+    /// or anything else, has replaced the symlink with its own.
+    ///
+    /// AND THE SECOND HALF IS A SIGNATURE, NOT A SHAPE. It used to be the tail of the destination
+    /// path (`<something>/Tally.app/Contents/Helpers/tally`), which is a test anybody passes by
+    /// naming a directory `Tally.app` and putting a binary in it. What answers now is the designated
+    /// requirement of the CLI inside THIS bundle, checked against the program the link points at
+    /// (`codeSignedLike`): same signing identity and, on a release build, the same Team ID, which
+    /// is a thing a stranger's binary cannot be given by moving it.
+    ///
+    /// The registration downstream of this answer runs the program at that path on every prompt and
+    /// every tool call (IntegrationsAutoFollow.swift), so anything short of a signature is a
+    /// stranger's binary in a Claude Code hook.
+    ///
+    /// THE SIGNING QUESTION IS HANDED IN, so this decision is a pure one and assertable without
+    /// owning a signed binary of ours; `cliToolIsAppManaged` passes the real check.
     static func cliToolIsOurs(recorded: [String], destination: String?, bundled: String,
-                              link: String) -> Bool {
+                              link: String, signedByUs: (String) -> Bool) -> Bool {
         guard let destination else { return false }     // a real file, or nothing at all
         if destination == bundled { return true }
-        guard recorded.contains(link), let suffix = bundleRelativeCLIPath(bundled) else {
-            return false
-        }
-        return destination == suffix || destination.hasSuffix("/" + suffix)
+        guard recorded.contains(link) else { return false }
+        return signedByUs(destination)
     }
 
-    /// The tail of a bundled CLI path from the `.app` component onward
-    /// (`Tally.app/Contents/Helpers/tally`), which is the shape a link into ANY copy of this bundle
-    /// has. Nil when the path handed in carries no bundle at all, which is a build nobody installed
-    /// and an answer of no rather than a guess.
-    static func bundleRelativeCLIPath(_ bundled: String) -> String? {
-        let components = bundled.split(separator: "/", omittingEmptySubsequences: false)
-        guard let start = components.firstIndex(where: { $0.hasSuffix(".app") }) else { return nil }
-        return components[start...].joined(separator: "/")
+    /// Whether the program at `path` satisfies the designated requirement of `reference`, which in
+    /// production is the CLI inside this bundle.
+    ///
+    /// THE REQUIREMENT IS ASKED OF OUR OWN BINARY rather than written down here as a literal,
+    /// because there is no single literal that is right: the shipped CLI is Developer ID signed and
+    /// its requirement names an identifier and a Team ID, while a locally built one is ad-hoc signed
+    /// and its requirement is a cdhash that only that very binary can satisfy. Reading the
+    /// requirement off whichever CLI this app actually carries makes both correct with nothing to
+    /// configure, and makes a dev build's answer the strictest one of all, which is right for a
+    /// binary only its author has.
+    ///
+    /// FAIL-CLOSED AT EVERY STEP: a missing file, an unsigned one, a broken seal, an OSStatus nobody
+    /// has a name for, all of them are no. This answer decides whether a program is registered into
+    /// a hook that runs on every prompt, so "cannot tell" and "not ours" have to be one word.
+    static func codeSignedLike(_ path: String, reference: String) -> Bool {
+        var referenceCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: reference) as CFURL, [],
+                                          &referenceCode) == errSecSuccess,
+              let referenceCode else { return false }
+        var requirement: SecRequirement?
+        guard SecCodeCopyDesignatedRequirement(referenceCode, [], &requirement) == errSecSuccess,
+              let requirement else { return false }
+        var candidate: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [],
+                                          &candidate) == errSecSuccess,
+              let candidate else { return false }
+        return SecStaticCodeCheckValidity(candidate, [], requirement) == errSecSuccess
+    }
+
+    /// A symlink's destination as an absolute path, resolved the way the kernel resolves it: against
+    /// the directory the link itself is in. A package manager writes relative targets
+    /// (`../Cellar/tally/1.0/bin/tally`), and handing one of those to the signing check as it stands
+    /// would ask about a path relative to this process's working directory, which is nowhere that
+    /// link points.
+    static func resolvedLinkTarget(_ destination: String, link: URL = cliSymlinkURL) -> String {
+        guard !destination.hasPrefix("/") else { return destination }
+        return link.deletingLastPathComponent().appendingPathComponent(destination)
+            .standardizedFileURL.path
     }
 
     /// `cliToolIsOurs` for this machine.
@@ -192,7 +230,10 @@ extension IntegrationsStore {
                       destination: try? FileManager.default
                           .destinationOfSymbolicLink(atPath: cliSymlinkURL.path),
                       bundled: bundledCLIURL.path,
-                      link: cliSymlinkURL.path)
+                      link: cliSymlinkURL.path,
+                      signedByUs: {
+                          codeSignedLike(resolvedLinkTarget($0), reference: bundledCLIURL.path)
+                      })
     }
 
     /// Whether the launch-time pass has anything to look at, which is the gate that keeps the steady

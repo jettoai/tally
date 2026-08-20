@@ -81,6 +81,7 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
                          policy: LaunchPolicy, account: Snapshot.Account, providerID: String,
                          steering: Bool, launchArgs: [String],
                          quarantine: [String: (model: String?, until: Date)],
+                         reserves: AccountReserves = .none,
                          watcher: inout TranscriptWatcher,
                          keyboardIdle: (TimeInterval) -> Bool,
                          snapshot loadSnapshotting: () -> (Snapshot?, String?) = loadSnapshot) {
@@ -138,7 +139,7 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
                     ? snapshot.flatMap {
                         incumbentSeededBest(providerID: providerID, in: $0,
                                             incumbentID: account.id, primaryModel: policy.model,
-                                            excluding: excluded)
+                                            excluding: excluded, reserves: reserves)
                     }
                     : account
             }

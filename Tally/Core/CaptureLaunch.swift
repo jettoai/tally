@@ -56,6 +56,7 @@ enum CaptureLaunch {
         loginItemPreview,
         // Artefacts written to disk rather than shown.
         "TallyStripSnapshot",   // the menu bar strip as a standalone PNG
+        "TallyWindowSnapshot",  // and whatever windows the flags above opened, then quit
         // Alerts posted to be looked at. A banner needs no focus, so taking it is pure cost.
         "TallyDryNotifyTest",
         "TallyResetHintTest",

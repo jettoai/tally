@@ -267,17 +267,25 @@ extension IntegrationsStore {
     /// a convenience rather than a gate), so a row installed and never visited would be a row that
     /// says Installed and does nothing at all.
     ///
-    /// THE FIRST ACCOUNT, which is the main one: `ClaudeAccounts.discover()` yields `~/.claude`
-    /// first and the numbered homes after it, and the panel draws them in that order. It is a guess,
-    /// and it is the guess the refusal SHOWS: the sentence names the account it is holding the
-    /// publish for, so a user whose browser is signed into another one reads the wrong name and
-    /// changes it in the row's own picker.
+    /// THE MARKED ACCOUNT FIRST, and it is not a guess: "Personal (web)" in the Accounts pane says
+    /// which account this machine's browser is signed into, which is the exact question this setting
+    /// asks (Tally/Core/AccountReserve.swift). One answer, given once, read by both.
     ///
-    /// Pure, and nil for both ways of having nothing to do: a setting already chosen (never
-    /// overwritten - it is the user's answer, and a reinstall is not a question) and a machine with
-    /// no launchable Claude account to name.
-    static func artifactAccountSeed(current: String?, homes: [String]) -> String? {
-        guard current?.isEmpty ?? true else { return nil }
+    /// THE FIRST ACCOUNT ONLY WHEN THERE IS NO MARKING: `ClaudeAccounts.discover()` yields
+    /// `~/.claude` first and the numbered homes after it, and the panel draws them in that order.
+    /// That one IS a guess, and it is the guess the refusal shows - the sentence names the account
+    /// it is holding the publish for, so a user whose browser is signed into another one reads the
+    /// wrong name and changes it, in this row's picker or by marking the account.
+    ///
+    /// Pure, and nil for all three ways of having nothing to do: a machine with no launchable Claude
+    /// account to name, and either kind of answer already on file. THE EMPTY STRING IS AN ANSWER -
+    /// it is what the row's "Not chosen" stores (`LaunchPolicyStore.setArtifactAccount` says why) -
+    /// so seeding over it would be this install re-asking a question the user has already closed,
+    /// which is precisely what it used to do on every reinstall and every self-heal pass.
+    static func artifactAccountSeed(current: String?, homes: [String],
+                                    personal: String?) -> String? {
+        guard current == nil else { return nil }
+        if let personal, !personal.trimmingCharacters(in: .whitespaces).isEmpty { return personal }
         return homes.first
     }
 
@@ -300,7 +308,8 @@ extension IntegrationsStore {
             // hook that is not there.
             if let seed = Self.artifactAccountSeed(
                 current: LaunchPolicyStore.shared.artifactAccount,
-                homes: ClaudeAccounts.discover().compactMap(\.launchableHome)) {
+                homes: ClaudeAccounts.discover().compactMap(\.launchableHome),
+                personal: LaunchPolicyStore.shared.personalAccountHome) {
                 LaunchPolicyStore.shared.setArtifactAccount(seed)
             }
         } catch {

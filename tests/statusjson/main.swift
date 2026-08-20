@@ -405,5 +405,50 @@ check("each tier carries its own demand and account count",
 check("and the pooled figure it splits is still published",
       codexAdvisor["demandPerWeek"] as? Double == 2.6)
 
+// MARK: - The un-debounced refresh flag
+
+// PUBLISHED BESIDE `isStale` RATHER THAN FOLDED INTO IT. The badge waits for a SECOND consecutive
+// failure so it cannot flicker on a token rotation, which leaves one poll interval in which a row
+// held over from a failed round is spelled exactly like a freshly fetched one. Anything deciding on
+// these percentages - which account to launch on, whether a drought is real - needs the answer
+// without the debounce, and until now the CLI was the only thing on the machine that had it.
+let refreshFlags = decodeSnapshot("""
+{ "version": 2, "generatedAt": "2026-07-23T12:00:00Z",
+  "accounts": [
+    { "id": "claude:.claude", "provider": "claude", "label": "Claude",
+      "launchHome": "/Users/u/.claude", "isStale": false, "lastRefreshFailed": true,
+      "weeklyRemaining": 95, "weeklyResetsAt": "2026-07-27T12:00:00Z" },
+    { "id": "claude:.claude2", "provider": "claude", "label": "Claude 2",
+      "launchHome": "/Users/u/.claude2", "isStale": false, "lastRefreshFailed": false,
+      "weeklyRemaining": 60, "weeklyResetsAt": "2026-07-27T12:00:00Z" },
+    { "id": "claude:.claude3", "provider": "claude", "label": "Claude 3",
+      "launchHome": "/Users/u/.claude3", "isStale": false,
+      "weeklyRemaining": 30, "weeklyResetsAt": "2026-07-27T12:00:00Z" }
+  ] }
+""")
+let flagged = parse(encodeStatusReport(statusReport(refreshFlags, policies: [:], now: now)))
+let flagRows = flagged["accounts"] as? [[String: Any]] ?? []
+check("a held-over row publishes the un-debounced flag",
+      flagRows.first { $0["id"] as? String == "claude:.claude" }?["lastRefreshFailed"]
+          as? Bool == true)
+check("…and a freshly fetched one publishes it as false rather than by omission",
+      flagRows.first { $0["id"] as? String == "claude:.claude2" }?["lastRefreshFailed"]
+          as? Bool == false)
+// ABSENT AND NOT FALSE from an app that predates the field: nil is "cannot tell", and a reader that
+// could not tell that from "the poll succeeded" would trust numbers nobody vouched for. The house
+// rule this whole report follows, applied to the one field where it decides something.
+check("a snapshot from an app that never knew the field omits it rather than answering false",
+      flagRows.first { $0["id"] as? String == "claude:.claude3" }?
+          .keys.contains("lastRefreshFailed") == false)
+// AND THE LAUNCH MARKER AGREES WITH IT, which is the half that is not merely reporting: a row whose
+// latest poll failed is not eligible, so the arrow moves to the sibling that answered. The flagged
+// account is the RICHEST one in this fixture (95% against 60%), so it is the account the arrow
+// would name on the strength of numbers nobody vouched for.
+check("the arrow skips the account whose latest poll failed",
+      flagRows.first { $0["best"] as? Bool == true }?["id"] as? String == "claude:.claude2")
+check("…and would have named it on its held-over numbers (guard the premise)",
+      flagRows.first { $0["id"] as? String == "claude:.claude" }?["weeklyRemaining"]
+          as? Double == 95)
+
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

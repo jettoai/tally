@@ -658,7 +658,7 @@ func runWindowRepickChecks() {
     // literal - the check passing through a line other than the one it is about (caught by
     // mutation, 2026-08-20).
     let preventiveCall = tickSource.range(of: "applyProactiveMoves(plan: &plan,").flatMap { station in
-        tickSource.range(of: "quarantine: quarantine)",
+        tickSource.range(of: "quarantine: quarantine, reserves: reserves)",
                          range: station.upperBound ..< tickSource.endIndex).map {
             String(tickSource[station.upperBound ..< $0.upperBound])
         }
@@ -889,7 +889,7 @@ func runWindowRepickChecks() {
     // `draftSuspected` is also the name of the input station's argument a hundred lines below: a
     // file-wide search would pass on that one alone.
     if let station = loop.range(of: "applyProactiveMoves(plan: &plan,"),
-       let end = loop.range(of: "quarantine: quarantine)",
+       let end = loop.range(of: "quarantine: quarantine, reserves: reserves)",
                             range: station.upperBound ..< loop.endIndex) {
         let call = String(loop[station.upperBound ..< end.upperBound])
         check("…under this tick's own draft reading, not a literal",

@@ -21,6 +21,21 @@ struct StatusReport: Encodable {
         var pinned: Bool
         var isStale: Bool
         var error: String?
+        /// Whether this account's LATEST poll failed, so every percentage in this row is held over
+        /// from an earlier round (`Snapshot.Account.lastRefreshFailed`).
+        ///
+        /// PUBLISHED BESIDE `isStale` RATHER THAN FOLDED INTO IT, because the two answer different
+        /// questions and the gap between them is the one a script gets wrong: the badge waits for a
+        /// second consecutive failure so it cannot flicker on a token rotation, which leaves one
+        /// poll interval publishing a failed round that reads exactly like a successful one. A
+        /// reader deciding anything on these numbers - which account to launch on, whether a
+        /// drought is real - needs the un-debounced answer, and until now the CLI was the only
+        /// place that had it.
+        ///
+        /// Absent (rather than false) for a snapshot from an app that predates the flag, which is
+        /// "cannot tell" and not "the poll succeeded" - the house rule this report already follows
+        /// for every optional field.
+        var lastRefreshFailed: Bool?
         var sessionRemaining: Double?
         var sessionResetsAt: Date?
         var weeklyRemaining: Double?
@@ -222,12 +237,17 @@ struct StatusReport: Encodable {
 /// the target, otherwise the launch lands outside this list and nobody gets the marker) → the
 /// headroom pick. A provider this CLI cannot launch gets no pick at all: `best` means "would
 /// launch".
+///
+/// `reserves` is on the same terms as `quarantined`: a parameter rather than a file read so the
+/// report stays pure, and one the caller must pass, because `best` promises "would launch" and a
+/// launch applies them.
 func launchMarkers(providerID: String, in snapshot: Snapshot, policy: LaunchPolicy,
-                   quarantined: Set<String>, now: Date = Date()) -> (best: String?, pinned: String?) {
+                   quarantined: Set<String>, reserves: AccountReserves = .none,
+                   now: Date = Date()) -> (best: String?, pinned: String?) {
     guard providers.contains(where: { $0.id == providerID }) else { return (nil, nil) }
     func headroomPick() -> String? {
         launchPick(providerID: providerID, in: snapshot, primaryModel: policy.model,
-                   quarantined: quarantined, now: now)?.id
+                   quarantined: quarantined, reserves: reserves, now: now)?.id
     }
     guard policy.mode == "manual" else { return (headroomPick(), nil) }
     let mine = snapshot.accounts.filter { $0.provider == providerID }
@@ -258,6 +278,7 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
                   accountSessions: [String: StatusReport.SessionSummary] = [:],
                   sessions: [StatusReport.Session] = [],
                   projectPolicy: StatusReport.ProjectProfile? = nil,
+                  reserves: AccountReserves = .none,
                   now: Date = Date()) -> StatusReport {
     let advisorByProvider = Dictionary(uniqueKeysWithValues: advisor.map { reading in
         (reading.provider, StatusReport.Advisor(
@@ -283,13 +304,15 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
         let mine = snapshot.accounts.filter { $0.provider == providerID }
         let policy = policies[providerID] ?? LaunchPolicy()
         let (bestID, pinnedID) = launchMarkers(providerID: providerID, in: snapshot, policy: policy,
-                                               quarantined: quarantined[providerID] ?? [], now: now)
+                                               quarantined: quarantined[providerID] ?? [],
+                                               reserves: reserves, now: now)
         for account in mine {
             accounts.append(.init(
                 id: account.id, provider: account.provider, label: account.label,
                 launchHome: account.launchHome,
                 best: account.id == bestID, pinned: account.id == pinnedID,
                 isStale: account.isStale, error: account.error,
+                lastRefreshFailed: account.lastRefreshFailed,
                 sessionRemaining: account.sessionRemaining,
                 sessionResetsAt: account.sessionResetsAt,
                 weeklyRemaining: account.weeklyRemaining,
@@ -320,13 +343,30 @@ func statusReport(_ snapshot: Snapshot, policies: [String: LaunchPolicy],
 ///
 /// `plans` maps account id to plan name, joined from the snapshot because the history holds no
 /// plan of its own (see `UsageAdvisor.readings`). Empty just leaves the tier split unnamed.
-func loadAdvisorReadings(plans: [String: String] = [:], now: Date = Date()) -> [UsageAdvisor.Reading] {
+/// `reserves` is the same shape for the same reason: account id to the points its owner keeps.
+func loadAdvisorReadings(plans: [String: String] = [:], reserves: [String: Double] = [:],
+                         now: Date = Date()) -> [UsageAdvisor.Reading] {
     let url = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".tally/history.jsonl")
     guard let data = try? Data(contentsOf: url) else { return [] }
     let since = now.addingTimeInterval(-UsageAdvisor.lookbackDays * 86_400)
     return UsageAdvisor.readings(samples: UsageAdvisor.decodeSamples(data, since: since),
-                                 now: now) { plans[$0] }
+                                 now: now, planOf: { plans[$0] }, reserveOf: { reserves[$0] ?? 0 })
+}
+
+/// The reserves as the advisor needs them: keyed by ACCOUNT ID, because that is what the burn-rate
+/// history records, joined here from the snapshot for the same reason `accountPlans` is.
+///
+/// The join is the config home, the key the state file uses (AccountReserve.swift). An account the
+/// snapshot cannot give a launch home simply carries no reserve here, which is the right answer:
+/// nothing is being launched onto it either.
+func accountReserveIDs(_ snapshot: Snapshot, _ reserves: AccountReserves) -> [String: Double] {
+    var out: [String: Double] = [:]
+    for account in snapshot.accounts {
+        let reserve = reserves.reserve(for: account)
+        if reserve > 0 { out[account.id] = reserve }
+    }
+    return out
 }
 
 /// Account id to plan name, for the join above. Accounts the snapshot leaves plan-less are simply

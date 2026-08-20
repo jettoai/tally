@@ -530,7 +530,10 @@ func runTurnBoundaryChecks() {
     // two ways: a mover with a threshold of its own would hold a session on an account the other
     // one had already emptied by leaving it.
     let idle = (try? String(contentsOfFile: "TallyCLI/Rebalance.swift", encoding: .utf8)) ?? ""
-    let waiver = "accountIsSpent(current, primaryModel: primaryModel, now: now) || claim()"
+    let waiver = """
+        accountIsSpent(current, primaryModel: primaryModel, reserves: reserves, now: now)
+                      || claim()
+        """
     check("the two movers waive the claim on one shared reading of the account",
           !idle.isEmpty && mover.contains(waiver) && idle.contains(waiver))
 

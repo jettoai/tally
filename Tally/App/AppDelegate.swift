@@ -126,6 +126,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if UserDefaults.standard.bool(forKey: "TallyLoginExpiryTest") {
             LoginStatusStore.shared.postSampleNotification()
         }
+        // …and the last mile of the capture family: `-TallyWindowSnapshot <dir>` photographs
+        // whatever the flags above put on screen and quits (WindowSnapshot.swift says why the app
+        // takes its own picture rather than leaving it to `screencapture`). Last, because what it
+        // captures is the state everything before it has finished setting up.
+        WindowSnapshot.captureIfRequested()
     }
 
     /// Design-capture hook (demo/dev builds only, argument domain so nothing persists):

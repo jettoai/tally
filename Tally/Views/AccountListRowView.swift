@@ -226,15 +226,24 @@ struct AccountListRowView: View {
                     .fill(metric.severity.color)
                     .frame(width: max(2, Self.barWidth * fraction), height: Self.barHeight)
             }
+            // The personal account's water line, on the same track and at the same boundary the
+            // card draws it (ReserveMark.swift): a density is not a reduced feature set.
+            .overlay { ReserveMark(reserve: facts.reservePercent) }
     }
 
     /// The window's name and its own reset, in the same words the card prints under the bar and in
     /// the user's chosen reset style, so hovering a row answers exactly what reading a card does.
     private func meterHelp(_ metric: UsageMetric) -> String {
         let name = L(metric.label)
-        guard let reset = UsageFormat.resetText(metric.resetsAt, style: settings.resetDisplay)
-        else { return name }
-        return "\(name) · \(reset)"
+        var text = name
+        if let reset = UsageFormat.resetText(metric.resetsAt, style: settings.resetDisplay) {
+            text += " · \(reset)"
+        }
+        // What the hatching at the end of the track is. The card can afford to let the mark speak
+        // for itself beside a 100pt bar; at 34pt the words have to be somewhere, and this callout is
+        // where every other word this row folds away already lives.
+        if facts.reservePercent > 0 { text += "\n" + L("Kept for web use") }
+        return text
     }
 
     /// An account that has never loaded: the reason, then the retry, in place of the meters it has

@@ -42,7 +42,12 @@ struct SettingsArtifactAccountRow: View {
             }
             Spacer()
             Picker("", selection: Binding(
-                get: { launch.artifactAccount },
+                // Both ways of having no account named arrive here as the same row. The store keeps
+                // them apart (never asked / answered "none" - `setArtifactAccount` says what that
+                // buys), and it has to: an install may seed over the first and may not seed over the
+                // second. The PERSON has one state, though, so the empty string folds back into the
+                // entry below rather than matching no tag at all and drawing a blank picker.
+                get: { launch.artifactAccount.flatMap { $0.isEmpty ? nil : $0 } },
                 set: { launch.setArtifactAccount($0) }
             )) {
                 // Nothing chosen is a real state rather than a placeholder: the guard abstains on it,

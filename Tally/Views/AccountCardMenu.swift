@@ -48,11 +48,26 @@ struct AccountActionsMenu: View {
     /// both the address and the quota percentages truncated.
     var moveUp: (() -> Void)?
     var moveDown: (() -> Void)?
+    /// Mark this account as the one the user browses claude.ai on, or unmark it. Passed by the
+    /// Settings list alone, which is the surface that also draws the reserve the marking unlocks: an
+    /// entry offered where that stepper cannot appear would be half a feature. Absent = not offered,
+    /// the same shape `rename` uses.
+    var togglePersonal: (() -> Void)?
+    var isPersonal: Bool = false
 
     @ViewBuilder
     var body: some View {
         if let rename {
             Button(L("Rename…")) { rename() }
+            Divider()
+        }
+        if let togglePersonal {
+            // A checkable entry rather than two verbs: one control both ways, like the pin circle on
+            // a card. The marking is single-select, so ticking another account unticks this one.
+            Toggle(isOn: Binding(get: { isPersonal }, set: { _ in togglePersonal() })) {
+                Text(L("Personal account (web)"))
+            }
+            .help(L("The account you are signed into on claude.ai. Tally publishes artifacts from it, and can keep part of its quota free for you."))
             Divider()
         }
         if moveUp != nil || moveDown != nil {

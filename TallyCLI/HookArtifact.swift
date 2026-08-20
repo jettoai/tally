@@ -303,6 +303,16 @@ func artifactAccountName(_ home: String, in accounts: [Snapshot.Account]) -> Art
 /// it needs cannot be broken by a `launch` block from a version this binary predates. nil for every
 /// way of not having an answer (no file, bytes that will not parse, the key absent), which is the
 /// abstention this whole hook is built around.
+///
+/// TWO KEYS IN ONE ORDER, and the order is the answer to "which of these did the user mean":
+/// `artifactAccount` is the choice they made ON THIS SETTING, so it wins whenever it is there, and
+/// the account they marked `personal` is the fallback - the one they publish from in the browser,
+/// which is what an Artifact link is for. That fallback replaces a guess: this setting used to be
+/// seeded from whichever config home happened to be listed first, which is a value the user never
+/// chose sitting in a field only they can set.
+///
+/// The role is read only when the explicit setting is ABSENT, never to override it, so a person who
+/// deliberately publishes from an account other than their personal one keeps doing so.
 func artifactAccountSetting(_ url: URL = stateURL) -> String? {
     struct StateFile: Decodable {
         // Mirror of the app's `LaunchPolicyStore.StateFile` field of the same name; the schema only
@@ -311,7 +321,10 @@ func artifactAccountSetting(_ url: URL = stateURL) -> String? {
     }
     guard let data = try? Data(contentsOf: url),
           let file = try? JSONDecoder().decode(StateFile.self, from: data) else { return nil }
-    return file.artifactAccount
+    if let chosen = file.artifactAccount, !chosen.trimmingCharacters(in: .whitespaces).isEmpty {
+        return chosen
+    }
+    return accountReserves(url).personalHome
 }
 
 /// The published snapshot, read WITHOUT the warnings `loadSnapshot` prints: they go to stderr, and

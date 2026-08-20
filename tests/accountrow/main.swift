@@ -331,21 +331,27 @@ check("…once, and never on a demo instance",
 // (UsageStorePresentation). Left live it would be a silent no-op: flip it, nothing moves in the
 // bar, and nothing on screen says why. So it is disabled, and the hover carries the way back.
 // Checked as text for the reason the section above gives - a SwiftUI view does not compile in here.
+//
+// It lives one file over from the rest of the pane (the row's status strip was split out of it for
+// file size), which is why this reads a source of its own: a member body cut out of the wrong file
+// is an empty string, and an empty string satisfies every `!contains` in here.
+let rowStatusSource = readSource("Tally/Views/SettingsAccountRowStatus.swift")
+check("the row's status strip is readable from these checks", !rowStatusSource.isEmpty)
 check("the switch is dead exactly when the layout is pooled",
-      paneSource.contains("let pooled = settings.menuBarLayout == .pooled")
-          && memberBody(paneSource, from: "private func menuBarToggle").contains(".disabled(pooled)"))
+      rowStatusSource.contains("let pooled = settings.menuBarLayout == .pooled")
+          && memberBody(rowStatusSource, from: "func menuBarToggle").contains(".disabled(pooled)"))
 // NOT SILENTLY: a greyed control with no explanation is the same dead end one step later.
 check("…and says why, with the way back in it",
-      paneSource.contains(".help(pooled")
-          && paneSource.contains("Set Menu bar shows to Accounts in Display to pick which ones appear."))
+      rowStatusSource.contains(".help(pooled")
+          && rowStatusSource.contains("Set Menu bar shows to Accounts in Display to pick which ones appear."))
 check("the label greys with the control it labels",
-      memberBody(paneSource, from: "private func menuBarToggle")
+      memberBody(rowStatusSource, from: "func menuBarToggle")
           .contains(".opacity(pooled ? 0.55 : 1)"))
 // And it is still a live switch in the layout that asks the question.
 check("the per-account layout keeps the switch usable",
-      memberBody(paneSource, from: "private func menuBarToggle")
+      memberBody(rowStatusSource, from: "func menuBarToggle")
           .contains("settings.setShownInMenuBar(accountID, $0)")
-          && !memberBody(paneSource, from: "private func menuBarToggle").contains(".disabled(true)"))
+          && !memberBody(rowStatusSource, from: "func menuBarToggle").contains(".disabled(true)"))
 // The sentence names two things the Display pane really shows, so it cannot send anyone looking
 // for a control that is not there.
 let displaySource = readSource("Tally/Views/SettingsDisplayPane.swift")
@@ -353,6 +359,206 @@ check("the display pane is readable from these checks", !displaySource.isEmpty)
 check("the hover points at wording the Display pane actually uses",
       displaySource.contains("L(\"Menu bar shows\")")
           && displaySource.contains("Text(L(\"Accounts\")).tag(MenuBarLayout.perAccount)"))
+
+
+// MARK: - The personal account and its reserve (Tally/Core/AccountReserve.swift)
+
+// ONE ACCOUNT MAY BE MARKED as the one the user also browses claude.ai on, and given a water line
+// Tally's own choices may not spend past. The rules are pure so the whole state table below can be
+// asserted without a state file: every combination of {nothing marked, A marked, A -> B, unmarked}
+// against {reserve 0, 30, 100} and against that account later being removed.
+typealias Block = [String: AccountRoleSetting]
+let homeA = "/Users/x/.claude"
+let homeB = "/Users/x/.claude2"
+
+// Nothing marked - which is every machine until somebody says otherwise.
+let empty = Block()
+check("nobody is the personal account until somebody is marked",
+      AccountRoles.personalHome(empty) == nil && !AccountRoles.isPersonal(empty, home: homeA))
+check("…and an unmarked account reserves nothing", AccountRoles.reserve(empty, home: homeA) == 0)
+check("…and asking about no home at all is not an error either",
+      AccountRoles.personalHome(empty) == nil && !AccountRoles.isPersonal(empty, home: nil)
+          && AccountRoles.reserve(empty, home: nil) == 0)
+
+// A marked, with no reserve yet: the marking is one answer and the water line is another.
+let markedA = AccountRoles.settingPersonal(empty, home: homeA)
+check("marking an account names it and nothing else",
+      AccountRoles.personalHome(markedA) == homeA && AccountRoles.isPersonal(markedA, home: homeA)
+          && !AccountRoles.isPersonal(markedA, home: homeB))
+check("…and it starts at no reserve at all", AccountRoles.reserve(markedA, home: homeA) == 0)
+
+// The water line, at each end of its range and past both.
+let reserved = AccountRoles.settingReserve(markedA, home: homeA, percent: 30)
+check("the marked account takes a reserve", AccountRoles.reserve(reserved, home: homeA) == 30)
+check("…100 is legal: Tally then never picks it by itself",
+      AccountRoles.reserve(AccountRoles.settingReserve(markedA, home: homeA, percent: 100),
+                           home: homeA) == 100)
+check("…and anything past either end is clamped rather than stored",
+      AccountRoles.reserve(AccountRoles.settingReserve(markedA, home: homeA, percent: 250),
+                           home: homeA) == 100
+          && AccountRoles.reserve(AccountRoles.settingReserve(markedA, home: homeA, percent: -20),
+                                  home: homeA) == 0)
+// Zero clears the key rather than storing it: absent and zero are the same answer, and the shorter
+// one is the one an older reader cannot misread.
+check("…and zero leaves nothing behind in the document",
+      AccountRoles.settingReserve(reserved, home: homeA, percent: 0)[homeA]?.reserve == nil)
+
+// AN ACCOUNT THAT DOES NOT HOLD THE ROLE HAS NO RESERVE, in both directions: the stepper cannot
+// write one, and a document that somehow carries one is not read as one. The control lives on the
+// marked row and nowhere else, so a reserve anywhere else is a setting with no surface that could
+// show it, change it, or explain it.
+check("an unmarked account cannot be given a reserve",
+      AccountRoles.settingReserve(markedA, home: homeB, percent: 30) == markedA)
+check("…and a hand-edited one on an unmarked account is not read either",
+      AccountRoles.reserve([homeB: AccountRoleSetting(role: nil, reserve: 40)], home: homeB) == 0)
+
+// A -> B. The marking is single select, and the reserve goes with it.
+let movedToB = AccountRoles.settingPersonal(reserved, home: homeB)
+check("marking another account moves the role rather than adding a second",
+      AccountRoles.personalHome(movedToB) == homeB && !AccountRoles.isPersonal(movedToB, home: homeA))
+check("…and the old account keeps no reserve, nor an entry to hold one",
+      movedToB[homeA] == nil && AccountRoles.reserve(movedToB, home: homeA) == 0)
+check("…while the newly marked one starts fresh at zero",
+      AccountRoles.reserve(movedToB, home: homeB) == 0)
+
+// Unmarking, which leaves the document as empty as it started.
+check("unmarking empties the block rather than leaving a husk in it",
+      AccountRoles.settingPersonal(reserved, home: nil).isEmpty)
+check("…and a home that normalizes to nothing is the same instruction as nil",
+      AccountRoles.settingPersonal(reserved, home: "   ").isEmpty)
+
+// THE ACCOUNT BEING REMOVED OUT FROM UNDER THE MARKING. Keyed by a directory, exactly like the
+// Artifact publishing account beside it, so the id-shaped forgetting cannot reach it: left standing,
+// the entry marks a folder in the Trash as the account this machine browses on, and hands the role
+// plus a number nobody chose to the next `~/.claudeN` created in that slot.
+check("removing the marked account clears it",
+      AccountRoles.removingHome(reserved, home: homeA).isEmpty)
+check("…recognised through the same normalization the CLI compares homes with",
+      AccountRoles.removingHome(reserved, home: homeA + "/").isEmpty
+          && AccountRoles.removingHome(AccountRoles.settingPersonal(empty, home: homeA + "/"),
+                                       home: homeA).isEmpty)
+check("removing any other account leaves the marking exactly as it was",
+      AccountRoles.removingHome(reserved, home: homeB) == reserved)
+check("…and a home that is a prefix of it is another account",
+      AccountRoles.removingHome(AccountRoles.settingPersonal(empty, home: homeB), home: homeA)
+          == AccountRoles.settingPersonal(empty, home: homeB))
+check("…and a home that normalizes to nothing clears nothing",
+      AccountRoles.removingHome(reserved, home: "   ") == reserved)
+
+// The lookup itself goes through that normalization on BOTH sides, because this key is written from
+// the app's own discovery and asked about with whatever a caller happens to hold.
+check("a marking is found through a trailing slash",
+      AccountRoles.isPersonal(reserved, home: homeA + "/")
+          && AccountRoles.reserve(reserved, home: homeA + "//") == 30)
+// And a document with two of them still answers the same thing on every read, rather than following
+// a dictionary's iteration order. Only a hand edit can produce this; the setter never does.
+let twoRoles: Block = [homeB: AccountRoleSetting(role: AccountRoles.personal, reserve: nil),
+                       homeA: AccountRoleSetting(role: AccountRoles.personal, reserve: nil)]
+check("a hand-edited document with two markings answers one of them, always the same one",
+      (0 ..< 20).allSatisfy { _ in AccountRoles.personalHome(twoRoles) == homeA })
+
+// The document itself: only the keys that carry something, so a marked account with no reserve
+// writes no reserve key at all and every reader's "absent means zero" stays true.
+let encoder = JSONEncoder()
+encoder.outputFormatting = [.sortedKeys]
+func written(_ entry: AccountRoleSetting?) -> String {
+    String(data: (try? encoder.encode(entry ?? AccountRoleSetting())) ?? Data(),
+           encoding: .utf8) ?? ""
+}
+check("an entry writes exactly what was set",
+      written(reserved[homeA]) == "{\"reserve\":30,\"role\":\"personal\"}")
+check("…and a marking with no reserve writes no reserve key",
+      written(markedA[homeA]) == "{\"role\":\"personal\"}")
+check("…and the block decodes back to the same answers",
+      (try? JSONDecoder().decode(Block.self, from:
+        (try? encoder.encode(reserved)) ?? Data()))
+          .map { AccountRoles.reserve($0, home: homeA) } == 30)
+
+// MARK: - …and the surfaces are really wired to those rules
+
+let facts = readSource("Tally/Views/AccountFacts.swift")
+let reserveRowSource = readSource("Tally/Views/SettingsPersonalAccountRow.swift")
+let policySource = readSource("Tally/Stores/LaunchPolicyStore.swift")
+check("the personal-account sources are readable from here",
+      !facts.isEmpty && !reserveRowSource.isEmpty && !policySource.isEmpty)
+// THE STEPPER APPEARS ON THE MARKED ROW AND NOWHERE ELSE. A pane that always carried the line would
+// be asking a question a single-account machine cannot answer.
+check("the pane draws the reserve row only under the marked account",
+      paneSource.contains("PersonalAccount.isPersonal(accountID: item.id, home: home) {")
+          && paneSource.components(separatedBy: "reserveRow(home,").count == 2)
+// One reading for every surface, so a bar cannot draw a water line the pane says is not there.
+check("both meters ask the shared reading rather than the store directly",
+      facts.contains("PersonalAccount.isPersonal(") && facts.contains("PersonalAccount.reserve(")
+          && !readSource("Tally/Views/MetricRowView.swift").contains("LaunchPolicyStore")
+          && !readSource("Tally/Views/AccountListRowView.swift").contains("LaunchPolicyStore"))
+// The removal reaches this block as well as the Artifact setting beside it - the one other thing in
+// that file keyed by a directory rather than by an account id.
+check("removing an account puts this block through the rule above",
+      policySource.contains("accountSettings = AccountRoles.removingHome(accountSettings, home: home)"))
+// And the two things the marking answers stay in step: the CLI reads `artifactAccount` first, so a
+// marking that did not write it would be a marking artifacts ignore.
+check("marking an account also answers the Artifact row",
+      memberBody(policySource, from: "func setPersonalAccount")
+          .contains("artifactAccount = chosen"))
+
+// THE DOCUMENT ITSELF IS THE CONTRACT, and it is written by one process and read by another: the app
+// publishes `~/.tally/state.json` and the `tally` supervisor steers real launches by it. THE TWO
+// HALVES ARE NO LONGER MIRRORED IN TEXT - they compile the ONE file that holds the rules
+// (Tally/Core/AccountReserve.swift, listed under both targets in project.yml), which is the
+// arrangement ArtifactHookContract.swift already has and for the same reason. A rule spelled once per
+// target is a rule that can come to mean two things, and this one decides quota: read literally, a
+// second spelling is a water line the launcher walks straight through, or quota held back on an
+// account whose Settings row shows none. That drift was real for a day and is what this convergence
+// closed (2026-08-20: the CLI read a reserve off an unmarked account, the app read the same entry as
+// zero).
+//
+// So what is checked here is that the CLI reader DELEGATES rather than re-spells. Both files are
+// asserted readable first: an empty string satisfies nothing below, but it would satisfy a
+// `!contains`, and two of these are that.
+check("the app publishes the block at the top level, and omits it while it is empty",
+      policySource.contains("var accounts: [String: AccountRoleSetting]?")
+          && policySource.contains("accounts: accountSettings.isEmpty ? nil : accountSettings"))
+let cliReader = readSource("TallyCLI/AccountReserveReader.swift")
+check("the CLI's reader of that block is readable from here", !cliReader.isEmpty)
+check("…and decodes it into the shared entry type rather than one of its own",
+      cliReader.contains("var accounts: [String: AccountRoleSetting]?"))
+check("…and asks the shared rules for both answers it gives",
+      cliReader.contains("AccountRoles.reserve(settings, home: account.launchHome)")
+          && cliReader.contains("AccountRoles.personalHome(settings)"))
+// The negative half, which is the one that actually holds the line: no second role word, no second
+// clamp, no second normalization. Any of the three coming back is the drift returning.
+check("…and spells no rule of its own",
+      !cliReader.contains("= \"personal\"") && !cliReader.contains("min(max(")
+          && !cliReader.contains("artifactAccountHome("))
+let generator = readSource("project.yml")
+check("the project definition is readable from here", !generator.isEmpty)
+// The app compiles it by living in `Tally/`; the CLI has to be told, so THAT is the line that can go
+// missing, and going missing is a build failure rather than a drift - which is the point of moving
+// the rules here rather than mirroring them.
+check("…and the CLI target is told to compile the one file the rules live in",
+      generator.contains("- path: Tally/Core/AccountReserve.swift")
+          && readSource("Tally/Core/AccountReserve.swift")
+              .contains("static let personal = \"personal\""))
+
+// EVERY WORD OF THE NEW ROW IS IN THE CATALOGUE, in all four translations: the app ships five
+// languages, and a sentence that reaches somebody in English on a Japanese machine is a missing
+// translation nobody notices until they see it.
+let catalogue = (try? Data(contentsOf: URL(fileURLWithPath:
+    "Tally/Resources/Localizable.xcstrings")))
+    .flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+let catalogueStrings = catalogue?["strings"] as? [String: Any] ?? [:]
+check("the string catalogue is readable from this suite", !catalogueStrings.isEmpty)
+for word in ["Personal", "Personal account (web)", "Keep at least %lld%% for web use",
+             "Kept for web use",
+             "Tally leaves this much of the account's quota alone when it picks or moves sessions "
+                 + "by itself. Launching on it yourself always works.",
+             "The account you are signed into on claude.ai. Tally publishes artifacts from it, and "
+                 + "can keep part of its quota free for you."] {
+    let entry = catalogueStrings[word] as? [String: Any]
+    let localizations = entry?["localizations"] as? [String: Any] ?? [:]
+    check("\(word.prefix(30)) is translated into every language Tally ships",
+          ["zh-Hant", "zh-Hans", "ja", "ko"].allSatisfy { localizations[$0] != nil })
+}
 
 print(failed == 0 ? "ALL \(passed) PASS" : "\(failed) FAILED")
 exit(failed == 0 ? 0 : 1)

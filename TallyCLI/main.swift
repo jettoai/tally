@@ -224,10 +224,21 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     // just failed. `launchPick` also carries the "quarantine left nothing, launch anyway" fallback,
     // and is what `tally status` and the app's badge predict this launch with.
     let quarantined = quarantinedAccounts(forPrimary: primaryModel)
+    // What each account's owner keeps for their own browser use (AccountReserve.swift). Read HERE
+    // and nowhere above: every branch that got this far chose an account by name - a `--account`
+    // flag, a panel pin, this project's own pin - and a reserve is an instruction about the picks
+    // Tally makes for itself.
+    let reserves = accountReserves()
     guard let account = launchPick(providerID: provider.id, in: snapshot,
-                                   primaryModel: primaryModel, quarantined: quarantined) else {
+                                   primaryModel: primaryModel, quarantined: quarantined,
+                                   reserves: reserves) else {
         warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
         exec(provider.cli, args: startModeArgs(passthrough, home: defaultHome(provider)), env: nil)
+    }
+    // The whole fleet is under its own water line and this launch had to spend some of it anyway:
+    // said before the arrow, because it is the part of the sentence the reader did not expect.
+    if let dip = reserveDipNotice(account, primaryModel: primaryModel, reserves: reserves) {
+        warn(dip)
     }
     warn("→ \(account.label) (\(pickReason(account, primaryModel: primaryModel)))")
     let args = startModeArgs(passthrough, home: account.launchHome!)
@@ -252,7 +263,12 @@ func runStatus(json: Bool = false) {
         if !json { print(tallyStatusHelpHint) }
         exit(1)
     }
-    let advisor = loadAdvisorReadings(plans: accountPlans(snapshot))
+    // What each account's owner keeps for their own use, read once for the whole report: the arrow
+    // predicts a launch and the advisor's verdict is about the capacity Tally may actually spend,
+    // so both read it (AccountReserve.swift).
+    let reserves = accountReserves()
+    let advisor = loadAdvisorReadings(plans: accountPlans(snapshot),
+                                      reserves: accountReserveIDs(snapshot, reserves))
     // The arrow marks the account a launch WOULD land on, so it has to skip what the launcher
     // skips: a quarantined account (see Quarantine.swift). Read once for both output shapes.
     //
@@ -279,7 +295,7 @@ func runStatus(json: Bool = false) {
                                               quarantined: quarantined,
                                               accountSessions: live.accountSessions,
                                               sessions: live.sessions,
-                                              projectPolicy: profile)))
+                                              projectPolicy: profile, reserves: reserves)))
         return
     }
     // Said before the rows, because it changes how they read: these arrows were placed under this
@@ -300,7 +316,8 @@ func runStatus(json: Bool = false) {
         // Both markers from the one resolver the JSON uses (StatusReport.swift), so the two output
         // shapes cannot disagree about which account a launch would land on.
         let (bestID, pinnedID) = launchMarkers(providerID: provider.id, in: snapshot, policy: policy,
-                                               quarantined: quarantined[provider.id] ?? [])
+                                               quarantined: quarantined[provider.id] ?? [],
+                                               reserves: reserves)
         for account in accounts {
             let pinned = account.id == pinnedID
             let marker = account.id == bestID ? "→" : " "

@@ -198,6 +198,7 @@ func applySessionModel(plan: inout TickPlan, state: inout SessionModelState,
                        policy: LaunchPolicy, account: Snapshot.Account, providerID: String,
                        launchArgs: [String], accountPinned: Bool,
                        quarantine: [String: (model: String?, until: Date)],
+                       reserves: AccountReserves = .none,
                        watcher: inout TranscriptWatcher, childAge: TimeInterval,
                        keyboardIdle: (TimeInterval) -> Bool,
                        dir: URL = modelRequestDir,
@@ -293,7 +294,8 @@ func applySessionModel(plan: inout TickPlan, state: inout SessionModelState,
     let (target, dryPool) = sessionModelTarget(
         accountPinned: accountPinned, incumbent: account, providerID: providerID,
         model: pair.model, snapshot: snapshot, problem: problem,
-        excluding: quarantinedAccounts(forPrimary: pair.model, sessionLocal: quarantine))
+        excluding: quarantinedAccounts(forPrimary: pair.model, sessionLocal: quarantine),
+        reserves: reserves)
     if dryPool {
         // DELIBERATELY THE OPPOSITE OF THE FOLLOW ADOPTION'S DEAD END, which holds the change and
         // waits for an account to free up (FollowAdoption.swift). That is right there: a follow is
@@ -449,12 +451,13 @@ func sessionModelPair(_ request: ModelRequest, policy: LaunchPolicy,
 ///     follow. Staying is not refusing: the model change still happens, on this account.
 func sessionModelTarget(accountPinned: Bool, incumbent: Snapshot.Account, providerID: String,
                         model: String?, snapshot: Snapshot?, problem: String?,
-                        excluding: Set<String>) -> (target: Snapshot.Account, dryPool: Bool) {
+                        excluding: Set<String>, reserves: AccountReserves = .none)
+    -> (target: Snapshot.Account, dryPool: Bool) {
     guard !accountPinned else { return (incumbent, false) }
     guard problem == nil, let snapshot else { return (incumbent, false) }
     guard let repick = incumbentSeededBest(providerID: providerID, in: snapshot,
                                            incumbentID: incumbent.id, primaryModel: model,
-                                           excluding: excluding) else {
+                                           excluding: excluding, reserves: reserves) else {
         return (incumbent, true)
     }
     return (repick, false)

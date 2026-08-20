@@ -38,13 +38,15 @@ struct AccountCardView: View {
             } else {
                 if let headline = usage.headline {
                     MetricRowView(metric: headline, mode: settings.displayMode, prominent: true,
-                                  settlingReset: facts.isSettlingReset)
+                                  settlingReset: facts.isSettlingReset,
+                                  reserve: facts.reservePercent)
                 }
                 if !facts.secondaryMetrics.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(facts.secondaryMetrics) { metric in
                             MetricRowView(metric: metric, mode: settings.displayMode,
-                                          settlingReset: facts.isSettlingReset)
+                                          settlingReset: facts.isSettlingReset,
+                                          reserve: facts.reservePercent)
                         }
                     }
                 }

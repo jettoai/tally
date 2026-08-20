@@ -729,6 +729,7 @@ runSessionSendChecks()
 runSessionClearChecks()
 runDraftStashChecks()
 runQuotaKnockChecks()
+runReserveMoverChecks()
 runKnockChannelChecks()
 runKnockHookChecks()
 // LAST, because it registers the capture flag in this process's defaults and everything after it

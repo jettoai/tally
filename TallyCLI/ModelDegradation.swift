@@ -38,6 +38,7 @@ func applyDegradationRescue(plan: inout RelaunchPlan?, watcher: inout Transcript
                             providerID: String, primaryModel: String?,
                             quarantine: [String: (model: String?, until: Date)],
                             steering: Bool, fuseAllows: Bool,
+                            reserves: AccountReserves = .none,
                             snapshot loadSnapshotting: () -> (Snapshot?, String?) = loadSnapshot) {
     guard plan == nil, !driftActive, let primary = primaryModel?.lowercased(),
           let actual = watcher.lastModel?.lowercased(),
@@ -53,14 +54,21 @@ func applyDegradationRescue(plan: inout RelaunchPlan?, watcher: inout Transcript
     let currentDry = (snapshot?.accounts
         .first { $0.id == account.id }?.modelRemaining).map { $0 <= 5 } ?? true
     let excluded = quarantinedAccounts(forPrimary: primaryModel, sessionLocal: quarantine)
+    // `aboveReserve` is the one thing this pick takes from the reserve feature, and it is the whole
+    // of what it needs: this ranks on a bare score with no comfort gate in front of it, so without
+    // it a rescue would be the one automatic move in the product that lands on an account under the
+    // line its owner drew. Nothing else changes - the rescue is still refused, and the session still
+    // takes the configured fallback pairing one call later, which is the answer when no sibling can
+    // serve the model for any reason.
     let rescue = !currentDry ? nil : snapshot?.accounts
         .filter { $0.provider == providerID
             && eligible($0, primaryModel: primaryModel)
             && $0.id != account.id && ($0.modelRemaining ?? 0) > 5
-            && !excluded.contains($0.id) }
+            && !excluded.contains($0.id)
+            && aboveReserve($0, primaryModel: primaryModel, reserves: reserves) }
         .max {
-            smartScore($0, primaryModel: primaryModel)
-                < smartScore($1, primaryModel: primaryModel)
+            smartScore($0, primaryModel: primaryModel, reserves: reserves)
+                < smartScore($1, primaryModel: primaryModel, reserves: reserves)
         }
     if let rescue {
         warn("\(actual) took over from \(primary) → moving to \(rescue.label) " +

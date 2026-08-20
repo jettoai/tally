@@ -15,6 +15,8 @@ trap 'rm -rf "$work"' EXIT
 # The script itself, out of the constant the CLI prints it from.
 swiftc -o "$work/dump" tests/completion/main.swift \
   TallyCLI/Completion.swift TallyCLI/CompletionData.swift TallyCLI/Snapshot.swift TallyCLI/AccountPick.swift \
+  TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
+  Tally/Core/ArtifactHookContract.swift \
   TallyCLI/AccountComfort.swift TallyCLI/ProviderExecutable.swift TallyCLI/ResumePrompt.swift \
   Tally/Core/LaunchAxisNames.swift
 mkdir -p "$work/fpath" "$work/stub" "$work/repo"

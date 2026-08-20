@@ -60,6 +60,7 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                             account: Snapshot.Account, providerID: String, launchArgs: [String],
                             primaryModel: inout String?,
                             quarantine: [String: (model: String?, until: Date)],
+                            reserves: AccountReserves = .none,
                             watcher: inout TranscriptWatcher, childAge: TimeInterval,
                             keyboardIdle: (TimeInterval) -> Bool,
                             modelRequest: (String) -> ModelRequest? = {
@@ -111,12 +112,13 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                       // that - run the pair the user asked for, here.
                       accountPinned: !steering || moves.sessionPin != nil
                           || policy.mode == "manual",
-                      quarantine: quarantine, watcher: &watcher, childAge: childAge,
+                      quarantine: quarantine, reserves: reserves,
+                      watcher: &watcher, childAge: childAge,
                       keyboardIdle: keyboardIdle, request: modelRequest(model.sessionKey))
     plan = planning.plan
     applyFollowAdoption(plan: &plan, state: &follow, following: following && !model.isPinned,
                         policy: policy, account: account, providerID: providerID,
                         steering: steering,
-                        launchArgs: launchArgs, quarantine: quarantine, watcher: &watcher,
-                        keyboardIdle: keyboardIdle)
+                        launchArgs: launchArgs, quarantine: quarantine, reserves: reserves,
+                        watcher: &watcher, keyboardIdle: keyboardIdle)
 }

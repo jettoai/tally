@@ -13,5 +13,6 @@ cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/accountrow/main.swift \
   Tally/Core/AccountSignIn.swift Tally/Core/AccountIdentity.swift \
-  Tally/Core/AccountListState.swift
+  Tally/Core/AccountListState.swift \
+  Tally/Core/AccountReserve.swift Tally/Core/ArtifactHookContract.swift
 "$out"

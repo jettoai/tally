@@ -296,14 +296,14 @@ check("and the pick reason quotes no countdown for it",
       pickReason(virginAccount, primaryModel: nil, now: now) == "weekly 100%")
 
 // The app scores the same snapshot for its smart badge from its own copy of `ratedWindows`
-// (LaunchPolicyStore.swift, "keep both sides in lockstep"), and a rule living in one copy means the
-// badge naming one account while the launcher takes another. This suite compiles the CLI only, so
-// the mirror is checked as source text: crude, and still the difference between the two halves
+// (LaunchPolicyScoring.swift, "keep both sides in lockstep"), and a rule living in one copy means
+// the badge naming one account while the launcher takes another. This suite compiles the CLI only,
+// so the mirror is checked as source text: crude, and still the difference between the two halves
 // drifting silently and a failing test.
-let appPolicySource = (try? String(contentsOfFile: "Tally/Stores/LaunchPolicyStore.swift",
+let appPolicySource = (try? String(contentsOfFile: "Tally/Stores/LaunchPolicyScoring.swift",
                                    encoding: .utf8)) ?? ""
 check("the app's copy of the scoring is readable from here (guard the premise)",
-      appPolicySource.contains("private static func ratedWindows"))
+      appPolicySource.contains("static func ratedWindows"))
 check("and it carries the untouched-window anchor too, behind the same fixed-cycle gate",
       appPolicySource.contains("fixedCycle && metric.remainingPercent >= 100")
           && appPolicySource.contains("fullWindowHours / 2 * 3600")
@@ -315,6 +315,27 @@ check("and it opts its weekly window in",
       appPolicySource.contains("window(\"weekly\", weekly, fullWindowHours: 168, fixedCycle: true)"))
 check("and leaves its 5h session window out",
       !appPolicySource.contains("fullWindowHours: 5, fixedCycle: true"))
+// AND IT TAKES THE RESERVE OFF THE RATE, the same subtraction in the same place as `ratedWindows`
+// above. Ranking is where "spend somewhere else if you can" bites, so a copy that ranked on the raw
+// percentage would put the badge on the personal account while `tally` spent a sibling - the badge
+// naming one account and the launcher taking another, which is the drift this block guards.
+// (The behaviour itself is asserted on values in tests/integrations/smartbadgechecks.swift, the one
+// suite that compiles the app's store.)
+check("and its rate is what Tally may spend, the reserve taken off",
+      appPolicySource.contains("(metric.remainingPercent - reserve) / hours"))
+// THE REST OF THAT SUBTRACTION'S JOURNEY, because taking it off the rate is only the first of three
+// places it has to land. The rules the two targets share are compiled from one file
+// (Tally/Core/AccountReserve.swift, listed under both targets); the SCORING is mirrored, so these
+// are the mirror's remaining halves.
+check("and it hands the reserve across into the gate's window rather than re-deriving it",
+      appPolicySource.contains("reserve: $0.reserve"))
+check("and it has the launch fallback's other half, so the badge does not blank a dipping fleet",
+      appPolicySource.contains("static func aboveReserve"))
+// THE HALF THAT MUST NOT MIRROR: the sentence under the badge quotes the provider's own percentage,
+// on both sides. A reserve can shift which window BINDS a pick; it may never change a number a
+// person reads (`windowReason` states the rule for the CLI).
+check("…while the badge's own sentence is scored reserve-blind, as `pickReason` is",
+      appPolicySource.contains("ratedWindows(usage, primaryModel: primaryModel, now: now)"))
 
 // 8. The pick reason names the binding window with its reset ETA.
 let reason = pickReason(dyingA, primaryModel: nil, now: now)
@@ -492,5 +513,6 @@ check("a quarantine on an ineligible account changes nothing",
       preview([healthy, sibling], quarantined: ["C"]) == "A")
 
 runLaunchChecks()
+runReserveChecks()
 
 exit(failures == 0 ? 0 : 1)

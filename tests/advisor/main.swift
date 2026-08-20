@@ -225,5 +225,59 @@ let perProvider = UsageAdvisor.readings(samples: multi, now: now,
 check("readings() passes the plan lookup down",
       perProvider.first?.tierDemands.first?.plan == "Max 20x")
 
+// MARK: - 12. The personal account's reserve
+
+// CONSUMER 7 OF THE RESERVE (Tally/Core/AccountReserve.swift). The question this file answers is "do
+// these accounts cover the demand", and the honest form of it is about the part of them TALLY MAY
+// SPEND: an account with 30 points held back for the browser is 0.7 of an account here. Without
+// that, a fleet whose spendable half is saturated reads as comfortable because of quota sitting
+// behind a preference nobody is allowed to touch.
+//
+// 12a. CAPACITY. Two accounts, one of them half reserved, burning 1.2 account-weeks between them:
+//      1.2 / 2 = 0.60 against the 0.9 trigger, and 1.2 / 1.5 = 0.80 with the reserve counted. The
+//      fixture is deliberately below the trigger BOTH ways, because what is asserted here is the
+//      ratio the verdict is computed from rather than the verdict, and a fixture that flipped the
+//      verdict would pass on either number being wrong in the right direction.
+let sharedLoad = [
+    s("a1", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("a1", "weeklyAll", used: 60, at: daysAgo(1)),
+    s("a2", "weeklyAll", used: 0, at: daysAgo(14)),
+    s("a2", "weeklyAll", used: 180, at: daysAgo(1)),
+]
+let halfReserved = UsageAdvisor.reading(provider: "claude", samples: sharedLoad, now: now,
+                                        reserveOf: { $0 == "a1" ? 50 : 0 })
+let unreserved = UsageAdvisor.reading(provider: "claude", samples: sharedLoad, now: now)
+check("the reserved fleet reads as tighter than the same fleet without a reserve",
+      (halfReserved.map { $0.verdict } ?? .collecting) == .addAccount
+          && (unreserved.map { $0.verdict } ?? .collecting) == .sufficient)
+// 12b. A fleet nobody reserved anything on is untouched, which is every fleet until somebody sets
+//      one - the default argument and an explicit zero have to be the same reading.
+let explicitZero = UsageAdvisor.reading(provider: "claude", samples: sharedLoad, now: now,
+                                        reserveOf: { _ in 0 })
+check("no reserve anywhere leaves the verdict exactly where it was",
+      explicitZero?.verdict == unreserved?.verdict)
+// 12c. STARVATION. An account with 30 points held back can absorb no more work at 69% used, not at
+//      99%: the points its owner kept were never work this fleet could absorb. The pool counts as
+//      starved only while EVERY account is, so the fixture starves the sibling outright and lets
+//      the reserve decide the reserved one.
+let brownout = [
+    s("a1", "weeklyAll", used: 70, at: daysAgo(9)),
+    s("a1", "weeklyAll", used: 70, at: daysAgo(1)),
+    s("a2", "weeklyAll", used: 100, at: daysAgo(9)),
+    s("a2", "weeklyAll", used: 100, at: daysAgo(1)),
+]
+let starved = UsageAdvisor.reading(provider: "claude", samples: brownout, now: now,
+                                   reserveOf: { $0 == "a1" ? 30 : 0 })
+let notStarved = UsageAdvisor.reading(provider: "claude", samples: brownout, now: now)
+check("a reserved account starves at its own line, not at the raw one",
+      (starved?.starvedHoursPerWeek ?? 0) > 0)
+check("…and the same fleet reports no starvation without the reserve",
+      (notStarved?.starvedHoursPerWeek ?? -1) == 0)
+// 12d. The provider-wide entry point carries the lookup through, exactly as it does the plan one.
+check("readings() passes the reserve lookup down",
+      UsageAdvisor.readings(samples: brownout, now: now,
+                            reserveOf: { $0 == "a1" ? 30 : 0 })
+          .first.map { $0.starvedHoursPerWeek > 0 } ?? false)
+
 print(failures == 0 ? "\nAll advisor tests passed." : "\n\(failures) advisor test(s) FAILED.")
 exit(failures == 0 ? 0 : 1)

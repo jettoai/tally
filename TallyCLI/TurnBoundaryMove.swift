@@ -164,18 +164,21 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
                         draftSuspected: Bool, carryable: Bool, fuseAllows: Bool,
                         agentsIdle: Bool, turnEnded: Bool, toolCallOpen: Bool,
                         current: Snapshot.Account, candidates: [Snapshot.Account],
-                        primaryModel: String?, now: Date = Date(),
+                        primaryModel: String?, reserves: AccountReserves = .none,
+                        now: Date = Date(),
                         claim: () -> Bool = { true }) -> Snapshot.Account? {
     guard turnBoundaryAllowedForSession(steering: steering, mode: mode, blocked: blocked,
                                         keyboardIdle: keyboardIdle,
                                         draftSuspected: draftSuspected, carryable: carryable,
                                         fuseAllows: fuseAllows),
           agentsIdle, turnEnded, !toolCallOpen,
-          !accountIsComfortable(current, primaryModel: primaryModel, now: now),
-          let target = capHandoffTarget(candidates, primaryModel: primaryModel, now: now),
+          !accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves, now: now),
+          let target = capHandoffTarget(candidates, primaryModel: primaryModel,
+                                        reserves: reserves, now: now),
           // Short-circuits, so an exempt move does not ignore the claim's answer: it never asks
           // and takes no record (`claimRebalanceCycle` says why that is the property that matters).
-          accountIsSpent(current, primaryModel: primaryModel, now: now) || claim()
+          accountIsSpent(current, primaryModel: primaryModel, reserves: reserves, now: now)
+              || claim()
     else { return nil }
     return target
 }
@@ -343,6 +346,7 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
                            turnEnded: @autoclosure () -> Bool,
                            toolCallOpen: @autoclosure () -> Bool,
                            quarantine: [String: (model: String?, until: Date)] = [:],
+                           reserves: AccountReserves = .none,
                            // `@autoclosure` for the reason `rebalanceMove` states in full: the
                            // gates above throw nearly every tick away, and a plain default argument
                            // would read and decode `~/.tally/snapshot.json` before this function
@@ -401,7 +405,8 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
         steering: steering, mode: mode, blocked: blocked, keyboardIdle: keyboardIdle,
         draftSuspected: draftSuspected, carryable: carryable, fuseAllows: fuseAllows,
         agentsIdle: true, turnEnded: true, toolCallOpen: false,
-        current: field.current, candidates: field.candidates, primaryModel: primaryModel, now: now,
+        current: field.current, candidates: field.candidates, primaryModel: primaryModel,
+        reserves: reserves, now: now,
         claim: { cycle.map { claimRebalanceCycle(account.id, cycle: $0, dir: dir) } ?? false })
     else { return }
     warn("\(account.label) nearly dry, moving to \(moveTo.label) at the end of this turn "

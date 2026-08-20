@@ -17,6 +17,36 @@ enum DemoUsage {
     /// second line exists to make.
     static let tooltipPreviewAccountID = "codex:demo-Codex 4"
 
+    /// The fixture standing in for the account the user is also signed into on claude.ai: it wears
+    /// the "Personal" mark in the Accounts pane, its bars carry the water line, and it is where the
+    /// reserve stepper appears (PersonalAccount.swift).
+    ///
+    /// "Claude 2" rather than any of the others because of what its numbers do to the picture: at
+    /// 25-52% used, the reserve below is a stretch of EMPTY track rather than a band hidden under a
+    /// full bar, so a capture shows the line, the hatching and the headroom above it all at once.
+    static let personalAccountID = "claude:demo-Claude 2"
+
+    /// And the water line itself, at the figure the row's own sentence quotes.
+    static let personalReserve = 30
+
+    /// The fixtures as DISCOVERY would report them, for the surfaces that draw from existence rather
+    /// than from usage - the Settings account list, which is the pane the marking above lives in.
+    ///
+    /// Without these that pane is empty on a demo launch (the fixture branch replaces the discovery
+    /// pass wholesale), so the one surface that owns this feature could not be photographed at all.
+    ///
+    /// NO LAUNCH HOME, deliberately, which is the rule the whole file is under: a fixture stands for
+    /// an account that does not exist on this machine, so every affordance that would touch a real
+    /// folder - renaming into it, opening it, removing it - stays greyed exactly as it does on a
+    /// demo card. The one home a fixture DOES name is the identity one above, which names without
+    /// touching.
+    static func discoveredAccounts(now: Date = Date()) -> [ProviderAccount] {
+        accounts(now: now).map {
+            ProviderAccount(id: $0.id, providerID: $0.providerID, label: $0.accountLabel,
+                            locator: [:], launchHome: nil)
+        }
+    }
+
     /// The one fixture whose home is NOT under the user's own directory: a `CODEX_HOME` pointed
     /// somewhere else, which the env var allows today. It is the fixture the callout preview holds
     /// open, so the capture that checks this feature checks the shortened form the rule produces

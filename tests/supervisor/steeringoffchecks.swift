@@ -290,23 +290,23 @@ func runSteeringOffChecks() {
         return String(loop[start.upperBound ..< end.upperBound])
     }
     check("the cap station is handed it",
-          call("applyCapHandoff(plan: &plan,", until: "fuseAllows: fuse.allows())")
+          call("applyCapHandoff(plan: &plan,", until: "reserves: reserves)")
               .contains("steering: steering"))
     check("the degradation rescue is handed it",
-          call("applyDegradationRescue(plan: &plan,", until: "fuseAllows: fuse.allows())")
+          call("applyDegradationRescue(plan: &plan,", until: "reserves: reserves)")
               .contains("steering: steering"))
     check("the preventive station is handed it",
-          call("applyProactiveMoves(plan: &plan,", until: "quarantine: quarantine)")
+          call("applyProactiveMoves(plan: &plan,", until: "reserves: reserves)")
               .contains("steering: steering"))
     check("the directives station is handed it, for the follow and the model re-picks",
           call("applySessionDirectives(plan: &plan,", until: "keyboardIdle: { keyboard.idle($0) })")
               .contains("steering: steering"))
     check("the reload's ride on the rebalance is handed it",
-          call("repick: {", until: "quarantine: quarantine)").contains("steering: steering"))
+          call("repick: {", until: "reserves: reserves)").contains("steering: steering"))
     check("the clear-boundary landing is handed it",
-          call("clearBoundary: {", until: "quarantine: quarantine)").contains("steering: steering"))
+          call("clearBoundary: {", until: "reserves: reserves)").contains("steering: steering"))
     check("and the turn-boundary station is handed it",
-          call("applyTurnBoundaryMove(plan: &plan,", until: "quarantine: quarantine)")
+          call("applyTurnBoundaryMove(plan: &plan,", until: "reserves: reserves)")
               .contains("steering: steering"))
     // The two stations where `off` reads as a pin rather than as a refusal say so in the fold
     // itself, so a later edit cannot drop the term while leaving the parameter in place.

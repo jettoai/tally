@@ -101,16 +101,26 @@ enum UsageAdvisor {
     /// demand into tiers. It is a lookup rather than a field on `Sample` because the history has no
     /// plan in it and never will retroactively: a plan change is rare, and the 28-day window heals
     /// one within a month, whereas a stored-per-sample plan would have to be back-filled.
+    ///
+    /// `reserveOf` names the percentage points of each account its owner keeps for their own use
+    /// (Tally's per-account reserve), a lookup for the same reason `planOf` is one: the history has
+    /// no reserve in it and never will retroactively, and what the question here means - "do these
+    /// accounts cover the demand" - is about the part of them Tally may actually spend. An account
+    /// with 30 points held back is 0.7 of an account to this reading, and it is starved 30 points
+    /// earlier than its siblings. Defaults to no reserve anywhere, which is every fleet that has not
+    /// set one and every caller that has not been taught to ask.
     static func readings(samples: [Sample], now: Date = Date(),
-                         planOf: (String) -> String? = { _ in nil }) -> [Reading] {
+                         planOf: (String) -> String? = { _ in nil },
+                         reserveOf: @escaping (String) -> Double = { _ in 0 }) -> [Reading] {
         Dictionary(grouping: samples, by: \.provider).keys.sorted().compactMap { provider in
             reading(provider: provider, samples: samples.filter { $0.provider == provider },
-                    now: now, planOf: planOf)
+                    now: now, planOf: planOf, reserveOf: reserveOf)
         }
     }
 
     static func reading(provider: String, samples: [Sample], now: Date = Date(),
-                        planOf: (String) -> String? = { _ in nil }) -> Reading? {
+                        planOf: (String) -> String? = { _ in nil },
+                        reserveOf: (String) -> Double = { _ in 0 }) -> Reading? {
         guard let earliest = samples.map(\.ts).min() else { return nil }
         let days = now.timeIntervalSince(earliest) / 86_400
         let weeks = max(days / 7, 1e-6)   // div-safety only; the collecting gate handles young data
@@ -124,10 +134,10 @@ enum UsageAdvisor {
         // Binding constraint: the most saturated pool relative to its OWN account capacity - the
         // account-wide weekly, or any single model window. A fable window can be the wall while
         // the account-wide weekly still reads healthy.
-        var bindingRatio = poolRatio(weeklyAll, weeks: weeks)
+        var bindingRatio = poolRatio(weeklyAll, weeks: weeks, reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {
             bindingRatio = max(bindingRatio, poolRatio(weeklyModel.filter { $0.model == model },
-                                                       weeks: weeks))
+                                                       weeks: weeks, reserveOf: reserveOf))
         }
 
         let (burn, activeHours) = activeBurn(weeklyAll)
@@ -136,10 +146,11 @@ enum UsageAdvisor {
         // Starvation is pool-level and conservative: a pool only counts as starved while EVERY one
         // of its accounts is simultaneously at/above the threshold (any account with quota can
         // absorb a handoff). Provider value = the most-starved pool, mirroring bindingRatio.
-        var starvedSeconds = poolStarvedSeconds(weeklyAll, now: now)
+        var starvedSeconds = poolStarvedSeconds(weeklyAll, now: now, reserveOf: reserveOf)
         for model in Set(weeklyModel.compactMap(\.model)) {
             starvedSeconds = max(starvedSeconds,
-                                 poolStarvedSeconds(weeklyModel.filter { $0.model == model }, now: now))
+                                 poolStarvedSeconds(weeklyModel.filter { $0.model == model },
+                                                    now: now, reserveOf: reserveOf))
         }
         let starvedHoursPerWeek = starvedSeconds / 3_600 / weeks
 
@@ -180,10 +191,23 @@ enum UsageAdvisor {
 
     /// A pool's weekly demand as a fraction of its own account capacity (accounts contributing the
     /// window). Zero when the pool has no accounts.
-    private static func poolRatio(_ samples: [Sample], weeks: Double) -> Double {
-        let capacity = Set(samples.map(\.account)).count
-        guard capacity > 0 else { return 0 }
-        return burnSum(samples) / weeks / 100 / Double(capacity)
+    ///
+    /// CAPACITY IS THE PART TALLY MAY SPEND, so an account contributes `(100 - reserve) / 100` of
+    /// an account-week rather than a whole one. Two accounts with 30 points reserved on one of them
+    /// are 1.7 accounts of capacity, and the verdict this feeds - "do I need another account?" - is
+    /// about exactly that number: a fleet whose spendable half is saturated needs another seat no
+    /// matter how much quota is sitting behind somebody's browser reserve. A pool whose accounts are
+    /// entirely reserved has no capacity at all, which is saturation by any demand above zero.
+    private static func poolRatio(_ samples: [Sample], weeks: Double,
+                                  reserveOf: (String) -> Double) -> Double {
+        let capacity = Set(samples.map(\.account))
+            .reduce(0.0) { $0 + (100 - min(max(reserveOf($1), 0), 100)) / 100 }
+        let demand = burnSum(samples) / weeks / 100
+        // Nothing spendable: saturated by any demand at all, and no signal without one. Both halves
+        // matter - a fleet reserved down to nothing and not being used is a preference, not a
+        // shortage, and telling that person to buy a seat would be advice about their own setting.
+        guard capacity > 0 else { return demand > 0 ? .infinity : 0 }
+        return demand / capacity
     }
 
     /// Series = one (account, window, model). Consumption = sum of positive `used` deltas between
@@ -219,12 +243,13 @@ enum UsageAdvisor {
     /// Seconds a whole pool sat starved: the time ALL of its accounts were simultaneously at or
     /// above the starved threshold. One account keeping quota means the pool can still absorb a
     /// handoff, so it is not starved. Zero for an empty pool or any account that never starved.
-    private static func poolStarvedSeconds(_ samples: [Sample], now: Date) -> Double {
+    private static func poolStarvedSeconds(_ samples: [Sample], now: Date,
+                                           reserveOf: (String) -> Double) -> Double {
         let byAccount = Dictionary(grouping: samples, by: \.account)
         guard !byAccount.isEmpty else { return 0 }
         var intersection: [Interval]?
-        for (_, rows) in byAccount {
-            let starved = merge(starvedIntervals(rows, now: now))
+        for (account, rows) in byAccount {
+            let starved = merge(starvedIntervals(rows, now: now, reserve: reserveOf(account)))
             if starved.isEmpty { return 0 }
             intersection = intersection.map { intersect($0, starved) } ?? starved
             if intersection?.isEmpty == true { return 0 }
@@ -237,12 +262,20 @@ enum UsageAdvisor {
 
     /// The spans one account's series sat starved. Per the recorder's change-only contract each
     /// sample's value persists until the next; the last sample extends to `now`.
-    private static func starvedIntervals(_ samples: [Sample], now: Date) -> [Interval] {
+    ///
+    /// AN ACCOUNT WITH A RESERVE STARVES EARLIER, by exactly the size of the reserve: what starved
+    /// means here is "this account can absorb no more work", and the points its owner kept were
+    /// never work this fleet could absorb. Without it, a personal account at 30 points reserved
+    /// would read as healthy through the whole drought Tally spends refusing to touch it, and the
+    /// pool - starved only while EVERY account is - would report no starvation at all.
+    private static func starvedIntervals(_ samples: [Sample], now: Date,
+                                         reserve: Double) -> [Interval] {
+        let threshold = starvedThreshold - min(max(reserve, 0), 100)
         let sorted = samples.sorted { $0.ts < $1.ts }
         var out: [Interval] = []
         for (i, s) in sorted.enumerated() {
             let end = i + 1 < sorted.count ? sorted[i + 1].ts : now
-            guard s.used >= starvedThreshold, end > s.ts else { continue }
+            guard s.used >= threshold, end > s.ts else { continue }
             out.append(Interval(start: s.ts, end: end))
         }
         return out

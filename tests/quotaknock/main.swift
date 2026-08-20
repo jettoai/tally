@@ -320,5 +320,39 @@ let quiet = line(unreported, alternative: nil, sessions: 1)
 expect(quiet.contains("session 6%") && !quiet.contains("resets"),
        "a window with no published reset says how much is left and nothing about when it returns")
 
+// MARK: - 8. The reserve, at the threshold this station reads
+
+// CONSUMER 8 OF THE PERSONAL ACCOUNT'S RESERVE (AccountReserve.swift). The knock warns a session
+// that the account under it is running out, and what "running out" means here has to be the same
+// thing it means to the movers: the part of the account TALLY MAY SPEND. Without that, a personal
+// account with 30 points held back is announced 30 points late - which is to say, after every mover
+// has already refused to place work on it.
+//
+// The threshold itself is `quotaKnockPercent`; what the reserve changes is the reading handed to it,
+// and that reading is taken through the same `bindingWindow` + `effectiveRemaining` pair the gates
+// use, so a drift between the sentence and the refusals is impossible by construction.
+let reserved = AccountReserves(settings: [
+    "/tmp/R": AccountRoleSetting(role: AccountRoles.personal, reserve: 30),
+])
+let browsing = account("R", session: 40, weekly: 90)
+func knockReading(_ acct: Snapshot.Account, reserves: AccountReserves) -> Double {
+    let binding = bindingWindow(acct, primaryModel: nil, reserves: reserves, now: now)
+    return binding.map { effectiveRemaining(comfortWindow($0), now: now) } ?? .nan
+}
+expect(knockReading(browsing, reserves: reserved) <= quotaKnockPercent,
+       "a reserved account at 40% is already inside the knock's threshold")
+expect(knockReading(browsing, reserves: .none) > quotaKnockPercent,
+       "and the same account is nowhere near it when nobody reserved anything")
+// AND THE SENTENCE STILL QUOTES THE PROVIDER'S OWN PERCENTAGE. What the reader is owed is the
+// number their provider published - it has to mean the same thing here, in the panel and on
+// claude.ai - so the reserve moves the threshold and never the news.
+let reservedLine = quotaKnockMessage(
+    account: browsing,
+    alternative: bindingWindow(browsing, primaryModel: nil, reserves: reserved, now: now)
+        .map { _ in healthy },
+    sessions: 1, primaryModel: nil, limit: 200, now: now) ?? ""
+expect(reservedLine.contains("session 40%"),
+       "the knock quotes the reading the provider published, not the reserved one")
+
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all quota-knock tests passed")

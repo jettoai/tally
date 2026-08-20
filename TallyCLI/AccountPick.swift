@@ -7,6 +7,11 @@ import Foundation
 // Every pick below is the same number read differently: `smartScore`, the rate of the account's
 // tightest window. They differ only in the field they start from, the gate they apply to it, and
 // how hard a challenger has to push to take the lead.
+//
+// EVERY PICK ALSO TAKES `reserves`, which is how much of each account its owner keeps for their own
+// use (AccountReserve.swift). A call site that passes the fleet's reserves is saying "Tally chose
+// this"; one that passes `.none` is saying "a person named this account", and there is no third
+// answer - so the parameter is the audit trail for the one rule the feature has.
 
 /// Proven headroom: the tightest of the windows the account actually reports. Any window at 0
 /// means the account is capped right now regardless of the others. The flagship window only
@@ -25,8 +30,20 @@ func headroom(_ account: Snapshot.Account, primaryModel: String? = nil) -> Doubl
     return windows.min() ?? -1
 }
 
+/// Whether an account can be launched or moved onto AT ALL. Deliberately reserve-blind: what a
+/// reserve says is "spend somewhere else if you can", not "this account does not exist", and the
+/// difference is the whole of how `tally claude` still starts when the fleet is under water
+/// (`best`). The reserve is applied by the gate one step later.
+///
+/// `lastRefreshFailed` joins the badge and the error here for the reason `accountIsSpent` gives
+/// about its own copy of the test: a failed poll republishes the last good numbers, so a row held
+/// over from before the failure is spelled exactly like one fetched a moment ago, and every reading
+/// built on it - eligible, comfortable, spent - is a judgement about a moment that has passed. nil
+/// (a snapshot from an app that predates the flag) is "cannot tell" and keeps the account, which is
+/// what the badge and the error are still here for.
 func eligible(_ account: Snapshot.Account, primaryModel: String? = nil) -> Bool {
     account.launchHome != nil && account.error == nil && !account.isStale
+        && account.lastRefreshFailed != true
         && headroom(account, primaryModel: primaryModel) > 0
 }
 
@@ -203,11 +220,23 @@ struct RatedWindow {
     /// inferred anchor (below). Kept apart from `resetsAt` precisely because it can be inferred -
     /// a number good enough to rank two accounts by is not automatically good enough to print.
     let anchor: Date?
+    /// Percentage points of this window its owner reserved for themselves, carried so the gate one
+    /// step downstream weighs the same window this rate was measured on (`comfortWindow`). Zero
+    /// unless the caller handed reserves in.
+    var reserve: Double = 0
+    /// How fast the part of this window Tally may spend can be spent: the EFFECTIVE remaining over
+    /// the hours until the anchor. Reserve-aware because ranking is where "spend somewhere else if
+    /// you can" has to bite - a floor alone would leave a personal account at 90% out-ranking a
+    /// sibling at 70% right up until it crossed the line, which is the opposite of the instruction.
     let rate: Double
 }
 
+/// `reserves` defaults to none so that every caller that has not been taught about them - the
+/// prediction surfaces, the tests, the app - keeps the behaviour it had. The picks that ARE Tally's
+/// own choice pass the fleet's.
 func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
-                  now: Date = Date()) -> [RatedWindow] {
+                  reserves: AccountReserves = .none, now: Date = Date()) -> [RatedWindow] {
+    let reserve = reserves.reserve(for: account)
     /// `fixedCycle` marks a window that turns over on a moment the account does not set: the weekly
     /// one, and the flagship window riding on it. Only those get the midpoint reading, because only
     /// their phase is unknown while untouched. The session window is not one of them (above).
@@ -224,7 +253,7 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
         let anchor = resetsAt ?? inferredAnchor ?? untouchedAnchor
         let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) } ?? fullWindowHours
         return RatedWindow(name: name, remaining: remaining, resetsAt: resetsAt, anchor: anchor,
-                           rate: remaining / hours)
+                           reserve: reserve, rate: (remaining - reserve) / hours)
     }
     var windows = [
         window("session", account.sessionRemaining, account.sessionResetsAt, fullWindowHours: 5),
@@ -254,123 +283,24 @@ func ratedWindows(_ account: Snapshot.Account, primaryModel: String?,
     return windows
 }
 
-/// One rated window as the nearly-dry gate (AccountComfort.swift) sees it, keyed on the ANCHOR: the
-/// gate asks when the wall comes down, and a flagship window with no reset of its own hits the
-/// account's weekly wall. Reading the reported field instead would exempt the weekly window and
-/// refuse the flagship one for the same moment.
-///
-/// One conversion for the whole CLI, so everything that asks the gate about a window weighs it the
-/// same way: the account gate below, and the rebalance cycle key, which names the window this gate
-/// reacted to - and names it by the REPORTED reset, an identity every supervisor agrees on rather
-/// than a judgement.
-func comfortWindow(_ window: RatedWindow) -> ComfortWindow {
-    ComfortWindow(remaining: window.remaining, resetsAt: window.anchor)
-}
-
-/// What the nearly-dry gate weighs for a CLI account: exactly the windows `ratedWindows` counts for
-/// the declared primary model, so the gate never re-decides which windows an account spends. Shared
-/// by both gate policies, so they can differ in what they do with an empty result and in nothing
-/// else.
-private func comfortWindows(_ account: Snapshot.Account, primaryModel: String?,
-                            now: Date) -> [ComfortWindow] {
-    ratedWindows(account, primaryModel: primaryModel, now: now).map(comfortWindow)
-}
-
-/// The launch-side gate: drops the nearly dry, keeps the field whole when nothing is comfortable.
-func preferringComfortable(_ accounts: [Snapshot.Account], primaryModel: String?,
-                           now: Date) -> [Snapshot.Account] {
-    preferringComfortable(accounts, now: now) {
-        comfortWindows($0, primaryModel: primaryModel, now: now)
-    }
-}
-
-/// Whether ONE account still has room to work in, by exactly the gate the picks apply to candidates
-/// (imminent-reset exemption included). Asked of the account a session already RUNS on, which the
-/// filtering helpers above cannot answer: they take a field and return a field.
-func accountIsComfortable(_ account: Snapshot.Account, primaryModel: String?,
-                          now: Date = Date()) -> Bool {
-    isComfortable(comfortWindows(account, primaryModel: primaryModel, now: now), now: now)
-}
-
 /// An account's score is its TIGHTEST window's rate - the binding constraint. `best()` then picks
 /// the account whose binding constraint is loosest, which naturally prefers an account whose low
 /// session quota resets in minutes over one hoarding a bigger but slower-refreshing allowance.
-func smartScore(_ account: Snapshot.Account, primaryModel: String?, now: Date = Date()) -> Double {
-    ratedWindows(account, primaryModel: primaryModel, now: now).map(\.rate).min() ?? -1
-}
-
-/// The window that BINDS an account: its emptiest counted window, by the effective remaining the
-/// nearly-dry gate weighs rather than by the raw percentage. A session window at 3% resetting in
-/// five minutes is a full window to that gate, and a reader told the account is dying because of it
-/// would be told something the gate does not believe.
-///
-/// One derivation for every caller that asks "which window is this account's problem": the
-/// rebalance keys its per-drought claim on it, and the advisory knock quotes it. nil when the
-/// account reports no counted windows at all.
-func bindingWindow(_ account: Snapshot.Account, primaryModel: String?,
-                   now: Date = Date()) -> RatedWindow? {
-    ratedWindows(account, primaryModel: primaryModel, now: now)
-        .min { effectiveRemaining(comfortWindow($0), now: now)
-                 < effectiveRemaining(comfortWindow($1), now: now) }
-}
-
-/// Whether an account is SPENT rather than merely nearly dry: its binding window has no effective
-/// remaining at all, so there is no work left on it to be had. The far end of the same scale
-/// `accountIsComfortable` reads, beside it for that reason.
-///
-/// ITS ONE READER IS THE REBALANCE CLAIM (Rebalance.swift), where a spent account is exempt from
-/// the one-move-per-drought record: what justifies refusing a move here is that the cap handoff
-/// will make it later, and a cap handoff needs a turn to hit a wall, which an idle session on an
-/// empty account never produces.
-///
-/// EFFECTIVE remaining, through the gate's own scale rather than a raw percentage, which is what
-/// keeps the exemption honest at both ends. A window minutes from resetting reads as FULL there, so
-/// "0% resetting in five minutes" is not a spent account and the claim still governs it; and it
-/// asks about the same window the claim keys on, so the exemption and the record can never disagree
-/// about which window made the account dry.
-///
-/// ZERO AND NOT THE 5% LINE, deliberately. The stampede the claim exists to stop is a real drought,
-/// and 1% is one - the 2026-08-02 double move ran on a 1% window. What changes at zero is not how
-/// dry the account is but what NOT moving costs, which is the whole of the argument above.
-///
-/// An account reporting no counted windows is not spent. Nothing is known about it, and an
-/// exemption invented out of missing data is a move made on evidence nobody has.
-///
-/// NEITHER IS A HELD-OVER ONE, the same sentence about missing data wearing the clothes of a
-/// reading. A failed refresh keeps the last good numbers (`foldLastGood`, Core/LastGoodFold.swift),
-/// so a zero left from before the failure is spelled exactly like one read a moment ago, and every
-/// idle supervisor on that account holds it on the same tick: exempted together they land on one
-/// sibling at once, the stampede the claim was written to stop. It asks `lastRefreshFailed` rather
-/// than the badge because `isStale` waits for a second consecutive failure so the app's "Outdated"
-/// badge cannot flicker on a token rotation, and that debounce leaves a poll interval in which a
-/// failed round is published looking like a successful one. Badge and `error` stay behind it for
-/// the sustained case and for snapshots older than the flag, where nil is "cannot tell" and the
-/// first failing round is still unannounced: a gap closed by updating the app, not by guessing.
-func accountIsSpent(_ account: Snapshot.Account, primaryModel: String?,
-                    now: Date = Date()) -> Bool {
-    guard account.lastRefreshFailed != true, account.error == nil, !account.isStale,
-          let binding = bindingWindow(account, primaryModel: primaryModel, now: now) else {
-        return false
-    }
-    return effectiveRemaining(comfortWindow(binding), now: now) <= 0
-}
-
-/// One window as a person reads it: "weekly 32% · resets 2d", and without the tail when the
-/// provider published no reset time. Its own function because two sentences quote a window - the
-/// reason behind a pick, and the advisory knock's news about the account a session is on - and two
-/// spellings of the same reading is how they would come to disagree about what 32% of a week means.
-func windowReason(_ window: RatedWindow, now: Date = Date()) -> String {
-    var text = "\(window.name) \(Int(window.remaining.rounded()))%"
-    if let resetsAt = window.resetsAt {
-        text += " · resets \(shortETA(resetsAt.timeIntervalSince(now)))"
-    }
-    return text
+func smartScore(_ account: Snapshot.Account, primaryModel: String?,
+                reserves: AccountReserves = .none, now: Date = Date()) -> Double {
+    ratedWindows(account, primaryModel: primaryModel, reserves: reserves, now: now)
+        .map(\.rate).min() ?? -1
 }
 
 /// The human reason behind a pick: its binding window, e.g. "weekly 32% · resets 2d".
 ///
 /// The window whose RATE binds, which is the question a pick asks (how hard can this account be
 /// pushed), and deliberately not the one `bindingWindow` names (how close is the wall).
+///
+/// Reserve-blind, and it takes no `reserves` to be so: this is a sentence for a person, the rate is
+/// only being used to choose WHICH window to quote, and the percentage it prints is the provider's
+/// (`windowReason` states that rule). A reserve can shift which window binds; it can never make a
+/// reader's line disagree with `tally status`.
 func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = Date()) -> String {
     guard let binding = ratedWindows(account, primaryModel: primaryModel, now: now)
         .min(by: { $0.rate < $1.rate }) else { return "no usage windows" }
@@ -392,19 +322,33 @@ func pickReason(_ account: Snapshot.Account, primaryModel: String?, now: Date = 
 let smartPickMargin = 1.15
 let smartPickMinGain = 0.05   // %/h
 
+///
+/// WHEN NOBODY IS ABOVE THEIR RESERVE, THIS PICK DROPS THE RESERVES ENTIRELY and ranks the fleet as
+/// it did before the feature existed. A launch has nowhere else to go: refusing to start a session
+/// because of a preference set weeks ago is a worse outcome than spending 3% of it, and the launcher
+/// says so out loud when it happens (`reserveDipNotice`). Dropped rather than ranked-on-negatives,
+/// because negative rates are not a scale - the hysteresis gates below were written for a quantity
+/// with a floor at zero, and letting them compare -0.06 against -0.05 would decide the fleet's
+/// worst-case launch by an accident of arithmetic. On a fleet with no reserves set this substitution
+/// cannot fire at all: an eligible account has every window above zero, so it is above a reserve of
+/// zero by definition.
 func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil,
-          excluding: Set<String> = [], now: Date = Date()) -> Snapshot.Account? {
+          excluding: Set<String> = [], reserves: AccountReserves = .none,
+          now: Date = Date()) -> Snapshot.Account? {
     // The nearly-dry gate runs first (AccountComfort.swift): a rate cannot tell "healthy" from
     // "1% left with a close reset", so accounts that are actually dry leave before the ordering.
     let eligibleAccounts = snapshot.accounts.filter {
         $0.provider == providerID && eligible($0, primaryModel: primaryModel)
             && !excluding.contains($0.id)
     }
-    let candidates = preferringComfortable(eligibleAccounts, primaryModel: primaryModel, now: now)
+    let reserves = aboveReserve(eligibleAccounts, primaryModel: primaryModel, reserves: reserves,
+                                now: now).isEmpty ? .none : reserves
+    let candidates = preferringComfortable(eligibleAccounts, primaryModel: primaryModel,
+                                           reserves: reserves, now: now)
     guard var leader = candidates.first else { return nil }
-    var leaderScore = smartScore(leader, primaryModel: primaryModel, now: now)
+    var leaderScore = smartScore(leader, primaryModel: primaryModel, reserves: reserves, now: now)
     for candidate in candidates.dropFirst() {
-        let score = smartScore(candidate, primaryModel: primaryModel, now: now)
+        let score = smartScore(candidate, primaryModel: primaryModel, reserves: reserves, now: now)
         if score > leaderScore * smartPickMargin, score > leaderScore + smartPickMinGain {
             leader = candidate
             leaderScore = score
@@ -441,8 +385,14 @@ func best(providerID: String, in snapshot: Snapshot, primaryModel: String? = nil
 /// no claim to serialize it - five sessions adopting at once would all land on the one healthy
 /// sibling, which is the storm above wearing a different hat. Moving a session off a dying account
 /// is the idle rebalance's job (Rebalance.swift), where it happens once per account per drought.
+///
+/// A RESERVE BINDS THE CHALLENGERS AND NOT THE INCUMBENT, which falls out of the seeding rather than
+/// being a rule of its own and is the right answer either way: a session already ON the personal
+/// account is not moved by this station (that is the idle rebalance's job, once per drought), and
+/// nothing may be moved onto an account under its line.
 func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID: String,
                          primaryModel: String?, excluding: Set<String> = [],
+                         reserves: AccountReserves = .none,
                          now: Date = Date()) -> Snapshot.Account? {
     let candidates = snapshot.accounts.filter {
         $0.provider == providerID && eligible($0, primaryModel: primaryModel)
@@ -452,14 +402,13 @@ func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID:
     // fall back to the plain best of what remains.
     guard var leader = candidates.first(where: { $0.id == incumbentID }) else {
         return best(providerID: providerID, in: snapshot, primaryModel: primaryModel,
-                    excluding: excluding, now: now)
+                    excluding: excluding, reserves: reserves, now: now)
     }
-    var leaderScore = smartScore(leader, primaryModel: primaryModel, now: now)
-    let challengers = requiringComfortable(candidates.filter { $0.id != incumbentID }, now: now) {
-        comfortWindows($0, primaryModel: primaryModel, now: now)
-    }
+    var leaderScore = smartScore(leader, primaryModel: primaryModel, reserves: reserves, now: now)
+    let challengers = requiringComfortable(candidates.filter { $0.id != incumbentID },
+                                           primaryModel: primaryModel, reserves: reserves, now: now)
     for candidate in challengers {
-        let score = smartScore(candidate, primaryModel: primaryModel, now: now)
+        let score = smartScore(candidate, primaryModel: primaryModel, reserves: reserves, now: now)
         if score > leaderScore * smartPickMargin, score > leaderScore + smartPickMinGain {
             leader = candidate
             leaderScore = score
@@ -474,13 +423,16 @@ func incumbentSeededBest(providerID: String, in snapshot: Snapshot, incumbentID:
 /// gate: unlike a launch, this has a live session to lose, and a thin account is not worth the
 /// restart it costs, so an empty field means wait rather than move. Waiting is not giving up: the
 /// supervisor keeps polling and hands off the moment a sibling is genuinely usable.
+///
+/// THE ONE TARGET-CHOOSER EVERY AUTOMATIC MOVE SHARES (cap handoff, idle rebalance, turn boundary,
+/// window repick), which is also where "a reserve is never crossed by a move" is enforced for all
+/// four at once: the strict gate drops an account under its line, and no target means wait.
 func capHandoffTarget(_ eligibleAccounts: [Snapshot.Account], primaryModel: String?,
+                      reserves: AccountReserves = .none,
                       now: Date = Date()) -> Snapshot.Account? {
-    requiringComfortable(eligibleAccounts, now: now) {
-        comfortWindows($0, primaryModel: primaryModel, now: now)
-    }
-    .max { smartScore($0, primaryModel: primaryModel, now: now)
-        < smartScore($1, primaryModel: primaryModel, now: now) }
+    requiringComfortable(eligibleAccounts, primaryModel: primaryModel, reserves: reserves, now: now)
+        .max { smartScore($0, primaryModel: primaryModel, reserves: reserves, now: now)
+            < smartScore($1, primaryModel: primaryModel, reserves: reserves, now: now) }
 }
 
 /// The account an automatic launch would actually land on: `best` with the live cap quarantine
@@ -493,8 +445,10 @@ func capHandoffTarget(_ eligibleAccounts: [Snapshot.Account], primaryModel: Stri
 /// the picker was broken rather than that the badge was. One function, so a display cannot
 /// contradict what launching does.
 func launchPick(providerID: String, in snapshot: Snapshot, primaryModel: String?,
-                quarantined: Set<String>, now: Date = Date()) -> Snapshot.Account? {
+                quarantined: Set<String>, reserves: AccountReserves = .none,
+                now: Date = Date()) -> Snapshot.Account? {
     best(providerID: providerID, in: snapshot, primaryModel: primaryModel,
-         excluding: quarantined, now: now)
-        ?? best(providerID: providerID, in: snapshot, primaryModel: primaryModel, now: now)
+         excluding: quarantined, reserves: reserves, now: now)
+        ?? best(providerID: providerID, in: snapshot, primaryModel: primaryModel,
+                reserves: reserves, now: now)
 }

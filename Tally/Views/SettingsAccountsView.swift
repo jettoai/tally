@@ -122,6 +122,15 @@ struct SettingsAccountsView: View {
                     badge: items.count > 1 ? index + 1 : nil,
                     moveUp: index > 0 ? { swapAccounts(items, index, index - 1) } : nil,
                     moveDown: index < items.count - 1 ? { swapAccounts(items, index, index + 1) } : nil)
+                // The reserve belongs to the marked account and appears NOWHERE ELSE - not greyed on
+                // the other rows, not a line the pane always carries. A machine with one account, or
+                // one where nobody has marked theirs, has nothing to reserve quota from, and a
+                // control standing there anyway is a question the user cannot answer.
+                if let home = PersonalAccount.home(accountID: item.id, launchHome: item.launchHome),
+                   PersonalAccount.isPersonal(accountID: item.id, home: home) {
+                    rowDivider
+                    reserveRow(home, underBadge: items.count > 1)
+                }
             }
         }
     }
@@ -212,7 +221,11 @@ struct SettingsAccountsView: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                nameLine(item, showsHome: badge != nil)
+                nameLine(item, showsHome: badge != nil,
+                         isPersonal: PersonalAccount.isPersonal(
+                            accountID: item.id,
+                            home: PersonalAccount.home(accountID: item.id,
+                                                       launchHome: item.launchHome)))
 
                 identityLine(item, usage: usage)
 
@@ -265,12 +278,23 @@ struct SettingsAccountsView: View {
             // switches inside a 500pt window, and measured here on 2026-08-04 the pencil, the arrows
             // and this button together truncated both the address AND the percentages.
             Menu {
+                let personalHome = PersonalAccount.home(accountID: item.id,
+                                                        launchHome: item.launchHome)
                 AccountActionsMenu(accountID: item.id, providerID: item.providerID,
                                    label: settings.displayLabel(accountID: item.id,
                                                                 fallback: item.label),
                                    home: item.launchHome,
                                    rename: { renamingAccountID = item.id },
-                                   moveUp: moveUp, moveDown: moveDown)
+                                   moveUp: moveUp, moveDown: moveDown,
+                                   // Offered on Claude rows alone, and only where there is a home to
+                                   // store the marking under (PersonalAccount.canMark).
+                                   togglePersonal: PersonalAccount.canMark(
+                                       providerID: item.providerID, home: personalHome)
+                                       ? { PersonalAccount.toggle(accountID: item.id,
+                                                                  home: personalHome) }
+                                       : nil,
+                                   isPersonal: PersonalAccount.isPersonal(accountID: item.id,
+                                                                          home: personalHome))
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.caption)
@@ -347,11 +371,17 @@ struct SettingsAccountsView: View {
     /// provider's own name already said. With siblings it is the discriminator that never fails - two
     /// accounts cannot share a directory - and it is what a nickname takes away, since the default
     /// name is derived from that very directory ("Codex 2" ← `~/.codex2`, ClaudeAccounts.swift).
-    private func nameLine(_ item: ProviderAccount, showsHome: Bool) -> some View {
+    private func nameLine(_ item: ProviderAccount, showsHome: Bool,
+                          isPersonal: Bool) -> some View {
         HStack(spacing: 6) {
             Text(settings.displayLabel(accountID: item.id, fallback: item.label))
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
+            // The marking rides the NAME line rather than the status line below it, for the reason
+            // the home does: the status line carries a plan and two percentages inside a 500pt
+            // window and truncates as soon as anything joins it. At most one row in the pane ever
+            // wears this, and the word is short.
+            if isPersonal { personalBadge }
             if showsHome, let home = item.launchHome {
                 // Never the part that gives way: it is short, it is fixed, and a half-written path
                 // ("~/.clau…") could name either of the two accounts it is here to separate. A long
@@ -393,89 +423,5 @@ struct SettingsAccountsView: View {
                 .truncationMode(.middle)
                 .help(email)
         }
-    }
-
-    /// The row's login state: an inline "Sign in again" in the severity colour when the account is
-    /// signed out, the running renewal while one is in flight, nothing at all otherwise.
-    ///
-    /// The same button the card's expiry chip is, in the same colour, starting the same renewal
-    /// through the same store - this list is simply the other place people look for it. Which state
-    /// wins is decided in AccountSignIn.swift, so the two surfaces cannot disagree about whether an
-    /// account needs signing in.
-    @ViewBuilder
-    private func signInState(_ state: AccountSignIn.State, _ item: ProviderAccount) -> some View {
-        let renew = RenewLoginStore.shared
-        switch state {
-        case .signedIn:
-            EmptyView()
-        case .renewing:
-            HStack(spacing: 3) {
-                ProgressView().controlSize(.mini)
-                Text(L("renewing login…"))
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        case .needsSignIn:
-            Button { renew.renew(accountID: item.id) } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 8))
-                    Text(L("Sign in again")).lineLimit(1)
-                }
-                .fixedSize()
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(TallyColor.critical)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Capsule().fill(TallyColor.critical.opacity(0.15)))
-                .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            // Greyed where the menu entry is: a demo fixture has no config home behind it, so a
-            // chip must never look more able than the action it starts.
-            .disabled(!renew.canRenew(accountID: item.id, providerID: item.providerID,
-                                      home: item.launchHome))
-            .help(L("Sign in again to bring this account's usage back."))
-        }
-    }
-
-    /// "● 98% · ● 71%" - session then weekly, dot coloured by the window's severity. Compact
-    /// (no window names): the row also carries reorder arrows and two switches, and the full
-    /// labels truncated; hover explains each value.
-    private func liveStatus(_ account: AccountUsage) -> some View {
-        HStack(spacing: 8) {
-            ForEach(account.metrics.filter { !$0.isModelScoped }.prefix(2)) { metric in
-                HStack(spacing: 3) {
-                    Circle().fill(metric.severity.color).frame(width: 5, height: 5)
-                    Text(UsageFormat.percent(metric, mode: settings.displayMode))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                .help("\(L(metric.label)) \(UsageFormat.percent(metric, mode: settings.displayMode)) \(UsageFormat.modeWord(settings.displayMode))")
-            }
-        }
-    }
-
-    // A labeled mini switch: an icon-only toggle here read as "no idea what this does".
-    //
-    // DEAD IN THE POOLED LAYOUT, and said so rather than left looking alive: that segment sums
-    // every account (the strip never asks this switch there - UsageStorePresentation), so a live
-    // control would be a silent no-op with nothing on screen saying why. The hover carries the way
-    // back; switching Display to Accounts restores it.
-    private func menuBarToggle(_ accountID: String) -> some View {
-        let pooled = settings.menuBarLayout == .pooled
-        return HStack(spacing: 6) {
-            Text(L("Menu bar")).font(.caption).foregroundStyle(.secondary)
-                .opacity(pooled ? 0.55 : 1).fixedSize()
-            Toggle(isOn: Binding(
-                get: { settings.isShownInMenuBar(accountID) },
-                set: { settings.setShownInMenuBar(accountID, $0); UsageStore.shared.onChange?() }
-            )) { EmptyView() }
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .disabled(pooled)
-        }
-        .help(pooled
-              ? L("The menu bar is pooling each provider into one segment, so it shows every account. Set Menu bar shows to Accounts in Display to pick which ones appear.")
-              : L("Show in menu bar"))
     }
 }

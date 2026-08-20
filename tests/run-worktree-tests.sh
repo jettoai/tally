@@ -40,6 +40,8 @@ swiftc -o "$out" \
   TallyCLI/WorktreeMenu.swift \
   TallyCLI/Snapshot.swift \
   TallyCLI/AccountPick.swift \
+  TallyCLI/AccountBinding.swift TallyCLI/AccountReserveReader.swift Tally/Core/AccountReserve.swift \
+  Tally/Core/ArtifactHookContract.swift \
   TallyCLI/ProviderExecutable.swift \
   TallyCLI/AccountComfort.swift \
   TallyCLI/ReloadRequest.swift \

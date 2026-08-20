@@ -323,6 +323,9 @@ let rowSource = readSource("Tally/Views/AccountListRowView.swift")
 let factsSource = readSource("Tally/Views/AccountFacts.swift")
 let menuSource = readSource("Tally/Views/AccountCardMenu.swift")
 let settingsSource = readSource("Tally/Views/SettingsAccountsView.swift")
+// The row's login state lives one file over from the rest of the pane (its status strip was split
+// out of SettingsAccountsView for file size), and the greying is a property of THAT button.
+let rowStatusSource = readSource("Tally/Views/SettingsAccountRowStatus.swift")
 expect(!storeSource.isEmpty && !cardSource.isEmpty && !rowSource.isEmpty && !factsSource.isEmpty
         && !menuSource.isEmpty,
        "the renewal's call sites are readable from the suite")
@@ -369,7 +372,8 @@ expect(factsSource.contains("RenewLoginStore.shared.canRenew(accountID: usage.id
         && rowSource.contains(".disabled(!facts.canRenewLogin)"),
        "both surfaces' chips are dead while this account is being signed in")
 // Entry 2, the Settings row's button.
-expect(settingsSource.contains("renew.canRenew(accountID: item.id,"),
+expect(!rowStatusSource.isEmpty
+        && rowStatusSource.contains("renew.canRenew(accountID: item.id,"),
        "so is the Settings row's button")
 // Entry 3, the shared context menu (card right-click and the row's ellipsis both render it).
 expect(menuSource.contains("RenewLoginStore.shared.canRenew(accountID: accountID,")

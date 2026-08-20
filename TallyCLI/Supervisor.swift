@@ -345,6 +345,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // the same way for the shim).
             let appPolicy = launchPolicy(provider.id)
             let fleetPolicy = effectivePolicy(appPolicy, project: project)
+            /// What each account's owner keeps for their own browser use, from the same document
+            /// and on the same terms as the policy above: read once here and handed to every mover
+            /// that picks an account, because a reserve read twice in one tick is two answers to
+            /// one file (AccountReserve.swift). Nine readers, one reading - the same argument
+            /// `steering` makes one line down.
+            let reserves = accountReserves()
             var policy = fleetPolicy
             /// Whether Tally may choose an account for this session at all, this tick. Read once,
             /// here, and handed to every mover that would pick one: nine of them, and a gate spelled
@@ -408,7 +414,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                    steering: steering,
                                    account: account, providerID: provider.id,
                                    launchArgs: launchArgs, primaryModel: &effectivePrimary,
-                                   quarantine: quarantine, watcher: &watcher,
+                                   quarantine: quarantine, reserves: reserves,
+                                   watcher: &watcher,
                                    childAge: Date().timeIntervalSince(launchedAt),
                                    keyboardIdle: { keyboard.idle($0) })
 
@@ -420,7 +427,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                             providerID: provider.id, fleet: fleetPolicy, steering: steering,
                             sessionPin: manualMoves.sessionPin,
                             modelPinned: sessionModelState.isPinned, quarantine: quarantine,
-                            fuseAllows: fuse.allows())
+                            fuseAllows: fuse.allows(), reserves: reserves)
 
             // The session's ACTUAL model is no longer the one it was launched for (claude fell back
             // server-side - e.g. the flagship weekly ran dry). Two ordered answers, at most one per
@@ -430,7 +437,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             applyDegradationRescue(plan: &plan, watcher: &watcher, driftActive: drift.isActive,
                                    policy: policy, account: account, providerID: provider.id,
                                    primaryModel: effectivePrimary, quarantine: quarantine,
-                                   steering: steering, fuseAllows: fuse.allows())
+                                   steering: steering, fuseAllows: fuse.allows(),
+                                   reserves: reserves)
             applyFallbackProfile(plan: &plan, applied: &fallbackApplied, watcher: &watcher,
                                  driftActive: drift.isActive, policy: policy, account: account,
                                  primaryModel: effectivePrimary)
@@ -534,7 +542,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                 fuseAllows: fuse.allows(),
                                 turnBoundaryPending: turnBoundaryPending(turnBoundary,
                                                                         event: boundary),
-                                quarantine: quarantine)
+                                quarantine: quarantine, reserves: reserves)
 
             // The app updated under this supervisor, so it now runs stale logic and stamps a stale
             // version into its child: replace THIS process with the new build (SelfUpdate.swift).
@@ -602,7 +610,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                  agentsWorking: false,
                                                  isQuiet: true, carryable: carryable,
                                                  fuseAllows: fuse.allows(),
-                                                 quarantine: quarantine)
+                                                 quarantine: quarantine, reserves: reserves)
                                })
             // How much context a resume of this conversation would reload, and which conversation
             // it is, for the surfaces outside this terminal (SessionContext.swift). `axes` is the
@@ -645,7 +653,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                   agents: { turnBoundaryAgents(roster, boundary: $0, now: $1) },
                                   turnEnded: turnOver(),
                                   toolCallOpen: turnBoundaryToolCallOpen(watcher.file),
-                                  quarantine: quarantine)
+                                  quarantine: quarantine, reserves: reserves)
             // `tally session send`: type a pending request into this terminal, if the reading just
             // taken allows it. THE READING RATHER THAN THE WORD, because this is the one consumer
             // for which "working" is two different answers: a conversation mid-turn is not typed
@@ -679,7 +687,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                      primaryModel: effectivePrimary, mode: policy.mode,
                                      steering: steering,
                                      carryable: carryable, fuseAllows: fuse.allows(),
-                                     quarantine: quarantine)
+                                     quarantine: quarantine, reserves: reserves)
                 })
             // `action.repick` RATHER THAN `action.typed`, which is not a rename: the repick is a
             // relaunch, and a session that may be holding an unsent draft is not restarted away from
@@ -721,6 +729,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                           turnEnded: turnOver, keyboardIdle: composerIdle,
                                           relaunchPlanned: replacingChild,
                                           draftSuspected: draftSuspected, quarantine: quarantine,
+                                          reserves: reserves,
                                           // The reading taken when THIS child was launched, not one
                                           // taken now: a settings.json edited since says nothing
                                           // about the hooks the running process holds.

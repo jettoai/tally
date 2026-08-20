@@ -181,10 +181,18 @@ func declaredCapFallbacks(_ policy: LaunchPolicy, primaryModel: String?) -> [Str
 /// There, the model has ALREADY changed server-side and a relaunch that changed nothing else would
 /// be an interruption for nothing; here the model change is the whole answer, and a fleet that
 /// declares only `fallbackModel` has still said what to run.
+///
+/// THE RESERVE IS WEIGHED HERE TOO, and it is not an account decision sneaking in through the back
+/// door: what this asks is whether the account this session is ON can serve a weaker model, and an
+/// account under the line its owner drew cannot serve anything Tally is entitled to spend. Answering
+/// nil hands the session to the move below, which is exactly where a session on a reserved account
+/// that just hit a wall belongs.
 func capFallbackInPlace(policy: LaunchPolicy, account: Snapshot.Account, primaryModel: String?,
+                        reserves: AccountReserves = .none,
                         now: Date = Date()) -> (model: String, effort: String?, args: [String])? {
     guard let model = declaredCapFallbacks(policy, primaryModel: primaryModel).first(where: {
-        eligible(account, primaryModel: $0) && accountIsComfortable(account, primaryModel: $0, now: now)
+        eligible(account, primaryModel: $0)
+            && accountIsComfortable(account, primaryModel: $0, reserves: reserves, now: now)
     }) else { return nil }
     return (model, policy.fallbackEffort, declaredFallbackArgs(policy.fallbackArgs))
 }
@@ -258,7 +266,7 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
                      account: Snapshot.Account, providerID: String, fleet: LaunchPolicy,
                      steering: Bool, sessionPin: String?, modelPinned: Bool = false,
                      quarantine: [String: (model: String?, until: Date)],
-                     fuseAllows: Bool, now: Date = Date(),
+                     fuseAllows: Bool, reserves: AccountReserves = .none, now: Date = Date(),
                      loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot()) {
     guard plan == nil, var pending = pendingCap, now >= pending.nextRetry else { return }
     // Read INSIDE the guard, and `@autoclosure` is what makes that possible: a plain default
@@ -316,6 +324,7 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
        !declaredCapFallbacks(fleet, primaryModel: primary).isEmpty {
         if accountReadingPostdatesCap(current, cappedAt: pending.cappedAt) {
             if let stay = capFallbackInPlace(policy: fleet, account: current, primaryModel: primary,
+                                             reserves: reserves,
                                              now: now) {
                 warn(capFallbackKeptPinNotice(account: current.label, capped: primary,
                                               to: stay.model))
@@ -344,7 +353,7 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
     // pin is an instruction rather than a quota opinion.
     let reading = capReading(fleet: fleet, sessionPin: sessionPin, candidates: candidates)
     let target = reading.preferred
-        ?? capHandoffTarget(candidates, primaryModel: primary, now: now)
+        ?? capHandoffTarget(candidates, primaryModel: primary, reserves: reserves, now: now)
     let action = capRecoveryAction(steering: steering, mode: reading.mode, fuseAllows: fuseAllows,
                                    snapshotStale: snapshotProblem != nil, hasTarget: target != nil)
     guard action == .handoff, let target else {

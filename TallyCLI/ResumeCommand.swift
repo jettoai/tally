@@ -60,11 +60,19 @@ func runResume(args: [String]) -> Never {
     let effective = effectivePolicy(launchPolicy(provider.id), project: projectPolicy(provider.id))
     let resumeArgs = applyLaunchDefaults(args, policy: effective, providerID: provider.id)
     let primaryModel = launchPrimaryModel(resumeArgs, providerID: provider.id) ?? effective.model
+    // Nobody named an account here, so this is a pick Tally makes: the reserves bind it, and it
+    // ranks on a bare score with no comfort gate in front of it, so `aboveReserve` is what keeps a
+    // resume from being the one automatic placement that lands under somebody's line. Falling back
+    // to the account the conversation is already on is what this command already does when there is
+    // no other eligible account, and it says so.
+    let reserves = accountReserves()
     let target = snapshot.accounts
         .filter { $0.provider == provider.id && eligible($0, primaryModel: primaryModel)
-            && $0.id != newest.account.id }
+            && $0.id != newest.account.id
+            && aboveReserve($0, primaryModel: primaryModel, reserves: reserves) }
         .max {
-            smartScore($0, primaryModel: primaryModel) < smartScore($1, primaryModel: primaryModel)
+            smartScore($0, primaryModel: primaryModel, reserves: reserves)
+                < smartScore($1, primaryModel: primaryModel, reserves: reserves)
         } ?? newest.account
     if target.id == newest.account.id {
         warn("no other eligible account - resuming on \(target.label)")

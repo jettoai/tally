@@ -208,16 +208,37 @@ func runArtifactHookChecks(tmp: URL) throws {
     // abstains when no account is named, because it is a convenience rather than a gate.
     check("a fresh install names the first account, which is the main one",
           IntegrationsStore.artifactAccountSeed(current: nil,
-                                                homes: ["/Users/x/.claude", "/Users/x/.claude2"])
+                                                homes: ["/Users/x/.claude", "/Users/x/.claude2"],
+                                                personal: nil)
               == "/Users/x/.claude")
     check("…and never overwrites an answer the user has already given",
           IntegrationsStore.artifactAccountSeed(current: "/Users/x/.claude3",
-                                                homes: ["/Users/x/.claude"]) == nil)
-    check("…while an empty stored value is not an answer",
-          IntegrationsStore.artifactAccountSeed(current: "", homes: ["/Users/x/.claude"])
-              == "/Users/x/.claude")
+                                                homes: ["/Users/x/.claude"], personal: nil) == nil)
+    // THE EMPTY STRING IS ONE OF THOSE ANSWERS, which is the whole of this defect: the row's "Not
+    // chosen" is how somebody turns the checking off without removing the hook, it used to be stored
+    // as nil, and nil is also what a machine that was never asked looks like - so every reinstall,
+    // every self-heal pass and every auto-follow install chose an account again over the top of it
+    // (codex review of 7113edc, F1). Kept apart in the document now
+    // (`LaunchPolicyStore.setArtifactAccount`), and this is the reader that has to respect it.
+    check("…including the empty string, which is how 'Not chosen' is stored",
+          IntegrationsStore.artifactAccountSeed(current: "", homes: ["/Users/x/.claude"],
+                                                personal: nil) == nil)
+    // AND THE GUESS IS ONLY REACHED WHEN THERE IS NOTHING BETTER. "Personal (web)" in the Accounts
+    // pane answers this very question - which account this machine's browser is signed into - so an
+    // install that guessed past it would be guessing with the answer in its hand.
+    check("a marked personal account is what a fresh install names",
+          IntegrationsStore.artifactAccountSeed(current: nil,
+                                                homes: ["/Users/x/.claude", "/Users/x/.claude2"],
+                                                personal: "/Users/x/.claude2")
+              == "/Users/x/.claude2")
+    check("…and it still does not overwrite an answer the user gave",
+          IntegrationsStore.artifactAccountSeed(current: "", homes: ["/Users/x/.claude"],
+                                                personal: "/Users/x/.claude2") == nil)
+    check("…while a blank marking is no marking at all",
+          IntegrationsStore.artifactAccountSeed(current: nil, homes: ["/Users/x/.claude"],
+                                                personal: "  ") == "/Users/x/.claude")
     check("…and a machine with no launchable account is left alone",
-          IntegrationsStore.artifactAccountSeed(current: nil, homes: []) == nil)
+          IntegrationsStore.artifactAccountSeed(current: nil, homes: [], personal: nil) == nil)
 
     // MARK: the account being removed out from under that setting
 
@@ -261,4 +282,17 @@ func runArtifactHookChecks(tmp: URL) throws {
     check("…which the forgetting puts through the rule above",
           policySource.contains(
             "artifactAccount = Self.artifactAccountAfterRemoving(artifactAccount, home: home)"))
+    // THE TWO STATES ARE ONLY WORTH KEEPING APART IF THE SETTER REALLY KEEPS THEM APART, and the
+    // picker really folds them back into one row for the person: an empty string matching no tag
+    // draws a blank picker, which is a third state nobody has.
+    check("the setter stores an answer of 'none' rather than collapsing it to never-asked",
+          policySource.contains(
+            "artifactAccount = home?.trimmingCharacters(in: .whitespaces) ?? \"\""))
+    let artifactRow = source("Tally/Views/SettingsArtifactAccountRow.swift")
+    check("…and the row shows both of them as its own 'Not chosen' entry",
+          artifactRow.contains("get: { launch.artifactAccount.flatMap { $0.isEmpty ? nil : $0 } }"))
+    // …and the install really asks the marking before it guesses.
+    let installSource = source("Tally/Stores/IntegrationsArtifactHook.swift")
+    check("the install hands the seed the marked account",
+          installSource.contains("personal: LaunchPolicyStore.shared.personalAccountHome"))
 }

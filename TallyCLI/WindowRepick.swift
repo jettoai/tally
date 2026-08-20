@@ -296,6 +296,7 @@ func windowRepickReadiness(_ state: WindowRepickState, transcript: String?,
 func windowRepickMove(provider: String, account: Snapshot.Account, primaryModel: String?,
                       mode: String, steering: Bool, carryable: Bool, fuseAllows: Bool,
                       quarantine: [String: (model: String?, until: Date)] = [:],
+                      reserves: AccountReserves = .none,
                       loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
                       now: Date = Date()) -> Snapshot.Account? {
     // The gates that cost nothing first, so a tick that could not move this session anyway never
@@ -305,9 +306,11 @@ func windowRepickMove(provider: String, account: Snapshot.Account, primaryModel:
           let field = liveMoveField(provider: provider, account: account,
                                     primaryModel: primaryModel, quarantine: quarantine,
                                     loaded: loaded(), now: now),
-          !accountIsComfortable(field.current, primaryModel: primaryModel, now: now)
+          !accountIsComfortable(field.current, primaryModel: primaryModel, reserves: reserves,
+                                now: now)
     else { return nil }
-    return capHandoffTarget(field.candidates, primaryModel: primaryModel, now: now)
+    return capHandoffTarget(field.candidates, primaryModel: primaryModel, reserves: reserves,
+                            now: now)
 }
 
 // MARK: - The tick's preventive station
@@ -392,6 +395,7 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
                          launchArgs: [String],
                          fuseAllows: Bool, turnBoundaryPending: Bool,
                          quarantine: [String: (model: String?, until: Date)] = [:],
+                         reserves: AccountReserves = .none,
                          loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
                          now: Date = Date(), dir: URL = rebalanceDir) {
     guard plan == nil else { return }
@@ -430,7 +434,8 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
                                          primaryModel: primaryModel, mode: mode,
                                          steering: steering,
                                          carryable: carried, fuseAllows: fuseAllows,
-                                         quarantine: quarantine, loaded: loaded(), now: now) {
+                                         quarantine: quarantine, reserves: reserves,
+                                         loaded: loaded(), now: now) {
             warn("window cleared on \(account.label), nearly dry: reopening on \(moveTo.label) "
                 + "(\(pickReason(moveTo, primaryModel: primaryModel)))")
             plan = RelaunchPlan(target: moveTo, reason: "window-repick", countsFuse: true)
@@ -447,7 +452,8 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
                                      blocked: blocked, agentsWorking: agentsWorking,
                                      isQuiet: quiet,
                                      carryable: carryable, fuseAllows: fuseAllows,
-                                     quarantine: quarantine, loaded: loaded(), now: now,
+                                     quarantine: quarantine, reserves: reserves,
+                                     loaded: loaded(), now: now,
                                      dir: dir) else { return }
     warn("\(account.label) nearly dry, moving to \(moveTo.label) before the wall "
         + "(\(pickReason(moveTo, primaryModel: primaryModel)))")

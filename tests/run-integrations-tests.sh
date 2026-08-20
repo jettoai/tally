@@ -18,7 +18,9 @@
 # seeds the account the guard reads out of ~/.tally/state.json, which is the difference between a
 # row that says Installed and a row that does anything at all, so the store that owns that file is
 # now part of this store's closure (AccountComfort and Quarantine come in behind it, exactly as they
-# do in the app target).
+# do in the app target), along with its own two halves: the burn-rate scoring it was split from for
+# file size, and the per-account block it publishes (AccountReserve.swift - the personal account and
+# the reserve the Artifact seed now reads before it guesses).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
@@ -29,6 +31,7 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   tests/integrations/nativepickerchecks.swift tests/integrations/skillversionchecks.swift \
   tests/integrations/shimscriptchecks.swift tests/integrations/sharedharnesschecks.swift \
   tests/integrations/completionchecks.swift tests/integrations/clitoolchecks.swift \
+  tests/integrations/smartbadgechecks.swift \
   Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsShim.swift \
   Tally/Stores/IntegrationsCLITool.swift \
   Tally/Stores/IntegrationsSharedHarness.swift \
@@ -45,7 +48,8 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Stores/IntegrationsAgentHook.swift \
   Tally/Stores/IntegrationsKnockHook.swift Tally/Stores/IntegrationsAutoFollow.swift \
   Tally/Stores/IntegrationsArtifactHook.swift Tally/Core/ArtifactHookContract.swift \
-  Tally/Stores/LaunchPolicyStore.swift TallyCLI/AccountComfort.swift TallyCLI/Quarantine.swift \
+  Tally/Stores/LaunchPolicyStore.swift Tally/Stores/LaunchPolicyScoring.swift \
+  Tally/Core/AccountReserve.swift TallyCLI/AccountComfort.swift TallyCLI/Quarantine.swift \
   TallyCLI/QuotaKnockHookContract.swift \
   TallyCLI/SessionState.swift TallyCLI/AgentRoster.swift TallyCLI/ReloadRequest.swift \
   Tally/Stores/IntegrationsSelfHeal.swift \

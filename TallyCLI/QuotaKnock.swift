@@ -127,6 +127,7 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
                      session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
                      keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
                      quarantine: [String: (model: String?, until: Date)] = [:],
+                     reserves: AccountReserves = .none,
                      filing: () -> Bool = { false },
                      counting: (String) -> Int = {
                          supervisedSessionCount(onAccount: $0, liveSupervisors())
@@ -146,7 +147,8 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     guard let field = liveMoveField(provider: provider, account: account,
                                     primaryModel: primaryModel, quarantine: quarantine,
                                     loaded: loaded(), now: now),
-          let binding = bindingWindow(field.current, primaryModel: primaryModel, now: now)
+          let binding = bindingWindow(field.current, primaryModel: primaryModel,
+                                      reserves: reserves, now: now)
     else {
         // THE READING HAPPENED EVEN THOUGH NOTHING CAME OF IT, and saying so is what keeps the
         // interval real: a machine with Tally.app closed answers nothing here, and this used to
@@ -184,7 +186,8 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     else { return nil }
     guard let line = quotaKnockMessage(
         account: field.current,
-        alternative: capHandoffTarget(field.candidates, primaryModel: primaryModel, now: now),
+        alternative: capHandoffTarget(field.candidates, primaryModel: primaryModel,
+                                      reserves: reserves, now: now),
         sessions: counting(field.current.id), primaryModel: primaryModel,
         limit: sessionInputMaxBytes, now: now) else { return nil }
     // Spent BEFORE the write, the rule `applySessionInput` states about its served stamp: past this

@@ -38,14 +38,35 @@ let imminentResetGrace: TimeInterval = 10 * 60
 struct ComfortWindow {
     let remaining: Double
     let resetsAt: Date?
+    /// Percentage points of this window its owner keeps for THEMSELVES (Tally's reserve, set per
+    /// account in Settings and read by the CLI from `~/.tally/state.json`). Zero for every account
+    /// nobody reserved anything on, which is every account until somebody says otherwise - so this
+    /// field changes nothing at all on a fleet that does not use the feature.
+    ///
+    /// A `var` with a default rather than a `let`, because the memberwise initializer only carries
+    /// a default for the first kind: the app builds these too (LaunchPolicyStore) and must go on
+    /// compiling against `ComfortWindow(remaining:resetsAt:)`.
+    var reserve: Double = 0
 }
 
-/// What the window is worth for the work about to start: one resetting within the grace counts as
-/// fully refilled, because it will be by the time it matters. A reset time already in the past
-/// counts the same way (the snapshot simply has not caught up yet).
+/// What the window is worth FOR TALLY'S OWN PURPOSES: one resetting within the grace counts as
+/// fully refilled, because it will be by the time it matters (a reset time already in the past
+/// counts the same way - the snapshot simply has not caught up yet), and whatever its owner
+/// reserved is not Tally's to spend.
+///
+/// THE RESERVE IS SUBTRACTED AFTER the imminent-reset reading rather than before it, which is what
+/// keeps one sentence true of both: this answers "how much of this window may an automatic decision
+/// spend", and a window about to refill offers its owner a full one minus the part they kept. Doing
+/// it the other way round would let a reserve survive the refill it is measured against.
+///
+/// EVERY GATE IN THE PRODUCT READS THIS ONE FUNCTION, which is the whole of how a reserve reaches
+/// them: the nearly-dry line, the spent test, the window a claim keys on, the knock's threshold.
+/// Nothing that a PERSON reads comes through here - the percentages in `windowReason` and the rate
+/// in `pickReason` are the provider's own numbers - so a reserve never makes Tally quote a figure
+/// the provider did not publish.
 func effectiveRemaining(_ window: ComfortWindow, now: Date) -> Double {
-    guard let resetsAt = window.resetsAt else { return window.remaining }
-    return resetsAt.timeIntervalSince(now) <= imminentResetGrace ? 100 : window.remaining
+    let refilled = window.resetsAt.map { $0.timeIntervalSince(now) <= imminentResetGrace } ?? false
+    return (refilled ? 100 : window.remaining) - window.reserve
 }
 
 /// An account is comfortable when its TIGHTEST counted window, effective remaining, is strictly

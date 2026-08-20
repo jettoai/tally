@@ -62,6 +62,18 @@ struct AccountFacts {
         TallyTooltip.previewForced(.identity) && usage.id == DemoUsage.tooltipPreviewAccountID
     }
 
+    /// Whether this is the account the user is also signed into on claude.ai, and the slice of its
+    /// quota Tally's own choices must leave standing (0 on every other account). Both through
+    /// `PersonalAccount`, which is where the fixtures and the "Claude only" rule live, so no surface
+    /// carries a demo branch of its own.
+    var isPersonalAccount: Bool {
+        PersonalAccount.isPersonal(accountID: usage.id, home: identityHome)
+    }
+
+    var reservePercent: Int {
+        PersonalAccount.reserve(accountID: usage.id, home: identityHome)
+    }
+
     /// Non-headline windows. Model-scoped rows are hidden unless "show every model tier" is on, so
     /// by default only the highest-tier model (the headline) is featured.
     var secondaryMetrics: [UsageMetric] {
@@ -114,13 +126,20 @@ struct AccountFacts {
     }
 
     /// Whether auto mode would launch THIS account right now (the panel predicts the CLI).
+    ///
+    /// AND IT WEIGHS THE RESERVES, because the launcher does: a badge ranking on raw percentages
+    /// would sit on the personal account while `tally` spent a sibling instead, which is the drift
+    /// this prediction exists not to have. Only reached in auto mode - a pinned card wears the
+    /// pinned badge (`AccountCardView`), and nothing on that path asks a reserve anything.
     var isAutoPick: Bool {
         let store = UsageStore.shared
         let launchable = DemoUsage.isActive
             ? Set(store.accounts.map(\.id))   // fixtures are all "launchable" for the demo
             : Set(store.discoveredAccounts.compactMap { $0.launchableHome != nil ? $0.id : nil })
         return LaunchPolicyStore.shared.autoPickID(
-            providerID: usage.providerID, accounts: store.accounts, launchable: launchable) == usage.id
+            providerID: usage.providerID, accounts: store.accounts, launchable: launchable,
+            reserves: PersonalAccount.reserves(store.accounts,
+                                               discovered: store.discoveredAccounts)) == usage.id
     }
 
     /// The one switch both surfaces offer: hollow circle pins this account, checked releases it back

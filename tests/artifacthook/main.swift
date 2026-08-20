@@ -405,6 +405,29 @@ expect(artifactAccountSetting(state) == nil, "…and so does one nobody can pars
 expect(artifactAccountSetting(tmp.appendingPathComponent("absent.json")) == nil,
        "…and a file that is not there")
 
+// 10b. THE PERSONAL ACCOUNT IS THE FALLBACK, and it replaces a GUESS rather than a preference: this
+// setting used to be seeded from whichever config home the app happened to list first, which is a
+// value nobody chose sitting in a field only the user can set. An Artifact link is a page the person
+// opens in their browser, so the account they marked as the one they browse on is the answer when
+// they have not named a different one.
+try writeState(["version": 1, "launch": [:],
+                "accounts": ["/nowhere/.claude9": ["reserve": 10],
+                             browserHome: ["role": "personal", "reserve": 30]]])
+// The first entry above holds no role, so it is not a candidate here whatever number it carries.
+expect(artifactAccountSetting(state) == artifactAccountHome(browserHome),
+       "with nothing chosen, the account marked personal answers for the setting")
+// NEVER AN OVERRIDE. Somebody who deliberately publishes from an account other than the one they
+// browse on keeps doing so, which is the whole reason the role is read second rather than merged.
+try writeState(["version": 1, "launch": [:], "artifactAccount": "/nowhere/.claude7",
+                "accounts": [browserHome: ["role": "personal", "reserve": 30]]])
+expect(artifactAccountSetting(state) == "/nowhere/.claude7",
+       "…and never over a setting the user made themselves")
+// A ROLE NOBODY GAVE OUT IS NOT AN ANSWER: a block that only carries reserves names no account, and
+// the guard goes on abstaining exactly as it does on a machine with no block at all.
+try writeState(["version": 1, "launch": [:], "accounts": [browserHome: ["reserve": 30]]])
+expect(artifactAccountSetting(state) == nil,
+       "…and a reserve with no role attached names nobody")
+
 // MARK: - 11. The one line it prints
 
 let quoted = artifactHookOutput(reason: "a \"label\" with quotes \\ and a backslash")

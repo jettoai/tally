@@ -64,25 +64,47 @@ final class LaunchPolicyStore {
         /// from an older build decodes this document exactly as it did before, and a state file
         /// written before this key existed simply has no answer here.
         var artifactAccount: String?
+        /// Per-account settings, keyed by config home: which account the person browses on, and how
+        /// much of its quota Tally's own choices must leave them (Tally/Core/AccountReserve.swift).
+        ///
+        /// TOP LEVEL and keyed by HOME for the same two reasons the field above is: it is not a
+        /// launch decision, and the thing it names is a directory rather than an account id. Added
+        /// under the same only-ever-gains-keys rule, and omitted entirely while it holds nothing, so
+        /// a machine that never marked an account writes the document it always wrote.
+        var accounts: [String: AccountRoleSetting]?
     }
 
     private(set) var policies: [String: ProviderPolicy]
 
-    /// The Claude config home artifacts are published from, or nil while nobody has chosen one.
+    /// The Claude config home artifacts are published from.
     ///
-    /// NIL IS AN ANSWER, and it is the one the CLI abstains on: the guard is a convenience rather
-    /// than a gate, so a machine that has never named an account is never told it may not publish
-    /// (TallyCLI/HookArtifact.swift). What stops the row from being inert is the install seeding
-    /// this (`artifactAccountSeed`), never a default invented at read time here.
+    /// THREE STATES IN ONE OPTIONAL, and the third is the one this used to lose:
+    ///
+    ///   - nil        - NOBODY HAS ANSWERED. The CLI abstains (the guard is a convenience rather
+    ///                  than a gate, so a machine that has never named an account is never told it
+    ///                  may not publish), and an install may seed it (`artifactAccountSeed`).
+    ///   - ""         - ANSWERED, AND THE ANSWER IS "NOT CHOSEN". The CLI abstains identically -
+    ///                  `artifactAccountHome("")` is nil, so this reads to every shipped version
+    ///                  exactly as the absent key did - but an install no longer re-guesses over it.
+    ///                  Picking "Not chosen" in the row used to store nil, which is why the next
+    ///                  install, auto-follow pass or repair silently chose an account again.
+    ///   - a home     - the account the user named.
     private(set) var artifactAccount: String?
+
+    /// Per-account settings, keyed by config home (Tally/Core/AccountReserve.swift): which account
+    /// the user browses claude.ai on, and the slice of its quota Tally's own choices must leave
+    /// standing. Empty on a machine where nobody has marked one, which is most of them.
+    private(set) var accountSettings: [String: AccountRoleSetting]
 
     private init() {
         if let data = try? Data(contentsOf: Self.fileURL),
            let file = try? JSONDecoder().decode(StateFile.self, from: data) {
             policies = file.launch
             artifactAccount = file.artifactAccount
+            accountSettings = file.accounts ?? [:]
         } else {
             policies = [:]
+            accountSettings = [:]
         }
     }
 
@@ -154,11 +176,55 @@ final class LaunchPolicyStore {
         persist()
     }
 
-    /// Name the account artifacts are published from. Empty/whitespace collapses to nil, the same
-    /// rule as `setLaunchDefault`: nothing chosen is a state the guard understands.
+    /// Name the account artifacts are published from - or say, in as many words, that none is
+    /// chosen.
+    ///
+    /// EMPTY IS STORED RATHER THAN COLLAPSED TO NIL, which is the opposite of `setLaunchDefault`'s
+    /// rule and deliberately so. Every caller of this is somebody ANSWERING: the row's picker, and
+    /// the install seeding a first answer. "Not chosen" is one of the answers that picker offers -
+    /// it is how a person turns the checking off without removing the hook - and stored as nil it
+    /// was indistinguishable from never having been asked, so the next install seeded an account
+    /// over it and the guard started refusing publishes the user had just switched off.
     func setArtifactAccount(_ home: String?) {
-        let trimmed = home?.trimmingCharacters(in: .whitespaces)
-        artifactAccount = (trimmed?.isEmpty == false) ? trimmed : nil
+        artifactAccount = home?.trimmingCharacters(in: .whitespaces) ?? ""
+        persist()
+    }
+
+    // MARK: The personal account and its reserve
+
+    /// The config home the user browses claude.ai on, or nil while nobody has marked one.
+    var personalAccountHome: String? { AccountRoles.personalHome(accountSettings) }
+
+    func isPersonalAccount(home: String?) -> Bool {
+        AccountRoles.isPersonal(accountSettings, home: home)
+    }
+
+    /// The slice of that account's quota Tally's own choices must leave standing, 0 by default.
+    func reserve(home: String?) -> Int { AccountRoles.reserve(accountSettings, home: home) }
+
+    /// Mark one account as the personal one (single select), or nil to unmark whichever holds it.
+    ///
+    /// AND THE ARTIFACT SETTING FOLLOWS IT, in that direction only. The two questions have one
+    /// answer - which account is this machine's browser signed into - so marking it here is also
+    /// answering the Integrations row, and leaving that row alone would mean marking an account as
+    /// personal and having artifacts keep publishing from another one.
+    ///
+    /// UNMARKING DOES NOT CLEAR IT, which is the asymmetry `removeArtifactHook` states about its own
+    /// press: the publishing account is a setting the user gave, the row that shows it is still
+    /// there, and a reserve going away is no reason to start refusing to say where artifacts come
+    /// from. Nor does choosing another account in that row move this marking: this one steers
+    /// launches, and quietly restyling somebody's launch policy from an Integrations picker would be
+    /// a surprise in the direction that costs quota.
+    func setPersonalAccount(_ home: String?) {
+        accountSettings = AccountRoles.settingPersonal(accountSettings, home: home)
+        if let chosen = AccountRoles.personalHome(accountSettings) { artifactAccount = chosen }
+        persist()
+    }
+
+    /// Set that account's reserve (0-100, clamped). A no-op for an account that is not the marked
+    /// one - the rule and its reason live with the reserve itself (AccountReserve.swift).
+    func setReserve(_ home: String?, _ percent: Int) {
+        accountSettings = AccountRoles.settingReserve(accountSettings, home: home, percent: percent)
         persist()
     }
 
@@ -215,6 +281,11 @@ final class LaunchPolicyStore {
         // of 7113edc). The CLI carries its own defence for the versions that do not do this
         // (`artifactAccountStanding`); this is the one that keeps the file honest.
         artifactAccount = Self.artifactAccountAfterRemoving(artifactAccount, home: home)
+        // …and its neighbour, keyed by that same directory and reachable no other way: the personal
+        // marking and the reserve under it. Left standing, they name a folder in the Trash as the
+        // account this machine browses on, hold quota back on nothing, and hand the role plus a
+        // number nobody chose to the next `~/.claudeN` created in that slot.
+        accountSettings = AccountRoles.removingHome(accountSettings, home: home)
         for (providerID, policy) in policies where policy.pinnedAccountID == accountID {
             var updated = policy
             updated.pinnedAccountID = nil
@@ -257,8 +328,12 @@ final class LaunchPolicyStore {
         guard !BuildVariant.isUnshipped else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(StateFile(launch: policies,
-                                                       artifactAccount: artifactAccount))
+        // The per-account block is omitted while it holds nothing rather than written as an empty
+        // object: a machine where nobody has marked an account publishes exactly the document every
+        // previous build published.
+        guard let data = try? encoder.encode(
+            StateFile(launch: policies, artifactAccount: artifactAccount,
+                      accounts: accountSettings.isEmpty ? nil : accountSettings))
         else { return }
         try? FileManager.default.createDirectory(at: UsageSnapshot.directory,
                                                  withIntermediateDirectories: true)
@@ -303,36 +378,60 @@ final class LaunchPolicyStore {
     /// unfiltered pick is shown rather than no badge at all, because that is the account a launch
     /// would still land on. The app had no notion of quarantine until 2026-07-26; on 2026-07-25
     /// the badge sat on a quarantined account and its reader concluded the picker was broken.
+    ///
+    /// `reserves` is percentage points held back per ACCOUNT ID, which is the shape this side of the
+    /// contract holds: the CLI joins the state file's homes onto the snapshot's accounts, and the
+    /// panel already knows which card is which (`PersonalAccount.reserves`). Empty is the ordinary
+    /// answer and computes exactly what this function computed before the feature existed. A launch
+    /// this badge predicts is Tally's OWN choice, so it always weighs them - the paths a person names
+    /// an account on (a pin, `tally claude --account X`) do not come through here at all.
     func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
-                    now: Date = Date()) -> String? {
+                    reserves: [String: Double] = [:], now: Date = Date()) -> String? {
         let excluded = quarantinedNow(primaryModel: policy(providerID).model, now: now)
         return autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
-                          excluding: excluded, now: now)
+                          reserves: reserves, excluding: excluded, now: now)
             ?? autoPickID(providerID: providerID, accounts: accounts, launchable: launchable,
-                          excluding: [], now: now)
+                          reserves: reserves, excluding: [], now: now)
     }
 
     private func autoPickID(providerID: String, accounts: [AccountUsage], launchable: Set<String>,
-                            excluding: Set<String>, now: Date) -> String? {
+                            reserves: [String: Double], excluding: Set<String>,
+                            now: Date) -> String? {
         let primary = policy(providerID).model
         // The CLI's nearly-dry gate, from the file both targets compile (AccountComfort.swift):
         // the badge has to predict the launch, so the same accounts leave before the ordering.
+        //
+        // `lastRefreshFailed` is in that predicate for the reason `accountIsSpent` gives about its
+        // own (TallyCLI/AccountPick.swift): `isStale` waits for a SECOND consecutive failure so the
+        // "Outdated" badge cannot flicker on a token rotation, which leaves a whole poll interval in
+        // which held-over numbers are published looking freshly fetched. Deciding eligibility on
+        // those is deciding it on a reading nobody confirmed - and the badge that results is not the
+        // account `tally` would launch, which is the one promise this function makes. Mirror of the
+        // CLI's `eligible`; keep both sides in lockstep.
         let eligibleAccounts = accounts.filter {
             $0.providerID == providerID && $0.error == nil && !$0.isStale
+                && !$0.lastRefreshFailed
                 && launchable.contains($0.id) && !excluding.contains($0.id)
                 && (Self.headroom($0, primaryModel: primary) ?? -1) > 0
         }
+        // WHEN NOBODY IS ABOVE THEIR OWN LINE THE RESERVES GO, exactly as `best` drops them for that
+        // one pick (TallyCLI/AccountPick.swift): a launch has nowhere else to go, so it spends into
+        // a reserve and says so on stderr - and a badge that showed no pick, or a different one,
+        // would be predicting a launch that is not the one about to happen. Unreachable on a fleet
+        // where nobody marked an account: an eligible account has every window above zero, so it is
+        // above a reserve of zero by definition.
+        let reserves = eligibleAccounts.contains {
+            Self.aboveReserve($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
+        } ? reserves : [:]
         let candidates = preferringComfortable(eligibleAccounts, now: now) {
-            Self.ratedWindows($0, primaryModel: primary, now: now)
-                // The ANCHOR, exactly as the CLI's `comfortWindow` does: the gate asks when the
-                // wall comes down, and a flagship window with no reset of its own hits the
-                // account's weekly one.
-                .map { ComfortWindow(remaining: $0.remaining, resetsAt: $0.anchor) }
+            Self.comfortWindows($0, primaryModel: primary, reserve: reserves[$0.id] ?? 0, now: now)
         }
         guard var leader = candidates.first else { return nil }
-        var leaderScore = Self.smartScore(leader, primaryModel: primary, now: now)
+        var leaderScore = Self.smartScore(leader, primaryModel: primary,
+                                          reserve: reserves[leader.id] ?? 0, now: now)
         for candidate in candidates.dropFirst() {
-            let score = Self.smartScore(candidate, primaryModel: primary, now: now)
+            let score = Self.smartScore(candidate, primaryModel: primary,
+                                        reserve: reserves[candidate.id] ?? 0, now: now)
             if score > leaderScore * Self.smartPickMargin,
                score > leaderScore + Self.smartPickMinGain {
                 leader = candidate
@@ -346,104 +445,5 @@ final class LaunchPolicyStore {
             }
         }
         return leader.id
-    }
-
-    /// The tightest of the windows the account reports (mirrors `UsageSnapshot.make` fields).
-    /// Mirror of the CLI's `headroom(_:primaryModel:)`: the flagship window only binds when the
-    /// declared primary model IS that tier, so a drained fable window never vetoes an account
-    /// whose primary is sonnet. Keep both sides in lockstep.
-    private static func headroom(_ usage: AccountUsage, primaryModel: String? = nil) -> Double? {
-        var windows = [
-            usage.metrics.first { $0.kind == .session }?.remainingPercent,
-            usage.metrics.first { $0.kind == .weeklyAll }?.remainingPercent,
-        ].compactMap { $0 }
-        let model = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
-        let windowModel = model?.modelName?.lowercased()
-        let primary = primaryModel?.lowercased()
-        let modelWindowCounts = primary == nil || windowModel == nil
-            || windowModel!.contains(primary!) || primary!.contains(windowModel!)
-        if modelWindowCounts, let remaining = model?.remainingPercent { windows.append(remaining) }
-        return windows.min()
-    }
-
-    /// Mirror of the CLI's burn-rate scoring (TallyCLI/AccountPick.swift `ratedWindows`): each
-    /// window's sustainable rate is remaining% ÷ hours until it resets, and the flagship window
-    /// only counts when the declared primary model is that tier. Keep both sides in lockstep.
-    ///
-    /// `resetsAt` is what the provider reported and `anchor` is what the rate was measured
-    /// against, and they differ wherever the anchor is inferred. Two inferences, in this order
-    /// (the CLI side carries the measurements and the reasoning):
-    ///
-    ///   - a flagship window reporting no reset borrows the account's weekly one, because both
-    ///     turn over on the account's single fixed weekly moment;
-    ///   - a FIXED-CYCLE window still at 100% with no reset was never opened (the provider
-    ///     publishes a reset only once usage opens the window), so its phase is unknown and it is
-    ///     rated against the midpoint of its own length. Without this a never-launched account is
-    ///     rated at its worst case, loses every pick, and so never earns a reset to be rated by.
-    ///
-    /// The session window is the exception to the second inference: its 5h clock starts on the
-    /// first message rather than on a moment the provider fixes, so an untouched session window has
-    /// its phase KNOWN and its whole 5h ahead of it. Halving it would rate every idle account's
-    /// session at 100/2.5 = 40 %/h instead of the true 100/5 = 20 %/h.
-    ///
-    /// A window BELOW 100% with no reset was spent by someone and simply has no reading (a v1
-    /// snapshot, an unpolled account): the conservative full-window assumption stays in place.
-    /// Both anchors are inferences, so the badge's REASON quotes `resetsAt` and never the anchor.
-    private static func ratedWindows(_ usage: AccountUsage, primaryModel: String?, now: Date)
-        -> [(name: String, remaining: Double, resetsAt: Date?, anchor: Date?, rate: Double)] {
-        /// `fixedCycle` marks a window that turns over on a moment the account does not set: the
-        /// weekly one, and the flagship window riding on it. Only those get the midpoint reading,
-        /// because only their phase is unknown while untouched (above).
-        func window(_ name: String, _ metric: UsageMetric?, inferredAnchor: Date? = nil,
-                    fullWindowHours: Double, fixedCycle: Bool = false)
-            -> (name: String, remaining: Double, resetsAt: Date?, anchor: Date?, rate: Double)? {
-            guard let metric else { return nil }
-            let untouchedAnchor = fixedCycle && metric.remainingPercent >= 100
-                ? now.addingTimeInterval(fullWindowHours / 2 * 3600) : nil
-            let anchor = metric.resetsAt ?? inferredAnchor ?? untouchedAnchor
-            let hours = anchor.map { max($0.timeIntervalSince(now) / 3600, 0.05) }
-                ?? fullWindowHours
-            return (name, metric.remainingPercent, metric.resetsAt, anchor,
-                    metric.remainingPercent / hours)
-        }
-        let weekly = usage.metrics.first { $0.kind == .weeklyAll }
-        var windows = [
-            window("session", usage.metrics.first { $0.kind == .session }, fullWindowHours: 5),
-            window("weekly", weekly, fullWindowHours: 168, fixedCycle: true),
-        ].compactMap { $0 }
-        let model = usage.headline.flatMap { $0.isModelScoped ? $0 : nil }
-        let windowModel = model?.modelName?.lowercased()
-        let primary = primaryModel?.lowercased()
-        let modelWindowCounts = primary == nil || windowModel == nil
-            || windowModel!.contains(primary!) || primary!.contains(windowModel!)
-        if modelWindowCounts,
-           let m = window(model?.modelName?.lowercased() ?? "model", model,
-                          inferredAnchor: weekly?.resetsAt, fullWindowHours: 168,
-                          fixedCycle: true) {
-            windows.append(m)
-        }
-        return windows
-    }
-
-    /// The account's score is its TIGHTEST window's sustainable rate (the binding constraint).
-    private static func smartScore(_ usage: AccountUsage, primaryModel: String?,
-                                   now: Date = Date()) -> Double {
-        ratedWindows(usage, primaryModel: primaryModel, now: now).map { $0.rate }.min() ?? -1
-    }
-
-    /// Badge-facing reason for the smart pick, mirroring the CLI's `pickReason`:
-    /// the binding window and its reset, e.g. "weekly 94% · resets 4d".
-    static func smartReason(_ usage: AccountUsage, primaryModel: String?,
-                            now: Date = Date()) -> String? {
-        guard let binding = ratedWindows(usage, primaryModel: primaryModel, now: now)
-            .min(by: { $0.rate < $1.rate }) else { return nil }
-        var text = "\(binding.name) \(Int(binding.remaining.rounded()))%"
-        if let resetsAt = binding.resetsAt {
-            let minutes = max(Int((resetsAt.timeIntervalSince(now) / 60).rounded()), 0)
-            let eta = minutes < 60 ? "\(minutes)m"
-                : minutes < 48 * 60 ? "\(minutes / 60)h" : "\(minutes / (24 * 60))d"
-            text += " · resets \(eta)"
-        }
-        return text
     }
 }

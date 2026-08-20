@@ -21,9 +21,13 @@ import Foundation
 func steeredLaunchHome(_ provider: Provider, in snapshot: Snapshot?,
                        policy: LaunchPolicy) -> String? {
     pinnedLaunchHome(snapshot, policy: policy)
+        // Reserves included for the same reason the quarantine is: this PREDICTS the launch, and a
+        // prediction that ignores an exclusion the launcher applies is simply wrong. The shim's
+        // bare `claude` is the launch that most needs it - nobody typed an account there.
         ?? snapshot.flatMap {
             launchPick(providerID: provider.id, in: $0, primaryModel: policy.model,
-                       quarantined: quarantinedAccounts(forPrimary: policy.model))?.launchHome
+                       quarantined: quarantinedAccounts(forPrimary: policy.model),
+                       reserves: accountReserves())?.launchHome
         }
 }
 

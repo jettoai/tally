@@ -114,6 +114,13 @@ targets:
       # into somebody's settings.json and this binary answers to them, so a drift is a hook that
       # runs on every Artifact call and abstains, or a guard nobody ever registered.
       - path: Tally/Core/ArtifactHookContract.swift
+      # The personal account and its reserve: the rules over the `accounts` block of
+      # ~/.tally/state.json. Same reason again, and the sharpest instance of it yet - the app writes
+      # that block from a Settings row and this binary is what ACTS on it, so a rule spelled twice is
+      # quota held back on an account whose Settings row shows none, or a water line the launcher
+      # walks straight through. Only the rules are here; who reads which document stays on each side
+      # (LaunchPolicyStore owns it, TallyCLI/AccountReserveReader.swift reads it back).
+      - path: Tally/Core/AccountReserve.swift
     settings:
       base:
         PRODUCT_NAME: tally

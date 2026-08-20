@@ -240,7 +240,12 @@ final class UsageStore {
             advisorReadings = DemoUsage.advisorReadings
             // This branch REPLACES the discovery pass, so a demo run's answer about which accounts
             // exist is as final as it will ever get. Saying so keeps the Settings list from sitting
-            // on a "still looking" placeholder that nothing is ever going to resolve.
+            // on a "still looking" placeholder that nothing is ever going to resolve - and the
+            // fixtures answer it, rather than an empty list, because the Settings account list draws
+            // from existence rather than from usage and would otherwise be the one pane a capture
+            // cannot photograph. Assigned rather than adopted: `adoptDiscovered` is the real pass's
+            // bookkeeping (dormancy notices, removal rounds), and none of it is about fixtures.
+            discoveredAccounts = DemoUsage.discoveredAccounts()
             hasDiscovered = true
             lastRefreshedAt = Date()
             lastSuccessfulRefreshAt = lastRefreshedAt

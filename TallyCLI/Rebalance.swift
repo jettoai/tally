@@ -41,7 +41,7 @@ import Foundation
 // straight back onto the account they were leaving; seven ended up sharing it, its 5h window went
 // 5% to 0% in nine minutes, and every rebalance after that was refused until 13:59Z.
 //
-// So with no EFFECTIVE remaining left at all (`accountIsSpent`, AccountPick.swift) the claim is not
+// So with no EFFECTIVE remaining left at all (`accountIsSpent`, AccountBinding.swift) the claim is not
 // asked for, and the other two guardrails carry the decision alone: the per-session fuse above, and
 // a target that still has to be comfortable. 1% is NOT exempt, which is the point rather than an
 // omission - the 2026-08-02 double move this claim was tightened for ran on a 1% window, and an
@@ -117,7 +117,7 @@ func namesSameDrought(_ one: String, _ other: String) -> Bool {
 /// cycle to name there is nothing to claim, and callers treat that as "do not move": an unclaimed
 /// rebalance is exactly the stampede the claim exists to prevent.
 ///
-/// The binding window itself comes from `bindingWindow` (AccountPick.swift), which is where that
+/// The binding window itself comes from `bindingWindow` (AccountBinding.swift), which is where that
 /// derivation lives now that the advisory knock quotes the same window this keys on: two copies of
 /// "which window is this account's problem" would let the sentence a session is sent name one
 /// window while the claim that stops it being re-sent keyed on another.
@@ -401,45 +401,21 @@ func rebalanceTarget(steering: Bool, mode: String, blocked: Bool, agentsWorking:
                      isQuiet: Bool, carryable: Bool,
                      fuseAllows: Bool,
                      current: Snapshot.Account, candidates: [Snapshot.Account],
-                     primaryModel: String?, now: Date = Date(),
+                     primaryModel: String?, reserves: AccountReserves = .none,
+                     now: Date = Date(),
                      claim: () -> Bool = { true }) -> Snapshot.Account? {
     guard rebalanceAllowedForSession(steering: steering, mode: mode, blocked: blocked,
                                      agentsWorking: agentsWorking, isQuiet: isQuiet,
                                      carryable: carryable, fuseAllows: fuseAllows),
-          !accountIsComfortable(current, primaryModel: primaryModel, now: now),
-          let target = capHandoffTarget(candidates, primaryModel: primaryModel, now: now),
+          !accountIsComfortable(current, primaryModel: primaryModel, reserves: reserves, now: now),
+          let target = capHandoffTarget(candidates, primaryModel: primaryModel,
+                                        reserves: reserves, now: now),
           // `||` short-circuits, so an exempt move does not merely ignore the claim's answer: it
           // never asks, and takes no record. See `claimRebalanceCycle` for why that matters.
-          accountIsSpent(current, primaryModel: primaryModel, now: now) || claim()
+          accountIsSpent(current, primaryModel: primaryModel, reserves: reserves, now: now)
+              || claim()
     else { return nil }
     return target
-}
-
-/// The live picture any proactive move needs: this account as the snapshot reports it NOW, and the
-/// field of siblings narrowed exactly as the cap handoff narrows it (this provider, eligible for the
-/// model actually running, not the account we are on, nothing quarantined).
-///
-/// nil when the snapshot cannot answer: too old to trust, unreadable, or not naming this account at
-/// all. Every caller reads that as "stay put", the same rule the cap handoff applies
-/// (`CapAction.waitStale`) and for the same reason - moving a session on hours-old numbers is how a
-/// session lands somewhere worse than it started.
-///
-/// SHARED WITH THE WINDOW REPICK (WindowRepick.swift) rather than copied there. The two movers
-/// differ in WHEN they fire and in nothing else about the field: they must never come to disagree
-/// about which siblings exist or which windows count, and a second copy of this narrowing is
-/// exactly how they would.
-func liveMoveField(provider: String, account: Snapshot.Account, primaryModel: String?,
-                   quarantine: [String: (model: String?, until: Date)],
-                   loaded: (Snapshot?, String?), now: Date)
-    -> (current: Snapshot.Account, candidates: [Snapshot.Account])? {
-    let (snapshot, problem) = loaded
-    guard problem == nil, let snapshot,
-          let live = snapshot.accounts.first(where: { $0.id == account.id }) else { return nil }
-    let excluded = quarantinedAccounts(forPrimary: primaryModel, sessionLocal: quarantine, now: now)
-    return (live, snapshot.accounts.filter {
-        $0.provider == provider && eligible($0, primaryModel: primaryModel)
-            && $0.id != account.id && !excluded.contains($0.id)
-    })
 }
 
 /// One poll tick's proactive move, with the live picture the gate above needs. nil on almost every
@@ -474,6 +450,7 @@ func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: St
                    mode: String, steering: Bool, blocked: Bool, agentsWorking: Bool, isQuiet: Bool,
                    carryable: Bool, fuseAllows: Bool,
                    quarantine: [String: (model: String?, until: Date)] = [:],
+                   reserves: AccountReserves = .none,
                    loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
                    now: Date = Date(),
                    dir: URL = rebalanceDir) -> Snapshot.Account? {
@@ -494,6 +471,7 @@ func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: St
     return rebalanceTarget(
         steering: steering, mode: mode, blocked: blocked, agentsWorking: agentsWorking,
         isQuiet: isQuiet, carryable: carryable, fuseAllows: fuseAllows,
-        current: field.current, candidates: field.candidates, primaryModel: primaryModel, now: now,
+        current: field.current, candidates: field.candidates, primaryModel: primaryModel,
+        reserves: reserves, now: now,
         claim: { cycle.map { claimRebalanceCycle(account.id, cycle: $0, dir: dir) } ?? false })
 }

@@ -452,10 +452,33 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // (SessionStateSync.swift), and no cheaper second opinion may stand in for it.
             //
             // NOTHING IT READS MOVES BETWEEN HERE AND WHERE IT USED TO STAND: the axes come from a
-            // pin and a command line the directives station has already settled, the account and
-            // the args are only rewritten at the execution point at the bottom of the tick, and the
-            // transcript scan behind it is the one this tick ran at the top. It is a publisher, so
-            // its position changes what it is asked BEFORE rather than what it says.
+            // pin and a command line the directives station has already settled, and the account
+            // and the args are only rewritten at the execution point at the bottom of the tick.
+            //
+            // IT IS NOT A PUBLISHER, which is what the first version of this note called it and was
+            // wrong about (review of e52a436, B2). It takes the watcher `inout` and runs
+            // `quietness`, so it LOCATES - rebinding `file` and `hasUnresolvedFork` - it fills the
+            // open-call scan cache, it unlinks an answered notice, and it posts a state-change
+            // knock. Three things make moving it safe anyway, and they are worth naming because
+            // "publisher" was doing that work by assertion:
+            //
+            //   - THE LOCATE IS NOT THE FIRST OF THE TICK. `observeCapHit` runs `sawCapHit`, whose
+            //     first act is `locateFile()`, above every station here; the directives station and
+            //     the degradation rescue both locate again through `isQuiet`. One more between them
+            //     changes no invariant any of them holds.
+            //   - THE ONE ORDERING RULE IN THIS AREA IS INTERNAL TO THE STATION IT PRECEDES. The
+            //     window repick requires its id and its window reading to be taken as a pair BEFORE
+            //     the `isQuiet` inside `applyProactiveMoves` can relocate under them
+            //     (WindowRepick.swift); that pair is still read first inside that function, and a
+            //     locate before the station leaves both halves describing the same file.
+            //   - THE OTHER TWO EFFECTS ARE POSITION-FREE. Clearing an answered notice is
+            //     idempotent and narrowed to the event it judged, and the knock is an invitation to
+            //     read a file this call has already written.
+            //
+            // WHAT DID CHANGE is the distance to `applySessionInput`, whose whole reason for taking
+            // this value rather than the file is that it wants the state as of THIS tick: there are
+            // now three stations and their file I/O between the reading and that consumer. Same
+            // tick, further apart.
             //
             // The model published is the one that ANSWERED the last turn where there is one,
             // falling back to what the child was launched with (SessionContext.swift states why
@@ -498,7 +521,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                 draftSuspected: draftSuspected, provider: provider.id,
                                 account: account, primaryModel: effectivePrimary,
                                 mode: policy.mode, steering: steering,
-                                blocked: board.state == .blocked, launchArgs: launchArgs,
+                                blocked: board.waitingOnPerson, launchArgs: launchArgs,
                                 fuseAllows: fuse.allows(),
                                 turnBoundaryPending: turnBoundaryPending(turnBoundary,
                                                                         event: boundary),
@@ -563,7 +586,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                  fuseAllows: fuse.allows(),
                                                  quarantine: quarantine)
                                })
-            // How much context a resume of this conversation would reload, for the surfaces outside
             // How much context a resume of this conversation would reload, and which conversation
             // it is, for the surfaces outside this terminal (SessionContext.swift). `axes` is the
             // reading taken above, beside the board it also feeds.
@@ -599,11 +621,20 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             applyTurnBoundaryMove(plan: &plan, state: &turnBoundary, event: boundary,
                                   steering: steering, provider: provider.id, account: account,
                                   primaryModel: effectivePrimary, mode: policy.mode,
-                                  blocked: board.state == .blocked, keyboardIdle: composerIdle,
+                                  blocked: board.waitingOnPerson, keyboardIdle: composerIdle,
                                   draftSuspected: draftSuspected, carryable: carryable,
                                   fuseAllows: fuse.allows(),
-                                  agents: { turnBoundaryAgents(pid: supervisorPID,
-                                                               boundary: $0) },
+                                  agents: {
+                                      turnBoundaryAgents(pid: supervisorPID, boundary: $0,
+                                                         // The roster's claim, arbitrated against
+                                                         // what this CHILD has actually written
+                                                         // under its subagents directory: an
+                                                         // edge-counted roster keeps the ids of
+                                                         // agents a relaunch killed
+                                                         // (TurnBoundaryMove.swift).
+                                                         lastAgentWrite: watcher.newestSubagentWrite(),
+                                                         now: $1)
+                                  },
                                   turnEnded: turnOver(),
                                   toolCallOpen: turnBoundaryToolCallOpen(watcher.file),
                                   quarantine: quarantine)

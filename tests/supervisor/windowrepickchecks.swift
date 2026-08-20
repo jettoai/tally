@@ -641,17 +641,38 @@ func runWindowRepickChecks() {
     let tickSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
     check("the supervisor source is readable from the preventive-station checks",
           !tickSource.isEmpty)
-    // READ OFF THE CALL, NOT THE FILE. `blocked: board.state == .blocked` is also the turn-boundary
-    // station's argument a hundred lines below, so a file-wide `contains` stayed green while this
-    // station was handed a literal - the check passing through a line other than the one it is
-    // about (caught by mutation, 2026-08-20).
-    check("the preventive station is handed the board's blocked reading",
-          tickSource.range(of: "applyProactiveMoves(plan: &plan,").flatMap { station in
-              tickSource.range(of: "quarantine: quarantine)",
-                               range: station.upperBound ..< tickSource.endIndex).map {
-                  String(tickSource[station.upperBound ..< $0.upperBound])
-              }
-          }?.contains("blocked: board.state == .blocked") ?? false)
+    // READ OFF THE CALL, NOT THE FILE. The turn-boundary station a hundred lines below is handed
+    // the same reading, so a file-wide `contains` stayed green while this station was handed a
+    // literal - the check passing through a line other than the one it is about (caught by
+    // mutation, 2026-08-20).
+    let preventiveCall = tickSource.range(of: "applyProactiveMoves(plan: &plan,").flatMap { station in
+        tickSource.range(of: "quarantine: quarantine)",
+                         range: station.upperBound ..< tickSource.endIndex).map {
+            String(tickSource[station.upperBound ..< $0.upperBound])
+        }
+    } ?? ""
+    check("the preventive station is handed the hard-wait reading",
+          preventiveCall.contains("blocked: board.waitingOnPerson"))
+    // AND NOT THE BOARD'S OWN WORD, which is the regression this narrowing repaired: `blocked`
+    // covers the `idle_prompt` an idle session carries, and this mover waits 120 seconds for
+    // exactly that idleness, so the word refused every rebalance it was ever asked about.
+    check("…rather than the word that also covers a soft idle prompt",
+          !preventiveCall.contains("board.state == .blocked"))
+    // AND THE RULE THAT MOVE HAD TO NOT BREAK, pinned here for the first time (review of e52a436,
+    // B2). The repick's id and its window reading are a PAIR taken off the file the tick adopted,
+    // and they have to be read BEFORE the `isQuiet` in this station can relocate the watcher under
+    // them - otherwise a window reading describes one transcript and the id names another. A locate
+    // ANYWHERE ABOVE the station is harmless to that (the tick already ran two), but a locate
+    // between the two halves is not, and nothing but this check stands between them.
+    let stationSource = (try? String(contentsOfFile: "TallyCLI/WindowRepick.swift",
+                                     encoding: .utf8)) ?? ""
+    check("the window repick source is readable from its own checks", !stationSource.isEmpty)
+    check("the repick reads its id and window pair before anything can relocate the watcher",
+          stationSource.range(of: "let landed = windowRepickLanded(").map { pair in
+              stationSource.range(of: "watcher.isQuiet(windowRepickQuietSeconds)").map {
+                  pair.upperBound < $0.lowerBound
+              } ?? false
+          } ?? false)
     check("…which is decided above it, not after",
           tickSource.range(of: "let board = syncSessionState(").map { board in
               tickSource.range(of: "applyProactiveMoves(plan: &plan,").map {

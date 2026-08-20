@@ -71,6 +71,84 @@ func runRebalanceChecks() {
     check("a session waiting on a person is not rebalanced", target(blocked: true) == nil)
     check("…and the same session is, once it is not", target(blocked: false)?.id == "B")
 
+    // WHICH KIND OF WAIT, asked through the real classification rather than a literal Bool. The
+    // board's word `blocked` is one answer to two situations and only one of them is a person
+    // (SessionStateSync.swift); this mover waits 120 seconds for silence, and the soft one is fired
+    // about sixty seconds INTO that silence, so reading the word turned the rebalance off outright
+    // on every machine with the notification hook installed (codex review of e52a436).
+    func waitingTick(_ type: String?) -> SessionTick {
+        let wait = userWait(notificationType: type)
+        return SessionTick(state: supervisedSessionState(wait: wait, hasTranscript: true,
+                                                         quiet: true),
+                           quiet: .quiet, wait: wait)
+    }
+    let idlePrompt = waitingTick("idle_prompt")
+    let permission = waitingTick("permission_prompt")
+    check("the board calls a quiet session with an idle prompt blocked, which is the trap",
+          idlePrompt.state == .blocked)
+    check("…but nobody is being waited for there", !idlePrompt.waitingOnPerson)
+    check("…while a permission prompt is somebody being waited for", permission.waitingOnPerson)
+    check("so a session carrying only an idle prompt is rebalanced",
+          target(blocked: idlePrompt.waitingOnPerson)?.id == "B")
+    check("…and one holding a permission prompt is not",
+          target(blocked: permission.waitingOnPerson) == nil)
+    // FAIL-OPEN TO HARD is what makes the narrowing safe: a notice with no type, and a type this
+    // build has never heard of, both still stop the move.
+    check("an untyped notice still stops it", waitingTick(nil).waitingOnPerson)
+    check("…and so does one this build has never heard of",
+          waitingTick("some_future_prompt").waitingOnPerson)
+    check("exactly one notification type is soft, which is the whole of what was narrowed",
+          softWaitNotificationTypes == ["idle_prompt"])
+
+    // AND THROUGH THE REAL PUBLISHER, because everything above builds a `SessionTick` by hand and
+    // therefore says nothing about the one place that fills the field in. A mutant that re-derived
+    // `wait` from the word inside `syncSessionState` survived the whole suite until this existed
+    // (2026-08-21): the movers would have read a hard wait for every idle session, which is the
+    // regression this narrowing repaired, arriving through the publisher instead of the caller.
+    let stateDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-rebalance-wait-\(UUID().uuidString)")
+    let projectDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("tally-rebalance-wait-tx-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: stateDir)
+        try? FileManager.default.removeItem(at: projectDir)
+    }
+    /// One tick of the real publisher for a session holding a notice of `type`.
+    ///
+    /// The transcript is backdated two minutes so the quiet reading is the one the soft wait needs
+    /// to reach `blocked` at all (`supervisedSessionState` only lets a soft wait upgrade silence),
+    /// and the notice is stamped NOW so nothing in the file can read as an answer to it.
+    func published(_ type: String) -> SessionTick {
+        let pid = "rb-\(type)"
+        let file = projectDir.appendingPathComponent("\(pid).jsonl")
+        let line = "{\"type\":\"assistant\",\"isSidechain\":false,"
+            + "\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}}"
+        try? line.write(to: file, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-120)], ofItemAtPath: file.path)
+        writeUserNotice(UserNotice(message: "", at: Date(), type: type), pid: pid, dir: stateDir)
+        var watcher = TranscriptWatcher(projectDir: projectDir,
+                                        since: Date().addingTimeInterval(-600), resumeID: pid)
+        var writer = SessionStateWriter()
+        return syncSessionState(&writer, pid: pid,
+                                project: PickProject(name: "p", path: projectDir.path),
+                                accountID: "claude:.claude", childPid: nil, model: nil,
+                                watcher: &watcher, keyboardBurstAt: nil, dir: stateDir)
+    }
+    let publishedIdle = published("idle_prompt")
+    let publishedPermission = published("permission_prompt")
+    check("the publisher still draws an idle session with an idle prompt as blocked",
+          publishedIdle.state == .blocked)
+    check("…and hands the movers the soft wait it actually decided",
+          publishedIdle.wait == .soft && !publishedIdle.waitingOnPerson)
+    check("…so that session is rebalanced off a dying account",
+          target(blocked: publishedIdle.waitingOnPerson)?.id == "B")
+    check("a permission prompt comes back from the same publisher as a hard wait",
+          publishedPermission.wait == .hard && publishedPermission.waitingOnPerson)
+    check("…and that session is left where it stands",
+          target(blocked: publishedPermission.waitingOnPerson) == nil)
+
     // A pin is a statement about WHERE the session runs, so quota reasoning never overrides it. The
     // cap handoff already refuses to move a pinned session (`CapAction.waitPinned`); a convenience
     // must not do what a repair will not.

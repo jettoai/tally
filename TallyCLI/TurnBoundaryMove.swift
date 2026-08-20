@@ -96,7 +96,11 @@ func turnBoundaryPending(_ state: TurnBoundaryState, event: SessionTurnEnd?) -> 
 ///  - `blocked`: a prompt is on screen (a permission request, a plan awaiting approval, a
 ///    question), and a relaunch would answer it by destroying it with no trace for the person who
 ///    was about to decide. The same row `sessionClearMovesAccounts` holds for the same reason, and
-///    the one gate here that has nothing to do with quota.
+///    the one gate here that has nothing to do with quota. The caller passes
+///    `SessionTick.waitingOnPerson` rather than the board's `blocked`, which also covers the soft
+///    `idle_prompt` fired a minute after any turn - a turn boundary is exactly when that notice is
+///    about to arrive, so the word would veto this mover as reliably as it vetoed the rebalance
+///    (codex review of e52a436).
 ///  - `keyboardIdle`: nobody has typed in that terminal for `sessionInputKeyboardQuietSeconds`.
 ///  - `draftSuspected`: and nothing suggests a half-written prompt is sitting in the composer. Both
 ///    are needed and neither is the other: the first is about the last five seconds, the second is
@@ -202,13 +206,26 @@ let turnBoundaryRosterGrace: TimeInterval = 5
 /// 12:00:00.750, and a bare `>=` would read the roster it just wrote as too old and refuse every
 /// move this feature exists to make. So the boundary is compared at the second it falls in.
 ///
-/// THE RESIDUAL, stated rather than hidden: on a session running the previous hook, a roster
-/// written by some OTHER event inside the same second as the turn end (a `SubagentStop` a few
-/// hundred milliseconds earlier) passes this test without carrying the boundary's roll call. What
-/// the roll call adds over the edge events is background tasks that were never announced, so the
-/// exposure is one sub-second window on an out-of-date hook, against a window that used to be a
-/// quarter of a second wide on every hook. It closes entirely as soon as that session's Claude Code
-/// runs the current `tally hook-agents`, where the roster is on disk before the boundary is.
+/// THE RESIDUAL, stated at its real size rather than at a flattering one (review of e52a436, B13
+/// corrected the first version of this paragraph, which understated it four-fold). On a session
+/// running the PREVIOUS hook - boundary first, roster up to a quarter of a second later - a roster
+/// written by any other event inside the same whole second as the turn end passes this test without
+/// carrying that boundary's roll call. The trigger is not only a `SubagentStop`: a `SubagentStart`
+/// or the previous `Stop` landing in that second does it too, and the blind spot is as wide as one
+/// whole second rather than the "sub-second" this used to claim.
+///
+/// What the roll call adds over the edge events is background tasks that were never announced, so
+/// what is exposed is that one class, in that one second, on an out-of-date hook. It is narrowed to
+/// nearly nothing - not to nothing - once that session's Claude Code runs the current
+/// `tally hook-agents`, which puts the roster on disk before the boundary: the roster lock is
+/// fail-open (`withAgentRosterLock` writes anyway when it cannot take it), so two hook runs racing
+/// can still publish a roster that carries no roll call and is stamped in the same second.
+///
+/// THE ROOT FIX AND WHY IT IS NOT TAKEN HERE: give the roster the fractional clock the boundary
+/// already uses. `readSessionAgents` decodes with a plain `ISO8601DateFormatter`, which does not
+/// accept fractional seconds, so a roster written that way is unreadable to every build now
+/// installed - including the APP target, whose session cards would lose their agent count until it
+/// was updated. That is a schema change rather than an addition, and this feature is not worth one.
 func rosterCoversBoundary(updatedAt: Date, boundary: Date) -> Bool {
     updatedAt >= Date(timeIntervalSince1970: boundary.timeIntervalSince1970.rounded(.down))
 }
@@ -228,14 +245,51 @@ func rosterCoversBoundary(updatedAt: Date, boundary: Date) -> Bool {
 /// thing they said may be the PREVIOUS turn's roll call, taken before this turn dispatched
 /// anything. Trusting an empty one of those is a SIGTERM into a live fan-out, which is the one
 /// thing this mover may never do.
-func turnBoundaryAgents(pid: String, boundary: Date, dir: URL = supervisorStateDir,
+///
+/// AND A ROSTER THAT NAMES SOMEBODY IS BELIEVED ONLY WHILE THE DISK AGREES, which is the second
+/// half of that binding and closes the way `retry` could stand forever (review of e52a436, B1).
+/// The roster is edge-counted: an agent that DIES takes its `SubagentStop` with it, so its id sits
+/// there until a roll call corrects it, and a roll call only arrives with the next `Stop`. Two
+/// ordinary things produce exactly that ghost and then no next `Stop`:
+///
+///   - A RELAUNCH THAT KILLED A FAN-OUT. The roster file is named for the SUPERVISOR pid and the
+///     supervisor outlives its children, so a `tally session clear`, a cap handoff or a reload that
+///     ends a live fan-out leaves every one of those ids behind for the next child to read.
+///   - A SUBAGENT THAT CRASHED, which `advanceAgentRoster` says outright it cannot answer.
+///
+/// Left unchecked, either one holds this boundary in `retry` on every tick for the life of the
+/// child - and an undecided boundary stands the idle rebalance down with it, so the session that
+/// most needs moving is the one that never can be. So the roster's claim is arbitrated against the
+/// evidence on disk: `lastAgentWrite` is the newest write under this session's `subagents/` THAT
+/// THIS CHILD COULD HAVE MADE (`newestSubagentWrite` filters on the child's own start, so a
+/// previous child's transcripts are excluded by construction), and a roster naming workers while
+/// nothing has been written for `subagentIdleSeconds` is a roster describing work that has stopped.
+///
+/// THE ARBITRATION IS THE `isQuiet` WITNESS ITSELF, deliberately, rather than a clock of this
+/// mover's own. `subagentIdleSeconds` is the window the rebalance already judges dispatched work
+/// by, so this answers `retry` on exactly the ticks the rebalance would refuse anyway - which is
+/// what makes the stand-down it causes free (WindowRepick.swift carries that table). A blind
+/// timeout would instead give up on a genuine fifteen-minute fan-out, which is the case this mover
+/// was asked to wait for.
+func turnBoundaryAgents(pid: String, boundary: Date, lastAgentWrite: Date?,
+                        dir: URL = supervisorStateDir,
                         now: Date = Date()) -> TurnBoundaryAgents {
     guard let record = readSessionAgents(pid: pid, dir: dir),
           let working = record.reportable else { return .unavailable }
     guard rosterCoversBoundary(updatedAt: record.updatedAt, boundary: boundary) else {
         return now.timeIntervalSince(boundary) <= turnBoundaryRosterGrace ? .retry : .unavailable
     }
-    return working == 0 ? .idle : .retry
+    guard working > 0 else { return .idle }
+    return agentWorkIsLive(lastAgentWrite, now: now) ? .retry : .unavailable
+}
+
+/// Whether this child's dispatched work has written anything inside the window the rest of the repo
+/// judges a subagent idle by. nil - no `subagents/` directory, or nothing in it this child wrote -
+/// is NOT live: a roster naming workers that have left no trace at all under this child is the
+/// ghost case above, and answering "live" to it is what would hold the boundary forever.
+func agentWorkIsLive(_ lastAgentWrite: Date?, now: Date = Date()) -> Bool {
+    guard let lastAgentWrite else { return false }
+    return now.timeIntervalSince(lastAgentWrite) <= subagentIdleSeconds
 }
 
 /// Whether a tool call this conversation opened is still outstanding.
@@ -278,6 +332,11 @@ func turnBoundaryToolCallOpen(_ file: URL?, now: Date = Date()) -> Bool {
 ///     its own 120s bar. Re-asking every two seconds until the next turn would buy nothing and cost
 ///     a snapshot decode per poll.
 ///
+/// `agents` IS HANDED BOTH THE BOUNDARY AND THIS STATION'S OWN `now`, rather than being left to
+/// take a clock reading of its own. The grace and the subagent window are judged against it, and a
+/// station whose gates are decided on two different instants is the thing the hook side spent this
+/// same package writing down as a rule ("ONE INSTANT FOR THE WHOLE RUN", HookAgents.swift).
+///
 /// It says so on the terminal, like the window repick, and for the same reason: this is a restart
 /// the person in front of it did not ask for, and an unexplained one reads as a crash. Safe to
 /// print here because the message precedes a tear-down (PendingNotice.swift states that rule).
@@ -286,7 +345,7 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
                            account: Snapshot.Account, primaryModel: String?, mode: String,
                            blocked: Bool, keyboardIdle: Bool, draftSuspected: Bool,
                            carryable: Bool, fuseAllows: Bool,
-                           agents: (Date) -> TurnBoundaryAgents,
+                           agents: (Date, Date) -> TurnBoundaryAgents,
                            turnEnded: @autoclosure () -> Bool,
                            toolCallOpen: @autoclosure () -> Bool,
                            quarantine: [String: (model: String?, until: Date)] = [:],
@@ -312,7 +371,7 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
     // spent stands the idle rebalance down on every tick through `turnBoundaryPending`, which would
     // take the 120s preventive move away from precisely the sessions that have no turn-boundary
     // evidence to replace it with (codex review of d21f2e0, P2).
-    switch agents(event.at) {
+    switch agents(event.at, now) {
     case .idle: break
     case .retry: return
     case .unavailable:

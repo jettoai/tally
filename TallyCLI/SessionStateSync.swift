@@ -217,7 +217,7 @@ func syncSessionState(_ writer: inout SessionStateWriter, pid: String, project: 
                                           project: project.name, worktree: project.worktree,
                                           model: model, childPid: childPid),
                 pid: pid, dir: dir, now: now)
-    return SessionTick(state: state, quiet: quietness)
+    return SessionTick(state: state, quiet: quietness, wait: wait)
 }
 
 /// What one tick decided about a session: the word every surface reads, and the reading behind it.
@@ -235,6 +235,35 @@ struct SessionTick: Equatable {
     let state: SupervisedState
     /// What the transcript said on this tick, in the three shapes `SessionQuiet` keeps apart.
     let quiet: SessionQuiet
+    /// WHICH KIND OF WAIT is behind a `blocked`, which is the second thing the word throws away and
+    /// the second consumer that cannot afford to lose it. `blocked` is one answer to two different
+    /// situations - somebody has to answer a dialog, and Claude Code has finished speaking and
+    /// nobody has typed for a minute - and the board is right to draw both, because both are a
+    /// session with the floor. The movers that RESTART a child are not: only the first is a reason
+    /// not to restart, and reading the word alone made the second one a veto too (see
+    /// `waitingOnPerson`).
+    let wait: UserWait?
+
+    /// Whether a PERSON is being waited for: a permission request, a plan awaiting approval, an
+    /// open question. The reading every mover that restarts this child asks, spelled once here.
+    ///
+    /// WHY NOT `state == .blocked`, which is what the movers asked at first and is a regression
+    /// this exists to have fixed (codex review of e52a436). Claude Code fires `idle_prompt` about
+    /// sixty seconds after it stops speaking, and `supervisedSessionState` folds that soft wait
+    /// into `blocked` for a session that is otherwise quiet - which is precisely the session the
+    /// idle rebalance is waiting for. Its own bar is 120 seconds of silence, so on any machine with
+    /// the notification hook installed the soft wait was ALWAYS standing by the time the rebalance
+    /// became possible, and the gate refused every single time. Worse, it does not lift on its own:
+    /// the notice clears on a keystroke or a transcript write, and an idle session produces
+    /// neither. The idle rebalance was therefore switched off outright on exactly the machines
+    /// this repo's own hooks are installed on.
+    ///
+    /// `hard` FAILS OPEN, which is what makes this safe to narrow: `userWait` answers `hard` for a
+    /// type it has never heard of and for a notice carrying no type at all, so the only readings
+    /// that reach `false` here are the ones explicitly listed as soft (`softWaitNotificationTypes`,
+    /// one entry). A new permission-shaped notification from a future Claude Code is a hard wait
+    /// without anybody teaching this anything.
+    var waitingOnPerson: Bool { wait == .hard }
 }
 
 /// When a transcript was last written, or nil when there is none (or it cannot be stat'd).

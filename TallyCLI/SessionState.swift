@@ -185,7 +185,7 @@ func notificationWaitsForUser(_ type: String?) -> Bool {
 /// speaking and nobody has typed since, which is ALSO true of a session that has dispatched a
 /// fan-out and is waiting on it: the main transcript stops, the 60s timer fires, and nobody is
 /// being waited for at all.
-enum UserWait: Sendable {
+enum UserWait: Equatable, Sendable {
     /// The session cannot move until a person answers. Outranks everything.
     case hard
     /// The floor is free, which is a call for somebody only if nothing else is happening.

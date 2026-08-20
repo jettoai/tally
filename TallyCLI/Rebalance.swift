@@ -281,6 +281,16 @@ func rebalanceRecordName(_ accountID: String) -> String {
 /// preventive mover that was still deciding otherwise. The cost of the new gate is a dry account
 /// keeping a session that nobody is going to type into until they answer the prompt - at which
 /// point the transcript moves, the session stops being blocked, and the next idle window moves it.
+///
+/// IT IS A PERSON BEING WAITED FOR, NOT THE BOARD'S WORD `blocked`, and that distinction is the
+/// whole of whether this gate is a safety rail or an off switch (codex review of e52a436). The
+/// board folds Claude Code's `idle_prompt` - fired about sixty seconds after it stops speaking -
+/// into `blocked` for any session that is otherwise quiet. This mover's own bar is 120 seconds of
+/// silence, so that soft wait is ALWAYS standing by the time a rebalance becomes possible, and it
+/// clears only on a keystroke or a transcript write, neither of which an idle session produces.
+/// Handed the word, this gate refused every rebalance there has ever been on a machine with the
+/// notification hook installed. Callers pass `SessionTick.waitingOnPerson`, which is the hard half
+/// alone and fails open to hard for anything it has not been taught.
 func rebalanceAllowedForSession(steering: Bool, mode: String, blocked: Bool, isQuiet: Bool,
                                 carryable: Bool, fuseAllows: Bool) -> Bool {
     steering && mode != "manual" && !blocked && isQuiet && carryable && fuseAllows
@@ -300,11 +310,15 @@ func rebalanceAllowedForSession(steering: Bool, mode: String, blocked: Bool, isQ
 /// The gates, in the order they bite:
 ///  - `steering`: the fleet is not set to observe only, where Tally may not pick an account for a
 ///    running session at all (AutoSteering.swift).
-///  - `blocked`: the session is waiting on a person (a permission request, a plan approval, a
-///    question). A relaunch answers that prompt by destroying it; see `rebalanceAllowedForSession`
-///    for why this gate arrived late.
 ///  - `mode`: manual means the user pinned this account. Pinning is a statement about where the
 ///    session runs, so a pinned session is never moved by quota reasoning, dying account or not.
+///  - `blocked`: a PERSON is being waited for (a permission request, a plan approval, a question) -
+///    `SessionTick.waitingOnPerson`, never the board's `blocked`, which also covers the soft
+///    `idle_prompt` every idle session carries. A relaunch answers that prompt by destroying it;
+///    see `rebalanceAllowedForSession` for why this gate arrived late and why it is the hard half.
+///    Listed HERE rather than second because this list claims to be the order the gates bite, and
+///    the implementation asks `mode` first (review of e52a436, B8: the first version of this entry
+///    was written above `mode` and was therefore already the drift this list exists to prevent).
 ///  - `isQuiet`: the full non-urgent bar. This is a convenience, so it may never cost a keystroke.
 ///  - `carryable`: whether moving this session can lose a conversation (`carryableSession`,
 ///    SupervisorRuntime.swift). Crossing accounts costs a resume id: `performHandoff` strips

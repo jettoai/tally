@@ -337,7 +337,11 @@ func windowRepickMove(provider: String, account: Snapshot.Account, primaryModel:
 ///
 ///   a plan already made     both movers here are behind the same `plan == nil` guard
 ///   observe-only, pinned    `rebalanceAllowedForSession` refuses on `steering` and `mode`
-///   blocked                 the same, on `blocked` - added 2026-08-20 for exactly this reason
+///   waiting on a person     the same, on `blocked` - added 2026-08-20 for exactly this reason,
+///                           and narrowed the day after to the HARD waits alone: the board's
+///                           own `blocked` also covers the `idle_prompt` an idle session
+///                           carries, and reading that as a veto turned the rebalance off
+///                           entirely (`SessionTick.waitingOnPerson`)
 ///   somebody typing         the rebalance wants 120s of keyboard silence, this one wants 5s
 ///   suspected draft         `guard !draftSuspected` above, which covers both movers here
 ///   not carryable, no fuse  `rebalanceAllowedForSession` again, the same two terms

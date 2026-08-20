@@ -55,6 +55,19 @@ func runTurnBoundaryChecks() {
     check("1. an observe-only fleet does not move it", target(steering: false) == nil)
     check("2. a pinned session does not move it", target(mode: "manual") == nil)
     check("3. a session waiting on a person does not move it", target(blocked: true) == nil)
+    // AND WHICH WAIT THAT IS, through the real classification. A turn boundary is precisely when
+    // Claude Code is about to fire its soft `idle_prompt` - it has just stopped speaking - so the
+    // board's coarse `blocked` would veto this mover as reliably as it vetoed the rebalance.
+    func waitingTick(_ type: String?) -> SessionTick {
+        let wait = userWait(notificationType: type)
+        return SessionTick(state: supervisedSessionState(wait: wait, hasTranscript: true,
+                                                         quiet: true),
+                           quiet: .quiet, wait: wait)
+    }
+    check("3a. an idle prompt is not somebody waiting, so the move goes ahead",
+          target(blocked: waitingTick("idle_prompt").waitingOnPerson)?.id == "B")
+    check("3b. a permission prompt is, so it does not",
+          target(blocked: waitingTick("permission_prompt").waitingOnPerson) == nil)
     check("4. somebody typing in that terminal does not move it", target(keyboardIdle: false) == nil)
     check("5. a suspected draft in the composer does not move it",
           target(draftSuspected: true) == nil)
@@ -95,10 +108,14 @@ func runTurnBoundaryChecks() {
     let stateDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("tally-turn-boundary-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: stateDir) }
-    /// The reading for a boundary at `launch`, asked a moment after it.
-    func roster(_ pid: String, at asked: TimeInterval = 1) -> TurnBoundaryAgents {
-        turnBoundaryAgents(pid: pid, boundary: launch, dir: stateDir,
-                           now: launch.addingTimeInterval(asked))
+    /// The reading for a boundary at `launch`, asked a moment after it. `wrote` is the newest write
+    /// this child left under its `subagents/` directory; the default is "a moment ago", so a roster
+    /// naming workers is taken at its word unless a check says otherwise.
+    func roster(_ pid: String, at asked: TimeInterval = 1,
+                wrote: TimeInterval? = 0) -> TurnBoundaryAgents {
+        turnBoundaryAgents(pid: pid, boundary: launch,
+                           lastAgentWrite: wrote.map { launch.addingTimeInterval($0) },
+                           dir: stateDir, now: launch.addingTimeInterval(asked))
     }
     // NO ROSTER AT ALL is the machine whose hooks are not installed, and it is `unavailable` rather
     // than `retry`: waiting for a file nothing writes would hold this boundary open forever, and an
@@ -118,6 +135,34 @@ func runTurnBoundaryChecks() {
     writeSessionAgents(SessionAgentsRecord(live: [], trusted: false, updatedAt: launch),
                        pid: "4", dir: stateDir)
     check("an empty roster that cannot be believed answers for nothing", roster("4") == .unavailable)
+
+    // MARK: - 36c1a. A roster naming workers is believed only while the disk agrees
+
+    // THE GHOST (review of e52a436, B1). The roster is edge-counted, so an agent that dies without
+    // a `SubagentStop` sits there until a roll call corrects it - and a roll call only arrives with
+    // the next `Stop`. A relaunch that ended a live fan-out leaves exactly that behind for the next
+    // child, because the roster file is named for the SUPERVISOR pid. Believed forever, it answers
+    // `retry` on every tick, the boundary is never spent, and the idle rebalance is stood down for
+    // the life of a session that may never have another turn.
+    check("a roster naming workers whose transcripts are still moving is asked again",
+          roster("3", wrote: 0) == .retry)
+    check("…and one whose work has left no trace under this child at all is a ghost",
+          roster("3", wrote: nil) == .unavailable)
+    check("…as is one that has written nothing for the whole subagent window",
+          roster("3", at: subagentIdleSeconds + 2, wrote: 0) == .unavailable)
+    check("…while the last second of that window still counts as live",
+          roster("3", at: subagentIdleSeconds, wrote: 0) == .retry)
+    // The window is the one the rebalance judges dispatched work by, not a clock of this mover's
+    // own: that is what makes the stand-down it causes free, because those are the same ticks the
+    // rebalance refuses anyway.
+    check("the arbitration window is the repo's own subagent window",
+          agentWorkIsLive(launch, now: launch.addingTimeInterval(subagentIdleSeconds))
+              && !agentWorkIsLive(launch, now: launch.addingTimeInterval(subagentIdleSeconds + 1)))
+    check("no write at all is never live", !agentWorkIsLive(nil, now: launch))
+    // AND IT REACHES ONLY THE ROSTER THAT NAMES SOMEBODY. An empty roll call is an answer, not a
+    // claim, so nothing about the disk can turn it into a wait.
+    check("an empty roster is idle whatever the subagents directory says",
+          roster("2", wrote: nil) == .idle)
 
     // MARK: - 36c2. The roster has to describe THIS boundary
 
@@ -160,7 +205,8 @@ func runTurnBoundaryChecks() {
     check("the roster round-trips truncated to the second, which is why the test is not a bare >=",
           readSessionAgents(pid: "7", dir: stateDir)?.updatedAt == launch)
     check("…and one hook run's own pair still reads as describing each other",
-          turnBoundaryAgents(pid: "7", boundary: readBack?.at ?? .distantPast, dir: stateDir,
+          turnBoundaryAgents(pid: "7", boundary: readBack?.at ?? .distantPast, lastAgentWrite: nil,
+                             dir: stateDir,
                              now: sharedInstant.addingTimeInterval(1)) == .idle)
 
     // The open tool call, read from a transcript rather than from the tick's cached scan (the cache
@@ -220,7 +266,7 @@ func runTurnBoundaryChecks() {
                               provider: "claude", account: dying, primaryModel: primary,
                               mode: mode, blocked: blocked, keyboardIdle: keyboardIdle,
                               draftSuspected: draftSuspected, carryable: carryable,
-                              fuseAllows: fuseAllows, agents: { _ in agents },
+                              fuseAllows: fuseAllows, agents: { _, _ in agents },
                               turnEnded: turnEnded, toolCallOpen: toolCallOpen, quarantine: [:],
                               loaded: (Snapshot(version: 2, generatedAt: launch,
                                                 accounts: accounts), nil),
@@ -329,8 +375,19 @@ func runTurnBoundaryChecks() {
                   station.upperBound < $0.lowerBound
               } ?? false
           } ?? false)
-    check("…taking the board's own blocked reading rather than a second opinion",
-          loop.contains("blocked: board.state == .blocked"))
+    check("…taking the board's hard-wait reading rather than a second opinion",
+          loop.contains("blocked: board.waitingOnPerson"))
+    // AND THE ROSTER'S CLAIM IS HANDED THE DISK EVIDENCE THAT ARBITRATES IT, filtered to what this
+    // child could have written (`newestSubagentWrite` takes the child's own start as its floor),
+    // which is what makes the ghost a previous child left readable as a ghost.
+    check("…and the roster reading is given this child's own subagent writes",
+          loop.contains("lastAgentWrite: watcher.newestSubagentWrite()"))
+    // ONE CLOCK FOR THE STATION: the grace and the subagent window are judged against the same
+    // instant the quota gates below them use, rather than a reading the closure takes for itself.
+    check("…on the station's own clock rather than one of the closure's",
+          loop.contains("now: $1"))
+    check("…and never the word that also covers the soft prompt fired a minute after every turn",
+          !loop.contains("board.state == .blocked"))
     // ONE READING OF THE BOUNDARY for the two stations that consult it, taken above both.
     check("the boundary is read once, above the preventive station",
           loop.components(separatedBy: "readSessionTurnEnd(pid: supervisorPID)").count == 2

@@ -282,21 +282,75 @@ expect(outOfReach.contains("Main is signed out; use Renew login on its card in T
 // on (codex review of e2325e0).
 expect(!outOfReach.contains("inside that config dir"),
        "…and never the old instruction, which named a directory Claude Code does not read")
-expect(outOfReach.contains("CLAUDE_CONFIG_DIR=\(browserHome) claude --strict-mcp-config auth login"),
+expect(outOfReach.contains("CLAUDE_CONFIG_DIR=\(browserHome) "
+                            + "\(resolveProviderExecutable("claude")) --strict-mcp-config auth login"),
        "…the command names the home through the variable, with the flag before the subcommand")
 // The two things this borrows from Renew login rather than spelling again, each asserted where it
-// would actually be got wrong.
-expect(artifactRenewLoginCommand(home: "/Users/x/.claude2")
-           == "env CLAUDE_CONFIG_DIR=/Users/x/.claude2 claude --strict-mcp-config auth login",
+// would actually be got wrong. The program is pinned rather than resolved here, so these read the
+// same on a machine with the shim installed and on one without.
+let realClaude = "/opt/homebrew/bin/claude"
+expect(artifactRenewLoginCommand(home: "/Users/x/.claude2", executable: realClaude)
+           == "env CLAUDE_CONFIG_DIR=/Users/x/.claude2 \(realClaude) --strict-mcp-config auth login",
        "the login command is assembled by the app's own Renew login")
-expect(artifactRenewLoginCommand(home: RenewLoginCommand.defaultHome(providerID: "claude"))
-           == "env -u CLAUDE_CONFIG_DIR claude --strict-mcp-config auth login",
+expect(artifactRenewLoginCommand(home: RenewLoginCommand.defaultHome(providerID: "claude"),
+                                 executable: realClaude)
+           == "env -u CLAUDE_CONFIG_DIR \(realClaude) --strict-mcp-config auth login",
        "…so the DEFAULT home unsets the variable rather than naming itself, which is where the "
            + "Keychain item actually lives")
+
+// MARK: the program the command names
+
+// NEVER THE BARE WORD. `claude` on a machine carrying Tally's PATH shim is `~/.tally/bin/claude`,
+// which picks an account by policy whenever the variable is unset - which is precisely the
+// default-home branch above. A user following that line would sign in to whichever account had
+// headroom, not the one the card names (codex review of 0842129).
+let shimDir = tmp.appendingPathComponent("shim/.tally/bin")
+let realDir = tmp.appendingPathComponent("shim/real")
+for dir in [shimDir, realDir] {
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let file = dir.appendingPathComponent("claude")
+    try Data("#!/bin/sh\n".utf8).write(to: file)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+}
+let resolved = resolveProviderExecutable("claude", path: "\(shimDir.path):\(realDir.path)",
+                                         shimDirectory: shimDir)
+expect(resolved == realDir.appendingPathComponent("claude").path,
+       "the resolver passes over the shim and answers with the real program")
+let shimmed = artifactRenewLoginCommand(home: "/Users/x/.claude2", executable: resolved) ?? ""
+expect(shimmed.contains(resolved) && !shimmed.contains(" claude "),
+       "…and the command names that program, never the word PATH would have to resolve again")
+// The default argument is that resolver, so the sentence a real session sees carries a real program.
+expect(artifactRenewLoginCommand(home: "/Users/x/.claude2")?
+           .contains(resolveProviderExecutable("claude")) == true,
+       "…which is what the command reaches for when nobody names one")
+
+// MARK: a default home that is a symlink
+
+// `home` arrives resolved (the guard compares config homes through `artifactAccountHome`), so a
+// default home reached through a link would compare unequal to the literal `~/.claude` and be named
+// in the command - and Claude Code keys its Keychain item on that exact string, so the login would
+// land in a namespace the session never reads.
+let linkedHomeRoot = tmp.appendingPathComponent("linked-default")
+let realDefault = linkedHomeRoot.appendingPathComponent(".claude-real")
+try FileManager.default.createDirectory(at: realDefault, withIntermediateDirectories: true)
+let linkedDefault = linkedHomeRoot.appendingPathComponent(".claude")
+try? FileManager.default.removeItem(at: linkedDefault)
+try FileManager.default.createSymbolicLink(at: linkedDefault, withDestinationURL: realDefault)
+expect(artifactAccountHome(linkedDefault.path) != linkedDefault.path,
+       "the fixture really is a link, so this case is the one it says it is")
+expect(artifactRenewLoginCommand(home: artifactAccountHome(linkedDefault.path) ?? "",
+                                 executable: realClaude, defaultHome: linkedDefault.path)
+           == "env -u CLAUDE_CONFIG_DIR \(realClaude) --strict-mcp-config auth login",
+       "a default home reached through a symlink is still the default home")
+expect(artifactRenewLoginCommand(home: artifactAccountHome(
+           linkedHomeRoot.appendingPathComponent(".claude2").path) ?? "",
+           executable: realClaude, defaultHome: linkedDefault.path)?
+           .contains("CLAUDE_CONFIG_DIR=") == true,
+       "…while any other home is still named")
 let spacedLogin = artifactRenewLoginCommand(home: spaced) ?? ""
 // The VARIABLE ASSIGNMENT is the word that gets quoted, which is the shape `env` needs: the whole
 // `NAME=value` pair is one argument, so quoting the path alone would split the pair in two.
-expect(spacedLogin.contains("env 'CLAUDE_CONFIG_DIR=\(spaced)' claude"),
+expect(spacedLogin.contains("env 'CLAUDE_CONFIG_DIR=\(spaced)' \(resolveProviderExecutable("claude"))"),
        "…and a config home with a space in it is quoted, so the line can be copied and run")
 expect(!spacedLogin.contains("''"),
        "…once, not twice: a command line is not one word in a command line")

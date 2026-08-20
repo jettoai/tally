@@ -183,12 +183,29 @@ func artifactShellWord(_ text: String) -> String {
 ///
 /// nil for a provider the app cannot log in at all, which leaves the sentence naming Renew login and
 /// the other ways out.
-func artifactRenewLoginCommand(home: String) -> String? {
+func artifactRenewLoginCommand(
+    home: String,
+    executable: String = resolveProviderExecutable(providers[0].cli),
+    defaultHome: String = RenewLoginCommand.defaultHome(providerID: providers[0].id)
+) -> String? {
     let provider = providers[0]
     guard let plan = RenewLoginCommand.plan(providerID: provider.id) else { return nil }
-    let named = RenewLoginCommand.isDefaultHome(home, providerID: provider.id) ? nil : home
-    return RenewLoginCommand.shellCommand(executable: provider.cli, envKey: provider.envKey,
-                                          home: named, arguments: plan.arguments)
+    // BOTH SIDES THROUGH THE SAME NORMALIZATION. `home` arrives already resolved (the guard compares
+    // config homes by `artifactAccountHome`, symlinks and all), so comparing it against the literal
+    // `~/.claude` answers "not the default home" on every machine whose default home is a link -
+    // and this is the one comparison where being wrong is silent: the command would then NAME the
+    // resolved path, Claude Code would key its Keychain item on that exact string, and the user
+    // would log in to a namespace their session never reads.
+    let isDefault = artifactAccountHome(home) == artifactAccountHome(defaultHome)
+    // THE REAL BINARY, NEVER THE BARE NAME. `claude` on a machine with Tally's PATH shim installed is
+    // `~/.tally/bin/claude`, which asks `tally launch-dir` which account a bare invocation should
+    // land on: with the variable unset (the default-home branch, and exactly the branch that must
+    // reach the default account) the shim reads a fresh launch and picks by policy, so the user
+    // follows our instruction and signs in to whichever account had headroom. `resolveProviderExecutable`
+    // walks PATH the way the system would and passes over that directory; it is the same defence the
+    // supervisor's own respawn carries, and for the same failure.
+    return RenewLoginCommand.shellCommand(executable: executable, envKey: provider.envKey,
+                                          home: isDefault ? nil : home, arguments: plan.arguments)
 }
 
 /// What this machine can say about the account artifacts are published from. Three answers, because

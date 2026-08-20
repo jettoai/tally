@@ -247,6 +247,14 @@ struct SettingsView: View {
             remove: integrations.removeKnockHooks)
         rowDivider
         integrationRow(
+            title: L("Artifact publishing account"),
+            caption: L("Holds a Claude Code session back from publishing an artifact under an account other than the one you browse with, since a published page is private to the account that published it and opens as Page not found for everyone else. Installs one PreToolUse hook entry per Claude account, matched to the Artifact tool alone; anything already registered for that event keeps running, and only Tally's entry is removed."),
+            status: integrations.artifactHookStatus,
+            install: integrations.installArtifactHook,
+            remove: integrations.removeArtifactHook)
+        SettingsArtifactAccountRow(store: store, settings: settings)
+        rowDivider
+        integrationRow(
             title: L("Claude Code skill"),
             caption: L("Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json, and adds one command: /tally moves a session to another account or runs it on a different model, without spending a turn. One skill file, one command file and one hook entry per Claude account; all removed just as cleanly."),
             status: integrations.skillStatus,
@@ -333,6 +341,8 @@ struct SettingsView: View {
              integrations.removeAgentHooks),
             (integrations.knockHookStatus, integrations.installKnockHooks,
              integrations.removeKnockHooks),
+            (integrations.artifactHookStatus, integrations.installArtifactHook,
+             integrations.removeArtifactHook),
             (integrations.skillStatus, integrations.installSkill, integrations.removeSkill),
         ]
         let missing = entries.filter { $0.0 != .installed }

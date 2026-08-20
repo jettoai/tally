@@ -339,11 +339,14 @@ ln -s <build-products>/tally /usr/local/bin/tally
 Or skip the symlink and the aliases entirely: **Settings → Integrations** installs each piece
 with one click and a clean removal, with an Install all switch over the set: the CLI tool, the
 shell shims (bare `claude` / `codex` follow your policy), the status line signal, the session
-board's notification hook, the subagent-count hooks, and the Claude Code skill with its `/tally`
-command. Every hook row keeps the same promise: whatever you already had registered on that
-event keeps running, and removal takes out only Tally's own entry. Sharing an existing account's
-harness has a row here too, deliberately left out of Install all: that one moves conversations
-between config homes, and a press meaning "turn everything on" may not also mean that.
+board's notification hook, the subagent-count hooks, the quota warning hooks, the Artifact
+publishing guard (a published artifact is private to the account that published it, so Tally holds
+a publish going out under an account other than the one you browse with, and the row names that
+account), and the Claude Code skill with its `/tally` command. Every hook row keeps the same
+promise: whatever you already had registered on that event keeps running, and removal takes out
+only Tally's own entry. Sharing an existing account's harness has a row here too, deliberately
+left out of Install all: that one moves conversations between config homes, and a press meaning
+"turn everything on" may not also mean that.
 
 Optional shell sugar:
 

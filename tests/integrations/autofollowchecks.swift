@@ -15,6 +15,7 @@ func runAutoFollowChecks(tmp: URL) throws {
     typealias Candidate = IntegrationsStore.AutoFollowCandidate
     typealias Plan = IntegrationsStore.AutoFollowPlan
     let knock = IntegrationsStore.knockHookManifest
+    let artifact = IntegrationsStore.artifactHookManifest
 
     /// A manifest whose OTHER component records a settings.json: the user's own earlier press.
     let authorized: [String: Any] = [
@@ -46,6 +47,14 @@ func runAutoFollowChecks(tmp: URL) throws {
     // new version added is not.
     check("a machine that already lets Tally write settings.json follows the new row",
           plan() == Plan(install: [knock], settle: []))
+    // And with more than one candidate, which is what this list holds now: each is judged on its own
+    // word, so a row already installed does not carry a missing one in with it.
+    check("…and every followable row is judged on its own status",
+          IntegrationsStore.autoFollowPlan(
+            [Candidate(component: knock, status: .installed, deliverable: true),
+             Candidate(component: artifact, status: .notInstalled, deliverable: true)],
+            manifest: authorized, handled: [], isUnshipped: false, isDemo: false)
+              == Plan(install: [artifact], settle: [knock]))
 
     // MARK: the three preconditions, each removed on its own
 
@@ -104,16 +113,22 @@ func runAutoFollowChecks(tmp: URL) throws {
 
     // MARK: the registry
 
-    // ONE ENTRY, and the next hook in this family is one more line of it. The rest of the pane is
-    // deliberately absent: those rows write shell profiles, a shared /usr/local/bin, and other
-    // people's config homes, none of which a settings.json press authorizes.
+    // THE SETTINGS.JSON HOOK FAMILY, and the next hook in it is one more line of the list: the
+    // Artifact guard is the second, and it followed the same way the quota knock did. The rest of
+    // the pane is deliberately absent: those rows write shell profiles, a shared /usr/local/bin, and
+    // other people's config homes, none of which a settings.json press authorizes.
     let followable = IntegrationsStore.autoFollowComponents.map(\.component)
-    check("exactly the settings.json hook family follows", followable == [knock])
+    check("exactly the settings.json hook family follows", followable == [knock, artifact])
     check("…found by the key the manifest and the notice both name it with",
           IntegrationsStore.autoFollowComponent(knock)?.component == knock
+              && IntegrationsStore.autoFollowComponent(artifact)?.component == artifact
               && IntegrationsStore.autoFollowComponent("claudeSkill") == nil)
-    check("…and it is named by the row's own title, so the notice cannot call it something else",
-          IntegrationsStore.autoFollowComponent(knock)?.title() == L("Claude quota warning"))
+    check("…and each is named by the row's own title, so the notice cannot call it something else",
+          IntegrationsStore.autoFollowComponent(knock)?.title() == L("Claude quota warning")
+              && IntegrationsStore.autoFollowComponent(artifact)?.title()
+                  == L("Artifact publishing account"))
+    check("…and the two are recorded apart, so answering for one never answers for the other",
+          knock != artifact)
     check("the handled list and the notice list are kept apart",
           IntegrationsStore.autoFollowHandledKey != IntegrationsStore.autoFollowNoticeKey)
 
@@ -133,8 +148,10 @@ func runAutoFollowChecks(tmp: URL) throws {
         encoding: .utf8)) ?? ""
     check("the auto-follow source is readable from here at all",
           source.contains("static var autoFollowComponents"))
-    check("…and its deliverable gate asks both questions, not merely whether something runs",
-          source.contains("deliverable: { quotaKnockCLIDeliverable() && cliToolIsAppManaged() }"))
+    check("…and EVERY row's deliverable gate asks both questions, not merely whether something runs",
+          source.components(separatedBy:
+            "deliverable: { quotaKnockCLIDeliverable() && cliToolIsAppManaged() }").count - 1
+              == IntegrationsStore.autoFollowComponents.count)
 
     // MARK: reading the manifest as a whole
 

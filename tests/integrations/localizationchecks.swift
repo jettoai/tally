@@ -23,7 +23,8 @@ func runLocalizationKeyChecks() {
                    "Tally/Stores/IntegrationsStore.swift",
                    "Tally/Stores/IntegrationsCLITool.swift",
                    "Tally/Stores/IntegrationsCompletion.swift",
-                   "Tally/Stores/IntegrationsAutoFollow.swift"]
+                   "Tally/Stores/IntegrationsAutoFollow.swift",
+                   "Tally/Stores/IntegrationsArtifactHook.swift"]
 
     var keys: [String] = []
     var unreadable: [String] = []

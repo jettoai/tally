@@ -1,0 +1,17 @@
+#!/bin/bash
+# Compiles the Artifact publishing guard (TallyCLI/HookArtifact.swift) together with a small
+# assertion harness and runs it. No Xcode target is needed; exits non-zero on failure.
+#
+# The source list is that decision's closure and nothing more: the shared contract both processes
+# read (Tally/Core/ArtifactHookContract.swift), and Snapshot.swift for the account type the refusal
+# takes its two names from, with ResumePrompt and ProviderExecutable behind Snapshot as they are for
+# every other suite that compiles it. The app half of the same feature (the settings.json surgery,
+# the row, and the one entry it adds to the auto-follow set) is asserted in the integrations suite,
+# which is where the store already compiles.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+out=$(mktemp -d)/run
+swiftc -o "$out" tests/artifacthook/main.swift \
+  TallyCLI/HookArtifact.swift Tally/Core/ArtifactHookContract.swift \
+  TallyCLI/Snapshot.swift TallyCLI/ResumePrompt.swift TallyCLI/ProviderExecutable.swift
+"$out"

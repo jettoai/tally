@@ -79,6 +79,9 @@ final class IntegrationsStore {
     /// The two hooks that carry the advisory quota knock into a session's own context
     /// (IntegrationsKnockHook.swift), instead of it being typed into their terminal.
     private(set) var knockHookStatus: Status = .notInstalled
+    /// The `PreToolUse` hook that holds an Artifact publish going out under the wrong account
+    /// (IntegrationsArtifactHook.swift).
+    private(set) var artifactHookStatus: Status = .notInstalled
     private(set) var skillStatus: Status = .notInstalled
     /// Whether the other accounts run on the main account's harness (IntegrationsSharedHarness).
     /// Optional because a one-account machine has no row here at all, rather than an empty one.
@@ -113,6 +116,7 @@ final class IntegrationsStore {
         notificationHookStatus = Self.detectNotificationHook()
         agentHookStatus = Self.detectAgentHooks()
         knockHookStatus = Self.detectKnockHooks()
+        artifactHookStatus = Self.detectArtifactHook()
         skillStatus = Self.detectSkill()
         sharedHarnessStatus = Self.detectSharedHarness()
         completionInstalled = Self.detectCompletion()

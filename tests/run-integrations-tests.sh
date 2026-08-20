@@ -14,12 +14,17 @@
 # tiers it sets on one, and the line those are spelled into (ProcessTreeLine, whose separator is
 # PickContract's). The list had drifted behind that and this suite would not compile at all; a
 # closure is only a closure while every name in it is followed.
+# AND THE LAUNCH POLICY STORE JOINED IT WITH THE ARTIFACT ROW (2026-08-20): that row's install
+# seeds the account the guard reads out of ~/.tally/state.json, which is the difference between a
+# row that says Installed and a row that does anything at all, so the store that owns that file is
+# now part of this store's closure (AccountComfort and Quarantine come in behind it, exactly as they
+# do in the app target).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
 swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandchecks.swift \
   tests/integrations/statuslinechecks.swift \
-  tests/integrations/agenthookchecks.swift tests/integrations/knockhookchecks.swift tests/integrations/autofollowchecks.swift tests/integrations/notificationhookchecks.swift tests/integrations/switchgroupchecks.swift tests/integrations/selfhealchecks.swift \
+  tests/integrations/agenthookchecks.swift tests/integrations/knockhookchecks.swift tests/integrations/artifacthookchecks.swift tests/integrations/autofollowchecks.swift tests/integrations/notificationhookchecks.swift tests/integrations/switchgroupchecks.swift tests/integrations/selfhealchecks.swift \
   tests/integrations/localizationchecks.swift tests/integrations/renamechecks.swift tests/integrations/mergechecks.swift \
   tests/integrations/nativepickerchecks.swift tests/integrations/skillversionchecks.swift \
   tests/integrations/shimscriptchecks.swift tests/integrations/sharedharnesschecks.swift \
@@ -39,6 +44,8 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   Tally/Stores/IntegrationsNotificationHook.swift \
   Tally/Stores/IntegrationsAgentHook.swift \
   Tally/Stores/IntegrationsKnockHook.swift Tally/Stores/IntegrationsAutoFollow.swift \
+  Tally/Stores/IntegrationsArtifactHook.swift Tally/Core/ArtifactHookContract.swift \
+  Tally/Stores/LaunchPolicyStore.swift TallyCLI/AccountComfort.swift TallyCLI/Quarantine.swift \
   TallyCLI/QuotaKnockHookContract.swift \
   TallyCLI/SessionState.swift TallyCLI/AgentRoster.swift TallyCLI/ReloadRequest.swift \
   Tally/Stores/IntegrationsSelfHeal.swift \

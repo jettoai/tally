@@ -102,6 +102,12 @@ targets:
       # channel: these are separate processes speaking through files, so a drifted field name
       # is a picker that opens and can never be answered.
       - path: Tally/Core/PickContract.swift
+      # The Artifact publishing guard's shared vocabulary: the tool the app registers a PreToolUse
+      # matcher for, the command it registers, and the environment variable that waives the whole
+      # thing. Both targets compile the one copy for the reason above - the app writes these words
+      # into somebody's settings.json and this binary answers to them, so a drift is a hook that
+      # runs on every Artifact call and abstains, or a guard nobody ever registered.
+      - path: Tally/Core/ArtifactHookContract.swift
     settings:
       base:
         PRODUCT_NAME: tally

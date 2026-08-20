@@ -53,6 +53,7 @@ try MainActor.assumeIsolated {
     try runNotificationHookChecks(tmp: tmp)
     try runAgentHookChecks(tmp: tmp)
     try runKnockHookChecks(tmp: tmp)
+    try runArtifactHookChecks(tmp: tmp)
     // And the one pass that installs one of those without anybody pressing anything: what a machine
     // has to have already said before a new hook may follow (autofollowchecks.swift).
     try runAutoFollowChecks(tmp: tmp)

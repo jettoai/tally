@@ -81,6 +81,17 @@ extension IntegrationsStore {
                              status: { $0.knockHookStatus },
                              install: { $0.installKnockHooks() },
                              remove: { $0.removeKnockHooks() },
+                             deliverable: { quotaKnockCLIDeliverable() && cliToolIsAppManaged() }),
+         // The second entry, which is what this list was written to be. Both questions below are
+         // asked of the same program at the same path, so the answer is the same one the row above
+         // gets: `quotaKnockCLIDeliverable` is a test of `/usr/local/bin/tally` rather than of the
+         // quota knock (the two commands name that one path through the same constant, pinned in
+         // artifacthookchecks.swift).
+         AutoFollowComponent(component: artifactHookManifest,
+                             title: { L("Artifact publishing account") },
+                             status: { $0.artifactHookStatus },
+                             install: { $0.installArtifactHook() },
+                             remove: { $0.removeArtifactHook() },
                              deliverable: { quotaKnockCLIDeliverable() && cliToolIsAppManaged() })]
     }
 

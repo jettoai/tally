@@ -55,14 +55,32 @@ final class LaunchPolicyStore {
     private struct StateFile: Codable {
         var version = 1
         var launch: [String: ProviderPolicy]
+        /// The account artifacts are published from. TOP LEVEL rather than inside a provider's
+        /// policy, because it is not a launch decision: it says which Claude account the person at
+        /// this machine is signed into in their BROWSER, which is the one fact a session cannot see
+        /// and the one the Artifact guard compares against (Tally/Core/ArtifactHookContract.swift).
+        ///
+        /// Optional, and the schema only ever GAINS keys: `version` does not move, a supervisor
+        /// from an older build decodes this document exactly as it did before, and a state file
+        /// written before this key existed simply has no answer here.
+        var artifactAccount: String?
     }
 
     private(set) var policies: [String: ProviderPolicy]
+
+    /// The Claude config home artifacts are published from, or nil while nobody has chosen one.
+    ///
+    /// NIL IS AN ANSWER, and it is the one the CLI abstains on: the guard is a convenience rather
+    /// than a gate, so a machine that has never named an account is never told it may not publish
+    /// (TallyCLI/HookArtifact.swift). What stops the row from being inert is the install seeding
+    /// this (`artifactAccountSeed`), never a default invented at read time here.
+    private(set) var artifactAccount: String?
 
     private init() {
         if let data = try? Data(contentsOf: Self.fileURL),
            let file = try? JSONDecoder().decode(StateFile.self, from: data) {
             policies = file.launch
+            artifactAccount = file.artifactAccount
         } else {
             policies = [:]
         }
@@ -133,6 +151,14 @@ final class LaunchPolicyStore {
         updated.model = clean(model)
         updated.effort = clean(effort)
         policies[providerID] = updated
+        persist()
+    }
+
+    /// Name the account artifacts are published from. Empty/whitespace collapses to nil, the same
+    /// rule as `setLaunchDefault`: nothing chosen is a state the guard understands.
+    func setArtifactAccount(_ home: String?) {
+        let trimmed = home?.trimmingCharacters(in: .whitespaces)
+        artifactAccount = (trimmed?.isEmpty == false) ? trimmed : nil
         persist()
     }
 
@@ -207,7 +233,9 @@ final class LaunchPolicyStore {
         guard !BuildVariant.isUnshipped else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(StateFile(launch: policies)) else { return }
+        guard let data = try? encoder.encode(StateFile(launch: policies,
+                                                       artifactAccount: artifactAccount))
+        else { return }
         try? FileManager.default.createDirectory(at: UsageSnapshot.directory,
                                                  withIntermediateDirectories: true)
         try? data.write(to: Self.fileURL, options: .atomic)

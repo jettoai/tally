@@ -394,6 +394,11 @@ case "hook-agents":
 // it is answering (HookKnock.swift).
 case "hook-knock":
     exit(runHookKnock(args: Array(arguments.dropFirst())))
+// internal: Claude Code's `PreToolUse` hook on the `Artifact` tool, which takes no argument because
+// it answers for exactly one tool - the matcher it is registered under names it, and the payload
+// names it again (HookArtifact.swift).
+case "hook-artifact":
+    exit(runHookArtifact())
 // The two the merge replaced. Still answered, because a registration written by an older app is in
 // somebody's settings.json until the self-heal rewrites it, and a hook that runs a subcommand this
 // binary does not have prints usage and lets the expansion through - a model turn, for a command

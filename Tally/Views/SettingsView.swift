@@ -234,6 +234,13 @@ struct SettingsView: View {
             remove: integrations.removeAgentHooks)
         rowDivider
         integrationRow(
+            title: L("Claude quota warning"),
+            caption: L("Tells a session that the account under it is running low, in its own context, at the moment it next submits a prompt or calls a tool. Without this the same sentence has to be typed into the terminal, which cannot happen while the session is mid-turn. Installs two hook entries per Claude account (UserPromptSubmit and PostToolUse); anything already registered for those events keeps running, and only Tally's entries are removed."),
+            status: integrations.knockHookStatus,
+            install: integrations.installKnockHooks,
+            remove: integrations.removeKnockHooks)
+        rowDivider
+        integrationRow(
             title: L("Claude Code skill"),
             caption: L("Teaches Claude Code sessions to answer quota questions and pick accounts from tally status --json, and adds one command: /tally moves a session to another account or runs it on a different model, without spending a turn. One skill file, one command file and one hook entry per Claude account; all removed just as cleanly."),
             status: integrations.skillStatus,
@@ -280,6 +287,8 @@ struct SettingsView: View {
              integrations.removeNotificationHook),
             (integrations.agentHookStatus, integrations.installAgentHooks,
              integrations.removeAgentHooks),
+            (integrations.knockHookStatus, integrations.installKnockHooks,
+             integrations.removeKnockHooks),
             (integrations.skillStatus, integrations.installSkill, integrations.removeSkill),
         ]
         let missing = entries.filter { $0.0 != .installed }

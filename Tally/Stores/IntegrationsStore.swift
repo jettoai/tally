@@ -159,6 +159,9 @@ final class IntegrationsStore {
     private(set) var notificationHookStatus: Status = .notInstalled
     /// The three subagent hooks behind the session card's agent count (IntegrationsAgentHook.swift).
     private(set) var agentHookStatus: Status = .notInstalled
+    /// The two hooks that carry the advisory quota knock into a session's own context
+    /// (IntegrationsKnockHook.swift), instead of it being typed into their terminal.
+    private(set) var knockHookStatus: Status = .notInstalled
     private(set) var skillStatus: Status = .notInstalled
     /// Whether the other accounts run on the main account's harness (IntegrationsSharedHarness).
     /// Optional because a one-account machine has no row here at all, rather than an empty one.
@@ -183,6 +186,7 @@ final class IntegrationsStore {
         statusLineStatus = Self.detectStatusLine()
         notificationHookStatus = Self.detectNotificationHook()
         agentHookStatus = Self.detectAgentHooks()
+        knockHookStatus = Self.detectKnockHooks()
         skillStatus = Self.detectSkill()
         sharedHarnessStatus = Self.detectSharedHarness()
         completionInstalled = Self.detectCompletion()

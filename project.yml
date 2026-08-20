@@ -143,6 +143,12 @@ targets:
       # rules for folding an event into a roster come with it, because they are pure arithmetic on
       # a set and the app has to be able to say what the document it just read MEANS.
       - path: TallyCLI/AgentRoster.swift
+      # The advisory knock's hook channel, in the same division: the app registers
+      # `tally hook-knock <event>` in every Claude account's settings.json and the CLI answers to it,
+      # so both targets compile the one spelling of the events, the command and the marker. A
+      # drifted second copy fails silently in both directions (QuotaKnockHookContract.swift states
+      # them).
+      - path: TallyCLI/QuotaKnockHookContract.swift
     dependencies:
       - package: Sparkle
     settings:

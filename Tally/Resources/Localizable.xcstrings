@@ -11564,6 +11564,64 @@
           }
         }
       }
+    },
+    "Claude quota warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 額度警示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 额度警示"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude クォータ警告"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 할당량 경고"
+          }
+        }
+      }
+    },
+    "Tells a session that the account under it is running low, in its own context, at the moment it next submits a prompt or calls a tool. Without this the same sentence has to be typed into the terminal, which cannot happen while the session is mid-turn. Installs two hook entries per Claude account (UserPromptSubmit and PostToolUse); anything already registered for those events keeps running, and only Tally's entries are removed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 session 下一次送出提示或呼叫工具時，直接在它自己的 context 裡告知目前帳號額度將盡。沒有這項時，同一句話只能打進終端機，而 session 正在回合中就打不進去。每個 Claude 帳號安裝兩個 hook 項目（UserPromptSubmit 與 PostToolUse）；這些事件上原有的項目照常執行，移除時也只會拿掉 Tally 自己的項目。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 session 下一次提交提示或调用工具时，直接在它自己的 context 里告知当前账号额度将尽。没有这项时，同一句话只能打进终端，而 session 正在回合中就打不进去。每个 Claude 账号安装两个 hook 项目（UserPromptSubmit 与 PostToolUse）；这些事件上原有的项目照常执行，移除时也只会拿掉 Tally 自己的项目。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションが次にプロンプトを送信するかツールを呼び出した時点で、アカウントの残量が少ないことをそのセッション自身のコンテキストに伝えます。これがないと同じ内容はターミナルに入力するしかなく、セッションがターン中は入力できません。Claude アカウントごとに 2 つのフックエントリ（UserPromptSubmit と PostToolUse）を追加します。それらのイベントに既存の登録があればそのまま動作し、削除されるのは Tally のエントリだけです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션이 다음에 프롬프트를 보내거나 도구를 호출하는 시점에, 계정 잔여량이 얼마 남지 않았다는 사실을 그 세션의 컨텍스트로 직접 전달합니다. 이 기능이 없으면 같은 문장을 터미널에 입력하는 수밖에 없는데, 세션이 턴 중이면 입력할 수 없습니다. Claude 계정마다 후크 항목 두 개(UserPromptSubmit, PostToolUse)를 설치합니다. 해당 이벤트에 이미 등록된 항목은 그대로 실행되며, 제거되는 것은 Tally의 항목뿐입니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

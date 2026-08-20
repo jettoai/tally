@@ -155,8 +155,8 @@ func runSessionPinChecks() {
                          error: nil)
     }
     func rebalance(_ policy: LaunchPolicy) -> Snapshot.Account? {
-        rebalanceTarget(steering: true, mode: policy.mode, isQuiet: true, carryable: true,
-                        fuseAllows: true,
+        rebalanceTarget(steering: true, mode: policy.mode, blocked: false, isQuiet: true,
+                        carryable: true, fuseAllows: true,
                         current: account("D", model: 3), candidates: [account("B", model: 77)],
                         primaryModel: "fable", now: dyingNow)
     }

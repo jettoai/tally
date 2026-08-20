@@ -34,21 +34,39 @@ func runHookAgents(args: [String]) -> Int32 {
        watching != session {
         return 0
     }
-    // THE TURN BOUNDARY IS A FACT WORTH LEAVING ON ITS OWN, beside the roster this event is folded
-    // into: `Stop` is the moment `tally session send` has always been waiting for and had to infer
-    // from 30 seconds of silence (SessionTurnEnd.swift carries the whole reasoning, the fail-open
-    // included). Written FIRST, so the instant recorded is as close to the boundary as this process
-    // can make it: the fold below may queue on the roster lock for up to a quarter of a second.
-    if let ended = turnEndEvent(event, sessionID: session) {
-        writeSessionTurnEnd(ended, pid: supervisor)
-    }
     let claudeCode = ProcessInfo.processInfo.environment[claudeCodeExecPathVariable]
+    // ONE INSTANT FOR THE WHOLE RUN, stamped into both documents this hook writes.
+    //
+    // They are compared against each other by a reader that has to know whether a roster describes
+    // THIS boundary (`turnBoundaryAgents`, TurnBoundaryMove.swift), and two `Date()` calls a
+    // microsecond apart fall either side of a second boundary often enough to matter: the roster is
+    // encoded with whole-second resolution, so a run that straddled one would publish a roster
+    // stamped a second BEFORE the turn end it belongs to, and that reader would correctly refuse to
+    // believe it. One instant makes the pairing exact rather than probable.
+    let now = Date()
+    // THE ROSTER LANDS FIRST, AND THE BOUNDARY IS WHAT PUBLISHES THE PAIR. This ordering is a fix
+    // (codex review of d21f2e0, P1): the boundary used to be written first, on the reasoning that
+    // its recorded instant should be as close to the turn end as possible - but the instant is
+    // taken above rather than at the write, so nothing is lost by writing it second, and what is
+    // gained is that no reader can ever see a turn end whose roll call has not landed yet. The
+    // supervisor polls every 2 seconds and the fold below may queue on the roster lock for up to a
+    // quarter of a second; a tick landing in that gap read the PREVIOUS turn's roster against this
+    // turn's boundary, and an empty one there is a session restarted out from under a live fan-out.
+    //
     // THE READ AND THE WRITE ARE ONE ACT (`recordAgentEvent`), never two here. A fan-out starts its
     // subagents at once and Claude Code runs this hook per subagent, so these processes race each
     // other over one document: done as two halves, a fan-out ends with a roster naming whichever
     // agent happened to write last.
     recordAgentEvent(event, declared: claudeCodeReportsAgents(executablePath: claudeCode),
-                     pid: supervisor)
+                     pid: supervisor, now: now)
+    // THE TURN BOUNDARY IS A FACT WORTH LEAVING ON ITS OWN, beside the roster this event is folded
+    // into: `Stop` is the moment `tally session send` has always been waiting for and had to infer
+    // from 30 seconds of silence (SessionTurnEnd.swift carries the whole reasoning, the fail-open
+    // included). Only a `Stop` produces one - `turnEndEvent` answers nil for the two subagent
+    // edges, so their path through this function is byte for byte what it was.
+    if let ended = turnEndEvent(event, sessionID: session, now: now) {
+        writeSessionTurnEnd(ended, pid: supervisor)
+    }
     return 0
 }
 

@@ -30,12 +30,13 @@ func runRebalanceChecks() {
     let alsoDry = acct("C", model: 2)
     let primary = "fable"
 
-    func target(mode: String = "auto", steering: Bool = true, isQuiet: Bool = true,
-                carryable: Bool = true,
+    func target(mode: String = "auto", steering: Bool = true, blocked: Bool = false,
+                isQuiet: Bool = true, carryable: Bool = true,
                 fuseAllows: Bool = true, current: Snapshot.Account = dying,
                 candidates: [Snapshot.Account] = [healthy],
                 claim: () -> Bool = { true }) -> Snapshot.Account? {
-        rebalanceTarget(steering: steering, mode: mode, isQuiet: isQuiet, carryable: carryable,
+        rebalanceTarget(steering: steering, mode: mode, blocked: blocked, isQuiet: isQuiet,
+                        carryable: carryable,
                         fuseAllows: fuseAllows, current: current, candidates: candidates,
                         primaryModel: primary, now: launch, claim: claim)
     }
@@ -60,6 +61,15 @@ func runRebalanceChecks() {
     // nothing), and a proactive move to an equally spent account is churn for its own sake.
     check("no comfortable sibling means stay put", target(candidates: [alsoDry]) == nil)
     check("no sibling at all means stay put", target(candidates: []) == nil)
+
+    // WAITING ON A PERSON IS NOT IDLENESS, however still the transcript is (2026-08-20). A session
+    // stopped on a permission request, a plan approval or a question writes nothing, so the 120s bar
+    // arrives by definition - and the relaunch would answer that prompt by destroying it, leaving no
+    // trace for whoever was about to decide. The same row `tally session clear` has held since it
+    // shipped (`sessionClearMovesAccounts`), and the turn-boundary mover holds too; this was the one
+    // preventive mover still deciding otherwise.
+    check("a session waiting on a person is not rebalanced", target(blocked: true) == nil)
+    check("…and the same session is, once it is not", target(blocked: false)?.id == "B")
 
     // A pin is a statement about WHERE the session runs, so quota reasoning never overrides it. The
     // cap handoff already refuses to move a pinned session (`CapAction.waitPinned`); a convenience
@@ -302,7 +312,7 @@ func runRebalanceChecks() {
         Snapshot(version: 2, generatedAt: launch, accounts: accounts)
     }
     func move(_ accounts: [Snapshot.Account], problem: String? = nil, mode: String = "auto",
-              steering: Bool = true,
+              steering: Bool = true, blocked: Bool = false,
               isQuiet: Bool = true, carryable: Bool = true, fuseAllows: Bool = true,
               quarantine: [String: (model: String?, until: Date)] = [:],
               on: Snapshot.Account = dying, dir: URL? = nil) -> Snapshot.Account? {
@@ -314,12 +324,17 @@ func runRebalanceChecks() {
             target = fresh
         }
         return rebalanceMove(provider: "claude", account: on, primaryModel: primary, mode: mode,
-                             steering: steering, isQuiet: isQuiet, carryable: carryable,
+                             steering: steering, blocked: blocked, isQuiet: isQuiet,
+                             carryable: carryable,
                              fuseAllows: fuseAllows, quarantine: quarantine,
                              loaded: (snapshot(accounts), problem), now: launch, dir: target!)
     }
     check("a tick with a dying account and a healthy sibling answers with the sibling",
           move([dying, healthy])?.id == "B")
+    // And the blocked gate above reaches the whole move, not just the pure decision: it is one of
+    // the cheap terms, so a session waiting on a person never even reads the snapshot.
+    check("a session waiting on a person is refused by the whole move too",
+          move([dying, healthy], blocked: true) == nil)
     // Answering IS claiming, so a sibling supervisor asking the same question a moment later is
     // refused. There is no window between deciding to move and recording it for a second supervisor
     // to decide the same move in, and no caller left holding a record it could forget to write.
@@ -371,14 +386,15 @@ func runRebalanceChecks() {
         snapshotReads += 1
         return (snapshot(accounts), nil)
     }
-    func lazyMove(mode: String = "auto", steering: Bool = true, isQuiet: Bool = true,
-                  carryable: Bool = true,
+    func lazyMove(mode: String = "auto", steering: Bool = true, blocked: Bool = false,
+                  isQuiet: Bool = true, carryable: Bool = true,
                   fuseAllows: Bool = true) -> Snapshot.Account? {
         let fresh = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("tally-rebalance-lazy-\(UUID().uuidString)")
         scratchDirs.append(fresh)
         return rebalanceMove(provider: "claude", account: dying, primaryModel: primary, mode: mode,
-                             steering: steering, isQuiet: isQuiet, carryable: carryable,
+                             steering: steering, blocked: blocked, isQuiet: isQuiet,
+                             carryable: carryable,
                              fuseAllows: fuseAllows,
                              loaded: countedSnapshot([dying, healthy]), now: launch, dir: fresh)
     }

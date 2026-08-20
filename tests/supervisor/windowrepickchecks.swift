@@ -211,7 +211,7 @@ func runWindowRepickChecks() {
     func tick(repick: inout WindowRepickState, watcher: inout TranscriptWatcher,
               accounts: [Snapshot.Account] = [dying, healthy], mode: String = "auto",
               keyboardIdle: Bool = true, fuseAllows: Bool = true, draftSuspected: Bool = false,
-              steering: Bool = true, turnBoundaryPending: Bool = false,
+              steering: Bool = true, blocked: Bool = false, turnBoundaryPending: Bool = false,
               plan seed: RelaunchPlan? = nil,
               at when: Date = launch.addingTimeInterval(4)) -> (plan: RelaunchPlan?, claimed: Bool) {
         let claimDir = FileManager.default.temporaryDirectory
@@ -221,7 +221,7 @@ func runWindowRepickChecks() {
                             keyboardIdle: { _ in keyboardIdle },
                             draftSuspected: draftSuspected, provider: "claude",
                             account: dying, primaryModel: primary, mode: mode,
-                            steering: steering, launchArgs: [],
+                            steering: steering, blocked: blocked, launchArgs: [],
                             fuseAllows: fuseAllows, turnBoundaryPending: turnBoundaryPending,
                             loaded: (Snapshot(version: 2, generatedAt: launch,
                                               accounts: accounts), nil),
@@ -620,6 +620,44 @@ func runWindowRepickChecks() {
           stoodDown.plan == nil)
     check("…and its drought claim is left for the mover that is about to ask for it",
           !stoodDown.claimed)
+
+    // AND THE STATION REFUSES A BLOCKED SESSION THROUGH THE REBALANCE'S OWN GATE, not as a side
+    // effect of the stand-down above it. That distinction is the whole of why the gate was added
+    // (2026-08-20): a session waiting on a person must not be restarted whether or not a turn
+    // boundary happens to be pending on the same tick.
+    var blockedState = WindowRepickState()
+    var blockedWatcher = session(id: "quiet")
+    let waitingOnUser = tick(repick: &blockedState, watcher: &blockedWatcher, blocked: true)
+    check("a session waiting on a person is not rebalanced by the station",
+          waitingOnUser.plan == nil)
+    check("…and no drought claim is spent on it", !waitingOnUser.claimed)
+    check("…while the same session with nobody waiting on it is rebalanced",
+          { var s = WindowRepickState(); var w = session(id: "quiet")
+            return tick(repick: &s, watcher: &w).plan?.reason == "rebalance" }())
+
+    // AND THE TICK HANDS IT THE BOARD'S OWN READING rather than a literal or a second opinion. That
+    // reading is the fold of the notice hook, the open question and the quiet scan
+    // (SessionStateSync.swift), and it is why the board is now decided ABOVE this station.
+    let tickSource = (try? String(contentsOfFile: "TallyCLI/Supervisor.swift", encoding: .utf8)) ?? ""
+    check("the supervisor source is readable from the preventive-station checks",
+          !tickSource.isEmpty)
+    // READ OFF THE CALL, NOT THE FILE. `blocked: board.state == .blocked` is also the turn-boundary
+    // station's argument a hundred lines below, so a file-wide `contains` stayed green while this
+    // station was handed a literal - the check passing through a line other than the one it is
+    // about (caught by mutation, 2026-08-20).
+    check("the preventive station is handed the board's blocked reading",
+          tickSource.range(of: "applyProactiveMoves(plan: &plan,").flatMap { station in
+              tickSource.range(of: "quarantine: quarantine)",
+                               range: station.upperBound ..< tickSource.endIndex).map {
+                  String(tickSource[station.upperBound ..< $0.upperBound])
+              }
+          }?.contains("blocked: board.state == .blocked") ?? false)
+    check("…which is decided above it, not after",
+          tickSource.range(of: "let board = syncSessionState(").map { board in
+              tickSource.range(of: "applyProactiveMoves(plan: &plan,").map {
+                  board.upperBound < $0.lowerBound
+              } ?? false
+          } ?? false)
 
     // MARK: - 33d. The input gate hands over the line it typed
 

@@ -95,22 +95,73 @@ func runTurnBoundaryChecks() {
     let stateDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("tally-turn-boundary-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: stateDir) }
-    check("no roster at all is not an idle session",
-          !turnBoundaryAgentsIdle(pid: "1", dir: stateDir))
+    /// The reading for a boundary at `launch`, asked a moment after it.
+    func roster(_ pid: String, at asked: TimeInterval = 1) -> TurnBoundaryAgents {
+        turnBoundaryAgents(pid: pid, boundary: launch, dir: stateDir,
+                           now: launch.addingTimeInterval(asked))
+    }
+    // NO ROSTER AT ALL is the machine whose hooks are not installed, and it is `unavailable` rather
+    // than `retry`: waiting for a file nothing writes would hold this boundary open forever, and an
+    // open boundary holds the idle rebalance with it.
+    check("no roster at all can never answer for this boundary", roster("1") == .unavailable)
     writeSessionAgents(SessionAgentsRecord(live: [], trusted: true, updatedAt: launch),
                        pid: "2", dir: stateDir)
-    check("an empty trusted roster is", turnBoundaryAgentsIdle(pid: "2", dir: stateDir))
+    check("an empty trusted roster stamped at the boundary is idle", roster("2") == .idle)
     writeSessionAgents(SessionAgentsRecord(live: ["a1"], trusted: true, updatedAt: launch),
                        pid: "3", dir: stateDir)
-    check("a roster naming a live agent is not", !turnBoundaryAgentsIdle(pid: "3", dir: stateDir))
+    check("one naming a live agent is asked again rather than believed", roster("3") == .retry)
     // FAIL-CLOSED ON A COUNT NOBODY VOUCHES FOR. A Claude Code below `agentCensusClaudeVersion`
     // fires the edge events and publishes no roll call, so its roster drifts upward with nothing to
     // correct it - and an untrusted zero is exactly what a session with three agents looks like
-    // after three crashes.
+    // after three crashes. Unavailable rather than retry, for the reason above: nothing about that
+    // build changes while this session runs.
     writeSessionAgents(SessionAgentsRecord(live: [], trusted: false, updatedAt: launch),
                        pid: "4", dir: stateDir)
-    check("an empty roster that cannot be believed is not an idle session either",
-          !turnBoundaryAgentsIdle(pid: "4", dir: stateDir))
+    check("an empty roster that cannot be believed answers for nothing", roster("4") == .unavailable)
+
+    // MARK: - 36c2. The roster has to describe THIS boundary
+
+    // THE RACE THIS CLOSES (codex review of d21f2e0, P1): the previous turn's roll call is on disk,
+    // this turn's has not landed, and an empty one of those is a SIGTERM into a live fan-out.
+    writeSessionAgents(SessionAgentsRecord(live: [], trusted: true,
+                                           updatedAt: launch.addingTimeInterval(-30)),
+                       pid: "5", dir: stateDir)
+    check("a roster older than the boundary is not believed", roster("5") != .idle)
+    check("…it is asked again, because the hook run that owns it may still be writing",
+          roster("5") == .retry)
+    // AND THE WAIT HAS AN END. A hook run that died between its two writes never lands that roster,
+    // and a boundary held open for it would block the idle rebalance for the life of the session.
+    check("…until the grace runs out, after which the boundary is spent instead",
+          roster("5", at: turnBoundaryRosterGrace + 1) == .unavailable)
+    check("…the boundary of that grace being inclusive",
+          roster("5", at: turnBoundaryRosterGrace) == .retry)
+    writeSessionAgents(SessionAgentsRecord(live: [], trusted: true,
+                                           updatedAt: launch.addingTimeInterval(30)),
+                       pid: "6", dir: stateDir)
+    check("a roster written after the boundary is believed", roster("6") == .idle)
+
+    // THE TWO ENCODINGS, END TO END, which is the trap this comparison exists to survive: the
+    // roster is written with whole-second ISO-8601 and the boundary with the fractional formatter,
+    // so ONE hook run handing both the same instant still produces two different strings on disk. A
+    // bare `>=` between them would refuse the roster the hook had just written, and this feature
+    // would never fire at all. Asserted through the real writers and readers rather than against
+    // two `Date` values, because the loss happens in the encoding.
+    let sharedInstant = launch.addingTimeInterval(0.75)
+    let boundaryEvent = AgentRosterEvent(kind: .boundary, agentID: nil, carriedCensus: true,
+                                         census: [])
+    writeSessionAgents(advanceAgentRoster(nil, event: boundaryEvent, declared: true,
+                                          now: sharedInstant),
+                       pid: "7", dir: stateDir)
+    if let ended = turnEndEvent(boundaryEvent, sessionID: "s7", now: sharedInstant) {
+        writeSessionTurnEnd(ended, pid: "7", dir: stateDir)
+    }
+    let readBack = readSessionTurnEnd(pid: "7", dir: stateDir)
+    check("the boundary round-trips with its fractional second", readBack?.at == sharedInstant)
+    check("the roster round-trips truncated to the second, which is why the test is not a bare >=",
+          readSessionAgents(pid: "7", dir: stateDir)?.updatedAt == launch)
+    check("…and one hook run's own pair still reads as describing each other",
+          turnBoundaryAgents(pid: "7", boundary: readBack?.at ?? .distantPast, dir: stateDir,
+                             now: sharedInstant.addingTimeInterval(1)) == .idle)
 
     // The open tool call, read from a transcript rather than from the tick's cached scan (the cache
     // is empty exactly when this asks - a file written seconds ago never reaches the scan).
@@ -159,7 +210,7 @@ func runTurnBoundaryChecks() {
     func tick(state: inout TurnBoundaryState, event: SessionTurnEnd?, steering: Bool = true,
               mode: String = "auto", blocked: Bool = false, keyboardIdle: Bool = true,
               draftSuspected: Bool = false, carryable: Bool = true, fuseAllows: Bool = true,
-              agentsIdle: Bool = true, turnEnded: Bool = true, toolCallOpen: Bool = false,
+              agents: TurnBoundaryAgents = .idle, turnEnded: Bool = true, toolCallOpen: Bool = false,
               accounts: [Snapshot.Account] = [dying, healthy],
               plan seed: RelaunchPlan? = nil) -> (plan: RelaunchPlan?, claimed: Bool) {
         let dir = FileManager.default.temporaryDirectory
@@ -169,7 +220,7 @@ func runTurnBoundaryChecks() {
                               provider: "claude", account: dying, primaryModel: primary,
                               mode: mode, blocked: blocked, keyboardIdle: keyboardIdle,
                               draftSuspected: draftSuspected, carryable: carryable,
-                              fuseAllows: fuseAllows, agentsIdle: agentsIdle,
+                              fuseAllows: fuseAllows, agents: { _ in agents },
                               turnEnded: turnEnded, toolCallOpen: toolCallOpen, quarantine: [:],
                               loaded: (Snapshot(version: 2, generatedAt: launch,
                                                 accounts: accounts), nil),
@@ -209,10 +260,26 @@ func runTurnBoundaryChecks() {
     // which is what makes a live fan-out a wait rather than a refusal.
     var waiting = TurnBoundaryState()
     check("a tick held by a live fan-out plans nothing",
-          tick(state: &waiting, event: first, agentsIdle: false).plan == nil)
+          tick(state: &waiting, event: first, agents: .retry).plan == nil)
     check("…and does not spend the boundary", turnBoundaryPending(waiting, event: first))
     check("…so the tick after the fan-out ends moves it",
           tick(state: &waiting, event: first).plan?.target.id == "B")
+
+    // A ROSTER THAT WILL NEVER ANSWER IS THE OPPOSITE CASE, and the difference is the whole of the
+    // P2 fix: it plans nothing either, and it SPENDS the boundary, so the idle rebalance that this
+    // station stands down is handed straight back (`turnBoundaryPending`, WindowRepick.swift).
+    var unanswerable = TurnBoundaryState()
+    let noRoster = tick(state: &unanswerable, event: first, agents: .unavailable)
+    check("a session with no usable roster is not moved by this station", noRoster.plan == nil)
+    check("…and takes no claim", !noRoster.claimed)
+    check("…while the boundary IS spent, so the idle rebalance is not blocked behind it",
+          !turnBoundaryPending(unanswerable, event: first))
+    // And it stays spent: a second tick on the same boundary changes nothing, so the rebalance
+    // keeps running on its own 120s bar with the 600s subagent heuristic behind it, exactly as it
+    // did before this feature existed.
+    check("…on that tick and every one after it",
+          tick(state: &unanswerable, event: first, agents: .unavailable).plan == nil
+              && !turnBoundaryPending(unanswerable, event: first))
 
     var typing = TurnBoundaryState()
     _ = tick(state: &typing, event: first, keyboardIdle: false)
@@ -298,4 +365,34 @@ func runTurnBoundaryChecks() {
               && mover.contains("dir: URL = rebalanceDir"))
     check("and reads the same cycle key, so the two agree about which drought they are in",
           mover.contains("rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now)"))
+
+    // MARK: - 36g. The hook writes the roster before it publishes the boundary
+
+    // THE OTHER HALF OF THE P1 FIX, and the half no value assertion can reach: the ordering lives
+    // in a process that reads a hook payload off stdin. Once the roster is on disk first, the race
+    // above cannot be entered at all on this build - the comparison in 36c2 is what covers the
+    // sessions still running the previous hook.
+    let hook = (try? String(contentsOfFile: "TallyCLI/HookAgents.swift", encoding: .utf8)) ?? ""
+    check("the hook source is readable from the turn-boundary checks", !hook.isEmpty)
+    check("the roster fold is written before the boundary is published",
+          hook.range(of: "recordAgentEvent(event, declared:").map { fold in
+              hook.range(of: "writeSessionTurnEnd(ended, pid: supervisor)").map {
+                  fold.upperBound < $0.lowerBound
+              } ?? false
+          } ?? false)
+    // ONE INSTANT FOR BOTH DOCUMENTS. Two `Date()` calls either side of a second boundary would
+    // publish a roster stamped a second before the turn end it belongs to, and 36c2's comparison
+    // would then correctly refuse the pair the hook had just written.
+    check("…and both are stamped from one instant taken above them",
+          hook.contains("let now = Date()")
+              && hook.contains("pid: supervisor, now: now)")
+              && hook.contains("turnEndEvent(event, sessionID: session, now: now)"))
+    // COMMENT LINES FILTERED FIRST, which is not fastidiousness: the paragraph above this line in
+    // the hook explains the hazard by naming `Date()`, so a bare count over the whole file reports
+    // two clock readings for a run that takes one, and the check goes red on prose.
+    check("…which is the only clock reading the run takes",
+          hook.split(separator: "\n", omittingEmptySubsequences: false)
+              .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//")
+                  && !$0.trimmingCharacters(in: .whitespaces).hasPrefix("///") }
+              .filter { $0.contains("Date()") }.count == 1)
 }

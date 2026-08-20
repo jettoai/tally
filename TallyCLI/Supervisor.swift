@@ -444,6 +444,31 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                   fuseAllows: fuse.allows(), pid: supervisorPID,
                                   keyboardIdle: { keyboard.idle($0) })
 
+            // WHAT THIS SESSION IS DOING, decided before the preventive movers rather than after
+            // them, which is a move this package made (2026-08-20) and the reason is one word:
+            // `blocked`. Both preventive movers and the turn-boundary one below refuse to restart a
+            // session that is waiting on a person, and only this reading can tell them - it is the
+            // notice hook, the open `AskUserQuestion` and the quiet reading folded together
+            // (SessionStateSync.swift), and no cheaper second opinion may stand in for it.
+            //
+            // NOTHING IT READS MOVES BETWEEN HERE AND WHERE IT USED TO STAND: the axes come from a
+            // pin and a command line the directives station has already settled, the account and
+            // the args are only rewritten at the execution point at the bottom of the tick, and the
+            // transcript scan behind it is the one this tick ran at the top. It is a publisher, so
+            // its position changes what it is asked BEFORE rather than what it says.
+            //
+            // The model published is the one that ANSWERED the last turn where there is one,
+            // falling back to what the child was launched with (SessionContext.swift states why
+            // those differ); `axes` also feeds the context publish further down.
+            let axes = publishedSessionAxes(pin: sessionModelState.pin, launchArgs: launchArgs,
+                                            observed: watcher.lastModel)
+            let board = syncSessionState(
+                &sessionState, pid: supervisorPID, project: boardProject,
+                accountID: account.id, childPid: Int(childPID),
+                model: (axes.observedModel ?? axes.runningModel ?? axes.pinnedModel)
+                    .map(shortModelName),
+                watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt)
+
             // The two PREVENTIVE movers, lowest priority of the account moves because every block
             // above is repairing something and neither of these repairs anything: the window repick
             // (a session that has just cleared its context is empty, so the restart off a dying
@@ -472,7 +497,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                 keyboardIdle: { keyboard.idle($0) },
                                 draftSuspected: draftSuspected, provider: provider.id,
                                 account: account, primaryModel: effectivePrimary,
-                                mode: policy.mode, steering: steering, launchArgs: launchArgs,
+                                mode: policy.mode, steering: steering,
+                                blocked: board.state == .blocked, launchArgs: launchArgs,
                                 fuseAllows: fuse.allows(),
                                 turnBoundaryPending: turnBoundaryPending(turnBoundary,
                                                                         event: boundary),
@@ -526,17 +552,21 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                    rebalanceMove(provider: provider.id, account: account,
                                                  primaryModel: effectivePrimary, mode: policy.mode,
                                                  steering: steering,
+                                                 // NOT THIS CALLER'S GATE TO HOLD, on the same
+                                                 // terms as `isQuiet: true` beside it: the child is
+                                                 // being restarted by the reload whatever this
+                                                 // answers, so the prompt a blocked session is
+                                                 // holding is lost either way. All this closure
+                                                 // decides is WHICH ACCOUNT that restart lands on.
+                                                 blocked: false,
                                                  isQuiet: true, carryable: carryable,
                                                  fuseAllows: fuse.allows(),
                                                  quarantine: quarantine)
                                })
             // How much context a resume of this conversation would reload, for the surfaces outside
-            // this terminal (SessionContext.swift). Read off the scan the tick already ran.
-            // `lastModel` is the tick's own scan (the cap check above ran it), so this costs
-            // nothing extra: the model that actually answered the newest turn, beside the one the
-            // command line asked for.
-            let axes = publishedSessionAxes(pin: sessionModelState.pin, launchArgs: launchArgs,
-                                            observed: watcher.lastModel)
+            // How much context a resume of this conversation would reload, and which conversation
+            // it is, for the surfaces outside this terminal (SessionContext.swift). `axes` is the
+            // reading taken above, beside the board it also feeds.
             // The conversation this supervisor is watching, from the file the tick just tailed:
             // the witness that lets a prompt hook tell this session from another one running in
             // the same directory (SessionContext.swift). Read here rather than remembered, so a
@@ -551,16 +581,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                               reload: reloadNotice.pending,
                               followDeadEnd: followState.deadEnd, followQueued: followState.queuedNotice,
                               policy: policy, capReason: pendingCap?.reason)
-            // And what it is DOING, for the panel and `tally status --json`: working, waiting on
-            // the user, idle, or nothing-to-say. The rules are in SessionStateSync.swift; the model
-            // published is the one that ANSWERED the last turn where there is one, falling back to
-            // what the child was launched with (SessionContext.swift states why those differ).
-            let board = syncSessionState(
-                &sessionState, pid: supervisorPID, project: boardProject,
-                accountID: account.id, childPid: Int(childPID),
-                model: (axes.observedModel ?? axes.runningModel ?? axes.pinnedModel)
-                    .map(shortModelName),
-                watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt)
             // THE TWO QUESTIONS ASKED BY EVERYTHING THAT WRITES INTO THIS COMPOSER OR RESTARTS THE
             // CHILD UNDER IT, taken once: two spellings of the same gate are two gates that can
             // come to disagree about the same instant. `turnOver` is a closure rather than a value
@@ -582,7 +602,8 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                   blocked: board.state == .blocked, keyboardIdle: composerIdle,
                                   draftSuspected: draftSuspected, carryable: carryable,
                                   fuseAllows: fuse.allows(),
-                                  agentsIdle: turnBoundaryAgentsIdle(pid: supervisorPID),
+                                  agents: { turnBoundaryAgents(pid: supervisorPID,
+                                                               boundary: $0) },
                                   turnEnded: turnOver(),
                                   toolCallOpen: turnBoundaryToolCallOpen(watcher.file),
                                   quarantine: quarantine)

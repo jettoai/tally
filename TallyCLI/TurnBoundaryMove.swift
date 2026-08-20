@@ -166,16 +166,76 @@ func turnBoundaryTarget(steering: Bool, mode: String, blocked: Bool, keyboardIdl
 
 // MARK: - The facts this mover reads for itself
 
-/// Whether this session's Claude Code reports no subagent working.
+/// What this session's agent roster says about ONE turn boundary. Three answers, because the two
+/// that used to be one behave in opposite ways (codex review of d21f2e0, P2).
+enum TurnBoundaryAgents: Equatable {
+    /// The roster describes this boundary and names nobody: the move may go ahead.
+    case idle
+    /// Ask again on a later tick. Either it names somebody still working - the head has finished
+    /// speaking and the work it dispatched has not - or it has not caught up with this boundary
+    /// yet and still may.
+    case retry
+    /// Nothing here is ever going to answer for this boundary. The caller must SPEND the boundary
+    /// rather than hold it: an undecided one stands the idle rebalance down on every tick
+    /// (`turnBoundaryPending`), so holding here would take a preventive move away from exactly the
+    /// machines that have no turn-boundary evidence to replace it with.
+    case unavailable
+}
+
+/// How long a boundary waits for the roster of its own hook run to land before giving up on it.
 ///
-/// FAIL-CLOSED IN BOTH DIRECTIONS THAT MATTER: no roster at all (the hooks are not installed, or
-/// the file cannot be read) and a roster whose count cannot be believed (`reportable` is nil below
-/// `agentCensusClaudeVersion`, where edge events drift upward with nothing to correct them) both
-/// answer NO. What that costs is this mover on those machines, where the rebalance still stands;
-/// what it buys is that no session is ever restarted out from under a work package on the strength
-/// of a count nobody vouches for.
-func turnBoundaryAgentsIdle(pid: String, dir: URL = supervisorStateDir) -> Bool {
-    readSessionAgents(pid: pid, dir: dir)?.reportable == 0
+/// The current hook publishes the roster BEFORE the boundary (HookAgents.swift), so on this build
+/// the wait is never entered at all. It is here for the pair that can still be running side by
+/// side: a supervisor from this build watching a session whose `tally hook-agents` is the previous
+/// one, which writes the boundary first and the roster up to `agentRosterLockAttempts *
+/// agentRosterLockPause` (a quarter of a second) later. Five seconds is twenty times that bound,
+/// and past it the roster is not late - it is a roster whose hook run died between its two writes,
+/// which no amount of waiting repairs.
+let turnBoundaryRosterGrace: TimeInterval = 5
+
+/// Whether a roster stamped at `updatedAt` describes a boundary at `boundary`.
+///
+/// AT THE ROSTER'S OWN RESOLUTION, which is what makes this a real test rather than a coin flip.
+/// `writeSessionAgents` encodes with a plain `ISO8601DateFormatter` (whole seconds); the boundary
+/// is encoded with the fractional one (`encodeFractionalInstant`, SessionTurnEnd.swift). Handed the
+/// SAME instant, as one hook run now does, the two documents therefore come back as 12:00:00 and
+/// 12:00:00.750, and a bare `>=` would read the roster it just wrote as too old and refuse every
+/// move this feature exists to make. So the boundary is compared at the second it falls in.
+///
+/// THE RESIDUAL, stated rather than hidden: on a session running the previous hook, a roster
+/// written by some OTHER event inside the same second as the turn end (a `SubagentStop` a few
+/// hundred milliseconds earlier) passes this test without carrying the boundary's roll call. What
+/// the roll call adds over the edge events is background tasks that were never announced, so the
+/// exposure is one sub-second window on an out-of-date hook, against a window that used to be a
+/// quarter of a second wide on every hook. It closes entirely as soon as that session's Claude Code
+/// runs the current `tally hook-agents`, where the roster is on disk before the boundary is.
+func rosterCoversBoundary(updatedAt: Date, boundary: Date) -> Bool {
+    updatedAt >= Date(timeIntervalSince1970: boundary.timeIntervalSince1970.rounded(.down))
+}
+
+/// What this session's Claude Code says about the work in flight at `boundary`.
+///
+/// FAIL-CLOSED ON THE MOVE IN EVERY DIRECTION THAT MATTERS: no roster at all (the hooks are not
+/// installed, or the file cannot be read), a roster whose count cannot be believed (`reportable` is
+/// nil below `agentCensusClaudeVersion`, where edge events drift upward with nothing to correct
+/// them), and a roster that never caught up with this boundary all answer `unavailable` - which
+/// moves nothing. What separates them from `retry` is only whether waiting could change the answer,
+/// and that distinction is about the REBALANCE rather than about this mover: a boundary held open
+/// forever blocks it, a boundary spent releases it.
+///
+/// THE BINDING TO THE BOUNDARY IS THE POINT, and it is what this function grew (codex review of
+/// d21f2e0, P1). Read without it, a roster is just "the last thing the hooks said" - and the last
+/// thing they said may be the PREVIOUS turn's roll call, taken before this turn dispatched
+/// anything. Trusting an empty one of those is a SIGTERM into a live fan-out, which is the one
+/// thing this mover may never do.
+func turnBoundaryAgents(pid: String, boundary: Date, dir: URL = supervisorStateDir,
+                        now: Date = Date()) -> TurnBoundaryAgents {
+    guard let record = readSessionAgents(pid: pid, dir: dir),
+          let working = record.reportable else { return .unavailable }
+    guard rosterCoversBoundary(updatedAt: record.updatedAt, boundary: boundary) else {
+        return now.timeIntervalSince(boundary) <= turnBoundaryRosterGrace ? .retry : .unavailable
+    }
+    return working == 0 ? .idle : .retry
 }
 
 /// Whether a tool call this conversation opened is still outstanding.
@@ -202,8 +262,12 @@ func turnBoundaryToolCallOpen(_ file: URL?, now: Date = Date()) -> Bool {
 /// answer change while the boundary stands?
 ///
 ///   - A plan already made, a gate about the world (pinned, blocked, typing, draft, fuse, agents
-///     still writing): yes, so nothing is recorded and the next tick asks again. This is what makes
-///     a session whose subagents outlive its turn move on a LATER tick rather than never.
+///     still writing, a roster that has not caught up): yes, so nothing is recorded and the next
+///     tick asks again. This is what makes a session whose subagents outlive its turn move on a
+///     LATER tick rather than never.
+///   - A roster that will never answer for this boundary (none, or one this Claude Code cannot
+///     vouch for): no, and the answer will not improve, so the boundary is spent. Holding it would
+///     hold the idle rebalance with it.
 ///   - The boundary itself no longer standing, or a tool call open: no. `turnEndStillStands` is
 ///     false because something newer than this instant is in the transcript, and nothing takes that
 ///     back, so the boundary is spent. Recording it is also what stops this from reading the tail
@@ -222,7 +286,7 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
                            account: Snapshot.Account, primaryModel: String?, mode: String,
                            blocked: Bool, keyboardIdle: Bool, draftSuspected: Bool,
                            carryable: Bool, fuseAllows: Bool,
-                           agentsIdle: @autoclosure () -> Bool,
+                           agents: (Date) -> TurnBoundaryAgents,
                            turnEnded: @autoclosure () -> Bool,
                            toolCallOpen: @autoclosure () -> Bool,
                            quarantine: [String: (model: String?, until: Date)] = [:],
@@ -241,7 +305,20 @@ func applyTurnBoundaryMove(plan: inout RelaunchPlan?, state: inout TurnBoundaryS
     // The roster first, because it is one small file against the transcript tail below it, and
     // because it is the one refusal that is expected to lift on its own: the head has finished
     // speaking and the work it dispatched has not.
-    guard agentsIdle() else { return }
+    //
+    // THE TWO WAYS OF NOT KNOWING ARE NOT ONE. `retry` leaves the boundary standing, so the next
+    // tick asks again and a fan-out that ends is moved a moment later. `unavailable` spends it,
+    // because on that machine no later tick will answer differently - and a boundary that is never
+    // spent stands the idle rebalance down on every tick through `turnBoundaryPending`, which would
+    // take the 120s preventive move away from precisely the sessions that have no turn-boundary
+    // evidence to replace it with (codex review of d21f2e0, P2).
+    switch agents(event.at) {
+    case .idle: break
+    case .retry: return
+    case .unavailable:
+        state.decide(event.at)
+        return
+    }
     guard turnEnded(), !toolCallOpen() else {
         state.decide(event.at)
         return

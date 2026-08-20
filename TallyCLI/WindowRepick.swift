@@ -320,13 +320,39 @@ func windowRepickMove(provider: String, account: Snapshot.Account, primaryModel:
 /// and the cheapest restart in the session's life would be the one that did not happen.
 ///
 /// AND THE SAME RULE REACHES A THIRD MOVER THAT IS NOT IN THIS FUNCTION. The turn-boundary move
-/// (TurnBoundaryMove.swift) shares that one claim and runs LATER in the tick, because it needs the
-/// board's blocked reading and this station runs before the board is decided. So `turnBoundaryPending`
-/// stands the rebalance down for the one tick a reported boundary has not been ruled on, which puts
-/// the ladder back in its intended order - free repick, then the turn boundary, then the rebalance -
-/// without moving a station the tick's other priorities are arranged around. It cannot starve the
-/// rebalance: a boundary that station declines is recorded as decided on that same tick, so the
-/// stand-down lasts at most one poll.
+/// (TurnBoundaryMove.swift) shares that one claim and runs LATER in the tick. So
+/// `turnBoundaryPending` stands the rebalance down while a reported boundary has not been ruled on,
+/// which puts the ladder back in its intended order - free repick, then the turn boundary, then the
+/// rebalance - without moving a station the tick's other priorities are arranged around.
+///
+/// HOW LONG THAT STAND-DOWN LASTS, said accurately because the first version of this note said "at
+/// most one poll" and that was simply untrue (codex review of d21f2e0). It lasts until the boundary
+/// is RULED ON, and the station deliberately does not rule on one while a gate that is about the
+/// WORLD is refusing - a pinned session, one waiting on a person, somebody typing, a suspected
+/// draft, a spent fuse, a roster naming live subagents - because every one of those can lift on its
+/// own and the boundary should still be usable when it does. Those states last as long as they last.
+///
+/// WHAT MAKES THAT HARMLESS IS THAT EVERY ONE OF THEM IS ALSO A GATE THE REBALANCE HOLDS, so the
+/// tick it is stood down on is a tick it would have refused anyway:
+///
+///   a plan already made     both movers here are behind the same `plan == nil` guard
+///   observe-only, pinned    `rebalanceAllowedForSession` refuses on `steering` and `mode`
+///   blocked                 the same, on `blocked` - added 2026-08-20 for exactly this reason
+///   somebody typing         the rebalance wants 120s of keyboard silence, this one wants 5s
+///   suspected draft         `guard !draftSuspected` above, which covers both movers here
+///   not carryable, no fuse  `rebalanceAllowedForSession` again, the same two terms
+///   live subagents          a written-to `subagents/` directory makes `isQuiet` false for 600s
+///
+/// THE SUBAGENT ROW IS THE ONE THAT IS NOT AN EXACT MATCH, and it errs the safe way: the roster is
+/// a roll call and `isQuiet` is an mtime, so an agent that hangs without writing for ten minutes is
+/// live to the first and gone to the second. On those ticks the stand-down carries the stricter
+/// witness's answer to the rebalance, which is a restart NOT taken out from under a work package.
+///
+/// THE ONE RESIDUAL, so this table is not read for more than it says: a roster that has not yet
+/// caught up with its own boundary also holds the stand-down, and that state is NOT one the
+/// rebalance refuses. It is bounded by `turnBoundaryRosterGrace` (five seconds), it cannot arise at
+/// all on a session whose hook is the current one (HookAgents.swift publishes the roster first),
+/// and past the grace the boundary is spent and the rebalance is handed straight back.
 ///
 /// Both are gated on `plan == nil` through this one guard: everything above them in the tick is
 /// repairing something, and neither of these repairs anything.
@@ -346,8 +372,8 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
                          watcher: inout TranscriptWatcher,
                          keyboardIdle: (TimeInterval) -> Bool, draftSuspected: Bool,
                          provider: String, account: Snapshot.Account, primaryModel: String?,
-                         mode: String, steering: Bool, launchArgs: [String], fuseAllows: Bool,
-                         turnBoundaryPending: Bool,
+                         mode: String, steering: Bool, blocked: Bool, launchArgs: [String],
+                         fuseAllows: Bool, turnBoundaryPending: Bool,
                          quarantine: [String: (model: String?, until: Date)] = [:],
                          loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
                          now: Date = Date(), dir: URL = rebalanceDir) {
@@ -401,7 +427,7 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
     let carryable = carryableSession(launchArgs: launchArgs, sessionLocated: watcher.file != nil)
     guard let moveTo = rebalanceMove(provider: provider, account: account,
                                      primaryModel: primaryModel, mode: mode, steering: steering,
-                                     isQuiet: quiet,
+                                     blocked: blocked, isQuiet: quiet,
                                      carryable: carryable, fuseAllows: fuseAllows,
                                      quarantine: quarantine, loaded: loaded(), now: now,
                                      dir: dir) else { return }

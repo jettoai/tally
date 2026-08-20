@@ -335,9 +335,21 @@ func bindingWindow(_ account: Snapshot.Account, primaryModel: String?,
 ///
 /// An account reporting no counted windows is not spent. Nothing is known about it, and an
 /// exemption invented out of missing data is a move made on evidence nobody has.
+///
+/// NEITHER IS A STALE OR ERRORED ONE, which is that same sentence about missing data wearing the
+/// clothes of a reading. A failing refresh keeps the last good numbers in place behind a flag
+/// (`applyLastGood`, UsageStore.swift), so a zero left over from before the failure is spelled
+/// exactly like a zero read a moment ago, while the snapshot around it goes on reading fresh off
+/// some other account's activity. Every idle supervisor on that account then holds the same
+/// remembered zero on the same tick and would be exempted together, landing on one sibling at
+/// once: the stampede the claim was written to stop. What this exemption spends is the only guard
+/// against a crowd, so it may be bought with a number somebody has just seen and with nothing
+/// else. The launch gate has refused such an account since it was written (`eligible` above);
+/// this is that rule reaching the last place still deciding without it.
 func accountIsSpent(_ account: Snapshot.Account, primaryModel: String?,
                     now: Date = Date()) -> Bool {
-    guard let binding = bindingWindow(account, primaryModel: primaryModel, now: now) else {
+    guard account.error == nil, !account.isStale,
+          let binding = bindingWindow(account, primaryModel: primaryModel, now: now) else {
         return false
     }
     return effectiveRemaining(comfortWindow(binding), now: now) <= 0

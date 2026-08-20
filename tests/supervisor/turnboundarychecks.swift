@@ -104,6 +104,21 @@ func runTurnBoundaryChecks() {
                                           claim: { false }) == nil)
     check("…and so is having nowhere better to go",
           target(current: spent, candidates: [alsoDry], claim: { false }) == nil)
+    // AND A ZERO NOBODY HAS CONFIRMED IS NOT ONE, argued in full where the reading is taken
+    // (`accountIsSpent`): a failed refresh leaves the last good numbers in place behind a flag, and
+    // every supervisor on that account holds the same remembered zero on the same tick. Asserted in
+    // both movers because the exemption is what they share; a fix reaching only one of them would
+    // hand this mover the crowd the other had just been taught to refuse.
+    var staleSpent = spent
+    staleSpent.isStale = true
+    var erroredSpent = spent
+    erroredSpent.error = "boom"
+    check("…and a stale spent account is not exempt at all",
+          target(current: staleSpent, claim: { false }) == nil)
+    check("…nor one whose last refresh errored",
+          target(current: erroredSpent, claim: { false }) == nil)
+    check("…though both still move when the claim is theirs to take",
+          target(current: staleSpent)?.id == "B" && target(current: erroredSpent)?.id == "B")
 
     // The line is the shared one, not a second threshold of this mover's own. Asserted against the
     // constant so a change to `nearlyDryPercent` moves this gate with everything else.

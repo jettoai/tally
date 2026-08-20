@@ -422,6 +422,27 @@ func runRebalanceChecks() {
     check("an account reporting no windows at all is not spent",
           !accountIsSpent(blankAccount, primaryModel: primary, now: launch))
 
+    // A STALE OR ERRORED ZERO IS THAT SAME MISSING DATA, and it is the shape of it that reaches
+    // this gate in the field: a failed refresh keeps the last good numbers behind a flag, leaving a
+    // remembered zero while the snapshot around it stays fresh on some other account's activity.
+    // Every idle supervisor on that account holds that same memory on the same tick, so exempting
+    // it hands them one sibling all at once, which is precisely the stampede the claim was written
+    // to stop (codex review of 54eebaa, P2).
+    let staleSpent = acct("A", model: 0, stale: true)
+    let erroredSpent = acct("A", model: 0, error: "boom")
+    check("a spent account whose reading is stale is not spent",
+          !accountIsSpent(staleSpent, primaryModel: primary, now: launch))
+    check("…nor one whose last refresh errored",
+          !accountIsSpent(erroredSpent, primaryModel: primary, now: launch))
+    check("…while the same numbers freshly read are spent, which is the behaviour being kept",
+          accountIsSpent(acct("A", model: 0), primaryModel: primary, now: launch))
+    // So the claim governs them again: what the flag suspends is the exemption, not the move.
+    check("a stale spent account loses to a claim another supervisor holds",
+          target(current: staleSpent, claim: { false }) == nil)
+    check("…and so does an errored one", target(current: erroredSpent, claim: { false }) == nil)
+    check("…while both still move when the claim is theirs to take",
+          target(current: staleSpent)?.id == "B" && target(current: erroredSpent)?.id == "B")
+
     // MARK: - 26c. The cycle key
 
     // Derived from the BINDING window's reset time, in whole seconds: the same derivation the app's

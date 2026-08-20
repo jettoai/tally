@@ -391,6 +391,38 @@ for key in CaptureLaunch.backgroundKeys {
     check("a launch carrying \(key) does not come forward on its own",
           !CaptureLaunch.mayTakeForeground(activeKeys: [key]))
 }
+// AND THE SECOND CONSEQUENCE OF THE SAME MEMBERSHIP: a launch that exists to be looked at may not
+// write the user's window state either. Taking a screenshot must not change the app they come back
+// to - a capture that opened Settings and recorded it as open makes the NEXT ordinary launch put
+// that window up on its own, and `-TallyDemoData` opens this family on a release bundle, so the
+// domain being written is the real app's (codex review of 3d70880).
+for key in CaptureLaunch.backgroundKeys {
+    check("a launch carrying \(key) records no window state of its own",
+          !CaptureLaunch.mayRecordWindowState(activeKeys: [key]))
+}
+check("while an ordinary launch records what the user had open, as it always has",
+      CaptureLaunch.mayRecordWindowState(activeKeys: []))
+check("and this process, carrying no capture flag, is one of those",
+      CaptureLaunch.launchMayRecordWindowState)
+// THE WINDOW THAT HAS SUCH A FLAG, wired to the rule rather than merely covered by it. The
+// controller is AppKit and cannot be compiled into an assertion harness, so the wiring is read: all
+// three writes of the restore flag go through the one guarded function, and that function asks the
+// family. Both halves are needed - a helper nobody calls, or a call into a helper with no guard, is
+// the defect back with a nicer shape.
+let settingsController = (try? String(contentsOfFile: "Tally/MenuBar/SettingsWindowController.swift",
+                                      encoding: .utf8)) ?? ""
+check("the settings controller's source is readable from the capture checks",
+      !settingsController.isEmpty)
+check("its restore flag is written in exactly one place",
+      settingsController.components(separatedBy: "UserDefaults.standard.set(").count - 1 == 1
+          && settingsController.contains("UserDefaults.standard.set(open, forKey: restoreKey)"))
+check("…which refuses to write it on a launch that is here to be looked at",
+      settingsController.contains("guard CaptureLaunch.launchMayRecordWindowState else { return }"))
+check("…and every writer goes through it, in both directions",
+      settingsController.contains("Self.recordRestore(true)")
+          && settingsController.contains("Self.recordRestore(false)")
+          && settingsController.contains("Self.recordRestore(isWindowOpen)"))
+
 // The membership itself, written out rather than derived from the list under test. The grid above
 // is generated FROM `backgroundKeys`, so dropping a member silently drops its own check with it:
 // shrinking the family back to one flag left that loop green over a single cell. Spelled out, both

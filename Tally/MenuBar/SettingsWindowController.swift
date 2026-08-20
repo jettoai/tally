@@ -28,6 +28,24 @@ final class SettingsWindowController {
     /// launch, and Settings is the LIKELIEST open window then (the update button lives in it).
     private nonisolated static let restoreKey = "restoreSettingsWindow"
 
+    /// The ONE place that flag is written, and the one launch that does not write it.
+    ///
+    /// A CAPTURE LAUNCH MAY NOT LEAVE THE USER A WINDOW THEY DID NOT OPEN
+    /// (`CaptureLaunch.mayRecordWindowState` carries the rule and what it is worth). This window is
+    /// opened at launch by `-TallySettingsCapture` so a row in it can be photographed, and every
+    /// write below would otherwise be that photograph editing the app: the summon records "open",
+    /// the tear-down records it again, and the next ordinary launch puts Settings up on its own.
+    /// Suppressed in BOTH directions rather than only the true one, because the false is a write
+    /// too: a capture that opens and closes this window would otherwise erase a restore the user
+    /// really had.
+    ///
+    /// Its neighbour needs no such guard: no flag in the family opens the dashboard, so the only
+    /// thing a capture launch can record about it is the state it restored it from.
+    private nonisolated static func recordRestore(_ open: Bool) {
+        guard CaptureLaunch.launchMayRecordWindowState else { return }
+        UserDefaults.standard.set(open, forKey: restoreKey)
+    }
+
     var isWindowVisible: Bool { window?.isVisible == true }
 
     /// Reopen the window at launch if it was up when the app last quit (see `restoreKey`).
@@ -55,7 +73,7 @@ final class SettingsWindowController {
     /// parked in the Dock is one they still have. It comes back on screen rather than back in the
     /// Dock, which is the side to be wrong on - the other one loses it entirely.
     func persistRestoreState() {
-        UserDefaults.standard.set(isWindowOpen, forKey: Self.restoreKey)
+        Self.recordRestore(isWindowOpen)
     }
 
     /// `restoring` = a launch-time restore: keep the autosaved frame instead of re-centering,
@@ -96,9 +114,7 @@ final class SettingsWindowController {
                 // Quit-time tear-down also closes the window; only a close while the app keeps
                 // running is the user dismissing it (Sparkle-relaunch lesson, see AppDelegate).
                 Task { @MainActor in
-                    if !AppTermination.inProgress {
-                        UserDefaults.standard.set(false, forKey: Self.restoreKey)
-                    }
+                    if !AppTermination.inProgress { Self.recordRestore(false) }
                 }
             }
             self.window = window
@@ -119,7 +135,7 @@ final class SettingsWindowController {
             window?.centerOnPointerScreen()
             window?.clampOnScreen()
         }
-        UserDefaults.standard.set(true, forKey: Self.restoreKey)
+        Self.recordRestore(true)
         ActivationPolicy.promote()   // a visible Settings window earns a Dock / Cmd-Tab presence
         // The promotion above is unconditional on purpose: Cmd-Tab presence is how a window is
         // found again, and withholding it from a window nobody activated is the wrong half to

@@ -316,11 +316,18 @@ func checkPanelSummon() {
     // 10. A MINIMIZED WINDOW IS STILL OPEN. `isVisible` answers false for one (measured 2026-08-15:
     //     false while minimized, true again on deminiaturize), so the flag an update relaunch reads
     //     was recording a window parked in the Dock as one the user had closed.
-    for (name, path) in [("settings window", "Tally/MenuBar/SettingsWindowController.swift"),
-                         ("dashboard window", "Tally/MenuBar/MainWindowController.swift")] {
+    //     The write itself is named per controller rather than matched as one literal: the settings
+    //     window's goes through a guard of its own now (a capture launch may not record a window the
+    //     user did not open, `CaptureLaunch.mayRecordWindowState`), and what this check is about is
+    //     the VALUE that reaches the flag, which is `isWindowOpen` on both sides of that change.
+    for (name, path, write) in
+        [("settings window", "Tally/MenuBar/SettingsWindowController.swift",
+          "Self.recordRestore(isWindowOpen)"),
+         ("dashboard window", "Tally/MenuBar/MainWindowController.swift",
+          "UserDefaults.standard.set(isWindowOpen, forKey: Self.restoreKey)")] {
         let source = code(of: path)
         check("the \(name) restores a window the user had minimized, not just a visible one",
               source.contains("var isWindowOpen: Bool { isWindowVisible || window?.isMiniaturized == true }")
-                  && source.contains("UserDefaults.standard.set(isWindowOpen, forKey: Self.restoreKey)"))
+                  && source.contains(write))
     }
 }

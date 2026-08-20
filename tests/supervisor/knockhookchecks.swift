@@ -28,6 +28,10 @@ func runKnockHookChecks() {
     /// One hook run, with every gate open by default so each check can close exactly one of them.
     /// The whole environment is injected: nothing here may read a real supervisor, a real config
     /// home or a real terminal.
+    ///
+    /// `event` is what the PAYLOAD says fired and `registered` is what the command line was written
+    /// with; they are separate parameters because the interesting cases are the ones where they
+    /// disagree, and a helper that sent one value as both could only ever test agreement.
     func run(event: String = "PostToolUse", registered: String? = nil,
              environment: [String: String] = ["TALLY_SUPERVISOR_PID": supervisorPID],
              alive: Bool = true, session: String? = nil, watching: String? = conversation,
@@ -113,18 +117,37 @@ func runKnockHookChecks() {
     check("…so a run on it delivers nothing and takes nothing", stopped.out.isEmpty && stillFiled())
     check("…and neither does an event neither end recognises",
           run(event: "SomethingLater").out.isEmpty && stillFiled())
-    // The two ends of the reconciliation: the payload's own word is the true one where they differ,
-    // and the registered argument answers for a payload that names nothing.
+    // The two ends of the reconciliation: the payload is the witness to what actually fired, and the
+    // registered argument answers ONLY for a payload that names nothing at all.
     check("the event the payload names wins over the one the registration guessed",
           quotaKnockHookEvent(registered: "PostToolUse", payload: "UserPromptSubmit")
               == "UserPromptSubmit")
-    check("…and the registration answers when the payload names nothing this build delivers on",
-          quotaKnockHookEvent(registered: "UserPromptSubmit", payload: nil) == "UserPromptSubmit"
-              && quotaKnockHookEvent(registered: "UserPromptSubmit", payload: "Stop")
-              == "UserPromptSubmit")
-    check("…while neither naming one is nothing to answer",
+    // NAMING AN EVENT WE REFUSE IS NOT NAMING NOTHING, and this assertion used to say it was: it
+    // read `payload: "Stop"` as "names nothing this build delivers on" and expected the registered
+    // argument to answer, which is the defect written down as a contract (codex review of 245cbf8b's
+    // parent). A witness saying `Stop` is a refusal; only an absent field is a fallback.
+    check("a payload naming an event we do not deliver on is a refusal, not a missing field",
+          quotaKnockHookEvent(registered: "UserPromptSubmit", payload: "Stop") == nil)
+    check("…while the registration answers when the payload names nothing at all",
+          quotaKnockHookEvent(registered: "UserPromptSubmit", payload: nil) == "UserPromptSubmit")
+    check("…and neither naming one is nothing to answer",
           quotaKnockHookEvent(registered: "Stop", payload: nil) == nil
               && quotaKnockHookEvent(registered: nil, payload: nil) == nil)
+    // The same pair through the whole subcommand, which is where it costs something: the registered
+    // argument is a legal event and the event that FIRED is `Stop`, the shape somebody reaches by
+    // copying one of our registrations under another event. Nothing may be claimed and nothing may
+    // be printed - a claim here destroys the sentence, since the reply names an event Claude Code
+    // did not fire.
+    file()
+    let misfiled = run(event: "Stop", registered: "UserPromptSubmit")
+    check("a knock hook wired by hand onto Stop delivers nothing, whatever its command line says",
+          misfiled.out.isEmpty && misfiled.code == 0)
+    check("…and leaves the sentence on disk for an event that can carry it", stillFiled())
+    // The mirror, so the pair is not one-sided: the event that fired is one we deliver on, and the
+    // registration is stale or wrong. The witness decides, so this one lands.
+    let mislabelled = run(event: "UserPromptSubmit", registered: "Stop")
+    check("…while an event that really did fire is answered under its own name",
+          context(mislabelled.out) == sentence && !stillFiled())
 
     // MARK: - Exactly once, under a race
 

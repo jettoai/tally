@@ -48,9 +48,9 @@ func runHookKnock(args: [String],
     let payload = (try? JSONSerialization.jsonObject(with: input())) as? [String: Any]
     // WHICH EVENT THIS IS, because the answer has to name it back (`hookEventName`) and Claude Code
     // reads a reply that names the wrong one as a reply to something else. The payload's own word
-    // leads and the registered argument is the fallback: they agree in every ordinary run, and where
-    // they cannot (a registration somebody wrote by hand, an event renamed in a later Claude Code)
-    // the one the event actually arrived under is the true one.
+    // DECIDES and the registered argument answers only for a payload that names none: they agree in
+    // every ordinary run, and where they cannot (a registration somebody wrote by hand, an event
+    // renamed in a later Claude Code) the one the event actually arrived under is the true one.
     //
     // AN EVENT NEITHER OF THEM NAMES CONSUMES NOTHING. An allow-list rather than a passthrough
     // because `additionalContext` does not mean the same thing on every event: on `Stop` it
@@ -82,10 +82,20 @@ func runHookKnock(args: [String],
 
 /// The event this run answers for, or nil when it is not one a knock may be delivered on.
 ///
-/// Pure, so the reconciliation above is assertable: the payload's word wins when it names an event
-/// this build delivers on, the registered argument answers otherwise, and anything else is nothing.
+/// Pure, so the reconciliation above is assertable. The payload is the witness: when it names an
+/// event, that is the event this run arrived on, whether or not it is one we deliver on. The
+/// registered argument answers only when the payload names nothing at all.
+///
+/// NAMING AN EVENT WE REFUSE IS NOT THE SAME AS NAMING NOTHING, and reading them alike was the
+/// defect (codex review of 245c8fb). The first is a witness saying `Stop`; the second is a payload
+/// that could not be parsed, or a Claude Code that sends no such field. Folded together, a hook
+/// somebody wired by hand onto `Stop` with `hook-knock UserPromptSubmit` on its command line fell
+/// through to the argument, claimed the sentence and answered under the wrong event name - which is
+/// either a model turn spent on this or, more likely, a reply Claude Code discards for naming an
+/// event it did not fire, taking the sentence with it. Both outcomes are the thing the allow-list
+/// exists to prevent, and the file's own prose said it already prevented them.
 func quotaKnockHookEvent(registered: String?, payload: String?) -> String? {
-    if let payload, quotaKnockHookEvents.contains(payload) { return payload }
+    if let payload { return quotaKnockHookEvents.contains(payload) ? payload : nil }
     guard let registered, quotaKnockHookEvents.contains(registered) else { return nil }
     return registered
 }

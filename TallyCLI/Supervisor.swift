@@ -133,11 +133,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// drought this conversation has already heard about; a relaunch that moves accounts re-arms it
     /// by itself, because the new account's binding window is a different cycle.
     var quotaKnock = QuotaKnockState()
-    /// And HOW it is told: filed for this session's own hooks to deliver where the app has
-    /// registered them, typed into the composer where it has not (QuotaKnockNotice.swift). Beside
-    /// the arm rather than inside it because it is a property of the account's config home rather
-    /// than of the drought, and remembered per home for the reason `QuotaKnockChannel` states.
-    var quotaKnockChannel = QuotaKnockChannel()
+    /// And HOW it is told: filed for this child's own hooks to deliver where they are registered and
+    /// runnable, typed into the composer where they are not (QuotaKnockNotice.swift).
+    ///
+    /// DECLARED BESIDE THE ARM AND ANSWERED BESIDE THE CHILD, which is the one thing about this
+    /// value that is load-bearing: the arm belongs to the conversation and outlives every relaunch,
+    /// while this belongs to the PROCESS, because the hooks a Claude Code runs are the ones its
+    /// settings.json held when it started (`quotaKnockFilingAvailable`). It is re-read at each
+    /// spawn below and holds for exactly that child. False until then, so a session that somehow
+    /// announced before its first child was up would be typed into rather than filed for.
+    var quotaKnockFiling = false
     // A self-update keeps the pid and gives this state a fresh start, so a cancellation notice the
     // replaced image had just raised lives only in its file - where the seeded writer above would
     // take it down on the first tick, as the honest answer to "this session has nothing pending".
@@ -181,6 +186,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         if relaunching { drainTerminalInput() }
         // Void the last child's report before a new pid can inherit it (TranscriptIdentity.swift).
         clearTranscriptIdentity(pid: supervisorPID)
+        // WHICH CHANNEL THIS CHILD CAN BE TOLD THROUGH, read here and held for its whole life: the
+        // hooks a Claude Code runs are the ones its settings.json held when it started, so this is a
+        // property of the process about to exist rather than of the account or of the supervisor
+        // (`quotaKnockFilingAvailable` argues the reading, and why it is taken BEFORE the spawn
+        // rather than after). Re-read on every pass, so a relaunch onto another account - or one
+        // that follows an install - answers for the child it is starting.
+        quotaKnockFiling = quotaKnockFilingAvailable(home: account.launchHome)
         guard let childPID = spawnChild([provider.cli] + launchArgs, environment: environment) else {
             warn("cannot launch `\(provider.cli)`")
             exit(127)
@@ -602,13 +614,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                           turnEnded: turnOver, keyboardIdle: composerIdle,
                                           relaunchPlanned: replacingChild,
                                           draftSuspected: draftSuspected, quarantine: quarantine,
-                                          // Asked of the home this session is on RIGHT NOW, which a
-                                          // handoff moves: the hooks are registered per Claude
-                                          // account, so the account decides the channel.
-                                          filing: {
-                                              quotaKnockChannel
-                                                  .hookInstalled(home: account.launchHome)
-                                          })
+                                          // The reading taken when THIS child was launched, not one
+                                          // taken now: a settings.json edited since says nothing
+                                          // about the hooks the running process holds.
+                                          filing: { quotaKnockFiling })
             // The second writer into this composer, recorded on the same terms as the first: what
             // makes the next tick's draft reading right is that BOTH of them say when they typed.
             if knocked != nil { lastComposerWrite = Date() }

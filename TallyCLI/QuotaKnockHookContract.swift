@@ -28,10 +28,15 @@ import Foundation
 /// and that conversation is precisely the one the typed channel can never interrupt.
 let quotaKnockHookEvents = ["UserPromptSubmit", "PostToolUse"]
 
-/// The registered command for one event. Through the public path, like the hooks beside it, because
-/// that is the one that survives the app bundle moving.
+/// The program a registration names. The public path, like the hooks beside it, because that is the
+/// one that survives the app bundle moving - and a constant rather than a literal in the command
+/// below, because the supervisor has to be able to ask whether the thing at it can actually run
+/// (`quotaKnockCLIDeliverable`).
+let quotaKnockHookCLIPath = "/usr/local/bin/tally"
+
+/// The registered command for one event.
 func quotaKnockHookCommand(_ event: String) -> String {
-    "/usr/local/bin/tally hook-knock \(event)"
+    "\(quotaKnockHookCLIPath) hook-knock \(event)"
 }
 
 /// The subcommand and its event as their own words. A SUFFIX RATHER THAN A SUBSTRING, load-bearing
@@ -75,29 +80,46 @@ func quotaKnockHookRegistered(home: String?) -> Bool {
     return quotaKnockHookRegistered(settings: settings)
 }
 
-/// The answer, remembered per config home for the life of the supervisor that asks.
+/// Whether the program those registrations name can actually be run.
 ///
-/// A READ OF A FILE ON A 2s POLL is what this is for. The question is only asked on a tick that is
-/// about to announce something, which is rare, but a session handed between accounts asks it about
-/// each home it lands on and an unmemoized answer would be a parse of somebody's whole harness
-/// configuration every time.
+/// AN ENTRY IS NOT A DELIVERY. The command is an absolute path into a symlink the user installs and
+/// removes from a row of its own ("Command line tool"), so a settings.json can carry a perfect pair
+/// of registrations that runs nothing: the link was never made, it was removed afterwards, or the
+/// bundle it points into has been moved or thrown away. Claude Code tolerates a hook that fails
+/// silently, so nothing anywhere would say so - and for THIS registration a silent failure is not a
+/// feature that stays off, it is the fallback being switched off in favour of nothing.
 ///
-/// PER LAUNCH RATHER THAN PER TICK, and the staleness that buys is stated rather than defended: a
-/// user who installs the integration while a session is running keeps the typed channel until that
-/// session restarts, which is the same lag every other Integrations row has (the hook itself is only
-/// registered for Claude Code processes that start afterwards).
-struct QuotaKnockChannel {
-    private var answers: [String: Bool] = [:]
+/// `isExecutableFile` is the whole test, and it is the right one call here because it FOLLOWS the
+/// link: a dangling symlink answers no. (The Integrations row next door has to work around exactly
+/// that behaviour, because it needs to tell a dangling link of ours from an empty path so it can
+/// keep offering Remove; this asks a boolean about running a program, which is the question that
+/// answer already is.)
+func quotaKnockCLIDeliverable(at path: String = quotaKnockHookCLIPath) -> Bool {
+    FileManager.default.isExecutableFile(atPath: path)
+}
 
-    /// `probe` is injected for the suite alone; the supervisor always asks the filesystem.
-    mutating func hookInstalled(home: String?,
-                                probe: (String?) -> Bool = quotaKnockHookRegistered(home:)) -> Bool {
-        // A home nothing can name is asked once and never remembered: there is no key to remember it
-        // under, and the answer is the fallback either way.
-        guard let home else { return probe(nil) }
-        if let known = answers[home] { return known }
-        let answer = probe(home)
-        answers[home] = answer
-        return answer
-    }
+/// Whether a knock filed for a session in this config home would actually be delivered: both hooks
+/// registered, and the program they name able to run.
+///
+/// THE SCOPE OF THIS ANSWER IS ONE CHILD, and that is the correction this function exists to carry.
+/// The hooks a Claude Code runs are the ones its settings.json held WHEN IT STARTED; installing them
+/// into a running session changes nothing for that session, which is why the Integrations row has
+/// always had that lag. So the supervisor asks this ONCE PER CHILD, at the moment it launches one,
+/// and holds the answer for that child's life (Supervisor.swift). A memo keyed on the config home,
+/// filled in lazily the first time a drought arrived, read the file at the wrong moment: after an
+/// install it answered "filed" for a child whose snapshot has no such hook, and the sentence was
+/// written to a file nothing would ever claim - with the arm already spent and the typed channel
+/// skipped, which is worse than not having the feature (codex review of 2b4131f).
+///
+/// ASKED BEFORE THE CHILD IS SPAWNED, for the direction the race falls in. An install landing
+/// between this reading and Claude Code's own leaves us with "not registered" and the child with the
+/// hooks: the sentence is typed, and two hooks run for a file that is never there. The other order
+/// puts the reading after the child's and gets the failure above.
+///
+/// `cli` is a parameter for the suite alone, and it is what makes the SECOND half assertable at all:
+/// on a machine that has `tally` installed, the executability test answers true either way, so a
+/// build that dropped it entirely would pass every check that asked this function about the real
+/// path (measured here by mutation, 2026-08-20 - the mutant survived until this argument existed).
+func quotaKnockFilingAvailable(home: String?, cli: String = quotaKnockHookCLIPath) -> Bool {
+    quotaKnockHookRegistered(home: home) && quotaKnockCLIDeliverable(at: cli)
 }

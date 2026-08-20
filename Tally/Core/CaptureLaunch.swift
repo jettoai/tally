@@ -140,6 +140,29 @@ enum CaptureLaunch {
     /// This launch's answer for anything unprompted.
     static var launchMayTakeForeground: Bool { mayTakeForeground(activeKeys: activeKeys()) }
 
+    /// Whether a launch carrying exactly these flags may write the user's own WINDOW STATE: which
+    /// windows were open, for the next launch to restore.
+    ///
+    /// The same family question with a second consequence, and it is spelled separately because the
+    /// two callers mean different things by the answer - one is about this launch's frontmost app,
+    /// the other about what the NEXT launch will do - and a divergence between them has to be
+    /// visible rather than silent.
+    ///
+    /// A LAUNCH THAT EXISTS TO BE LOOKED AT MAY NOT LEAVE A WINDOW BEHIND. The flags here are how a
+    /// screenshot is taken, and taking one must not change the app the user goes back to: a capture
+    /// that opened a window and recorded it as open makes the next ordinary launch put that window
+    /// up uninvited. `-TallyPanelCapture` has always said this in its own words (it deliberately does
+    /// not go through `setPinned`, which would write the pin into the shared defaults); this is that
+    /// same rule for the window that has an ordinary restore flag rather than a pin. It is not
+    /// hypothetical for a RELEASE bundle either: the demo-data flag opens this family on any build,
+    /// so the domain being written is the real app's (codex review of 3d70880).
+    static func mayRecordWindowState(activeKeys: Set<String>) -> Bool {
+        mayTakeForeground(activeKeys: activeKeys)
+    }
+
+    /// This launch's answer about the user's window state.
+    static var launchMayRecordWindowState: Bool { mayRecordWindowState(activeKeys: activeKeys()) }
+
     /// Which of the family this launch carries.
     static func activeKeys(in defaults: UserDefaults = .standard) -> Set<String> {
         Set(backgroundKeys.filter { carries($0, in: defaults) })

@@ -218,20 +218,84 @@ func runKnockChannelChecks() {
                   ($0, [["hooks": [["type": "command",
                                     "command": "/opt/bin/my-hook-knocker \($0)"]]]])
               })]))
-    // The reading is a parse of somebody's whole harness configuration, and the tick that asks runs
-    // every two seconds, so it is asked once per home and remembered.
-    var asked: [String?] = []
-    var channel = QuotaKnockChannel()
-    func probe(_ home: String?) -> Bool { asked.append(home); return home == "/homes/one" }
-    check("the channel reading answers for the home it was asked about",
-          channel.hookInstalled(home: "/homes/one", probe: probe)
-              && !channel.hookInstalled(home: "/homes/two", probe: probe))
-    _ = channel.hookInstalled(home: "/homes/one", probe: probe)
-    _ = channel.hookInstalled(home: "/homes/two", probe: probe)
-    check("…and having answered once, it does not read the file again",
-          asked == ["/homes/one", "/homes/two"])
-    check("an account with no launch home is asked and never remembered",
-          !channel.hookInstalled(home: nil, probe: probe) && asked.count == 3)
+    // MARK: - The capability belongs to the CHILD, and to nothing longer-lived
+
+    // THE READING IS ABOUT A PROCESS, not about an account or a supervisor: the hooks a Claude Code
+    // runs are the ones its settings.json held when it started. So the whole of this section is one
+    // claim - installing the integration into a running session must NOT switch that session's
+    // channel - and it is asserted over a real config home rather than over a stub, because the
+    // defect lived in WHEN the file was read rather than in what the reading said.
+    let home = dir.appendingPathComponent("config-home")
+    try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+    let settingsFile = home.appendingPathComponent("settings.json")
+    func install(_ events: [String] = quotaKnockHookEvents) {
+        let document: [String: Any] = ["hooks": Dictionary(uniqueKeysWithValues: events.map {
+            ($0, [["hooks": [["type": "command", "command": quotaKnockHookCommand($0)]]]]) })]
+        try? JSONSerialization.data(withJSONObject: document).write(to: settingsFile)
+    }
+    /// One child's life: the answer taken at ITS launch, held whatever the file does afterwards.
+    /// The shape the supervisor holds (`quotaKnockFiling`, re-read at each spawn), so this suite
+    /// asserts the rule rather than a copy of it.
+    var childCanBeFiledFor = quotaKnockHookRegistered(home: home.path)
+    check("a child launched before the integration was installed is not filed for",
+          !childCanBeFiledFor)
+    install()
+    check("…and installing it while that child is running does not change its answer",
+          !childCanBeFiledFor && quotaKnockHookRegistered(home: home.path))
+    // Which is the whole point: that child's sentence is TYPED, because nothing in it would ever
+    // claim a file. The gap this closes wrote the file and skipped the composer instead.
+    clearQuotaKnockNotice(pid: fixturePid, dir: state)
+    var stillTyping = QuotaKnockState(forced: false)
+    typed = []
+    check("…so it is still typed into, which is the channel that can actually reach it",
+          knock(&stillTyping, filing: childCanBeFiledFor) != nil && typed.count == 1
+              && filed() == nil)
+    // And the next child, spawned after the install, is the one that gets the new channel.
+    childCanBeFiledFor = quotaKnockHookRegistered(home: home.path)
+    clearQuotaKnockNotice(pid: fixturePid, dir: state)
+    var afterRelaunch = QuotaKnockState(forced: false)
+    typed = []
+    check("the child spawned after the install is filed for",
+          childCanBeFiledFor && knock(&afterRelaunch, filing: childCanBeFiledFor) == nil
+              && typed.isEmpty && filed() != nil)
+
+    // AN ENTRY IS NOT A DELIVERY: the command is an absolute path into a symlink the user installs
+    // and removes from a row of its own, so a perfect pair of registrations can name a program that
+    // cannot run. The registrations above are unchanged for all three of these.
+    let cli = dir.appendingPathComponent("bin").appendingPathComponent("tally")
+    try? FileManager.default.createDirectory(at: cli.deletingLastPathComponent(),
+                                             withIntermediateDirectories: true)
+    check("a path with nothing at it cannot deliver", !quotaKnockCLIDeliverable(at: cli.path))
+    FileManager.default.createFile(atPath: cli.path, contents: Data("#!/bin/sh\n".utf8),
+                                   attributes: [.posixPermissions: 0o755])
+    check("…an executable there can", quotaKnockCLIDeliverable(at: cli.path))
+    // A LINK WHOSE TARGET HAS GONE IS NOT EXECUTABLE, which is the shape this actually fails in: the
+    // app bundle was moved or thrown away and the symlink on the PATH stayed behind.
+    let dangling = dir.appendingPathComponent("dangling-tally")
+    try? FileManager.default.createSymbolicLink(atPath: dangling.path,
+                                                withDestinationPath: dir
+                                                    .appendingPathComponent("gone").path)
+    check("…and a link pointing at nothing cannot, though the link itself is right there",
+          !quotaKnockCLIDeliverable(at: dangling.path)
+              && (try? FileManager.default.destinationOfSymbolicLink(atPath: dangling.path)) != nil)
+    // The two halves are one question, and either half saying no is a typed knock: a registration
+    // naming a program that cannot run is a hook that runs nothing, and a hook that runs nothing
+    // would take the fallback away in exchange for silence.
+    //
+    // ASKED ABOUT A PATH THIS SUITE OWNS, never about the real one. `/usr/local/bin/tally` is
+    // installed on the machine this is written on, so a build that dropped the executability test
+    // altogether would answer identically to one that kept it, and the check would be measuring
+    // nothing: the mutant that removed that half survived exactly this assertion until it stopped
+    // asking about the real path (2026-08-20).
+    let missing = dir.appendingPathComponent("bin").appendingPathComponent("never-installed").path
+    check("a registered home whose command can run is filed for",
+          quotaKnockFilingAvailable(home: home.path, cli: cli.path))
+    check("…and the same home is not, the moment that command cannot",
+          !quotaKnockFilingAvailable(home: home.path, cli: missing)
+              && !quotaKnockFilingAvailable(home: home.path, cli: dangling.path))
+    check("…nor is a home with no registration, whatever is on the PATH",
+          !quotaKnockFilingAvailable(home: dir.appendingPathComponent("no-such-home").path,
+                                     cli: cli.path))
 
     // MARK: - The wiring, which no fixture above can reach
 
@@ -240,11 +304,13 @@ func runKnockChannelChecks() {
     if let start = loop.range(of: "applyQuotaKnock("),
        let execution = loop.range(of: "\n            if let plan {") {
         let call = String(loop[start.lowerBound ..< execution.lowerBound])
-        // ASKED OF THE HOME THIS SESSION IS ON RIGHT NOW rather than of the one the loop was
-        // launched holding: the hooks are registered per Claude account, so a handoff changes the
-        // answer, and the account in this call is the one the snapshot named this tick.
-        check("the tick asks the channel about the account's own config home",
-              call.contains("filing:") && call.contains("hookInstalled(home: account.launchHome)"))
+        // THE TICK HANDS OVER THE READING, IT DOES NOT TAKE ONE. A probe here would be a probe at
+        // announce time, which is the moment that cannot answer this question: by then the child
+        // has been running for however long, and the file may have been written since it started.
+        check("the tick passes the reading its child was launched with",
+              call.contains("filing: { quotaKnockFiling }")
+                  && !call.contains("quotaKnockFilingAvailable(")
+                  && !call.contains("quotaKnockHookRegistered("))
     } else {
         check("the knock's channel argument was found in the tick", false)
     }
@@ -264,15 +330,32 @@ func runKnockChannelChecks() {
     } else {
         check("the start-up discard was found in the supervisor", false)
     }
-    // The memo outlives the child for the same reason the arm does: a relaunch is the same session,
-    // and re-reading somebody's settings.json on every restart buys nothing.
-    if let declaration = loop.range(of: "var quotaKnockChannel = QuotaKnockChannel()"),
-       let childLoop = loop.range(of: "\n    while true {") {
-        check("the channel reading outlives the child, because the conversation does",
-              declaration.lowerBound < childLoop.lowerBound)
+    // THE READING IS TAKEN PER CHILD, and the two scopes on this station are deliberately different:
+    // the arm belongs to the conversation and outlives every relaunch (asserted next door), while
+    // the channel belongs to the process, because the hooks a Claude Code runs are the ones its
+    // settings.json held when it started. This assertion used to say the opposite - that the reading
+    // outlives the child, "because the conversation does" - and that sentence was the defect written
+    // down as a contract: it made a lazily filled memo look correct, and a memo first filled AFTER an
+    // install answered "filed" for a child that had no such hook (codex review of 2b4131f).
+    if let probe = loop.range(of: "quotaKnockFiling = quotaKnockFilingAvailable(home:"),
+       let childLoop = loop.range(of: "\n    while true {"),
+       let spawn = loop.range(of: "guard let childPID = spawnChild(") {
+        check("the channel is read inside the child loop, so every child gets its own answer",
+              childLoop.upperBound < probe.lowerBound)
+        // BEFORE THE SPAWN rather than after it, which is the direction the race has to fall in: an
+        // install landing between the two readings leaves this one saying "not registered" and the
+        // child holding the hooks, which types a sentence nobody needed to type. The other order
+        // files one nothing can claim.
+        check("…and read before the child it describes is started",
+              probe.upperBound < spawn.lowerBound)
     } else {
-        check("the channel reading was found in the supervisor", false)
+        check("the per-child channel reading was found in the supervisor", false)
     }
+    // And nothing keeps that answer across children: a memo would put the old child's snapshot on
+    // the new one, which is the same defect one relaunch later.
+    check("the reading is a plain per-child value rather than a cache of its own",
+          loop.contains("var quotaKnockFiling = false")
+              && !loop.contains("QuotaKnockChannel"))
 
     // Nothing in this suite may have touched the user's own log.
     check("the filed knock wrote only to the sink it was given",

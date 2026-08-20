@@ -213,7 +213,7 @@ final class LaunchPolicyStore {
         // string - it is every publish on the machine refused, with an instruction to move to a
         // folder that is gone, and a later `~/.claude3` silently inheriting the choice (codex review
         // of 7113edc). The CLI carries its own defence for the versions that do not do this
-        // (`artifactSettingResolves`); this is the one that keeps the file honest.
+        // (`artifactAccountStanding`); this is the one that keeps the file honest.
         artifactAccount = Self.artifactAccountAfterRemoving(artifactAccount, home: home)
         for (providerID, policy) in policies where policy.pinnedAccountID == accountID {
             var updated = policy

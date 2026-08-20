@@ -37,12 +37,11 @@ func runHookArtifact(environment: [String: String] = ProcessInfo.processInfo.env
     // questions that ask (is the chosen account still real, and what to call each of the two homes):
     // the ordinary run of this hook has nothing to say, and should cost a parse of stdin and no file
     // reads at all.
-    var accounts: [Snapshot.Account]?
-    func known() -> [Snapshot.Account] {
-        if let accounts { return accounts }
-        let read = snapshot()?.accounts ?? []
-        accounts = read
-        return read
+    var loaded = false
+    var document: Snapshot?
+    func published() -> Snapshot? {
+        if !loaded { document = snapshot(); loaded = true }
+        return document
     }
     guard let reason = artifactHookRefusal(
         toolName: payload?["tool_name"] as? String,
@@ -51,11 +50,14 @@ func runHookArtifact(environment: [String: String] = ProcessInfo.processInfo.env
         sessionHome: environment[providers[0].envKey],
         settingHome: setting(),
         bypass: environment[artifactAnyAccountVariable],
-        settingResolves: {
-            artifactSettingResolves($0, accounts: known(),
+        standing: {
+            artifactAccountStanding($0, snapshot: published(),
                                     exists: { FileManager.default.fileExists(atPath: $0) })
         },
-        name: { artifactAccountName($0, in: known()) })
+        // NAMED OUT OF THE WHOLE FILE, fresh or not, unlike the standing above: a label does not go
+        // stale the way an account's existence does, and an old snapshot is still the only thing
+        // that can say "Claude 2" rather than a path.
+        name: { artifactAccountName($0, in: published()?.accounts ?? []) })
     else { return 0 }
     emit(artifactHookOutput(reason: reason))
     return 0
@@ -71,7 +73,8 @@ func runHookArtifact(environment: [String: String] = ProcessInfo.processInfo.env
 ///   3. an action that names an artifact which already exists, or an update carrying its `url`,
 ///   4. the environment saying this publish is meant to leave this account,
 ///   5. no account chosen in Settings, so there is nothing to compare against,
-///   6. a chosen account that no longer exists, which is a setting nobody made,
+///   6. a chosen account that no longer exists, which is a setting nobody made (a signed-out one is
+///      still refused, with a different way out),
 ///   7. the session already being on it, which is the ordinary case.
 ///
 /// `sessionHome` absent is the DEFAULT config home (`fallbackHome`) rather than an abstention: a
@@ -87,7 +90,7 @@ func artifactHookRefusal(toolName: String?,
                          settingHome: String?,
                          bypass: String?,
                          fallbackHome: String = defaultHome(providers[0]),
-                         settingResolves: (String) -> Bool,
+                         standing: (String) -> ArtifactAccountStanding,
                          name: (String) -> ArtifactAccountName) -> String? {
     guard toolName == artifactHookToolName else { return nil }
     // An event the payload NAMES and we do not answer on is not the same as a payload that names
@@ -104,15 +107,24 @@ func artifactHookRefusal(toolName: String?,
     // of this defect family), but an older app with a newer CLI does not, and neither does somebody
     // trashing `~/.claude3` by hand. Left standing, a dead setting refuses EVERY publish on the
     // machine and tells the user to move to a directory that is in the Trash.
-    guard settingResolves(setting) else { return nil }
+    let chosen = standing(setting)
+    guard chosen != .gone else { return nil }
     let session = artifactAccountHome(sessionHome) ?? artifactAccountHome(fallbackHome) ?? ""
     guard session != setting else { return nil }
     let here = name(session)
     let there = name(setting)
+    // THE WAY OUT HAS TO BE ONE THAT WORKS. `tally account` resolves a name against the accounts it
+    // could launch, so offering it for a signed-out account is an instruction that fails for a
+    // reason the message never mentions, with the thing that would actually fix it (signing in
+    // there) unsaid. The rest of the sentence is the same either way.
+    let route = chosen == .signedOut
+        ? "\(there.label) is signed out; sign in there first (`claude` inside that config dir), "
+            + "pick another account in Tally \u{2192} Settings \u{2192} Integrations, or write a "
+            + "local .html file and open it instead."
+        : "Run `tally account \(artifactShellWord(there.dir))` to move this session there (takes "
+            + "effect when this turn ends), or write a local .html file and open it instead."
     return "Artifacts are private to the account that publishes them. This session is on "
-        + "\(here.label); your Artifact publishing account is \(there.label). Run "
-        + "`tally account \(artifactShellWord(there.dir))` to move this session there (takes effect "
-        + "when this turn ends), or write a local .html file and open it instead. Set "
+        + "\(here.label); your Artifact publishing account is \(there.label). \(route) Set "
         + "\(artifactAnyAccountVariable)=1 to publish from any account."
 }
 
@@ -148,26 +160,74 @@ func artifactShellWord(_ text: String) -> String {
     return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
-/// Whether the chosen account is still a thing on this machine.
+/// What this machine can say about the account artifacts are published from. Three answers, because
+/// the guard owes a different sentence to each of them.
+enum ArtifactAccountStanding: Equatable {
+    /// Nothing vouches for that home any more. The guard says nothing at all: a setting naming a
+    /// directory that has gone would otherwise refuse every publish on the machine.
+    case gone
+    /// A session can be moved there, which is what the refusal offers.
+    case live
+    /// The home is there and the account is signed out, so `tally account` will refuse it
+    /// (`accountMatching` drops an account with no launch home). Still a refusal, because signing
+    /// out of a config home does not change which account the browser is signed into: publishing
+    /// from anywhere else still makes a link the user cannot open. What changes is the way out.
+    case signedOut
+}
+
+/// Which account the chosen home belongs to, and whether a session can be moved to it.
 ///
-/// EITHER WITNESS IS ENOUGH, and the order is the cheap one first: the published snapshot naming a
-/// Claude account at that home, or the directory simply being there. The second is what keeps this
-/// answering during the window where Tally is not running or its snapshot is stale, and the first is
-/// what keeps it answering for a home the process cannot stat.
+/// TWO WITNESSES, AND ONE OF THEM IS ON A CLOCK. The published snapshot can name the account, and
+/// the directory can simply be there; the first is the only one that can tell a signed-out account
+/// from a live one, and the second is the only one that can tell a REMOVED account from either.
 ///
-/// `exists` is injected so the rule is assertable without making directories.
-func artifactSettingResolves(_ home: String, accounts: [Snapshot.Account],
-                             exists: (String) -> Bool) -> Bool {
-    artifactAccountMatch(home, in: accounts) != nil || exists(home)
+/// The snapshot is only evidence while it is fresh, on the file's own rule (`snapshotMaxAge`, the
+/// same age `loadSnapshot` warns about). Without that clock the vote runs the wrong way: somebody
+/// trashing `~/.claude3` while Tally is not running leaves a snapshot that names the account for
+/// ever, and the guard the app cannot correct (the setting is cleared by the app's own Remove, and
+/// this is the defence for every other way a home leaves) would refuse every publish on the machine
+/// and name a folder in the Trash as the way out. Measured on this very code by the reviewing model,
+/// which built a probe for it: snapshot from 1970, home deleted, refusal printed.
+///
+/// A DORMANT RECORD STILL HAS TO SURVIVE THE DISK TEST for the same reason: "signed out" means the
+/// home is still there, so a dormant account whose directory has gone is a record describing a
+/// machine that has moved on.
+///
+/// `exists` is injected so the rule is assertable without making or removing directories.
+func artifactAccountStanding(_ home: String, snapshot: Snapshot?, now: Date = Date(),
+                             exists: (String) -> Bool) -> ArtifactAccountStanding {
+    guard let account = artifactAccountMatch(home, in: artifactVouchingAccounts(snapshot, now: now))
+    else { return exists(home) ? .live : .gone }
+    guard account.launchHome == nil else { return .live }
+    return exists(home) ? .signedOut : .gone
+}
+
+/// The accounts a snapshot may vouch for: none at all once it is older than the age this repo
+/// already treats as "is Tally even running?".
+func artifactVouchingAccounts(_ snapshot: Snapshot?, now: Date) -> [Snapshot.Account] {
+    guard let snapshot, now.timeIntervalSince(snapshot.generatedAt) <= snapshotMaxAge else {
+        return []
+    }
+    return snapshot.accounts
 }
 
 /// The Claude account a config home belongs to, if the snapshot knows one. ONE matching rule, read
-/// by both the naming below and the resolution above: a second spelling would let the refusal name
-/// an account the staleness test had just decided was gone.
+/// by both the naming below and the standing above: a second spelling would let the refusal name an
+/// account the standing had just decided was gone.
+///
+/// TWO WAYS TO BE THAT ACCOUNT, because a SIGNED-OUT one publishes no launch home at all
+/// (`ProviderAccount.launchableHome`, and the snapshot carries only the launchable one): matched by
+/// the home it launches on, or by the id, which the app derives from this very directory's name.
+/// `accountConfigHome` is the one place that derivation is written down, guards included, and
+/// without this second reading a dormant account is invisible here - which is exactly the account
+/// whose refusal has to say something different.
 func artifactAccountMatch(_ home: String, in accounts: [Snapshot.Account]) -> Snapshot.Account? {
     let target = artifactAccountHome(home) ?? home
-    return accounts.first {
-        $0.provider == providers[0].id && artifactAccountHome($0.launchHome) == target
+    return accounts.first { account in
+        guard account.provider == providers[0].id else { return false }
+        if artifactAccountHome(account.launchHome) == target { return true }
+        return account.launchHome == nil
+            && artifactAccountHome(accountConfigHome(account.id, provider: providers[0])) == target
     }
 }
 
@@ -207,8 +267,14 @@ func artifactAccountSetting(_ url: URL = stateURL) -> String? {
 }
 
 /// The published snapshot, read WITHOUT the warnings `loadSnapshot` prints: they go to stderr, and
-/// this process is a hook running inside somebody's session. Its only use here is to put a name on
-/// two config homes, so a missing or stale file costs a nicer sentence and nothing else.
+/// this process is a hook running inside somebody's session.
+///
+/// WHAT IS NOT SKIPPED WITH THEM is the age those warnings are about. This file used to say the
+/// snapshot was only ever used to put a name on two config homes, so a stale one cost a nicer
+/// sentence and nothing else; that stopped being true the moment it began deciding whether the
+/// chosen account still exists, and the sentence stayed behind to tell the next reader not to look
+/// (which is how the defect survived a review). The clock is applied where the evidence is weighed,
+/// in `artifactVouchingAccounts`, so naming can go on using a file too old to vouch for anything.
 func artifactHookSnapshot(_ url: URL = snapshotURL) -> Snapshot? {
     guard let data = try? Data(contentsOf: url) else { return nil }
     let decoder = JSONDecoder()

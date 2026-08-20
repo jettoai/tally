@@ -19,6 +19,10 @@ func expect(_ condition: Bool, _ name: String) {
     if condition { print("PASS \(name)") } else { failures += 1; print("FAIL \(name)") }
 }
 
+/// A fixed instant for everything that reads a clock: the snapshot's freshness is a comparison
+/// against one, and a suite that took the real time twice could straddle the boundary it asserts.
+let now = Date(timeIntervalSince1970: 1_800_000_000)
+
 let tmp = FileManager.default.temporaryDirectory
     .appendingPathComponent("tally-artifact-\(UUID().uuidString)")
 try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
@@ -52,14 +56,14 @@ func refusal(tool: String? = artifactHookToolName,
              setting: String? = browserHome,
              bypass: String? = nil,
              fallback: String = browserHome,
-             resolves: Bool = true,
+             standing: ArtifactAccountStanding = .live,
              accounts: [Snapshot.Account] = fleet) -> String? {
     var input: [String: Any] = [:]
     if let action { input["action"] = action }
     if let url { input["url"] = url }
     return artifactHookRefusal(toolName: tool, toolInput: input, event: event,
                                sessionHome: session, settingHome: setting, bypass: bypass,
-                               fallbackHome: fallback, settingResolves: { _ in resolves },
+                               fallbackHome: fallback, standing: { _ in standing },
                                name: { artifactAccountName($0, in: accounts) })
 }
 
@@ -129,7 +133,7 @@ expect(refusal(session: "", fallback: browserHome) == nil,
 // comparison still runs: what is left is a publish nobody could show was safe.
 expect(artifactHookRefusal(toolName: artifactHookToolName, toolInput: nil, event: nil,
                            sessionHome: sessionHome, settingHome: browserHome, bypass: nil,
-                           fallbackHome: browserHome, settingResolves: { _ in true },
+                           fallbackHome: browserHome, standing: { _ in .live },
                            name: { artifactAccountName($0, in: fleet) }) != nil,
        "a payload with no readable tool input is still judged on the two accounts")
 
@@ -139,27 +143,89 @@ expect(artifactHookRefusal(toolName: artifactHookToolName, toolInput: nil, event
 // not, and neither does somebody trashing `~/.claudeN` by hand. A setting pointing at a home that
 // has gone would otherwise refuse EVERY publish on the machine and name a folder in the Trash as
 // the way out.
-expect(refusal(resolves: false) == nil, "a chosen account that no longer exists is not compared")
-expect(refusal(resolves: true) != nil, "…while one that is still there is")
+expect(refusal(standing: .gone) == nil, "a chosen account that no longer exists is not compared")
+expect(refusal(standing: .live) != nil, "…while one that is still there is")
+
+/// A snapshot published `age` seconds ago, listing whatever is handed to it.
+func published(_ accounts: [Snapshot.Account], age: TimeInterval = 0) -> Snapshot {
+    Snapshot(version: 2, generatedAt: now.addingTimeInterval(-age), accounts: accounts)
+}
+func standing(_ home: String, _ snapshot: Snapshot?,
+              exists: @escaping (String) -> Bool) -> ArtifactAccountStanding {
+    artifactAccountStanding(home, snapshot: snapshot, now: now, exists: exists)
+}
+let never = { (_: String) -> Bool in false }
+let always = { (_: String) -> Bool in true }
+
 // Either witness answers, and the snapshot is the one that works while the directory cannot be
 // stat'ed at all.
-expect(artifactSettingResolves(browserHome, accounts: fleet, exists: { _ in false }),
-       "a home the snapshot names is real whatever the filesystem says")
-expect(artifactSettingResolves("/gone/.claude9", accounts: fleet, exists: { $0 == "/gone/.claude9" }),
+expect(standing(browserHome, published(fleet), exists: never) == .live,
+       "a home a FRESH snapshot names is real whatever the filesystem says")
+expect(standing("/gone/.claude9", published(fleet), exists: always) == .live,
        "…and a home on disk is real whatever the snapshot says")
-expect(!artifactSettingResolves("/gone/.claude9", accounts: fleet, exists: { _ in false }),
+expect(standing("/gone/.claude9", published(fleet), exists: never) == .gone,
        "…and neither witness means the setting names nothing")
-expect(!artifactSettingResolves(browserHome, accounts: [account("Codex", home: browserHome,
-                                                               provider: "codex")],
-                                exists: { _ in false }),
-       "a Codex account at that home is not a Claude account being named")
-// The real witness this runs against: these two homes exist, the third never did.
-expect(artifactSettingResolves(browserHome, accounts: [],
-                               exists: { FileManager.default.fileExists(atPath: $0) }),
-       "and the live filesystem answers the same way for a home that is really there")
-expect(!artifactSettingResolves(tmp.appendingPathComponent(".claude404").path, accounts: [],
-                                exists: { FileManager.default.fileExists(atPath: $0) }),
+expect(standing(browserHome, nil, exists: never) == .gone,
+       "…as does a machine with no snapshot at all and no directory")
+
+// THE VOTE THE SNAPSHOT DOES NOT GET. Somebody trashing `~/.claude3` while Tally is not running
+// leaves a file that names the account for ever: without the clock the guard refuses every publish
+// on the machine and names a folder in the Trash as the way out (measured on this code by the
+// reviewing model, which built a probe for it and got a refusal).
+expect(standing(browserHome, published(fleet, age: snapshotMaxAge + 1), exists: never) == .gone,
+       "a snapshot too old to say whether Tally is running does not vouch for a home that has gone")
+expect(standing(browserHome, published(fleet, age: snapshotMaxAge + 1), exists: always) == .live,
+       "…while the directory being there still answers, which is the witness that cannot go stale")
+expect(standing(browserHome, published(fleet, age: snapshotMaxAge - 1), exists: never) == .live,
+       "…and a snapshot still inside that age vouches exactly as before")
+expect(artifactVouchingAccounts(published(fleet, age: snapshotMaxAge), now: now).count == fleet.count
+           && artifactVouchingAccounts(published(fleet, age: snapshotMaxAge + 1), now: now).isEmpty,
+       "the age it stops counting at is the file's own, not a second one written here")
+expect(artifactVouchingAccounts(nil, now: now).isEmpty, "and no snapshot vouches for nothing")
+
+// The real witness this runs against: this home exists, the other never did.
+expect(standing(browserHome, nil, exists: { FileManager.default.fileExists(atPath: $0) }) == .live,
+       "the live filesystem answers the same way for a home that is really there")
+expect(standing(tmp.appendingPathComponent(".claude404").path, nil,
+                exists: { FileManager.default.fileExists(atPath: $0) }) == .gone,
        "…and for one that is really not")
+
+// MARK: - 5c. A chosen account that is signed out
+
+// A dormant account (signed out, config home still on disk) publishes NO launch home, so the
+// snapshot carries none for it and it can only be found by its id. It is still refused - signing out
+// of a config dir does not change which account the browser is signed into - but `tally account`
+// would refuse to move a session there, so the refusal must not offer that (codex review of a7f92d0).
+// The id is joined back to a directory by the app's own derivation (`accountConfigHome`), which
+// builds it under the real home directory: this fixture therefore names `~/.claude2` rather than a
+// path in the temp tree, and nothing here touches it - the disk witness is injected.
+let dormantHome = URL(fileURLWithPath: defaultHome(providers[0]))
+    .deletingLastPathComponent().appendingPathComponent(".claude2").path
+func dormantAccount(_ id: String, label: String) -> Snapshot.Account {
+    Snapshot.Account(id: id, provider: "claude", label: label, launchHome: nil,
+                     sessionRemaining: nil, weeklyRemaining: nil, modelRemaining: nil,
+                     sessionResetsAt: nil, weeklyResetsAt: nil, modelResetsAt: nil,
+                     modelWindowName: nil, resetCreditsAvailable: nil, isStale: false, error: nil)
+}
+let dormant = dormantAccount("claude:.claude2", label: "Work")
+expect(standing(dormantHome, published([account("Main", home: browserHome), dormant]),
+                exists: always) == .signedOut,
+       "an account with no launch home is found by its id and read as signed out")
+expect(standing(dormantHome, published([account("Main", home: browserHome), dormant]),
+                exists: never) == .gone,
+       "…and a dormant record whose home has gone is a record, not a home")
+expect(artifactAccountName(dormantHome, in: [dormant]).label == "Work",
+       "…and it is still named by its label rather than by its path")
+// The id join is the app's own derivation, not a guess: another account's id may not claim this home.
+expect(standing(dormantHome, published([dormantAccount("claude:.claude7", label: "Other")]),
+                exists: always) == .live,
+       "a dormant account for a different directory does not answer for this one")
+// And an id that is not a config home name at all cannot be turned into one (`accountConfigHome`
+// refuses a name that does not start with the provider's own directory, or holds a separator).
+expect(standing(dormantHome, published([dormantAccount("claude:../.claude2", label: "Escape"),
+                                        dormantAccount("claude:notaclaudedir", label: "Nope")]),
+                exists: always) == .live,
+       "…and an id that is not a config home name is not read as one")
 
 // MARK: - 6. The way out, and the ways that are not it
 
@@ -202,6 +268,20 @@ expect(artifactShellWord(".claude2") == ".claude2" && artifactShellWord("/Users/
 expect(artifactShellWord("it's") == "'it'\\''s'",
        "…and a single quote is closed, added literally, and reopened")
 expect(artifactShellWord("") == "''", "…and nothing at all is still one argument")
+
+// THE OTHER ROUTE. A signed-out account gets the thing that would actually fix it, and never a
+// command that `accountMatching` is going to refuse.
+let outOfReach = refusal(standing: .signedOut) ?? ""
+expect(!outOfReach.contains("tally account"),
+       "a signed-out account is never offered a move this CLI would refuse")
+expect(outOfReach.contains("Main is signed out; sign in there first (`claude` inside that config dir)"),
+       "…it is told to sign in there, named as the panel names it")
+expect(outOfReach.contains("pick another account in Tally \u{2192} Settings \u{2192} Integrations"),
+       "…and where the choice itself is changed")
+expect(outOfReach.contains(".html") && outOfReach.contains(artifactAnyAccountVariable),
+       "…while the two ways out that never needed an account are still there")
+expect(message.contains("tally account") && !message.contains("is signed out"),
+       "and an account that can be moved to is offered exactly that, and no login lecture")
 expect(message.contains(artifactAnyAccountVariable),
        "…and the way to publish anyway, so the refusal carries its own exception")
 expect(message.contains(".html"), "…and the way that needs no account at all")
@@ -261,10 +341,12 @@ expect(specific?["permissionDecisionReason"] as? String == "a \"label\" with quo
 // MARK: - 12. The subcommand end to end
 
 func run(payload: Any?, environment: [String: String] = [:], setting: String? = browserHome,
-         accounts: [Snapshot.Account] = fleet) -> (code: Int32, printed: [String]) {
+         accounts: [Snapshot.Account] = fleet,
+         age: TimeInterval = 0) -> (code: Int32, printed: [String]) {
     var printed: [String] = []
     let data = payload.flatMap { try? JSONSerialization.data(withJSONObject: $0) } ?? Data("{".utf8)
-    let snapshot = Snapshot(version: 2, generatedAt: Date(), accounts: accounts)
+    let snapshot = Snapshot(version: 2, generatedAt: Date().addingTimeInterval(-age),
+                            accounts: accounts)
     let code = runHookArtifact(environment: environment, input: { data }, setting: { setting },
                                snapshot: { snapshot }, emit: { printed.append($0) })
     return (code, printed)
@@ -290,6 +372,20 @@ expect(run(payload: ["tool_name": "Artifact"],
            environment: ["CLAUDE_CONFIG_DIR": sessionHome,
                          artifactAnyAccountVariable: "1"]).printed.isEmpty,
        "…and neither does a session that has waived the guard")
+// The clock again, this time through the whole subcommand: the setting names a home nothing on this
+// machine has, and the only thing that said otherwise is a snapshot from 1970.
+expect(run(payload: ["tool_name": "Artifact"],
+           environment: ["CLAUDE_CONFIG_DIR": sessionHome],
+           setting: "/gone/.claude9",
+           accounts: [account("Ghost", home: "/gone/.claude9")], age: snapshotMaxAge + 60)
+           .printed.isEmpty,
+       "end to end: an old snapshot cannot keep a deleted account's setting alive")
+expect(!run(payload: ["tool_name": "Artifact"],
+            environment: ["CLAUDE_CONFIG_DIR": sessionHome],
+            setting: "/gone/.claude9",
+            accounts: [account("Ghost", home: "/gone/.claude9")]).printed.isEmpty,
+       "…while a fresh one says the account is there and the publish is held")
+
 // The hook answers for the environment rather than for a supervisor, so a session Tally never
 // launched is judged exactly like one it did.
 expect(run(payload: ["tool_name": "Artifact"],

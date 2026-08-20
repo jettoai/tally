@@ -24,7 +24,8 @@ swiftc -o "$out" tests/integrations/main.swift tests/integrations/tallycommandch
   tests/integrations/nativepickerchecks.swift tests/integrations/skillversionchecks.swift \
   tests/integrations/shimscriptchecks.swift tests/integrations/sharedharnesschecks.swift \
   tests/integrations/completionchecks.swift tests/integrations/clitoolchecks.swift \
-  Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsCLITool.swift \
+  Tally/Stores/IntegrationsStore.swift Tally/Stores/IntegrationsShim.swift \
+  Tally/Stores/IntegrationsCLITool.swift \
   Tally/Stores/IntegrationsSharedHarness.swift \
   Tally/Core/ShareExisting.swift Tally/Core/SharedHarness.swift Tally/Core/PathIdentity.swift \
   Tally/Core/AddAccount.swift \

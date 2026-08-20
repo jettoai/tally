@@ -152,13 +152,38 @@ extension IntegrationsStore {
     /// a Homebrew install answers yes to it, so using it as the launch-time gate had the app writing
     /// into a shared directory for a user who never pressed anything of ours (review, 2026-08-11).
     ///
-    /// TWO PROOFS, EITHER WILL DO. The link pointing at the CLI inside this bundle is the direct
-    /// one; the manifest naming the link is the one that survives the app moving, which changes
-    /// `bundledCLIURL` under a link we really did make. Neither is satisfied by a package manager's.
+    /// TWO PROOFS, AND THE SECOND ONE IS ABOUT THE LINK AS IT IS NOW. The direct proof is the link
+    /// pointing at the CLI inside this bundle. The second exists for the app having MOVED, which
+    /// changes `bundledCLIURL` under a link we really did make - so it asks the manifest for the
+    /// path AND asks the link where it points, and what it has to point at is another copy of this
+    /// same bundle: `<something>/Tally.app/Contents/Helpers/tally`, the tail taken from `bundled`
+    /// rather than written down here, because the bundle name differs between the release app and
+    /// the dev one.
+    ///
+    /// The manifest alone was not enough, and reading it as enough was a defect (codex review of
+    /// 72ebfc6): a path we once installed is still in the manifest after `brew link --overwrite`,
+    /// or anything else, has replaced the symlink with its own. The registration downstream of this
+    /// answer runs the program at that path on every prompt and every tool call
+    /// (IntegrationsAutoFollow.swift), so a stale record is a stranger's binary in a Claude Code
+    /// hook. A record is a record of an install, not of what is at that path today.
     static func cliToolIsOurs(recorded: [String], destination: String?, bundled: String,
                               link: String) -> Bool {
         guard let destination else { return false }     // a real file, or nothing at all
-        return destination == bundled || recorded.contains(link)
+        if destination == bundled { return true }
+        guard recorded.contains(link), let suffix = bundleRelativeCLIPath(bundled) else {
+            return false
+        }
+        return destination == suffix || destination.hasSuffix("/" + suffix)
+    }
+
+    /// The tail of a bundled CLI path from the `.app` component onward
+    /// (`Tally.app/Contents/Helpers/tally`), which is the shape a link into ANY copy of this bundle
+    /// has. Nil when the path handed in carries no bundle at all, which is a build nobody installed
+    /// and an answer of no rather than a guess.
+    static func bundleRelativeCLIPath(_ bundled: String) -> String? {
+        let components = bundled.split(separator: "/", omittingEmptySubsequences: false)
+        guard let start = components.firstIndex(where: { $0.hasSuffix(".app") }) else { return nil }
+        return components[start...].joined(separator: "/")
     }
 
     /// `cliToolIsOurs` for this machine.

@@ -24,11 +24,10 @@ import Foundation
 /// the machines left behind are the ones that have had the shim the longest. (The same pairing, and
 /// the same reasoning, as `pinnedSkillDigest` in skillversionchecks.swift.)
 ///
-/// Re-pinned WITHOUT a bump on 2026-08-13, which the rule above allows exactly once per version:
-/// v3 is not in any release tag yet (`git tag --contains` on the commit that introduced it answers
-/// nothing), so no machine anywhere has a v3 script to be left behind by this edit. The moment it
-/// ships, the next change to this text costs a bump again.
-let pinnedShimDigest = "68e51af776561ba0"
+/// Bumped to v4 on 2026-08-20 with the fd 3 hand-off, which is exactly what the pairing is for: v3
+/// shipped, so the machines carrying it have a shim that eats the caller's stdin, and the version
+/// marker is the only thing that tells them apart from a fixed one (`detectShim`).
+let pinnedShimDigest = "628e5849ab514738"
 
 /// What a bare `claude` inherited, once the shim was done with it.
 private struct ShimRun {
@@ -234,6 +233,69 @@ func runShimScriptChecks(tmp: URL) throws {
               codexFresh.steered && codexFresh.home == steeredHome)
     }
 
+    // MARK: - The caller's own stdin, which the shim is only a doorway for
+
+    // Feeding the candidate loop with `done < <(which -a claude)` made that pipe the STANDARD INPUT
+    // of the loop, and the `exec` inside it handed that pipe to the real binary: a piped
+    // `echo prompt | claude -p` read EOF where its prompt should have been and answered that it had
+    // been given none, which is how most scripts and hooks call these two commands (measured
+    // 2026-08-20, v4). Executed rather than read, for the same reason as every row above: what is
+    // being asserted is what the shell made of the redirection.
+    let pipeRoot = tmp.appendingPathComponent("shim-stdin")
+    let pipeHome = pipeRoot.appendingPathComponent("home")
+    let pipeShimDir = pipeHome.appendingPathComponent(".tally/bin")
+    let pipeRealDir = pipeRoot.appendingPathComponent("bin")
+    for dir in [pipeShimDir, pipeRealDir] {
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    }
+    for shim in IntegrationsStore.Shim.allCases {
+        try writeExecutable(pipeShimDir.appendingPathComponent(shim.rawValue),
+                            IntegrationsStore.shimScript(shim))
+        // The real CLI, standing in for `claude -p`: whatever it was piped, back out again.
+        try writeExecutable(pipeRealDir.appendingPathComponent(shim.rawValue), """
+        #!/bin/bash
+        printf 'args=%s\\n' "$*"
+        printf 'stdin='
+        cat
+        """)
+    }
+
+    /// Run the generated shim with `input` on its stdin, and answer with what the exec'd binary
+    /// printed. The input is in the pipe BEFORE the child starts, so nothing here can be writing
+    /// into a pipe a failing child has already let go of.
+    func piped(_ shim: IntegrationsStore.Shim, shell: String, input: String) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = [pipeShimDir.appendingPathComponent(shim.rawValue).path, "-p"]
+        // No `tally` on this PATH: the steering has its own rows above, and this one is about the
+        // hand-off alone.
+        process.environment = [
+            "PATH": [pipeShimDir.path, pipeRealDir.path, "/usr/bin", "/bin"]
+                .joined(separator: ":"),
+            "HOME": pipeHome.path,
+        ]
+        let stdin = Pipe(), stdout = Pipe()
+        process.standardInput = stdin
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        stdin.fileHandleForWriting.write(Data(input.utf8))
+        guard (try? process.run()) != nil else { return "" }
+        try? stdin.fileHandleForWriting.close()
+        let answer = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(data: answer, encoding: .utf8) ?? ""
+    }
+
+    for (name, shell) in [("bash", "/bin/bash"), ("zsh", "/bin/zsh")] {
+        for shim in IntegrationsStore.Shim.allCases {
+            let answer = piped(shim, shell: shell, input: "SHIM_PIPE_OK\n")
+            check("[\(name)] a piped \(shim.rawValue) hands the caller's stdin to the real binary",
+                  answer.contains("stdin=SHIM_PIPE_OK"))
+            check("[\(name)] …along with the arguments it was typed with",
+                  answer.contains("args=-p"))
+        }
+    }
+
     // MARK: - The spellings the running script cannot check for itself
 
     // The variable name is a contract with a program that is not ours, and the app target does not
@@ -245,13 +307,33 @@ func runShimScriptChecks(tmp: URL) throws {
     check("…and the shim watches exactly that variable",
           cli.contains("let childSessionMarker = \"\(marker)\""))
 
+    // The upkeep that makes the version bump reach a machine at all. Structural, because the paths
+    // it works on are the real ones under `~/.tally`: what is asserted is that it is run at launch,
+    // that it refuses a script that is not ours, and that it stops once the text is current.
+    let shimSource = (try? String(contentsOfFile: "Tally/Stores/IntegrationsShim.swift",
+                                  encoding: .utf8)) ?? ""
+    let launch = (try? String(contentsOfFile: "Tally/App/AppDelegate.swift", encoding: .utf8)) ?? ""
+    check("the harness really read the upkeep and the launch that runs it",
+          shimSource.contains("func autoUpdateShims()") && !launch.isEmpty)
+    check("an older shim of ours is brought up to date at launch, not left behind a button",
+          launch.contains("IntegrationsStore.shared.autoUpdateShims()"))
+    check("…over a file that carries our header and no other",
+          shimSource.contains("script.contains(Self.shimHeader), !Self.shimIsCurrent(script)"))
+    check("…and never where nothing is installed, nor once the text is already current",
+          shimSource.contains("guard let script = try? String(contentsOf: shim.scriptURL,")
+              && !IntegrationsStore.shimIsCurrent("# tally-shim v3: an older one")
+              && IntegrationsStore.shimIsCurrent(IntegrationsStore.shimScript(.claude)))
+    check("…and never from a build nobody installed",
+          shimSource.contains("guard !BuildVariant.isUnshipped else { return }"))
+
     let claudeScript = IntegrationsStore.shimScript(.claude)
     let codexScript = IntegrationsStore.shimScript(.codex)
     // The version marker `detectShim` looks for, which is the only reason an install ever updates.
+    // Through the detector's own predicate, so the header this template writes and the header the
+    // row reads can never be two different strings: a drift there would have a fresh install read
+    // "Older version installed" and be rewritten at every launch.
     check("both scripts carry the version marker the detector reads",
-          [claudeScript, codexScript].allSatisfy {
-              $0.contains("tally-shim v\(IntegrationsStore.shimVersion)")
-          })
+          [claudeScript, codexScript].allSatisfy(IntegrationsStore.shimIsCurrent))
     check("the codex shim carries no claude marker to test",
           !codexScript.contains(marker) && !codexScript.contains("-t 1"))
     // Pinned together, for the reason written on `pinnedShimDigest`.

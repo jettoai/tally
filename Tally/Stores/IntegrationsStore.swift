@@ -8,7 +8,8 @@ import Observation
 ///   "install 'code' command" pattern), in IntegrationsCLITool.swift - the one integration whose
 ///   path is shared with the rest of the machine, so whose file is there has to be asked.
 /// - `codexShim`: a `codex` interposer at `~/.tally/bin/codex` plus a marked PATH block in
-///   `~/.zshenv`, so bare `codex` invocations follow the app's launch policy.
+///   `~/.zshenv`, so bare `codex` invocations follow the app's launch policy, in
+///   IntegrationsShim.swift - which is where the `Shim` type itself is declared as well.
 ///
 /// Rules: installs are explicit buttons (never silent), every touched path is recorded in
 /// `~/.tally/manifest.json`, and shell-file edits live inside `# >>> tally integration >>>`
@@ -51,15 +52,6 @@ final class IntegrationsStore {
 
     // MARK: Paths
 
-    /// A per-provider PATH interposer: bare `claude` / `codex` invocations follow the launch
-    /// policy. Both shims share one bin dir and one PATH block.
-    enum Shim: String, CaseIterable {
-        case claude, codex
-        var envKey: String { self == .claude ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME" }
-        var scriptURL: URL { IntegrationsStore.binDirURL.appendingPathComponent(rawValue) }
-        var manifestKey: String { "\(rawValue)Shim" }
-    }
-
     nonisolated static let binDirURL = UsageSnapshot.directory.appendingPathComponent("bin", isDirectory: true)
     nonisolated static let cliSymlinkURL = URL(fileURLWithPath: "/usr/local/bin/tally")
     /// The manifest component the symlink is recorded under. A constant because it is read as
@@ -73,81 +65,6 @@ final class IntegrationsStore {
 
     nonisolated static let blockBegin = "# >>> tally integration >>>"
     nonisolated static let blockEnd = "# <<< tally integration <<<"
-
-    /// Bump when the shim script changes; the store flags older installs for reinstall. Pinned to
-    /// the script's own text by the suite, so an edit that skips the bump goes red
-    /// (tests/integrations/shimscriptchecks.swift).
-    nonisolated static let shimVersion = 3
-
-    /// Claude Code's marker for a session it started itself, spelled here as well as in the CLI
-    /// (`childSessionMarker`, TallyCLI/Snapshot.swift, which is where the mechanism is written
-    /// down) because the app target does not compile that file. A drift between the two spellings
-    /// would leave the shim watching a variable nothing ever sets, which looks exactly like a
-    /// machine that never leaks, so the suite pins them to each other.
-    nonisolated static let childSessionMarker = "CLAUDE_CODE_CHILD_SESSION"
-
-    /// The shim itself: ask `tally launch-dir` (which honours Off/Manual/Auto), then hand off to
-    /// the first real binary on PATH that isn't this file. Pure bash, no dependencies; fail open.
-    ///
-    /// The claude shim carries one clause the codex shim does not, and it is the same decision
-    /// `tally claude` makes in `inheritedSessionEnvironment`: an exported config home is the user's
-    /// own choice, UNLESS it was inherited from a session rather than typed. It has to be decided
-    /// here rather than inside `tally launch-dir`, because what gives a leak away is a terminal on
-    /// stdout, and that command prints into a command substitution, which never is one.
-    static func shimScript(_ shim: Shim) -> String {
-        let unexported = "[[ -z \"${\(shim.envKey):-}\" ]]"
-        // Claude only: the marker is Claude Code's, and a codex environment says nothing by
-        // carrying it.
-        let claude = shim == .claude
-        let precedence = claude
-            ? "# An exported \(shim.envKey) wins, unless it was inherited rather than typed (below)."
-            : "# An explicitly exported \(shim.envKey) always wins."
-        let leakClause = claude ? """
-        # A terminal started from inside a Claude Code session inherits that session's config home
-        # AND its child marker, so every window opened afterwards is stuck on that one account.
-        # Claude Code spawns its real children through a pipe: the marker with stdout on a PIPE is a
-        # real child, which follows its parent's home on purpose, while the same marker with stdout
-        # on a TERMINAL cannot be describing this process at all. Dropping the marker is what makes
-        # the session save its transcript again, so it happens whether or not Tally steers as well.
-        # `+x` asks whether the variable is SET, which is the question `inheritedSessionEnvironment`
-        # asks of it: an entrance that read an empty value as no marker would answer differently
-        # from the other one, which is the whole defect this clause exists to close.
-        inherited=0
-        if [[ -t 1 && -n "${\(childSessionMarker)+x}" ]]; then
-          inherited=1
-          unset \(childSessionMarker)
-        fi
-
-        """ : ""
-        let steered = claude ? "{ \(unexported) || (( inherited )); }" : unexported
-        // The account half of the same repair, and it belongs INSIDE the steering branch. `tally
-        // launch-dir` is silent in two cases of its own (policy Off, no eligible account:
-        // LaunchDir.swift), so the eval below produces no `export` at all - and the leaked home,
-        // still in the environment, is then obeyed by the launch this branch decided to steer. The
-        // CLI makes the identical repair with `unsetenv` (Snapshot.swift). Not in the leak clause,
-        // which runs with no tally on PATH, where nothing may be steered anywhere.
-        let dropLeaked = claude
-            ? "  # Steering prints nothing when Tally is Off or has no eligible account, and the\n"
-            + "  # leaked home would then be obeyed by the launch this branch chose to steer.\n"
-            + "  (( inherited )) && unset \(shim.envKey)\n"
-            : ""
-        return """
-        #!/bin/bash
-        # tally-shim v\(shimVersion): route bare `\(shim.rawValue)` through the Tally launch policy.
-        # Managed by Tally.app (Settings → Integrations); safe to delete.
-        # Without Tally on PATH this passes straight through.
-        \(precedence)
-        set -u
-        \(leakClause)if \(steered) && command -v tally > /dev/null 2>&1; then
-        \(dropLeaked)  eval "$(tally launch-dir \(shim.rawValue) 2> /dev/null)" || true
-        fi
-        while IFS= read -r candidate; do
-          [[ "$candidate" != "$HOME/.tally/bin/\(shim.rawValue)" ]] && exec "$candidate" "$@"
-        done < <(which -a \(shim.rawValue))
-        echo "tally-shim: real \(shim.rawValue) not found on PATH" >&2
-        exit 127
-        """
-    }
 
     private(set) var cliToolStatus: Status = .notInstalled
     /// What that status word was made from, kept beside it because the row needs the half the word
@@ -201,23 +118,6 @@ final class IntegrationsStore {
         completionInstalled = Self.detectCompletion()
     }
 
-    func shimStatus(_ shim: Shim) -> Status { shimStatuses[shim] ?? .notInstalled }
-
-    private static func detectShim(_ shim: Shim) -> Status {
-        // No script = not installed, full stop. The PATH block is SHARED between shims, so its
-        // presence says nothing about THIS shim (installing codex alone must not make the claude
-        // row read "broken").
-        guard let script = try? String(contentsOf: shim.scriptURL, encoding: .utf8) else {
-            return .notInstalled
-        }
-        let blockPresent = (try? String(contentsOf: zshenvURL, encoding: .utf8))?
-            .contains(blockBegin) ?? false
-        guard blockPresent else { return .broken(L("PATH entry is missing")) }
-        return script.contains("tally-shim v\(shimVersion)")
-            ? .installed
-            : .broken(L("Older version installed"))
-    }
-
     // MARK: Install / remove
 
     /// The dev variant never mutates shared system state (the /usr/local/bin link, shell
@@ -228,39 +128,6 @@ final class IntegrationsStore {
         guard BuildVariant.isUnshipped else { return true }
         lastError = L("Integrations are managed by the installed release app.")
         return false
-    }
-
-    func installShim(_ shim: Shim) {
-        guard guardNotDev() else { return }
-        lastError = nil
-        let fm = FileManager.default
-        do {
-            try fm.createDirectory(at: Self.binDirURL, withIntermediateDirectories: true)
-            try Self.shimScript(shim).write(to: shim.scriptURL, atomically: true, encoding: .utf8)
-            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.scriptURL.path)
-            try Self.upsertBlock(in: Self.zshenvURL, body: "export PATH=\"$HOME/.tally/bin:$PATH\"")
-            recordManifest(shim.manifestKey, paths: [shim.scriptURL.path, Self.zshenvURL.path])
-        } catch {
-            lastError = error.localizedDescription
-        }
-        refresh()
-    }
-
-    func removeShim(_ shim: Shim) {
-        guard guardNotDev() else { return }
-        lastError = nil
-        do {
-            try? FileManager.default.removeItem(at: shim.scriptURL)
-            // The PATH block serves every shim - strip it only when the last one is gone.
-            let anyLeft = Shim.allCases.contains {
-                FileManager.default.fileExists(atPath: $0.scriptURL.path)
-            }
-            if !anyLeft { try Self.stripBlock(in: Self.zshenvURL) }
-            recordManifest(shim.manifestKey, paths: nil)
-        } catch {
-            lastError = error.localizedDescription
-        }
-        refresh()
     }
 
     // MARK: Claude status line - "account · model" at the bottom of every claude session

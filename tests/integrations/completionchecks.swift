@@ -97,6 +97,34 @@ func runCompletionChecks(tmp: URL) throws {
           IntegrationsStore.cliToolIsOurs(recorded: [link],
                                           destination: "/Volumes/Old/Tally.app/Contents/Helpers/tally",
                                           bundled: bundled, link: link))
+    // The manifest is a record of an INSTALL, not of what is at that path today. `brew link
+    // --overwrite` (or anything else) replaces the symlink and leaves the record exactly where it
+    // was, and the registration downstream of this answer runs the program at that path on every
+    // prompt and every tool call (codex review of 72ebfc6).
+    check("a recorded path whose link a package manager has since taken over is not ours",
+          !IntegrationsStore.cliToolIsOurs(recorded: [link],
+                                           destination: "/opt/homebrew/Cellar/tally/1.0/bin/tally",
+                                           bundled: bundled, link: link))
+    check("…nor when it was taken over by a relative link into the same prefix",
+          !IntegrationsStore.cliToolIsOurs(recorded: [link],
+                                           destination: "../Cellar/tally/1.0/bin/tally",
+                                           bundled: bundled, link: link))
+    // The case the manifest proof exists for, which is the app having MOVED: a different directory,
+    // the same bundle underneath. The tail is taken from `bundled` rather than written down in the
+    // app, because the release bundle and the dev one are not named the same thing.
+    check("…while a link into the same bundle somewhere else is still ours after the app moved",
+          IntegrationsStore.cliToolIsOurs(
+              recorded: [link], destination: "/Applications/Other/Tally.app/Contents/Helpers/tally",
+              bundled: bundled, link: link))
+    check("the bundle-relative tail is read off the bundled path, name and all",
+          IntegrationsStore.bundleRelativeCLIPath(bundled) == "Tally.app/Contents/Helpers/tally"
+              && IntegrationsStore.bundleRelativeCLIPath(
+                  "/Users/u/build/Tally Dev.app/Contents/Helpers/tally")
+              == "Tally Dev.app/Contents/Helpers/tally")
+    check("…and a bundled path with no bundle in it proves nothing rather than everything",
+          IntegrationsStore.bundleRelativeCLIPath("/usr/local/libexec/tally") == nil
+              && !IntegrationsStore.cliToolIsOurs(recorded: [link], destination: "/somewhere/tally",
+                                                  bundled: "/usr/local/libexec/tally", link: link))
     check("a package manager's tally is not this app's, however installed it looks",
           !IntegrationsStore.cliToolIsOurs(recorded: [],
                                            destination: "/opt/homebrew/Cellar/tally/1.0/bin/tally",

@@ -28,8 +28,8 @@ func runCapGateChecks() {
     ]
     let noTarget = capHandoffTarget(dryField, primaryModel: nil, now: launch)
     check("an all-dry field gives the handoff no target", noTarget == nil)
-    let dryWait = capRecoveryAction(mode: "auto", fuseAllows: true, snapshotStale: false,
-                                    hasTarget: noTarget != nil)
+    let dryWait = capRecoveryAction(steering: true, mode: "auto", fuseAllows: true,
+                                    snapshotStale: false, hasTarget: noTarget != nil)
     check("which is the waiting state, not the end of supervision", dryWait == .waitNoTarget)
     check("and the note names quota rather than claiming there is no other account",
           dryWait.waitingNote == "no account with quota to spare, waiting for one to free up")

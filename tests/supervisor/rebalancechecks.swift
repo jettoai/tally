@@ -30,11 +30,12 @@ func runRebalanceChecks() {
     let alsoDry = acct("C", model: 2)
     let primary = "fable"
 
-    func target(mode: String = "auto", isQuiet: Bool = true, carryable: Bool = true,
+    func target(mode: String = "auto", steering: Bool = true, isQuiet: Bool = true,
+                carryable: Bool = true,
                 fuseAllows: Bool = true, current: Snapshot.Account = dying,
                 candidates: [Snapshot.Account] = [healthy],
                 claim: () -> Bool = { true }) -> Snapshot.Account? {
-        rebalanceTarget(mode: mode, isQuiet: isQuiet, carryable: carryable,
+        rebalanceTarget(steering: steering, mode: mode, isQuiet: isQuiet, carryable: carryable,
                         fuseAllows: fuseAllows, current: current, candidates: candidates,
                         primaryModel: primary, now: launch, claim: claim)
     }
@@ -301,6 +302,7 @@ func runRebalanceChecks() {
         Snapshot(version: 2, generatedAt: launch, accounts: accounts)
     }
     func move(_ accounts: [Snapshot.Account], problem: String? = nil, mode: String = "auto",
+              steering: Bool = true,
               isQuiet: Bool = true, carryable: Bool = true, fuseAllows: Bool = true,
               quarantine: [String: (model: String?, until: Date)] = [:],
               on: Snapshot.Account = dying, dir: URL? = nil) -> Snapshot.Account? {
@@ -312,7 +314,7 @@ func runRebalanceChecks() {
             target = fresh
         }
         return rebalanceMove(provider: "claude", account: on, primaryModel: primary, mode: mode,
-                             isQuiet: isQuiet, carryable: carryable,
+                             steering: steering, isQuiet: isQuiet, carryable: carryable,
                              fuseAllows: fuseAllows, quarantine: quarantine,
                              loaded: (snapshot(accounts), problem), now: launch, dir: target!)
     }
@@ -369,13 +371,15 @@ func runRebalanceChecks() {
         snapshotReads += 1
         return (snapshot(accounts), nil)
     }
-    func lazyMove(mode: String = "auto", isQuiet: Bool = true, carryable: Bool = true,
+    func lazyMove(mode: String = "auto", steering: Bool = true, isQuiet: Bool = true,
+                  carryable: Bool = true,
                   fuseAllows: Bool = true) -> Snapshot.Account? {
         let fresh = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("tally-rebalance-lazy-\(UUID().uuidString)")
         scratchDirs.append(fresh)
         return rebalanceMove(provider: "claude", account: dying, primaryModel: primary, mode: mode,
-                             isQuiet: isQuiet, carryable: carryable, fuseAllows: fuseAllows,
+                             steering: steering, isQuiet: isQuiet, carryable: carryable,
+                             fuseAllows: fuseAllows,
                              loaded: countedSnapshot([dying, healthy]), now: launch, dir: fresh)
     }
     _ = lazyMove(mode: "manual")

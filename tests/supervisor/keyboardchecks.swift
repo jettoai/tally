@@ -203,10 +203,10 @@ func runKeyboardChecks() {
     // start consulting the keyboard either. Its decision takes no keyboard argument at all, which is
     // the real guarantee; these pin the behaviour so a later refactor cannot quietly add one.
     check("a capped session hands off with a target, whatever is being typed",
-          capRecoveryAction(mode: "auto", fuseAllows: true, snapshotStale: false,
+          capRecoveryAction(steering: true, mode: "auto", fuseAllows: true, snapshotStale: false,
                             hasTarget: true) == .handoff)
     check("a capped session in manual mode still waits for its own account, not the keyboard",
-          capRecoveryAction(mode: "manual", fuseAllows: true, snapshotStale: false,
+          capRecoveryAction(steering: true, mode: "manual", fuseAllows: true, snapshotStale: false,
                             hasTarget: true) != .handoff)
 
     // MARK: - 24e. The wiring: which paths ask the keyboard and which must not

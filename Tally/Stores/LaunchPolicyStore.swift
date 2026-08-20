@@ -7,7 +7,14 @@ import Observation
 /// launch). Separate files so the two writers never race over one document.
 ///
 /// Modes, per provider:
-/// - `off`     - observe only: Tally never steers a launch (a dashboard, nothing more).
+/// - `off`     - observe only: Tally never steers a launch (a dashboard, nothing more), and never
+///               moves a RUNNING session between accounts either - no cap handoff, no rebalance,
+///               no repick when a window closes, no move at a `tally session clear`. The supervisor
+///               still runs everything that is not an account decision (the status line, the board,
+///               `tally session send`, the model follow, self-update). Asking `tally claude` for a
+///               launch is still an explicit ask and still picks; what off forbids is the choices
+///               nobody asked for. The CLI end is TallyCLI/AutoSteering.swift, which lists every
+///               mover this reaches.
 /// - `manual`  - the user pinned one account (clicking a card in the panel); every launch uses it.
 /// - `auto`    - every launch picks the account with the most proven headroom at that moment.
 @MainActor

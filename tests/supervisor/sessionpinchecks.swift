@@ -155,7 +155,8 @@ func runSessionPinChecks() {
                          error: nil)
     }
     func rebalance(_ policy: LaunchPolicy) -> Snapshot.Account? {
-        rebalanceTarget(mode: policy.mode, isQuiet: true, carryable: true, fuseAllows: true,
+        rebalanceTarget(steering: true, mode: policy.mode, isQuiet: true, carryable: true,
+                        fuseAllows: true,
                         current: account("D", model: 3), candidates: [account("B", model: 77)],
                         primaryModel: "fable", now: dyingNow)
     }
@@ -165,7 +166,7 @@ func runSessionPinChecks() {
     // The degradation rescue and the follow adoption read the same `mode`, so they inherit this;
     // the cap handoff is asked against the policy WITHOUT the pin, which is what lets it through.
     check("the cap is still allowed to move a pinned session",
-          capRecoveryAction(mode: auto0.mode, fuseAllows: true, snapshotStale: false,
+          capRecoveryAction(steering: true, mode: auto0.mode, fuseAllows: true, snapshotStale: false,
                             hasTarget: true) == .handoff)
 
     // MARK: - 31l. What the audit log says

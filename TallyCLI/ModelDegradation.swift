@@ -23,16 +23,27 @@ import Foundation
 /// `primaryModel` is what THIS session is expected to run, which is not always the configured
 /// default: a hand-typed `--model` outranks it, so a deliberate haiku session is never "rescued"
 /// back to fable.
+///
+/// `snapshot` is injected for the reason the follow adoption's is (FollowAdoption.swift): this is
+/// the one branch here that reads the fleet, and a decision that cannot be exercised without a home
+/// directory is a decision whose gates are asserted in one direction only.
+///
+/// `steering` is the fleet's own answer to whether Tally may pick an account for a running session
+/// (AutoSteering.swift). It sits beside the pin because it means the same thing here for a
+/// different reason: this rescue's entire act is choosing a sibling, so a fleet set to observe only
+/// has nothing left for it to do. The fallback profile below is untouched - that one changes the
+/// model on the account the session is already on.
 func applyDegradationRescue(plan: inout RelaunchPlan?, watcher: inout TranscriptWatcher,
                             driftActive: Bool, policy: LaunchPolicy, account: Snapshot.Account,
                             providerID: String, primaryModel: String?,
                             quarantine: [String: (model: String?, until: Date)],
-                            fuseAllows: Bool) {
+                            steering: Bool, fuseAllows: Bool,
+                            snapshot loadSnapshotting: () -> (Snapshot?, String?) = loadSnapshot) {
     guard plan == nil, !driftActive, let primary = primaryModel?.lowercased(),
           let actual = watcher.lastModel?.lowercased(),
-          !actual.contains(primary), policy.mode != "manual", fuseAllows,
+          !actual.contains(primary), steering, policy.mode != "manual", fuseAllows,
           watcher.isQuiet() else { return }
-    let (snapshot, _) = loadSnapshot()
+    let (snapshot, _) = loadSnapshotting()
     // Account-switching only cures QUOTA degradation. If THIS account's flagship window still has
     // real room, the cause is something a sibling shares too (live case 2026-07-20: the session's
     // context outgrew the flagship's subscription tier - every account hits that same wall), so

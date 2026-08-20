@@ -171,15 +171,15 @@ check("resume id absent from tree falls back to the heuristic",
 // 7. R4: the cap-recovery priority order (pure decision, no child needed). Pinned outranks
 //    everything (staying put is what a pin means), then the fuse, then a stale snapshot, then
 //    no eligible sibling; only a clear board hands off.
-check("manual pin stays put", capRecoveryAction(mode: "manual", fuseAllows: true,
+check("manual pin stays put", capRecoveryAction(steering: true, mode: "manual", fuseAllows: true,
       snapshotStale: false, hasTarget: true) == .waitPinned)
-check("spent fuse waits", capRecoveryAction(mode: "auto", fuseAllows: false,
+check("spent fuse waits", capRecoveryAction(steering: true, mode: "auto", fuseAllows: false,
       snapshotStale: false, hasTarget: true) == .waitFuse)
-check("stale snapshot waits", capRecoveryAction(mode: "auto", fuseAllows: true,
+check("stale snapshot waits", capRecoveryAction(steering: true, mode: "auto", fuseAllows: true,
       snapshotStale: true, hasTarget: true) == .waitStale)
-check("no eligible sibling waits", capRecoveryAction(mode: "auto", fuseAllows: true,
+check("no eligible sibling waits", capRecoveryAction(steering: true, mode: "auto", fuseAllows: true,
       snapshotStale: false, hasTarget: false) == .waitNoTarget)
-check("clear board hands off", capRecoveryAction(mode: "auto", fuseAllows: true,
+check("clear board hands off", capRecoveryAction(steering: true, mode: "auto", fuseAllows: true,
       snapshotStale: false, hasTarget: true) == .handoff)
 // What actually feeds `hasTarget` is checked in capgatechecks.swift (the handoff's stricter gate).
 runCapGateChecks()
@@ -187,8 +187,8 @@ runCapGateChecks()
 // Unpinning a capped session hands off with no second cap event: same pending state, mode flips
 // auto, the board is otherwise clear.
 check("unpin flips a pinned wait straight to handoff",
-      capRecoveryAction(mode: "auto", fuseAllows: true, snapshotStale: false, hasTarget: true)
-      == .handoff)
+      capRecoveryAction(steering: true, mode: "auto", fuseAllows: true, snapshotStale: false,
+                        hasTarget: true) == .handoff)
 
 // 8. A main-chain assistant event newer than the cap clears the pending recovery (came back on
 //    its own); an event OLDER than the cap (replayed history) does not.
@@ -722,6 +722,8 @@ runFootprintTrendChecks()
 runSessionCardEdgeChecks()
 runAgentRosterChecks()
 runTurnEndChecks()
+runSteeringOffChecks()
+runTurnBoundaryChecks()
 runSessionInputChecks()
 runSessionSendChecks()
 runSessionClearChecks()

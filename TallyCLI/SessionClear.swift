@@ -157,8 +157,9 @@ window makes free: if the account under the session is nearly dry and a sibling 
 session is REOPENED on that sibling instead - restarted with no context, which is what a clear is -
 rather than cleared where it stands. Nothing is lost either way; the receipt and
 ~/.tally/logs/input.log say which of the two happened. It stays put when the account still has room,
-when the session is pinned to an account, and when it is waiting on a person (a prompt on screen is
-not something to restart away).
+when the session is pinned to an account, when launches are set to observe only (Tally never picks
+an account for you then), and when it is waiting on a person (a prompt on screen is not something to
+restart away).
 
 Use `tally session send "/clear"` for the plain act of typing those six characters, which is what an
 external caller usually wants: nothing about the account is decided there.

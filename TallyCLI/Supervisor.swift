@@ -299,6 +299,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         /// Per child, like the keyboard history above: a relaunch replaces the conversation, so
         /// anything armed against the old one is already answered.
         var windowRepick = WindowRepickState()
+        /// Which turn boundaries the turn-boundary mover has already ruled on (TurnBoundaryMove.
+        /// swift). Per child on the same terms as the arm above: a relaunch replaces the
+        /// conversation, and a boundary recorded against the old one is answered by the restart.
+        var turnBoundary = TurnBoundaryState()
         /// Said once per child rather than on every 2s tick a plan is stood down: the planners keep
         /// re-planning while they wait, and the child is drawing on this terminal. Never reset -
         /// the only way out of the hold is a relaunch, and that child gets a fresh one of these.
@@ -334,8 +338,18 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // after it must read the pin the session has once it returns. The cap handoff is the
             // one reader that gets the fleet reading, because it is the one move a session pin may
             // not stop (`capReading`).
-            let fleetPolicy = effectivePolicy(launchPolicy(provider.id), project: project)
+            // The APP's own document, read before either overlay: `effectivePolicy` turns a project
+            // account into `manual` and `sessionPolicy` turns a session pin into `manual`, so a
+            // policy read through either can no longer say `off` at all, and the observe-only gate
+            // has to be asked of the file the user set (AutoSteering.swift; `runLaunchDir` asks it
+            // the same way for the shim).
+            let appPolicy = launchPolicy(provider.id)
+            let fleetPolicy = effectivePolicy(appPolicy, project: project)
             var policy = fleetPolicy
+            /// Whether Tally may choose an account for this session at all, this tick. Read once,
+            /// here, and handed to every mover that would pick one: nine of them, and a gate spelled
+            /// nine times is nine gates that can come to disagree about one file.
+            let steering = supervisorMaySteerAccounts(appMode: appPolicy.mode)
             // What THIS session is expected to run: its own pin first, then its command line, then
             // the configured default (`sessionPrimaryModel`, SessionModel.swift). Read by the drift
             // monitor and the degradation paths. Safe to take before the ACCOUNT pin is folded in
@@ -391,6 +405,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             applySessionDirectives(plan: &plan, moves: &manualMoves, switchRecord: &switchRecord,
                                    model: &sessionModelState, modelRecord: &modelRecord,
                                    follow: &followState, following: follow, policy: &policy,
+                                   steering: steering,
                                    account: account, providerID: provider.id,
                                    launchArgs: launchArgs, primaryModel: &effectivePrimary,
                                    quarantine: quarantine, watcher: &watcher,
@@ -402,7 +417,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // not stop - though a hand-pinned session is first offered the fallback pairing on the
             // account it is on. CapDetection.swift; rescue/fallback stay gated by `plan == nil`.
             applyCapHandoff(plan: &plan, pendingCap: &pendingCap, account: account,
-                            providerID: provider.id, fleet: fleetPolicy,
+                            providerID: provider.id, fleet: fleetPolicy, steering: steering,
                             sessionPin: manualMoves.sessionPin,
                             modelPinned: sessionModelState.isPinned, quarantine: quarantine,
                             fuseAllows: fuse.allows())
@@ -415,7 +430,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             applyDegradationRescue(plan: &plan, watcher: &watcher, driftActive: drift.isActive,
                                    policy: policy, account: account, providerID: provider.id,
                                    primaryModel: effectivePrimary, quarantine: quarantine,
-                                   fuseAllows: fuse.allows())
+                                   steering: steering, fuseAllows: fuse.allows())
             applyFallbackProfile(plan: &plan, applied: &fallbackApplied, watcher: &watcher,
                                  driftActive: drift.isActive, policy: policy, account: account,
                                  primaryModel: effectivePrimary)
@@ -447,12 +462,21 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             let draftSuspected = sessionInputDraftSuspected(burstAt: keyboard.lastBurstAt,
                                                             userTurnAt: watcher.lastUserTurnAt,
                                                             injectedAt: lastComposerWrite)
+            // THE BOUNDARY THIS SESSION'S CLAUDE CODE LAST REPORTED, read ONCE for the two stations
+            // that consult it: the rebalance below stands down while one is undecided, and the
+            // station further down rules on it (TurnBoundaryMove.swift states why the order between
+            // them has to be bought this way). One read, so the two cannot disagree about which
+            // boundary they are talking about.
+            let boundary = readSessionTurnEnd(pid: supervisorPID)
             applyProactiveMoves(plan: &plan, repick: &windowRepick, watcher: &watcher,
                                 keyboardIdle: { keyboard.idle($0) },
                                 draftSuspected: draftSuspected, provider: provider.id,
                                 account: account, primaryModel: effectivePrimary,
-                                mode: policy.mode, launchArgs: launchArgs,
-                                fuseAllows: fuse.allows(), quarantine: quarantine)
+                                mode: policy.mode, steering: steering, launchArgs: launchArgs,
+                                fuseAllows: fuse.allows(),
+                                turnBoundaryPending: turnBoundaryPending(turnBoundary,
+                                                                        event: boundary),
+                                quarantine: quarantine)
 
             // The app updated under this supervisor, so it now runs stale logic and stamps a stale
             // version into its child: replace THIS process with the new build (SelfUpdate.swift).
@@ -501,6 +525,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                repick: {
                                    rebalanceMove(provider: provider.id, account: account,
                                                  primaryModel: effectivePrimary, mode: policy.mode,
+                                                 steering: steering,
                                                  isQuiet: true, carryable: carryable,
                                                  fuseAllows: fuse.allows(),
                                                  quarantine: quarantine)
@@ -536,6 +561,31 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 model: (axes.observedModel ?? axes.runningModel ?? axes.pinnedModel)
                     .map(shortModelName),
                 watcher: &watcher, keyboardBurstAt: keyboard.lastBurstAt)
+            // THE TWO QUESTIONS ASKED BY EVERYTHING THAT WRITES INTO THIS COMPOSER OR RESTARTS THE
+            // CHILD UNDER IT, taken once: two spellings of the same gate are two gates that can
+            // come to disagree about the same instant. `turnOver` is a closure rather than a value
+            // because it reads a file and a transcript tail, and only a tick that has something to
+            // do with the answer has any use for it.
+            let composerIdle = keyboard.idle(sessionInputKeyboardQuietSeconds)
+            let turnOver = { sessionTurnEnded(pid: supervisorPID, watcher: watcher) }
+            // THE THIRD PREVENTIVE MOVER, and the only one that reaches a session which never goes
+            // idle: the turn Claude Code has just reported over is the gap a cross-account move
+            // fits into without cutting anything, which is what the 120s rebalance and the `/clear`
+            // repick can never offer a busy conversation (TurnBoundaryMove.swift owns every gate,
+            // the subagent roster among them). HERE rather than beside the other two because it
+            // needs the blocked reading the board decided one line above; the claim all three share
+            // is kept in the intended order by the one-tick stand-down `turnBoundaryPending` gives
+            // the rebalance up there.
+            applyTurnBoundaryMove(plan: &plan, state: &turnBoundary, event: boundary,
+                                  steering: steering, provider: provider.id, account: account,
+                                  primaryModel: effectivePrimary, mode: policy.mode,
+                                  blocked: board.state == .blocked, keyboardIdle: composerIdle,
+                                  draftSuspected: draftSuspected, carryable: carryable,
+                                  fuseAllows: fuse.allows(),
+                                  agentsIdle: turnBoundaryAgentsIdle(pid: supervisorPID),
+                                  turnEnded: turnOver(),
+                                  toolCallOpen: turnBoundaryToolCallOpen(watcher.file),
+                                  quarantine: quarantine)
             // `tally session send`: type a pending request into this terminal, if the reading just
             // taken allows it. THE READING RATHER THAN THE WORD, because this is the one consumer
             // for which "working" is two different answers: a conversation mid-turn is not typed
@@ -554,13 +604,9 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // this session's window closing, and the next tick asks Claude Code itself whether it
             // really did (WindowRepick.swift).
             // And whether Claude Code has SAID this turn is over, which is the difference between
-            // typing at the end of a turn and typing 30 seconds after it (SessionTurnEnd.swift).
-            // A closure rather than a value: it reads a file and a transcript tail, and only a tick
-            // with a request pending has any use for the answer.
-            // The two questions BOTH writers into this composer ask, taken once: two spellings of
-            // the same gate are two gates that can come to disagree about the same instant.
-            let composerIdle = keyboard.idle(sessionInputKeyboardQuietSeconds)
-            let turnOver = { sessionTurnEnded(pid: supervisorPID, watcher: watcher) }
+            // typing at the end of a turn and typing 30 seconds after it (SessionTurnEnd.swift):
+            // both readings are `composerIdle` and `turnOver`, taken above the mover that needs
+            // them first.
             // And, for a `tally session clear` only, the account question a window about to be
             // emptied makes free: the repick's own decision, asked at the landing rather than after
             // it (SessionClear.swift). A plain send never reaches it.
@@ -571,6 +617,7 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 clearBoundary: {
                     windowRepickMove(provider: provider.id, account: account,
                                      primaryModel: effectivePrimary, mode: policy.mode,
+                                     steering: steering,
                                      carryable: carryable, fuseAllows: fuse.allows(),
                                      quarantine: quarantine)
                 })

@@ -1010,6 +1010,7 @@ func runNativeModelChecks() {
     applySessionDirectives(plan: &plan, moves: &moves, switchRecord: &switchRecord,
                            model: &replanState, modelRecord: &modelRecord,
                            follow: &replanFollow, following: false, policy: &tickPolicy,
+                           steering: true,
                            account: switchAccount("A"), providerID: "claude",
                            launchArgs: ["--model", "fable"], primaryModel: &tickPrimary,
                            quarantine: [:], watcher: &tickWatcher, childAge: 600,
@@ -1030,7 +1031,7 @@ func runNativeModelChecks() {
                                                              launchArgs: ["--model", "fable"],
                                                              providerID: "claude",
                                                              policy: LaunchPolicy()),
-                           quarantine: [:], fuseAllows: true)
+                           quarantine: [:], steering: true, fuseAllows: true)
     check("and the degradation rescue no longer has anything to cure", plan == nil)
 
     // MARK: - 35d2. The pin reaches the next relaunch's command line

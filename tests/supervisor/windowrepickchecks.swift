@@ -84,10 +84,12 @@ func runWindowRepickChecks() {
 
     var snapshotReads = 0
     func move(_ accounts: [Snapshot.Account] = [dying, healthy], problem: String? = nil,
-              mode: String = "auto", carryable: Bool = true, fuseAllows: Bool = true,
+              mode: String = "auto", steering: Bool = true, carryable: Bool = true,
+              fuseAllows: Bool = true,
               quarantine: [String: (model: String?, until: Date)] = [:],
               on: Snapshot.Account = dying) -> Snapshot.Account? {
         windowRepickMove(provider: "claude", account: on, primaryModel: primary, mode: mode,
+                         steering: steering,
                          carryable: carryable, fuseAllows: fuseAllows, quarantine: quarantine,
                          loaded: {
                              snapshotReads += 1
@@ -209,6 +211,7 @@ func runWindowRepickChecks() {
     func tick(repick: inout WindowRepickState, watcher: inout TranscriptWatcher,
               accounts: [Snapshot.Account] = [dying, healthy], mode: String = "auto",
               keyboardIdle: Bool = true, fuseAllows: Bool = true, draftSuspected: Bool = false,
+              steering: Bool = true, turnBoundaryPending: Bool = false,
               plan seed: RelaunchPlan? = nil,
               at when: Date = launch.addingTimeInterval(4)) -> (plan: RelaunchPlan?, claimed: Bool) {
         let claimDir = FileManager.default.temporaryDirectory
@@ -217,8 +220,9 @@ func runWindowRepickChecks() {
         applyProactiveMoves(plan: &plan, repick: &repick, watcher: &watcher,
                             keyboardIdle: { _ in keyboardIdle },
                             draftSuspected: draftSuspected, provider: "claude",
-                            account: dying, primaryModel: primary, mode: mode, launchArgs: [],
-                            fuseAllows: fuseAllows,
+                            account: dying, primaryModel: primary, mode: mode,
+                            steering: steering, launchArgs: [],
+                            fuseAllows: fuseAllows, turnBoundaryPending: turnBoundaryPending,
                             loaded: (Snapshot(version: 2, generatedAt: launch,
                                               accounts: accounts), nil),
                             now: when, dir: claimDir)
@@ -244,6 +248,15 @@ func runWindowRepickChecks() {
     // answered AND spent the account's one claim for the drought on it.
     check("the free move is taken first, leaving the drought's one rebalance claim untouched",
           !planned.claimed)
+    // AND THE FREE MOVE IS AHEAD OF THE TURN BOUNDARY'S STAND-DOWN TOO, which is the same rule
+    // reaching one mover further down the ladder: a boundary waiting to be ruled on holds the
+    // rebalance and must not hold the cheapest restart in the session's life.
+    var boundaryLanded = WindowRepickState()
+    boundaryLanded.arm(typed: "/clear", transcript: "before", now: launch)
+    var boundaryLandedWatcher = session(id: "after")
+    check("…even when a reported turn boundary is still waiting to be ruled on",
+          tick(repick: &boundaryLanded, watcher: &boundaryLandedWatcher,
+               turnBoundaryPending: true).plan?.reason == "window-repick")
 
     // THE BRIEF'S SECOND DIRECTION at the station: a comfortable account plans nothing at all. The
     // rebalance behind it agrees, so this also proves the station does not fall through into a move
@@ -594,6 +607,19 @@ func runWindowRepickChecks() {
     check("a session nobody cleared is still rebalanced when it has been left alone",
           rebalanced.plan?.reason == "rebalance" && rebalanced.plan?.target.id == "B")
     check("…and that one DOES take the drought's claim, as it always has", rebalanced.claimed)
+
+    // UNLESS A REPORTED TURN BOUNDARY IS STILL UNRULED ON. The turn-boundary mover shares this
+    // account's one claim per window cycle and runs later in the tick (it needs the board's blocked
+    // reading), so the rebalance stands down for exactly one poll and leaves the claim for it. The
+    // fixture here is the one directly above, which does rebalance: the only thing that changes is
+    // the boundary (TurnBoundaryMove.swift carries the whole argument).
+    var boundaryHeld = WindowRepickState()
+    var heldWatcher = session(id: "quiet")
+    let stoodDown = tick(repick: &boundaryHeld, watcher: &heldWatcher, turnBoundaryPending: true)
+    check("a session with an unruled turn boundary is not rebalanced on that tick",
+          stoodDown.plan == nil)
+    check("…and its drought claim is left for the mover that is about to ask for it",
+          !stoodDown.claimed)
 
     // MARK: - 33d. The input gate hands over the line it typed
 

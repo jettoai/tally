@@ -79,7 +79,7 @@ struct FollowState {
 /// the dead end deliberately. It defaults to the real read, so the tick calls this unchanged.
 func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, following: Bool,
                          policy: LaunchPolicy, account: Snapshot.Account, providerID: String,
-                         launchArgs: [String],
+                         steering: Bool, launchArgs: [String],
                          quarantine: [String: (model: String?, until: Date)],
                          watcher: inout TranscriptWatcher,
                          keyboardIdle: (TimeInterval) -> Bool,
@@ -116,7 +116,14 @@ func applyFollowAdoption(plan: inout RelaunchPlan?, state: inout FollowState, fo
             state.adopt(model: desired.0, effort: desired.1)
         } else if plan == nil {
             let repick: Snapshot.Account?
-            if policy.mode == "manual" {
+            // A FLEET SET TO OBSERVE ONLY READS EXACTLY LIKE A PIN HERE, and that is the whole of
+            // what `off` does to this station: the Settings change is still adopted, on the account
+            // this session is already on, because the change is the user's instruction and only the
+            // account re-pick is Tally's own choice (AutoSteering.swift). Folded into this branch
+            // rather than added as a refusal above, because "adopt without moving" is a behaviour
+            // this file already has and a dead end here would silently do nothing - the defect this
+            // file exists to have fixed.
+            if !steering || policy.mode == "manual" {
                 repick = account
             } else {
                 let (snapshot, problem) = loadSnapshotting()

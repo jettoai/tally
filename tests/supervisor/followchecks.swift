@@ -105,14 +105,15 @@ func runFollowChecks() {
 
     func adopt(state: inout FollowState, plan: inout RelaunchPlan?,
                model: String? = "fable", effort: String? = "xhigh", mode: String = "auto",
-               following: Bool = true, launchArgs: [String] = [],
+               following: Bool = true, steering: Bool = true, launchArgs: [String] = [],
                keyboardIdle: @escaping (TimeInterval) -> Bool = { _ in true },
                fleet: [Snapshot.Account] = [followAccount("A")],
                snapshotProblem: String? = nil) {
         applyFollowAdoption(
             plan: &plan, state: &state, following: following,
             policy: LaunchPolicy(mode: mode, model: model, effort: effort),
-            account: here, providerID: "claude", launchArgs: launchArgs, quarantine: [:],
+            account: here, providerID: "claude", steering: steering, launchArgs: launchArgs,
+            quarantine: [:],
             watcher: &followWatcher, keyboardIdle: keyboardIdle,
             snapshot: { (Snapshot(version: 2, generatedAt: Date(), accounts: fleet),
                          snapshotProblem) })

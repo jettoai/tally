@@ -62,6 +62,7 @@ func runCapSessionPinChecks() {
     /// session's model pin, what it runs, the account it capped on, a snapshot that says it is too
     /// old to judge by) rather than keeping a second tick of its own.
     func capTick(fleet: LaunchPolicy, sessionPin: String?, modelPinned: Bool = false,
+                 steering: Bool = true,
                  primary: String? = "fable", on: Snapshot.Account = capped0,
                  accounts: [Snapshot.Account] = [capped0, fleetPinned, sibling],
                  problem: String? = nil, generatedAt: Date = capNow, now: Date = capNow)
@@ -71,7 +72,8 @@ func runCapSessionPinChecks() {
             cappedAccountID: on.id, cappedAt: capNow, primaryModel: primary,
             recoveryResetsAt: nil, nextRetry: .distantPast, reason: "")
         applyCapHandoff(plan: &plan, pendingCap: &pending, account: on, providerID: "claude",
-                        fleet: fleet, sessionPin: sessionPin, modelPinned: modelPinned,
+                        fleet: fleet, steering: steering, sessionPin: sessionPin,
+                        modelPinned: modelPinned,
                         quarantine: [:], fuseAllows: true, now: now,
                         loaded: (Snapshot(version: 2, generatedAt: generatedAt, accounts: accounts),
                                  problem))
@@ -90,14 +92,16 @@ func runCapSessionPinChecks() {
     var idlePlan: RelaunchPlan?
     var noCap: PendingCapRecovery?
     applyCapHandoff(plan: &idlePlan, pendingCap: &noCap, account: capped0, providerID: "claude",
-                    fleet: auto0, sessionPin: nil, quarantine: [:], fuseAllows: true, now: capNow,
+                    fleet: auto0, steering: true, sessionPin: nil, quarantine: [:],
+                    fuseAllows: true, now: capNow,
                     loaded: countedSnapshot())
     check("a tick with no pending cap reads no snapshot at all", snapshotReads == 0)
     var pendingNow: PendingCapRecovery? = PendingCapRecovery(
         cappedAccountID: "D", cappedAt: capNow, primaryModel: "fable", recoveryResetsAt: nil,
         nextRetry: .distantPast, reason: "")
     applyCapHandoff(plan: &idlePlan, pendingCap: &pendingNow, account: capped0,
-                    providerID: "claude", fleet: auto0, sessionPin: nil, quarantine: [:],
+                    providerID: "claude", fleet: auto0, steering: true, sessionPin: nil,
+                    quarantine: [:],
                     fuseAllows: true, now: capNow, loaded: countedSnapshot())
     check("and the tick that has a cap to answer reads it exactly once", snapshotReads == 1)
 

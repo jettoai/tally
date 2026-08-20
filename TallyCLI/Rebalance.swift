@@ -257,14 +257,21 @@ func rebalanceRecordName(_ accountID: String) -> String {
 }
 
 /// The gates that need nothing but what the caller already holds - no snapshot, no account, no
-/// filesystem - in the order they bite. They are the first four of the list documented under
+/// filesystem - in the order they bite. They are the first five of the list documented under
 /// `rebalanceTarget` below, and one definition answers both readers: that decision asks them, and
 /// `rebalanceMove` asks them again BEFORE its snapshot read, so a tick that could not move this
 /// session anyway never pays for the read. Two copies of this list would be free to disagree, and
 /// the copy that fell behind would silently refuse moves the real gate allows.
-func rebalanceAllowedForSession(mode: String, isQuiet: Bool, carryable: Bool,
+///
+/// `steering` LEADS because it is the only one of them that is not about this session at all: it is
+/// the fleet saying Tally may not choose an account for anything (AutoSteering.swift), and a mode
+/// that promises "a dashboard, nothing more" has to be answered before any reasoning about quota
+/// begins. It has no default value, on the same terms as `relaunchPlanned` one file over: a gate
+/// that can be forgotten at a call site is one that will be, and the symptom of forgetting this one
+/// is a session moved by a fleet that was told never to move anything.
+func rebalanceAllowedForSession(steering: Bool, mode: String, isQuiet: Bool, carryable: Bool,
                                 fuseAllows: Bool) -> Bool {
-    mode != "manual" && isQuiet && carryable && fuseAllows
+    steering && mode != "manual" && isQuiet && carryable && fuseAllows
 }
 
 /// The account a running session should move to before its own account runs out, or nil to stay put.
@@ -279,6 +286,8 @@ func rebalanceAllowedForSession(mode: String, isQuiet: Bool, carryable: Bool,
 /// there is nowhere better to be and the session stays where it is).
 ///
 /// The gates, in the order they bite:
+///  - `steering`: the fleet is not set to observe only, where Tally may not pick an account for a
+///    running session at all (AutoSteering.swift).
 ///  - `mode`: manual means the user pinned this account. Pinning is a statement about where the
 ///    session runs, so a pinned session is never moved by quota reasoning, dying account or not.
 ///  - `isQuiet`: the full non-urgent bar. This is a convenience, so it may never cost a keystroke.
@@ -308,12 +317,13 @@ func rebalanceAllowedForSession(mode: String, isQuiet: Bool, carryable: Bool,
 /// (`watcher.file != nil`). Reversed, the caller would be reading a binding that had not been
 /// attempted yet, and the gate would refuse every first tick for no reason. There is no default:
 /// a mover that has not thought about whether it can carry the conversation is the bug itself.
-func rebalanceTarget(mode: String, isQuiet: Bool, carryable: Bool, fuseAllows: Bool,
+func rebalanceTarget(steering: Bool, mode: String, isQuiet: Bool, carryable: Bool,
+                     fuseAllows: Bool,
                      current: Snapshot.Account, candidates: [Snapshot.Account],
                      primaryModel: String?, now: Date = Date(),
                      claim: () -> Bool = { true }) -> Snapshot.Account? {
-    guard rebalanceAllowedForSession(mode: mode, isQuiet: isQuiet, carryable: carryable,
-                                     fuseAllows: fuseAllows),
+    guard rebalanceAllowedForSession(steering: steering, mode: mode, isQuiet: isQuiet,
+                                     carryable: carryable, fuseAllows: fuseAllows),
           !accountIsComfortable(current, primaryModel: primaryModel, now: now),
           let target = capHandoffTarget(candidates, primaryModel: primaryModel, now: now),
           claim()
@@ -374,7 +384,7 @@ func liveMoveField(provider: String, account: Snapshot.Account, primaryModel: St
 /// `observeCapHit` reaches it a third way, with a plain closure it calls only on the tick a cap
 /// lands, which is the same property spelled differently and deliberately left alone.
 func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: String?,
-                   mode: String, isQuiet: Bool, carryable: Bool, fuseAllows: Bool,
+                   mode: String, steering: Bool, isQuiet: Bool, carryable: Bool, fuseAllows: Bool,
                    quarantine: [String: (model: String?, until: Date)] = [:],
                    loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
                    now: Date = Date(),
@@ -383,17 +393,18 @@ func rebalanceMove(provider: String, account: Snapshot.Account, primaryModel: St
     // could actually move this session. `mode` is the one that bites most: a pinned session (the
     // app's pin, this project's profile, or a `tally switch` of its own) never rebalances, and it
     // asks nothing of the filesystem to know that. Asked through the shared predicate, never
-    // re-spelled: `rebalanceTarget` asks the same four again with the same answer, so this can only
+    // re-spelled: `rebalanceTarget` asks the same five again with the same answer, so this can only
     // ever be an early exit, never a second opinion.
-    guard rebalanceAllowedForSession(mode: mode, isQuiet: isQuiet, carryable: carryable,
-                                     fuseAllows: fuseAllows),
+    guard rebalanceAllowedForSession(steering: steering, mode: mode, isQuiet: isQuiet,
+                                     carryable: carryable, fuseAllows: fuseAllows),
           let field = liveMoveField(provider: provider, account: account,
                                     primaryModel: primaryModel, quarantine: quarantine,
                                     loaded: loaded(), now: now),
           let cycle = rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now)
     else { return nil }
     return rebalanceTarget(
-        mode: mode, isQuiet: isQuiet, carryable: carryable, fuseAllows: fuseAllows,
+        steering: steering, mode: mode, isQuiet: isQuiet, carryable: carryable,
+        fuseAllows: fuseAllows,
         current: field.current, candidates: field.candidates, primaryModel: primaryModel, now: now,
         claim: { claimRebalanceCycle(account.id, cycle: cycle, dir: dir) })
 }

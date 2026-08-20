@@ -43,13 +43,20 @@ import Foundation
 /// `following` is the session-lifetime opt-out: false when the user typed their own `--model` or
 /// `--effort` at launch, or passed `--no-follow`. The per-tick stand-down for a live model pin is
 /// decided here rather than by the caller, so the two cannot come apart.
+///
+/// `steering` is whether Tally may choose an account for this session (AutoSteering.swift), and it
+/// reaches the two stations below that would otherwise RE-PICK one as a side effect of an
+/// instruction about the model. Neither is refused by it: `tally model` and the launch-default
+/// follow both still land, on the account the session is already on, which is what both of them do
+/// for a pinned session today. The account instruction above is untouched - `tally account` and a
+/// pin moved in the panel are the user naming an account, which no mode has anything to say about.
 func applySessionDirectives(plan: inout RelaunchPlan?,
                             moves: inout ManualMoveState,
                             switchRecord: inout PendingSwitchConsumption?,
                             model: inout SessionModelState,
                             modelRecord: inout PendingModelConsumption?,
                             follow: inout FollowState, following: Bool,
-                            policy: inout LaunchPolicy,
+                            policy: inout LaunchPolicy, steering: Bool,
                             account: Snapshot.Account, providerID: String, launchArgs: [String],
                             primaryModel: inout String?,
                             quarantine: [String: (model: String?, until: Date)],
@@ -97,13 +104,19 @@ func applySessionDirectives(plan: inout RelaunchPlan?,
                       launchArgs: launchArgs,
                       // Every way an account can already be spoken for arrives as one question:
                       // this session's own pin, the project's and the app's are all folded into
-                      // `policy.mode` by the call above (`sessionPolicy`).
-                      accountPinned: moves.sessionPin != nil || policy.mode == "manual",
+                      // `policy.mode` by the call above (`sessionPolicy`), and a fleet set to
+                      // observe only is the fourth (AutoSteering.swift). It belongs in the same
+                      // reading rather than beside it: what all four say is "the account is not
+                      // this station's to choose", and `tally model` already knows what to do with
+                      // that - run the pair the user asked for, here.
+                      accountPinned: !steering || moves.sessionPin != nil
+                          || policy.mode == "manual",
                       quarantine: quarantine, watcher: &watcher, childAge: childAge,
                       keyboardIdle: keyboardIdle, request: modelRequest(model.sessionKey))
     plan = planning.plan
     applyFollowAdoption(plan: &plan, state: &follow, following: following && !model.isPinned,
                         policy: policy, account: account, providerID: providerID,
+                        steering: steering,
                         launchArgs: launchArgs, quarantine: quarantine, watcher: &watcher,
                         keyboardIdle: keyboardIdle)
 }

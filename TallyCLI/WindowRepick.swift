@@ -266,6 +266,8 @@ func windowRepickReadiness(_ state: WindowRepickState, transcript: String?,
 ///
 /// The gates, in the order they bite. Every one of them is the same gate the rebalance holds, for
 /// the same reason, with ONE deliberate exception stated below:
+///  - `steering`: the fleet is not set to observe only. A cleared window is free to move and still
+///    nobody's to move when the launch policy says Tally never picks (AutoSteering.swift).
 ///  - `mode`: a pinned session is where the user said it runs. Quota reasoning never overrides it.
 ///  - `carryable`: whether moving this session can lose a conversation (`carryableSession`). A
 ///    cleared session is located by definition, so this is really only the `--print` refusal, and
@@ -291,14 +293,14 @@ func windowRepickReadiness(_ state: WindowRepickState, transcript: String?,
 /// and choose the same sibling. That sibling is comfortable by the gate above, which is more than
 /// can be said for the account they are all leaving.
 func windowRepickMove(provider: String, account: Snapshot.Account, primaryModel: String?,
-                      mode: String, carryable: Bool, fuseAllows: Bool,
+                      mode: String, steering: Bool, carryable: Bool, fuseAllows: Bool,
                       quarantine: [String: (model: String?, until: Date)] = [:],
                       loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
                       now: Date = Date()) -> Snapshot.Account? {
     // The gates that cost nothing first, so a tick that could not move this session anyway never
     // pays for the snapshot read behind `loaded` (the reason that argument is `@autoclosure`, which
     // `rebalanceMove` states in full).
-    guard mode != "manual", carryable, fuseAllows,
+    guard steering, mode != "manual", carryable, fuseAllows,
           let field = liveMoveField(provider: provider, account: account,
                                     primaryModel: primaryModel, quarantine: quarantine,
                                     loaded: loaded(), now: now),
@@ -316,6 +318,15 @@ func windowRepickMove(provider: String, account: Snapshot.Account, primaryModel:
 /// whichever supervisor asks first. So the FREE move is offered first. Reversed, a session whose
 /// window had just closed could find its account's one claim already spent on the ordinary path,
 /// and the cheapest restart in the session's life would be the one that did not happen.
+///
+/// AND THE SAME RULE REACHES A THIRD MOVER THAT IS NOT IN THIS FUNCTION. The turn-boundary move
+/// (TurnBoundaryMove.swift) shares that one claim and runs LATER in the tick, because it needs the
+/// board's blocked reading and this station runs before the board is decided. So `turnBoundaryPending`
+/// stands the rebalance down for the one tick a reported boundary has not been ruled on, which puts
+/// the ladder back in its intended order - free repick, then the turn boundary, then the rebalance -
+/// without moving a station the tick's other priorities are arranged around. It cannot starve the
+/// rebalance: a boundary that station declines is recorded as decided on that same tick, so the
+/// stand-down lasts at most one poll.
 ///
 /// Both are gated on `plan == nil` through this one guard: everything above them in the tick is
 /// repairing something, and neither of these repairs anything.
@@ -335,7 +346,8 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
                          watcher: inout TranscriptWatcher,
                          keyboardIdle: (TimeInterval) -> Bool, draftSuspected: Bool,
                          provider: String, account: Snapshot.Account, primaryModel: String?,
-                         mode: String, launchArgs: [String], fuseAllows: Bool,
+                         mode: String, steering: Bool, launchArgs: [String], fuseAllows: Bool,
+                         turnBoundaryPending: Bool,
                          quarantine: [String: (model: String?, until: Date)] = [:],
                          loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot(),
                          now: Date = Date(), dir: URL = rebalanceDir) {
@@ -373,6 +385,7 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
                                        sessionLocated: watcher.file != nil)
         if let moveTo = windowRepickMove(provider: provider, account: account,
                                          primaryModel: primaryModel, mode: mode,
+                                         steering: steering,
                                          carryable: carried, fuseAllows: fuseAllows,
                                          quarantine: quarantine, loaded: loaded(), now: now) {
             warn("window cleared on \(account.label), nearly dry: reopening on \(moveTo.label) "
@@ -381,10 +394,14 @@ func applyProactiveMoves(plan: inout RelaunchPlan?, repick: inout WindowRepickSt
             return
         }
     }
+    // The one tick a reported turn boundary is still undecided belongs to the mover that rules on
+    // it, because the two share this account's one claim per window cycle (see the note above).
+    guard !turnBoundaryPending else { return }
     let quiet = watcher.isQuiet(followIdleSeconds) && keyboardIdle(followIdleSeconds)
     let carryable = carryableSession(launchArgs: launchArgs, sessionLocated: watcher.file != nil)
     guard let moveTo = rebalanceMove(provider: provider, account: account,
-                                     primaryModel: primaryModel, mode: mode, isQuiet: quiet,
+                                     primaryModel: primaryModel, mode: mode, steering: steering,
+                                     isQuiet: quiet,
                                      carryable: carryable, fuseAllows: fuseAllows,
                                      quarantine: quarantine, loaded: loaded(), now: now,
                                      dir: dir) else { return }

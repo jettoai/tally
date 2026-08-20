@@ -439,19 +439,32 @@ func capRecoveredByReset(_ pending: PendingCapRecovery, now: Date = Date()) -> B
 }
 
 /// What to do about a pending cap this tick, given the live launch policy and account picture.
-/// Pure so the priority order (pinned > fuse > stale snapshot > no target > handoff) is testable
-/// without spawning a child.
+/// Pure so the priority order (observe-only > pinned > fuse > stale snapshot > no target > handoff)
+/// is testable without spawning a child.
+///
+/// `steering` leads because it is the only answer that is not about this cap: a fleet set to
+/// observe only has said Tally may not choose an account, and the cap is a reason to move rather
+/// than a licence to (AutoSteering.swift). The session then behaves exactly as `--no-handoff`
+/// leaves it - capped, supervised, waiting for the user - which is what "a dashboard, nothing more"
+/// promises.
 enum CapAction: Equatable {
-    case handoff       // fuse has room, a fresh snapshot, and an eligible sibling: move now
-    case waitPinned    // manual pin on the capped account: staying put is what pinning means
-    case waitFuse      // too many recent handoffs: cool down before burning another login
-    case waitStale     // snapshot too old to trust a target pick
-    case waitNoTarget  // no other account worth moving to right now
+    case handoff          // fuse has room, a fresh snapshot, and an eligible sibling: move now
+    case waitSteeringOff  // the fleet is set to observe only: Tally may not pick an account at all
+    case waitPinned       // manual pin on the capped account: staying put is what pinning means
+    case waitFuse         // too many recent handoffs: cool down before burning another login
+    case waitStale        // snapshot too old to trust a target pick
+    case waitNoTarget     // no other account worth moving to right now
 
     /// The waiting-state note shown to the user (state-change-only); nil for `.handoff`.
     var waitingNote: String? {
         switch self {
         case .handoff: return nil
+        // The one wait that will not lift by itself, so the sentence names the two things that end
+        // it rather than describing a situation: this is the mode saying Tally never picks an
+        // account (AutoSteering.swift), and the session stays exactly where `--no-handoff` would
+        // have left it.
+        case .waitSteeringOff:
+            return "staying put (launches are set to observe only; move it with `tally account`)"
         case .waitPinned: return "staying put (pinned in Tally; unpin to allow handoff)"
         case .waitFuse: return "too many handoffs recently, cooling down before another"
         case .waitStale: return "waiting for a fresh snapshot before handing off"
@@ -464,8 +477,9 @@ enum CapAction: Equatable {
     }
 }
 
-func capRecoveryAction(mode: String, fuseAllows: Bool, snapshotStale: Bool,
+func capRecoveryAction(steering: Bool, mode: String, fuseAllows: Bool, snapshotStale: Bool,
                        hasTarget: Bool) -> CapAction {
+    if !steering { return .waitSteeringOff }
     if mode == "manual" { return .waitPinned }
     if !fuseAllows { return .waitFuse }
     if snapshotStale { return .waitStale }

@@ -248,9 +248,15 @@ func capReading(fleet: LaunchPolicy, sessionPin: String?, candidates: [Snapshot.
 ///
 /// `modelPinned` is whether a `tally model` pin stands on this session, and it is asked for one
 /// branch only: the stay-put fallback below may not overwrite a pair the user chose by hand.
+///
+/// `steering` is whether Tally may pick an account for this session at all (AutoSteering.swift),
+/// and it reaches the MOVE only. The stay-put branch above it is a same-account relaunch onto a
+/// declared fallback pairing, which is not an account decision and is left alone under every mode -
+/// the same line `off` draws everywhere else, between choosing an account and everything else the
+/// supervisor does.
 func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapRecovery?,
                      account: Snapshot.Account, providerID: String, fleet: LaunchPolicy,
-                     sessionPin: String?, modelPinned: Bool = false,
+                     steering: Bool, sessionPin: String?, modelPinned: Bool = false,
                      quarantine: [String: (model: String?, until: Date)],
                      fuseAllows: Bool, now: Date = Date(),
                      loaded: @autoclosure () -> (Snapshot?, String?) = loadSnapshot()) {
@@ -339,7 +345,7 @@ func applyCapHandoff(plan: inout RelaunchPlan?, pendingCap: inout PendingCapReco
     let reading = capReading(fleet: fleet, sessionPin: sessionPin, candidates: candidates)
     let target = reading.preferred
         ?? capHandoffTarget(candidates, primaryModel: primary, now: now)
-    let action = capRecoveryAction(mode: reading.mode, fuseAllows: fuseAllows,
+    let action = capRecoveryAction(steering: steering, mode: reading.mode, fuseAllows: fuseAllows,
                                    snapshotStale: snapshotProblem != nil, hasTarget: target != nil)
     guard action == .handoff, let target else {
         // The reason rides in the badge (the child keeps running, so nothing may be printed over

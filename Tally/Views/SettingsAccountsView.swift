@@ -197,7 +197,8 @@ struct SettingsAccountsView: View {
     }
 
     /// One line per account: number badge, name + rename popover over a live status line, then a
-    /// fixed column set (reorder arrows, menu-bar switch, enable switch) that never shifts.
+    /// fixed column set (menu-bar switch, enable switch, and the actions "⋯" on the outer edge)
+    /// that never shifts.
     private func accountRow(_ item: ProviderAccount, usage: AccountUsage?, badge: Int?,
                             moveUp: (() -> Void)?, moveDown: (() -> Void)?) -> some View {
         let enabled = settings.isAccountEnabled(item.id)
@@ -267,9 +268,36 @@ struct SettingsAccountsView: View {
             // (measured in the window, 2026-08-04). The controls are all fixed-size, so they are
             // reserved either way; what this yields is only the gap.
             .layoutPriority(1)
-            // …and the gap never closes completely: text running into the "⋯" would read as one
-            // control touching another.
+            // …and the gap never closes completely: text running into the "Menu bar" label would
+            // read as one run of text rather than an identity and a control.
             Spacer(minLength: 12)
+
+            // Always laid out (dimmed + inert when the account is off) so toggling never shifts
+            // the controls around - disappearing chrome made the row jump.
+            menuBarToggle(item.id)
+                .disabled(!enabled)
+                .opacity(enabled ? 1 : 0.35)
+                .padding(.trailing, 10)
+
+            // The account's own switch, mirroring the provider switch one level down: off means
+            // not polled, no card, no menu-bar segment, and the CLI skips it. Labeled like the
+            // menu-bar switch next to it - two adjacent switches with one label were a coin flip.
+            HStack(spacing: 6) {
+                Text(L("Enabled")).font(.caption).foregroundStyle(.secondary).fixedSize()
+                Toggle(isOn: Binding(
+                    get: { settings.isAccountEnabled(item.id) },
+                    set: { on in
+                        settings.setAccountEnabled(item.id, on)
+                        // Optimistic, same as the provider switch above.
+                        if on { store.showCachedAccounts(providerID: item.providerID) }
+                        else { store.hideAccounts { $0.id == item.id } }
+                        Task { await store.refresh(userInitiated: false) }
+                    }
+                )) { EmptyView() }
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+            }
 
             // Every occasional action this row has, behind one button: rename (which the pencil
             // used to own), reorder (the arrows), and the three the card's right-click offers
@@ -277,6 +305,16 @@ struct SettingsAccountsView: View {
             // carries a number, a name, an address, a plan, two percentages and two labelled
             // switches inside a 500pt window, and measured here on 2026-08-04 the pencil, the arrows
             // and this button together truncated both the address AND the percentages.
+            //
+            // LAST IN THE ROW, on its outer edge, which is where a button for "everything else" is
+            // looked for. The two switches are what the row is ABOUT and read as a pair; this one
+            // standing between them and the name cut that pair off from what it belongs to. It
+            // keeps the 10pt gap it had in front of the menu-bar switch rather than taking a wider
+            // one of its own, so the move costs the identity column nothing - that column is the
+            // only flexible thing in the row, and every regression here has come out of it.
+            //
+            // Never disabled on a switched-off account, unlike the menu-bar switch beside it:
+            // renaming, reordering and marking one personal all outlive being switched off.
             Menu {
                 let personalHome = PersonalAccount.home(accountID: item.id,
                                                         launchHome: item.launchHome)
@@ -319,33 +357,6 @@ struct SettingsAccountsView: View {
                         set: { settings.accountLabels[item.id] = $0 }
                     ),
                     dismiss: { renamingAccountID = nil })
-            }
-
-            // Always laid out (dimmed + inert when the account is off) so toggling never shifts
-            // the controls around - disappearing chrome made the row jump.
-            menuBarToggle(item.id)
-                .disabled(!enabled)
-                .opacity(enabled ? 1 : 0.35)
-                .padding(.trailing, 10)
-
-            // The account's own switch, mirroring the provider switch one level down: off means
-            // not polled, no card, no menu-bar segment, and the CLI skips it. Labeled like the
-            // menu-bar switch next to it - two adjacent switches with one label were a coin flip.
-            HStack(spacing: 6) {
-                Text(L("Enabled")).font(.caption).foregroundStyle(.secondary).fixedSize()
-                Toggle(isOn: Binding(
-                    get: { settings.isAccountEnabled(item.id) },
-                    set: { on in
-                        settings.setAccountEnabled(item.id, on)
-                        // Optimistic, same as the provider switch above.
-                        if on { store.showCachedAccounts(providerID: item.providerID) }
-                        else { store.hideAccounts { $0.id == item.id } }
-                        Task { await store.refresh(userInitiated: false) }
-                    }
-                )) { EmptyView() }
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
             }
         }
         .opacity(enabled ? 1 : 0.6)

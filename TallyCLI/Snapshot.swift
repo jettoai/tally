@@ -8,7 +8,9 @@ import Foundation
 // rate-limits; see the app's UsageSnapshot.swift). It reads the app's published snapshot
 // (~/.tally/snapshot.json), picks the eligible account whose binding quota window can sustain
 // the highest spend rate (see `smartScore`), sets the provider's config-home env var, and runs
-// the provider's own CLI. No tokens are read or written, ever.
+// the provider's own CLI. No usage API is called from here and no LOGIN credential is ever read or
+// written; the single credential this binary does touch is the MCP authorization subtree it seeds
+// into the home a session is about to start in (MCPAuthSync.swift, which states its own limits).
 
 /// Mirror of the app's `UsageSnapshot` (kept dependency-free).
 struct Snapshot: Decodable {

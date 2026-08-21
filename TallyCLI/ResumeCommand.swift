@@ -96,6 +96,6 @@ func runResume(args: [String]) -> Never {
 
     warn("→ resuming \(sessionID.prefix(8))… from \(newest.account.label) on \(target.label) " +
          "(\(pickReason(target, primaryModel: primaryModel)))")
-    exec(provider.cli, args: ["--resume", sessionID] + resumeArgs,
-         env: launchEnv(provider, home: target.launchHome!))
+    launchProvider(provider, args: ["--resume", sessionID] + resumeArgs, home: target.launchHome!,
+                   env: launchEnv(provider, home: target.launchHome!))
 }

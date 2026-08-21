@@ -203,6 +203,22 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
         // rather than after). Re-read on every pass, so a relaunch onto another account - or one
         // that follows an install - answers for the child it is starting.
         quotaKnockFiling = quotaKnockFilingAvailable(home: account.launchHome)
+        // The MCP authorizations this account is missing, taken from the siblings that have them
+        // (MCPAuthSync.swift). Inside the loop rather than before it, because the account can CHANGE
+        // between two passes: a cap handoff moves the session onto a home that has never authorized
+        // anything, and that is the case this whole feature exists for. Silent and best-effort, so a
+        // home it cannot seed is a home Claude Code will ask about, exactly as it does today.
+        //
+        // INTERACTIVE ONLY ON THE FIRST PASS, read off the same flag the terminal drain above reads:
+        // this pass happens in the same second as the command the user typed, so a Keychain consent
+        // dialog here is the ordinary macOS "first time you use this" moment. Every pass after it is
+        // something this supervisor decided to do on its own - a cap handoff, a settings follow, a
+        // resupervise after an app update - and one of those stopping on a dialog would hang a
+        // session with nobody at the machine. A resumed supervisor starts with `relaunching` already
+        // true, which is right for the same reason: an app update is not somebody typing.
+        if let seedHome = account.launchHome {
+            seedMCPAuthorization(provider: provider, home: seedHome, interactive: !relaunching)
+        }
         guard let childPID = spawnChild([provider.cli] + launchArgs, environment: environment) else {
             warn("cannot launch `\(provider.cli)`")
             exit(127)

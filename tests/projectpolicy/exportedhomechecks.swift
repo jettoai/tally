@@ -20,6 +20,17 @@ func runExportedHomeChecks(launcher: String) {
     // local" - a needle that only the fixed shape contains would report the defect and a rename
     // identically, and would go green on the broken tree by simply finding nothing.
     let lines = launcher.components(separatedBy: "\n")
+    /// The same source with every run of whitespace collapsed to one space, so a call the formatter
+    /// wrapped across two lines is still ONE string to search. Added when the launches gained a
+    /// `home:` argument and the wrapping moved (2026-08-21): the line-at-a-time reading below had
+    /// been counting call shapes that the formatter was free to split, which is a needle that reports
+    /// a reformatting and a deleted guard identically.
+    let folded = launcher.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" })
+        .joined(separator: " ")
+    /// How this function starts the child. NOT `exec` directly: every launch goes through the
+    /// wrapper that seeds the home's MCP authorizations first (MCPAuthSync.swift), and the checks
+    /// below that say "before every launch" mean every call of this.
+    let launchCall = "launchProvider(provider"
     // Both halves are shared by the broken and the fixed shape. The BINDING is part of the anchor
     // because `pinned == nil` is not unique in this function: an anchor that matched another test of
     // it sliced a different block, one that still satisfied the guard below by containing a `getenv`
@@ -49,14 +60,33 @@ func runExportedHomeChecks(launcher: String) {
     // Against the home that was EXPORTED: `--continue` is resolved by claude against the config
     // home it runs under, so asking the account we would otherwise have picked would predict a
     // conversation this launch cannot reach.
+    /// However the exit spells the exported home: inline, or bound to a local first (which is what
+    /// it does since the launch also has to NAME the home it runs in). Read off the source so that
+    /// renaming the local carries this check with it rather than turning it green by finding nothing
+    /// - the binding being absent leaves the inline spelling, which is the other legal shape.
+    let exportedHome = lines.first { $0.contains("= String(cString: exported)") }?
+        .components(separatedBy: "=")[0]
+        .replacingOccurrences(of: "let ", with: "").trimmingCharacters(in: .whitespaces)
+        ?? "String(cString: exported)"
     check("…resolving the start mode against the home that was exported",
-          exportedBlock.contains("startModeArgs(passthrough, home: String(cString: exported))"))
+          exportedBlock.contains("startModeArgs(passthrough, home: \(exportedHome))"))
+    // And the SAME home is what the launch itself names, which is what the MCP authorization seeding
+    // is keyed on: a launch that seeded one directory and ran the child in another would look exactly
+    // like a launch that worked.
+    check("…and runs the child in that same home, which is what the seeding is keyed on",
+          folded.contains("\(launchCall), args: startModeArgs(passthrough, home: \(exportedHome)), "
+              + "home: \(exportedHome),"))
     check("…and leaving the environment alone, so the child inherits the home the user exported",
           exportedBlock.contains("env: nil"))
     // Deliberately unsupervised: the supervisor exists to move a session to ANOTHER account on a
     // cap hit, and a home pinned by hand leaves it nowhere to move to.
     check("…as a plain exec, with no supervisor in front of it",
           !exportedBlock.contains("runSupervised"))
+    // Nothing in this function reaches the CLI any other way. The wrapper is where the seeding
+    // happens, so a branch that called `exec` directly would launch a session whose home was never
+    // brought up to date - silently, and only on that one branch.
+    check("no branch of the launcher execs the CLI behind the wrapper's back",
+          !launcher.contains("exec(provider.cli"))
     // `--account` names an account; this variable names a config directory. The flag still wins.
     check("a --account pin still outranks an exported home",
           exportedBlock.contains("pinned == nil")
@@ -159,9 +189,9 @@ func runExportedHomeChecks(launcher: String) {
           leakBlock.contains("unsetenv(childSessionMarker)"))
     check("…only there, so a real child keeps the marker it was given",
           launcher.components(separatedBy: "unsetenv(childSessionMarker)").count == 2)
-    check("…and before every exec below, which is how the child inherits it cleared",
+    check("…and before every launch below, which is how the child inherits it cleared",
           (lines.firstIndex { $0.contains("unsetenv(childSessionMarker)") } ?? Int.max)
-              < (lines.firstIndex { $0.contains("exec(provider.cli") } ?? 0))
+              < (lines.firstIndex { $0.contains(launchCall) } ?? 0))
 
     // …AND THE HOME ITSELF, which is what the warning above actually promises (codex review,
     // 2026-08-13). Standing the exit down only stops the leaked home from being read HERE; the
@@ -172,17 +202,18 @@ func runExportedHomeChecks(launcher: String) {
     // carries was resolved against the default home. The launcher would decide against one
     // directory and run in another.
     check("the premise: both bare fallbacks resolve the start mode against the default home and " +
-          "then exec with the environment this process carries",
-          lines.filter { $0.contains("startModeArgs(passthrough, home: defaultHome(provider))")
-              && $0.contains("env: nil") }.count == 2)
+          "then launch with the environment this process carries",
+          folded.components(separatedBy:
+            "args: startModeArgs(passthrough, home: defaultHome(provider)), "
+                + "home: defaultHome(provider), env: nil").count == 3)
     check("a leaked config home is dropped from the environment too, not just the marker that " +
           "gave it away",
           leakBlock.contains("unsetenv(provider.envKey)"))
     check("…in that branch alone, so a home somebody exported by hand is never unset behind them",
           launcher.components(separatedBy: "unsetenv(provider.envKey)").count == 2)
-    check("…and before every exec below, `env: nil` ones included",
+    check("…and before every launch below, `env: nil` ones included",
           (lines.firstIndex { $0.contains("unsetenv(provider.envKey)") } ?? Int.max)
-              < (lines.firstIndex { $0.contains("exec(provider.cli") } ?? 0))
+              < (lines.firstIndex { $0.contains(launchCall) } ?? 0))
     // Order within the branch, because the branch says two things about one variable: it is read to
     // decide whether there is anything to report, and then dropped. Dropping it first would leave
     // the warning permanently silent - the user's terminal stuck on one account, and now nothing

@@ -150,8 +150,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
 
     if pinned == nil, !inheritedEnvironment, let exported = getenv(provider.envKey) {
         warn("\(provider.envKey) already set - keeping that account, launch defaults still apply")
-        exec(provider.cli, args: startModeArgs(passthrough, home: String(cString: exported)),
-             env: nil)
+        let home = String(cString: exported)
+        launchProvider(provider, args: startModeArgs(passthrough, home: home), home: home, env: nil)
     }
 
     if let pinned {
@@ -170,8 +170,9 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             exit(1)
         }
         warn("→ \(match.label) (pinned)")
-        exec(provider.cli, args: startModeArgs(passthrough, home: match.launchHome!),
-             env: launchEnv(provider, home: match.launchHome!))
+        launchProvider(provider, args: startModeArgs(passthrough, home: match.launchHome!),
+                       home: match.launchHome!,
+                       env: launchEnv(provider, home: match.launchHome!))
     }
 
     // The pinned account: the app's launch policy (Settings → Launch account) or this project's own
@@ -195,15 +196,16 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
             if provider.id == "claude", wantsHandoff {
                 runSupervised(provider, account: match, args: args, follow: allowFollow)
             }
-            exec(provider.cli, args: args, env: launchEnv(provider, home: match.launchHome!))
+            launchProvider(provider, args: args, home: match.launchHome!,
+                           env: launchEnv(provider, home: match.launchHome!))
         }
         // The denormalized home, for a pin whose account is missing from this snapshot. NOT for one
         // the snapshot lists WITHOUT a launch home: that is Tally saying the login is gone, and
         // exec'ing it anyway drops the session into a signed-out config dir (AccountPick.swift).
         if let home = pinnedLaunchHome(snapshot, policy: policy) {
             warn("→ pinned account (set in Tally)")
-            exec(provider.cli, args: startModeArgs(passthrough, home: home),
-                 env: launchEnv(provider, home: home))
+            launchProvider(provider, args: startModeArgs(passthrough, home: home), home: home,
+                           env: launchEnv(provider, home: home))
         }
         warn(pinnedAccountIsSignedOut(snapshot, policy: policy)
             ? "pinned account is signed out - renew its login in Tally; picking by headroom instead"
@@ -212,7 +214,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
 
     guard let snapshot else {
         warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
-        exec(provider.cli, args: startModeArgs(passthrough, home: defaultHome(provider)), env: nil)
+        launchProvider(provider, args: startModeArgs(passthrough, home: defaultHome(provider)),
+                       home: defaultHome(provider), env: nil)
     }
     // What the accounts are scored FOR: the model this launch will actually run, read off the args
     // it will run with (Snapshot.swift). The three sources were already ranked when the defaults
@@ -233,7 +236,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
                                    primaryModel: primaryModel, quarantined: quarantined,
                                    reserves: reserves) else {
         warn("no eligible \(provider.id) account - launching bare `\(provider.cli)`")
-        exec(provider.cli, args: startModeArgs(passthrough, home: defaultHome(provider)), env: nil)
+        launchProvider(provider, args: startModeArgs(passthrough, home: defaultHome(provider)),
+                       home: defaultHome(provider), env: nil)
     }
     // The whole fleet is under its own water line and this launch had to spend some of it anyway:
     // said before the arrow, because it is the part of the sentence the reader did not expect.
@@ -247,7 +251,8 @@ func runLaunch(_ provider: Provider, args: [String]) -> Never {
     if provider.id == "claude", wantsHandoff {
         runSupervised(provider, account: account, args: args, follow: allowFollow)
     }
-    exec(provider.cli, args: args, env: launchEnv(provider, home: account.launchHome!))
+    launchProvider(provider, args: args, home: account.launchHome!,
+                   env: launchEnv(provider, home: account.launchHome!))
 }
 
 func runStatus(json: Bool = false) {

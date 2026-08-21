@@ -1,7 +1,12 @@
 import SwiftUI
 
+/// THE TWO PLACES A RESERVE IS DRAWN, in one file because they must look like the same fact: the
+/// water line on a usage bar, and the strip in Settings that sets it. One hatching serves both
+/// (`ReserveHatch`), so what somebody clicks here is the texture they then recognise on the bar.
+/// Tally/Core/AccountReserve.swift owns what the number means.
+///
 /// THE WATER LINE ON A USAGE BAR: where the personal account's reserve starts, and the stretch below
-/// it hatched out (Tally/Core/AccountReserve.swift owns what the number means).
+/// it hatched out.
 ///
 /// WHICH BAR GETS ONE IS THE CALLER'S ANSWER, not this view's: the reserve is held back from the
 /// weekly all-models window alone, so the meters hand this a zero on every other bar
@@ -32,8 +37,7 @@ struct ReserveMark: View {
                 let fraction = min(max(Double(reserve), 0), 100) / 100
                 let start = geo.size.width * (1 - fraction)
                 ZStack(alignment: .topLeading) {
-                    DiagonalHatch()
-                        .stroke(Color.primary.opacity(0.28), lineWidth: 0.75)
+                    ReserveHatch()
                         .frame(width: geo.size.width - start)
                         // Clipped where it is DRAWN, before it is moved: the sweep deliberately
                         // starts one slant early so the corner is covered rather than left bare, and
@@ -62,10 +66,152 @@ struct ReserveMark: View {
     }
 }
 
+/// THE HATCHING ITSELF: one texture, one ink, one weight, wherever a reserve is drawn.
+///
+/// A view rather than two constants each caller strokes with, because "the same hatching" is the
+/// whole claim the strip in Settings makes about the bar upstairs, and a claim spelled twice is one
+/// somebody eventually re-tunes on one side only.
+private struct ReserveHatch: View {
+    var body: some View {
+        DiagonalHatch().stroke(Color.primary.opacity(0.28), lineWidth: 0.75)
+    }
+}
+
+/// THE TEN CELLS THAT SET IT, in the Settings row under the marked account.
+///
+/// WHY A STRIP AND NOT A STEPPER (which it replaces): the reserve is a rough "leave me some room"
+/// figure, and the stepper made reaching one a count of presses with nothing on screen saying how
+/// far along the scale the number was. Ten cells ARE the scale - the whole range is visible, any
+/// value on it is one click away, and the hatching says what the filled part means without a word.
+///
+/// THE DECISIONS ARE NOT IN HERE. Which cell a point is in, how much of one a value fills, what a
+/// press means and where a step lands are all in `ReserveStrip`, where they can be checked without
+/// a pointer; this view is the pixels and the gestures over those answers.
+struct ReserveCellBar: View {
+    /// 0-100, as stored.
+    let value: Int
+    /// Called with the percentage to store, only ever a multiple of the step.
+    let set: (Int) -> Void
+
+    private static let cellWidth: CGFloat = 12
+    private static let cellHeight: CGFloat = 11
+    private static let gap: CGFloat = 2
+    /// Fixed: in its row the sentence is the flexible half and this is not.
+    static let width = CGFloat(ReserveStrip.cells) * cellWidth
+        + CGFloat(ReserveStrip.cells - 1) * gap
+
+    /// Read rather than passed, so the caller keeps saying `.disabled(...)` about it in the one
+    /// vocabulary every other control in the pane uses.
+    @Environment(\.isEnabled) private var isEnabled
+    /// The cell under the pointer, 1-based. Preview highlight only - it sets nothing, and it is the
+    /// drawing that asks whether the strip is live, so there is one place that decides.
+    @State private var hovered: Int?
+    /// The value the press began on, and nil whenever no press is in flight. This is what makes a
+    /// second click on the cell already filled a clear rather than a no-op: by the time the press
+    /// ends the live value has already followed the pointer, so the value alone cannot say so.
+    @State private var pressStart: Int?
+    /// Whether this press MOVED. A sweep sets what it ends on; only a still press may clear.
+    @State private var swept = false
+
+    var body: some View {
+        HStack(spacing: Self.gap) {
+            ForEach(1 ... ReserveStrip.cells, id: \.self, content: cell)
+        }
+        .frame(width: Self.width, height: Self.cellHeight)
+        // The strip takes the press, not each cell: a sweep must cross the gaps between them
+        // without being dropped by one.
+        .contentShape(Rectangle())
+        .opacity(isEnabled ? 1 : 0.45)
+        .onContinuousHover { phase in
+            if case .active(let point) = phase {
+                hovered = cellIndex(atX: point.x)
+            } else {
+                hovered = nil
+            }
+        }
+        .gesture(press)
+        // NOT FOCUSABLE, and that is the whole of it: nothing here takes the keyboard.
+        //
+        // It was, for the arrow keys - and being the first focusable thing in the pane, it wore a
+        // blue ring the moment Settings opened, on a row most people are not here for (reported
+        // from the built app, 2026-08-21). `focusEffectDisabled()` is NOT the fix: it hides the ring
+        // and keeps the focus, so the strip would go on swallowing arrow keys invisibly. The keys
+        // go instead; the pointer sets this, and VoiceOver has its own way in below.
+        //
+        // One element with a value, not ten cells to arrow through: what a screen reader is being
+        // asked here is a percentage. The words are the meter's own for the same texture, so the
+        // two surfaces are read out the same way and no untranslated string is invented for this.
+        // The adjustable action is an accessibility affordance, not a key handler - VoiceOver
+        // drives it through its own cursor, which is why `ReserveStrip.nudged` still has a caller.
+        .accessibilityElement()
+        .accessibilityLabel(Text(L("Kept for web use")))
+        .accessibilityValue(Text(verbatim: "\(value)%"))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: nudge(up: true)
+            case .decrement: nudge(up: false)
+            @unknown default: break
+            }
+        }
+        .help(L("Kept for web use"))
+    }
+
+    private func cell(_ index: Int) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 2, style: .continuous)
+        let covered = ReserveStrip.fill(value, cell: index)
+        return ZStack(alignment: .leading) {
+            shape.fill(Color.primary.opacity(hovered == index && isEnabled ? 0.16 : 0.07))
+            if covered > 0 {
+                ReserveHatch()
+                    .frame(width: Self.cellWidth * covered)
+                    // A stroke is not bounded by the frame it was given (the water line above says
+                    // what that cost there), so a half-covered cell would hatch the whole of it.
+                    .clipped()
+            }
+        }
+        .frame(width: Self.cellWidth, height: Self.cellHeight)
+        .clipShape(shape)
+        .overlay(shape.stroke(Color.primary.opacity(0.16), lineWidth: 0.5))
+    }
+
+    private var press: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { move in
+                guard isEnabled else { return }
+                if pressStart == nil { pressStart = value }
+                if abs(move.translation.width) > 2 { swept = true }
+                // Live, and never a clear: a press still moving has not said what it means yet, so
+                // only the end of one is allowed to ask `pressed`.
+                apply(ReserveStrip.percent(cell: cellIndex(atX: move.location.x)))
+            }
+            .onEnded { move in
+                defer { pressStart = nil; swept = false }
+                guard isEnabled, let start = pressStart else { return }
+                apply(ReserveStrip.pressed(cell: cellIndex(atX: move.location.x),
+                                           from: start, swept: swept))
+            }
+    }
+
+    /// One write per cell actually crossed. `setReserve` persists, so an unguarded sweep would be a
+    /// write to disk per pointer sample.
+    private func apply(_ percent: Int) { if percent != value { set(percent) } }
+
+    private func cellIndex(atX x: CGFloat) -> Int {
+        ReserveStrip.cell(atX: x, cellWidth: Self.cellWidth, gap: Self.gap)
+    }
+
+    /// VoiceOver's one step. No key handler reaches this: the strip does not take the keyboard.
+    private func nudge(up: Bool) {
+        guard isEnabled else { return }
+        apply(ReserveStrip.nudged(value, up: up))
+    }
+}
+
 /// Evenly spaced diagonal strokes across the rect, slanting the way a "not available" fill
 /// conventionally does. `slant` is the horizontal run of one stroke over the full height, so the
-/// angle stays the same whether it is drawn on a card's 7pt bar or a list row's 4pt one; the sweep
-/// starts one slant early and ends one late so the corners are covered rather than clipped bare.
+/// angle stays the same whether it is drawn on a card's 7pt bar, a list row's 4pt one or a Settings
+/// cell; the sweep starts one slant early and ends one late so the corners are covered rather than
+/// clipped bare.
 private struct DiagonalHatch: Shape {
     func path(in rect: CGRect) -> Path {
         let spacing: CGFloat = 3

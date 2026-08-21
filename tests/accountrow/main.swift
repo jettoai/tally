@@ -497,14 +497,114 @@ check("…and the block decodes back to the same answers",
         (try? encoder.encode(reserved)) ?? Data()))
           .map { AccountRoles.reserve($0, home: homeA) } == 30)
 
+// MARK: - The ten-cell strip that sets it (Tally/Core/ReserveStrip.swift)
+
+// THE SCALE HAS TO DIVIDE INTO WHOLE CELLS, or the last one could not reach the top of the bounds
+// and the number nobody can set would be exactly the one that means "never pick this account".
+check("the scale divides into ten whole cells",
+      AccountRoles.reserveBounds.upperBound % AccountRoles.reserveStep == 0
+          && ReserveStrip.cells == 10)
+check("…and the ends of the strip are the ends of the range",
+      ReserveStrip.percent(cell: 1) == AccountRoles.reserveStep
+          && ReserveStrip.percent(cell: ReserveStrip.cells) == AccountRoles.reserveBounds.upperBound)
+
+// WHICH CELL A POINT IS IN, at the pitch the strip draws (12pt cells, 2pt apart).
+let cellW = 12.0, cellGap = 2.0
+func hit(_ x: Double) -> Int { ReserveStrip.cell(atX: x, cellWidth: cellW, gap: cellGap) }
+check("a point anywhere in the first cell is the first cell", hit(0) == 1 && hit(11.9) == 1)
+// The gaps are not dead ground: a sweep crossing one must not fall between two answers.
+check("…and the gap after a cell still belongs to it", hit(13) == 1)
+check("…and the next cell begins one pitch along", hit(14) == 2 && hit(28) == 3)
+// A press that runs off an end belongs to the end it ran off, which is what lets somebody drag
+// hard to the left and land on the first cell rather than on nothing.
+check("a press off either end is the cell at that end",
+      hit(-40) == 1 && hit(999) == ReserveStrip.cells)
+
+// HOW MUCH OF A CELL A VALUE COVERS.
+check("a value on the step fills whole cells and nothing above them",
+      ReserveStrip.fill(30, cell: 3) == 1 && ReserveStrip.fill(30, cell: 4) == 0)
+check("zero fills nothing, and the whole range fills everything",
+      (1 ... ReserveStrip.cells).allSatisfy { ReserveStrip.fill(0, cell: $0) == 0 }
+          && (1 ... ReserveStrip.cells).allSatisfy { ReserveStrip.fill(100, cell: $0) == 1 })
+// A value OFF the step is not a bug to be rounded away: the 5-point stepper this strip replaced
+// could write one, and it is drawn as what it is until the first click snaps it.
+check("35 reads as three cells and half of the fourth",
+      ReserveStrip.fill(35, cell: 3) == 1 && ReserveStrip.fill(35, cell: 4) == 0.5
+          && ReserveStrip.fill(35, cell: 5) == 0)
+check("…and it survives the round trip on disk rather than being migrated",
+      AccountRoles.reserve(AccountRoles.settingReserve(markedA, home: homeA, percent: 35),
+                           home: homeA) == 35)
+
+// WHAT A PRESS MEANS.
+check("a click on a cell sets that cell", ReserveStrip.pressed(cell: 7, from: 30, swept: false) == 70)
+// Every cell sets at least its own step, so without this zero is the one setting on the scale the
+// strip cannot reach - the way a star rating gives its first star a way back.
+check("a second click on the cell already filled clears it",
+      ReserveStrip.pressed(cell: 3, from: 30, swept: false) == 0)
+check("…but only a STILL press: a sweep that ends there is choosing 30, not clearing it",
+      ReserveStrip.pressed(cell: 3, from: 30, swept: true) == 30)
+check("…and a click on any other cell never clears",
+      ReserveStrip.pressed(cell: 3, from: 70, swept: false) == 30)
+
+// VOICEOVER'S ADJUSTMENT, one cell at a time. Its only caller: the strip does not take the
+// keyboard (it was the first focusable thing in the pane, so it wore a focus ring the moment
+// Settings opened), and a screen reader reaches this through its own cursor rather than through
+// arrow keys the view would have to swallow.
+check("one step up is the next cell, one down the one below",
+      ReserveStrip.nudged(30, up: true) == 40 && ReserveStrip.nudged(30, up: false) == 20)
+// Snapped in the DIRECTION OF TRAVEL, which is the difference between 35 going up to 40 and 35
+// going up to 50 (snap-then-step skips the cell edge the user is standing next to).
+check("an off-step value moves to the edge it is heading for, not past it",
+      ReserveStrip.nudged(35, up: true) == 40 && ReserveStrip.nudged(35, up: false) == 30)
+check("neither end runs off the bounds",
+      ReserveStrip.nudged(100, up: true) == 100 && ReserveStrip.nudged(0, up: false) == 0)
+check("…and both ends stay reachable one step at a time",
+      ReserveStrip.nudged(90, up: true) == 100 && ReserveStrip.nudged(10, up: false) == 0)
+
 // MARK: - …and the surfaces are really wired to those rules
 
 let facts = readSource("Tally/Views/AccountFacts.swift")
 let reserveRowSource = readSource("Tally/Views/SettingsPersonalAccountRow.swift")
 let policySource = readSource("Tally/Stores/LaunchPolicyStore.swift")
+let markSource = readSource("Tally/Views/ReserveMark.swift")
+// THE CODE ALONE, because what a check below asks is whether something has been REMOVED, and the
+// comment saying why it was removed names the very thing it names. A file's own prose quoting the
+// pattern being searched for is the ordinary case here, not a freak one.
+let markCode = markSource.split(separator: "\n", omittingEmptySubsequences: false)
+    .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+    .joined(separator: "\n")
 check("the personal-account sources are readable from here",
-      !facts.isEmpty && !reserveRowSource.isEmpty && !policySource.isEmpty)
-// THE STEPPER APPEARS ON THE MARKED ROW AND NOWHERE ELSE. A pane that always carried the line would
+      !facts.isEmpty && !reserveRowSource.isEmpty && !policySource.isEmpty
+          && !markCode.isEmpty && markCode.count < markSource.count)
+check("the row sets the reserve with the strip rather than the stepper it replaced",
+      reserveRowSource.contains("ReserveCellBar(value: shown)")
+          && !reserveRowSource.contains("Stepper("))
+// AND THE STRIP HOLDS NO COPY OF THE RULES ABOVE. A second spelling of "which cell is this" inside
+// the view is how the control and the checks over it would start disagreeing silently - the checks
+// would stay green while the thing on screen answered something else.
+check("the strip asks those rules rather than doing the arithmetic itself",
+      markCode.contains("ForEach(1 ... ReserveStrip.cells")
+          && markCode.contains("ReserveStrip.cell(atX:")
+          && markCode.contains("ReserveStrip.fill(value, cell:")
+          && markCode.contains("ReserveStrip.pressed(cell:")
+          && markCode.contains("ReserveStrip.nudged(value, up:"))
+// AND IT TAKES NO KEYBOARD FOCUS. It was focusable once, for arrow keys, which made it the first
+// focusable thing in the pane: Settings opened with a blue ring sitting on this row, on a setting
+// most people are not there for (reported from the built app, 2026-08-21). Hiding the ring with
+// `focusEffectDisabled` is the fix that looks like one and is not - the focus would still be there,
+// still swallowing arrow keys, now invisibly. So the keyboard path went, and the one caller left
+// for a step is the screen reader's own.
+check("the strip takes no keyboard focus, by not being focusable rather than by hiding it",
+      !markCode.contains(".focusable(") && !markCode.contains(".onKeyPress(")
+          && !markCode.contains("focusEffectDisabled")
+          && markCode.contains(".accessibilityAdjustableAction"))
+// ONE HATCHING FOR BOTH SURFACES: what somebody sets here is the texture the meter draws upstairs,
+// and that claim is only true while there is one stroke to re-tune rather than two.
+check("the water line and the strip draw the one hatching",
+      markCode.components(separatedBy: "ReserveHatch()").count == 3
+          && markCode.components(separatedBy: "DiagonalHatch().stroke(").count == 2)
+
+// THE STRIP APPEARS ON THE MARKED ROW AND NOWHERE ELSE. A pane that always carried the line would
 // be asking a question a single-account machine cannot answer.
 check("the pane draws the reserve row only under the marked account",
       paneSource.contains("PersonalAccount.isPersonal(accountID: item.id, home: home) {")

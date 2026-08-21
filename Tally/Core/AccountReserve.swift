@@ -57,10 +57,19 @@ enum AccountRoles {
     /// account by itself. Naming the account explicitly still launches on it (the CLI's rule).
     static let reserveBounds = 0 ... 100
 
-    /// What one press of the stepper moves. Coarse on purpose: this is a rough "leave me some room"
-    /// figure, and a percent-at-a-time control would be twenty presses to reach a number the user
-    /// cannot feel the difference of anyway.
-    static let reserveStep = 5
+    /// What one cell of the Settings strip is worth, and - divided into the bounds above - HOW MANY
+    /// cells it has (`ReserveCellBar` derives the count rather than writing a 10 of its own).
+    ///
+    /// Coarse on purpose: this is a rough "leave me some room" figure, and the point of a strip is
+    /// that the whole scale is visible and any value on it is one click away. Ten cells is a scale
+    /// somebody can read at a glance and aim at; a finer step is a row of targets too narrow to hit
+    /// for a difference nobody can feel.
+    ///
+    /// VALUES OFF THE STEP STAY LEGAL - the bounds are the contract, not this - so a 35 written by
+    /// the 5-point stepper this replaced, or by a hand-edited state file, is read back and drawn
+    /// proportionally (three cells and half of the fourth). The first click snaps it; nothing is
+    /// rewritten on disk for the sake of the control.
+    static let reserveStep = 10
 
     /// The ONE window a reserve is held back from, spelled the way both burn-rate mirrors label it:
     /// the account's 7-day all-models pool.

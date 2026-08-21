@@ -598,6 +598,24 @@ check("the strip takes no keyboard focus, by not being focusable rather than by 
       !markCode.contains(".focusable(") && !markCode.contains(".onKeyPress(")
           && !markCode.contains("focusEffectDisabled")
           && markCode.contains(".accessibilityAdjustableAction"))
+// AND A PRESS THAT IS CANCELLED RATHER THAN ENDED LEAVES NOTHING BEHIND. SwiftUI skips `onEnded`
+// altogether when it cancels a gesture, and cancellation is reachable here: the row is built inside
+// the pane's ForEach under an `if isPersonal`, so a refresh that moves the account list mid-press
+// tears the view down - the same teardown that leaked a floating card preview forever (2026-07-17).
+// Scratch state parked in @State survives that, and a `swept` left true takes away the one route
+// this strip has back to zero. @GestureState resets on cancel as well as on end, which is why both
+// card grids clean up off it (PopoverRootView, SessionBoardReorder); this is the third copy.
+check("a cancelled press cleans up through @GestureState, not through onEnded alone",
+      markCode.contains("@GestureState private var pressing")
+          && markCode.contains(".updating($pressing) { _, state, _ in state = true }")
+          && markCode.contains(".onChange(of: pressing) { _, active in if !active { endPress() } }")
+          && markCode.contains(".onDisappear { endPress() }"))
+// AND A SWEEP IS A PRESS THAT REACHED ANOTHER CELL, not one that travelled far enough. A distance
+// threshold has to name a number, and the number that was here (2pt) called a hand tremor a sweep -
+// which silently costs that click its clearing, on the only control that can set this back to zero.
+check("a sweep is judged by leaving the starting cell, not by a distance threshold",
+      markCode.contains("if here != cellIndex(atX: move.startLocation.x) { swept = true }")
+          && !markCode.contains("translation"))
 // ONE HATCHING FOR BOTH SURFACES: what somebody sets here is the texture the meter draws upstairs,
 // and that claim is only true while there is one stroke to re-tune rather than two.
 check("the water line and the strip draw the one hatching",

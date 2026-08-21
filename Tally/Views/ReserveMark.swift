@@ -97,7 +97,7 @@ struct ReserveCellBar: View {
     private static let cellHeight: CGFloat = 11
     private static let gap: CGFloat = 2
     /// Fixed: in its row the sentence is the flexible half and this is not.
-    static let width = CGFloat(ReserveStrip.cells) * cellWidth
+    private static let width = CGFloat(ReserveStrip.cells) * cellWidth
         + CGFloat(ReserveStrip.cells - 1) * gap
 
     /// Read rather than passed, so the caller keeps saying `.disabled(...)` about it in the one
@@ -110,8 +110,21 @@ struct ReserveCellBar: View {
     /// second click on the cell already filled a clear rather than a no-op: by the time the press
     /// ends the live value has already followed the pointer, so the value alone cannot say so.
     @State private var pressStart: Int?
-    /// Whether this press MOVED. A sweep sets what it ends on; only a still press may clear.
+    /// Whether this press left the cell it started on. A sweep sets what it ends on; only a press
+    /// that stayed put may clear.
     @State private var swept = false
+    /// True while a press is tracking, and the ONLY hook a cancelled gesture guarantees:
+    /// @GestureState resets on cancellation as well as on end, where `onEnded` is skipped entirely.
+    ///
+    /// The two @State values above are this press's scratch space, and a press that is cancelled
+    /// rather than ended would leave them behind: `swept` stuck true makes the next press unable to
+    /// clear (the strip's only route back to zero), and a stale `pressStart` makes it judge that
+    /// press against a value it never started from. Cancellation is not hypothetical here - this
+    /// row is built inside the pane's `ForEach` under an `if isPersonal`, so a refresh that moves
+    /// the account list mid-press tears the view down, which is exactly the teardown that leaked a
+    /// floating card preview forever on 2026-07-17 (PopoverRootView, SessionBoardReorder: this is
+    /// the third copy of their guard, deliberately spelled the same way).
+    @GestureState private var pressing = false
 
     var body: some View {
         HStack(spacing: Self.gap) {
@@ -130,6 +143,10 @@ struct ReserveCellBar: View {
             }
         }
         .gesture(press)
+        // Cancellation safety net, mirroring the two card grids: @GestureState resets on cancel as
+        // well as on end, which is the only hook a cancelled gesture guarantees.
+        .onChange(of: pressing) { _, active in if !active { endPress() } }
+        .onDisappear { endPress() }
         // NOT FOCUSABLE, and that is the whole of it: nothing here takes the keyboard.
         //
         // It was, for the arrow keys - and being the first focusable thing in the pane, it wore a
@@ -139,13 +156,15 @@ struct ReserveCellBar: View {
         // go instead; the pointer sets this, and VoiceOver has its own way in below.
         //
         // One element with a value, not ten cells to arrow through: what a screen reader is being
-        // asked here is a percentage. The words are the meter's own for the same texture, so the
-        // two surfaces are read out the same way and no untranslated string is invented for this.
-        // The adjustable action is an accessibility affordance, not a key handler - VoiceOver
-        // drives it through its own cursor, which is why `ReserveStrip.nudged` still has a caller.
+        // asked here is a percentage. The LABEL is the meter's own words for the same texture, so
+        // the two surfaces are read out alike and this invents no string to translate; the VALUE is
+        // a number rather than a sentence, so it is formatted for the reader's locale instead of
+        // spelled with a percent sign of ours. The adjustable action is an accessibility affordance,
+        // not a key handler - VoiceOver drives it through its own cursor, which is why
+        // `ReserveStrip.nudged` still has a caller.
         .accessibilityElement()
         .accessibilityLabel(Text(L("Kept for web use")))
-        .accessibilityValue(Text(verbatim: "\(value)%"))
+        .accessibilityValue(Text(value.formatted(.percent)))
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: nudge(up: true)
@@ -176,20 +195,39 @@ struct ReserveCellBar: View {
 
     private var press: some Gesture {
         DragGesture(minimumDistance: 0)
+            .updating($pressing) { _, state, _ in state = true }
             .onChanged { move in
                 guard isEnabled else { return }
+                let here = cellIndex(atX: move.location.x)
                 if pressStart == nil { pressStart = value }
-                if abs(move.translation.width) > 2 { swept = true }
+                // A SWEEP IS A PRESS THAT REACHED ANOTHER CELL, which is what the word means here,
+                // rather than one that travelled some number of points. A distance threshold has to
+                // name a number, and every number is wrong somewhere: 2pt called a hand tremor a
+                // sweep and silently cost that click its clearing (found in review of 8482bcb),
+                // while a threshold loose enough to survive a tremor would let a real drag inside a
+                // wide cell pass as a still press. A cell boundary is a line that already means
+                // something to the user, and crossing one is visible on screen as it happens.
+                //
+                // Asked of the gesture's OWN start point rather than a cell remembered in state:
+                // one less thing that a cancelled press could leave behind stale.
+                if here != cellIndex(atX: move.startLocation.x) { swept = true }
                 // Live, and never a clear: a press still moving has not said what it means yet, so
                 // only the end of one is allowed to ask `pressed`.
-                apply(ReserveStrip.percent(cell: cellIndex(atX: move.location.x)))
+                apply(ReserveStrip.percent(cell: here))
             }
             .onEnded { move in
-                defer { pressStart = nil; swept = false }
+                defer { endPress() }
                 guard isEnabled, let start = pressStart else { return }
                 apply(ReserveStrip.pressed(cell: cellIndex(atX: move.location.x),
                                            from: start, swept: swept))
             }
+    }
+
+    /// This press's scratch space, dropped. Called from the end of a press AND from the reset of
+    /// `pressing`, because only the second of those is reached when a press is cancelled.
+    private func endPress() {
+        pressStart = nil
+        swept = false
     }
 
     /// One write per cell actually crossed. `setReserve` persists, so an unguarded sweep would be a

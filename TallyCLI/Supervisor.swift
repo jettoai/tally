@@ -138,6 +138,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// leaves has been written. Per session on the same terms as the arm above, and re-keyed by the
     /// ACCOUNT rather than aged out, so a relaunch that moves reads the new account at once.
     var drought = DroughtWatch()
+    /// And what it owes the conversation once a wall has actually moved it (CapResume.swift owns the
+    /// rules): the one line saying the turn was cut short and asking it to carry on. Per session and
+    /// necessarily so - the arm is raised by the tick that ends one child and spent by a tick of the
+    /// next one, which is the one event a per-child value could never carry it across.
+    var capResume = CapResumeState()
     /// And HOW it is told: filed for this child's own hooks to deliver where they are registered and
     /// runnable, typed into the composer where they are not (QuotaKnockNotice.swift).
     ///
@@ -765,13 +770,33 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 // is `busy`, so the gate holds the line as the session's own turn).
                 replacingChild = true
             }
+            // AND THE LINE THAT PICKS UP WHERE A WALL CUT THIS CONVERSATION OFF (CapResume.swift):
+            // a cap handoff has moved it and the work that 429 interrupted is sitting in the
+            // resumed window with nobody to ask for it. Same door and the same gates as the two
+            // writers either side of it, plus one of its own - a session waiting on a person is not
+            // typed at.
+            // BETWEEN THE TWO, which is the priority these three composer writers have: a line
+            // somebody ASKED for outranks it, and it outranks news about an account, because work
+            // this session lost is the more urgent of the two things nobody asked for.
+            let resumed = applyCapResume(&capResume, pid: supervisorPID,
+                                         typedAlready: action.typed != nil, session: board.state,
+                                         quiet: board.quiet, turnEnded: turnOver,
+                                         keyboardIdle: composerIdle,
+                                         relaunchPlanned: replacingChild,
+                                         draftSuspected: draftSuspected,
+                                         userTurnAt: watcher.lastUserTurnAt)
+            // On the same terms as the two beside it: what this tick typed is what the next tick's
+            // draft reading has to discount.
+            if resumed != nil { lastComposerWrite = Date() }
             // AND THE ONE LINE NOBODY ASKED FOR: the account under this session is running out, and
             // the movers above cannot help a session that is busy (QuotaKnock.swift). Same door and
             // the same gates, after the request station rather than beside it - a tick that has just
-            // typed somebody's line has spent this composer's turn.
+            // typed somebody's line has spent this composer's turn, and so has one that has just
+            // typed the resume above.
             let knocked = applyQuotaKnock(&quotaKnock, pid: supervisorPID, provider: provider.id,
                                           account: account, primaryModel: effectivePrimary,
-                                          typedAlready: action.typed != nil, session: board.state,
+                                          typedAlready: action.typed != nil || resumed != nil,
+                                          session: board.state,
                                           quiet: board.quiet,
                                           turnEnded: turnOver, keyboardIdle: composerIdle,
                                           relaunchPlanned: replacingChild,
@@ -781,8 +806,10 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                           // taken now: a settings.json edited since says nothing
                                           // about the hooks the running process holds.
                                           filing: { quotaKnockFiling })
-            // The second writer into this composer, recorded on the same terms as the first: what
-            // makes the next tick's draft reading right is that BOTH of them say when they typed.
+            // The third writer into this composer, recorded on the same terms as the two above it:
+            // what makes the next tick's draft reading right is that EVERY one of them says when it
+            // typed, since a supervisor that read its own footprints as somebody's draft would
+            // decline the preventive move for the rest of that session's life.
             if knocked != nil { lastComposerWrite = Date() }
 
             // Execute the tick's one relaunch: terminate the child once, then apply any
@@ -818,8 +845,24 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 let upgrade = selfUpdateFold(captured: supervisorVersion,
                                              attempted: selfUpdateAttempted,
                                              home: plan.target.launchHome)
+                // Read before the move, because the sentence one line down names it: which account
+                // this conversation is LEAVING is the half of that news that explains why its turn
+                // died, and after the handoff there is nothing left holding it.
+                let leaving = account
                 performHandoff(to: plan.target, reason: plan.reason, countingFuse: plan.countsFuse,
                                fresh: plan.fresh)
+                // AND WHETHER THE NEXT CHILD IS OWED A LINE ASKING IT TO CARRY ON (CapResume.swift
+                // owns every gate): a cap handoff whose wall cut a turn short leaves work sitting in
+                // a conversation nobody is going to resume by itself. Raised HERE rather than at the
+                // plan, because `performHandoff` has just relocated the transcript with a forced
+                // fork check, so this is the first point in the tick where the id being resumed is
+                // the one the conversation is really in. It only ever RAISES an arm; whether that
+                // line is ever typed is decided tick by tick against the child that follows.
+                capResume.arm(reason: plan.reason, fresh: plan.fresh, cappedAt: pendingCap?.cappedAt,
+                              answeredAt: watcher.lastMainChainEventAt,
+                              conversation: watcher.transcriptSessionID,
+                              from: leaving, to: plan.target,
+                              userTurnAt: watcher.lastUserTurnAt)
                 launchArgs = planLaunchArgs(launchArgs, plan: plan,
                                             sessionPin: sessionModelState.pin)
                 // Republish the account this conversation now runs on, and the pair the next child

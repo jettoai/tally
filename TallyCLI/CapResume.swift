@@ -1,0 +1,431 @@
+import Foundation
+
+// PICKING THE WORK BACK UP AFTER A WALL: the one line typed into the session a cap handoff has just
+// restarted, and the gates that decide whether it is typed at all.
+//
+// THE INCIDENT (2026-08-21, session a97d0856). A turn woke, asked for a model that had nothing left,
+// and died on a 429. The supervisor did everything it is there for: it read the cap out of the
+// transcript, picked a sibling with room and relaunched the conversation on it 1.4 seconds later.
+// What it could not do is the last inch. The new child came up on the resumed conversation with an
+// empty composer, and the work the wall interrupted sat there until a person came back, read the
+// terminal and typed "carry on". The account move was automatic and the reason for it was
+// automatic; only the resumption needed hands.
+//
+// THE RULE THIS ADDS, and the whole of it: when a cap handoff moves a conversation whose turn the
+// wall cut short, the supervisor types one marked line into the new child saying what happened and
+// asking it to continue. That line is a keystroke channel into somebody's conversation, so it is
+// held to the same table every other writer into that composer is held to (`sessionInputHold`,
+// SessionInput.swift) plus one gate of its own, and it is ABANDONED rather than delayed the moment
+// there is any sign a person is driving.
+//
+// FOUR THINGS IT MAY NEVER DO, which are the reason this is a station with a state rather than two
+// lines at the relaunch:
+//
+//   - SPEAK TWICE FOR ONE WALL. The arm is keyed by the cap's own instant (`lastCapAt`), so a second
+//     handoff carrying the same cap re-arms nothing, and firing spends the arm outright.
+//   - TYPE OVER SOMEBODY. A keystroke burst in that composer or a prompt of their own in the new
+//     child ends the arm for good (`.drop(.userTyped)`): the person is here, and what they type is
+//     a better answer than what this would have.
+//   - ANSWER A DIALOG. A blocked session is sitting on a permission request or a plan approval, and
+//     a line typed at one of those is an answer to a question this supervisor never read. It HOLDS
+//     rather than drops, because a dialog is answered and the composer comes back
+//     (SessionInputDraft.swift measured that, case A7e).
+//   - RECUR. The turn this line starts can hit a wall of its own, and the handoff that follows must
+//     not start another one: after a nudge nothing re-arms until a PERSON has typed in the session
+//     (`capResumeFollowedByPerson`). What handles a second wall is what handled the first, bounded
+//     by the recovery fuse the supervisor already keeps (`RecoveryFuse`, three per ten minutes).
+//
+// WHY IT TYPES RATHER THAN FILES. The advisory knock next door chooses between the two because its
+// reader is a session mid-turn, where a keystroke interleaves with the answer being written and a
+// filed sentence does not (QuotaKnock.swift). This one has the opposite reader by construction: a
+// child that has just come up on a resumed conversation with nothing running in it. A filed notice
+// is handed over on the session's NEXT prompt or tool call, and waiting for a prompt is exactly the
+// wait this exists to end, so filing here would deliver the line at the one moment it is worthless.
+//
+// WHAT IT DOES NOT REACH, deliberately. `cap-fallback` is the other relaunch a wall can produce: the
+// session keeps its account and comes back on the declared fallback pairing (CapDetection.swift).
+// That path already prints a sentence onto the terminal saying what it did and what to run to undo
+// it, and it changes the MODEL under the conversation, so "carry on" is not obviously what its owner
+// wants of a turn they may prefer to re-run themselves. Only `cap` is armed here.
+//
+// WHAT KEEPS IT OFF A CHILD THAT IS STILL COMING UP, since nothing here counts a child's age. The
+// handoff COPIES the transcript into the target account's tree (`shareTranscript`), so the file the
+// new child binds carries an mtime of that instant, and the board reads a file written within
+// `sessionStateQuietSeconds` as a session that is working (`boundFileQuietness`). The offer
+// therefore holds through the half minute after the move on the shared table's own `.turn` row,
+// which is long enough for a resumed Claude Code to be reading its terminal. A bar of this
+// station's own would be a second, weaker spelling of a reading that already exists.
+//
+// WHAT IT COSTS ON AN ORDINARY TICK: one optional test. Everything behind it, `turnEnded` included,
+// is asked only while an arm stands, which is the seconds after a cap handoff and never otherwise.
+
+/// The marker every automatic resume line carries, and the reason it is not just `[tally]`.
+///
+/// This line becomes a USER TURN in somebody's transcript: Claude Code cannot tell an injected
+/// keystroke from a typed one, so afterwards the conversation, the log and any later reader are
+/// looking at a prompt that nobody wrote. The marker is what makes it identifiable as this
+/// supervisor's (grep `auto-resume` in a transcript or in `~/.tally/logs/input.log`), and it shares
+/// the `[tally]` prefix with the advisory knock so a reader has one word for "this line came from
+/// the launcher, not from me".
+let capResumeMarker = "[tally] auto-resume:"
+
+/// The audit word a typed resume leaves (grep `input=cap-resume`). Its own outcome rather than the
+/// served one, on the terms `quotaKnockOutcome` states: the question that log answers is "what
+/// typed into my session and when", and a line nobody asked for is exactly the entry a reader needs
+/// to tell from one they did.
+let capResumeOutcome = "cap-resume"
+
+/// And the word when the terminal refused the write, on the same terms.
+let capResumeFailedOutcome = "cap-resume-failed"
+
+/// The word for an arm that will never be typed (grep `input=cap-resume-dropped`), with the reason
+/// beside it. It exists because the interesting case is the SILENT one: a resume that did not happen
+/// leaves no keystroke and no transcript event, so without this line the record cannot tell "the
+/// person came back and took over" from "this feature is not working".
+let capResumeDroppedOutcome = "cap-resume-dropped"
+
+/// How long an arm may wait for a moment it can be typed at.
+///
+/// `sessionInputQueuedLife` rather than a number of this feature's own, because it is the same
+/// question: a line waiting for a session to become typeable, where the wait is the feature working
+/// rather than the feature failing (SessionInput.swift carries the measurement that settled fifteen
+/// minutes). The two waits this one actually spends are a child that has not yet said what it is
+/// doing, which is seconds, and a permission dialog nobody has answered, which is however long its
+/// owner is away from the desk.
+///
+/// Measured from the CAP rather than from the relaunch, which is the honest clock: what the line
+/// offers to resume is work that stopped at that instant, and by fifteen minutes later a session
+/// whose owner has still not touched it is one the offer has stopped being about.
+let capResumeLife: TimeInterval = sessionInputQueuedLife
+
+/// How long after this supervisor types a line the user turn it produces keeps arriving.
+///
+/// `sessionInputDraftGrace`, and for the reason that constant was written: the child reads the
+/// injected bytes off the terminal and Claude Code writes the prompt they spell a moment AFTER the
+/// write returned, so the two facts are one instant recorded by two clocks. Without the margin, the
+/// resume line would be read as the person coming back, which would re-arm this feature against its
+/// own output and recur.
+///
+/// IT IS MEASURED FROM THE END OF THE WRITE, which is what makes two seconds enough. An injection
+/// is one byte every `sessionInputByteGap` plus the stash and the submit pause, so a line of this
+/// length spends about five seconds on the terminal before its Return: a margin measured from the
+/// DECISION would have to be longer than the longest possible injection, which is a number that
+/// would silently stop tracking the two constants it is made of. `lastComposerWrite` next door is
+/// stamped after the write for exactly this reason, and this follows it.
+///
+/// THE RESIDUAL, stated rather than defended against: a person who types a prompt of their own
+/// inside two seconds of the line landing is not counted as having returned, so a genuinely fresh
+/// cap minutes later does not re-arm. That fails towards silence, which is the direction this whole
+/// station fails in on purpose.
+let capResumeOwnLineGrace: TimeInterval = sessionInputDraftGrace
+
+/// The line typed into the session that has just been moved off a capped account.
+///
+/// Names both accounts because both are the news: which one ran out (so the reader knows why their
+/// turn died) and which one they are on now (so a decision to stop instead of carrying on is made
+/// against the right window). Names them through `quotaKnockName`, which is the one rule in this
+/// repo for what may go on a terminal's input queue as an account name: a label is free text from a
+/// rename popover, and a newline in the middle of this sentence would submit half of it as a prompt
+/// and type the rest into whatever came up next.
+///
+/// `limit` is the channel's byte budget, held here the way `quotaKnockMessage` holds its own: the
+/// names are clipped to a budget of their own first, and whatever is left is cut to the limit, so
+/// the guarantee is measured rather than reasoned about.
+func capResumeMessage(from: Snapshot.Account, to: Snapshot.Account,
+                      limit: Int = sessionInputMaxBytes) -> String {
+    let line = "\(capResumeMarker) \(quotaKnockName(from)) hit its usage limit and cut a turn "
+        + "short, and this session is now on \(quotaKnockName(to)). "
+        + "Continue the work that was interrupted."
+    return quotaKnockClipped(line, bytes: limit)
+}
+
+/// The line a dropped arm leaves. Pure, and shaped like the other entries in that log: the stamp,
+/// the session, what kind of record this is, and why.
+func capResumeDropLine(pid: String, why: CapResumeDrop, now: Date = Date()) -> String {
+    "\(ISO8601DateFormatter().string(from: now)) pid=\(pid) input=\(capResumeDroppedOutcome) "
+        + "reason=\(why.word)\n"
+}
+
+// MARK: - The decision
+
+/// What is standing between an arm and the terminal this tick. Both rows are a WAIT: the next tick
+/// decides again, and the arm's own life is what ends the waiting.
+enum CapResumeHold: Equatable {
+    /// The table every writer into this composer shares (SessionInput.swift): a turn of its own, a
+    /// child that has not reported, somebody typing, a restart about to happen.
+    case input(SessionInputHold)
+    /// This session is waiting on a person: a permission request, a plan approval. Its composer is
+    /// behind that dialog and a line typed now is an answer to a question nobody read it.
+    case blocked
+}
+
+/// Why an arm will never be typed. Both are final: the arm is cleared and this wall gets no line.
+enum CapResumeDrop: Equatable {
+    /// Somebody is in the session. Either a run of keystrokes in that composer
+    /// (`sessionInputDraftSuspected`) or a prompt of their own in the relaunched child.
+    case userTyped
+    /// It never reached a moment it could be typed at inside `capResumeLife`.
+    case expired
+
+    /// The word the log records it under.
+    var word: String {
+        switch self {
+        case .userTyped: return "someone-typed"
+        case .expired: return "expired"
+        }
+    }
+}
+
+/// What this tick does about a pending resume. Pure to decide, so the whole grid is assertable
+/// without a terminal, a supervisor or a file.
+enum CapResumeDecision: Equatable {
+    /// Nothing is armed. Almost every tick.
+    case idle
+    case hold(CapResumeHold)
+    case drop(CapResumeDrop)
+    /// Type this line.
+    case type(String)
+}
+
+// MARK: - The rules, on their own
+
+/// Whether a relaunch is one that left work hanging.
+///
+/// FOUR REFUSALS, and each of them is a way for there to be nothing to resume:
+///
+///  - the reason is not a cap handoff, so no wall cut anything short (the header names
+///    `cap-fallback`, the one neighbour this deliberately excludes);
+///  - the relaunch is FRESH, which is `tally session clear` asking for an empty window: what starts
+///    is a different conversation, and offering to continue the old one's work in it is the one
+///    thing that request said not to do;
+///  - there is no conversation to resume at all, so the new child starts empty and there is no
+///    interrupted turn for a line to point at;
+///  - a real assistant turn landed AFTER the cap, which is `observeCapHit`'s own recovery test read
+///    the other way round: the conversation answered something after the wall, so whatever the wall
+///    interrupted is not still sitting there.
+///
+/// `answeredAt` nil means no post-launch main-chain turn was seen at all, which is the ordinary
+/// shape of a session whose only recent event IS the 429 - so it counts as interrupted.
+func capResumeInterrupted(reason: String, fresh: Bool, cappedAt: Date?, answeredAt: Date?,
+                          conversation: String?) -> Bool {
+    guard reason == "cap", !fresh, let cappedAt, conversation != nil else { return false }
+    return answeredAt.map { $0 <= cappedAt } ?? true
+}
+
+/// Whether this cap is one this session has not already armed for (`lastCapAt`).
+///
+/// STRICTLY NEWER, so a second handoff carrying the same pending cap arms nothing: that is the
+/// "one latch per wall" rule, and it is keyed on the cap's OWN instant rather than on the moment a
+/// tick noticed it, because that is the value the whole cap track is keyed on already
+/// (`PendingCapRecovery.cappedAt`, fixed once and never recomputed).
+func capResumeFreshCap(cappedAt: Date, lastCapAt: Date?) -> Bool {
+    lastCapAt.map { cappedAt > $0 } ?? true
+}
+
+/// Whether a PERSON has been in this session since the last line this supervisor typed into it.
+///
+/// The anti-recursion gate, and the whole of it. A session that has never been nudged answers yes,
+/// because there is nothing to recur from. One that has answers yes only for a user turn far enough
+/// past the nudge to be somebody else's (`capResumeOwnLineGrace`): the resume line itself becomes a
+/// user turn in the transcript, so without the margin this feature would read its own output as the
+/// person coming back and arm again on the very next wall.
+func capResumeFollowedByPerson(nudgedAt: Date?, userTurnAt: Date?,
+                               grace: TimeInterval = capResumeOwnLineGrace) -> Bool {
+    guard let nudgedAt else { return true }
+    guard let userTurnAt else { return false }
+    return userTurnAt.timeIntervalSince(nudgedAt) > grace
+}
+
+// MARK: - What the supervisor carries between ticks
+
+/// What one supervised session remembers about resuming after a wall.
+///
+/// In memory and per SESSION rather than per child, like `QuotaKnockState` and `DroughtWatch`
+/// beside it, and here that is not a preference: the arm is RAISED by the tick that ends one child
+/// and SPENT by a tick of the next one, so a per-child value could never carry it across the one
+/// event it exists for.
+///
+/// A SELF-UPDATE EXEC LOSES AN ARM, which is the honest cost of holding this in memory rather than
+/// on disk, stated the way `QuotaKnockState` states its own. That exec replaces the process image
+/// and restarts the child; a session it catches in the seconds between a cap handoff and its resume
+/// line comes back without the offer. The alternative is a file per session on a path that would
+/// have to be swept, for a window measured in seconds.
+struct CapResumeState: Equatable {
+    /// One standing offer: the wall it is about, and the line that answers it.
+    ///
+    /// ONE VALUE RATHER THAN TWO OPTIONAL FIELDS, so that "there is a line iff there is an arm" is
+    /// a shape the compiler holds rather than a convention three mutating methods have to keep.
+    struct Offer: Equatable {
+        /// The instant of the wall. Every clock in this file is measured from it.
+        let at: Date
+        /// The line, built at the move from the two accounts as they were THEN. Held rather than
+        /// rebuilt because it is a sentence about a moment: by the time it is typed the session may
+        /// have moved again, and a line naming where it is now would describe a different event.
+        let line: String
+    }
+
+    /// What is waiting to be typed, and nil on almost every tick of almost every session.
+    private(set) var offer: Offer?
+    /// The newest wall this session has armed for, kept after the offer is spent or dropped: it is
+    /// what makes one wall worth one line (`capResumeFreshCap`).
+    private(set) var lastCapAt: Date?
+    /// When this supervisor last FINISHED typing a resume line into this session, and the
+    /// anti-recursion gate reads it (`capResumeFollowedByPerson`).
+    private(set) var nudgedAt: Date?
+
+    /// Whether anything is waiting to be typed, which is the one question the ordinary tick asks.
+    var isArmed: Bool { offer != nil }
+
+    /// Raise an arm for a relaunch that has just happened, or leave everything as it was.
+    ///
+    /// Called AFTER the handoff rather than when the plan is made, so `conversation` is the id the
+    /// relaunch actually resumes: `performHandoff` relocates the file with a forced fork check
+    /// exactly because the id it resumes must be the one the conversation is really in, and arming
+    /// off the earlier reading would judge "is there anything to resume" against a file the session
+    /// may have left.
+    ///
+    /// `from` and `to` are accounts rather than labels because the sentence names them through the
+    /// one rule for what may go on a terminal's input queue (`quotaKnockName`), and a second
+    /// spelling of that rule is how a label with a newline in it gets typed into somebody's
+    /// composer.
+    mutating func arm(reason: String, fresh: Bool, cappedAt: Date?, answeredAt: Date?,
+                      conversation: String?, from: Snapshot.Account, to: Snapshot.Account,
+                      userTurnAt: Date?) {
+        guard capResumeInterrupted(reason: reason, fresh: fresh, cappedAt: cappedAt,
+                                   answeredAt: answeredAt, conversation: conversation),
+              let cappedAt,
+              capResumeFreshCap(cappedAt: cappedAt, lastCapAt: lastCapAt),
+              capResumeFollowedByPerson(nudgedAt: nudgedAt, userTurnAt: userTurnAt)
+        else { return }
+        lastCapAt = cappedAt
+        offer = Offer(at: cappedAt, line: capResumeMessage(from: from, to: to))
+    }
+
+    /// What this tick owes, in the order the gates bite.
+    ///
+    /// THE TWO DROPS COME FIRST, and before the holds, because they are about whether this line is
+    /// wanted at all rather than about whether now is the moment for it. A person typing outranks
+    /// the clock: it is the more specific fact and it is true whatever the clock says.
+    ///
+    /// THEN THE SHARED TABLE, unchanged and asked through the same function every other writer into
+    /// this composer asks (`sessionInputHold`): a second spelling of those four rows is four gates
+    /// that can come to disagree about one instant.
+    ///
+    /// AND `blocked` LAST, which is this station's own gate. It sits after the shared table rather
+    /// than before it so that table's stated precedence is not quietly reordered here; both answers
+    /// are a hold, so the ordering decides only which word the record carries.
+    func decide(state: SupervisedState, quiet: SessionQuiet, turnEnded: Bool, keyboardIdle: Bool,
+                relaunchPlanned: Bool, draftSuspected: Bool, userTurnAt: Date?,
+                now: Date = Date()) -> CapResumeDecision {
+        guard let offer else { return .idle }
+        // A run of keystrokes in that composer, or a prompt of their own in the relaunched child.
+        // The second is measured against the WALL rather than against the relaunch, and the two
+        // readings agree: the watcher belongs to the new child and refuses everything older than
+        // its launch, so any user turn it has seen at all is newer than the cap that preceded it.
+        if draftSuspected || userTurnAt.map({ $0 > offer.at }) == true { return .drop(.userTyped) }
+        if now.timeIntervalSince(offer.at) > capResumeLife { return .drop(.expired) }
+        if let hold = sessionInputHold(state: state, quiet: quiet, turnEnded: turnEnded,
+                                       keyboardIdle: keyboardIdle,
+                                       relaunchPlanned: relaunchPlanned) {
+            return .hold(.input(hold))
+        }
+        if state == .blocked { return .hold(.blocked) }
+        return .type(offer.line)
+    }
+
+    /// The bytes are on their way: this wall has had its line.
+    ///
+    /// Spent when the injection is ATTEMPTED rather than when it succeeds, the rule
+    /// `applySessionInput` and the knock both state about their own stamps: past that point the
+    /// bytes are on the terminal or the write has failed, and a failure that repeats every two
+    /// seconds is the one way this types the same line into a conversation twice.
+    ///
+    /// IT DOES NOT STAMP `nudgedAt`, which is the other half of the same rule read from the other
+    /// end: that stamp dates the moment the bytes STOPPED arriving, and this is called before the
+    /// first of them is written (`noteTyped`).
+    mutating func spend() { offer = nil }
+
+    /// The write is over. Two seconds from here, a user turn is somebody else's
+    /// (`capResumeOwnLineGrace`).
+    ///
+    /// A SECOND ENTRY POINT RATHER THAN AN ARGUMENT TO THE ONE ABOVE, because the two moments are
+    /// seconds apart and the gap is the whole point: an injection types one byte every 30ms, so a
+    /// stamp taken where the arm is spent would fall several seconds before the prompt it is meant
+    /// to discount, and this feature would read its own line as the person coming back.
+    mutating func noteTyped(at moment: Date) { nudgedAt = moment }
+
+    /// This wall gets no line. `lastCapAt` stands, so nothing re-arms for it.
+    mutating func drop() { offer = nil }
+}
+
+// MARK: - The tick's station
+
+/// One poll tick's automatic resume: nil on almost every tick, and otherwise the line that was
+/// typed.
+///
+/// `typedAlready` is whether this tick has already written into this composer, and it leads for the
+/// reason the knock's own copy of it leads: two lines typed into one composer in one tick is one
+/// prompt with two instructions in it. This station is asked BEFORE the advisory knock and after
+/// the request station, which is the priority those three have - a line somebody asked for, then
+/// work this session lost, then news about an account.
+///
+/// `turnEnded` is a closure because it reads a file and a transcript tail, and it is asked only
+/// while an arm stands.
+///
+/// `log` and `inject` are injectable for the reason every writer on this track keeps them so: a
+/// suite that reaches this decision must not type into the terminal it is running in, nor append
+/// invented records to the user's own input log.
+///
+/// `stamped` is the clock read AFTER the write, and it is separate from `now` because they are
+/// genuinely different instants: `now` is when this tick decided, and an injection spends seconds on
+/// the terminal between the two (`capResumeOwnLineGrace` states what depends on the difference).
+@discardableResult
+func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bool,
+                    session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
+                    keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
+                    userTurnAt: Date?, now: Date = Date(), log: URL = sessionInputLog,
+                    stamped: () -> Date = { Date() },
+                    inject: (String, SessionInputDraftGuard) -> SessionInputInjection = {
+                        injectSessionInput($0, draft: $1)
+                    }) -> String? {
+    guard !typedAlready, state.isArmed else { return nil }
+    let decision = state.decide(state: session, quiet: quiet, turnEnded: turnEnded(),
+                                keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
+                                draftSuspected: draftSuspected, userTurnAt: userTurnAt, now: now)
+    switch decision {
+    case .idle, .hold:
+        return nil
+    case .drop(let why):
+        // SAID OUT LOUD, because the whole of what happens here is that nothing happens: a resume
+        // that was abandoned leaves no keystroke and no transcript event, so this line is the only
+        // way the record can tell somebody taking over from this feature failing.
+        state.drop()
+        appendSessionInputLine(capResumeDropLine(pid: pid, why: why, now: now), to: log)
+        return nil
+    case .type(let line):
+        state.spend()
+        // The same protection the requested line gets. `suspected` is false by construction on this
+        // branch (a suspected draft is a drop, one gate up), and the stash still runs: it is what
+        // covers the draft this supervisor CANNOT see, since a paste is a single stamp and reads as
+        // terminal chatter (SessionInputDraft.swift names it as the blind spot).
+        let draft = sessionInputDraftGuard(state: session, suspected: draftSuspected)
+        let written = inject(line, draft)
+        // The moment the bytes stopped arriving, which is what the anti-recursion gate has to
+        // discount. Stamped whether or not the write succeeded: a refusal part-way through still
+        // leaves keystrokes on that terminal, and suppressing a re-arm is the safe direction.
+        state.noteTyped(at: stamped())
+        switch written {
+        case .done:
+            appendSessionInputLine(sessionInputLogLine(pid: pid, outcome: capResumeOutcome,
+                                                       text: line, now: now), to: log)
+        case .failed(let code):
+            appendSessionInputLine(quotaKnockFailureLine(pid: pid, code: code,
+                                                         outcome: capResumeFailedOutcome,
+                                                         now: now), to: log)
+        }
+        // AFTER the line that says what was typed, the order both other writers use: what was
+        // typed, and then where what was already there has gone.
+        appendSessionInputDraftLines(pid: pid, draft: draft, now: now, to: log)
+        return written.sent ? line : nil
+    }
+}

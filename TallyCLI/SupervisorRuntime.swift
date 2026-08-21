@@ -221,8 +221,12 @@ let handoffLog = FileManager.default.homeDirectoryForCurrentUser
 ///
 /// `pinCleared` outranks all of it, because that move is the one an owner reading this log is
 /// looking for: the session was pinned by hand, and something moved it anyway (SessionSwitch.swift).
+/// It keeps the mover's own tag behind the prefix rather than flattening every clearance into one
+/// word: a cap still reads `pin-cleared-cap`, which is what is on disk and in every grep written
+/// against it, and the preventive movers a spent account releases (DroughtWatch.swift) name
+/// themselves the same way - the question the log is consulted for is which move took the pin.
 func handoffReason(_ planReason: String, pinCleared: Bool) -> String {
-    if pinCleared { return "pin-cleared-cap" }
+    if pinCleared { return "pin-cleared-\(planReason)" }
     switch planReason {
     case "switch": return "manual-switch"
     case "cap": return "cap-handoff"

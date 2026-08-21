@@ -54,6 +54,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   tests/supervisor/agentrosterchecks.swift \
   tests/supervisor/turnendchecks.swift \
   tests/supervisor/steeringoffchecks.swift tests/supervisor/turnboundarychecks.swift \
+  tests/supervisor/droughtchecks.swift \
   tests/supervisor/terminaljumpchecks.swift \
   tests/supervisor/sessioninputchecks.swift tests/supervisor/sessionsendchecks.swift \
   tests/supervisor/sessionclearchecks.swift tests/supervisor/draftstashchecks.swift \
@@ -80,7 +81,7 @@ swiftc -o "$out" tests/supervisor/main.swift tests/supervisor/reloadchecks.swift
   Tally/Core/ArtifactHookContract.swift TallyCLI/Reload.swift \
   TallyCLI/ReloadRequest.swift TallyCLI/SelfUpdate.swift TallyCLI/AccountComfort.swift \
   TallyCLI/Rebalance.swift TallyCLI/MoveField.swift TallyCLI/WindowRepick.swift TallyCLI/WindowRepickWindow.swift TallyCLI/SafeguardDrift.swift TallyCLI/ModelDegradation.swift \
-  TallyCLI/AutoSteering.swift TallyCLI/TurnBoundaryMove.swift \
+  TallyCLI/AutoSteering.swift TallyCLI/TurnBoundaryMove.swift TallyCLI/DroughtWatch.swift \
   TallyCLI/KeyboardIdle.swift TallyCLI/OpenTurn.swift TallyCLI/ProviderExecutable.swift \
   TallyCLI/TerminalHandover.swift \
   TallyCLI/PendingNotice.swift TallyCLI/SessionState.swift TallyCLI/UserNotice.swift TallyCLI/SessionTurnEnd.swift TallyCLI/HookNotify.swift TallyCLI/AgentRoster.swift TallyCLI/HookAgents.swift TallyCLI/SessionStateSync.swift TallyCLI/FollowAdoption.swift TallyCLI/StandDown.swift \

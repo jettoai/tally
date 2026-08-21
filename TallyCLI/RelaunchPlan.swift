@@ -57,6 +57,34 @@ struct RelaunchPlan {
     var fresh = false
 }
 
+/// The audit tag a turn-boundary move is logged under, and the reason it is not `rebalance`: the two
+/// are measured against each other (does moving at a turn boundary reach the sessions the idle bar
+/// never does?), and a shared tag would make that question unanswerable from the log.
+///
+/// HERE rather than beside the mover, with the other things every relaunch's tag is read by: the
+/// pin-clearing list below names it, and that list is read by suites which compile the plan without
+/// compiling a mover (the status line's, the worktree's). A tag written out twice is the drift this
+/// file exists to prevent.
+let turnBoundaryReason = "turn-boundary"
+
+/// The relaunch reasons that can be planned for a session carrying a pin of its own: the cap
+/// handoff, and the four preventive movers a spent account releases (Rebalance.swift,
+/// WindowRepick.swift, TurnBoundaryMove.swift, ModelDegradation.swift). Each of them ENDS the pin
+/// when it fires, which is what `pinCleared(by:)` uses this for.
+///
+/// Everything else on the list of reasons is either a same-account relaunch (`fallback`,
+/// `cap-fallback`, `reload`, `self-update`, `safeguard`) or a move the user asked for by hand
+/// (`switch`, `pin`), and neither kind ends a pin: the first does not move the session at all, and
+/// the second IS the instruction rather than something overriding it.
+///
+/// MEMBERSHIP DOES NOT PERMIT ANYTHING, which is the one thing to understand before adding to it.
+/// What lets a preventive mover plan a relaunch for a pinned session is the pin being RELEASED by
+/// the account having nothing left (DroughtWatch.swift); unreleased, none of the four can plan
+/// anything at all while a pin stands (`sessionPolicy`). This list only has to recognise the moves
+/// that release can produce.
+let pinPassingReasons: Set<String> = ["cap", "rebalance", "window-repick", turnBoundaryReason,
+                                      "degraded"]
+
 /// The tick's relaunch, handed to a station that may only ADD to it.
 ///
 /// `plan` is readable everywhere and writable only from this file, so a station holding one of these

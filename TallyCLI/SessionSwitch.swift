@@ -30,11 +30,17 @@ import Foundation
 // poll loop AS a pin (`sessionPolicy` below) - so every gate that already yields to a pinned
 // account yields to this one without being taught anything new.
 //
-// TWO WAYS OUT, and only two. `tally switch --auto` releases it, which is the user changing their
-// mind. And a hard cap moves the session anyway, because a pinned session that cannot answer is
-// worse than one that moved: that handoff CLEARS the pin and says so (`pinClearedByCap`), so the
-// session does not silently drift back later. A nearly dry account is not a cap and does not
-// qualify - the whole point of naming an account is that its quota is the user's business.
+// THREE WAYS OUT, and only three. `tally switch --auto` releases it, which is the user changing
+// their mind. A hard cap moves the session anyway, because a pinned session that cannot answer is
+// worse than one that moved. And the account running out ENTIRELY releases it to the preventive
+// movers, which is the same sentence one step earlier: a pin names the account this conversation
+// belongs on, not an instruction to sit on an empty one (DroughtWatch.swift, 2026-08-21). All
+// three that MOVE the session clear the pin and say so (`pinCleared(by:)`), so it does not
+// silently drift back later.
+//
+// A NEARLY DRY ACCOUNT IS STILL NOT ONE OF THEM. The release is drawn at no effective remaining at
+// all (`accountIsSpent`), never at the 5% line the movers draw for everyone else: 1% is an account
+// that can still serve the turn the user pinned it for, and its quota is their business.
 //
 // "This project always runs on that account" is still a different instruction with a home of its
 // own, `tally project set --account`: this one dies with the session, that one outlives it.
@@ -76,7 +82,13 @@ let manualMoveIdleSeconds = reloadNowIdleSeconds
 /// THE ONE READER THAT MUST NOT USE THIS is the cap handoff, which is asked against the fleet's
 /// policy through `capReading` (CapDetection.swift, beside the handoff that is its only caller): a
 /// capped session that cannot answer is worse than one that moved, so the cap is allowed past and
-/// takes the pin with it (`pinClearedByCap`).
+/// takes the pin with it (`pinCleared(by:)`).
+///
+/// AND THE `manual` IT RETURNS IS RELEASED AGAIN when the account it names has nothing left at all,
+/// by the caller rather than here (`pinReleasedPolicy`, DroughtWatch.swift): what this function
+/// expresses is the pin, and what that one expresses is the one state in which a pin protects
+/// nothing. Kept apart so this stays the single answer to "is this session pinned", which is what
+/// every gate downstream is really asking.
 func sessionPolicy(_ policy: LaunchPolicy, sessionPin: String?) -> LaunchPolicy {
     guard let sessionPin else { return policy }
     var pinned = policy
@@ -396,7 +408,9 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
 
 /// Live pin switch: pinning another account in the Tally panel moves the RUNNING session there. An
 /// explicit human act, so no fuse; the pinned account is used even when capped (that is what pinning
-/// means). Waits for a quiet transcript so an in-flight response is never cut mid-stream (the next
+/// means). It stands down while that account is SPENT, because the caller hands it a released
+/// policy then (DroughtWatch.swift): without that, a mover carrying the session off an empty
+/// account and this dragging it back is a restart loop for the length of the drought. Waits for a quiet transcript so an in-flight response is never cut mid-stream (the next
 /// 2s poll retries) and a quiet keyboard so a prompt being typed survives too; both default to the
 /// same 5s bar.
 ///

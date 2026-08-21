@@ -77,8 +77,13 @@ expect(repeated.observe(account: "A", cycle: "100", remaining: 12, now: now), "t
 repeated.spend()
 expect(!repeated.observe(account: "A", cycle: "100", remaining: 11, now: now.addingTimeInterval(60)),
        "the same drought is not announced twice")
-expect(!repeated.observe(account: "A", cycle: "100", remaining: 2, now: now.addingTimeInterval(600)),
-       "and it stays quiet as the same window drains further")
+// …until it drains past the NEXT rung, which is a different fact about the same drought rather than
+// a repeat of the old one (section 2c below is what that is for).
+expect(repeated.observe(account: "A", cycle: "100", remaining: 2, now: now.addingTimeInterval(600)),
+       "crossing the 5% line inside the same drought is news of its own")
+repeated.spend()
+expect(!repeated.observe(account: "A", cycle: "100", remaining: 1, now: now.addingTimeInterval(660)),
+       "and it stays quiet as the same window drains further inside that rung")
 
 // The gap between the two lines is what stops an account hovering at the threshold from talking.
 expect(!repeated.observe(account: "A", cycle: "100", remaining: quotaKnockRearmPercent,
@@ -119,6 +124,81 @@ expect(unkeyed.observe(account: "A", cycle: nil, remaining: 4, now: now),
 unkeyed.spend()
 expect(!unkeyed.observe(account: "A", cycle: nil, remaining: 4, now: now.addingTimeInterval(600)),
        "and only one")
+
+// MARK: - 2c. The ladder: 15%, 5%, and the wall
+
+// THE INCIDENT THIS SECTION IS THE REGRESSION FOR (2026-08-21). One sentence per drought meant one
+// sentence per WINDOW CYCLE, and a weekly cycle is a week: an account was announced at 15% at
+// 18:04, crossed 5% three hours later and hit zero nine hours after that, and the arm had been
+// spent by the first of those. Eleven hours and seventeen minutes after the only thing anybody was
+// told, a session rode it into a 429. Each rung is now its own piece of news.
+expect(quotaKnockStep(80) == nil, "a healthy account is on no rung of the ladder")
+expect(quotaKnockStep(quotaKnockPercent) == quotaKnockPercent,
+       "exactly on the first line is under it, the rule every threshold here follows")
+expect(quotaKnockStep(6) == quotaKnockPercent, "and stays on that rung until the next line")
+expect(quotaKnockStep(nearlyDryPercent) == nearlyDryPercent,
+       "the second rung is the 5% line every mover already draws, not a number of this file's own")
+expect(quotaKnockStep(0.5) == nearlyDryPercent, "…which holds until there is nothing left at all")
+expect(quotaKnockStep(0) == 0, "and zero is a rung, because it is the reading that says the next "
+           + "turn is the one that fails")
+expect(quotaKnockSteps == [quotaKnockPercent, nearlyDryPercent, 0],
+       "three rungs, descending, each of them a line this repo already draws")
+
+var ladder = QuotaKnockState(forced: false)
+expect(ladder.observe(account: "A", cycle: "100", remaining: 14, now: now),
+       "the runway rung is announced")
+expect(ladder.owed == quotaKnockPercent, "…and the sentence is told which rung it is for")
+ladder.spend()
+expect(!ladder.observe(account: "A", cycle: "100", remaining: 9, now: now.addingTimeInterval(60)),
+       "draining inside that rung says nothing")
+expect(ladder.observe(account: "A", cycle: "100", remaining: 4, now: now.addingTimeInterval(120)),
+       "the nearly-dry rung is a second sentence in the same drought")
+ladder.spend()
+expect(!ladder.observe(account: "A", cycle: "100", remaining: 3, now: now.addingTimeInterval(180)),
+       "…once")
+expect(ladder.observe(account: "A", cycle: "100", remaining: 0, now: now.addingTimeInterval(240)),
+       "and the wall itself is the third, which is the one the incident never sent")
+expect(ladder.owed == 0, "…named as the bottom rung, so the sentence can carry the command")
+ladder.spend()
+expect(!ladder.observe(account: "A", cycle: "100", remaining: 0, now: now.addingTimeInterval(300)),
+       "past which there is nothing lower to say")
+
+// The eleven-hour shape itself: an account announced at 15% and then left to drain to zero inside
+// ONE cycle, which is exactly what the old Bool swallowed.
+var slide = QuotaKnockState(forced: false)
+_ = slide.observe(account: "A", cycle: "100", remaining: 14, now: now)
+slide.spend()
+expect(slide.observe(account: "A", cycle: "100", remaining: 0, now: now.addingTimeInterval(40_620)),
+       "a window that empties eleven hours into the drought it was announced in still says so")
+
+// Going back UP inside the cycle is not news, and does not re-arm the rung below: only the 30%
+// recovery starts the ladder over, which is the hysteresis the file already had.
+var bouncing = QuotaKnockState(forced: false)
+_ = bouncing.observe(account: "A", cycle: "100", remaining: 4, now: now)
+bouncing.spend()
+expect(!bouncing.observe(account: "A", cycle: "100", remaining: 12, now: now.addingTimeInterval(60)),
+       "climbing back onto a rung already announced says nothing")
+expect(!bouncing.observe(account: "A", cycle: "100", remaining: 4, now: now.addingTimeInterval(120)),
+       "…and dropping onto it again is the same rung, not a new one")
+expect(bouncing.observe(account: "A", cycle: "100", remaining: 0, now: now.addingTimeInterval(180)),
+       "the rung BELOW it is still news, which is the whole ladder")
+var refilled = QuotaKnockState(forced: false)
+_ = refilled.observe(account: "A", cycle: "100", remaining: 2, now: now)
+refilled.spend()
+_ = refilled.observe(account: "A", cycle: "100", remaining: quotaKnockRearmPercent + 0.1,
+                     now: now.addingTimeInterval(60))
+expect(refilled.observe(account: "A", cycle: "100", remaining: 12, now: now.addingTimeInterval(120)),
+       "a real recovery re-arms the whole ladder, top rung included")
+
+// A forced knock owes no rung, and must not spend one: what that development flag forces is the
+// moment, never the content.
+var forcedLadder = QuotaKnockState(forced: true)
+_ = forcedLadder.observe(account: "A", cycle: "100", remaining: 90, now: now)
+expect(forcedLadder.owed == nil, "a healthy account owes no rung even to a forced knock")
+forcedLadder.spend()
+expect(forcedLadder.observe(account: "A", cycle: "100", remaining: 12,
+                            now: now.addingTimeInterval(60)),
+       "…so the runway rung is still there to be announced afterwards")
 
 // MARK: - 2b. The account the flag belongs to
 
@@ -209,6 +289,60 @@ let nowhere = line(alternative: nil)
 expect(nowhere.contains("No account has headroom; consider pausing until the reset."),
        "with nothing comfortable anywhere the advice is the other one")
 expect(!nowhere.contains("Best alternative"), "…and no account is named")
+
+// MARK: - 4a. The bottom rung says something else, and hands over a command
+
+// The session reading this is the one thing on the machine that can still act: every mover has
+// already declined, or the account would not be empty underneath it. So the sentence stops
+// describing and starts instructing (2026-08-21).
+let spent = account("A", label: "Claude", session: 0)
+let atWall = quotaKnockMessage(account: spent, alternative: healthy, sessions: 3,
+                              primaryModel: "fable", limit: 200, step: 0, now: now) ?? "<nothing>"
+expect(atWall.hasPrefix("[tally] account Claude is out of quota: session 0%"),
+       "an empty account is not 'running low', which is what it was told three hours earlier")
+expect(atWall.contains("Run `tally account \"Claude 2\"` to move this session."),
+       "and the advice is the exact line that answers it, not a direction to work out")
+expect(!atWall.contains("Best alternative"),
+       "…which replaces that clause rather than joining it: it names the same account")
+expect(atWall.utf8.count <= 200,
+       "and it fits the channel's budget (\(atWall.utf8.count) bytes)")
+let stillLow = quotaKnockMessage(account: dying, alternative: healthy, sessions: 3,
+                                 primaryModel: "fable", limit: 200, step: quotaKnockPercent,
+                                 now: now) ?? "<nothing>"
+expect(stillLow == full,
+       "every rung above the wall says exactly what it always said")
+expect(quotaKnockMessage(account: dying, alternative: healthy, sessions: 3, primaryModel: "fable",
+                         limit: 200, now: now) == full,
+       "…and a caller that names no rung at all gets that same sentence")
+// A NAME WITH A SPACE IS ONE ARGUMENT, and this is the one place in the sentence that is meant to
+// be executed: `tally account Claude 2` is two arguments and resolves nothing.
+expect(atWall.contains("`tally account \"Claude 2\"`") || atWall.contains("`tally account Claude 2`"),
+       "the command names the account it moves to")
+let spaced = account("S", label: "Claude 2", session: 80)
+let quoted = quotaKnockMessage(account: spent, alternative: spaced, sessions: 1,
+                               primaryModel: "fable", limit: 200, step: 0, now: now) ?? ""
+expect(quoted.contains("`tally account \"Claude 2\"`"),
+       "…quoted when it carries a space, so the line can be run as it stands")
+let plain = account("P", label: "work", session: 80)
+let unquoted = quotaKnockMessage(account: spent, alternative: plain, sessions: 1,
+                                 primaryModel: "fable", limit: 200, step: 0, now: now) ?? ""
+expect(unquoted.contains("`tally account work`"), "and left alone when it does not")
+// Nothing to move to is the other instruction, at the wall as everywhere else: moving onto an
+// equally spent account buys minutes and costs a restart.
+let strandedAtWall = quotaKnockMessage(account: spent, alternative: nil, sessions: 1,
+                                       primaryModel: "fable", limit: 200, step: 0, now: now) ?? ""
+expect(strandedAtWall.contains("No account has headroom; consider pausing until the reset."),
+       "with nowhere to go the wall gives the advice it can rather than a command that fails")
+expect(!strandedAtWall.contains("tally account"), "…and names no command at all")
+// The budget is a guarantee at this rung too, which is what the measurement is for: two absurd
+// labels and a command clause still cannot push the line past the channel's limit.
+let wideWall = quotaKnockMessage(
+    account: account("W", label: String(repeating: "🙂", count: 24), session: 0),
+    alternative: account("L", label: String(repeating: "Very Long Account Label ", count: 4),
+                         session: 80),
+    sessions: 2, primaryModel: "fable", limit: 200, step: 0, now: now) ?? ""
+expect(wideWall.utf8.count <= 200,
+       "the bottom rung is bounded by measurement like every other form (\(wideWall.utf8.count) bytes)")
 
 // MARK: - 4b. The budget, which is bytes and is a guarantee
 

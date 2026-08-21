@@ -134,18 +134,24 @@ struct ManualMoveState {
 
     func pinOverridden(_ pinnedAccountID: String) -> Bool { pinnedAccountID == overriddenPin }
 
-    /// A relaunch is about to happen for `reason`: whether it is the one move allowed past the
-    /// session pin, which therefore ends it. True exactly once per pin, and the pin is gone by the
-    /// time this returns - the caller's only job is to SAY so (`sessionPinClearedByCapNotice`) and
-    /// to name the audit line accordingly.
+    /// A relaunch is about to happen for `reason`: whether it is a move allowed past the session
+    /// pin, which therefore ends it. True exactly once per pin, and the pin is gone by the time this
+    /// returns - the caller's only job is to SAY so (`sessionPinClearedNotice`) and to name the
+    /// audit line accordingly.
     ///
-    /// The cap alone. Every other automatic mover is prevented from planning anything at all while
-    /// a pin stands (`sessionPolicy`), so nothing else can reach here holding one; a cap can,
-    /// because a session that cannot answer is worse than a session that moved. Clearing rather
-    /// than remembering is what stops the pin from dragging the conversation back to a capped
-    /// account on the next quiet tick.
-    mutating func pinClearedByCap(_ reason: String) -> Bool {
-        guard reason == "cap", sessionPin != nil else { return false }
+    /// TWO WAYS A MOVE GETS HERE, and they are one rule rather than two. A cap arrives holding a
+    /// pin because a session that cannot answer is worse than one that moved. A preventive mover
+    /// arrives holding one only when the account under the session was SPENT, because that is the
+    /// only state in which the pin is released to it at all (DroughtWatch.swift): released, the
+    /// policy every mover is judged by reads `auto`, and unreleased not one of them can plan
+    /// anything while a pin stands (`sessionPolicy`). So membership of the list below is not what
+    /// permits the move - the release is - and this only has to recognise the moves the release can
+    /// produce.
+    ///
+    /// Clearing rather than remembering is what stops the pin from dragging the conversation back
+    /// onto the account it was just carried off, on the next quiet tick.
+    mutating func pinCleared(by reason: String) -> Bool {
+        guard sessionPin != nil, pinPassingReasons.contains(reason) else { return false }
         sessionPin = nil
         return true
     }
@@ -157,11 +163,23 @@ struct ManualMoveState {
 /// has already seen on their status line, so it is not free to change casually.
 let switchCancelledBadge = "switch: account removed"
 
-/// What the user is told when a cap takes a pinned session anyway. A constant because it is the one
-/// sentence tying the two halves of that decision together (the move happened, the pin is gone), and
-/// a copy of it drifting in a test would assert nothing.
-let sessionPinClearedByCapNotice =
-    "session pin cleared (cap hit); re-pin with `tally account <account>` once quota is back"
+/// What the user is told when a move takes a pinned session anyway: the one sentence tying the two
+/// halves of that decision together (the move happened, the pin is gone), with the half that
+/// differs between them said out loud.
+///
+/// A CAP AND A DROUGHT ARE NOT THE SAME NEWS, which is the whole reason this takes the reason. A cap
+/// is a wall the session just hit and can be back from within the hour; a preventive move happens
+/// because the account has nothing left at all, which is the thing a reader would otherwise go
+/// looking for. The rest of the sentence is identical, including the way back, because the way back
+/// is identical.
+func sessionPinClearedNotice(reason: String) -> String {
+    let why = reason == "cap" ? "cap hit" : "account out of quota"
+    return "session pin cleared (\(why)); re-pin with `tally account <account>` once quota is back"
+}
+
+/// The cap's own wording, named because it is the sentence a user has already seen on their
+/// terminal and the one a test pins. Derived rather than copied, so the two cannot drift.
+let sessionPinClearedByCapNotice = sessionPinClearedNotice(reason: "cap")
 
 /// The bookkeeping a PLANNED switch owes, carried from the decision to the execution point and
 /// written only once the relaunch is certain.

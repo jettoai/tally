@@ -160,7 +160,9 @@ func projectPolicy(_ providerID: String,
 /// "this fleet runs on that account" are the same instruction at different scopes, and expressing it
 /// as the pin the whole CLI already understands is what makes every consequence follow for free -
 /// the pin is launched even when it is dry, `tally status` marks it, the supervisor stays resident
-/// but stops handing the session off, and the degradation rescue leaves the account alone. The
+/// but stops handing the session off, and the degradation rescue leaves the account alone. All of
+/// which holds until the account has nothing left at all, where the supervisor releases it for the
+/// same reason it releases a session's own pin (DroughtWatch.swift). The
 /// denormalized `pinnedHome` is dropped with it: that fallback exists for a pin the APP wrote
 /// alongside a home it had just seen, and carrying the app's home under a different account's id
 /// would launch the wrong config dir. Without it a project pin whose account is missing from the

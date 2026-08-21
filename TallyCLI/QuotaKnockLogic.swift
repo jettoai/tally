@@ -33,7 +33,7 @@ import Foundation
 /// session to wrap up over one would be advice against the user's own interest.
 let quotaKnockPercent = 15.0
 
-/// Back above this inside the same cycle and the knock re-arms.
+/// Back above this inside the same cycle and the whole ladder below re-arms.
 ///
 /// The shape `ResetHintLogic` uses (5 to fire, 30 to re-arm) rather than a second hysteresis of its
 /// own. A window that has climbed back over 30% is not the drought that was announced, and the next
@@ -41,6 +41,35 @@ let quotaKnockPercent = 15.0
 /// lines nothing changes, which is the whole point of the gap: an account hovering at 14% and 16%
 /// says its sentence once.
 let quotaKnockRearmPercent = 30.0
+
+/// THE LADDER: the three readings worth a sentence of their own, descending.
+///
+/// One sentence per DROUGHT was the shape until 2026-08-21, and the incident that day is what it
+/// costs. An account crossed 15% at 18:04 and was announced; it crossed 5% three hours later and
+/// hit zero nine hours after that, and because all three readings belong to one window cycle the
+/// arm stayed spent through every one of them. Eleven hours and seventeen minutes after the only
+/// thing anybody was told, a session rode that account into a 429. The re-arm was written for an
+/// account HOVERING at the line, which is a real thing to protect against; it also silenced the one
+/// direction that is always news.
+///
+/// So a step is announced once and a LOWER one is announced again. The three are the lines this
+/// repo already draws rather than three new numbers: 15% is the runway (`quotaKnockPercent`), 5% is
+/// the line every mover treats as dying (`nearlyDryPercent`, AccountComfort.swift), and 0 is the
+/// wall itself - which is worth a sentence of its own precisely because it is the reading that says
+/// "your next turn is the one that fails".
+///
+/// Going back UP never says anything: only crossing a lower line does, and the 30% re-arm above is
+/// what starts the ladder over. An account that drifts between 6% and 4% says its second sentence
+/// once, on the same reasoning the gap was written for.
+let quotaKnockSteps: [Double] = [quotaKnockPercent, nearlyDryPercent, 0]
+
+/// Which rung a reading has reached: the LOWEST line it is at or under, or nil above all of them.
+///
+/// At or under, the rule every threshold in this repo follows, which is what makes zero a rung
+/// rather than an unreachable one: a spent window reports exactly 0.
+func quotaKnockStep(_ remaining: Double) -> Double? {
+    quotaKnockSteps.last { remaining <= $0 }
+}
 
 /// How often the reading behind this is taken at all.
 ///
@@ -112,8 +141,13 @@ struct QuotaKnockState: Equatable {
     private(set) var accountID: String?
     /// The drought the flag below belongs to, keyed as the rebalance keys its claim.
     private(set) var cycleKey: String?
-    /// Whether this drought's sentence has been sent.
-    private(set) var fired = false
+    /// The lowest rung of the ladder this drought has been told about, or nil when nothing has been
+    /// said yet (`quotaKnockSteps`). It replaced a Bool on 2026-08-21: what the Bool could not
+    /// express is that the same drought has three things worth saying at three different depths.
+    private(set) var announced: Double?
+    /// The rung the last reading says is owed, spent by `spend()`. Held rather than returned so the
+    /// sending side can tell the sentence WHICH reading it is for without taking a second one.
+    private(set) var owed: Double?
     /// When the reading was last taken, which is what `quotaKnockInterval` is measured from.
     private(set) var checkedAt: Date?
     /// The one forced knock a development flag asks for, spent by the first one that is sent.
@@ -152,23 +186,39 @@ struct QuotaKnockState: Equatable {
     /// A DIFFERENT ACCOUNT IS ALWAYS A FRESH START, asked before the cycle and independently of it:
     /// the account is what the sentence is ABOUT, so a flag raised for one account says nothing
     /// about another whatever their reset times happen to look like (see `accountID`).
+    ///
+    /// WHAT IS OWED IS A RUNG BEING CROSSED, not a line being under: a reading owes a sentence when
+    /// it has reached a step of the ladder LOWER than the deepest one this drought has already been
+    /// told about (`quotaKnockSteps`). One reading of the same rung says nothing however many times
+    /// it is taken, which is the "advisory rather than nag" property the Bool had; a reading a rung
+    /// deeper says something, which is the property it did not.
     mutating func observe(account: String, cycle: String?, remaining: Double, now: Date) -> Bool {
         noteChecked(now: now)
-        if account != accountID || !quotaKnockSameCycle(cycleKey, cycle) { fired = false }
+        if account != accountID || !quotaKnockSameCycle(cycleKey, cycle) { announced = nil }
         accountID = account
         cycleKey = cycle
-        if remaining > quotaKnockRearmPercent { fired = false }
-        return remaining <= quotaKnockPercent && !fired
+        if remaining > quotaKnockRearmPercent { announced = nil }
+        guard let step = quotaKnockStep(remaining), announced.map({ step < $0 }) ?? true else {
+            owed = nil
+            return false
+        }
+        owed = step
+        return true
     }
 
-    /// The sentence is on its way: this drought is spoken for, and a forced knock is spent.
+    /// The sentence is on its way: this rung is spoken for, and a forced knock is spent.
     ///
     /// Called when the injection is ATTEMPTED rather than when it succeeds, the rule
     /// `applySessionInput` states about its own served stamp: by then the bytes are on the terminal
     /// or the write has failed, and the failure that repeats every tick is the one that would
     /// re-type the line into the conversation that already has it.
+    ///
+    /// A FORCED knock with nothing owed leaves the ladder exactly where it was, which is what that
+    /// development flag promises: it forces the MOMENT, never the content, so it must not consume a
+    /// rung the account has not reached.
     mutating func spend() {
-        fired = true
+        if let owed { announced = owed }
+        owed = nil
         forced = false
     }
 }
@@ -269,23 +319,58 @@ private func quotaKnockSessionsClause(_ sessions: Int) -> String {
 ///    name is published by the provider and nothing here bounds it, so a form built out of one is
 ///    not something to reason about, only something to measure.
 func quotaKnockMessage(account: Snapshot.Account, alternative: Snapshot.Account?, sessions: Int,
-                       primaryModel: String?, limit: Int, now: Date = Date()) -> String? {
+                       primaryModel: String?, limit: Int, step: Double? = nil,
+                       now: Date = Date()) -> String? {
     guard let binding = bindingWindow(account, primaryModel: primaryModel, now: now) else {
         return nil
     }
-    let head = "[tally] account \(quotaKnockName(account)) is running low: "
+    // THE BOTTOM RUNG IS DIFFERENT NEWS AND SAYS SO. "Running low" is a description of a window
+    // with runway left in it; at zero there is none, the next turn is the one that hits the wall,
+    // and a reader who has already been told this account is running low would read a second copy
+    // of that sentence as the same news repeated (2026-08-21).
+    let atTheWall = (step ?? quotaKnockPercent) <= 0
+    let head = "[tally] account \(quotaKnockName(account)) is "
+        + (atTheWall ? "out of quota: " : "running low: ")
         + windowReason(binding, now: now) + quotaKnockSessionsClause(sessions) + "."
     // Nothing comfortable anywhere is a different instruction, and it is the honest one: moving to
     // an equally spent account buys minutes and costs a restart, which is the same answer
     // `capHandoffTarget` gives by returning nothing.
-    let advice = alternative == nil
-        ? " No account has headroom; consider pausing until the reset."
-        : " Wrap up and switch accounts, or wait for the reset."
+    //
+    // AND AT THE WALL THE ADVICE IS A COMMAND RATHER THAN A SUGGESTION. The session reading this is
+    // the one thing on the machine that can still act - every mover has already declined or it
+    // would not be here - so the sentence hands it the exact line to run instead of a direction to
+    // work out for itself. It replaces the "best alternative" clause rather than joining it: that
+    // clause names the same account, and the reason behind the pick is detail a session about to
+    // hit a wall cannot spend bytes on.
+    let advice: String
+    if let alternative, atTheWall {
+        advice = " Run `tally account \(quotaKnockCommandName(quotaKnockName(alternative)))`"
+            + " to move this session."
+    } else if alternative == nil {
+        advice = " No account has headroom; consider pausing until the reset."
+    } else {
+        advice = " Wrap up and switch accounts, or wait for the reset."
+    }
     let short = head + advice
-    let full = alternative.map {
+    let full = atTheWall ? nil : alternative.map {
         head + " Best alternative: \(quotaKnockName($0)) "
             + "(\(pickReason($0, primaryModel: primaryModel, now: now)))." + advice
     }
     return [full, short].compactMap { $0 }.first { $0.utf8.count <= limit }
         ?? quotaKnockClipped(short, bytes: limit)
+}
+
+/// An account name as a shell ARGUMENT rather than as prose: quoted when it carries a space, which
+/// the labels on this fleet do ("Claude 2").
+///
+/// The one place the sentence asks to be executed rather than read, so it is the one place the
+/// difference matters: `tally account Claude 2` is two arguments and resolves nothing.
+///
+/// THE RESIDUAL, which this shares with the "best alternative" clause it replaces: a label longer
+/// than `quotaKnockLabelBytes` arrives here already clipped, and a clipped name is not one
+/// `tally account` matches. Nothing here can undo that - the budget is what keeps the line inside
+/// the channel - and the reader is left with a name that reads right and a command that says which
+/// verb they want.
+private func quotaKnockCommandName(_ name: String) -> String {
+    name.contains(" ") ? "\"\(name)\"" : name
 }

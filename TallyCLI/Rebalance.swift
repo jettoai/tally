@@ -356,7 +356,9 @@ func rebalanceAllowedForSession(steering: Bool, mode: String, blocked: Bool, age
 ///  - `steering`: the fleet is not set to observe only, where Tally may not pick an account for a
 ///    running session at all (AutoSteering.swift).
 ///  - `mode`: manual means the user pinned this account. Pinning is a statement about where the
-///    session runs, so a pinned session is never moved by quota reasoning, dying account or not.
+///    session runs, so a pinned session is not moved by quota reasoning, dying account or not -
+///    until the account has NOTHING left, where the caller hands this gate a released reading
+///    (DroughtWatch.swift) and the move that follows clears the pin.
 ///  - `blocked`: a PERSON is being waited for (a permission request, a plan approval, a question) -
 ///    `SessionTick.waitingOnPerson`, never the board's `blocked`, which also covers the soft
 ///    `idle_prompt` every idle session carries. A relaunch answers that prompt by destroying it;

@@ -211,7 +211,9 @@ func capFallbackInPlace(policy: LaunchPolicy, account: Snapshot.Account, primary
 /// The three answers, in the order they are decided:
 ///
 ///  - No session pin: nothing here applies, and the fleet's own mode decides exactly as it always
-///    has (a fleet-pinned session waits; staying put is what pinning means).
+///    has (a fleet-pinned session waits; staying put is what pinning means). What arrives as
+///    `fleet` is the RELEASED reading, so a project profile's pin over an account with nothing left
+///    reads as `auto` here and the cap can rescue the session (DroughtWatch.swift, 2026-08-21).
 ///  - A session pin, and no fleet pin under it: the cap goes ahead and picks for itself, which is
 ///    what would have decided for this session if it had never been pinned.
 ///  - A session pin over a FLEET pin: the cap goes ahead only if the fleet's account is one of the

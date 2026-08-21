@@ -17,7 +17,8 @@ import Foundation
 
 /// Move the conversation to a sibling whose flagship window still has real room, KEEPING the model
 /// this session was launched for: the flagship-first response to a quota degradation. Not for
-/// pinned sessions (a pin means "this account"), and under the same fuse as every automatic
+/// pinned sessions (a pin means "this account", until the account is spent and the caller hands
+/// this a released policy: DroughtWatch.swift), and under the same fuse as every automatic
 /// recovery.
 ///
 /// `primaryModel` is what THIS session is expected to run, which is not always the configured

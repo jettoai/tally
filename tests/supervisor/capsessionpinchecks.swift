@@ -33,22 +33,44 @@ func runCapSessionPinChecks() {
     // MARK: - 31k. The cap is the one way out that nobody asked for
 
     var capped = ManualMoveState(sessionKey: "cap", servedEpoch: 0, sessionPin: "D")
-    check("a rebalance never reaches the pin", !capped.pinClearedByCap("rebalance"))
-    check("nor does a reload restart", !capped.pinClearedByCap("reload"))
+    check("a reload restart never reaches the pin", !capped.pinCleared(by: "reload"))
+    check("nor does the pairing a cap answers in place", !capped.pinCleared(by: "cap-fallback"))
+    check("nor a self-update, a safeguard restore or a fallback profile",
+          !capped.pinCleared(by: "self-update") && !capped.pinCleared(by: "safeguard")
+              && !capped.pinCleared(by: "fallback"))
+    check("and neither does the move the user asked for by hand",
+          !capped.pinCleared(by: "switch") && !capped.pinCleared(by: "pin"))
     check("and the pin is still there afterwards", capped.sessionPin == "D")
-    check("a cap handoff clears it", capped.pinClearedByCap("cap"))
+    check("a cap handoff clears it", capped.pinCleared(by: "cap"))
     check("…so the session is not dragged back to a capped account", capped.sessionPin == nil)
-    check("and it is only news once", !capped.pinClearedByCap("cap"))
+    check("and it is only news once", !capped.pinCleared(by: "cap"))
     var unpinned = ManualMoveState(sessionKey: "cap", servedEpoch: 0)
     check("an unpinned session's cap handoff is not a pin clearance",
-          !unpinned.pinClearedByCap("cap"))
+          !unpinned.pinCleared(by: "cap"))
     check("the user is told how to get the pin back",
           sessionPinClearedByCapNotice.contains("tally account")
               && sessionPinClearedByCapNotice.contains("cap"))
 
+    // AND THE PREVENTIVE MOVERS REACH IT TOO, since 2026-08-21: they are released onto an account
+    // with nothing left (DroughtWatch.swift), and a move that happens has to end the pin for the
+    // same reason a cap's does - otherwise the pin switch drags the session straight back onto the
+    // account it was just carried off.
+    for reason in ["rebalance", "window-repick", turnBoundaryReason, "degraded"] {
+        var pinned = ManualMoveState(sessionKey: "cap", servedEpoch: 0, sessionPin: "D")
+        check("a \(reason) that got past the pin ends it",
+              pinned.pinCleared(by: reason) && pinned.sessionPin == nil)
+        check("…and says which kind of move took it",
+              handoffReason(reason, pinCleared: true) == "pin-cleared-\(reason)")
+    }
+    check("what a drought clears is not described as a cap", {
+        let said = sessionPinClearedNotice(reason: "rebalance")
+        return said.contains("out of quota") && !said.contains("cap hit")
+            && said.contains("tally account")
+    }())
+
     // …and the cap has to be able to REACH that clearance, which is the hole this section is really
     // about: with a project or panel pin already in force, asking `capRecoveryAction` about the
-    // session's own policy answers `.waitPinned` for ever, no plan is ever built, `pinClearedByCap`
+    // session's own policy answers `.waitPinned` for ever, no plan is ever built, `pinCleared(by:)`
     // is never called, and the session sits on a dry account it cannot work on (review, 2026-08-06).
     let capNow = Date(timeIntervalSince1970: 1_800_000_000)
     let capped0 = account("D", model: 0.5)      // where the session is, and where it just capped
@@ -114,7 +136,7 @@ func runCapSessionPinChecks() {
           bothPins.plan?.reason == "cap")
     var pinnedSession = ManualMoveState(sessionKey: "capped", servedEpoch: 0, sessionPin: "D")
     check("and that plan is what ends the session pin",
-          pinnedSession.pinClearedByCap(bothPins.plan?.reason ?? "")
+          pinnedSession.pinCleared(by: bothPins.plan?.reason ?? "")
               && pinnedSession.sessionPin == nil)
     check("which the log then names for what it was",
           handoffReason(bothPins.plan?.reason ?? "", pinCleared: true) == "pin-cleared-cap")
@@ -185,7 +207,7 @@ func runCapSessionPinChecks() {
           stayed.plan?.reason == "cap-fallback")
     var keptPin = ManualMoveState(sessionKey: "capped", servedEpoch: 0, sessionPin: "D")
     check("and the pin is still there afterwards, which is the whole point",
-          !keptPin.pinClearedByCap(stayed.plan?.reason ?? "") && keptPin.sessionPin == "D")
+          !keptPin.pinCleared(by: stayed.plan?.reason ?? "") && keptPin.sessionPin == "D")
     // Same account, so nothing here can burn through logins - the rule the fallback profile already
     // follows (ModelDegradation.swift).
     check("a stay-put relaunch never spends the recovery fuse", stayed.plan?.countsFuse == false)

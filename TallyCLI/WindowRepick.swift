@@ -269,7 +269,9 @@ func windowRepickReadiness(_ state: WindowRepickState, transcript: String?,
 /// the same reason, with ONE deliberate exception stated below:
 ///  - `steering`: the fleet is not set to observe only. A cleared window is free to move and still
 ///    nobody's to move when the launch policy says Tally never picks (AutoSteering.swift).
-///  - `mode`: a pinned session is where the user said it runs. Quota reasoning never overrides it.
+///  - `mode`: a pinned session is where the user said it runs, and quota reasoning does not
+///    override it - except on an account with nothing left at all, where the caller hands this a
+///    released reading (DroughtWatch.swift).
 ///  - `carryable`: whether moving this session can lose a conversation (`carryableSession`). A
 ///    cleared session is located by definition, so this is really only the `--print` refusal, and
 ///    it is asked anyway because a mover that has not thought about it is the bug itself.

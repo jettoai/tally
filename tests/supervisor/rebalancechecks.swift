@@ -172,10 +172,12 @@ func runRebalanceChecks() {
           target(agentsWorking: false, isQuiet: false) == nil)
     check("…while a quiet one still moves", target(agentsWorking: false, isQuiet: true)?.id == "B")
 
-    // A pin is a statement about WHERE the session runs, so quota reasoning never overrides it. The
-    // cap handoff already refuses to move a pinned session (`CapAction.waitPinned`); a convenience
-    // must not do what a repair will not.
-    check("a pinned session is never rebalanced", target(mode: "manual") == nil)
+    // A pin is a statement about WHERE the session runs, so quota reasoning does not override it:
+    // the cap handoff refuses to move a pinned session too (`CapAction.waitPinned`), and a
+    // convenience must not do what a repair will not. What reaches this gate as `auto` on an
+    // account with NOTHING left is the caller's doing rather than this table's - the release is one
+    // step up, where the pin is read (DroughtWatch.swift, and droughtchecks.swift for the grid).
+    check("a pinned session is not rebalanced by this gate", target(mode: "manual") == nil)
 
     // Non-urgent by construction: this is a convenience, so it may never cost a keystroke or cut a
     // turn. The bar is the full "left alone" one (transcript, subagents, open tool call, keyboard).

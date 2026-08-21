@@ -52,10 +52,8 @@ import Foundation
 // place: two movers that disagreed about when the claim is required would let one of them hold a
 // session on a spent account precisely because the other had already left one.
 
-/// The audit tag a turn-boundary move is logged under, and the reason it is not `rebalance`: the
-/// two are measured against each other (does moving at a turn boundary reach the sessions the idle
-/// bar never does?), and a shared tag would make that question unanswerable from the log.
-let turnBoundaryReason = "turn-boundary"
+// The audit tag this mover is logged under is `turnBoundaryReason` (RelaunchPlan.swift), with the
+// other things every relaunch's tag is read by.
 
 /// What one supervised session remembers about turn boundaries it has already ruled on.
 ///
@@ -98,8 +96,9 @@ func turnBoundaryPending(_ state: TurnBoundaryState, event: SessionTurnEnd?) -> 
 /// and `turnBoundaryTarget` asks them again so the decision is complete on its own.
 ///
 ///  - `steering`: the fleet is not set to observe only (AutoSteering.swift).
-///  - `mode`: a pinned session runs where the user said it runs, and quota reasoning never
-///    overrides that - the same first gate every preventive mover holds.
+///  - `mode`: a pinned session runs where the user said it runs, and quota reasoning does not
+///    override that - the same first gate every preventive mover holds, released on the same terms
+///    as theirs once the account has nothing left (DroughtWatch.swift).
 ///  - `blocked`: a prompt is on screen (a permission request, a plan awaiting approval, a
 ///    question), and a relaunch would answer it by destroying it with no trace for the person who
 ///    was about to decide. The same row `sessionClearMovesAccounts` holds for the same reason, and

@@ -160,7 +160,7 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     // WHAT THE ARM SAID BEFORE THIS READING, kept for one comparison below: `observe` folds the
     // re-arm in and answers only whether the sentence is owed, so this is the one place that can
     // tell a re-arm from an announcement that was never made.
-    let announced = state.fired
+    let announced = state.announced != nil
     let owed = state.observe(
         account: field.current.id,
         cycle: rebalanceCycleKey(field.current, primaryModel: primaryModel, now: now),
@@ -172,7 +172,11 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
     // account this session has left, or a window that refilled. Unconditional because the file is
     // only ever there when this channel filed one: a machine that types costs one `unlink` that
     // answers ENOENT.
-    if announced && !state.fired { clearQuotaKnockNotice(pid: pid, dir: dir) }
+    //
+    // A DEEPER RUNG NEEDS NO TAKE-BACK, which is why this still asks the same question after the
+    // ladder (`quotaKnockSteps`): what supersedes a filed 15% sentence is the 0% one being filed
+    // over it, and `writeQuotaKnockNotice` replaces the file it writes.
+    if announced && state.announced == nil { clearQuotaKnockNotice(pid: pid, dir: dir) }
     guard owed || state.forced else { return nil }
     // WHICH CHANNEL, asked before the composer gate rather than after it, because the answer decides
     // whether that gate applies at all: it exists to keep keystrokes out of a composer somebody else
@@ -189,7 +193,12 @@ func applyQuotaKnock(_ state: inout QuotaKnockState, pid: String, provider: Stri
         alternative: capHandoffTarget(field.candidates, primaryModel: primaryModel,
                                       reserves: reserves, now: now),
         sessions: counting(field.current.id), primaryModel: primaryModel,
-        limit: sessionInputMaxBytes, now: now) else { return nil }
+        limit: sessionInputMaxBytes,
+        // WHICH RUNG THIS SENTENCE IS FOR, from the reading just folded in rather than re-derived
+        // here: the bottom one is different news and carries the command that answers it
+        // (`quotaKnockMessage`). A forced knock owes no rung and gets the ordinary sentence, which
+        // is what that flag promises - the moment is forced, never the content.
+        step: state.owed, now: now) else { return nil }
     // Spent BEFORE the write, the rule `applySessionInput` states about its served stamp: past this
     // line the bytes are on the terminal or the write has failed, and a failure that repeats every
     // reading is the one way this types the same sentence into a conversation twice. The filed

@@ -92,10 +92,12 @@ func bindingWindow(_ account: Snapshot.Account, primaryModel: String?,
 /// remaining at all, so there is no work left on it to be had. The far end of the same scale
 /// `accountIsComfortable` reads, beside it for that reason.
 ///
-/// ITS ONE READER IS THE REBALANCE CLAIM (Rebalance.swift), where a spent account is exempt from
-/// the one-move-per-drought record: what justifies refusing a move here is that the cap handoff
-/// will make it later, and a cap handoff needs a turn to hit a wall, which an idle session on an
-/// empty account never produces.
+/// TWO READERS. The rebalance claim (Rebalance.swift), where a spent account is exempt from the
+/// one-move-per-drought record: what justifies refusing a move there is that the cap handoff will
+/// make it later, and a cap handoff needs a turn to hit a wall, which an idle session on an empty
+/// account never produces. And the drought watch (DroughtWatch.swift), where the same reading is
+/// the one state in which a pin stops protecting anything - the same argument one scope up, since
+/// waiting for the cap is waiting for a turn to be lost.
 ///
 /// EFFECTIVE remaining, through the gate's own scale rather than a raw percentage, which is what
 /// keeps the exemption honest at both ends. A window minutes from resetting reads as FULL there, so

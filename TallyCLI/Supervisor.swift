@@ -133,6 +133,11 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
     /// drought this conversation has already heard about; a relaunch that moves accounts re-arms it
     /// by itself, because the new account's binding window is a different cycle.
     var quotaKnock = QuotaKnockState()
+    /// What this session knows about the account under it running out (DroughtWatch.swift owns the
+    /// rules): whether the pins over it still hold, and whether the one line a blocked drought
+    /// leaves has been written. Per session on the same terms as the arm above, and re-keyed by the
+    /// ACCOUNT rather than aged out, so a relaunch that moves reads the new account at once.
+    var drought = DroughtWatch()
     /// And HOW it is told: filed for this child's own hooks to deliver where they are registered and
     /// runnable, typed into the composer where they are not (QuotaKnockNotice.swift).
     ///
@@ -257,12 +262,13 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                 shareTranscript(carrying, toHome: target.launchHome!, slug: slug)
             }
 
-            // A hard cap is the one mover allowed past a session pin, and it ends it: said here,
+            // A hard cap is allowed past a session pin, and so is a preventive move off an account
+            // with nothing left (DroughtWatch.swift): either way the move ends the pin. Said here,
             // after the child is gone, because the terminal is only ours between a tear-down and
             // the next spawn (PendingNotice.swift), and recorded here so a stood-down relaunch
             // never clears a pin it did not act on.
-            let pinCleared = manualMoves.pinClearedByCap(reason)
-            if pinCleared { warn(sessionPinClearedByCapNotice) }
+            let pinCleared = manualMoves.pinCleared(by: reason)
+            if pinCleared { warn(sessionPinClearedNotice(reason: reason)) }
             logHandoff(sessionID: sessionFile?.deletingPathExtension().lastPathComponent,
                        from: fromLabel, to: target.label,
                        reason: handoffReason(reason, pinCleared: pinCleared),
@@ -330,14 +336,16 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // Before any relaunch decision reads it: every gate below asks the same tracker, and it
             // only learns anything by being given each tick's reading.
             keyboard.observe(stamp: lastKeyboardInput())
-            // Two readings of the same policy, and the difference is one account pin. `fleetPolicy`
-            // is what the app and this project declare; `policy` becomes that with this SESSION's
-            // own pin over it - a pinned session is not rebalanced, not rescued, and not re-picked
-            // (`sessionPolicy`, SessionSwitch.swift). It is derived inside `applyManualMoves` below
-            // rather than here, because that call can create or release the pin, and every mover
-            // after it must read the pin the session has once it returns. The cap handoff is the
-            // one reader that gets the fleet reading, because it is the one move a session pin may
-            // not stop (`capReading`).
+            // THREE READINGS OF ONE POLICY, and the difference between them is a pin. `fleetPolicy`
+            // is what the app and this project declare; `moving` is that with a pin RELEASED when
+            // the account it names has nothing left (DroughtWatch.swift), which is the reading
+            // everything that moves this session is judged by; and `policy` is `moving` with this
+            // SESSION's own pin over it - a pinned session is not rebalanced, not rescued, and not
+            // re-picked (`sessionPolicy`, SessionSwitch.swift). The last is derived inside
+            // `applySessionDirectives` below rather than here, because that call can create or
+            // release the pin, and every mover after it must read the pin the session has once it
+            // returns. The cap handoff is the one reader that gets `moving` rather than `policy`,
+            // because it is the one move a session pin may not stop (`capReading`).
             // The APP's own document, read before either overlay: `effectivePolicy` turns a project
             // account into `manual` and `sessionPolicy` turns a session pin into `manual`, so a
             // policy read through either can no longer say `off` at all, and the observe-only gate
@@ -351,7 +359,6 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             /// one file (AccountReserve.swift). Nine readers, one reading - the same argument
             /// `steering` makes one line down.
             let reserves = accountReserves()
-            var policy = fleetPolicy
             /// Whether Tally may choose an account for this session at all, this tick. Read once,
             /// here, and handed to every mover that would pick one: nine of them, and a gate spelled
             /// nine times is nine gates that can come to disagree about one file.
@@ -362,7 +369,25 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
             // above: that one never touches the model, so both readings answer this identically.
             var effectivePrimary = sessionPrimaryModel(pin: sessionModelState.pin,
                                                        launchArgs: launchArgs,
-                                                       providerID: provider.id, policy: policy)
+                                                       providerID: provider.id,
+                                                       policy: fleetPolicy)
+            // WHAT THE ACCOUNT UNDER THIS SESSION IS WORTH, and therefore what a pin over it still
+            // is (DroughtWatch.swift owns the whole rule): naming an account says which one this
+            // conversation belongs on, never that it should sit on an empty one. The reading is
+            // taken at most every 30s because the movers below refuse a pinned session BEFORE they
+            // read the snapshot, which is what keeps a 2s poll free.
+            drought.observe(provider: provider.id, account: account, primaryModel: effectivePrimary,
+                            quarantine: quarantine, reserves: reserves)
+            /// Whether the pins over this session yield this tick. Asked ONCE, off the app's own
+            /// mode rather than the folded policy: a fleet pin is never released, and the folded
+            /// reading cannot tell which scope pinned it.
+            let pinYields = pinYieldsToSpentAccount(appMode: appPolicy.mode,
+                                                    spent: drought.spent)
+            /// The fleet's policy as everything that MOVES this session judges it. The pin switch
+            /// reads it too, which is the half that matters: released, it stands down instead of
+            /// dragging the session straight back onto the account a mover just carried it off.
+            let moving = pinReleasedPolicy(fleetPolicy, yielding: pinYields)
+            var policy = moving
             // The single relaunch this tick will perform, if any. Reasons fire in priority order
             // (pin > cap > degradation > fallback) and the FIRST owns the account move; a follow
             // adoption only folds its model/effort onto that target. Executed once at the tick's
@@ -418,13 +443,22 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                    watcher: &watcher,
                                    childAge: Date().timeIntervalSince(launchedAt),
                                    keyboardIdle: { keyboard.idle($0) })
+            // AND AGAIN, because the station above can have folded a SESSION pin in
+            // (`sessionPolicy`), which lands as a fresh `manual` over the reading taken a moment
+            // ago. The release is about the account being empty, which is as true of the session's
+            // own pin as of the project's. Idempotent when nothing was pinned.
+            policy = pinReleasedPolicy(policy, yielding: pinYields)
 
             // Cap handoff / wait: a pending cap outranks follow, rescue and fallback for the account
             // MOVE (the pin switch above still wins), and it is the only mover a session pin does
             // not stop - though a hand-pinned session is first offered the fallback pairing on the
             // account it is on. CapDetection.swift; rescue/fallback stay gated by `plan == nil`.
+            // `moving` rather than `fleetPolicy`: a project profile that pins an account answered
+            // `.waitPinned` here for ever, so a session in one of those repos could not even be
+            // rescued by a cap (2026-08-21). Released once the account is spent, it is the fleet's
+            // own reading in every other respect, the app's own pin included.
             applyCapHandoff(plan: &plan, pendingCap: &pendingCap, account: account,
-                            providerID: provider.id, fleet: fleetPolicy, steering: steering,
+                            providerID: provider.id, fleet: moving, steering: steering,
                             sessionPin: manualMoves.sessionPin,
                             modelPinned: sessionModelState.isPinned, quarantine: quarantine,
                             fuseAllows: fuse.allows(), reserves: reserves)
@@ -654,6 +688,19 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                   turnEnded: turnOver(),
                                   toolCallOpen: turnBoundaryToolCallOpen(watcher.file),
                                   quarantine: quarantine, reserves: reserves)
+            // AND THE ONE LINE A DROUGHT NOBODY COULD MOVE THIS SESSION OUT OF LEAVES BEHIND
+            // (DroughtWatch.swift): once per window cycle, naming the gates that refused. HERE
+            // because this is the first point in the tick where every gate all three movers hold
+            // has been decided, and it stands down when a relaunch IS planned - that tick moved the
+            // session, and the handoff log records the move itself.
+            applyDroughtAudit(&drought, relaunchPlanned: plan != nil, account: account.label,
+                              sessionID: watcher.transcriptSessionID, pid: supervisorPID, cwd: cwd,
+                              steering: steering, mode: policy.mode,
+                              blocked: board.waitingOnPerson, agentsWorking: agentsWorking,
+                              isQuiet: watcher.isQuiet(followIdleSeconds)
+                                  && keyboard.idle(followIdleSeconds),
+                              draftSuspected: draftSuspected, carryable: carryable,
+                              fuseAllows: fuse.allows(), log: handoffLog)
             // `tally session send`: type a pending request into this terminal, if the reading just
             // taken allows it. THE READING RATHER THAN THE WORD, because this is the one consumer
             // for which "working" is two different answers: a conversation mid-turn is not typed

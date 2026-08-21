@@ -246,11 +246,44 @@ do {
            "a target blob with no login is refused rather than seeded")
 }
 
-expect(!credentialBlobLoginIsIntact(before: document(blob([:])),
-                                    after: document(blob([:], login: ["accessToken": "other"]))),
+expect(!credentialBlobIsIntactApartFromGrants(
+        before: document(blob([:])),
+        after: document(blob([:], login: ["accessToken": "other"]))),
        "a changed login is caught")
-expect(credentialBlobLoginIsIntact(before: document(blob([:])), after: document(blob([:]))),
+expect(credentialBlobIsIntactApartFromGrants(before: document(blob([:])), after: document(blob([:]))),
        "…and an unchanged one is not a false alarm")
+
+do {
+    // The login is not the only thing riding in that blob, and the state-file face of this feature
+    // checks EVERYTHING but its own key. So does this one: a key beside the login is the shape a
+    // later Claude Code arrives in, and an unverified round trip is where such a key goes missing.
+    let plain = document(blob(["sentry|a": grant("sentry")]))
+    let extra = document(bytes(["claudeAiOauth": login,
+                                "mcpOAuth": ["sentry|a": grant("sentry")],
+                                "organizationUuid": "0f9b"]))
+    expect(!credentialBlobIsIntactApartFromGrants(before: extra, after: plain),
+           "a top-level key that went missing beside the login is caught, not only the login")
+    expect(!credentialBlobIsIntactApartFromGrants(before: plain, after: extra),
+           "…and so is one that appeared")
+    expect(credentialBlobIsIntactApartFromGrants(before: document(blob(["sentry|a": grant("sentry")])),
+                                                 after: document(blob(["notion|b": grant("notion")]))),
+           "…while the grants themselves are the one key it is allowed to differ in")
+    expect(!credentialBlobIsIntactApartFromGrants(before: plain, after: document(blob([:], login: nil))),
+           "a blob that lost its login altogether is refused rather than called equal")
+}
+
+do {
+    // …and the same, through the function that actually writes: a key this repo has never seen must
+    // come out of the rewrite as it went in.
+    let target = bytes(["claudeAiOauth": login,
+                        "mcpOAuth": ["sentry|a": grant("sentry")],
+                        "somethingAddedLater": ["nested": [1, 2, 3], "flag": true]])
+    let seeded = seededCredentialData(target: target, targetWrittenAt: old,
+                                      sources: [(blob(["notion|b": grant("notion")]), recent)])
+    let after = document(seeded?.data ?? Data())["somethingAddedLater"] ?? "<missing>"
+    expect(canonical(after) == canonical(document(target)["somethingAddedLater"]!),
+           "a key beside the login that a later Claude Code added survives the rewrite too")
+}
 
 // MARK: - Fail-open
 
@@ -374,73 +407,43 @@ expect(!stateDocumentIsIntactApartFromServers(before: document(state(nil)),
                                               after: document(state(nil, extras: ["numStartups": 218]))),
        "a state document that lost or changed anything else is caught")
 
-// MARK: - The wiring
+// MARK: - Which item a home may be addressed by
 
-// The rules above are worth nothing if nothing calls them, and "nothing calls them" is the failure
-// this feature would wear best: every launch would work, no dialog would appear, and the
-// authorization would simply keep being asked for. There are two entrances (a plain exec replaces
-// this process once, a supervisor spawns a child per relaunch) and the second is the one that
-// matters most, because a cap handoff is how a session reaches a home that has never authorized
-// anything. Read off the source, since neither can be called from a test: one of them execs.
-
-func source(_ path: String) -> String {
-    (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-}
+// The name rules Claude Code uses take a shortcut on the BASENAME: a directory called `.claude` gets
+// the default account's bare Keychain service and keeps its state file one level up. That is true of
+// exactly one directory on a machine, and it was a harmless guess while nothing wrote through it.
+// `export CLAUDE_CONFIG_DIR=/somewhere/else/.claude` is the case: an unguarded seeding aims at the
+// DEFAULT account's credentials item and leaves the home it was told about untouched.
 
 do {
-    let sync = source("TallyCLI/MCPAuthSync.swift")
-    expect(sync.contains("func launchProvider("), "the harness really read the launch wrapper")
-    let wrapper = sync.components(separatedBy: "func launchProvider(").last ?? ""
-    let body = wrapper.components(separatedBy: "\n}").first ?? ""
-    expect(body.contains("seedMCPAuthorization(provider: provider, home: home, interactive: true)")
-            && body.contains("exec(provider.cli"),
-           "the wrapper seeds the home it is about to run in, as an interactive launch")
-    expect((body.range(of: "seedMCPAuthorization")?.lowerBound).map { seed in
-        (body.range(of: "exec(provider.cli")?.lowerBound).map { seed < $0 } == true
-    } == true, "…before the exec, which never returns")
+    let home = URL(fileURLWithPath: "/Users/someone")
+    let byDefault = home.appendingPathComponent(".claude")
+    let numbered = home.appendingPathComponent(".claude3")
+    let impostor = URL(fileURLWithPath: "/somewhere/else/.claude")
 
-    // The unattended half of the same axis: a pass that may not ask anybody anything turns the
-    // Keychain's dialogs off BEFORE the first read, and refuses to read at all if that switch will
-    // not throw. A switch that silently did nothing would hang an unattended relaunch on a dialog,
-    // so its absence has to fail closed rather than fall through.
-    expect(sync.contains("if !interactive, !setKeychainInteractionAllowed(false) { return }"),
-           "an unattended pass silences the Keychain, and gives up when it cannot")
-    let gate = sync.range(of: "setKeychainInteractionAllowed(false)")
-    let firstRead = sync.range(of: "keychainSecret(")
-    expect(gate != nil && firstRead != nil && gate!.lowerBound < firstRead!.lowerBound,
-           "…before any secret is asked for, which is the only place it can help")
+    expect(claudeSeedingKeychainService(forConfigDir: byDefault, defaultHome: byDefault)
+            == claudeKeychainService(forConfigDir: byDefault),
+           "the real default home is addressed by the bare service, the way Claude Code names it")
+    expect(claudeSeedingKeychainService(forConfigDir: impostor, defaultHome: byDefault) == nil,
+           "another directory that merely happens to be CALLED .claude is refused, rather than "
+               + "aimed at the default account's item")
+    expect(claudeSeedingKeychainService(forConfigDir: numbered, defaultHome: byDefault)
+            == claudeKeychainService(forConfigDir: numbered),
+           "a numbered home keeps the hashed service it has always had")
+
+    expect(claudeSeedingStateFile(forConfigDir: byDefault, defaultHome: byDefault)?.path
+            == "/Users/someone/.claude.json",
+           "the default home's state file is the one a level up, which is where Claude Code keeps it")
+    expect(claudeSeedingStateFile(forConfigDir: impostor, defaultHome: byDefault) == nil,
+           "…and no other .claude directory is given that spelling of it to back up and rewrite")
+    expect(claudeSeedingStateFile(forConfigDir: numbered, defaultHome: byDefault)?.path
+            == "/Users/someone/.claude3/.claude.json",
+           "a numbered home's state file is the one inside it")
 }
 
-do {
-    let supervisor = source("TallyCLI/Supervisor.swift")
-    expect(supervisor.contains("spawnChild("), "the harness really read the supervisor")
-    expect(supervisor.contains("seedMCPAuthorization(provider: provider, home: seedHome,"),
-           "the supervised launch seeds too")
-    let seed = supervisor.range(of: "seedMCPAuthorization")
-    let spawn = supervisor.range(of: "guard let childPID = spawnChild(")
-    expect(seed != nil && spawn != nil && seed!.lowerBound < spawn!.lowerBound,
-           "…before the child is spawned")
-    // Inside the relaunch loop rather than above it: an account can change between two passes, and
-    // that pass is the whole reason this feature exists.
-    let loop = supervisor.components(separatedBy: "while true {").last ?? ""
-    expect(loop.contains("seedMCPAuthorization"),
-           "…and inside the loop, so a cap handoff seeds the account it hands off TO")
-    // …which is exactly why it may not be interactive on every pass. The flag is read off the
-    // supervisor's own relaunch state rather than written down as a constant: the first pass runs in
-    // the same second as the command somebody typed, and every pass after it is this process acting
-    // on its own, possibly at three in the morning.
-    expect(supervisor.contains("interactive: !relaunching"),
-           "the supervised seeding may only ask the user on its FIRST pass")
-    expect(!supervisor.contains("interactive: true"),
-           "…so no pass of it is hard-coded as interactive")
-}
-
-do {
-    let resume = source("TallyCLI/ResumeCommand.swift")
-    expect(resume.contains("launchProvider(provider"), "the harness really read resume")
-    expect(!resume.contains("exec(provider.cli"),
-           "resume launches through the wrapper as well, rather than round it")
-}
+// And the parts of it that are an ORDER rather than a value, which are asserted off the source
+// because neither entrance can be called from here (wiring.swift says what and why).
+checkTheWiring()
 
 if failures > 0 { print("\(failures) failure(s)"); exit(1) }
 print("all mcp-auth-sync tests passed")

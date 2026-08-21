@@ -22,13 +22,27 @@ import Security
 //
 //   1. It never writes the login credential. The blob holding the grants holds `claudeAiOauth` too,
 //      and that one is another account's identity: it is carried through as an opaque value and the
-//      write is refused unless it is byte-for-byte the same afterwards (MCPAuthMerge.swift).
+//      write is refused unless everything except the grants comes back the same value it went in as
+//      (MCPAuthMerge.swift, which also states what that comparison can and cannot see).
 //   2. It never CREATES a Keychain item, only updates one that is already there. A home with no
 //      login has no item, and an item holding grants but no login is a document Claude Code never
 //      writes (KeychainSecret.swift).
 //   3. It never removes anything, from either face.
 //   4. It never logs a token, an entry, or any part of one. What can be said out loud is a server
 //      key, and the current design says nothing at all.
+//
+// THE WINDOW BETWEEN READING AND WRITING, which is the only thing here that can destroy something.
+// The Keychain keeps a credentials blob as ONE opaque secret: there is no way to change a key inside
+// it without writing the whole document back, and no compare-and-swap either, so "store this only if
+// the item is still what I read" cannot be expressed. A Claude Code writing that same item in
+// between - a login refresh, an authorization it has just been given - would be rolled back by the
+// write. Which is why the target's own document is read as LATE as it can be: after every sibling
+// has been read and every consent dialog answered, so that what is merged and stored is the item as
+// it was milliseconds ago rather than as it was before somebody spent a minute deciding about a
+// stack of dialogs. What is left is a window of a few milliseconds that can be kept small and not
+// closed. The same reading is the base for the merge, for the verification after the write and for
+// the restore, because a restore that put back an older copy than the one it verified against would
+// be the very damage this is about.
 //
 // KNOWN, MEASURED, AND ACCEPTED (2026-08-21, this machine, Release-signed binary): reading another
 // program's Keychain item raises the macOS consent dialog and the read BLOCKS until it is answered
@@ -37,12 +51,15 @@ import Security
 // lands on the read, and the read is the first thing this does.
 //
 // SO THE DIALOG IS ALLOWED ON EXACTLY ONE KIND OF PATH: the ones where a person just typed a command
-// and is looking at the screen. That is `tally claude`, `tally resume`, and the supervisor's FIRST
-// spawn, which happens in the same second as the command that started it. Every later spawn the
-// supervisor makes - a cap handoff at 3am, a relaunch after a settings change, a self-update
-// resupervise - runs with this process's Keychain dialogs turned OFF (`setKeychainInteractionAllowed`,
-// KeychainSecret.swift), so an ungranted home fails in 9 ms instead of hanging a session nobody is
-// watching.
+// and is looking at the screen. That is a `tally claude` or `tally resume` WHOSE OUTPUT IS A
+// TERMINAL, and the supervisor's FIRST spawn, which happens in the same second as the command that
+// started it. Everything else runs with this process's Keychain dialogs turned OFF
+// (`setKeychainInteractionAllowed`, KeychainSecret.swift), so an ungranted home fails in 9 ms
+// instead of hanging something nobody is watching: every later spawn the supervisor makes (a cap
+// handoff at 3am, a relaunch after a settings change, a self-update resupervise), and every launch
+// whose stdout is a pipe or a file, which is a command that produces output for a program rather
+// than for a person and never reaches a supervisor at all (LaunchFlags.swift will not supervise
+// one).
 //
 // WHY THAT STILL CONVERGES, which is the part worth checking rather than believing: the dialog is a
 // once-per-item event ("Always Allow" adds this binary to the item's ACL and the signature is stable
@@ -67,8 +84,13 @@ func seedMCPAuthorization(provider: Provider, home: String, interactive: Bool) {
     guard provider.id == "claude" else { return }
     let siblings = claudeSeedingHomes(excluding: home)
     guard !siblings.isEmpty else { return }
-    seedMCPGrants(into: home, from: siblings, interactive: interactive)
-    seedMCPRegistrations(into: home, from: siblings)
+    // Passed down rather than asked for again below, because it is the same question both faces put
+    // to MCPAuthMerge: which of these homes, if any, is the one Claude Code addresses without being
+    // told (`defaultHome`, Snapshot.swift, and the one spelling of that rule this repo has).
+    let providerDefaultHome = URL(fileURLWithPath: defaultHome(provider))
+    seedMCPGrants(into: home, from: siblings, defaultHome: providerDefaultHome,
+                  interactive: interactive)
+    seedMCPRegistrations(into: home, from: siblings, defaultHome: providerDefaultHome)
 }
 
 /// Replace this process with the provider CLI, seeding the home it is about to run in first.
@@ -80,13 +102,20 @@ func seedMCPAuthorization(provider: Provider, home: String, interactive: Bool) {
 /// per relaunch rather than replacing this process once - so it carries its own call at its own
 /// spawn, which is also what makes a cap handoff seed the account it hands off TO (Supervisor.swift).
 ///
-/// Every launch through here is INTERACTIVE by definition: this function is only reached from a
-/// subcommand somebody typed, and it replaces this process, so there is no later pass of it to be
-/// unattended. The supervisor is where that distinction lives, because it is the thing that spawns
-/// again without being asked.
+/// WHETHER A PERSON IS WATCHING is a question about the shell line, not about the subcommand, and
+/// this used to be written down as `true` on the strength of "somebody typed it". Somebody also typed
+/// `tally claude -p … | jq` and `tally claude > log`, and those produce output for a program rather
+/// than for a person - nobody sees a consent dialog, and nobody dismisses it either. They arrive here
+/// exactly like an interactive launch, too: a launch whose stdout is not a terminal is the one the
+/// supervisor declines to take (LaunchFlags.swift), so it falls through to this plain exec.
+///
+/// Asked here rather than passed in by each of the eight call sites, because it is a property of this
+/// process and of none of them: a site that forgot to pass it would look exactly like a site that
+/// meant `true`, and the difference between those two is a piped command hanging on a dialog.
 func launchProvider(_ provider: Provider, args: [String], home: String,
                     env: (key: String, value: String)?) -> Never {
-    seedMCPAuthorization(provider: provider, home: home, interactive: true)
+    seedMCPAuthorization(provider: provider, home: home,
+                         interactive: isatty(STDOUT_FILENO) == 1)
     exec(provider.cli, args: args, env: env)
 }
 
@@ -117,7 +146,8 @@ func claudeSeedingHomes(excluding target: String) -> [String] {
 
 // MARK: - The grant (Keychain)
 
-private func seedMCPGrants(into home: String, from siblings: [String], interactive: Bool) {
+private func seedMCPGrants(into home: String, from siblings: [String], defaultHome: URL,
+                           interactive: Bool) {
     // Unattended: turn this process's Keychain dialogs off before the first read, and REFUSE TO READ
     // AT ALL if that switch cannot be thrown (KeychainSecret.swift). A safety switch that silently
     // did nothing would leave a 3am cap handoff hanging on a dialog with nobody at the machine, which
@@ -134,16 +164,21 @@ private func seedMCPGrants(into home: String, from siblings: [String], interacti
     // `SecItemUpdate` has no match limit: a service that somehow held two items would have both of
     // them overwritten by a query that named only it.
     let account = NSUserName()
-    let targetService = claudeKeychainService(forConfigDir: URL(fileURLWithPath: home))
-    // The target's own document, which is the one being merged INTO, so nothing can proceed without
-    // it: no item (a home with no login), a locked keychain, a declined consent dialog all land here.
-    guard let targetData = keychainSecret(service: targetService, account: account),
-          let targetBlob = mcpJSONDocument(from: targetData)
-    else { return }
+    // Nil when the name would be a guess rather than a rule, which is a home this feature declines
+    // to write to at all rather than writing to whichever item the guess landed on
+    // (MCPAuthMerge.swift: `claudeSeedingKeychainService`).
+    guard let targetService = claudeSeedingKeychainService(forConfigDir: URL(fileURLWithPath: home),
+                                                           defaultHome: defaultHome) else { return }
+    // Whether there is anything to merge INTO, asked by ATTRIBUTES so it costs no dialog and reads
+    // no secret (KeychainReader.swift). Asked before the siblings rather than after, because the
+    // siblings are what dialogs get raised for: a home with no login has no item, and N consent
+    // prompts to build a merge with nowhere to go is the one thing this ordering could get wrong.
+    guard KeychainReader.exists(service: targetService, account: account) else { return }
 
     var sources: [(data: Data, writtenAt: Date?)] = []
     for sibling in siblings {
-        let service = claudeKeychainService(forConfigDir: URL(fileURLWithPath: sibling))
+        guard let service = claudeSeedingKeychainService(
+            forConfigDir: URL(fileURLWithPath: sibling), defaultHome: defaultHome) else { continue }
         // Asked BEFORE the secret, and by attributes only: a home whose item is not there at all is
         // skipped without ever raising a dialog for it (KeychainReader.swift).
         guard KeychainReader.exists(service: service, account: account) else { continue }
@@ -151,23 +186,32 @@ private func seedMCPGrants(into home: String, from siblings: [String], interacti
         guard let data = keychainSecret(service: service, account: account) else { continue }
         sources.append((data, writtenAt))
     }
+    guard !sources.isEmpty else { return }
 
-    guard let seeded = seededCredentialData(
-        target: targetData,
-        targetWrittenAt: KeychainReader.modifiedAt(service: targetService, account: account),
-        sources: sources) else { return }
+    // THE TARGET'S OWN DOCUMENT, AND IT IS READ HERE FOR THE REASON THE HEADER GIVES: everything
+    // above this line can take as long as a person takes to answer a stack of consent dialogs, and
+    // everything below it is arithmetic and one write. So this reading is the freshest one that can
+    // be had, and it is the base of all three things that follow - the merge, the check afterwards,
+    // and the restore if that check fails. Every way this can come back empty is a home that cannot
+    // be seeded: a locked keychain, a declined dialog, a truncated document, an item that has gone.
+    guard let targetData = keychainSecret(service: targetService, account: account),
+          let targetBlob = mcpJSONDocument(from: targetData) else { return }
+    let targetWrittenAt = KeychainReader.modifiedAt(service: targetService, account: account)
+
+    guard let seeded = seededCredentialData(target: targetData, targetWrittenAt: targetWrittenAt,
+                                            sources: sources) else { return }
     guard updateKeychainSecret(service: targetService, account: account,
                                data: seeded.data) == errSecSuccess else { return }
     // And once more from the Keychain itself, because the refusals inside `seededCredentialData` are
     // about this process's arithmetic and this one is about what macOS now holds. The re-read costs
-    // no second dialog: consent granted for the read at the top of this function holds for the rest
-    // of the process.
+    // no second dialog: consent granted for the read just above holds for the rest of the process.
     //
-    // Anything short of "the login is still the same one" puts the original bytes back, which is a
-    // restore of the document EXACTLY as it was read rather than a rebuild of it.
+    // Anything short of "everything but the grants is still the same" puts back the bytes read just
+    // above, which is a restore of the document EXACTLY as it was read rather than a rebuild of it,
+    // and exactly the document this check compared against rather than an older reading of it.
     if let data = keychainSecret(service: targetService, account: account),
        let blob = mcpJSONDocument(from: data),
-       credentialBlobLoginIsIntact(before: targetBlob, after: blob) { return }
+       credentialBlobIsIntactApartFromGrants(before: targetBlob, after: blob) { return }
     _ = updateKeychainSecret(service: targetService, account: account, data: targetData)
 }
 
@@ -185,13 +229,18 @@ let mcpSeedBackupSuffix = ".tally-backup"
 /// creates it, and the launch after that finds it and seeds it. Creating one here would mean this
 /// launcher inventing the shape of another program's state document from scratch, on a guess about
 /// which of its keys are mandatory.
-private func seedMCPRegistrations(into home: String, from siblings: [String]) {
-    let targetFile = claudeStateFile(forConfigDir: URL(fileURLWithPath: home))
+private func seedMCPRegistrations(into home: String, from siblings: [String], defaultHome: URL) {
+    // Nil for the same reason the Keychain face has one, and with more at stake: an unguarded guess
+    // here names a path that belongs to no config home, and this function BACKS UP AND REWRITES the
+    // file it is given (MCPAuthMerge.swift: `claudeSeedingStateFile`).
+    guard let targetFile = claudeSeedingStateFile(forConfigDir: URL(fileURLWithPath: home),
+                                                  defaultHome: defaultHome) else { return }
     guard let targetData = try? Data(contentsOf: targetFile) else { return }
 
     var sources: [(data: Data, writtenAt: Date)] = []
     for sibling in siblings {
-        let file = claudeStateFile(forConfigDir: URL(fileURLWithPath: sibling))
+        guard let file = claudeSeedingStateFile(forConfigDir: URL(fileURLWithPath: sibling),
+                                                defaultHome: defaultHome) else { continue }
         guard let data = try? Data(contentsOf: file) else { continue }
         let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?
             .contentModificationDate
@@ -208,17 +257,46 @@ private func seedMCPRegistrations(into home: String, from siblings: [String]) {
 /// document. `replaceItemAt` is the rename, and it carries the original file's permissions and
 /// ownership onto the replacement rather than leaving whatever the temporary was created with.
 ///
+/// THE COPIES ARE AS PRIVATE AS THE ORIGINAL, which they do not become by themselves. A state file
+/// holds the `env` and the `headers` of every MCP server registered in it, which is where API keys
+/// are kept, along with every project this account has ever trusted; the config homes on this machine
+/// keep theirs at 0600 (three of five, measured 2026-08-21). `Data.write` has no mode of its own and
+/// creates at 0644 under the usual umask, so both copies are given the original's mode instead - and
+/// if that cannot be done they are removed rather than left lying there, because the backup is never
+/// cleaned up. It is the way back from the write that just happened, and it stays beside the file.
+///
 /// THE RACE THIS DOES NOT SOLVE, and is not meant to: a Claude Code running on this same home
 /// rewrites the whole file whenever it changes anything in it, so a session that saved between the
 /// read above and the replacement here has its change overwritten. That is the accepted cost of the
 /// design (fail-open, and the file is rewritten wholesale by its owner too); the backup beside it is
 /// the way back if it ever bites.
 private func writeSeededState(_ data: Data, to file: URL, original: Data) {
+    // 0600 when the original will not say, which is the private answer rather than the convenient
+    // one: what is about to be created is a copy of that file's contents.
+    let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
+    let mode = attributes?[.posixPermissions] as? NSNumber ?? NSNumber(value: 0o600)
     let backup = URL(fileURLWithPath: file.path + mcpSeedBackupSuffix)
-    guard (try? original.write(to: backup, options: .atomic)) != nil else { return }
+    guard writeCopy(original, to: backup, mode: mode) else { return }
     let temporary = URL(fileURLWithPath: file.path + ".tally-seed-\(getpid())")
-    guard (try? data.write(to: temporary, options: .atomic)) != nil else { return }
+    guard writeCopy(data, to: temporary, mode: mode) else { return }
     if (try? FileManager.default.replaceItemAt(file, withItemAt: temporary)) == nil {
         try? FileManager.default.removeItem(at: temporary)
     }
+}
+
+/// Write `data` to `file` with `mode`, answering whether it is now there with that mode.
+///
+/// The mode is applied after the write rather than at creation, because Foundation's atomic write
+/// takes no mode: the file is at the umask's default for the microseconds in between, and that much
+/// cannot be removed without giving up either the atomicity or `Data.write`. What CAN be removed is a
+/// file LEFT BEHIND at that default, so a chmod that fails takes the file with it and the caller
+/// gives up - the fail-open answer, which leaves the home exactly as Claude Code left it.
+private func writeCopy(_ data: Data, to file: URL, mode: NSNumber) -> Bool {
+    guard (try? data.write(to: file, options: .atomic)) != nil else { return false }
+    guard (try? FileManager.default.setAttributes([.posixPermissions: mode],
+                                                  ofItemAtPath: file.path)) != nil else {
+        try? FileManager.default.removeItem(at: file)
+        return false
+    }
+    return true
 }

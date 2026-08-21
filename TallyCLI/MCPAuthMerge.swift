@@ -14,8 +14,16 @@ import Foundation
 //     is something the user typed and a sibling's copy of it is not more correct.
 //
 // WHY ADD-ONLY IS THE WHOLE DELETION POLICY: a server missing from a home is indistinguishable from
-// a server the user removed there, and the two ask for opposite actions. So a removal never travels,
-// and a home that should lose a server loses it where it was removed (design doc, 2026-08-21).
+// a server the user removed there, and the two ask for opposite actions. So a removal never travels
+// (design doc, 2026-08-21).
+//
+// AND THE HONEST READING OF THAT, which the first version of this comment had backwards when it
+// claimed a removal at least holds where it was made: it does not. Remove a server in one home and
+// the next launch onto THAT home takes it straight back from whichever sibling still has it. Losing
+// one for good means removing it in every home with none of them launched in between. A known v1
+// edge rather than an oversight - the ways out (a tombstone, or recording which home a grant came
+// from) are a design question - and the failure it produces is a registration the user has to remove
+// twice, never a grant arriving somewhere it was not granted.
 
 /// The key of the login credential inside the credentials blob. NAMED HERE because the one thing
 /// this whole feature must never do is touch it, and a subtree that is only ever spelled at the
@@ -29,6 +37,55 @@ let mcpOAuthBlobKey = "mcpOAuth"
 /// which is a per-directory list and therefore an answer about one checkout rather than about this
 /// machine's account.
 let mcpServersStateKey = "mcpServers"
+
+// MARK: - Which documents a home may be addressed by
+
+/// Whether two paths are written as the same place, by text alone.
+///
+/// No filesystem: this file decides names and nothing else, so two spellings of one directory that
+/// only a `stat` could equate read as different here. That costs a seeding which would have been
+/// allowed and never allows one that should not be, which is the direction to be wrong in.
+private func pathsAreWrittenTheSame(_ one: URL, _ other: URL) -> Bool {
+    one.standardizedFileURL.path == other.standardizedFileURL.path
+}
+
+/// The Keychain service holding a config home's credentials, or nil when naming it would be a guess.
+///
+/// `claudeKeychainService` decides "this is the default config home" on the BASENAME: any directory
+/// called `.claude` is given the bare, unsuffixed service name. Claude Code gives that name to
+/// exactly one directory on a machine, `~/.claude`, so the shortcut is a guess anywhere else - and
+/// every caller of that helper until now only ever looked something up, where guessing wrong finds
+/// nothing and reads as "not logged in". This feature WRITES. With an exported
+/// `CLAUDE_CONFIG_DIR=/somewhere/else/.claude`, the guess would put the siblings' grants into the
+/// DEFAULT account's credentials item while the home that was actually named went untouched.
+///
+/// So the shortcut is allowed only where it is true: a home that resolves to the default account's
+/// service without BEING the default home is refused. A refusal is the ordinary fail-open answer -
+/// that home is not seeded, and Claude Code asks for the authorization the way it does today.
+///
+/// The shared helper is deliberately left alone: its lookup-only callers depend on the answer it
+/// gives today, and narrowing a name rule underneath them is a larger question than this feature.
+func claudeSeedingKeychainService(forConfigDir dir: URL, defaultHome: URL) -> String? {
+    let service = claudeKeychainService(forConfigDir: dir)
+    guard service != claudeKeychainService(forConfigDir: defaultHome)
+            || pathsAreWrittenTheSame(dir, defaultHome) else { return nil }
+    return service
+}
+
+/// A config home's `.claude.json`, or nil when the path would be a guess, for the same reason.
+///
+/// `claudeStateFile` reads the same basename shortcut the other way round: the default home's state
+/// file sits one level UP from it and everybody else's sits inside. So a custom `/x/.claude` resolves
+/// to `/x/.claude.json` - a path that belongs to no config home at all and may well be somebody
+/// else's file, which this feature would back up and rewrite.
+func claudeSeedingStateFile(forConfigDir dir: URL, defaultHome: URL) -> URL? {
+    let file = claudeStateFile(forConfigDir: dir)
+    // Inside the directory is the ordinary spelling and always safe. One level up is the default
+    // home's spelling, and only the default home may be given it.
+    guard pathsAreWrittenTheSame(file.deletingLastPathComponent(), dir)
+            || pathsAreWrittenTheSame(dir, defaultHome) else { return nil }
+    return file
+}
 
 // MARK: - Entry portability
 
@@ -123,7 +180,7 @@ struct MCPOAuthMerge {
 
 /// An entry as one comparable string, or nil when it will not encode.
 ///
-/// Sorted keys for the reason `credentialBlobLoginIsIntact` gives: a dictionary's enumeration order
+/// Sorted keys for the reason `credentialBlobIsIntactApartFromGrants` gives: a dictionary's order
 /// is not part of its value, so two encodings of one entry have to be made to agree before they can
 /// be compared. Two entries this cannot encode compare EQUAL (both nil), which reads as "no
 /// adoption" and is the safe direction: an entry that will not encode cannot be written into the
@@ -170,25 +227,37 @@ func mergedMCPOAuth(target: MCPAuthSource, sources: [MCPAuthSource]) -> MCPOAuth
     return MCPOAuthMerge(entries: entries, adopted: adopted.sorted())
 }
 
-/// Whether the login credential survived a rewrite unchanged, compared as bytes.
+/// Whether everything except the MCP grants survived a rewrite unchanged.
+///
+/// The grant subtree is the one key this feature may change, so the whole of the rest of the blob is
+/// what is compared - the login credential above all, which is an account's identity and the most
+/// expensive thing on this machine to overwrite, but also whatever else a Claude Code puts beside it
+/// now or later. Checking only the login would leave those keys riding through an unverified round
+/// trip, which is exactly what the state-file face of this same feature refuses to do with the keys
+/// beside ITS one key (`stateDocumentIsIntactApartFromServers`, and the two are meant to read alike).
 ///
 /// Both sides are re-encoded with sorted keys first, because the comparison has to be about the
 /// VALUE and not about the order a dictionary happened to enumerate in: Foundation's dictionaries
 /// are unordered, so the same subtree encodes to different bytes on two runs and a raw byte
-/// comparison would fail every time while nothing was wrong. Sorted, the encoding is a function of
-/// the value alone, so equal bytes means an equal subtree, field for field and byte for byte inside
-/// every string.
+/// comparison would fail every time while nothing was wrong.
 ///
-/// A subtree that will not encode answers false: this check exists to refuse a write, so anything it
-/// cannot verify is a refusal.
-func credentialBlobLoginIsIntact(before: [String: Any], after: [String: Any]) -> Bool {
+/// WHAT EQUAL HERE DOES AND DOES NOT PROVE, because it is weaker than "the bytes are identical" and
+/// was once written down as if it were not: both sides are values that have already been PARSED, so
+/// anything the parser normalises is gone from both of them equally and cannot be seen here - a
+/// number in another spelling, one of two duplicate keys, an escape sequence re-spelled. What it does
+/// prove is the load-bearing half: the value about to be written back is, field for field and inside
+/// every string character for character, the value that was read.
+///
+/// A blob with no login in it is a shape Claude Code does not write, and one this feature must not
+/// start writing either, so it is refused rather than compared. Anything that will not encode is
+/// refused too: this check exists to refuse a write.
+func credentialBlobIsIntactApartFromGrants(before: [String: Any], after: [String: Any]) -> Bool {
     func canonical(_ blob: [String: Any]) -> Data? {
-        guard let login = blob[claudeLoginBlobKey] else { return nil }
-        return try? JSONSerialization.data(withJSONObject: [claudeLoginBlobKey: login],
-                                           options: [.sortedKeys])
+        guard blob[claudeLoginBlobKey] != nil else { return nil }
+        var rest = blob
+        rest.removeValue(forKey: mcpOAuthBlobKey)
+        return try? JSONSerialization.data(withJSONObject: rest, options: [.sortedKeys])
     }
-    // A blob with no login in it is a shape Claude Code does not write, and one this feature must
-    // not start writing either. Both sides missing it is therefore refused rather than called equal.
     guard let one = canonical(before), let other = canonical(after) else { return false }
     return one == other
 }
@@ -230,14 +299,14 @@ func seededCredentialData(target: Data, targetWrittenAt: Date?,
     // touched, it rides along as a value copied out of the document it was decoded from.
     var next = targetBlob
     next[mcpOAuthBlobKey] = merge.entries
-    // The login is checked twice on purpose, and the second one is the load-bearing one: it asks the
-    // question of the ENCODED bytes, decoded again, which is what will actually be stored. An
-    // encoder that dropped part of that subtree, or re-typed a number inside it, is caught here
-    // rather than in somebody's next login.
-    guard credentialBlobLoginIsIntact(before: targetBlob, after: next),
+    // Everything but the grants is checked twice on purpose, and the second one is the load-bearing
+    // one: it asks the question of the ENCODED bytes, decoded again, which is what will actually be
+    // stored. An encoder that dropped part of the login, or re-typed a number inside it, is caught
+    // here rather than in somebody's next login.
+    guard credentialBlobIsIntactApartFromGrants(before: targetBlob, after: next),
           let data = try? JSONSerialization.data(withJSONObject: next),
           let stored = mcpJSONDocument(from: data),
-          credentialBlobLoginIsIntact(before: targetBlob, after: stored)
+          credentialBlobIsIntactApartFromGrants(before: targetBlob, after: stored)
     else { return nil }
     return (data, merge.adopted)
 }
@@ -273,8 +342,9 @@ func mergedMCPServers(target: [String: Any], sources: [[String: Any]]) -> MCPSer
 ///
 /// The registration is the one key this feature may change, and the file around it is the user's
 /// whole Claude Code state: the trusted folders, the tips history, the per-project settings, six
-/// figures of bytes of it. So the rest is compared the way the login is (canonical encoding, byte
-/// for byte) rather than trusted to a round trip nobody looked at.
+/// figures of bytes of it. So the rest is compared the way the credentials blob's rest is compared,
+/// with the same reach and the same limits (`credentialBlobIsIntactApartFromGrants` states both),
+/// rather than trusted to a round trip nobody looked at.
 func stateDocumentIsIntactApartFromServers(before: [String: Any], after: [String: Any]) -> Bool {
     func canonical(_ document: [String: Any]) -> Data? {
         var rest = document

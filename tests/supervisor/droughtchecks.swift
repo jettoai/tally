@@ -46,11 +46,11 @@ func runDroughtChecks() {
     // MARK: - 32a. The rule, on its own
 
     check("a pin over an account with something left is untouched",
-          !pinYieldsToSpentAccount(appMode: "auto", spent: false))
+          !pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: false))
     check("a pin over one with nothing left yields",
-          pinYieldsToSpentAccount(appMode: "auto", spent: true))
+          pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: true))
     check("but the APP's own pin never does: that mode is the fleet saying Tally never re-picks",
-          !pinYieldsToSpentAccount(appMode: "manual", spent: true))
+          !pinYieldsToSpentAccount(appMode: "manual", pinnedSpent: true))
     var pinned = LaunchPolicy()
     pinned.mode = "manual"
     pinned.pinnedAccountID = "D"
@@ -77,14 +77,34 @@ func runDroughtChecks() {
     /// keeps honest is the ORDER, and the two things a drifted copy of it could get wrong - a
     /// release that misses the session pin, and one that reaches the app's - are the two cases
     /// asserted below.
+    /// DRIVEN BY A SNAPSHOT RATHER THAN BY A BOOL, which is what stops this grid from asserting
+    /// states production cannot reach. The earlier version took `spent:` as a literal, and one of
+    /// its cells handed `true` while the session sat on a healthy account - a pairing that could
+    /// not occur while the release was keyed on the account UNDER the session, so the assertion
+    /// built on it read as proof that the restart loop was closed when it was proof of nothing
+    /// (codex review of 7404128). Here the release comes out of a real `DroughtWatch` reading over
+    /// a real fleet, so a cell that cannot happen cannot be written.
+    ///
+    /// `sittingOn` is where the session is; the account the pin NAMES is derived the way the tick
+    /// derives it, innermost scope first.
     func policies(app: LaunchPolicy, projectAccount: String?, sessionPin: String?,
-                  spent: Bool) -> (moving: LaunchPolicy, session: LaunchPolicy) {
+                  sittingOn current: Snapshot.Account, fleet accounts: [Snapshot.Account]? = nil)
+        -> (moving: LaunchPolicy, session: LaunchPolicy, yields: Bool) {
         var project = ProjectPolicy()
         project.accountID = projectAccount
-        let yields = pinYieldsToSpentAccount(appMode: app.mode, spent: spent)
-        let moving = pinReleasedPolicy(effectivePolicy(app, project: project), yielding: yields)
+        let declared: LaunchPolicy = effectivePolicy(app, project: project)
+        let rows: [Snapshot.Account] = accounts ?? [current, sibling]
+        let reading: (Snapshot?, String?)
+            = (Snapshot(version: 2, generatedAt: droughtNow, accounts: rows), nil)
+        var watch = DroughtWatch()
+        watch.observe(provider: "claude", account: current, primaryModel: "fable",
+                      pinned: sessionPolicy(declared, sessionPin: sessionPin).pinnedAccountID,
+                      loaded: reading, now: droughtNow)
+        let yields: Bool = pinYieldsToSpentAccount(appMode: app.mode,
+                                                   pinnedSpent: watch.pinnedSpent)
+        let moving: LaunchPolicy = pinReleasedPolicy(declared, yielding: yields)
         return (moving, pinReleasedPolicy(sessionPolicy(moving, sessionPin: sessionPin),
-                                          yielding: yields))
+                                          yielding: yields), yields)
     }
 
     /// Whether the preventive movers would carry this session off, asked through the two that share
@@ -122,24 +142,29 @@ func runDroughtChecks() {
     appPinned.pinnedAccountID = "D"
 
     for (state, current) in [("comfortable", comfortable), ("dying", dying), ("spent", spentNow)] {
+        // The EXPECTATION, no longer also the input: what varies across the grid is the fleet the
+        // reading is taken over, and this is what the reading has to come out as.
         let spent = state == "spent"
 
         // A SESSION PIN (`tally account`), the incident's own case.
-        let session = policies(app: appAuto, projectAccount: nil, sessionPin: "D", spent: spent)
+        let session = policies(app: appAuto, projectAccount: nil, sessionPin: "D",
+                               sittingOn: current)
         check("a session pin on a \(state) account moves \(spent ? "" : "no")where",
               moves(session.session, current: current) == spent)
         check("…and a cap on it hands the session on either way",
               capMoves(session.moving, sessionPin: "D") == .handoff)
 
         // A PROJECT PROFILE (`tally project set --account`), which three repos on this machine set.
-        let project = policies(app: appAuto, projectAccount: "D", sessionPin: nil, spent: spent)
+        let project = policies(app: appAuto, projectAccount: "D", sessionPin: nil,
+                               sittingOn: current)
         check("a project pin on a \(state) account moves \(spent ? "" : "no")where",
               moves(project.session, current: current) == spent)
         check("…and its cap \(spent ? "hands the session on" : "waits, as pinning means")",
               capMoves(project.moving, sessionPin: nil) == (spent ? .handoff : .waitPinned))
 
         // THE APP'S OWN PIN, untouched by any of this: one scope above a single session.
-        let fleet = policies(app: appPinned, projectAccount: nil, sessionPin: nil, spent: spent)
+        let fleet = policies(app: appPinned, projectAccount: nil, sessionPin: nil,
+                             sittingOn: current)
         check("the fleet's own pin holds a \(state) account", !moves(fleet.session, current: current))
         check("…and its cap waits, whatever the numbers say",
               capMoves(fleet.moving, sessionPin: nil) == .waitPinned)
@@ -147,19 +172,24 @@ func runDroughtChecks() {
 
     // The two cells the composition above exists to keep honest, stated on their own.
     check("the release reaches a pin folded in AFTER it, which is where a session pin arrives",
-          policies(app: appAuto, projectAccount: nil, sessionPin: "D", spent: true).session.mode
-              == "auto")
+          policies(app: appAuto, projectAccount: nil, sessionPin: "D",
+                   sittingOn: spentNow).session.mode == "auto")
     check("and a session pin over the APP's pin is not released either: that scope is never",
-          policies(app: appPinned, projectAccount: nil, sessionPin: "D", spent: true).session.mode
-              == "manual")
+          policies(app: appPinned, projectAccount: nil, sessionPin: "D",
+                   sittingOn: spentNow).session.mode == "manual")
 
-    // MARK: - 32c. The pin switch stands down with the movers
+    // MARK: - 32c. The pin switch stands down with the movers, and STAYS down after the move
 
     // THE HALF THAT WOULD MAKE THIS A RESTART LOOP RATHER THAN A FIX. `applyPinSwitch` drags a
     // running session onto the pinned account whenever the two disagree, asking only whether that
     // account is launchable and never whether it has quota (SessionSwitch.swift). Released, it has
     // to stand down: otherwise the mover carries the session off the spent account and the very next
     // quiet tick carries it back, once per cycle, for as long as the drought lasts.
+    //
+    // EVERY CASE HERE HAS THE SESSION ON S, because that is the only position in which this mover
+    // does anything at all (its third guard is `pinnedID != account.id`). Which is also why the
+    // account the release is judged on cannot be the one under the session: on this path there is
+    // always a healthy account under the session and an empty one named by the pin.
     let switchDir = URL(fileURLWithPath: NSTemporaryDirectory())
         .appendingPathComponent("tally-drought-\(UUID().uuidString)")
     let pinnedAccounts = [switchAccount("D", label: "Claude 4"), switchAccount("S", label: "Claude 3")]
@@ -175,33 +205,51 @@ func runDroughtChecks() {
                          request: { _ in nil }, accounts: { pinnedAccounts })
         return plan
     }
-    check("a pin the session is off drags it back while the account has something left",
-          pinSwitchPlan(policies(app: appAuto, projectAccount: "D", sessionPin: nil,
-                                 spent: false).moving)?.target.id == "D")
-    check("…and stands down once that account has nothing left",
-          pinSwitchPlan(policies(app: appAuto, projectAccount: "D", sessionPin: nil,
-                                 spent: true).moving) == nil)
+    /// The tick as it stands just after a preventive mover acted: the session is on S, a project
+    /// profile names D, and `pinned` is the row D has in the fleet at that moment.
+    func afterTheMove(pinnedRow: Snapshot.Account, app: LaunchPolicy = appAuto,
+                      projectAccount: String? = "D")
+        -> (moving: LaunchPolicy, session: LaunchPolicy, yields: Bool) {
+        policies(app: app, projectAccount: projectAccount, sessionPin: nil, sittingOn: sibling,
+                 fleet: [pinnedRow, sibling])
+    }
+    check("a pin the session is off drags it back while the account IT NAMES has something left",
+          pinSwitchPlan(afterTheMove(pinnedRow: comfortable).moving)?.target.id == "D")
+    // THE CELL THE RESTART LOOP LIVES IN, and the one this check could not reach before: judged on
+    // the account UNDER the session it reads "nothing to release" - S is healthy, it always is
+    // here - the pin switch is handed an unreleased policy and drags the session back into the same
+    // wall the mover just carried it out of.
+    check("…and stands down for as long as the account it names has nothing, session moved or not",
+          pinSwitchPlan(afterTheMove(pinnedRow: spentNow).moving) == nil)
+    // …and the release really is what is standing there. The reading behind it, taken over the
+    // same fleet, is asserted in full one section down (`carried`).
+    check("…which is the release, standing on a tick where the session's own account is healthy",
+          afterTheMove(pinnedRow: spentNow).yields)
     check("the app's own pin drags it back either way, which is what that scope means",
-          pinSwitchPlan(policies(app: appPinned, projectAccount: nil, sessionPin: nil,
-                                 spent: true).moving)?.target.id == "D")
+          pinSwitchPlan(afterTheMove(pinnedRow: spentNow, app: appPinned,
+                                     projectAccount: nil).moving)?.target.id == "D")
 
     // MARK: - 32d. The reading behind all of it
 
     let snapshot = Snapshot(version: 2, generatedAt: droughtNow, accounts: [spentNow, sibling])
-    func watched(_ current: Snapshot.Account = spentNow, accounts: [Snapshot.Account]? = nil,
+    func watched(_ current: Snapshot.Account = spentNow, pinned: String? = nil,
+                 accounts: [Snapshot.Account]? = nil,
                  problem: String? = nil, at moment: Date = droughtNow,
                  into watch: DroughtWatch = DroughtWatch()) -> DroughtWatch {
         var watch = watch
-        watch.observe(provider: "claude", account: current, primaryModel: "fable",
+        watch.observe(provider: "claude", account: current, primaryModel: "fable", pinned: pinned,
                       loaded: (accounts.map { Snapshot(version: 2, generatedAt: droughtNow,
                                                        accounts: $0) } ?? snapshot, problem),
                       now: moment)
         return watch
     }
 
-    let readSpent = watched()
+    let readSpent = watched(pinned: "D")
     check("a spent account is read as spent, off the live snapshot rather than the launch's copy",
-          readSpent.spent && pinYieldsToSpentAccount(appMode: "auto", spent: readSpent.spent))
+          readSpent.spent)
+    check("…and a pin naming that account yields, which is the release",
+          readSpent.pinnedSpent
+              && pinYieldsToSpentAccount(appMode: "auto", pinnedSpent: readSpent.pinnedSpent))
     check("…with the window that binds it named for the audit line",
           readSpent.window == "fable" && readSpent.remaining == 0)
     check("…and whether there is anywhere to move to at all", readSpent.hasTarget)
@@ -215,6 +263,21 @@ func runDroughtChecks() {
     check("and nowhere comfortable to go is read as such",
           !watched(accounts: [spentNow, droughtAccount("S", model: 1)]).hasTarget)
 
+    // THE TWO ROWS, and the moment they come apart: a mover has carried the session onto S while
+    // the pin still names the empty D. One reading, two answers, and neither may be the other.
+    let carried = watched(sibling, pinned: "D", accounts: [spentNow, sibling])
+    check("a session carried onto a healthy account is not itself in a drought", !carried.spent)
+    check("…while the pin standing over it still names an empty one, so the release holds",
+          carried.pinnedSpent)
+    check("…and the two accounts are remembered apart rather than assumed equal",
+          carried.accountID == "S" && carried.pinnedID == "D")
+    check("nothing pinned releases nothing, because there is nothing to release",
+          !watched(spentNow, pinned: nil).pinnedSpent)
+    check("a pin naming an account this fleet no longer has releases nothing either",
+          !watched(spentNow, pinned: "gone").pinnedSpent)
+    check("nor does a snapshot too stale to trust, which is the rule the reading above follows",
+          !watched(spentNow, pinned: "D", problem: "snapshot is 9m old").pinnedSpent)
+
     // The reading is taken at most once an interval, because the movers refuse a pinned session
     // before they read the snapshot at all and that early refusal is what keeps a 2s poll free.
     var counted = 0
@@ -223,24 +286,40 @@ func runDroughtChecks() {
         return (snapshot, nil)
     }
     var throttled = DroughtWatch()
-    throttled.observe(provider: "claude", account: spentNow, primaryModel: "fable",
+    throttled.observe(provider: "claude", account: spentNow, primaryModel: "fable", pinned: "D",
                       loaded: countingSnapshot(), now: droughtNow)
-    throttled.observe(provider: "claude", account: spentNow, primaryModel: "fable",
+    throttled.observe(provider: "claude", account: spentNow, primaryModel: "fable", pinned: "D",
                       loaded: countingSnapshot(),
                       now: droughtNow.addingTimeInterval(droughtWatchInterval - 1))
     check("a second tick inside the interval reads nothing at all", counted == 1)
-    throttled.observe(provider: "claude", account: spentNow, primaryModel: "fable",
+    throttled.observe(provider: "claude", account: spentNow, primaryModel: "fable", pinned: "D",
                       loaded: countingSnapshot(),
                       now: droughtNow.addingTimeInterval(droughtWatchInterval))
     check("and the interval is inclusive, like every other in this repo", counted == 2)
     // A session that has just MOVED reads immediately: what the interval bounds is how often ONE
-    // account is re-read, and the account under this session is not the one the reading was about.
-    throttled.observe(provider: "claude", account: sibling, primaryModel: "fable",
+    // PAIR of accounts is re-read, and the account under this session is not the one the reading
+    // was about.
+    throttled.observe(provider: "claude", account: sibling, primaryModel: "fable", pinned: "D",
                       loaded: countingSnapshot(),
                       now: droughtNow.addingTimeInterval(droughtWatchInterval + 1))
     check("a handoff is read on the spot rather than waiting out the interval", counted == 3)
-    check("…and the account it moved to is not spent, so the release lapses with it",
+    // THE PAIR OF ASSERTIONS THIS BLOCK USED TO GET WRONG. It said "the account it moved to is not
+    // spent, so the release lapses with it" - each half true, and together they wrote the restart
+    // loop down as the intended behaviour: the check one section up says the pin switch stands
+    // down while the release stands, and this one said the release stops standing the moment a
+    // mover acts. The contract now: the move ends the DROUGHT this session is in, and changes
+    // nothing about the pin standing over it.
+    check("…and the account it moved to is not in a drought, so no line is owed there",
           !throttled.spent)
+    check("…while the release stays keyed on the account the PIN names, which is still empty",
+          throttled.pinnedSpent)
+    // The other half of the key: moving the PIN moves the row the release is read from, so it is
+    // read on the spot too, one second into an interval that has just been paid for.
+    throttled.observe(provider: "claude", account: sibling, primaryModel: "fable", pinned: "S",
+                      loaded: countingSnapshot(),
+                      now: droughtNow.addingTimeInterval(droughtWatchInterval + 2))
+    check("a pin moved to another account is read on the spot as well", counted == 4)
+    check("…and a pin that now names the healthy account releases nothing", !throttled.pinnedSpent)
 
     // MARK: - 32e. The line a blocked drought leaves
 
@@ -340,4 +419,57 @@ func runDroughtChecks() {
           !FileManager.default.fileExists(atPath: quietLog.path))
     try? FileManager.default.removeItem(at: auditLog)
     try? FileManager.default.removeItem(at: quietLog)
+
+    // MARK: - 32h. The restart loop this keying exists to prevent
+
+    // THE INCIDENT'S SIBLING CASE, RUN FORWARD. A project profile pins D, D is empty, and a
+    // preventive mover has carried the session to healthy S. From that instant the release and the
+    // audit are about different rows. Keyed on the row under the session, the release lapses on the
+    // very next reading, the pin switch drags the session back into the same wall, the release
+    // stands again, a mover carries it off again - three times, and then the RecoveryFuse is empty.
+    // That fuse is SHARED with the cap handoff (`applyCapHandoff(fuseAllows:)`), so for the rest of
+    // that ten minute window the one mechanism that worked before this feature existed is refused
+    // too, on a machine where three repos pin an account.
+    //
+    // Ten ticks rather than one, because one tick cannot tell a release that holds from a release
+    // that happens to be true at the moment it is asked.
+    var loopWatch = DroughtWatch()
+    var loopProject = ProjectPolicy()
+    loopProject.accountID = "D"
+    let loopFleet = effectivePolicy(appAuto, project: loopProject)
+    let emptyPin: [Snapshot.Account] = [spentNow, sibling]
+    let refilledPin: [Snapshot.Account] = [comfortable, sibling]
+    var draggedBack = 0
+    var released = 0
+    for step in 0 ..< 10 {
+        let elapsed: TimeInterval = Double(step) * droughtWatchInterval
+        let moment: Date = droughtNow.addingTimeInterval(elapsed)
+        let reading: (Snapshot?, String?)
+            = (Snapshot(version: 2, generatedAt: moment, accounts: emptyPin), nil)
+        loopWatch.observe(provider: "claude", account: sibling, primaryModel: "fable", pinned: "D",
+                          loaded: reading, now: moment)
+        let yields: Bool = pinYieldsToSpentAccount(appMode: appAuto.mode,
+                                                   pinnedSpent: loopWatch.pinnedSpent)
+        if yields { released += 1 }
+        let dragged: RelaunchPlan? = pinSwitchPlan(pinReleasedPolicy(loopFleet, yielding: yields))
+        if dragged != nil { draggedBack += 1 }
+    }
+    check("ten ticks on the account a mover carried it to, and the pin drags it back on none",
+          draggedBack == 0)
+    check("…because the release stands on every one of them rather than only the first",
+          released == 10)
+    // AND THE WAY OUT, which is what makes this a release rather than a divorce: the pin is a
+    // standing instruction, and it takes the session home the moment its account has something in
+    // it again. Nothing expires and nothing is remembered - the next reading simply says so.
+    let refilledReading: (Snapshot?, String?)
+        = (Snapshot(version: 2, generatedAt: droughtNow, accounts: refilledPin), nil)
+    loopWatch.observe(provider: "claude", account: sibling, primaryModel: "fable", pinned: "D",
+                      loaded: refilledReading,
+                      now: droughtNow.addingTimeInterval(10 * droughtWatchInterval))
+    let refilled: Bool = pinYieldsToSpentAccount(appMode: appAuto.mode,
+                                                 pinnedSpent: loopWatch.pinnedSpent)
+    check("and when that account refills the release lapses on its own",
+          !loopWatch.pinnedSpent && !refilled)
+    check("…which is the standing instruction taking the session home again",
+          pinSwitchPlan(pinReleasedPolicy(loopFleet, yielding: refilled))?.target.id == "D")
 }

@@ -376,18 +376,31 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                                        launchArgs: launchArgs,
                                                        providerID: provider.id,
                                                        policy: fleetPolicy)
-            // WHAT THE ACCOUNT UNDER THIS SESSION IS WORTH, and therefore what a pin over it still
-            // is (DroughtWatch.swift owns the whole rule): naming an account says which one this
+            // WHAT THE ACCOUNT A PIN NAMES IS WORTH, and therefore what that pin is still worth
+            // (DroughtWatch.swift owns the whole rule): naming an account says which one this
             // conversation belongs on, never that it should sit on an empty one. The reading is
             // taken at most every 30s because the movers below refuse a pinned session BEFORE they
             // read the snapshot, which is what keeps a 2s poll free.
+            //
+            // `pinned` IS THE ACCOUNT THE PIN NAMES, NOT THE ONE UNDER THE SESSION, which is the
+            // difference between a release that lasts the drought and a restart loop: judged on the
+            // account it moved TO, the release lapses on the first reading after the move and the
+            // pin switch drags the session straight back (DroughtWatch.swift walks the four steps).
+            // Asked THROUGH `sessionPolicy` rather than by spelling its precedence again here: it
+            // is the one rule for how a session pin lies over the fleet's reading, and a second copy
+            // of that rule is how this station and the movers would come to disagree about which
+            // account a session is pinned to. A `tally switch` served later in THIS tick is read on
+            // the next one, two seconds later.
             drought.observe(provider: provider.id, account: account, primaryModel: effectivePrimary,
+                            pinned: sessionPolicy(fleetPolicy,
+                                                  sessionPin: manualMoves.sessionPin)
+                                .pinnedAccountID,
                             quarantine: quarantine, reserves: reserves)
             /// Whether the pins over this session yield this tick. Asked ONCE, off the app's own
             /// mode rather than the folded policy: a fleet pin is never released, and the folded
             /// reading cannot tell which scope pinned it.
             let pinYields = pinYieldsToSpentAccount(appMode: appPolicy.mode,
-                                                    spent: drought.spent)
+                                                    pinnedSpent: drought.pinnedSpent)
             /// The fleet's policy as everything that MOVES this session judges it. The pin switch
             /// reads it too, which is the half that matters: released, it stands down instead of
             /// dragging the session straight back onto the account a mover just carried it off.
@@ -784,7 +797,12 @@ func runSupervised(_ provider: Provider, account initial: Snapshot.Account, args
                                          keyboardIdle: composerIdle,
                                          relaunchPlanned: replacingChild,
                                          draftSuspected: draftSuspected,
-                                         userTurnAt: watcher.lastUserTurnAt)
+                                         userTurnAt: watcher.lastUserTurnAt,
+                                         // WHICH conversation is in this window right now, which is
+                                         // what says the offer still belongs to it: a relaunch that
+                                         // started a different one leaves the offer standing, and
+                                         // only this reading can tell (CapResume.swift).
+                                         conversation: watcher.transcriptSessionID)
             // On the same terms as the two beside it: what this tick typed is what the next tick's
             // draft reading has to discount.
             if resumed != nil { lastComposerWrite = Date() }

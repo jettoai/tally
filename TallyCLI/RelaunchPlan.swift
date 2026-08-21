@@ -67,10 +67,32 @@ struct RelaunchPlan {
 /// file exists to prevent.
 let turnBoundaryReason = "turn-boundary"
 
+/// The audit tag a clear-boundary relaunch is logged under: the account question a window about to
+/// be emptied makes free, answered at the landing rather than a minute later (SessionClear.swift
+/// owns the act). Its own name because three files read it - the plan that carries it, the pin list
+/// below, and anything grepping `~/.tally/handoff.log` for why a session moved.
+///
+/// HERE rather than beside the verb, for the reason `turnBoundaryReason` moved here: the list below
+/// names it, and that list is compiled by suites which do not compile SessionClear.swift (the status
+/// line's and the worktree's, checked rather than assumed). A tag spelled twice is the drift this
+/// file exists to prevent.
+let clearBoundaryReason = "clear-boundary"
+
 /// The relaunch reasons that can be planned for a session carrying a pin of its own: the cap
-/// handoff, and the four preventive movers a spent account releases (Rebalance.swift,
-/// WindowRepick.swift, TurnBoundaryMove.swift, ModelDegradation.swift). Each of them ENDS the pin
-/// when it fires, which is what `pinCleared(by:)` uses this for.
+/// handoff, the four preventive movers a spent account releases (Rebalance.swift, WindowRepick.swift,
+/// TurnBoundaryMove.swift, ModelDegradation.swift), and the fifth door those movers now have, which
+/// is a window closing under one of them (SessionClear.swift). Each of them ENDS the pin when it
+/// fires, which is what `pinCleared(by:)` uses this for.
+///
+/// `clearBoundaryReason` WAS MISSING AND THAT WAS A HOLE THIS FAMILY OPENED (codex review of
+/// 7404128). Before the release existed a pinned session's `policy.mode` was `manual` at that
+/// landing, `windowRepickMove` answered nothing, and the clear always typed - the branch was
+/// unreachable. Released, the same landing plans a move, and a move not on this list leaves the pin
+/// pointing at an account the session is no longer on: four preventive movers refuse it for ever
+/// after (`sessionPolicy` folds a phantom pin back into `manual`), and nobody is told, because the
+/// notice is printed by the caller that reads this list. It is the shape of the defect this file
+/// already records one paragraph down, reached from a new direction, and `tally session clear` is a
+/// verb this fleet runs at the end of every session.
 ///
 /// Everything else on the list of reasons is either a same-account relaunch (`fallback`,
 /// `cap-fallback`, `reload`, `self-update`, `safeguard`) or a move the user asked for by hand
@@ -79,11 +101,11 @@ let turnBoundaryReason = "turn-boundary"
 ///
 /// MEMBERSHIP DOES NOT PERMIT ANYTHING, which is the one thing to understand before adding to it.
 /// What lets a preventive mover plan a relaunch for a pinned session is the pin being RELEASED by
-/// the account having nothing left (DroughtWatch.swift); unreleased, none of the four can plan
-/// anything at all while a pin stands (`sessionPolicy`). This list only has to recognise the moves
-/// that release can produce.
+/// the account the pin names having nothing left (DroughtWatch.swift); unreleased, none of them can
+/// plan anything at all while a pin stands (`sessionPolicy`). This list only has to recognise the
+/// moves that release can produce.
 let pinPassingReasons: Set<String> = ["cap", "rebalance", "window-repick", turnBoundaryReason,
-                                      "degraded"]
+                                      "degraded", clearBoundaryReason]
 
 /// The tick's relaunch, handed to a station that may only ADD to it.
 ///

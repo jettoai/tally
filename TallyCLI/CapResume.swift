@@ -30,6 +30,11 @@ import Foundation
 //     a line typed at one of those is an answer to a question this supervisor never read. It HOLDS
 //     rather than drops, because a dialog is answered and the composer comes back
 //     (SessionInputDraft.swift measured that, case A7e).
+//   - OUTLIVE ITS CONVERSATION. The offer names the conversation the wall interrupted and is
+//     checked against the one in the window at the moment of typing (`Offer.conversation`): a
+//     relaunch that starts a DIFFERENT conversation - `tally session clear`, run at the end of every
+//     session on this fleet - leaves an offer standing that `arm` will not touch, and a fresh empty
+//     window would otherwise be told to carry on work that was never in it.
 //   - RECUR. The turn this line starts can hit a wall of its own, and the handoff that follows must
 //     not start another one: after a nudge nothing re-arms until a PERSON has typed in the session
 //     (`capResumeFollowedByPerson`). What handles a second wall is what handled the first, bounded
@@ -157,6 +162,11 @@ enum CapResumeHold: Equatable {
     /// This session is waiting on a person: a permission request, a plan approval. Its composer is
     /// behind that dialog and a line typed now is an answer to a question nobody read it.
     case blocked
+    /// This tick cannot say WHICH conversation is in that window, so it cannot say the offer still
+    /// belongs to it. A wait rather than a drop, because it is what a window with no transcript
+    /// bound yet looks like and the next tick usually answers it; what ends the waiting for good is
+    /// the offer's own life.
+    case unlocated
 }
 
 /// Why an arm will never be typed. Both are final: the arm is cleared and this wall gets no line.
@@ -166,12 +176,17 @@ enum CapResumeDrop: Equatable {
     case userTyped
     /// It never reached a moment it could be typed at inside `capResumeLife`.
     case expired
+    /// The window now holds a DIFFERENT conversation from the one the wall interrupted. Final, and
+    /// it has to be: the work this line offers to resume is not in there any more, so there is
+    /// nothing for a later tick to reconsider.
+    case otherConversation
 
     /// The word the log records it under.
     var word: String {
         switch self {
         case .userTyped: return "someone-typed"
         case .expired: return "expired"
+        case .otherConversation: return "other-conversation"
         }
     }
 }
@@ -191,24 +206,26 @@ enum CapResumeDecision: Equatable {
 
 /// Whether a relaunch is one that left work hanging.
 ///
-/// FOUR REFUSALS, and each of them is a way for there to be nothing to resume:
+/// THREE REFUSALS, and each of them is a way for there to be nothing to resume:
 ///
 ///  - the reason is not a cap handoff, so no wall cut anything short (the header names
 ///    `cap-fallback`, the one neighbour this deliberately excludes);
 ///  - the relaunch is FRESH, which is `tally session clear` asking for an empty window: what starts
 ///    is a different conversation, and offering to continue the old one's work in it is the one
 ///    thing that request said not to do;
-///  - there is no conversation to resume at all, so the new child starts empty and there is no
-///    interrupted turn for a line to point at;
 ///  - a real assistant turn landed AFTER the cap, which is `observeCapHit`'s own recovery test read
 ///    the other way round: the conversation answered something after the wall, so whatever the wall
 ///    interrupted is not still sitting there.
 ///
+/// A FOURTH - that there is a conversation to resume at all - is not asked here, and deliberately:
+/// `arm` has to UNWRAP that id to store it on the offer, so asking it here as well would be the
+/// same fact tested in two places, which is how the two come to disagree.
+///
 /// `answeredAt` nil means no post-launch main-chain turn was seen at all, which is the ordinary
 /// shape of a session whose only recent event IS the 429 - so it counts as interrupted.
-func capResumeInterrupted(reason: String, fresh: Bool, cappedAt: Date?, answeredAt: Date?,
-                          conversation: String?) -> Bool {
-    guard reason == "cap", !fresh, let cappedAt, conversation != nil else { return false }
+func capResumeInterrupted(reason: String, fresh: Bool, cappedAt: Date?,
+                          answeredAt: Date?) -> Bool {
+    guard reason == "cap", !fresh, let cappedAt else { return false }
     return answeredAt.map { $0 <= cappedAt } ?? true
 }
 
@@ -258,6 +275,19 @@ struct CapResumeState: Equatable {
     struct Offer: Equatable {
         /// The instant of the wall. Every clock in this file is measured from it.
         let at: Date
+        /// The conversation the wall interrupted, by Claude Code's own id for it (the transcript's
+        /// basename). THE OFFER IS ABOUT THIS CONVERSATION AND NO OTHER, and holding the id is what
+        /// makes that checkable at the moment of typing rather than assumed from the fact that an
+        /// offer exists.
+        ///
+        /// The first version of this file took the id into `arm`, asked `!= nil` of it and threw it
+        /// away (codex review of fa59018): a relaunch that starts a DIFFERENT conversation - `tally
+        /// session clear`, which this fleet runs at the end of every session - fails `arm`'s guard
+        /// and returns without touching the offer, so a fresh empty window inherited an offer to
+        /// carry on work that was never in it. Holding the id closes it at the other end, where the
+        /// question is answerable: whatever route the window changed by, the id in front of us is
+        /// not the id this offer is about.
+        let conversation: String
         /// The line, built at the move from the two accounts as they were THEN. Held rather than
         /// rebuilt because it is a sentence about a moment: by the time it is typed the session may
         /// have moved again, and a line naming where it is now would describe a different event.
@@ -291,14 +321,19 @@ struct CapResumeState: Equatable {
     mutating func arm(reason: String, fresh: Bool, cappedAt: Date?, answeredAt: Date?,
                       conversation: String?, from: Snapshot.Account, to: Snapshot.Account,
                       userTurnAt: Date?) {
-        guard capResumeInterrupted(reason: reason, fresh: fresh, cappedAt: cappedAt,
-                                   answeredAt: answeredAt, conversation: conversation),
+        // The id the offer is ABOUT, and the reason its absence refuses here rather than inside
+        // the predicate above: no conversation is no id, and no id is nothing for a later tick to
+        // compare the window against.
+        guard let conversation,
+              capResumeInterrupted(reason: reason, fresh: fresh, cappedAt: cappedAt,
+                                   answeredAt: answeredAt),
               let cappedAt,
               capResumeFreshCap(cappedAt: cappedAt, lastCapAt: lastCapAt),
               capResumeFollowedByPerson(nudgedAt: nudgedAt, userTurnAt: userTurnAt)
         else { return }
         lastCapAt = cappedAt
-        offer = Offer(at: cappedAt, line: capResumeMessage(from: from, to: to))
+        offer = Offer(at: cappedAt, conversation: conversation,
+                      line: capResumeMessage(from: from, to: to))
     }
 
     /// What this tick owes, in the order the gates bite.
@@ -316,8 +351,14 @@ struct CapResumeState: Equatable {
     /// are a hold, so the ordering decides only which word the record carries.
     func decide(state: SupervisedState, quiet: SessionQuiet, turnEnded: Bool, keyboardIdle: Bool,
                 relaunchPlanned: Bool, draftSuspected: Bool, userTurnAt: Date?,
-                now: Date = Date()) -> CapResumeDecision {
+                conversation: String?, now: Date = Date()) -> CapResumeDecision {
         guard let offer else { return .idle }
+        // WHICH CONVERSATION IS ACTUALLY IN THAT WINDOW, asked FIRST, because every gate below it
+        // is about whether now is a good moment to type into this conversation and none of them
+        // notices that it is the wrong one. A window that cannot say is waited for; one that says
+        // something else ends the offer, since the work it points at is not in there to resume.
+        guard let conversation else { return .hold(.unlocated) }
+        guard conversation == offer.conversation else { return .drop(.otherConversation) }
         // A run of keystrokes in that composer, or a prompt of their own in the relaunched child.
         // The second is measured against the WALL rather than against the relaunch, and the two
         // readings agree: the watcher belongs to the new child and refuses everything older than
@@ -383,7 +424,8 @@ struct CapResumeState: Equatable {
 func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bool,
                     session: SupervisedState, quiet: SessionQuiet, turnEnded: () -> Bool,
                     keyboardIdle: Bool, relaunchPlanned: Bool, draftSuspected: Bool,
-                    userTurnAt: Date?, now: Date = Date(), log: URL = sessionInputLog,
+                    userTurnAt: Date?, conversation: String?,
+                    now: Date = Date(), log: URL = sessionInputLog,
                     stamped: () -> Date = { Date() },
                     inject: (String, SessionInputDraftGuard) -> SessionInputInjection = {
                         injectSessionInput($0, draft: $1)
@@ -391,7 +433,8 @@ func applyCapResume(_ state: inout CapResumeState, pid: String, typedAlready: Bo
     guard !typedAlready, state.isArmed else { return nil }
     let decision = state.decide(state: session, quiet: quiet, turnEnded: turnEnded(),
                                 keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
-                                draftSuspected: draftSuspected, userTurnAt: userTurnAt, now: now)
+                                draftSuspected: draftSuspected, userTurnAt: userTurnAt,
+                                conversation: conversation, now: now)
     switch decision {
     case .idle, .hold:
         return nil

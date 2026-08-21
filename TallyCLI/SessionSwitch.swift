@@ -408,9 +408,16 @@ private func applySwitchRequest(plan: inout RelaunchPlan?, state: inout ManualMo
 
 /// Live pin switch: pinning another account in the Tally panel moves the RUNNING session there. An
 /// explicit human act, so no fuse; the pinned account is used even when capped (that is what pinning
-/// means). It stands down while that account is SPENT, because the caller hands it a released
+/// means). It stands down while THE PINNED ACCOUNT is spent, because the caller hands it a released
 /// policy then (DroughtWatch.swift): without that, a mover carrying the session off an empty
-/// account and this dragging it back is a restart loop for the length of the drought. Waits for a quiet transcript so an in-flight response is never cut mid-stream (the next
+/// account and this dragging it back is a restart loop for the length of the drought.
+///
+/// THE ACCOUNT THAT HAS TO BE JUDGED IS THE PINNED ONE, and this comment used to say only "that
+/// account" while the reading behind it was taken against the account the session had been carried
+/// ONTO - which is healthy by construction the moment a mover acts, so the stand-down lapsed on the
+/// first reading after every move and this dragged the session back. The guard was right; what it
+/// was handed was an answer to a different question (codex review of 7404128).
+/// Waits for a quiet transcript so an in-flight response is never cut mid-stream (the next
 /// 2s poll retries) and a quiet keyboard so a prompt being typed survives too; both default to the
 /// same 5s bar.
 ///

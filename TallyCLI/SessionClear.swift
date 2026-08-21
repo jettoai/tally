@@ -74,9 +74,9 @@ func sessionClearMovedDetail(to target: Snapshot.Account, agents: Int?) -> Strin
     return "reopened on \(target.label) instead of typing\(killed)"
 }
 
-/// The audit tag a clear-boundary relaunch is logged under. Its own name because two files read it
-/// (the plan below, and anything grepping `~/.tally/handoff.log` for why a session moved).
-let clearBoundaryReason = "clear-boundary"
+// The audit tag this relaunch is logged under, `clearBoundaryReason`, lives in RelaunchPlan.swift
+// with the other tags the pin-clearing list names: that list is compiled by suites which do not
+// compile this file.
 
 /// The relaunch a decided move becomes, or nil when the landing typed instead.
 ///
@@ -157,9 +157,10 @@ window makes free: if the account under the session is nearly dry and a sibling 
 session is REOPENED on that sibling instead - restarted with no context, which is what a clear is -
 rather than cleared where it stands. Nothing is lost either way; the receipt and
 ~/.tally/logs/input.log say which of the two happened. It stays put when the account still has room,
-when the session is pinned to an account, when launches are set to observe only (Tally never picks
-an account for you then), and when it is waiting on a person (a prompt on screen is not something to
-restart away).
+when the session is pinned to an account that still has some (a pin over an account with nothing
+left yields, and the session is told its pin was cleared), when launches are set to observe only
+(Tally never picks an account for you then), and when it is waiting on a person (a prompt on screen
+is not something to restart away).
 
 Use `tally session send "/clear"` for the plain act of typing those six characters, which is what an
 external caller usually wants: nothing about the account is decided there.

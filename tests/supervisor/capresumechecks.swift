@@ -33,6 +33,9 @@ func runCapResumeChecks() {
     let capped = acct("A", label: "Claude 2")
     let sibling = acct("B", label: "Claude 3")
     let sentence = capResumeMessage(from: capped, to: sibling)
+    /// The conversation every fixture below arms for, and the one a window has to still be holding
+    /// for the offer to be typed into it.
+    let armedConversation = "abc"
 
     // MARK: - 33a. The sentence
 
@@ -61,25 +64,29 @@ func runCapResumeChecks() {
 
     check("a cap handoff whose wall cut a turn short is one",
           capResumeInterrupted(reason: "cap", fresh: false, cappedAt: wall,
-                               answeredAt: wall.addingTimeInterval(-10), conversation: "abc"))
+                               answeredAt: wall.addingTimeInterval(-10)))
     check("…and so is one whose child had answered nothing at all yet",
-          capResumeInterrupted(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
-                               conversation: "abc"))
+          capResumeInterrupted(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil))
     check("a conversation that answered a real turn AFTER the wall is not hanging",
           !capResumeInterrupted(reason: "cap", fresh: false, cappedAt: wall,
-                                answeredAt: wall.addingTimeInterval(5), conversation: "abc"))
+                                answeredAt: wall.addingTimeInterval(5)))
     check("a relaunch that is not a cap handoff is not one",
           !capResumeInterrupted(reason: "rebalance", fresh: false, cappedAt: wall,
-                                answeredAt: nil, conversation: "abc"))
+                                answeredAt: nil))
     check("…the cap answered on the spot included, which keeps its account and changes its model",
           !capResumeInterrupted(reason: "cap-fallback", fresh: false, cappedAt: wall,
-                                answeredAt: nil, conversation: "abc"))
+                                answeredAt: nil))
     check("a FRESH relaunch is not one: what it starts is a different conversation",
-          !capResumeInterrupted(reason: "cap", fresh: true, cappedAt: wall, answeredAt: nil,
-                                conversation: "abc"))
-    check("and neither is a move that resumes nothing",
-          !capResumeInterrupted(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
-                                conversation: nil))
+          !capResumeInterrupted(reason: "cap", fresh: true, cappedAt: wall, answeredAt: nil))
+    // A MOVE THAT RESUMES NOTHING is refused where the id is UNWRAPPED rather than inside the
+    // predicate above, so it is asserted as the state transition it actually is: the offer has to
+    // HOLD that id, and there is none to hold.
+    check("and a move that resumes nothing arms nothing, because there is no id to hold", {
+        var nothing = CapResumeState()
+        nothing.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
+                    conversation: nil, from: capped, to: sibling, userTurnAt: nil)
+        return !nothing.isArmed
+    }())
 
     // MARK: - 33c. One line per wall, and no line that answers itself
 
@@ -115,13 +122,13 @@ func runCapResumeChecks() {
         let answered = interrupted ? wall.addingTimeInterval(-10) : wall.addingTimeInterval(5)
         if second {
             state.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(-600),
-                      answeredAt: wall.addingTimeInterval(-610), conversation: "abc",
+                      answeredAt: wall.addingTimeInterval(-610), conversation: armedConversation,
                       from: capped, to: sibling, userTurnAt: nil)
             state.spend()
             state.noteTyped(at: wall.addingTimeInterval(-590))
         }
         state.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: answered,
-                  conversation: "abc", from: capped, to: sibling,
+                  conversation: armedConversation, from: capped, to: sibling,
                   // The only user turn the previous child saw is the resume line this supervisor
                   // typed into it, which is exactly what must not read as somebody coming back.
                   userTurnAt: second ? wall.addingTimeInterval(-589.8) : nil)
@@ -139,10 +146,11 @@ func runCapResumeChecks() {
         for shape in shapes {
             for second in [false, true] {
                 let latch = second ? "a line has already been typed for an earlier wall" : "first"
-                var state = session(interrupted: interrupted, second: second)
+                let state = session(interrupted: interrupted, second: second)
                 let decision = state.decide(state: shape.state, quiet: .quiet, turnEnded: false,
                                             keyboardIdle: true, relaunchPlanned: false,
                                             draftSuspected: shape.draft, userTurnAt: nil,
+                                            conversation: armedConversation,
                                             now: wall.addingTimeInterval(30))
                 let expected: CapResumeDecision
                 if !interrupted || second {
@@ -163,11 +171,12 @@ func runCapResumeChecks() {
 
     // The other half of "somebody is typing": a prompt of their OWN in the relaunched child, which
     // the draft reading cannot see because the burst that spelled it ended in a Return.
-    var typedInto = session(interrupted: true, second: false)
+    let typedInto = session(interrupted: true, second: false)
     check("a prompt typed into the relaunched child ends the offer too",
           typedInto.decide(state: .idle, quiet: .quiet, turnEnded: false, keyboardIdle: true,
                            relaunchPlanned: false, draftSuspected: false,
                            userTurnAt: wall.addingTimeInterval(20),
+                           conversation: armedConversation,
                            now: wall.addingTimeInterval(30)) == .drop(.userTyped))
 
     // MARK: - 33e. The shared table, and the clock
@@ -175,11 +184,12 @@ func runCapResumeChecks() {
     /// Every gate open, so each check can close exactly one of them.
     func decide(_ state: CapResumeState, session: SupervisedState = .idle,
                 quiet: SessionQuiet = .quiet, turnEnded: Bool = false, keyboardIdle: Bool = true,
-                relaunchPlanned: Bool = false, at moment: TimeInterval = 30)
+                relaunchPlanned: Bool = false, conversation: String? = armedConversation,
+                at moment: TimeInterval = 30)
         -> CapResumeDecision {
         state.decide(state: session, quiet: quiet, turnEnded: turnEnded,
                      keyboardIdle: keyboardIdle, relaunchPlanned: relaunchPlanned,
-                     draftSuspected: false, userTurnAt: nil,
+                     draftSuspected: false, userTurnAt: nil, conversation: conversation,
                      now: wall.addingTimeInterval(moment))
     }
     let ready = session(interrupted: true, second: false)
@@ -210,12 +220,12 @@ func runCapResumeChecks() {
     once.spend()
     once.noteTyped(at: wall.addingTimeInterval(30))
     check("…and having typed it, says nothing more about that wall", decide(once) == .idle)
-    once.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil, conversation: "abc",
-             from: capped, to: sibling, userTurnAt: nil)
+    once.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
+             conversation: armedConversation, from: capped, to: sibling, userTurnAt: nil)
     check("…which a second handoff carrying the SAME wall cannot undo", decide(once) == .idle)
     // And the way back: a person types, so the next genuine wall is armed for again.
     once.arm(reason: "cap", fresh: false, cappedAt: wall.addingTimeInterval(600),
-             answeredAt: nil, conversation: "abc", from: capped, to: sibling,
+             answeredAt: nil, conversation: armedConversation, from: capped, to: sibling,
              userTurnAt: wall.addingTimeInterval(120))
     check("but a wall that follows a person coming back is armed for again",
           decide(once, at: 610) == .type(sentence))
@@ -223,8 +233,8 @@ func runCapResumeChecks() {
     // A dropped offer is just as final as a typed one, and for the same wall.
     var dropped = session(interrupted: true, second: false)
     dropped.drop()
-    dropped.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil, conversation: "abc",
-                from: capped, to: sibling, userTurnAt: nil)
+    dropped.arm(reason: "cap", fresh: false, cappedAt: wall, answeredAt: nil,
+                conversation: armedConversation, from: capped, to: sibling, userTurnAt: nil)
     check("a wall whose offer was dropped does not come back on the next handoff",
           decide(dropped) == .idle)
 
@@ -239,12 +249,14 @@ func runCapResumeChecks() {
     @discardableResult
     func station(_ state: inout CapResumeState, typedAlready: Bool = false,
                  session: SupervisedState = .idle, draftSuspected: Bool = false,
-                 userTurnAt: Date? = nil, at moment: TimeInterval = 30,
+                 userTurnAt: Date? = nil, conversation: String? = armedConversation,
+                 at moment: TimeInterval = 30,
                  injection: SessionInputInjection = .done) -> String? {
         applyCapResume(&state, pid: fixturePid, typedAlready: typedAlready, session: session,
                        quiet: .quiet, turnEnded: { asked += 1; return false },
                        keyboardIdle: true, relaunchPlanned: false, draftSuspected: draftSuspected,
-                       userTurnAt: userTurnAt, now: wall.addingTimeInterval(moment), log: log,
+                       userTurnAt: userTurnAt, conversation: conversation,
+                       now: wall.addingTimeInterval(moment), log: log,
                        // The clock read after the write, which in a suite is the same instant: what
                        // the production call buys with the second reading is the seconds an
                        // injection actually spends on a terminal.
@@ -298,6 +310,50 @@ func runCapResumeChecks() {
     var idle = CapResumeState()
     check("an unarmed session types nothing", station(&idle) == nil)
     check("…and is not charged the transcript read behind the turn question", asked == before)
+
+    // MARK: - 33h. The offer belongs to ONE conversation
+
+    // THE HOLE THIS CLOSES (codex review of fa59018). `arm` refuses everything that is not a cap
+    // handoff, and refusing means RETURNING - it does not touch an offer already standing. So a
+    // relaunch that starts a different conversation (`tally session clear`, whose plan is
+    // `fresh: true`, and which this fleet runs at the end of every session) carried the offer into a
+    // brand new empty window, where nothing else could tell: the drops all ask about the PERSON and
+    // the holds all ask about the MOMENT, and neither of them notices the wrong conversation.
+    //
+    // The first version of this file took the id and threw it away: `arm` asked `conversation !=
+    // nil` and stored `at` and `line`. The pure function asserting that refusal is three sections
+    // up and it still passes - what it never covered is the STATE TRANSITION, `arm(fresh: true)`
+    // landing on a state that already holds an offer.
+    var carried = session(interrupted: true, second: false)
+    check("an armed offer is not disarmed by a fresh relaunch, because arm just returns", {
+        carried.arm(reason: "cap", fresh: true, cappedAt: wall.addingTimeInterval(60),
+                    answeredAt: nil, conversation: "a-brand-new-window", from: capped, to: sibling,
+                    userTurnAt: nil)
+        return carried.isArmed
+    }())
+    check("…so the window it lands in is what refuses it: another conversation ends the offer",
+          decide(carried, conversation: "a-brand-new-window") == .drop(.otherConversation))
+    check("…and the same window still holding the same conversation is typed into",
+          decide(carried) == .type(sentence))
+    // A window that cannot say WHICH conversation it holds is waited for rather than typed into or
+    // given up on: that is what a fresh window looks like before its first turn is written, and the
+    // next tick usually answers it. The offer's own life is what ends this waiting.
+    check("a window that has not said which conversation it holds is waited for",
+          decide(carried, conversation: nil) == .hold(.unlocated))
+    check("…and it is asked BEFORE every gate about the moment, since none of those would notice",
+          decide(carried, session: .unknown, conversation: "a-brand-new-window")
+              == .drop(.otherConversation)
+              && decide(carried, relaunchPlanned: true, conversation: "a-brand-new-window")
+                  == .drop(.otherConversation))
+    // Ending it is final, on the same terms as the other two drops: the work this line offers to
+    // resume is not in that window, so there is nothing for a later tick to reconsider.
+    var landedElsewhere = session(interrupted: true, second: false)
+    check("and the drop is final rather than a wait that could come back", {
+        _ = station(&landedElsewhere, conversation: "a-brand-new-window")
+        return !landedElsewhere.isArmed
+    }())
+    check("…and it says so in the log, which is the only trace a resume that never happened leaves",
+          audit().contains("reason=other-conversation"))
 
     try? FileManager.default.removeItem(at: log)
 }

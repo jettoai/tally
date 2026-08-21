@@ -250,6 +250,50 @@ func runSessionClearChecks() {
               == ["--model", "opus"]
               && relaunchArgs(["--continue"], sessionID: nil, sameAccount: false) == [])
 
+    // MARK: - What it does to a pin standing over the session
+
+    // THE HOLE THIS FAMILY OPENED, and the reason it was invisible until the release existed
+    // (codex review of 7404128). Before it, a pinned session's `policy.mode` was `manual` at this
+    // landing, `windowRepickMove` answered nothing, and a clear could only ever type - so a
+    // clear-boundary move for a pinned session was unreachable and its absence from
+    // `pinPassingReasons` cost nothing. Released, the same landing plans a move, and a move whose
+    // reason is not on that list leaves the pin naming an account the session has just left: all
+    // four preventive movers refuse it from then on (`sessionPolicy` folds a phantom pin back into
+    // `manual`), and nobody is told, because the sentence is printed by the caller that reads the
+    // list. It is the defect `RelaunchPlan.swift` already records against 9ea3ea9, reached from a
+    // new direction, by the verb this fleet runs at the end of every session.
+    check("a window closing under a pin is a move that may pass it",
+          pinPassingReasons.contains(clearBoundaryReason))
+    check("…so the relaunch it plans clears the pin rather than leaving a phantom behind", {
+        var pinned = ManualMoveState(sessionKey: "clear-pin", servedEpoch: 1, sessionPin: "A",
+                                     dir: dir)
+        let cleared = pinned.pinCleared(by: clearBoundaryReason)
+        return cleared && pinned.sessionPin == nil
+    }())
+    check("…and the session is told, in the wording a move off an empty account uses",
+          sessionPinClearedNotice(reason: clearBoundaryReason)
+              == sessionPinClearedNotice(reason: turnBoundaryReason)
+              && sessionPinClearedNotice(reason: clearBoundaryReason).contains("out of quota")
+              && sessionPinClearedNotice(reason: clearBoundaryReason)
+                  != sessionPinClearedByCapNotice)
+    // A session with no pin has nothing to clear, and says nothing: the notice is printed on this
+    // answer, so a `true` here would announce a pin that never existed.
+    check("a clear-boundary move on an unpinned session clears nothing and announces nothing", {
+        var unpinned = ManualMoveState(sessionKey: "clear-nopin", servedEpoch: 1, dir: dir)
+        return !unpinned.pinCleared(by: clearBoundaryReason)
+    }())
+    // AND THE OTHER ENDING IS UNTOUCHED. A clear that TYPES plans no relaunch at all, so nothing
+    // reads this list and the pin stands - which is right: the session has not moved.
+    check("the endings that do not move an account are not on that list",
+          !pinPassingReasons.contains("switch") && !pinPassingReasons.contains("pin")
+              && !pinPassingReasons.contains("reload"))
+    // The tag is compiled where the list that names it is, so a suite that never compiles the verb
+    // still agrees about the word (RelaunchPlan.swift states the rule; `turnBoundaryReason` moved
+    // there first, for this reason).
+    check("the tag and the plan it rides on agree about the word",
+          clearBoundaryPlan(healthy, from: clearAccount("A", "Claude 1"),
+                            primaryModel: nil)?.reason == clearBoundaryReason)
+
     // MARK: - What the published reading does when the window closes
 
     // THE READING IS ABOUT A CONVERSATION, NOT ABOUT A SESSION, and a clear-boundary move ends one

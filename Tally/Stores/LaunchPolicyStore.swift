@@ -72,6 +72,20 @@ final class LaunchPolicyStore {
         /// under the same only-ever-gains-keys rule, and omitted entirely while it holds nothing, so
         /// a machine that never marked an account writes the document it always wrote.
         var accounts: [String: AccountRoleSetting]?
+        /// THE ONE BLOCK OF THIS DOCUMENT THE CLI WRITES: which of a config home's siblings it had
+        /// already merged MCP authorizations from, and when each of those items was last written
+        /// (TallyCLI/MCPAuthMerge.swift). Target home, to sibling home, to epoch seconds.
+        ///
+        /// Declared here so that this store's writes CARRY IT THROUGH rather than dropping it: the
+        /// encoder below writes the document from this struct alone, so a key it does not know is a
+        /// key that disappears the next time somebody changes a launch setting. What that would cost
+        /// is one launch's worth of Keychain reads rather than anything of the user's, but it would
+        /// cost it silently and for ever after.
+        ///
+        /// NEVER READ INTO THIS STORE'S STATE, and read off the disk at the moment of writing
+        /// instead (`persist`): it belongs to the other writer, it moves while this app is running,
+        /// and a copy taken at app start would be put back hours later as if it were current.
+        var mcpSeed: [String: [String: Double]]?
     }
 
     private(set) var policies: [String: ProviderPolicy]
@@ -333,9 +347,14 @@ final class LaunchPolicyStore {
         // The per-account block is omitted while it holds nothing rather than written as an empty
         // object: a machine where nobody has marked an account publishes exactly the document every
         // previous build published.
+        // The CLI's seeding record, taken off the disk as it is NOW and handed straight back: it is
+        // the other writer's key, and this app's job with it is only to not lose it (`StateFile`).
+        let seedRecord = (try? Data(contentsOf: Self.fileURL))
+            .flatMap { try? JSONDecoder().decode(StateFile.self, from: $0) }?.mcpSeed
         guard let data = try? encoder.encode(
             StateFile(launch: policies, artifactAccount: artifactAccount,
-                      accounts: accountSettings.isEmpty ? nil : accountSettings))
+                      accounts: accountSettings.isEmpty ? nil : accountSettings,
+                      mcpSeed: seedRecord))
         else { return }
         try? FileManager.default.createDirectory(at: UsageSnapshot.directory,
                                                  withIntermediateDirectories: true)

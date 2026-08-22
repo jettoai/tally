@@ -18,7 +18,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=$(mktemp -d)/run
-swiftc -o "$out" tests/mcpauthsync/main.swift tests/mcpauthsync/wiring.swift \
+swiftc -o "$out" tests/mcpauthsync/main.swift tests/mcpauthsync/gate.swift \
+    tests/mcpauthsync/wiring.swift \
     TallyCLI/MCPAuthMerge.swift \
     Tally/Core/Keychain/ClaudeKeychainService.swift Tally/Core/ClaudeStatePath.swift
 "$out"

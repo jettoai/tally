@@ -88,11 +88,66 @@ func checkTheWiring() {
         expect(grants.components(separatedBy: "keychainSecret(service: targetService, account: account)")
                 .count - 1 == 2,
                "the target's secret is read exactly twice: once as the base, once to check the write")
+        // THE FRESHNESS GATE, which is an order too and nothing but: the rule it applies is asserted
+        // by value in main.swift, and it saves exactly nothing unless it is consulted BEFORE the
+        // secret reads it exists to avoid. A gate that ran after them would be green on every rule
+        // and cost every dialog.
+        expect(inOrder("KeychainReader.modifiedAt(service: service",
+                       "keychainSecret(service: service", in: grants),
+               "a sibling is probed by attributes, which raise no dialog, before its secret is asked")
+        expect(grants.contains(
+                "let stale = mcpSeedSourcesToRead(probed: probes, record: loadMCPSeedRecord(for: home))"),
+               "what the probes found is put to the gate, against this home's own record")
+        expect(inOrder("mcpSeedSourcesToRead(probed: probes", "keychainSecret(", in: grants),
+               "…before any secret is read, which is the only place it can save one")
+        expect(grants.contains("guard !stale.isEmpty else { return }")
+                && inOrder("guard !stale.isEmpty else { return }", "keychainSecret(", in: grants),
+               "…and a launch where nothing moved returns without reading a single one")
+        expect(inOrder("keychainSecret(service: service, account: account)",
+                       "observed[probe.home] = modifiedAt", in: grants),
+               "a sibling is recorded only after its secret actually came back")
+        // The record may only move where the pass CONCLUDED: nothing to adopt, or a write that
+        // verified. A pass that gave up, or one whose write was rolled back, has to be tried again.
+        expect(grants.components(separatedBy: "recordMCPSeed(observed, for: home)").count - 1 == 2,
+               "the record is written on exactly the two paths that reached a conclusion")
+        let afterRestore = grants.components(separatedBy: "data: targetData)").last ?? ""
+        expect(!afterRestore.contains("recordMCPSeed"),
+               "…and never on the one that put the target's own document back")
         // Both faces refuse a home whose item name would be a guess rather than a rule.
         expect(grants.contains("claudeSeedingKeychainService(forConfigDir: URL(fileURLWithPath: home)"),
                "the target is addressed through the guarded name, not the bare shortcut")
         expect(!grants.contains("claudeKeychainService("),
                "…and the unguarded one is not reachable from the seeding at all")
+    }
+
+    do {
+        // The record lives in the app's own document (`~/.tally/state.json`), which has another
+        // writer. So it is patched onto the file AS IT IS at the moment of writing rather than onto
+        // the copy the gate read minutes earlier, and it is replaced in one step: a rewrite of the
+        // stale copy would put a pinned account back to what it was before the user changed it.
+        let recorder = body(of: "private func recordMCPSeed(", in: sync)
+        expect(recorder.contains("stateDocumentSettingMCPSeedRecord"),
+               "the harness really read the recorder")
+        expect(inOrder("Data(contentsOf: stateURL)", "stateDocumentSettingMCPSeedRecord",
+                       in: recorder),
+               "the record is patched onto the state file as it is NOW, not onto an older reading")
+        expect(recorder.contains("options: .atomic"),
+               "…and the file it shares with the app is replaced in one step")
+        expect(!recorder.contains("createDirectory") && !recorder.contains("StateFile("),
+               "…and a document the app has never published is left absent rather than invented")
+    }
+
+    do {
+        // The app end of the same key: that store writes the whole document from one struct, so a
+        // key missing from it is a key deleted at the next settings change.
+        let store = source("Tally/Stores/LaunchPolicyStore.swift")
+        expect(store.contains("var mcpSeed: [String: [String: Double]]?"),
+               "the app's state document declares the CLI's seeding record, so its writes keep it")
+        expect(store.contains("mcpSeed: seedRecord"),
+               "…and hands it back on every persist")
+        expect(inOrder("Data(contentsOf: Self.fileURL)", "mcpSeed: seedRecord",
+                       in: body(of: "private func persist(", in: store)),
+               "…read off the disk at that moment rather than from a copy taken at app start")
     }
 
     do {

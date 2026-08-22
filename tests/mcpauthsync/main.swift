@@ -441,6 +441,10 @@ do {
            "a numbered home's state file is the one inside it")
 }
 
+// The gate that decides whether any of the above is reached at all (gate.swift), which is a second
+// subject rather than a second kind of assertion.
+checkTheFreshnessGate()
+
 // And the parts of it that are an ORDER rather than a value, which are asserted off the source
 // because neither entrance can be called from here (wiring.swift says what and why).
 checkTheWiring()
